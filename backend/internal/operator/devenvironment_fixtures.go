@@ -1,20 +1,19 @@
-// In-vcluster Postgres/Redis/Dex fixtures for OrbitDevEnvironment (decision 2
-// of docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md:
+// In-vcluster Postgres/Redis/Dex/glauth fixtures for OrbitDevEnvironment
+// (decision 2 of docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md:
 // "Postgres, Redis, and Dex run inside the vcluster with fixture data;
 // environments never share the host control plane's database or Redis").
 //
 // These are deliberately minimal, hand-built Deployments/Services rather than
-// a Helm chart or the LDAP-backed Dex config used by Tier 1/2 local dev
-// (config/dex/config.yaml + glauth): environments are disposable, so ephemeral
-// (emptyDir) storage and a single static-password Dex user are enough to
-// exercise the real install path (identity's OIDC discovery, Postgres/Redis
-// connectivity) without standing up a second identity backend per environment.
-//
-// KNOWN GAP, not solved here: nothing runs database migrations against this
-// Postgres instance. orbit-identity will start against an unmigrated schema
-// until a migration step is added (tracked in the ADR's Next Steps) — this
-// slice's scope is getting the in-vcluster OrbitPlatform CR to apply and
-// begin reconciling, not full in-environment readiness.
+// a Helm chart, but Dex is backed by the same LDAP-via-glauth wiring Tier 1/2
+// local dev uses (config/dex/config.yaml + config/glauth/config.cfg) rather
+// than Dex's own staticPasswords/enablePasswordDB connector — the latter has
+// no concept of group membership, and every scope a devenvironment principal
+// resolves comes from the OIDC "groups" claim (DefaultRoleScopes,
+// policyservice/bundle/compiler.go), so a passwordDB-only Dex would leave
+// every devenvironment bootstrap user permanently scope-less (confirmed
+// live: Triggers, Policy, and most of Model Gateway hidden from the sidebar
+// for lack of scopes). Ephemeral (emptyDir) storage throughout — these are
+// disposable fixtures, not production databases/directories.
 package operator
 
 import (
@@ -59,15 +58,32 @@ const (
 	inVClusterDexPort       = 5556
 	inVClusterDexConfigFile = "config.yaml"
 
+	// inVClusterGlauthName is the lightweight LDAP directory (matching Tier
+	// 1/2 local dev's own glauth, config/glauth/config.cfg) backing Dex's LDAP
+	// connector — Dex's built-in staticPasswords/enablePasswordDB connector
+	// cannot return group membership, and DefaultRoleScopes
+	// (policyservice/bundle/compiler.go) is keyed entirely off the "groups"
+	// OIDC claim. Without this, every devenvironment's bootstrap user
+	// resolves zero scopes and the frontend hides every scope-gated nav item
+	// (Triggers, Policy, most of Model Gateway) — confirmed live.
+	inVClusterGlauthName       = "orbit-glauth"
+	inVClusterGlauthImage      = "ghcr.io/glauth/glauth:v2.3.2"
+	inVClusterGlauthPort       = 3893
+	inVClusterGlauthConfigFile = "config.cfg"
+
 	// inVClusterDevUserEmail/Password are the fixed devenv login credentials,
 	// matching Tier 1/2 local dev's own test user (config/dex/config.yaml) so
 	// the same muscle memory ("dev@orbit.local.clearroute.io / password")
-	// works in a dev environment too. The bcrypt hash below is of "password"
-	// (cost 10) — fixture-only, never real credentials.
-	inVClusterDevUserEmail  = "dev@orbit.local.clearroute.io"
-	inVClusterDevUserBcrypt = "$2a$10$uTiWKXmlM9vLJi2lISPv4.Tx1/1ugb1Xx7Pd1eZrMMha.0qseSza6"
-	inVClusterDevUserID     = "08a8684b-db88-4b73-90a9-3cd1661f5466"
-	inVClusterOIDCClientID  = "orbit-local"
+	// works in a dev environment too.
+	inVClusterDevUserEmail       = "dev@orbit.local.clearroute.io"
+	inVClusterDevUserEmailDomain = "orbit.local.clearroute.io"
+	inVClusterOIDCClientID       = "orbit-local"
+
+	// inVClusterFixturePasswordSHA256 is the SHA256 hash of "password" —
+	// glauth's passsha256 field requires the raw hex digest (config/glauth's
+	// own passsha256 uses the same fixed dev password, hashed at container
+	// startup instead of hardcoded). Fixture-only, never real credentials.
+	inVClusterFixturePasswordSHA256 = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 
 	// inVClusterSigningKeyBits is deliberately smaller than the 4096-bit key
 	// `make gen-signing-key` writes for real installs — this key protects
@@ -229,11 +245,16 @@ func generateRSASigningKeyPEM() ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}), nil
 }
 
-// inVClusterPostgresHost / inVClusterRedisHost / inVClusterDexIssuerURL are
-// the cross-namespace in-vcluster DNS names the OrbitPlatform/OrbitTenant CRs
-// reference — "{service}.{namespace}" resolves from any namespace via the
-// default "svc.cluster.local" search suffix, the same short form confirmed
+// inVClusterPostgresHost / inVClusterRedisHost are the cross-namespace
+// in-vcluster DNS names the OrbitPlatform CR references —
+// "{service}.{namespace}" resolves from any namespace via the default
+// "svc.cluster.local" search suffix, the same short form confirmed
 // empirically for the host-to-vcluster hop in devenvironment_platform.go.
+// Dex has no equivalent internal-DNS helper: its issuer must be the
+// browser-reachable external URL (appDexIssuerURL,
+// devenvironment_app_ingress.go), threaded in below as externalIssuerURL —
+// using the in-vcluster DNS name here was the previously-tracked gap that
+// made browser login impossible (see appDexIssuerURL's doc comment).
 func inVClusterPostgresHost() string {
 	return fmt.Sprintf("%s.%s", inVClusterPostgresName, inVClusterFixturesNamespace)
 }
@@ -242,15 +263,19 @@ func inVClusterRedisHost() string {
 	return fmt.Sprintf("%s.%s", inVClusterRedisName, inVClusterFixturesNamespace)
 }
 
-func inVClusterDexIssuerURLValue() string {
-	return fmt.Sprintf("http://%s.%s:%d/dex", inVClusterDexName, inVClusterFixturesNamespace, inVClusterDexPort)
+func inVClusterGlauthHost() string {
+	return fmt.Sprintf("%s.%s", inVClusterGlauthName, inVClusterFixturesNamespace)
 }
 
 // ensureFixtures deploys Postgres, Redis, and Dex into
 // inVClusterFixturesNamespace, configured with the credentials from
 // ensureInVClusterSecrets so the in-vcluster orbit-identity service (which
 // reads those same credentials from orbit-secrets) can actually connect.
-func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClusterSecretValues, externalCallbackURL string) error {
+// externalIssuerURL is Dex's browser- and identity-service-reachable issuer
+// (appDexIssuerURL) — it must match the OrbitTenant's own configured OIDC
+// issuer exactly (devenvironment_platform.go), or discovery's issuer check
+// fails.
+func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClusterSecretValues, externalCallbackURL, externalIssuerURL string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: inVClusterFixturesNamespace}}
 	if err := vcClient.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create namespace %q: %w", inVClusterFixturesNamespace, err)
@@ -270,24 +295,19 @@ func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClu
 		return fmt.Errorf("ensure redis service: %w", err)
 	}
 
-	dexConfigMap := dexConfigMap(externalCallbackURL)
-	existingCM := &corev1.ConfigMap{}
-	err := vcClient.Get(ctx, client.ObjectKey{Name: dexConfigMap.Name, Namespace: dexConfigMap.Namespace}, existingCM)
-	switch {
-	case apierrors.IsNotFound(err):
-		if createErr := vcClient.Create(ctx, dexConfigMap); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
-			return fmt.Errorf("create dex configmap: %w", createErr)
-		}
-	case err != nil:
-		return fmt.Errorf("get dex configmap: %w", err)
-	default:
-		patch := client.MergeFrom(existingCM.DeepCopy())
-		existingCM.Data = dexConfigMap.Data
-		if patchErr := vcClient.Patch(ctx, existingCM, patch); patchErr != nil {
-			return fmt.Errorf("patch dex configmap: %w", patchErr)
-		}
+	if err := ensureConfigMap(ctx, vcClient, glauthConfigMap()); err != nil {
+		return fmt.Errorf("ensure glauth configmap: %w", err)
+	}
+	if err := ensureDeployment(ctx, vcClient, glauthDeployment()); err != nil {
+		return fmt.Errorf("ensure glauth deployment: %w", err)
+	}
+	if err := ensureService(ctx, vcClient, glauthService()); err != nil {
+		return fmt.Errorf("ensure glauth service: %w", err)
 	}
 
+	if err := ensureConfigMap(ctx, vcClient, dexConfigMap(externalCallbackURL, externalIssuerURL)); err != nil {
+		return fmt.Errorf("ensure dex configmap: %w", err)
+	}
 	if err := ensureDeployment(ctx, vcClient, dexDeployment()); err != nil {
 		return fmt.Errorf("ensure dex deployment: %w", err)
 	}
@@ -295,6 +315,29 @@ func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClu
 		return fmt.Errorf("ensure dex service: %w", err)
 	}
 	return nil
+}
+
+// ensureConfigMap creates a ConfigMap if absent, or patches its Data if it
+// already exists — the same idempotent-apply idiom as ensureDeployment.
+func ensureConfigMap(ctx context.Context, c client.Client, desired *corev1.ConfigMap) error {
+	existing := &corev1.ConfigMap{}
+	err := c.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: desired.Namespace}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		if createErr := c.Create(ctx, desired); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create configmap %q: %w", desired.Name, createErr)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("get configmap %q: %w", desired.Name, err)
+	default:
+		patch := client.MergeFrom(existing.DeepCopy())
+		existing.Data = desired.Data
+		if patchErr := c.Patch(ctx, existing, patch); patchErr != nil {
+			return fmt.Errorf("patch configmap %q: %w", desired.Name, patchErr)
+		}
+		return nil
+	}
 }
 
 // ensureDeployment creates a Deployment if absent, or patches its spec if it
@@ -461,22 +504,29 @@ func redisService() *corev1.Service {
 	}
 }
 
-// dexConfig is a minimal, LDAP-free Dex config: a single static password
-// user (matching Tier 1/2's own dev@orbit.local.clearroute.io / password
-// test credentials) and the same orbit-local public client used everywhere
-// else, so the same OIDC client wiring works unmodified inside a dev
-// environment. In-memory storage — state is lost on restart, which is fine
-// for a disposable environment.
+// dexConfig backs authentication with the glauth LDAP fixture (glauthConfig)
+// rather than Dex's own staticPasswords/enablePasswordDB connector — Dex's
+// built-in local connector has no concept of group membership, and every
+// scope a devenvironment user resolves comes from the OIDC "groups" claim
+// (DefaultRoleScopes, policyservice/bundle/compiler.go), so a passwordDB-only
+// Dex leaves every devenvironment bootstrap user permanently scope-less. This
+// mirrors Tier 1/2 local dev's own Dex-over-glauth wiring (config/dex/config.yaml)
+// exactly, down to the LDAP search filters, so the same directory shape works
+// unmodified inside a dev environment. In-memory storage — state is lost on
+// restart, which is fine for a disposable environment.
 //
 // externalCallbackURL is the browser-facing PKCE redirect URI under the
 // shared app-ingress host ("{appExternalURL}/auth/callback" — unprefixed,
 // because the routing cookie carries the environment identity for every
 // non-path-prefixed request; see devenvironment_app_ingress.go). Registered
-// alongside the relative device-flow callback. Note the issuer itself is
-// still the in-vcluster DNS URL — browser-completed logins additionally need
-// the issuer reachable from the browser, tracked as a follow-up in the ADR's
-// amendment-implementation notes.
-func dexConfig(externalCallbackURL string) string {
+// alongside the relative device-flow callback.
+//
+// externalIssuerURL ({appExternalURL}/{env-id}/dex, appDexIssuerURL) is the
+// issuer Dex is told to advertise and build every OIDC endpoint URL from
+// (auth/token/keys/device) — a laptop browser can reach it through the same
+// shared app-ingress gateway that serves the rest of the environment's UI,
+// unlike the in-vcluster DNS name this used to be configured with.
+func dexConfig(externalCallbackURL, externalIssuerURL string) string {
 	return fmt.Sprintf(`issuer: %s
 storage:
   type: memory
@@ -487,12 +537,6 @@ oauth2:
   skipApprovalScreen: true
   responseTypes:
     - code
-enablePasswordDB: true
-staticPasswords:
-  - email: %q
-    hash: %q
-    username: dev
-    userID: %q
 staticClients:
   - id: %q
     name: "Orbit (dev environment)"
@@ -500,13 +544,145 @@ staticClients:
     redirectURIs:
       - "/device/callback"
       - %q
-`, inVClusterDexIssuerURLValue(), inVClusterDexPort, inVClusterDevUserEmail, inVClusterDevUserBcrypt, inVClusterDevUserID, inVClusterOIDCClientID, externalCallbackURL)
+connectors:
+  - type: ldap
+    id: local-ldap
+    name: "Email"
+    config:
+      host: %s:%d
+      insecureNoSSL: true
+      bindDN: cn=serviceuser,dc=orbit,dc=local
+      bindPW: password
+      userSearch:
+        baseDN: dc=orbit,dc=local
+        filter: "(objectClass=posixAccount)"
+        username: mail
+        idAttr: cn
+        emailAttr: mail
+        nameAttr: givenName
+      groupSearch:
+        baseDN: dc=orbit,dc=local
+        filter: "(objectClass=posixGroup)"
+        userMatchers:
+          - userAttr: DN
+            groupAttr: member
+          - userAttr: cn
+            groupAttr: memberUid
+        nameAttr: cn
+`, externalIssuerURL, inVClusterDexPort, inVClusterOIDCClientID, externalCallbackURL, inVClusterGlauthHost(), inVClusterGlauthPort)
 }
 
-func dexConfigMap(externalCallbackURL string) *corev1.ConfigMap {
+func dexConfigMap(externalCallbackURL, externalIssuerURL string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: inVClusterDexName + "-config", Namespace: inVClusterFixturesNamespace},
-		Data:       map[string]string{inVClusterDexConfigFile: dexConfig(externalCallbackURL)},
+		Data:       map[string]string{inVClusterDexConfigFile: dexConfig(externalCallbackURL, externalIssuerURL)},
+	}
+}
+
+// glauthConfig is a minimal LDAP directory backing Dex's LDAP connector — a
+// single bootstrap "dev" user in the "platform-admin" group (matching Tier
+// 1/2's own dev@orbit.local.clearroute.io / password test user, config/glauth/config.cfg),
+// so DefaultRoleScopes resolves the same full scope set inside a
+// devenvironment as it does on any other install. Only one dev-facing user
+// exists here — devenvironments are single-tenant, disposable, and have no
+// equivalent to Tier 1/2's separate tenant-admin/engineer fixture accounts.
+func glauthConfig() string {
+	return fmt.Sprintf(`[ldap]
+  enabled = true
+  listen = "0.0.0.0:%d"
+
+[ldaps]
+  enabled = false
+
+[backend]
+  datastore = "config"
+  baseDN = "dc=orbit,dc=local"
+
+[[users]]
+  name = "serviceuser"
+  mail = "service@orbit.local.clearroute.io"
+  uidnumber = 5000
+  primarygroup = 5000
+  passsha256 = %q
+
+  [[users.capabilities]]
+    action = "search"
+    object = "*"
+
+[[groups]]
+  name = "svcaccts"
+  gidnumber = 5000
+
+[[users]]
+  name = "dev"
+  givenname = "Dev"
+  sn = "User"
+  mail = %q
+  uidnumber = 1004
+  primarygroup = 1100
+  othergroups = [5001]
+  passsha256 = %q
+
+[[groups]]
+  name = "users"
+  gidnumber = 1100
+
+[[groups]]
+  name = "platform-admin"
+  gidnumber = 5001
+`, inVClusterGlauthPort, inVClusterFixturePasswordSHA256, inVClusterDevUserEmail, inVClusterFixturePasswordSHA256)
+}
+
+func glauthConfigMap() *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: inVClusterGlauthName + "-config", Namespace: inVClusterFixturesNamespace},
+		Data:       map[string]string{inVClusterGlauthConfigFile: glauthConfig()},
+	}
+}
+
+func glauthDeployment() *appsv1.Deployment {
+	labels := fixtureLabels(inVClusterGlauthName)
+	one := int32(1)
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: inVClusterGlauthName, Namespace: inVClusterFixturesNamespace, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &one,
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": inVClusterGlauthName}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:      "glauth",
+						Image:     inVClusterGlauthImage,
+						Command:   []string{"/app/glauth", "-c", "/etc/glauth/" + inVClusterGlauthConfigFile},
+						Resources: fixtureResources(),
+						Ports:     []corev1.ContainerPort{{ContainerPort: inVClusterGlauthPort}},
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: "config", MountPath: "/etc/glauth"},
+						},
+					}},
+					Volumes: []corev1.Volume{
+						{Name: "config", VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{Name: inVClusterGlauthName + "-config"},
+							},
+						}},
+					},
+				},
+			},
+		},
+	}
+}
+
+func glauthService() *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: inVClusterGlauthName, Namespace: inVClusterFixturesNamespace},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": inVClusterGlauthName},
+			Ports: []corev1.ServicePort{
+				{Port: inVClusterGlauthPort, TargetPort: intstr.FromInt(inVClusterGlauthPort)},
+			},
+		},
 	}
 }
 

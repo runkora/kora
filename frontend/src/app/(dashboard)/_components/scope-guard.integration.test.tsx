@@ -16,7 +16,9 @@ import { ScopeGuard } from './scope-guard';
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
 vi.mock('./permissions-provider', () => ({
-  useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
+  useSession: vi
+    .fn()
+    .mockReturnValue({ scopes: [], user: null, loaded: false, devEnvironmentId: null }),
 }));
 
 import { useSession } from './permissions-provider';
@@ -35,7 +37,12 @@ function renderGuard(scope: string) {
 
 describe('ScopeGuard', () => {
   it('renders null while the session is not yet loaded', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: false });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: false,
+      devEnvironmentId: null,
+    });
     const { container } = renderGuard('platform:grants:read');
     expect(container).toBeEmptyDOMElement();
   });
@@ -45,20 +52,31 @@ describe('ScopeGuard', () => {
       scopes: ['platform:grants:read'],
       user: null,
       loaded: true,
+      devEnvironmentId: null,
     });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
 
   it('renders the Forbidden message when the required scope is absent', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: true });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: true,
+      devEnvironmentId: null,
+    });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Forbidden')).toBeInTheDocument();
     expect(screen.getByText('You do not have permission to view this page.')).toBeInTheDocument();
   });
 
   it('does not render children when the scope is absent', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: true });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: true,
+      devEnvironmentId: null,
+    });
     renderGuard('platform:grants:read');
     expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
   });
@@ -68,6 +86,7 @@ describe('ScopeGuard', () => {
       scopes: ['platform:grants:read'],
       user: null,
       loaded: true,
+      devEnvironmentId: null,
     });
     renderGuard('platform:grants:write');
     expect(screen.getByText('Forbidden')).toBeInTheDocument();

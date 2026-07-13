@@ -24,7 +24,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('./permissions-provider', () => ({
-  useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
+  useSession: vi
+    .fn()
+    .mockReturnValue({ scopes: [], user: null, loaded: false, devEnvironmentId: null }),
 }));
 
 import { usePathname } from 'next/navigation';
@@ -62,6 +64,7 @@ describe('DashboardSidebar', () => {
         scopes: ['platform:grants:read'],
         user: null,
         loaded: true,
+        devEnvironmentId: null,
       });
       renderSidebar();
       expect(screen.getByText('Policy')).toBeInTheDocument();

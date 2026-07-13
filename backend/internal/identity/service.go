@@ -1266,8 +1266,10 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 // initTenantOIDCProviders loads the tenant registry and performs OIDC discovery
 // for every active tenant that has an issuer URL configured. Tenants without
 // an issuer URL are skipped with an info log (federated auth disabled for that
-// tenant). A discovery failure for any tenant is fatal — misconfigured
-// providers should be caught at startup, not at first login.
+// tenant). A discovery failure for any tenant is fatal once retries
+// (discoverTenantOIDCWithRetry) are exhausted — misconfigured providers should
+// still be caught at startup, not at first login, but a transient blip must
+// not crash the service on its very first attempt.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 	tenants, err := loadTenantRegistry(s.clientSecrets)
 	if err != nil {
@@ -1286,7 +1288,7 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 			continue
 		}
 
-		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
+		state, err := s.discoverTenantOIDCWithRetry(ctx, tenantID, cfg)
 		if err != nil {
 			return err
 		}
@@ -1297,6 +1299,48 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+// discoverTenantOIDCWithRetry retries discoverTenantOIDC with exponential
+// backoff, bounded by cfg.OIDCDiscovery.ReadyTimeout — the same posture
+// identity-proxy's waitForInitialToken already uses for its own startup
+// dependency (initial token exchange, cmd/identity-proxy). Confirmed live: a
+// dev-environment vcluster's CoreDNS can still be rolling out a custom
+// split-horizon zone (see the operator's inVClusterCoreDNSRolloutComplete
+// gate) for a few seconds after this service starts; a single failed attempt
+// must not permanently crash-loop the whole binary.
+func (s *Service) discoverTenantOIDCWithRetry(ctx context.Context, tenantID string, cfg TenantOIDCConfig) (*tenantOIDCState, error) {
+	deadline := time.Now().Add(s.cfg.OIDCDiscovery.ReadyTimeout())
+	backoff := s.cfg.OIDCDiscovery.BackoffInitial()
+
+	for {
+		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
+		if err == nil {
+			return state, nil
+		}
+
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out after %s retrying oidc discovery for tenant %q: %w",
+				s.cfg.OIDCDiscovery.ReadyTimeout(), tenantID, err)
+		}
+
+		s.logger.Warn(ctx, "oidc discovery failed, retrying",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "backoff_ms", Value: backoff.Milliseconds()},
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > s.cfg.OIDCDiscovery.BackoffMax() {
+			backoff = s.cfg.OIDCDiscovery.BackoffMax()
+		}
+	}
 }
 
 // reloadTenantOIDCProviders re-reads the tenant registry file and performs OIDC

@@ -69,10 +69,6 @@ spec:
             - name: ORBIT_DEVENV_APP_EXTERNAL_URL
               value: {{ .Values.devEnv.appExternalURL | quote }}
             {{- end }}
-            {{- if .Values.devEnv.appTLSCredentialName }}
-            - name: ORBIT_DEVENV_APP_TLS_CREDENTIAL
-              value: {{ .Values.devEnv.appTLSCredentialName | quote }}
-            {{- end }}
             {{- end }}
           ports:
             - name: health

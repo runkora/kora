@@ -935,10 +935,60 @@ Verification this slice: `TestReconcile_ProvisionsNamespaceQuotaAndVCluster` ext
 
 Updated priority order for whoever picks this up next:
 
-1. **Live-verify this slice's routing end-to-end on k3d** (rebuild operator image, re-provision, drive the browser path above), then **externalize the per-environment Dex issuer** so browser login works — the last gap between "UI reachable" and "UI usable" (see the Dex paragraph above for the concrete shape).
+1. ~~Live-verify this slice's routing end-to-end on k3d, then externalize the per-environment Dex issuer so browser login works.~~ Routing verified live (see the two corrections above). The Dex issuer is now externalized in code (see "Browser Login Was Still Impossible" correction below) — **still needs a live k3d browser-login verification**, the one piece of this item not yet done.
 2. **Not devenv-specific, but blocking a fully-green environment**: build and push `orbit-tool-gateway`/`orbit-tool-gateway-publisher` images for this cluster, and fix the `Makefile`'s `REDEPLOY_PLATFORM_SERVICES` gap (same gap affects the host's own installation).
 3. **Not investigated, low priority**: `orbit-opa-gateway`'s intermittent `/health` 500s (reproduces on the host too).
 4. **Worth a follow-up look, not urgent**: cap Helm release history with `--history-max` (carried from the tenth slice).
+
+---
+
+## Correction (2026-07-13): App-Ingress 404s — `devenv-app-gateway` Never Actually Served Traffic
+
+Priority-order item 1 above (live-verify the routing end-to-end) surfaced the bug: every `/{env-id}` request 404'd.
+
+**Root cause:** the previous slice's `devenv-app-gateway` (istio-system) and the platform's own `orbit-gateway` (`orbit-system`, `charts/orbit-platform/templates/gateway.yaml`) are two separate Istio `Gateway` resources that both select the same ingress-gateway workload (`app: gateway`) and both declare a server block for the exact same host (`AppExternalURL`'s hostname — identical to `orbit-gateway`'s `frontendHost`, by design, see "SAME shared gateway host" above) on the same port. Two `Gateway` resources are not additive for a workload+host+port triple already claimed by another: Istio binds one and silently drops the other's server block. `devenv-app-routes` (the aggregated VirtualService) named `devenv-app-gateway` in `spec.gateways`, but that Gateway's own server block was the one left unbound — so the VirtualService's routes never attached to a live listener, and every `/{env-id}` request fell through to whatever `orbit-gateway`'s own (unrelated) routing produced: a 404.
+
+**Fix:** stop creating a devenv-owned Gateway at all. `devenv-app-routes` now names `orbit-system/orbit-gateway` in `spec.gateways` — the platform's own Gateway, which already terminates TLS/serves plain HTTP for this exact host for the platform frontend's own traffic. Multiple `VirtualService`s attached to one `Gateway`+host merge (Istio's normal, supported multi-tenant-ingress idiom — unlike competing `Gateway` resources on the same host+port, which do not); Istio also hoists exact/prefix `http.match` entries ahead of broader ones regardless of which `VirtualService` they came from, so `devenv-app-routes`' `/{env-id}` exact/prefix matches take precedence over the frontend's own catch-all route without any explicit ordering between the two objects. `ensureDevEnvAppAccess` now deletes any leftover `devenv-app-gateway` on reconcile (self-healing already-deployed clusters) instead of creating one. The now-dead `AppTLSCredentialName` plumbing (reconciler field, `ORBIT_DEVENV_APP_TLS_CREDENTIAL`/`devEnv.appTLSCredentialName` config) is removed — TLS for this host was always `orbit-gateway`'s own concern (`gateway.tls.credentialName` in the orbit-platform chart), never a devenv-specific setting.
+
+**Lesson for future ingress additions:** a new `Gateway` resource is only safe when it owns a host+port triple no other `Gateway` already claims for the same workload selector (as the kubectl API route's `devenv-api-gateway` does — a distinct TLS-passthrough port, `16443`, nothing else uses). Sharing a host that another Gateway already serves means attaching a `VirtualService` to *that* Gateway, never declaring a competing one.
+
+---
+
+## Correction (2026-07-13): App-Ingress Infinite Redirect Loop — In-Vcluster Gateway Inherited the Host's `httpsRedirect`
+
+Fixing the 404 above (by routing through `orbit-gateway`) exposed a second, previously-masked bug: requests to `/{env-id}` now reached the environment's own backend at all, and immediately looped — `301 https://{appHost}/` → `301 https://{appHost}/` forever, confirmed with `curl -L --max-redirs`.
+
+**Root cause:** `devenvironment_app_ingress.go`'s own design says the host gateway forwards app traffic to each environment over **plain HTTP** — TLS terminates once, at the shared host gateway, never per environment. But `applyInVClusterOrbitPlatform` (`devenvironment_platform.go`) installs the *identical* `orbit-platform` chart inside every environment's vcluster that the host itself runs, and never overrode `gateway.tls`. The baked `deploy/local/platform-values.yaml` — copied verbatim into the operator image and loaded for every `OrbitPlatform` reconcile, host or in-vcluster alike (`platform_controller.go`'s `loadValuesFile`) — sets `gateway.tls.enabled: true`, correct for the **host's** own real external-facing `orbit-gateway`. Applied unmodified inside a vcluster, it makes that environment's own gateway serve port 80 with `tls.httpsRedirect: true` (`charts/orbit-platform/templates/gateway.yaml`), 301-redirecting every plain-HTTP request to the HTTPS version of the same external URL — which the host gateway then immediately re-requests over plain HTTP again, on and on. This was invisible until now because the 404 fix above was the first time a request ever reached this listener at all.
+
+**Fix:** `applyInVClusterOrbitPlatform` now sets `PlatformValues["gateway"] = {"tls": {"enabled": false}}`, overriding the baked file (Helm-values merge order in `reconcileOrbitPlatform` puts `p.Spec.PlatformValues` last, i.e. highest priority) so every in-vcluster gateway install stays plain-HTTP-only, matching what the app-ingress design already assumed.
+
+**Verified live**, end-to-end, after rebuilding and redeploying the operator image: a fresh environment's `/{env-id}` now returns a real `307` to `/login?next=%2F` (the app's own auth redirect) with the routing cookie set, and following it returns a real `200` login page — no 404, no loop. Re-ran the full delete-and-recreate cycle once after the fix to confirm it wasn't a one-off.
+
+**Lesson for future in-vcluster chart installs:** any baked `deploy/local/*-values.yaml` default tuned for the *host's own* install is not automatically safe to reuse verbatim for an *in-vcluster* install of the same chart — anything host-topology-specific (TLS termination, external hostnames, ingress class) needs an explicit override in `applyInVClusterOrbitPlatform`, the same way `frontendHost` already gets one, rather than inheriting the host's file by default.
+
+---
+
+## Correction (2026-07-13): Browser Login Was Still Impossible — Dex Issuer Externalized
+
+The two corrections above got a real user to a real login page — which then rejected every credential, including the fixture's own `dev@orbit.local.clearroute.io` / `password`. This is priority-order item 1's remaining half ("externalize the per-environment Dex issuer"), tracked but not yet done as of the Dex-redirect-URI paragraph above.
+
+**Root cause, confirmed:** the frontend's `/login` redirects the browser straight to the tenant's OIDC issuer (`signinRedirect()` — no Orbit-hosted password form exists). Every dev environment's seeded `OrbitTenant` pointed that issuer at Dex's in-vcluster DNS name (`http://orbit-dex.orbit-devenv-fixtures:5556/dex`) — unreachable from a laptop browser, exactly as flagged above. The browser redirect either fails outright or (depending on what a stale cookie/cache serves) never reaches the real Dex, so no credential — fixture or otherwise — was ever actually being checked.
+
+**Fix:** Dex is now routed through the same shared app-ingress host every other environment path already uses, instead of getting a second unreachable hostname. `devenvironment_app_ingress.go` adds a per-environment `/{env-id}/dex` + `/{env-id}/dex/*` route pair to the aggregated `devenv-app-routes` VirtualService — ordered *before* that environment's general `/{env-id}` app-prefix route, so it isn't shadowed by the broader match — rewriting only the `/{env-id}` segment away (`/{env-id}/dex/auth` → `/dex/auth`) rather than stripping to `/`, since Dex's own configured base path is `/dex`. The destination is the fixture Dex's vcluster-synced Service, added to the same per-environment `ServiceEntry` the app backend already uses. `appDexIssuerURL` (`{appExternalURL}/{env-id}/dex`) is now threaded into both the fixture Dex's own `issuer:` config (`devenvironment_fixtures.go`) and the seeded `OrbitTenant`'s OIDC issuer (`devenvironment_platform.go`) — they must be byte-identical or OIDC discovery's issuer check fails. Both the browser and the in-vcluster identity service's own discovery/JWKS fetch now resolve the same external hostname; `AppExternalURL`'s host is already patched into the **host** cluster's CoreDNS (`scripts/cluster/dev-cluster-up.sh`), and the ordinary DNS-forward chain (vcluster CoreDNS → node `resolv.conf` → host CoreDNS) makes it resolvable from inside a vcluster's own pods too, without a second CoreDNS patch.
+
+**Verification status:** `TestReconcile_ProvisionsNamespaceQuotaAndVCluster` and `TestReconcile_AppRoutesAggregateAcrossEnvironments` extended for the two new routes and the second `ServiceEntry` host; `TestEnsureFixtures_DeploysPostgresRedisDex` extended to assert the configmap's `issuer:` line is the external URL, not the in-vcluster one. **Not yet live-verified on k3d** — that requires an operator-image rebuild, a fresh (or re-provisioned) environment, and actually completing a browser login end-to-end; whoever picks this up next should do that before considering the gap closed.
+
+---
+
+## Correction (2026-07-13): Bootstrap User Had Zero Scopes — Dex Now Backed by glauth, Not passwordDB
+
+Even once a credential is accepted (the correction above), a freshly-provisioned environment's sidebar was missing every scope-gated nav item: Triggers, Policy, and most of Model Gateway (including the model catalog). This is a distinct gap from the login-rejection bug above — the user could log in, but resolved to zero effective scopes.
+
+**Root cause, confirmed:** every scope a principal resolves comes from the OIDC `roles`/`groups` claim (merged in `service.go`, matched against `DefaultRoleScopes` in `policyservice/bundle/compiler.go`). Tier 1/2 local dev gets its bootstrap user's `platform-admin` group membership from Dex's LDAP connector, backed by glauth (`config/dex/config.yaml` + `config/glauth/config.cfg`). The devenvironment's fixture Dex (`devenvironment_fixtures.go`) instead used Dex's own `enablePasswordDB`/`staticPasswords` connector — simpler to stand up with no second directory service, but that connector has no concept of group membership at all, so the `groups` claim the seeded `OrbitTenant` requests (`OIDC.Scopes: [..., "groups"]`, `devenvironment_platform.go`) was always empty. `DefaultRoleScopes` had nothing to match against, and the frontend correctly hid every scope-gated item.
+
+**Fix:** added a fourth fixture, a minimal glauth (LDAP) Deployment/Service/ConfigMap in `orbit-devenv-fixtures`, seeded with a single `dev@orbit.local.clearroute.io` user in the `platform-admin` group — the same shape as Tier 1/2's directory, pared down to the one account a devenvironment needs. Dex's config switched from `enablePasswordDB`/`staticPasswords` to the same `type: ldap` connector (identical search filters/matchers) Tier 1/2 already uses, pointed at the new in-vcluster glauth Service. No frontend or scope-vocabulary change was needed — `DefaultRoleScopes` already covers `triggers:read`, `platform:grants:read`, `platform:roles:read`, and (via `platform-admin`) `platform:catalog:write`; they just had nothing to attach to.
+
+**Verification status:** `TestEnsureFixtures_DeploysPostgresRedisDexGlauth` (renamed from `TestEnsureFixtures_DeploysPostgresRedisDex`) extended to assert glauth's configmap seeds the dev user and `platform-admin` group, and that Dex's config uses the LDAP connector rather than `enablePasswordDB`. `make check` green. **Not yet live-verified on k3d** — that requires a fresh (or re-provisioned) environment and a real login confirming the sidebar now shows Triggers/Policy/Model Gateway; whoever picks this up next should do that before considering the gap closed.
 
 ---
 
@@ -984,4 +1034,4 @@ Updated priority order for whoever picks this up next:
 
 This ADR was drafted first at the requester's direction; the PRD was back-filled the same day: [ephemeral-dev-environments](../prd/ephemeral-dev-environments.md). Scope decisions recorded there: the button is available to **every authenticated Orbit user** (quota/TTL as guardrails, policy restrictions possible later), and the rollout host is the **existing staging cluster** (making the node-pool/quota/pre-pull safeguards of decision 1 mandatory from day one). The remaining open question — the exact parity-gate evidence bar — is tracked in the PRD.
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-07-13

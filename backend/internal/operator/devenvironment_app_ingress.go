@@ -65,10 +65,22 @@ import (
 )
 
 const (
-	// devEnvAppGatewayName names the single shared L7 Gateway every
-	// environment's app traffic enters through. Lives in
-	// devEnvAPIGatewayNamespace (istio-system) next to its L4 sibling.
-	devEnvAppGatewayName = "devenv-app-gateway"
+	// hostOrbitGatewayName is the platform's OWN shared Gateway
+	// (charts/orbit-platform/templates/gateway.yaml, in systemNamespace),
+	// which already carries AppExternalURL's host among its servers — it is
+	// the same Gateway the platform frontend's own VirtualService attaches
+	// to. The aggregated devenv app VirtualService attaches here too, rather
+	// than to a Gateway of its own: two Gateway resources that select the
+	// same ingress-gateway workload with server blocks on the same host and
+	// port silently conflict (Istio binds one, drops the other), so a
+	// devenv-only Gateway sharing orbit-gateway's host never actually served
+	// traffic — the root cause of the app-ingress 404s this replaced.
+	hostOrbitGatewayName = "orbit-gateway"
+
+	// legacyDevEnvAppGatewayName is the now-unused Gateway name from before
+	// the fix above. Kept only so ensureDevEnvAppAccess can delete any
+	// leftover copy on clusters that reconciled with the old code.
+	legacyDevEnvAppGatewayName = "devenv-app-gateway"
 
 	// devEnvAppVirtualServiceName names the ONE aggregated VirtualService
 	// carrying every environment's app routes (see the package comment for
@@ -117,6 +129,31 @@ func (r *DevEnvironmentReconciler) appAuthCallbackURL() string {
 	return strings.TrimSuffix(r.AppExternalURL, "/") + "/auth/callback"
 }
 
+// appDexIssuerURL is the browser- (and in-vcluster-identity-service-)
+// reachable OIDC issuer for one environment's fixture Dex:
+// {AppExternalURL}/{env-id}/dex. Unlike the app's own routes, this one is
+// NOT the cookie-routed unprefixed scheme — every caller of Dex (the browser
+// completing signinRedirect, and the in-vcluster identity service's own
+// discovery/JWKS fetch) always has the environment ID in hand, so the path
+// prefix alone is enough and no routing cookie is needed. Threaded into both
+// the fixture Dex's own "issuer:" config (devenvironment_fixtures.go) and the
+// seeded OrbitTenant's OIDC issuer (devenvironment_platform.go) — they must
+// agree exactly, or OIDC discovery's issuer check fails.
+//
+// This resolves the previously-tracked gap (docs/adr/2026-07-07-ephemeral-
+// development-environments-via-vcluster.md, "Dex redirect URI" amendment
+// note): Dex's issuer used to be the in-vcluster DNS name
+// (http://orbit-dex.orbit-devenv-fixtures:5556/dex), unreachable from a
+// laptop browser. AppExternalURL's host is already resolvable from inside
+// the host cluster (and, by the ordinary DNS-forwarding chain, from inside a
+// vcluster's own pods too — see scripts/cluster/dev-cluster-up.sh's CoreDNS
+// patch), so routing Dex through the same shared app-ingress host that
+// already serves the rest of the environment's UI makes the issuer
+// universally reachable without a second hostname or certificate.
+func (r *DevEnvironmentReconciler) appDexIssuerURL(env *OrbitDevEnvironment) string {
+	return strings.TrimSuffix(r.AppExternalURL, "/") + "/" + env.Name + "/dex"
+}
+
 // devEnvAppBackendHost is the host-side cluster-DNS name of an environment's
 // own ingress gateway: the in-vcluster "gateway" Service in istio-system,
 // synced onto the host under vcluster's translated naming (the same
@@ -126,16 +163,27 @@ func devEnvAppBackendHost(ns string) string {
 	return fmt.Sprintf("gateway-x-istio-system-x-%s.%s.svc.cluster.local", vclusterReleaseName, ns)
 }
 
-// ensureDevEnvAppAccess ensures the shared L7 app gateway, this environment's
-// backend ServiceEntry, and the aggregated app-routing VirtualService.
-// Mirrors ensureDevEnvAPIAccess's single-error-branch shape.
+// devEnvDexBackendHost is the host-side cluster-DNS name of an environment's
+// fixture Dex: the in-vcluster "orbit-dex" Service in
+// inVClusterFixturesNamespace, synced onto the host under the same
+// vcluster-translated naming as devEnvAppBackendHost.
+func devEnvDexBackendHost(ns string) string {
+	return fmt.Sprintf("%s-x-%s-x-%s.%s.svc.cluster.local", inVClusterDexName, inVClusterFixturesNamespace, vclusterReleaseName, ns)
+}
+
+// ensureDevEnvAppAccess ensures this environment's backend ServiceEntry and
+// the aggregated app-routing VirtualService are attached to the platform's
+// own orbit-gateway. Mirrors ensureDevEnvAPIAccess's single-error-branch
+// shape (that L4 path legitimately owns its own Gateway — a TLS-passthrough
+// listener the platform Gateway has no equivalent server for — so it is not
+// subject to the same conflict).
 func (r *DevEnvironmentReconciler) ensureDevEnvAppAccess(ctx context.Context, env *OrbitDevEnvironment) error {
 	host, err := r.appHostname()
 	if err != nil {
 		return err
 	}
-	if err := r.ensureDevEnvAppGateway(ctx, host); err != nil {
-		return fmt.Errorf("ensure shared devenv app gateway: %w", err)
+	if err := r.deleteLegacyDevEnvAppGateway(ctx); err != nil {
+		return fmt.Errorf("delete legacy devenv app gateway: %w", err)
 	}
 	if err := r.ensureDevEnvAppServiceEntry(ctx, env); err != nil {
 		return fmt.Errorf("ensure devenv app service entry: %w", err)
@@ -146,63 +194,42 @@ func (r *DevEnvironmentReconciler) ensureDevEnvAppAccess(ctx context.Context, en
 	return nil
 }
 
-// ensureDevEnvAppGateway creates or updates the single shared L7 Gateway for
-// app traffic. Plain HTTP on port 80 by default (local k3d, where the k3d
-// loadbalancer fronts it); when AppTLSCredentialName is set (real
-// infrastructure), HTTPS on 443 terminating with that istio-system Secret,
-// with port 80 redirecting.
-func (r *DevEnvironmentReconciler) ensureDevEnvAppGateway(ctx context.Context, host string) error {
-	httpServer := map[string]any{
-		"port": map[string]any{
-			"number":   int64(80),
-			"name":     "http-devenv-app",
-			"protocol": "HTTP",
-		},
-		"hosts": []any{host},
-	}
-	servers := []any{httpServer}
-	if r.AppTLSCredentialName != "" {
-		httpServer["tls"] = map[string]any{"httpsRedirect": true}
-		servers = append(servers, map[string]any{
-			"port": map[string]any{
-				"number":   int64(443),
-				"name":     "https-devenv-app",
-				"protocol": "HTTPS",
-			},
-			"tls": map[string]any{
-				"mode":           "SIMPLE",
-				"credentialName": r.AppTLSCredentialName,
-			},
-			"hosts": []any{host},
-		})
-	}
-	spec := map[string]any{
-		// Same Istio ingress gateway workload as the host's own app Gateway
-		// and the L4 devenv API Gateway (devenvironment_ingress.go).
-		"selector": map[string]any{"app": "gateway"},
-		"servers":  servers,
-	}
-	return r.ensureIstioResource(ctx, istioGatewayGVK(), devEnvAppGatewayName, spec)
+// deleteLegacyDevEnvAppGateway removes the devenv-only Gateway created by
+// the pre-fix code, if a cluster still has one lying around from before
+// devenv app routes moved onto orbit-gateway. Tolerates absence, so it is
+// safe to call on every reconcile.
+func (r *DevEnvironmentReconciler) deleteLegacyDevEnvAppGateway(ctx context.Context) error {
+	return r.deleteIstioResource(ctx, istioGatewayGVK(), legacyDevEnvAppGatewayName)
 }
 
-// ensureDevEnvAppServiceEntry registers the environment's synced gateway
-// Service as a mesh-visible host. Needed for exactly the same reason as the
-// kubectl route's ServiceEntry (see ensureDevEnvAPIServiceEntry): the host
-// istiod's discoverySelectors hide devenv namespaces' Services entirely, so
-// without this the aggregated VirtualService would route to a cluster istiod
-// never configured. MESH_EXTERNAL likewise: the environment gateway's
-// istio-proxy belongs to the ENVIRONMENT's mesh, not the host's, so host-side
-// auto-mTLS could never handshake with it — this hop is plain HTTP inside the
-// host-fenced environment namespace.
+// ensureDevEnvAppServiceEntry registers the environment's synced gateway and
+// Dex Services as mesh-visible hosts. Needed for exactly the same reason as
+// the kubectl route's ServiceEntry (see ensureDevEnvAPIServiceEntry): the
+// host istiod's discoverySelectors hide devenv namespaces' Services
+// entirely, so without this the aggregated VirtualService would route to a
+// cluster istiod never configured. MESH_EXTERNAL likewise: both Services'
+// istio-proxy (or lack thereof, for Dex) belongs to the ENVIRONMENT's mesh,
+// not the host's, so host-side auto-mTLS could never handshake with them —
+// both hops are plain HTTP inside the host-fenced environment namespace. One
+// ServiceEntry covers both hosts (Istio applies the full ports list to every
+// listed host, which is harmless here — neither Service answers the other's
+// port) rather than two, since both live in the same per-environment
+// namespace and share this object's cleanup lifecycle.
 func (r *DevEnvironmentReconciler) ensureDevEnvAppServiceEntry(ctx context.Context, env *OrbitDevEnvironment) error {
+	ns := devEnvNamespace(env)
 	spec := map[string]any{
-		"hosts":      []any{devEnvAppBackendHost(devEnvNamespace(env))},
+		"hosts":      []any{devEnvAppBackendHost(ns), devEnvDexBackendHost(ns)},
 		"location":   "MESH_EXTERNAL",
 		"resolution": "DNS",
 		"ports": []any{
 			map[string]any{
 				"number":   int64(devEnvAppGatewayPort),
 				"name":     "http",
+				"protocol": "HTTP",
+			},
+			map[string]any{
+				"number":   int64(inVClusterDexPort),
+				"name":     "http-dex",
 				"protocol": "HTTP",
 			},
 		},
@@ -243,11 +270,15 @@ func (r *DevEnvironmentReconciler) reconcileDevEnvAppRoutes(ctx context.Context,
 		return r.deleteIstioResource(ctx, istioVirtualServiceGVK(), devEnvAppVirtualServiceName)
 	}
 
-	// Path-prefix routes for EVERY environment first, cookie fallbacks for
-	// every environment after — a prefixed entry must always beat a stale
-	// routing cookie, whichever environments the two name.
+	// Dex routes before this environment's own app prefix routes (a request
+	// under /{env-id}/dex/* would otherwise be captured first by the app
+	// prefix route's broader /{env-id}/ match and forwarded, wrongly, to the
+	// environment's own frontend gateway instead of Dex) — then, across all
+	// environments, cookie fallbacks last so a stale routing cookie can never
+	// shadow an explicit /{env-id} entry.
 	var routes []any
 	for _, name := range names {
+		routes = append(routes, devEnvDexRoutes(name)...)
 		routes = append(routes, devEnvAppPrefixRoutes(name)...)
 	}
 	for _, name := range names {
@@ -255,8 +286,14 @@ func (r *DevEnvironmentReconciler) reconcileDevEnvAppRoutes(ctx context.Context,
 	}
 
 	spec := map[string]any{
-		"hosts":    []any{host},
-		"gateways": []any{devEnvAPIGatewayNamespace + "/" + devEnvAppGatewayName},
+		"hosts": []any{host},
+		// orbit-system/orbit-gateway, NOT a devenv-owned Gateway — see
+		// hostOrbitGatewayName. This VirtualService itself still lives in
+		// devEnvAPIGatewayNamespace (ensureIstioResource is hardcoded to
+		// that namespace); Istio VirtualServices may reference a Gateway in
+		// another namespace, and orbit-gateway sets no exportTo restricting
+		// that.
+		"gateways": []any{systemNamespace + "/" + hostOrbitGatewayName},
 		"http":     routes,
 	}
 	return r.ensureIstioResource(ctx, istioVirtualServiceGVK(), devEnvAppVirtualServiceName, spec)
@@ -327,6 +364,45 @@ func devEnvAppDestination(name string) []any {
 			"destination": map[string]any{
 				"host": devEnvAppBackendHost(ns),
 				"port": map[string]any{"number": int64(devEnvAppGatewayPort)},
+			},
+		},
+	}
+}
+
+// devEnvDexRoutes builds one environment's externally-routable Dex entry
+// points: exact /{env-id}/dex and prefix /{env-id}/dex/. No rewrite at all
+// (unlike devEnvAppPrefixRoutes, which strips its prefix to "/"): Dex's own
+// issuer is the FULL /{env-id}/dex URL (appDexIssuerURL), and Dex mounts
+// every one of its own routes (.well-known/openid-configuration, auth,
+// token, keys, ...) under its issuer's path, not under a bare "/dex" —
+// confirmed live, a request rewritten to "/dex/..." 404s against Dex,
+// while the untouched "/{env-id}/dex/..." path succeeds. No
+// X-Forwarded-Prefix/routing-cookie headers either: every caller of these
+// routes (the browser's signinRedirect, the in-vcluster identity service's
+// discovery/JWKS fetch) always has the environment ID in hand and builds
+// the full /{env-id}/dex/... URL directly, unlike the app's own unprefixed
+// asset/navigation requests that need the cookie fallback.
+func devEnvDexRoutes(name string) []any {
+	exact := map[string]any{
+		"name":  "devenv-" + name + "-dex-entry",
+		"match": []any{map[string]any{"uri": map[string]any{"exact": "/" + name + "/dex"}}},
+		"route": devEnvDexDestination(name),
+	}
+	prefix := map[string]any{
+		"name":  "devenv-" + name + "-dex-prefix",
+		"match": []any{map[string]any{"uri": map[string]any{"prefix": "/" + name + "/dex/"}}},
+		"route": devEnvDexDestination(name),
+	}
+	return []any{exact, prefix}
+}
+
+func devEnvDexDestination(name string) []any {
+	ns := "orbit-devenv-" + name
+	return []any{
+		map[string]any{
+			"destination": map[string]any{
+				"host": devEnvDexBackendHost(ns),
+				"port": map[string]any{"number": int64(inVClusterDexPort)},
 			},
 		},
 	}

@@ -28,7 +28,13 @@ func newCRLogSink(logger logging.Logger) logr.Logger {
 
 func (s *crLogSink) Init(_ logr.RuntimeInfo) {}
 
-func (s *crLogSink) Enabled(_ int) bool { return true }
+// Enabled gates verbosity so client-go's request/response body-dump logging
+// (k8s.io/client-go/rest gates that behind logger.V(8)) never fires. With
+// this unconditionally true, the operator logged the full JSON body of every
+// Kubernetes API call on every reconcile — the resulting allocation churn
+// OOM-killed the pod under its 512Mi limit. Everything controller-runtime
+// itself logs runs well below V(8).
+func (s *crLogSink) Enabled(level int) bool { return level < 8 }
 
 func (s *crLogSink) Info(_ int, msg string, keysAndValues ...any) {
 	s.logger.Info(context.Background(), s.prefixed(msg), s.fields(keysAndValues, nil)...)

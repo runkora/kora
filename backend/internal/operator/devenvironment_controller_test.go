@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -67,7 +69,7 @@ func newDevEnvTestReconcilerFull(t *testing.T, clock *fakeClock, objs ...client.
 		WithObjects(&OrbitPlatform{
 			ObjectMeta: metav1.ObjectMeta{Name: inVClusterOrbitPlatformName},
 			Status:     OrbitPlatformStatus{Phase: PhaseReady},
-		}).
+		}, fakeReadyInVClusterCoreDNSDeployment()).
 		Build()
 
 	r := &DevEnvironmentReconciler{
@@ -207,13 +209,16 @@ func TestReconcile_ProvisionsNamespaceQuotaAndVCluster(t *testing.T) {
 		t.Errorf("ServiceEntry location = %q, want MESH_EXTERNAL", location)
 	}
 
-	// Path-based app ingress (the ADR's 2026-07-10 amendment): the shared L7
-	// Gateway, the aggregated routing VirtualService, and the per-environment
-	// backend ServiceEntry.
+	// Path-based app ingress (the ADR's 2026-07-10 amendment): NO devenv-owned
+	// Gateway (it would silently conflict with the platform's own
+	// orbit-gateway on the same host — see hostOrbitGatewayName) — just the
+	// aggregated routing VirtualService attached to orbit-gateway, and the
+	// per-environment backend ServiceEntry.
 	appGW := &unstructured.Unstructured{}
 	appGW.SetGroupVersionKind(istioGatewayGVK())
-	if err := r.Get(context.Background(), types.NamespacedName{Name: devEnvAppGatewayName, Namespace: devEnvAPIGatewayNamespace}, appGW); err != nil {
-		t.Fatalf("shared devenv app Gateway not created: %v", err)
+	getErr := r.Get(context.Background(), types.NamespacedName{Name: legacyDevEnvAppGatewayName, Namespace: devEnvAPIGatewayNamespace}, appGW)
+	if !apierrors.IsNotFound(getErr) {
+		t.Fatalf("legacy devenv app Gateway should not exist, got err: %v", getErr)
 	}
 	appVS := &unstructured.Unstructured{}
 	appVS.SetGroupVersionKind(istioVirtualServiceGVK())
@@ -224,9 +229,13 @@ func TestReconcile_ProvisionsNamespaceQuotaAndVCluster(t *testing.T) {
 	if len(appHosts) != 1 || appHosts[0] != "devenv.orbit.test" {
 		t.Errorf("app VirtualService hosts = %v, want [devenv.orbit.test] (hostname only, no scheme/port)", appHosts)
 	}
+	appGateways, _, _ := unstructured.NestedStringSlice(appVS.Object, "spec", "gateways")
+	if len(appGateways) != 1 || appGateways[0] != systemNamespace+"/"+hostOrbitGatewayName {
+		t.Errorf("app VirtualService gateways = %v, want [%s]", appGateways, systemNamespace+"/"+hostOrbitGatewayName)
+	}
 	appRoutes, _, _ := unstructured.NestedSlice(appVS.Object, "spec", "http")
-	if len(appRoutes) != 3 {
-		t.Fatalf("app VirtualService has %d http routes, want 3 (exact + prefix + cookie)", len(appRoutes))
+	if len(appRoutes) != 5 {
+		t.Fatalf("app VirtualService has %d http routes, want 5 (dex-exact + dex-prefix + exact + prefix + cookie)", len(appRoutes))
 	}
 	appSE := &unstructured.Unstructured{}
 	appSE.SetGroupVersionKind(istioServiceEntryGVK())
@@ -235,8 +244,9 @@ func TestReconcile_ProvisionsNamespaceQuotaAndVCluster(t *testing.T) {
 	}
 	appSEHosts, _, _ := unstructured.NestedStringSlice(appSE.Object, "spec", "hosts")
 	wantBackend := "gateway-x-istio-system-x-vcluster.orbit-devenv-alice-env.svc.cluster.local"
-	if len(appSEHosts) != 1 || appSEHosts[0] != wantBackend {
-		t.Errorf("app ServiceEntry hosts = %v, want [%s]", appSEHosts, wantBackend)
+	wantDexBackend := "orbit-dex-x-orbit-devenv-fixtures-x-vcluster.orbit-devenv-alice-env.svc.cluster.local"
+	if len(appSEHosts) != 2 || appSEHosts[0] != wantBackend || appSEHosts[1] != wantDexBackend {
+		t.Errorf("app ServiceEntry hosts = %v, want [%s %s]", appSEHosts, wantBackend, wantDexBackend)
 	}
 
 	got := getEnv(t, r, env.Name)
@@ -285,8 +295,8 @@ func TestReconcile_AppRoutesAggregateAcrossEnvironments(t *testing.T) {
 		names = append(names, name)
 	}
 	want := []string{
-		"devenv-env-a-entry", "devenv-env-a-prefix",
-		"devenv-env-b-entry", "devenv-env-b-prefix",
+		"devenv-env-a-dex-entry", "devenv-env-a-dex-prefix", "devenv-env-a-entry", "devenv-env-a-prefix",
+		"devenv-env-b-dex-entry", "devenv-env-b-dex-prefix", "devenv-env-b-entry", "devenv-env-b-prefix",
 		"devenv-env-a-cookie", "devenv-env-b-cookie",
 	}
 	if len(names) != len(want) {
@@ -295,6 +305,21 @@ func TestReconcile_AppRoutesAggregateAcrossEnvironments(t *testing.T) {
 	for i := range want {
 		if names[i] != want[i] {
 			t.Fatalf("route order mismatch at %d: %v, want %v", i, names, want)
+		}
+	}
+
+	// Regression guard: Dex's own issuer is the FULL /{env-id}/dex URL
+	// (appDexIssuerURL), and Dex mounts every one of its routes under that
+	// issuer path — a route that rewrites the prefix away (as the app's own
+	// routes correctly do) sends Dex a path it never registered and 404s
+	// (confirmed live). Dex routes must carry no "rewrite" at all.
+	for _, route := range routes {
+		name, _, _ := unstructured.NestedString(route.(map[string]any), "name")
+		if !strings.Contains(name, "-dex-") {
+			continue
+		}
+		if _, found, _ := unstructured.NestedMap(route.(map[string]any), "rewrite"); found {
+			t.Errorf("route %q must not rewrite the URI — Dex expects the full /{env-id}/dex path", name)
 		}
 	}
 }
@@ -669,3 +694,25 @@ func TestHandleDeletion_DirectDeleteRunsSameCleanupAsTTLExpiry(t *testing.T) {
 
 //go:fix inline
 func int32Ptr(v int32) *int32 { return new(v) }
+
+// fakeReadyInVClusterCoreDNSDeployment stands in for the vcluster chart's own
+// embedded CoreDNS Deployment — every live vcluster has one by the time
+// reconcileInVClusterPlatform runs (ensureVCluster, which installs it,
+// already completed in the outer reconcileReady before this point), so tests
+// exercising the in-vcluster install path must seed one or
+// inVClusterCoreDNSRolloutComplete's gate never opens.
+func fakeReadyInVClusterCoreDNSDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       inVClusterCoreDNSDeploymentName,
+			Namespace:  coreDNSNamespace,
+			Generation: 1,
+		},
+		Spec: appsv1.DeploymentSpec{Replicas: new(int32(1))},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: 1,
+			UpdatedReplicas:    1,
+			ReadyReplicas:      1,
+		},
+	}
+}

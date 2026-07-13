@@ -145,11 +145,6 @@ type DevEnvironmentReconciler struct {
 	// L7 app listener's host match (devenvironment_app_ingress.go).
 	AppExternalURL string
 
-	// AppTLSCredentialName optionally names an istio-system TLS Secret the
-	// shared app listener terminates HTTPS with. Empty (local k3d) means the
-	// listener is plain HTTP on port 80.
-	AppTLSCredentialName string
-
 	// VClusterVersion pins the vcluster chart version. Must stay in sync with
 	// scripts/cluster/versions.env (VCLUSTER_CHART_VERSION).
 	VClusterVersion string

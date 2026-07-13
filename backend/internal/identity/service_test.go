@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ── hashToken ─────────────────────────────────────────────────────────────────
@@ -896,5 +899,66 @@ func TestDiscoverTenantByEmail_EmptyDomain(t *testing.T) {
 	_, err := svc.DiscoverTenantByEmail(context.Background(), "alice@")
 	if !errors.Is(err, ErrInvalidEmailFormat) {
 		t.Errorf("expected ErrInvalidEmailFormat, got %v", err)
+	}
+}
+
+// ── discoverTenantOIDCWithRetry ─────────────────────────────────────────────────
+//
+// Regression coverage for a live CrashLoopBackOff: orbit-identity's OIDC
+// discovery at startup used to be a single fatal attempt (initTenantOIDCProviders'
+// old contract), which crashed the whole binary on any transient DNS/network
+// blip — e.g. a dev-environment vcluster's CoreDNS still rolling out a custom
+// split-horizon zone. discoverTenantOIDCWithRetry must retry with backoff
+// instead of failing on the first attempt.
+
+func TestDiscoverTenantOIDCWithRetry_RecoversFromTransientFailure(t *testing.T) {
+	issuer, attempts := newFlakyOIDCTestServer(t, 2) // fails twice, succeeds on the 3rd
+	svc := &Service{
+		httpClient: http.DefaultClient,
+		logger:     logging.NewLoggerWithOutput(io.Discard),
+		cfg: &Config{
+			OIDCDiscovery: OIDCDiscoveryConfig{
+				ReadyTimeoutSecs: 5,
+				BackoffInitialMs: 10,
+				BackoffMaxSecs:   1,
+			},
+		},
+	}
+
+	state, err := svc.discoverTenantOIDCWithRetry(context.Background(), "tenant-1", TenantOIDCConfig{IssuerURL: issuer})
+	if err != nil {
+		t.Fatalf("discoverTenantOIDCWithRetry: %v", err)
+	}
+	if state == nil || state.provider == nil {
+		t.Fatal("expected a resolved provider state")
+	}
+	if got := attempts(); got < 3 {
+		t.Errorf("attempts = %d, want at least 3 (2 failures + 1 success)", got)
+	}
+}
+
+func TestDiscoverTenantOIDCWithRetry_GivesUpAfterReadyTimeout(t *testing.T) {
+	issuer, attempts := newFlakyOIDCTestServer(t, 1<<30) // always fails
+	svc := &Service{
+		httpClient: http.DefaultClient,
+		logger:     logging.NewLoggerWithOutput(io.Discard),
+		cfg: &Config{
+			OIDCDiscovery: OIDCDiscoveryConfig{
+				ReadyTimeoutSecs: 0, // give up immediately after the first failure
+				BackoffInitialMs: 10,
+				BackoffMaxSecs:   1,
+			},
+		},
+	}
+
+	_, err := svc.discoverTenantOIDCWithRetry(context.Background(), "tenant-1", TenantOIDCConfig{IssuerURL: issuer})
+	if err == nil {
+		t.Fatal("expected an error once the ready timeout elapses")
+	}
+	if !strings.Contains(err.Error(), "timed out after") {
+		t.Errorf("error = %v, want a timeout error", err)
+	}
+	if got := attempts(); got == 0 {
+		t.Error("expected at least one discovery attempt before giving up")
 	}
 }

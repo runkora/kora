@@ -65,4 +65,13 @@ export const config = {
   get sessionSecret() {
     return requireEnv('BFF_SESSION_SECRET', { minLength: 32 });
   },
+
+  /**
+   * The dev environment ID this install belongs to, or null on a normal
+   * (host) install. Set only inside a dev environment's own in-vcluster
+   * frontend (operator-injected — see devenvironment_platform.go's
+   * applyInVClusterOrbitPlatform). Never sent to the browser directly; the
+   * BFF session route projects it into the session payload instead.
+   */
+  devEnvironmentId: process.env.ORBIT_DEV_ENVIRONMENT_ID || null,
 } as const;

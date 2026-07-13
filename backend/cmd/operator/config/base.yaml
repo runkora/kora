@@ -12,9 +12,11 @@ operator:
   # Browser-facing base URL for path-scoped dev-environment app ingress
   # ({url}/{env-id}). Default (empty) resolves to the local k3d value in
   # config.go; real infrastructure overrides via ORBIT_DEVENV_APP_EXTERNAL_URL
-  # (e.g. https://orbit.dev.clearroute.io) plus ORBIT_DEVENV_APP_TLS_CREDENTIAL.
+  # (e.g. https://orbit.dev.clearroute.io). Routes attach to the platform's
+  # own orbit-gateway (charts/orbit-platform/templates/gateway.yaml), which
+  # already terminates TLS for that host — dev-environment app ingress has
+  # no Gateway/TLS config of its own.
   devEnvAppExternalURL: ""
-  devEnvAppTLSCredentialName: ""
 
 observability:
   serviceName: orbit-operator

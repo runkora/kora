@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,11 +37,13 @@ const (
 	inVClusterMigrationsPath = "/etc/orbit/migrations"
 )
 
-// ensureInVClusterMigrations creates the migration Job once the fixtures are
-// ensured. It does not wait for completion: goose fails and retries (Job
-// backoff) until the fixture Postgres accepts connections, and the
-// in-vcluster orbit-identity crash-loops harmlessly until the schema exists —
-// standard Kubernetes convergence, no ordering logic needed here.
+// ensureInVClusterMigrations creates the migration Job once the fixture
+// Postgres Deployment has a Ready replica — creating it any earlier only
+// burns through the Job's BackoffLimit on connection-refused failures before
+// Postgres has even been scheduled. It does not wait for the Job itself to
+// complete: goose fails and retries (Job backoff) until the schema is fully
+// applied, and the in-vcluster orbit-identity crash-loops harmlessly until
+// then — standard Kubernetes convergence from that point on.
 func (r *DevEnvironmentReconciler) ensureInVClusterMigrations(ctx context.Context, vcClient client.Client) error {
 	existing := &batchv1.Job{}
 	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterMigrationsJobName, Namespace: "orbit-system"}, existing)
@@ -49,6 +52,18 @@ func (r *DevEnvironmentReconciler) ensureInVClusterMigrations(ctx context.Contex
 		return nil
 	case !apierrors.IsNotFound(err):
 		return fmt.Errorf("get migration job %q: %w", inVClusterMigrationsJobName, err)
+	}
+
+	postgresReady, err := inVClusterPostgresRunning(ctx, vcClient)
+	if err != nil {
+		return fmt.Errorf("check fixture postgres readiness: %w", err)
+	}
+	if !postgresReady {
+		// Not an error: the fixture Postgres Deployment (ensureFixtures) is
+		// still being scheduled/starting. The next periodic reconcile
+		// (reconcileInVClusterPlatformAndReadiness) retries this same call
+		// until it is ready.
+		return nil
 	}
 
 	backoffLimit := int32(20)
@@ -107,6 +122,24 @@ func (r *DevEnvironmentReconciler) ensureInVClusterMigrations(ctx context.Contex
 		return fmt.Errorf("create migration job %q: %w", inVClusterMigrationsJobName, createErr)
 	}
 	return nil
+}
+
+// inVClusterPostgresRunning reports whether the fixture Postgres Deployment
+// (postgresDeployment, devenvironment_fixtures.go) has at least one Ready
+// replica. A missing Deployment is reported as "not ready" rather than an
+// error — ensureFixtures runs immediately before this in
+// reconcileInVClusterPlatform, but the Deployment's pod still needs a moment
+// to be scheduled and pass its readiness probe.
+func inVClusterPostgresRunning(ctx context.Context, vcClient client.Client) (bool, error) {
+	deploy := &appsv1.Deployment{}
+	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterPostgresName, Namespace: inVClusterFixturesNamespace}, deploy)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get postgres deployment %q: %w", inVClusterPostgresName, err)
+	}
+	return deploy.Status.ReadyReplicas > 0, nil
 }
 
 // inVClusterOperatorImage is the operator's own image reference as used

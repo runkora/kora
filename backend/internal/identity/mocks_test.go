@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -478,6 +479,36 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 	})
 
 	return base, setTokenResponse
+}
+
+// newFlakyOIDCTestServer returns an issuer URL whose discovery document
+// handler fails with 503 for the first failCount requests, then succeeds —
+// simulating a transient DNS/network blip (e.g. a dev-environment vcluster's
+// CoreDNS still rolling out a custom split-horizon zone) that
+// discoverTenantOIDCWithRetry must recover from without treating it as fatal.
+func newFlakyOIDCTestServer(t *testing.T, failCount int32) (issuerURL string, attempts func() int32) {
+	t.Helper()
+
+	var count atomic.Int32
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	base := srv.URL
+
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		if count.Add(1) <= failCount {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 base,
+			"authorization_endpoint": base + "/authorize",
+			"token_endpoint":         base + "/token",
+		})
+	})
+
+	return base, count.Load
 }
 
 // ── service construction helpers ──────────────────────────────────────────────

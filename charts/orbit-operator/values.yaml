@@ -43,10 +43,10 @@ devEnv:
   # vcluster ADR's path-based-app-ingress amendment). Empty means the local
   # k3d default (https://orbit.local.clearroute.io:8443 — the same host/port
   # the main platform frontend uses); real infrastructure sets e.g.
-  # https://orbit.dev.clearroute.io plus appTLSCredentialName (an
-  # istio-system TLS Secret the shared app listener terminates with).
+  # https://orbit.dev.clearroute.io. Routes attach to the platform's own
+  # orbit-gateway, which already terminates TLS for that host — no separate
+  # Gateway/TLS credential for dev-environment app ingress.
   appExternalURL: ""
-  appTLSCredentialName: ""
 
 podAnnotations:
   # The operator installs Istio — it MUST NOT have the Istio sidecar injected.
@@ -56,7 +56,13 @@ podAnnotations:
 resources:
   requests:
     cpu: 100m
-    memory: 128Mi
+    memory: 256Mi
   limits:
     cpu: 500m
-    memory: 512Mi
+    # Each OrbitDevEnvironment reconcile drives the Helm SDK through up to
+    # four in-process chart installs/upgrades back-to-back (vcluster,
+    # the in-vcluster orbit-operator, orbit-platform, and the orbit main
+    # chart) — confirmed live: with the previous 512Mi limit, the operator
+    # OOMKilled repeatedly (exit 137) mid-reconcile once a dev environment
+    # existed, never staying up long enough to report Ready.
+    memory: 1Gi

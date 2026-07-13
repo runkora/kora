@@ -1,12 +1,14 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
+import { ApiRoute } from '@orbit/lib/routing';
 import { useSidebarState } from './sidebar-state';
+import { useSession } from './permissions-provider';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
 
 /**
@@ -38,6 +40,8 @@ const getServerHost = () => '';
 export function DashboardHeader() {
   const pathname = usePathname();
   const { toggle, isOpen } = useSidebarState();
+  const { devEnvironmentId } = useSession();
+  const [returningToOrbit, setReturningToOrbit] = useState(false);
 
   const segments = pathname.split('/').filter(Boolean);
   const section = segments[0] ?? '';
@@ -54,6 +58,20 @@ export function DashboardHeader() {
   const host = useSyncExternalStore(subscribeNoop, mcpGatewayHost, getServerHost);
   const endpoint = header?.showEndpoint ? host : '';
 
+  // The dev environment's own app-ingress gateway routes unprefixed requests by
+  // a routing cookie, not by URL (devenvironment_app_ingress.go) — a plain link
+  // to "/" would just land back here. This hits a BFF route that clears the
+  // cookie server-side, then forces a full navigation so the browser re-requests
+  // "/" with the cookie actually gone.
+  async function returnToOrbit() {
+    setReturningToOrbit(true);
+    try {
+      await fetch(ApiRoute.devEnvironmentExit.GET());
+    } finally {
+      window.location.href = '/';
+    }
+  }
+
   return (
     <Stack
       direction="horizontal"
@@ -64,6 +82,20 @@ export function DashboardHeader() {
       paddingInline="comfortable"
     >
       <Stack direction="horizontal" align="center" gap="snug">
+        {devEnvironmentId ? (
+          <>
+            <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
+              <Icon name="flask" size="xs" color="subtle" />
+              <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
+                Dev Env:{' '}
+                <Text as="span" mono weight="heavy" style={{ fontSize: 12 }}>
+                  {devEnvironmentId}
+                </Text>
+              </Text>
+            </Stack>
+            <Separator orientation="vertical" span="narrow" />
+          </>
+        ) : null}
         {/* Hamburger — only visible on mobile (hidden at md+) */}
         <Show below="md">
           <Button
@@ -132,6 +164,20 @@ export function DashboardHeader() {
       </Stack>
 
       <Stack direction="horizontal" align="center" gap="snug">
+        {devEnvironmentId ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void returnToOrbit()}
+              disabled={returningToOrbit}
+            >
+              <Icon name={returningToOrbit ? 'loader' : 'external-link'} size="xs" />
+              Return to Orbit
+            </Button>
+            <Separator orientation="vertical" span="narrow" />
+          </>
+        ) : null}
         {!isDetail && endpoint ? (
           <>
             <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>

@@ -12,9 +12,14 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -143,6 +148,26 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 		return fmt.Errorf("build vcluster client: %w", err)
 	}
 
+	if dnsErr := r.ensureInVClusterCoreDNSSplitHorizon(ctx, vcClient); dnsErr != nil {
+		return fmt.Errorf("ensure in-vcluster coredns split-horizon config: %w", dnsErr)
+	}
+	dnsReady, dnsReadyErr := inVClusterCoreDNSRolloutComplete(ctx, vcClient)
+	if dnsReadyErr != nil {
+		return fmt.Errorf("check in-vcluster coredns rollout: %w", dnsReadyErr)
+	}
+	if !dnsReady {
+		// Not an error: ensureInVClusterCoreDNSSplitHorizon may have just
+		// forced a rollout restart (or the vcluster's own CoreDNS Deployment
+		// may not exist yet on a brand-new environment). Installing the
+		// nested orbit-operator chart — and therefore letting it eventually
+		// schedule orbit-identity — before this completes is exactly the race
+		// that crash-loops orbit-identity's synchronous, non-retrying OIDC
+		// discovery against a stale DNS answer (confirmed live). The caller's
+		// 5s fast-requeue (reconcileInVClusterPlatformAndReadiness) retries
+		// this same call once CoreDNS is serving its current config.
+		return nil
+	}
+
 	helm := r.InVClusterHelmFactory(inVClusterOperatorNamespace, vcCfg)
 	if _, installErr := helm.InstallOrUpgrade(ctx,
 		inVClusterOperatorReleaseName, r.inVClusterOperatorChartPath(), "", "",
@@ -158,7 +183,8 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 	if frontendSecretErr := ensureInVClusterFrontendSecret(ctx, vcClient); frontendSecretErr != nil {
 		return fmt.Errorf("ensure in-vcluster frontend secret: %w", frontendSecretErr)
 	}
-	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues, r.appAuthCallbackURL()); fixturesErr != nil {
+	externalDexIssuer := r.appDexIssuerURL(env)
+	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues, r.appAuthCallbackURL(), externalDexIssuer); fixturesErr != nil {
 		return fmt.Errorf("ensure in-vcluster fixtures: %w", fixturesErr)
 	}
 	if migErr := r.ensureInVClusterMigrations(ctx, vcClient); migErr != nil {
@@ -182,7 +208,7 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 	if err := r.applyInVClusterOrbitPlatform(ctx, vcClient, env, trustDomain, meshJWT); err != nil {
 		return fmt.Errorf("apply in-vcluster OrbitPlatform: %w", err)
 	}
-	if err := r.applyInVClusterOrbitTenant(ctx, vcClient); err != nil {
+	if err := r.applyInVClusterOrbitTenant(ctx, vcClient, externalDexIssuer); err != nil {
 		return fmt.Errorf("apply in-vcluster OrbitTenant: %w", err)
 	}
 	return nil
@@ -233,12 +259,6 @@ func (r *DevEnvironmentReconciler) inVClusterPlatformConfig() PlatformConfigSpec
 	}
 }
 
-// inVClusterDexIssuerURL points the seeded OrbitTenant's OIDC issuer at the
-// Dex fixture ensureFixtures deploys inside the same vcluster.
-func (r *DevEnvironmentReconciler) inVClusterDexIssuerURL() string {
-	return inVClusterDexIssuerURLValue()
-}
-
 // hostTrustDomain reads the trust domain from the HOST cluster's own
 // OrbitPlatform CR. Every in-vcluster OrbitPlatform must be told this same
 // value (not a per-environment one): identity is host-provided (option C3),
@@ -255,6 +275,215 @@ func (r *DevEnvironmentReconciler) hostTrustDomain(ctx context.Context) (string,
 		return "", errors.New("no host OrbitPlatform found — cannot derive devenv trust domain")
 	}
 	return platforms.Items[0].Spec.TrustDomain, nil
+}
+
+// coreDNSCustomConfigMapName / coreDNSNamespace name the split-horizon
+// CoreDNS patch scripts/cluster/dev-cluster-up.sh applies to the HOST
+// cluster's own CoreDNS (kube-system/coredns-custom) — mapping
+// AppExternalURL's *.orbit.local.clearroute.io hostnames to the Docker
+// bridge gateway IP instead of whatever a laptop's own resolver (dnsmasq,
+// answering 127.0.0.1 — meaningless inside any pod's network namespace)
+// would otherwise return. Real infrastructure has no such ConfigMap (a
+// single real DNS zone needs no split horizon), so its absence is expected,
+// not an error.
+const (
+	coreDNSCustomConfigMapName = "coredns-custom"
+	coreDNSNamespace           = "kube-system"
+
+	// hostCoreDNSPort is the port scripts/cluster/dev-cluster-up.sh's
+	// zone-header string literally names (its main server block is ".:53",
+	// standard k3d CoreDNS) — the substring rewritten by
+	// rewriteCoreDNSCustomForVCluster below.
+	hostCoreDNSPort = 53
+
+	// inVClusterCoreDNSPort is the port the vcluster chart's own k8s-distro
+	// CoreDNS server block actually listens on: confirmed live against a
+	// running vcluster (0.35.1), its rendered Corefile reads ".:1053", with
+	// the synced "kube-dns" Service mapping the standard port 53 to it. A
+	// copied-verbatim custom zone block that keeps the host's ":53" binds a
+	// port nothing inside this pod ever queries and never actually
+	// intercepts anything — confirmed live: with the ConfigMap copied
+	// unmodified, CoreDNS happily loaded "orbit.local.clearroute.io.:53"
+	// alongside ".:1053", but every real query still fell through the main
+	// block to the upstream resolver, exactly as if the custom zone did not
+	// exist at all.
+	inVClusterCoreDNSPort = 1053
+
+	// inVClusterCoreDNSDeploymentName is the vcluster's own embedded CoreDNS
+	// Deployment — standard k3s-distro naming, confirmed live: "coredns" in
+	// the same coreDNSNamespace ("kube-system") the coredns-custom ConfigMap
+	// above targets.
+	inVClusterCoreDNSDeploymentName = "coredns"
+
+	// coreDNSCustomChecksumAnnotation is patched onto the CoreDNS Deployment's
+	// pod template whenever coredns-custom's content changes (including the
+	// very first time it is created), forcing an immediate rolling restart —
+	// see restartInVClusterCoreDNSOnChange's doc comment for why this
+	// replaces relying on CoreDNS's own "reload" plugin poll interval.
+	coreDNSCustomChecksumAnnotation = "orbit.io/coredns-custom-checksum"
+)
+
+// ensureInVClusterCoreDNSSplitHorizon mirrors the host cluster's
+// coredns-custom ConfigMap into this environment's vcluster, so the
+// in-vcluster orbit-identity service's OIDC discovery against the
+// externalized Dex issuer (appDexIssuerURL) resolves AppExternalURL's host
+// the same way the host cluster and a laptop browser do.
+//
+// Without this, the vcluster's own embedded CoreDNS — a genuinely separate
+// instance from the host's, not a delegate of it — forwards
+// AppExternalURL's host straight upstream (its Corefile's "forward .
+// /etc/resolv.conf") and never sees the host's split-horizon answer,
+// landing on whatever the laptop's own resolver returns instead: confirmed
+// live, 127.0.0.1 (the pod itself), producing "connection refused" from
+// orbit-identity's OIDC discovery and a permanent CrashLoopBackOff. The
+// vcluster chart's k8s-distro CoreDNS already mounts an optional
+// "coredns-custom" ConfigMap for exactly this extension point (its Corefile
+// imports /etc/coredns/custom/*.server); it just needs the ConfigMap to
+// exist, with its zone header rewritten to the port the vcluster's CoreDNS
+// actually listens on (rewriteCoreDNSCustomForVCluster). It then forces a
+// deterministic CoreDNS rollout via restartInVClusterCoreDNSOnChange —
+// confirmed live, letting CoreDNS's own "reload" plugin pick the change up
+// on its own poll cycle instead stacks that poll interval on top of
+// kubelet's ConfigMap-volume propagation delay, together taking long enough
+// that orbit-identity's synchronous OIDC discovery crash-loops several times
+// against a stale DNS answer before converging. The caller
+// (reconcileInVClusterPlatform) gates on inVClusterCoreDNSRolloutComplete
+// before proceeding, so nothing that depends on this zone gets installed
+// until the rollout this triggers has actually finished.
+func (r *DevEnvironmentReconciler) ensureInVClusterCoreDNSSplitHorizon(ctx context.Context, vcClient client.Client) error {
+	hostCM := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: coreDNSCustomConfigMapName, Namespace: coreDNSNamespace}, hostCM)
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("get host coredns-custom configmap: %w", err)
+	}
+	data := rewriteCoreDNSCustomForVCluster(hostCM.Data)
+
+	existing := &corev1.ConfigMap{}
+	err = vcClient.Get(ctx, client.ObjectKey{Name: coreDNSCustomConfigMapName, Namespace: coreDNSNamespace}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		desired := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: coreDNSCustomConfigMapName, Namespace: coreDNSNamespace},
+			Data:       data,
+		}
+		if createErr := vcClient.Create(ctx, desired); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create in-vcluster coredns-custom configmap: %w", createErr)
+		}
+	case err != nil:
+		return fmt.Errorf("get in-vcluster coredns-custom configmap: %w", err)
+	default:
+		patch := client.MergeFrom(existing.DeepCopy())
+		existing.Data = data
+		if patchErr := vcClient.Patch(ctx, existing, patch); patchErr != nil {
+			return fmt.Errorf("patch in-vcluster coredns-custom configmap: %w", patchErr)
+		}
+	}
+
+	if restartErr := restartInVClusterCoreDNSOnChange(ctx, vcClient, data); restartErr != nil {
+		return fmt.Errorf("restart in-vcluster coredns for custom zone change: %w", restartErr)
+	}
+	return nil
+}
+
+// restartInVClusterCoreDNSOnChange patches the vcluster's own CoreDNS
+// Deployment with a checksum of coredns-custom's content, forcing an
+// immediate rolling restart whenever that content changes (including the
+// very first time the ConfigMap is created). CoreDNS's "reload" plugin would
+// eventually pick the same change up on its own (default 30s poll), but only
+// after kubelet's own ConfigMap-volume propagation delay — together long
+// enough, confirmed live, to race orbit-identity's synchronous OIDC discovery
+// at startup. A fresh pod instead mounts the current ConfigMap content
+// directly, with no polling delay on either side. A missing CoreDNS
+// Deployment is a no-op, not an error — on a brand-new environment this call
+// can race the vcluster chart's own CoreDNS install by a few seconds, and
+// inVClusterCoreDNSRolloutComplete's "not ready" result drives the next
+// periodic reconcile to retry it.
+func restartInVClusterCoreDNSOnChange(ctx context.Context, vcClient client.Client, data map[string]string) error {
+	deploy := &appsv1.Deployment{}
+	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterCoreDNSDeploymentName, Namespace: coreDNSNamespace}, deploy)
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("get in-vcluster coredns deployment: %w", err)
+	}
+
+	checksum := coreDNSCustomChecksum(data)
+	if deploy.Spec.Template.Annotations[coreDNSCustomChecksumAnnotation] == checksum {
+		return nil
+	}
+
+	patch := client.MergeFrom(deploy.DeepCopy())
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = map[string]string{}
+	}
+	deploy.Spec.Template.Annotations[coreDNSCustomChecksumAnnotation] = checksum
+	if patchErr := vcClient.Patch(ctx, deploy, patch); patchErr != nil {
+		return fmt.Errorf("patch in-vcluster coredns deployment for restart: %w", patchErr)
+	}
+	return nil
+}
+
+// coreDNSCustomChecksum hashes coredns-custom's data deterministically
+// (sorted keys) so restartInVClusterCoreDNSOnChange detects real content
+// changes regardless of Go's randomized map iteration order.
+func coreDNSCustomChecksum(data map[string]string) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+		h.Write([]byte(data[k]))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// inVClusterCoreDNSRolloutComplete reports whether the vcluster's own
+// CoreDNS Deployment has finished rolling out its current pod template spec —
+// in particular, any restart restartInVClusterCoreDNSOnChange just
+// triggered — rather than merely existing with old, still-Ready replicas
+// serving a stale coredns-custom mount. A missing Deployment is reported as
+// "not ready" rather than an error, the same posture as
+// inVClusterPostgresRunning.
+func inVClusterCoreDNSRolloutComplete(ctx context.Context, vcClient client.Client) (bool, error) {
+	deploy := &appsv1.Deployment{}
+	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterCoreDNSDeploymentName, Namespace: coreDNSNamespace}, deploy)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get in-vcluster coredns deployment: %w", err)
+	}
+	if deploy.Status.ObservedGeneration < deploy.Generation {
+		return false, nil
+	}
+	wantReplicas := int32(1)
+	if deploy.Spec.Replicas != nil {
+		wantReplicas = *deploy.Spec.Replicas
+	}
+	return deploy.Status.UpdatedReplicas == wantReplicas && deploy.Status.ReadyReplicas == wantReplicas, nil
+}
+
+// rewriteCoreDNSCustomForVCluster rewrites every zone header's listening
+// port from the host CoreDNS's own port (hostCoreDNSPort) to the vcluster
+// CoreDNS's port (inVClusterCoreDNSPort) — see inVClusterCoreDNSPort's doc
+// comment for why a verbatim copy silently never intercepts anything.
+func rewriteCoreDNSCustomForVCluster(hostData map[string]string) map[string]string {
+	from := fmt.Sprintf(":%d {", hostCoreDNSPort)
+	to := fmt.Sprintf(":%d {", inVClusterCoreDNSPort)
+	rewritten := make(map[string]string, len(hostData))
+	for k, v := range hostData {
+		rewritten[k] = strings.ReplaceAll(v, from, to)
+	}
+	return rewritten
 }
 
 // applyInVClusterOrbitPlatform creates or updates the OrbitPlatform CR inside
@@ -274,6 +503,16 @@ func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Cont
 	if err != nil {
 		return err
 	}
+	// gateway.tls.enabled: false overrides the baked platform-values.yaml
+	// (which sets it true for the HOST's own real external-facing
+	// orbit-gateway). Every dev environment's in-vcluster gateway must stay
+	// plain-HTTP: the host gateway forwards app traffic to it over HTTP by
+	// design (devEnvAppGatewayPort's doc comment — TLS terminates once, at
+	// the SHARED gateway, never per environment). Left at the baked true
+	// default, the in-vcluster gateway's port-80 listener 301-redirects
+	// every request to its own HTTPS port — which the host gateway then
+	// immediately re-requests over HTTP again, looping forever.
+	gatewayValues := map[string]any{"frontendHost": appHost, "gateway": map[string]any{"tls": map[string]any{"enabled": false}}}
 	spec := OrbitPlatformSpec{
 		Version:           inVClusterOrbitPlatformVersion,
 		TrustDomain:       trustDomain,
@@ -288,8 +527,16 @@ func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Cont
 		},
 		Config:          r.inVClusterPlatformConfig(),
 		UpgradeStrategy: UpgradeStrategySpec{Mode: "Explicit"},
-		PlatformValues:  map[string]any{"frontendHost": appHost},
-		OrbitValues:     map[string]any{"frontendHost": appHost},
+		PlatformValues:  gatewayValues,
+		// frontend.config.devEnvironmentId lets the in-vcluster frontend show
+		// "Dev Env: {id}" and a way back to the host's own Orbit — the same
+		// image runs everywhere (decision 4), so this is the one bit of
+		// per-environment identity threaded into an otherwise identical chart
+		// install, mirroring frontendHost above.
+		OrbitValues: map[string]any{
+			"frontendHost": appHost,
+			"frontend":     map[string]any{"config": map[string]any{"devEnvironmentId": env.Name}},
+		},
 	}
 
 	existing := &OrbitPlatform{}
@@ -354,14 +601,19 @@ func (r *DevEnvironmentReconciler) inVClusterPlatformReady(ctx context.Context, 
 
 // applyInVClusterOrbitTenant creates or updates the seeded OrbitTenant CR
 // inside the vcluster, mirroring deploy/local/tenants/example.yaml.
-func (r *DevEnvironmentReconciler) applyInVClusterOrbitTenant(ctx context.Context, vcClient client.Client) error {
+// issuerURL must be identical to the fixture Dex's own configured issuer
+// (appDexIssuerURL, threaded through ensureFixtures by the caller) — the
+// in-vcluster identity service's OIDC discovery rejects any mismatch between
+// the two.
+func (r *DevEnvironmentReconciler) applyInVClusterOrbitTenant(ctx context.Context, vcClient client.Client, issuerURL string) error {
 	spec := OrbitTenantSpec{
 		DisplayName: "Orbit Dev Environment",
 		Active:      true,
 		OIDC: TenantOIDCSpec{
-			IssuerURL: r.inVClusterDexIssuerURL(),
-			ClientID:  "orbit-local",
-			Scopes:    []string{"openid", "profile", "email", "groups"},
+			IssuerURL:    issuerURL,
+			ClientID:     "orbit-local",
+			Scopes:       []string{"openid", "profile", "email", "groups"},
+			EmailDomains: []string{inVClusterDevUserEmailDomain},
 		},
 		DeleteNamespaceOnRemoval: false,
 	}

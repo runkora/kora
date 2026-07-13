@@ -387,6 +387,17 @@ export const ApiRoute = {
       `${API_BASE}/dev-environments/${id}/kubeconfig`,
   },
 
+  /**
+   * `/api/dev-environment/exit`
+   *
+   * GET — clears the host-side dev-environment routing cookie and redirects
+   *       to `/`. Only meaningful when the dashboard is being browsed from
+   *       inside a dev environment's own in-vcluster frontend.
+   */
+  devEnvironmentExit: {
+    GET: (): `${typeof API_BASE}/dev-environment/exit` => `${API_BASE}/dev-environment/exit`,
+  },
+
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
     listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
@@ -493,4 +504,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
+  | ReturnType<(typeof ApiRoute)['devEnvironmentExit']['GET']>
   | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings

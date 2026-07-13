@@ -243,7 +243,6 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		Clock:                     operator.NewRealClock(),
 		IngressDomain:             oc.Current.Operator.DevEnvIngressDomain,
 		AppExternalURL:            oc.Current.Operator.DevEnvAppExternalURL,
-		AppTLSCredentialName:      oc.Current.Operator.DevEnvAppTLSCredentialName,
 		VClusterVersion:           oc.Current.Operator.DevEnvVClusterVersion,
 		ChartDir:                  oc.Current.Operator.ChartDir,
 		ImageRegistry:             oc.Current.Operator.DevEnvImageRegistry,

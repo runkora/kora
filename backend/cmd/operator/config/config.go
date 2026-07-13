@@ -80,13 +80,6 @@ type Config struct {
 		// ORBIT_DEVENV_APP_EXTERNAL_URL.
 		DevEnvAppExternalURL string `yaml:"devEnvAppExternalURL"`
 
-		// DevEnvAppTLSCredentialName optionally names an istio-system TLS
-		// Secret for the shared app listener. When set, the app gateway
-		// terminates HTTPS with it (and redirects HTTP); when empty (local
-		// k3d), the listener is plain HTTP on port 80. Override via
-		// ORBIT_DEVENV_APP_TLS_CREDENTIAL.
-		DevEnvAppTLSCredentialName string `yaml:"devEnvAppTLSCredentialName"`
-
 		// DevEnvVClusterVersion pins the vcluster chart version installed by
 		// the OrbitDevEnvironment reconciler. Override via
 		// ORBIT_DEVENV_VCLUSTER_VERSION. Empty means "use the built-in
@@ -163,9 +156,6 @@ var Current = func() *Config {
 	if v := os.Getenv("ORBIT_DEVENV_APP_EXTERNAL_URL"); v != "" {
 		cfg.Operator.DevEnvAppExternalURL = v
 	}
-	if v := os.Getenv("ORBIT_DEVENV_APP_TLS_CREDENTIAL"); v != "" {
-		cfg.Operator.DevEnvAppTLSCredentialName = v
-	}
 	if cfg.Operator.DevEnvAppExternalURL == "" {
 		// Same host + TLS port the main platform frontend already uses
 		// locally (deploy/local/platform-values.yaml's frontendHost, 8443
@@ -175,9 +165,6 @@ var Current = func() *Config {
 		// hostname, so dev environments share the same host/cert as prod
 		// traffic rather than a distinct plain-HTTP "devenv." host.
 		cfg.Operator.DevEnvAppExternalURL = "https://orbit.local.clearroute.io:8443"
-	}
-	if cfg.Operator.DevEnvAppTLSCredentialName == "" {
-		cfg.Operator.DevEnvAppTLSCredentialName = "orbit-gateway-tls"
 	}
 	return cfg
 }()

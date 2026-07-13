@@ -19,6 +19,8 @@ interface SessionContextValue {
   user: SessionUser | null;
   /** Whether the session has been loaded from the BFF. */
   loaded: boolean;
+  /** The dev environment ID this install belongs to, or null on a normal (host) install. */
+  devEnvironmentId: string | null;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -27,6 +29,7 @@ const SessionContext = createContext<SessionContextValue>({
   scopes: [],
   user: null,
   loaded: false,
+  devEnvironmentId: null,
 });
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -44,6 +47,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     scopes: [],
     user: null,
     loaded: false,
+    devEnvironmentId: null,
   });
 
   useEffect(() => {
@@ -60,6 +64,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         scopes: data?.permissions?.scopes ?? [],
         user: data?.user ?? null,
         loaded: true,
+        devEnvironmentId: data?.devEnvironmentId ?? null,
       });
 
       // Schedule a proactive re-fetch 4 minutes before the token expires so
@@ -75,7 +80,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     }
 
     loadSession().catch(() => {
-      if (mounted) setValue({ scopes: [], user: null, loaded: true });
+      if (mounted) setValue({ scopes: [], user: null, loaded: true, devEnvironmentId: null });
     });
 
     return () => {

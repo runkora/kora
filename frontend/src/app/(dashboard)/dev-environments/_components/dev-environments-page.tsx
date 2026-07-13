@@ -5,7 +5,7 @@
  * (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md). */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Anchor, Badge, Button, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { Alert, Badge, Button, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import type { DevEnvironment } from '@orbit/shared/api';
@@ -103,29 +103,11 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
         id: 'appURL',
         header: 'URL',
         locked: true,
-        // Only a Ready environment serves its app URL — while
-        // provisioning/sleeping the link would just error, so show it as
-        // plain text instead (the same "no dead ingress link" concern the
-        // in-vcluster-readiness gate exists for).
-        cell: (row) =>
-          row.appURL ? (
-            row.phase === 'Ready' ? (
-              // Anchor directly (not ExternalLink): the URL is
-              // backend-derived at runtime, which the EXTERNAL_URLS
-              // registry ExternalLink requires cannot express.
-              <Anchor href={row.appURL} target="_blank" rel="noopener noreferrer" size="sm">
-                {row.appURL.replace(/^https?:\/\//, '')}
-              </Anchor>
-            ) : (
-              <Text size="supporting" mono color="muted">
-                {row.appURL.replace(/^https?:\/\//, '')}
-              </Text>
-            )
-          ) : (
-            <Text size="supporting" color="muted">
-              —
-            </Text>
-          ),
+        cell: (row) => (
+          <Text size="supporting" color="muted">
+            {row.appURL ? row.appURL.replace(/^https?:\/\//, '') : '—'}
+          </Text>
+        ),
       },
       {
         id: 'createdAt',
@@ -160,7 +142,7 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
         id: 'actions',
         header: '',
         locked: true,
-        width: '14rem',
+        width: '16rem',
         cell: (row) => {
           if (isInFlight(row.phase)) {
             return (
@@ -198,6 +180,18 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
                   <Icon name="sun" size="2xs" />
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(row.appURL ?? undefined, '_blank', 'noopener,noreferrer');
+                }}
+                disabled={!row.appURL}
+                aria-label={`Open ${row.id}`}
+              >
+                <Icon name="external-link" size="2xs" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"

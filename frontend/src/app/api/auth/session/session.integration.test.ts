@@ -14,7 +14,7 @@
  *   it reads `BFF_SESSION_SECRET` at call time, so we stub that env var
  *   in beforeAll.
  */
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import type { IronSession } from 'iron-session';
 import { server } from '@orbit/test-utils';
@@ -36,7 +36,7 @@ vi.mock('iron-session', () => ({
 }));
 
 vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+  config: { orbitApiUrl: 'http://test-orbit-api', devEnvironmentId: null },
 }));
 
 vi.mock('@orbit/server/session', () => ({
@@ -49,6 +49,7 @@ vi.mock('@orbit/server/session', () => ({
 import { POST, GET } from './route';
 import { getIronSession } from 'iron-session';
 import { getSession, isSessionValid } from '@orbit/server/session';
+import { config } from '@orbit/server/config';
 
 // ── Environment setup ─────────────────────────────────────────────────────────
 
@@ -344,5 +345,40 @@ describe('GET /api/auth/session', () => {
     expect(body).not.toHaveProperty('accessToken');
     expect(body).not.toHaveProperty('refreshToken');
     expect(body).not.toHaveProperty('tenantId');
+  });
+
+  describe('devEnvironmentId projection', () => {
+    // The mocked config module is typed against the real `as const` config
+    // object (devEnvironmentId is readonly there) — cast to mutate it in tests.
+    function setDevEnvironmentId(value: string | null): void {
+      (config as { devEnvironmentId: string | null }).devEnvironmentId = value;
+    }
+
+    afterEach(() => {
+      setDevEnvironmentId(null);
+    });
+
+    it('returns devEnvironmentId: null on a normal (host) install', async () => {
+      const payload = createSessionPayload();
+      vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+      vi.mocked(isSessionValid).mockReturnValue(true);
+
+      const res = await GET();
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(body.devEnvironmentId).toBeNull();
+    });
+
+    it('returns the dev environment ID from config when set', async () => {
+      const payload = createSessionPayload();
+      vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+      vi.mocked(isSessionValid).mockReturnValue(true);
+      setDevEnvironmentId('bob-env');
+
+      const res = await GET();
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(body.devEnvironmentId).toBe('bob-env');
+    });
   });
 });

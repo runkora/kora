@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    Orbit's app icon: the same accent-container + zap glyph used for the
+    "Orbit" wordmark in the sidebar (sidebar-brand-header.tsx). Next.js's
+    `app/icon.svg` convention serves this as the favicon for every route in
+    this build. Dev environments (docs/adr/2026-07-07-ephemeral-development-
+    environments-via-vcluster.md) run the identical frontend image, so their
+    browser tabs pick up this same file automatically — no per-environment
+    icon config needed.
+
+    Colors are frozen sRGB (converted from the Terra oklch accent tokens)
+    rather than CSS vars, since favicon rendering happens outside the page's
+    DOM/theme context.
+  -->
+  <style>
+    .bg { fill: #fa7090; }
+    .fg { stroke: #020203; }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #008157; }
+      .fg { stroke: #f6f9fc; }
+    }
+  </style>
+  <rect class="bg" x="2" y="2" width="28" height="28" rx="7" />
+  <path
+    class="fg"
+    fill="none"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    transform="translate(7 6.5) scale(0.75)"
+    d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
+  />
+</svg>

@@ -9,3 +9,15 @@ token:
   patMaxTtlDays: 365
   # JWT aud claim. Override with ORBIT_TOKEN_AUDIENCE to scope tokens per cluster.
   audience: orbit-platform
+
+oidcDiscovery:
+  # Maximum time to retry a single tenant's OIDC discovery at startup before
+  # failing the service — covers transient DNS/network blips (e.g. a
+  # dev-environment vcluster's CoreDNS still rolling out a custom
+  # split-horizon zone). Override with ORBIT_OIDC_DISCOVERY_READY_TIMEOUT_SECS.
+  readyTimeoutSecs: 30
+  # First retry delay. Override with ORBIT_OIDC_DISCOVERY_BACKOFF_INITIAL_MS.
+  backoffInitialMs: 500
+  # Ceiling on the exponentially-doubling retry delay. Override with
+  # ORBIT_OIDC_DISCOVERY_BACKOFF_MAX_SECS.
+  backoffMaxSecs: 5

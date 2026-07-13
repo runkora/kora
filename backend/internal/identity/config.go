@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
@@ -14,8 +15,43 @@ import (
 // OIDC configuration is NOT stored here — it is sourced per-tenant from the
 // tenant registry file (ORBIT_TENANTS_CONFIG).  See tenant_registry.go.
 type Config struct {
-	Token TokenConfig `yaml:"token"`
-	OAuth OAuthConfig `yaml:"oauth"`
+	Token         TokenConfig         `yaml:"token"`
+	OAuth         OAuthConfig         `yaml:"oauth"`
+	OIDCDiscovery OIDCDiscoveryConfig `yaml:"oidcDiscovery"`
+}
+
+// OIDCDiscoveryConfig controls retry/backoff for OIDC provider discovery
+// performed eagerly at startup (initTenantOIDCProviders). Mirrors
+// identity-proxy's own startup-retry knobs (cmd/identity-proxy/config) —
+// a transient DNS/network blip at boot (e.g. a dev-environment vcluster's
+// CoreDNS still rolling out a custom split-horizon zone) must not
+// permanently crash the whole service on the very first attempt.
+type OIDCDiscoveryConfig struct {
+	// ReadyTimeoutSecs bounds how long startup retries a single tenant's
+	// discovery before giving up and failing the service.
+	ReadyTimeoutSecs int `yaml:"readyTimeoutSecs"`
+
+	// BackoffInitialMs is the first retry delay.
+	BackoffInitialMs int `yaml:"backoffInitialMs"`
+
+	// BackoffMaxSecs caps the exponentially-doubling retry delay.
+	BackoffMaxSecs int `yaml:"backoffMaxSecs"`
+}
+
+// ReadyTimeout returns the maximum time to retry a single tenant's OIDC
+// discovery at startup.
+func (c OIDCDiscoveryConfig) ReadyTimeout() time.Duration {
+	return time.Duration(c.ReadyTimeoutSecs) * time.Second
+}
+
+// BackoffInitial returns the starting retry interval.
+func (c OIDCDiscoveryConfig) BackoffInitial() time.Duration {
+	return time.Duration(c.BackoffInitialMs) * time.Millisecond
+}
+
+// BackoffMax returns the ceiling on retry intervals.
+func (c OIDCDiscoveryConfig) BackoffMax() time.Duration {
+	return time.Duration(c.BackoffMaxSecs) * time.Second
 }
 
 // OAuthConfig controls the MCP OAuth authorization-server surface.
@@ -77,6 +113,9 @@ func LoadConfig() (*Config, error) {
 	if v := os.Getenv("ORBIT_TOKEN_AUDIENCE"); v != "" {
 		cfg.Token.Audience = v
 	}
+	overrideInt(&cfg.OIDCDiscovery.ReadyTimeoutSecs, "ORBIT_OIDC_DISCOVERY_READY_TIMEOUT_SECS")
+	overrideInt(&cfg.OIDCDiscovery.BackoffInitialMs, "ORBIT_OIDC_DISCOVERY_BACKOFF_INITIAL_MS")
+	overrideInt(&cfg.OIDCDiscovery.BackoffMaxSecs, "ORBIT_OIDC_DISCOVERY_BACKOFF_MAX_SECS")
 
 	return cfg, nil
 }
