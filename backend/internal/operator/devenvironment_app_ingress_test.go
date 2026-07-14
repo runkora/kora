@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -93,13 +94,7 @@ func TestReconcileDevEnvAppRoutes_AggregatesAcrossEnvironments(t *testing.T) {
 		"devenv-bob-dex-entry", "devenv-bob-dex-prefix", "devenv-bob-entry", "devenv-bob-prefix",
 		"devenv-alice-cookie", "devenv-bob-cookie",
 	} {
-		found := false
-		for _, n := range names {
-			if n == want {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, want)
 		if !found {
 			t.Errorf("aggregated VirtualService missing expected route %q, got %v", want, names)
 		}
