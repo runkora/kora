@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-07-13
 **Deciders:** Engineering Team
-**Technical Story:** [Ephemeral Development Environments — Production Delivery PRD](../prd/ephemeral-dev-environments-new.md). This ADR is the technical design for delivering the dev-environments feature to production on the cloud host cluster.
+**Technical Story:** [Ephemeral Development Environments — Production Delivery PRD](../prd/ephemeral-dev-environments.md). This ADR is the technical design for delivering the dev-environments feature to production on the cloud host cluster.
 
 ---
 
@@ -13,7 +13,7 @@
 
 The 2026-07-07 ADR proposed the architecture; a deliberately vibe-coded prototype then **proved it end-to-end on k3d**. A developer presses *New dev environment* in the Orbit UI and gets a complete, isolated Orbit installation — its own vcluster, operator, charts, in-vcluster Istio, host-provided SPIFFE identity, database, migrations, fixtures, and browser login — reachable at a path-prefixed URL, connectable with a real unmodified `kubectl` over a brokered short-lived kubeconfig, sleeping when idle (~97% measured CPU reduction), and expiring on a TTL with nothing orphaned. Every architectural risk the original ADR flagged was spiked, root-caused live, or fixed: host-SPIRE attestation of vcluster-synced pods, in-vcluster Istio XDS authentication, kubeconfig brokering over SNI passthrough, shared-host path ingress, reconciler-implemented sleep.
 
-**The architecture is therefore not in question.** What is in question — and what this ADR decides — is how the prototype becomes a production feature. The prototype cannot ship as-is, for five reasons established in the [PRD](../prd/ephemeral-dev-environments-new.md):
+**The architecture is therefore not in question.** What is in question — and what this ADR decides — is how the prototype becomes a production feature. The prototype cannot ship as-is, for five reasons established in the [PRD](../prd/ephemeral-dev-environments.md):
 
 1. **k3d-hardwired.** `apiServer.externalAddress: "localhost:16443"` is a checked-in default (`backend/internal/devenvironments/config/base.yaml`); the operator defaults `DevEnvAppExternalURL` to `https://orbit.local.clearroute.io:8443` (`backend/cmd/operator/config/config.go`); images come from `orbit-registry:5001`; a CoreDNS split-horizon mirror (`devenvironment_platform.go`) runs unconditionally; the SNI domain defaults to `dev.orbit.local`.
 2. **Governance gaps.** No audit events exist anywhere in the feature — the "audit trail" is a soft-deleted Postgres row. The nested-provisioning guard lives only in the BFF and UI (`frontend/src/app/api/dev-environments/route.ts`); `internal/devenvironments.Service.CreateEnvironment` has no signal that it is running inside a dev environment. Scope enforcement of `/extend`, `/wake`, and `/kubeconfig` relies implicitly on `POST /api/v1/dev-environments` prefix matching, untested per route. Minted kubeconfigs carry `O=system:masters`.
@@ -23,7 +23,7 @@ The 2026-07-07 ADR proposed the architecture; a deliberately vibe-coded prototyp
 
 ### Background
 
-- The chosen architecture — **A3** (vcluster per environment) + **B3** (`OrbitDevEnvironment` CRD reconciled by the operator) + **C3** (host-provided workload identity) — and its two later amendments (path-based shared-host app ingress; JWKS-mirror/JWT_RULE mesh authentication) are recorded, argued, and empirically validated in the [prototype ADR](2026-07-07-ephemeral-development-environments-via-vcluster.md). They are **re-affirmed, not re-litigated** here.
+- The chosen architecture — **A3** (vcluster per environment) + **B3** (`OrbitDevEnvironment` CRD reconciled by the operator) + **C3** (host-provided workload identity) — and its two later amendments (path-based shared-host app ingress; JWKS-mirror/JWT_RULE mesh authentication) are recorded, argued, and empirically validated in the prototype ADR (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree). They are **re-affirmed, not re-litigated** here.
 - The implementation exists and works: `backend/internal/devenvironments/` (API feature package in `cmd/identity`), `DevEnvironmentReconciler` plus eight `devenvironment_*.go` satellites in `backend/internal/operator/`, shared CRD types in `backend/internal/platform/orbitapi/`, the CRD in `charts/orbit-operator/templates/crd-orbitdevenvironment.yaml`, chart helpers (`orbit.spiffeIDBase`) in `charts/orbit/`, BFF routes and the *Dev Environments* page in `frontend/src/app/`.
 - The v1 PRD decisions stand: the rollout host is the **existing staging cluster**, and post-GA the button is available to **every authenticated Orbit user** under quota/TTL guardrails.
 - This feature **replaces Tier 2** (`make dev-cluster`) behind a parity gate, per [local-development-environment](2026-03-10-local-development-environment.md); Tier 1 (`make dev-up`) is untouched.
@@ -63,7 +63,7 @@ Define the production implementation and infrastructure for the dev-environments
 
 ## Considered Options
 
-The five genuinely open decisions. (Isolation, trigger, identity, ingress, and sleep options are in the [prototype ADR](2026-07-07-ephemeral-development-environments-via-vcluster.md) and are not repeated.)
+The five genuinely open decisions. (Isolation, trigger, identity, ingress, and sleep options are in the prototype ADR (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree) and are not repeated.)
 
 ### A. Productionisation strategy
 
@@ -395,7 +395,7 @@ Per-stage provision metrics, failure counters, and phase-inventory gauges (§10)
 
 ## Related Decisions
 
-- [ephemeral-development-environments-via-vcluster](2026-07-07-ephemeral-development-environments-via-vcluster.md) — the prototype ADR this supersedes; canonical record of the spike, all ten Phase-2 slices, amendments, and corrections behind every pinned decision here
+- `ephemeral-development-environments-via-vcluster` (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree) — the prototype ADR this supersedes; canonical record of the spike, all ten Phase-2 slices, amendments, and corrections behind every pinned decision here
 - [local-development-environment](2026-03-10-local-development-environment.md) — Tier 1 unchanged; Tier 2 retired by this delivery behind the parity gate
 - [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) — the reconcile model the `DevEnvironmentReconciler` extends
 - [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — the charts and `deploy/local/` reference install reused inside each environment; the baked-charts design that §3 makes load-bearing
@@ -407,7 +407,7 @@ Per-stage provision metrics, failure counters, and phase-inventory gauges (§10)
 
 ## References
 
-- [Ephemeral Dev Environments — Production Delivery PRD](../prd/ephemeral-dev-environments-new.md) — requirements, debt register (P0/P1/P2), pinned-decision list this ADR's §2 enforces
+- [Ephemeral Dev Environments — Production Delivery PRD](../prd/ephemeral-dev-environments.md) — requirements, debt register (P0/P1/P2), pinned-decision list this ADR's §2 enforces
 - [vcluster documentation](https://www.vcluster.com/docs) · [OSS vs Free/Enterprise tiers](https://www.vcluster.com/docs/vcluster/introduction/oss-vs-free) (image pin + licensing check, §7/§9)
 - Prototype spike scripts: `scripts/cluster/spike-*.sh` — retained as the vcluster/Istio version-bump regression suite
 
