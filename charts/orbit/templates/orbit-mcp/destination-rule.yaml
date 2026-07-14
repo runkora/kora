@@ -19,5 +19,5 @@ spec:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "orbit.trustDomain" . }}/system/orbit-mcp"
+        - "{{ include "orbit.spiffeIDBase" . }}/system/orbit-mcp"
 {{- end }}

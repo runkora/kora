@@ -31,5 +31,5 @@ spec:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "orbit.trustDomain" . }}/system/egress-gateway"
+        - "{{ include "orbit.spiffeIDBase" . }}/system/egress-gateway"
 {{- end }}
