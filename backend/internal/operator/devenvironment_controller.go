@@ -306,7 +306,7 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 		return r.failReconcile(ctx, env, "AppAccessError", err)
 	}
 
-	phase, err := r.reconcilePowerState(ctx, env, now)
+	phase, fastRequeue, err := r.reconcilePowerState(ctx, env, now)
 	if err != nil {
 		return r.failReconcile(ctx, env, "PowerStateError", err)
 	}
@@ -314,10 +314,10 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 	// Only attempt the in-vcluster install while the vcluster's own control
 	// plane is actually up — while Sleeping its API server is unreachable, so
 	// there is nothing to apply to yet.
-	var fastRequeue time.Duration
 	if phase == DevEnvPhaseReady {
-		var err error
-		phase, fastRequeue, err = r.reconcileInVClusterPlatformAndReadiness(ctx, env)
+		var platformRequeue time.Duration
+		phase, platformRequeue, err = r.reconcileInVClusterPlatformAndReadiness(ctx, env)
+		fastRequeue = combineFastRequeue(fastRequeue, platformRequeue)
 		if err != nil {
 			// A transient "no matches for kind" immediately after the
 			// orbit-operator chart's CRDs are first installed (API server
@@ -371,6 +371,24 @@ func minRequeue(requeue, fastRequeue time.Duration) time.Duration {
 	return requeue
 }
 
+// combineFastRequeue merges two optional fast-requeue overrides (each
+// computed at a different point in reconcileReady — the sleep-drain wait
+// and the in-vcluster platform-readiness gate both produce one), where zero
+// means "no override" for either. Unlike minRequeue, neither input is
+// assumed to already be a real (always-positive) interval.
+func combineFastRequeue(a, b time.Duration) time.Duration {
+	switch {
+	case a <= 0:
+		return b
+	case b <= 0:
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
+}
+
 // reconcileInVClusterPlatformAndReadiness applies the in-vcluster
 // orbit-operator/OrbitPlatform/OrbitTenant install and reports back the
 // phase the environment should ultimately be set to. "Applied" (the CRs were
@@ -397,13 +415,13 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatformAndReadiness(ctx c
 		return "", 0, err
 	}
 
-	if err := r.reconcileInVClusterPlatform(ctx, env, resolvedRef); err != nil {
+	if err = r.reconcileInVClusterPlatform(ctx, env, resolvedRef); err != nil {
 		return "", 0, err
 	}
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformApplied, metav1.ConditionTrue,
 		"Applied", "orbit-operator installed and OrbitPlatform/OrbitTenant applied inside the vcluster")
 
-	if err := r.mirrorIstioCARootCert(ctx, env); err != nil {
+	if err = r.mirrorIstioCARootCert(ctx, env); err != nil {
 		// Non-fatal and self-healing: the source ConfigMap doesn't exist
 		// until the in-vcluster istiod completes its own startup, which can
 		// lag behind this point — the next reconcile retries.
@@ -756,8 +774,31 @@ func vclusterSchedulingValues(nodeSelector map[string]string, tolerations []core
 // power state — sleep / wake
 // -----------------------------------------------------------------------------
 
+const (
+	// devEnvSleepDrainTimeout bounds how long enterSleep waits for
+	// host-visible synced pods to drain (the vcluster syncer needs to be
+	// alive to delete them) before scaling the vcluster control plane
+	// itself to zero regardless. Pinned decision 23 treats a drain that
+	// blows through this as a log-and-proceed condition, not a reconcile
+	// failure — stragglers are cleaned up on wake via their in-vcluster
+	// owner references.
+	devEnvSleepDrainTimeout = 2 * time.Minute
+
+	// devEnvSleepDrainStartedAnnotation records when enterSleep first asked
+	// the in-vcluster workloads to scale to zero, so later reconciles can
+	// bound how long they wait for host-visible synced pods to drain.
+	// Cleared on wake so a later sleep cycle starts its own fresh deadline.
+	// A plain annotation, not a status field: unlike a status write, it
+	// does not need CRD schema changes, and — like any metadata-only
+	// change — never bumps .metadata.generation, so it cannot defeat
+	// GenerationChangedPredicate's watch filtering.
+	devEnvSleepDrainStartedAnnotation = "orbit.io/sleep-drain-started-at"
+)
+
 // reconcilePowerState derives Ready vs. Sleeping from spec.Awake and idle
-// time, scales workloads accordingly, and returns the resulting phase.
+// time, scales workloads accordingly, and returns the resulting phase plus
+// an optional fast-requeue override (non-zero only while enterSleep is
+// still waiting on synced pods to drain).
 //
 // spec.Awake is the single source of truth for desired power state, so that
 // wake (which is always an explicit action, never automatic on connection)
@@ -768,43 +809,38 @@ func vclusterSchedulingValues(nodeSelector map[string]string, tolerations []core
 // self-clearing flip, both cases would look identical (Awake still true,
 // status still Sleeping) and idle-sleep would immediately wake itself back
 // up on the very next reconcile.
-func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env *OrbitDevEnvironment, now time.Time) (string, error) {
+func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env *OrbitDevEnvironment, now time.Time) (string, time.Duration, error) {
 	ns := devEnvNamespace(env)
 	wasAsleep := env.Status.Phase == DevEnvPhaseSleeping
 
 	if !env.Spec.Awake {
-		if !wasAsleep {
-			// Scale down the environment's real workloads, inside the
-			// vcluster, while its control plane is still reachable to ask —
-			// this must happen BEFORE the vcluster control-plane itself is
-			// scaled to zero below, or there is nothing left to ask.
-			r.bestEffortScaleInVCluster(ctx, env, true)
-		}
-		if err := r.scaleWorkloads(ctx, ns, true); err != nil {
-			return "", fmt.Errorf("scale workloads to zero: %w", err)
-		}
-		return DevEnvPhaseSleeping, nil
+		return r.enterSleep(ctx, env, ns, now, wasAsleep)
 	}
 
 	if wasAsleep {
 		// spec.Awake is true and we were asleep: an external actor (UI/API)
 		// explicitly re-enabled it — the only path out of Sleeping. Reset the
-		// idle clock so it doesn't immediately re-sleep.
+		// idle clock so it doesn't immediately re-sleep, and clear the sleep
+		// drain marker so the NEXT sleep cycle starts its own fresh deadline
+		// rather than inheriting this one's (already-expired) timestamp.
 		if err := r.patchStatusFields(ctx, env, func(s *OrbitDevEnvironmentStatus) {
 			t := metav1.NewTime(now)
 			s.LastActivityAt = &t
 		}); err != nil {
-			return "", err
+			return "", 0, err
+		}
+		if err := r.clearSleepDrainStarted(ctx, env); err != nil {
+			return "", 0, err
 		}
 		if err := r.scaleWorkloads(ctx, ns, false); err != nil {
-			return "", fmt.Errorf("scale workloads up: %w", err)
+			return "", 0, fmt.Errorf("scale workloads up: %w", err)
 		}
 		// The vcluster control plane was just asked to scale up above and is
 		// very unlikely to be reachable yet within this same reconcile pass
 		// — best-effort here, the idle-not-reached branch below retries this
 		// every subsequent reconcile (idempotently) until it succeeds once.
 		r.bestEffortScaleInVCluster(ctx, env, false)
-		return DevEnvPhaseReady, nil
+		return DevEnvPhaseReady, 0, nil
 	}
 
 	lastActivity := env.CreationTimestamp.Time
@@ -817,24 +853,145 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 	}
 	if now.Sub(lastActivity) >= idle {
 		if err := r.setSpecAwake(ctx, env, false); err != nil {
-			return "", err
+			return "", 0, err
 		}
-		r.bestEffortScaleInVCluster(ctx, env, true)
-		if err := r.scaleWorkloads(ctx, ns, true); err != nil {
-			return "", fmt.Errorf("scale workloads to zero: %w", err)
-		}
-		return DevEnvPhaseSleeping, nil
+		return r.enterSleep(ctx, env, ns, now, false)
 	}
 
 	if err := r.scaleWorkloads(ctx, ns, false); err != nil {
-		return "", fmt.Errorf("scale workloads up: %w", err)
+		return "", 0, fmt.Errorf("scale workloads up: %w", err)
 	}
 	// Idempotent retry of the wake-path restore above: a no-op once every
 	// in-vcluster workload's pre-sleep-replicas annotation has already been
 	// consumed, but keeps retrying on every reconcile until the vcluster's
 	// control plane becomes reachable after a fresh wake.
 	r.bestEffortScaleInVCluster(ctx, env, false)
-	return DevEnvPhaseReady, nil
+	return DevEnvPhaseReady, 0, nil
+}
+
+// enterSleep is shared by the explicit spec.Awake=false path and the
+// idle-timeout auto-sleep path (both call it with the environment's current
+// wasAsleep state). It asks the vcluster to scale its own workloads to zero,
+// then waits for host-visible synced pods (the vcluster control-plane pod
+// itself excluded) to drain — the syncer, which runs inside that
+// control-plane pod, needs to still be alive to delete them — before
+// scaling the host-side vcluster StatefulSet down. Scaling the control
+// plane down before its synced pods drain strands them: nothing is left
+// running to ask Kubernetes to delete them, and they sit until the
+// environment wakes and their in-vcluster owner references let the syncer
+// clean them up (pinned decision 23).
+//
+// A single reconcile pass completes the full sleep (phase Sleeping, host
+// workloads scaled to zero) whenever there is nothing to drain — the common
+// case, and what every pre-existing sleep test exercises. A short
+// fast-requeue is returned only while stragglers remain and the drain
+// deadline (devEnvSleepDrainTimeout) hasn't yet passed.
+func (r *DevEnvironmentReconciler) enterSleep(ctx context.Context, env *OrbitDevEnvironment, ns string, now time.Time, wasAsleep bool) (string, time.Duration, error) {
+	if !wasAsleep {
+		// Scale down the environment's real workloads, inside the vcluster,
+		// while its control plane is still reachable to ask — this must
+		// happen BEFORE the vcluster control-plane itself is scaled to zero
+		// below, or there is nothing left to ask.
+		r.bestEffortScaleInVCluster(ctx, env, true)
+		if err := r.markSleepDrainStarted(ctx, env, now); err != nil {
+			return "", 0, err
+		}
+	}
+
+	drained, err := r.hostSyncedPodsDrained(ctx, ns)
+	if err != nil {
+		return "", 0, fmt.Errorf("check synced pod drain: %w", err)
+	}
+	if !drained {
+		if now.Before(r.sleepDrainDeadline(env, now)) {
+			return DevEnvPhaseSleeping, 5 * time.Second, nil
+		}
+		r.Logger.Info(ctx, "sleep drain deadline exceeded, scaling vcluster control plane down with stragglers present",
+			logging.Field{Key: "name", Value: env.Name},
+		)
+	}
+
+	if err := r.scaleWorkloads(ctx, ns, true); err != nil {
+		return "", 0, fmt.Errorf("scale workloads to zero: %w", err)
+	}
+	return DevEnvPhaseSleeping, 0, nil
+}
+
+// hostSyncedPodsDrained reports whether every synced pod in the
+// environment's host namespace has been deleted, leaving only (at most) the
+// vcluster control-plane's own pod. Identifying the control-plane pod by
+// name ("{vclusterReleaseName}-0", the deterministic name for a
+// single-replica StatefulSet with that fixed release name) rather than by a
+// vcluster-internal label avoids depending on vcluster's own labeling
+// scheme, which this codebase doesn't otherwise need to know — every other
+// pod that can exist in this namespace is, by construction, synced from
+// inside the vcluster (ensureNamespace/ensureVCluster create nothing else
+// here).
+func (r *DevEnvironmentReconciler) hostSyncedPodsDrained(ctx context.Context, ns string) (bool, error) {
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.InNamespace(ns)); err != nil {
+		return false, fmt.Errorf("list pods in %q: %w", ns, err)
+	}
+	controlPlanePod := vclusterReleaseName + "-0"
+	for i := range pods.Items {
+		if pods.Items[i].Name != controlPlanePod {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// markSleepDrainStarted records, in an annotation, the first moment
+// enterSleep asked the in-vcluster workloads to scale down — the origin
+// point for the drain deadline sleepDrainDeadline computes. A no-op if
+// already set, so repeated calls within the same sleep cycle don't reset
+// the deadline forward.
+func (r *DevEnvironmentReconciler) markSleepDrainStarted(ctx context.Context, env *OrbitDevEnvironment, now time.Time) error {
+	if _, ok := env.Annotations[devEnvSleepDrainStartedAnnotation]; ok {
+		return nil
+	}
+	patch := client.MergeFrom(env.DeepCopy())
+	if env.Annotations == nil {
+		env.Annotations = map[string]string{}
+	}
+	env.Annotations[devEnvSleepDrainStartedAnnotation] = now.Format(time.RFC3339)
+	if err := r.Patch(ctx, env, patch); err != nil {
+		return fmt.Errorf("mark sleep drain started for %q: %w", env.Name, err)
+	}
+	return nil
+}
+
+// clearSleepDrainStarted removes the sleep-drain-start annotation on wake,
+// so the next sleep cycle records its own fresh timestamp instead of
+// reusing (and finding already-expired) one left over from a previous cycle.
+func (r *DevEnvironmentReconciler) clearSleepDrainStarted(ctx context.Context, env *OrbitDevEnvironment) error {
+	if _, ok := env.Annotations[devEnvSleepDrainStartedAnnotation]; !ok {
+		return nil
+	}
+	patch := client.MergeFrom(env.DeepCopy())
+	delete(env.Annotations, devEnvSleepDrainStartedAnnotation)
+	if err := r.Patch(ctx, env, patch); err != nil {
+		return fmt.Errorf("clear sleep drain marker for %q: %w", env.Name, err)
+	}
+	return nil
+}
+
+// sleepDrainDeadline returns when the current sleep cycle's drain wait
+// expires. Falls back to "not yet exceeded" (now + timeout) if the
+// annotation is absent or unparseable, rather than treating that as an
+// immediate deadline — markSleepDrainStarted always sets it in the same
+// pass enterSleep first checks drain status, but a defensive fallback here
+// costs nothing.
+func (r *DevEnvironmentReconciler) sleepDrainDeadline(env *OrbitDevEnvironment, fallbackNow time.Time) time.Time {
+	raw, ok := env.Annotations[devEnvSleepDrainStartedAnnotation]
+	if !ok {
+		return fallbackNow.Add(devEnvSleepDrainTimeout)
+	}
+	started, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return fallbackNow.Add(devEnvSleepDrainTimeout)
+	}
+	return started.Add(devEnvSleepDrainTimeout)
 }
 
 // setSpecAwake patches spec.Awake directly (not the status subresource).
@@ -1076,19 +1233,26 @@ func (r *DevEnvironmentReconciler) patchStatusFields(ctx context.Context, env *O
 // statusFieldsEqual compares the subset of OrbitDevEnvironmentStatus fields
 // patchStatusFields callers ever mutate (Namespace, IngressHost, AppURL,
 // ExpiresAt, LastActivityAt, ResolvedRef — resolveRef in devenvironment_ref.go
-// is also a patchStatusFields caller). Deliberately narrower than a full
-// struct comparison: Conditions and the other status fields are written
-// through setDevEnvCondition/setDevEnvPhase, on their own patch calls, and
-// are never touched by a patchStatusFields mutate closure — comparing them
-// here would risk a false "changed" purely from a concurrent write this
-// function never made. Any new patchStatusFields caller that sets a status
-// field not listed here needs that field added below, or its write is
-// silently dropped as a false "unchanged".
+// — and KubeconfigCertificate/KubeconfigCABundle/KubeconfigCSRFingerprint —
+// reconcileKubeconfigCSR in devenvironment_csr.go). Deliberately narrower
+// than a full struct comparison: Conditions and the other status fields are
+// written through setDevEnvCondition/setDevEnvPhase, on their own patch
+// calls, and are never touched by a patchStatusFields mutate closure —
+// comparing them here would risk a false "changed" purely from a concurrent
+// write this function never made. Any new patchStatusFields caller that
+// sets a status field not listed here needs that field added below, or its
+// write is silently dropped as a false "unchanged" (found and fixed twice
+// already — WP-8's ResolvedRef, WP-9's kubeconfig fields — both caught by a
+// test asserting a second write actually persists, not just that the
+// in-memory object was mutated).
 func statusFieldsEqual(a, b OrbitDevEnvironmentStatus) bool {
 	return a.Namespace == b.Namespace &&
 		a.IngressHost == b.IngressHost &&
 		a.AppURL == b.AppURL &&
 		a.ResolvedRef == b.ResolvedRef &&
+		a.KubeconfigCertificate == b.KubeconfigCertificate &&
+		a.KubeconfigCABundle == b.KubeconfigCABundle &&
+		a.KubeconfigCSRFingerprint == b.KubeconfigCSRFingerprint &&
 		timePtrEqual(a.ExpiresAt) == timePtrEqual(b.ExpiresAt) &&
 		timePtrEqual(a.LastActivityAt) == timePtrEqual(b.LastActivityAt)
 }

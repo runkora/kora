@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -153,6 +154,15 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 		return fmt.Errorf("build vcluster client: %w", err)
 	}
 
+	// Must exist before any kubeconfig minted against this vcluster with
+	// Subject Organization "orbit:devenv-admin" (cmd/identity's
+	// devenvironments service — WP-10) could actually authorize anything;
+	// has no dependency on anything else installed below, so doing it first
+	// costs nothing and closes that window immediately.
+	if err = r.ensureInVClusterDevEnvAdminBinding(ctx, vcClient); err != nil {
+		return fmt.Errorf("ensure in-vcluster devenv-admin binding: %w", err)
+	}
+
 	helm := r.InVClusterHelmFactory(inVClusterOperatorNamespace, vcCfg)
 	if _, installErr := helm.InstallOrUpgrade(ctx,
 		inVClusterOperatorReleaseName, r.inVClusterOperatorChartPath(), "", "",
@@ -197,6 +207,75 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 		return fmt.Errorf("apply in-vcluster OrbitTenant: %w", err)
 	}
 	return nil
+}
+
+// inVClusterDevEnvAdminBindingName is the fixed ClusterRoleBinding name
+// ensureInVClusterDevEnvAdminBinding creates or verifies — one per
+// environment's own vcluster, so a fixed name is sufficient.
+const inVClusterDevEnvAdminBindingName = "orbit-devenv-admin"
+
+// ensureInVClusterDevEnvAdminBinding creates the ClusterRoleBinding that
+// makes the "orbit:devenv-admin" group resolve to cluster-admin inside this
+// environment's own vcluster. cmd/identity's devenvironments service mints
+// each developer's brokered kubeconfig client certificate with this group
+// as its Subject Organization (decision E2) — replacing the prototype's
+// O=system:masters, which bypasses every RBAC check outright and cannot be
+// scoped, audited by name, or revoked independently of the CA itself. The
+// developer remains cluster-admin inside their own environment either way;
+// this makes that grant a nameable, revocable RBAC object instead.
+func (r *DevEnvironmentReconciler) ensureInVClusterDevEnvAdminBinding(ctx context.Context, vcClient client.Client) error {
+	desired := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: inVClusterDevEnvAdminBindingName},
+		Subjects: []rbacv1.Subject{
+			{Kind: rbacv1.GroupKind, APIGroup: rbacv1.GroupName, Name: "orbit:devenv-admin"},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "ClusterRole",
+			Name:     "cluster-admin",
+		},
+	}
+
+	existing := &rbacv1.ClusterRoleBinding{}
+	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterDevEnvAdminBindingName}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		if createErr := vcClient.Create(ctx, desired); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create ClusterRoleBinding %q: %w", inVClusterDevEnvAdminBindingName, createErr)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("get ClusterRoleBinding %q: %w", inVClusterDevEnvAdminBindingName, err)
+	}
+
+	// Subjects/RoleRef are immutable on an existing ClusterRoleBinding — a
+	// mismatch here can only mean a stale object from an older code version;
+	// delete and recreate rather than erroring forever on every reconcile.
+	if subjectsAndRoleRefMatch(existing, desired) {
+		return nil
+	}
+	if err := vcClient.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete stale ClusterRoleBinding %q: %w", inVClusterDevEnvAdminBindingName, err)
+	}
+	if err := vcClient.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("recreate ClusterRoleBinding %q: %w", inVClusterDevEnvAdminBindingName, err)
+	}
+	return nil
+}
+
+func subjectsAndRoleRefMatch(a, b *rbacv1.ClusterRoleBinding) bool {
+	if a.RoleRef != b.RoleRef {
+		return false
+	}
+	if len(a.Subjects) != len(b.Subjects) {
+		return false
+	}
+	for i := range a.Subjects {
+		if a.Subjects[i] != b.Subjects[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // inVClusterOperatorChartPath resolves the local filesystem path to the

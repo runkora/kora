@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -191,5 +192,39 @@ func TestInVClusterServiceImageTags_PinsEveryOrbitServiceToResolvedRef(t *testin
 	}
 	if _, ok := values["opaGateway"]; ok {
 		t.Error(`values["opaGateway"] must not be pinned — it is a third-party image, not built from this repo`)
+	}
+}
+
+// TestEnsureInVClusterDevEnvAdminBinding_CreatesGroupBoundToClusterAdmin
+// guards decision E2: the kubeconfig client cert's Subject Organization
+// "orbit:devenv-admin" must resolve to cluster-admin inside the
+// environment's own vcluster, as a nameable, revocable RBAC object rather
+// than the built-in O=system:masters bypass.
+func TestEnsureInVClusterDevEnvAdminBinding_CreatesGroupBoundToClusterAdmin(t *testing.T) {
+	scheme := NewScheme()
+	vcClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &DevEnvironmentReconciler{}
+
+	if err := r.ensureInVClusterDevEnvAdminBinding(context.Background(), vcClient); err != nil {
+		t.Fatalf("ensureInVClusterDevEnvAdminBinding: %v", err)
+	}
+
+	got := &rbacv1.ClusterRoleBinding{}
+	if err := vcClient.Get(context.Background(), client.ObjectKey{Name: inVClusterDevEnvAdminBindingName}, got); err != nil {
+		t.Fatalf("get ClusterRoleBinding: %v", err)
+	}
+	if len(got.Subjects) != 1 {
+		t.Fatalf("subjects = %v, want exactly one", got.Subjects)
+	}
+	if got.Subjects[0].Kind != rbacv1.GroupKind || got.Subjects[0].Name != "orbit:devenv-admin" {
+		t.Errorf("subject = %+v, want Kind=Group Name=orbit:devenv-admin", got.Subjects[0])
+	}
+	if got.RoleRef.Kind != "ClusterRole" || got.RoleRef.Name != "cluster-admin" {
+		t.Errorf("roleRef = %+v, want Kind=ClusterRole Name=cluster-admin", got.RoleRef)
+	}
+
+	// Idempotent: calling again must not error or duplicate.
+	if err := r.ensureInVClusterDevEnvAdminBinding(context.Background(), vcClient); err != nil {
+		t.Fatalf("second ensureInVClusterDevEnvAdminBinding: %v", err)
 	}
 }
