@@ -25,6 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/orbitapi"
 )
@@ -168,6 +171,28 @@ type DevEnvironmentReconciler struct {
 	// Production wiring supplies NewCraneRefResolver; tests inject a fake.
 	RefResolver RefResolver
 
+	// ProvisionStageDuration records how long each named reconcile stage
+	// takes, per pass (attribute "stage": namespace, identity, vcluster,
+	// in-vcluster apply, in-vcluster ready) — the data source for the ADR's
+	// provision p90 success metric. Nil is a valid zero value:
+	// instrumentation is skipped wherever these fields are unset, so
+	// existing tests that construct a bare DevEnvironmentReconciler{} don't
+	// need to wire metrics to keep working.
+	ProvisionStageDuration otelmetric.Float64Histogram
+
+	// ReconcileFailuresTotal counts failReconcile invocations, labeled by
+	// its reason (the string literal at each failReconcile call site:
+	// NamespaceError, HostIdentityError, HelmError, APIAccessError,
+	// AppAccessError, PowerStateError, InVClusterPlatformError).
+	ReconcileFailuresTotal otelmetric.Int64Counter
+
+	// WakeDuration records time-to-Ready from an explicit wake (spec.awake
+	// flipping false->true while Sleeping) to the environment next
+	// reporting phase Ready — tracked via the wake-started annotation
+	// (markWakeStarted/recordWakeDurationIfReady), the same pattern pinned
+	// decision 23's sleep-drain deadline uses.
+	WakeDuration otelmetric.Float64Histogram
+
 	// failureCounts tracks consecutive reconcile-stage failures, keyed by
 	// "{env-name}/{stage-reason}" — see failReconcile. Guarded by
 	// failureCountsMu; lazily initialized.
@@ -267,7 +292,7 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 		}
 	}
 
-	if err := r.ensureNamespace(ctx, env); err != nil {
+	if err := r.timeStage(ctx, "namespace", func() error { return r.ensureNamespace(ctx, env) }); err != nil {
 		return r.failReconcile(ctx, env, "NamespaceError", err)
 	}
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvNamespaceReady, metav1.ConditionTrue,
@@ -277,11 +302,11 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 	// ingress gateway) start requesting SPIFFE SVIDs — see
 	// devenvironment_identity.go for why a missing grant here hangs the
 	// in-vcluster release sequence rather than failing fast.
-	if err := r.ensureHostIdentity(ctx, env); err != nil {
+	if err := r.timeStage(ctx, "identity", func() error { return r.ensureHostIdentity(ctx, env) }); err != nil {
 		return r.failReconcile(ctx, env, "HostIdentityError", err)
 	}
 
-	if err := r.ensureVCluster(ctx, env); err != nil {
+	if err := r.timeStage(ctx, "vcluster", func() error { return r.ensureVCluster(ctx, env) }); err != nil {
 		if isHelmBusy(err) {
 			log.Info(ctx, "helm release busy, requeueing",
 				logging.Field{Key: "name", Value: env.Name},
@@ -352,6 +377,7 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 		return ctrl.Result{}, err
 	}
 
+	r.recordWakeDurationIfReady(ctx, env, phase)
 	r.recordReconcileSuccess(ctx, env)
 
 	log.Info(ctx, "OrbitDevEnvironment reconciliation complete",
@@ -415,7 +441,9 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatformAndReadiness(ctx c
 		return "", 0, err
 	}
 
-	if err = r.reconcileInVClusterPlatform(ctx, env, resolvedRef); err != nil {
+	if err = r.timeStage(ctx, "in-vcluster apply", func() error {
+		return r.reconcileInVClusterPlatform(ctx, env, resolvedRef)
+	}); err != nil {
 		return "", 0, err
 	}
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformApplied, metav1.ConditionTrue,
@@ -431,7 +459,12 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatformAndReadiness(ctx c
 		)
 	}
 
-	platformReady, err := r.inVClusterPlatformReady(ctx, env)
+	var platformReady bool
+	err = r.timeStage(ctx, "in-vcluster ready", func() error {
+		var readyErr error
+		platformReady, readyErr = r.inVClusterPlatformReady(ctx, env)
+		return readyErr
+	})
 	if err != nil {
 		// Non-fatal: an unreachable vcluster API server right after apply is
 		// expected and self-heals, same posture as the rest of this
@@ -830,6 +863,9 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 			return "", 0, err
 		}
 		if err := r.clearSleepDrainStarted(ctx, env); err != nil {
+			return "", 0, err
+		}
+		if err := r.markWakeStarted(ctx, env); err != nil {
 			return "", 0, err
 		}
 		if err := r.scaleWorkloads(ctx, ns, false); err != nil {
@@ -1334,6 +1370,9 @@ func (r *DevEnvironmentReconciler) setDevEnvCondition(
 // rather than through this counter.
 func (r *DevEnvironmentReconciler) failReconcile(ctx context.Context, env *OrbitDevEnvironment, reason string, cause error) (ctrl.Result, error) {
 	count := r.recordStageFailure(env.Name, reason)
+	if r.ReconcileFailuresTotal != nil {
+		r.ReconcileFailuresTotal.Add(ctx, 1, otelmetric.WithAttributes(attribute.String("stage", reason)))
+	}
 
 	r.Logger.Error(ctx, "OrbitDevEnvironment reconcile stage failed",
 		logging.Field{Key: "name", Value: env.Name},
@@ -1395,6 +1434,80 @@ func (r *DevEnvironmentReconciler) clearFailureCounts(name string) {
 		if strings.HasPrefix(k, prefix) {
 			delete(r.failureCounts, k)
 		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// metrics
+// -----------------------------------------------------------------------------
+
+// timeStage runs fn and records its wall-clock duration on
+// ProvisionStageDuration under the given stage label, regardless of whether
+// fn succeeds — a stage repeatedly failing and retrying is exactly the
+// latency the ADR's provision p90 metric needs to see. Real time.Now(), not
+// r.Clock: this measures actual reconcile latency, not the simulated clock
+// TTL/idle decisions use. A nil ProvisionStageDuration (e.g. in tests that
+// don't wire metrics) is a no-op measurement, never a panic.
+func (r *DevEnvironmentReconciler) timeStage(ctx context.Context, stage string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	if r.ProvisionStageDuration != nil {
+		r.ProvisionStageDuration.Record(ctx, time.Since(start).Seconds(),
+			otelmetric.WithAttributes(attribute.String("stage", stage)))
+	}
+	return err
+}
+
+// devEnvWakeStartedAnnotation records the wall-clock moment an explicit wake
+// was detected (reconcilePowerState's wasAsleep branch), so
+// recordWakeDurationIfReady can compute time-to-Ready once the environment
+// next reports Ready. A plain annotation, not a status field, following the
+// same pattern devEnvSleepDrainStartedAnnotation already uses for pinned
+// decision 23 — metadata-only, so it never bumps .metadata.generation.
+const devEnvWakeStartedAnnotation = "orbit.io/wake-started-at"
+
+// markWakeStarted records the wake-start timestamp once, idempotently — a
+// no-op if already set (e.g. a retry of the same wake before Ready is
+// reached).
+func (r *DevEnvironmentReconciler) markWakeStarted(ctx context.Context, env *OrbitDevEnvironment) error {
+	if _, ok := env.Annotations[devEnvWakeStartedAnnotation]; ok {
+		return nil
+	}
+	patch := client.MergeFrom(env.DeepCopy())
+	if env.Annotations == nil {
+		env.Annotations = map[string]string{}
+	}
+	env.Annotations[devEnvWakeStartedAnnotation] = time.Now().Format(time.RFC3339)
+	if err := r.Patch(ctx, env, patch); err != nil {
+		return fmt.Errorf("mark wake started for %q: %w", env.Name, err)
+	}
+	return nil
+}
+
+// recordWakeDurationIfReady records WakeDuration and clears the wake-start
+// marker once the environment reports phase Ready again — a no-op if
+// there's no pending wake marker (the common case: most reconciles aren't
+// following a wake) or the environment hasn't reached Ready yet (an
+// in-progress wake may take several passes while the nested platform
+// reconverges).
+func (r *DevEnvironmentReconciler) recordWakeDurationIfReady(ctx context.Context, env *OrbitDevEnvironment, phase string) {
+	if phase != DevEnvPhaseReady {
+		return
+	}
+	raw, ok := env.Annotations[devEnvWakeStartedAnnotation]
+	if !ok {
+		return
+	}
+	if started, err := time.Parse(time.RFC3339, raw); err == nil && r.WakeDuration != nil {
+		r.WakeDuration.Record(ctx, time.Since(started).Seconds())
+	}
+	patch := client.MergeFrom(env.DeepCopy())
+	delete(env.Annotations, devEnvWakeStartedAnnotation)
+	if err := r.Patch(ctx, env, patch); err != nil {
+		r.Logger.Error(ctx, "clear wake-started annotation failed",
+			logging.Field{Key: "name", Value: env.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
 }
 

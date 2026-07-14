@@ -52,6 +52,9 @@ require (
 	github.com/google/go-containerregistry v0.20.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.40.0
+	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.40.0
+	go.opentelemetry.io/otel/sdk/metric v1.40.0
 )
 
 require (

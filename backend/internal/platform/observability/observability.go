@@ -6,10 +6,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
@@ -116,6 +119,97 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		}
 		return tp.Shutdown(ctx)
 	}, nil
+}
+
+// SetupMetrics initializes OpenTelemetry metrics following the same
+// exporter-priority convention as [Setup]: an explicit OTLP endpoint always
+// wins; local development without one falls back to stdout; anything else
+// gets a no-op provider so custom instruments cost nothing without a
+// collector deployed. Returns a shutdown function that must be called
+// before application exit, mirroring [Setup]'s contract.
+func SetupMetrics(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
+	shutdownTimeout := 5 * time.Second
+	if cfg.ShutdownTimeout > 0 {
+		shutdownTimeout = cfg.ShutdownTimeout
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
+			semconv.DeploymentEnvironment(cfg.Environment),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	var reader sdkmetric.Reader
+	switch {
+	case DefaultConfig.OTLPEndpoint != "":
+		reader, err = createOTLPMetricReader(ctx, DefaultConfig.OTLPEndpoint, DefaultConfig.OTLPInsecure)
+	case cfg.Environment == "local":
+		reader, err = createStdoutMetricReader()
+	default:
+		return createNoOpMeterProvider(res), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(reader),
+		sdkmetric.WithResource(res),
+	)
+	otel.SetMeterProvider(mp)
+
+	return func(ctx context.Context) error {
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, shutdownTimeout)
+			defer cancel()
+		}
+		return mp.Shutdown(ctx)
+	}, nil
+}
+
+// createStdoutMetricReader creates a stdout metric reader for development.
+func createStdoutMetricReader() (sdkmetric.Reader, error) {
+	exporter, err := stdoutmetric.New(stdoutmetric.WithPrettyPrint())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout metric exporter: %w", err)
+	}
+	return sdkmetric.NewPeriodicReader(exporter), nil
+}
+
+// createOTLPMetricReader creates an OTLP metric reader for production. Uses
+// TLS by default, with optional insecure mode for local development only —
+// same posture as createOTLPExporter for traces.
+func createOTLPMetricReader(ctx context.Context, endpoint string, insecure bool) (sdkmetric.Reader, error) {
+	opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
+	if insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	} else {
+		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(
+			credentials.NewClientTLSFromCert(nil, ""),
+		))
+	}
+
+	exporter, err := otlpmetricgrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
+	}
+	return sdkmetric.NewPeriodicReader(exporter), nil
+}
+
+// createNoOpMeterProvider creates a no-op meter provider for production
+// without OTLP. Instruments created against it are cheap no-ops.
+func createNoOpMeterProvider(res *resource.Resource) func(context.Context) error {
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res))
+	otel.SetMeterProvider(mp)
+	return func(ctx context.Context) error {
+		return mp.Shutdown(ctx)
+	}
 }
 
 // createStdoutExporter creates a stdout trace exporter for development.

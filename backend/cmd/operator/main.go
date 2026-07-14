@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -14,12 +16,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
+
 	oc "github.com/clear-route/orbit/cmd/operator/config"
 	"github.com/clear-route/orbit/internal/operator"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
+
+// devEnvMeterName scopes every OrbitDevEnvironment OTel instrument
+// (orbit_devenv_*) under one meter name, matching the ADR §10 metrics table.
+const devEnvMeterName = "github.com/clear-route/orbit/internal/operator/devenvironment"
 
 func main() {
 	ctx := context.Background()
@@ -98,14 +107,21 @@ func main() {
 	logger.Info(ctx, "orbit-operator shutdown complete")
 }
 
-// initObservability sets up OTEL tracing and returns a cleanup function.
+// initObservability sets up OTEL tracing and metrics and returns a cleanup
+// function that shuts both down.
 func initObservability(ctx context.Context) (func(), error) {
-	shutdown, err := observability.Setup(ctx, observability.Config{
+	obsCfg := observability.Config{
 		ServiceName:     oc.Current.Observability.ServiceName,
 		ServiceVersion:  oc.Current.App.Version,
 		Environment:     config.Environment(),
 		ShutdownTimeout: oc.Current.ShutdownTimeout(),
-	})
+	}
+
+	shutdownTracing, err := observability.Setup(ctx, obsCfg)
+	if err != nil {
+		return nil, err
+	}
+	shutdownMetrics, err := observability.SetupMetrics(ctx, obsCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +129,11 @@ func initObservability(ctx context.Context) (func(), error) {
 	return func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), oc.Current.ShutdownTimeout())
 		defer cancel()
-		if err := shutdown(shutdownCtx); err != nil {
-			log.Printf("error shutting down observability: %v", err)
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			log.Printf("error shutting down tracing: %v", err)
+		}
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			log.Printf("error shutting down metrics: %v", err)
 		}
 	}, nil
 }
@@ -241,5 +260,100 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		return err
 	}
 
+	devEnvReconciler, err := newDevEnvironmentReconciler(mgr, restCfg, logger)
+	if err != nil {
+		return err
+	}
+	if err := devEnvReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+	if err := operator.RegisterDevEnvironmentsGauge(otel.Meter(devEnvMeterName), mgr.GetClient()); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// newDevEnvironmentReconciler builds the DevEnvironmentReconciler with its
+// production factories/instruments wired from operator config and the
+// global OTel meter provider (set up by initObservability's SetupMetrics).
+func newDevEnvironmentReconciler(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logger) (*operator.DevEnvironmentReconciler, error) {
+	meter := otel.Meter(devEnvMeterName)
+
+	provisionStageDuration, err := meter.Float64Histogram(
+		"orbit_devenv_provision_stage_duration_seconds",
+		metric.WithDescription("Duration of each named OrbitDevEnvironment reconcile stage"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create orbit_devenv_provision_stage_duration_seconds histogram: %w", err)
+	}
+	reconcileFailuresTotal, err := meter.Int64Counter(
+		"orbit_devenv_reconcile_failures_total",
+		metric.WithDescription("Count of OrbitDevEnvironment reconcile-stage failures, by stage"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create orbit_devenv_reconcile_failures_total counter: %w", err)
+	}
+	wakeDuration, err := meter.Float64Histogram(
+		"orbit_devenv_wake_duration_seconds",
+		metric.WithDescription("Time from an explicit OrbitDevEnvironment wake to phase Ready"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create orbit_devenv_wake_duration_seconds histogram: %w", err)
+	}
+
+	tolerations := make([]corev1.Toleration, 0, len(oc.Current.Operator.DevEnvTolerations))
+	for _, t := range oc.Current.Operator.DevEnvTolerations {
+		tolerations = append(tolerations, corev1.Toleration{
+			Key:               t.Key,
+			Operator:          corev1.TolerationOperator(t.Operator),
+			Value:             t.Value,
+			Effect:            corev1.TaintEffect(t.Effect),
+			TolerationSeconds: t.TolerationSeconds,
+		})
+	}
+
+	scheme := mgr.GetScheme()
+	client := mgr.GetClient()
+
+	return &operator.DevEnvironmentReconciler{
+		Client:          client,
+		Scheme:          scheme,
+		Logger:          logger,
+		RestConfig:      restCfg,
+		HostJWKSFetcher: operator.NewHostJWKSFetcher(restCfg),
+		HelmFactory:     operator.NewHelmClientFactory(restCfg, logger),
+		Clock:           operator.NewRealClock(),
+		IngressDomain:   oc.Current.Operator.DevEnvIngressDomain,
+		AppExternalURL:  oc.Current.Operator.DevEnvAppExternalURL,
+		VClusterVersion: oc.Current.Operator.DevEnvVClusterVersion,
+		ChartDir:        oc.Current.Operator.ChartDir,
+		ImageRegistry:   oc.Current.Operator.DevEnvImageRegistry,
+		Quota: operator.DevEnvQuota{
+			CPURequests:    oc.Current.Operator.DevEnvQuota.CPURequests,
+			MemoryRequests: oc.Current.Operator.DevEnvQuota.MemoryRequests,
+			CPULimits:      oc.Current.Operator.DevEnvQuota.CPULimits,
+			MemoryLimits:   oc.Current.Operator.DevEnvQuota.MemoryLimits,
+			MaxPods:        oc.Current.Operator.DevEnvQuota.MaxPods,
+		},
+		LimitRange: operator.DevEnvLimitRange{
+			DefaultCPURequest:    oc.Current.Operator.DevEnvLimitRange.DefaultCPURequest,
+			DefaultMemoryRequest: oc.Current.Operator.DevEnvLimitRange.DefaultMemoryRequest,
+			DefaultCPULimit:      oc.Current.Operator.DevEnvLimitRange.DefaultCPULimit,
+			DefaultMemoryLimit:   oc.Current.Operator.DevEnvLimitRange.DefaultMemoryLimit,
+		},
+		NodeSelector:              oc.Current.Operator.DevEnvNodeSelector,
+		Tolerations:               tolerations,
+		VClusterRestConfigFactory: operator.NewVClusterRestConfigFactory(client),
+		VClusterClientFactory:     operator.NewVClusterClientFactory(scheme),
+		InVClusterHelmFactory: func(namespace string, vcRestConfig *rest.Config) operator.HelmInterface {
+			return operator.NewHelmClient(namespace, vcRestConfig, logger)
+		},
+		RefResolver:            operator.NewCraneRefResolver(oc.Current.Operator.DevEnvImageRegistry),
+		ProvisionStageDuration: provisionStageDuration,
+		ReconcileFailuresTotal: reconcileFailuresTotal,
+		WakeDuration:           wakeDuration,
+	}, nil
 }
