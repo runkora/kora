@@ -1281,6 +1281,16 @@ func (r *DevEnvironmentReconciler) setDevEnvPhase(ctx context.Context, env *Orbi
 	return nil
 }
 
+// setDevEnvCondition sets or updates one status condition, skipping the API
+// call entirely when the existing entry (by Type) already carries the exact
+// same Status/Reason/Message/ObservedGeneration — every reconcileReady pass
+// that reaches Ready calls this for 4 different condition types
+// unconditionally, so without this guard a steady-state environment would
+// still churn 4 status writes per pass even after patchStatusFields' own
+// diff-gate. Beyond the wasted write, WP-11's CRD-watch audit ingester
+// derives events from observed status transitions — a no-op condition
+// "change" that still round-trips through the API server risks manufacturing
+// a spurious watch event there too.
 func (r *DevEnvironmentReconciler) setDevEnvCondition(
 	ctx context.Context,
 	env *OrbitDevEnvironment,
@@ -1288,6 +1298,13 @@ func (r *DevEnvironmentReconciler) setDevEnvCondition(
 	status metav1.ConditionStatus,
 	reason, message string,
 ) error {
+	if existing := meta.FindStatusCondition(env.Status.Conditions, condType); existing != nil &&
+		existing.Status == status &&
+		existing.Reason == reason &&
+		existing.Message == message &&
+		existing.ObservedGeneration == env.Generation {
+		return nil
+	}
 	patch := client.MergeFrom(env.DeepCopy())
 	meta.SetStatusCondition(&env.Status.Conditions, metav1.Condition{
 		Type:               condType,
