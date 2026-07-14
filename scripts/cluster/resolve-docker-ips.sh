@@ -45,9 +45,11 @@ container_ip() {
   local name="$1"
   local ip
 
-  # Try explicit network name (set via `name: orbit-network` in docker-compose.yml)
+  # Try explicit network name (set via `name: orbit-network` in docker-compose.yml).
+  # Read .IPAddress directly — dumping the whole endpoint struct and grepping for
+  # an IPv4 picks up .Gateway first, which sorts before .IPAddress in the dump.
   ip="$(docker inspect "${name}" \
-    --format '{{index .NetworkSettings.Networks "orbit-network"}}' 2>/dev/null \
+    --format '{{with index .NetworkSettings.Networks "orbit-network"}}{{.IPAddress}}{{end}}' 2>/dev/null \
     | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 
   # Fall back to first network IP (works regardless of key naming).

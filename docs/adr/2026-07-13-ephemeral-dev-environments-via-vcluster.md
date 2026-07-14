@@ -7,6 +7,8 @@
 
 ---
 
+**IMPORTANT NOTE:** Any reference to prototype code and design can be found on the git branch `feat/vcluster`
+
 ## Context
 
 The 2026-07-07 ADR proposed the architecture; a deliberately vibe-coded prototype then **proved it end-to-end on k3d**. A developer presses *New dev environment* in the Orbit UI and gets a complete, isolated Orbit installation — its own vcluster, operator, charts, in-vcluster Istio, host-provided SPIFFE identity, database, migrations, fixtures, and browser login — reachable at a path-prefixed URL, connectable with a real unmodified `kubectl` over a brokered short-lived kubeconfig, sleeping when idle (~97% measured CPU reduction), and expiring on a TTL with nothing orphaned. Every architectural risk the original ADR flagged was spiked, root-caused live, or fixed: host-SPIRE attestation of vcluster-synced pods, in-vcluster Istio XDS authentication, kubeconfig brokering over SNI passthrough, shared-host path ingress, reconciler-implemented sleep.
