@@ -8,9 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: OCI tag to publish when running manually
+        description: >-
+          Override the auto-derived tag. Leave empty to publish
+          br-{branch-slug}-{shortsha} for the dispatched ref.
         required: false
-        default: latest
+        default: ""
         type: string
 
 permissions:
@@ -59,17 +61,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Tags are immutable and never moved or reused: main-{shortsha} per push,
+      # br-{branch-slug}-{shortsha} per manual dispatch. This trades tag
+      # accumulation (needs a registry lifecycle/GC policy — not yet in place)
+      # for images that are always resolvable by exact commit.
       - name: Derive image tag
         shell: bash
         run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             IMAGE_TAG="pr-${{ github.event.pull_request.number }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
-            IMAGE_TAG="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.image_tag }}" ]; then
+              IMAGE_TAG="${{ inputs.image_tag }}"
+            else
+              SLUG=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed -e 's/[^a-z0-9._-]/-/g' -e 's/^-*//' -e 's/-*$//')
+              IMAGE_TAG="br-${SLUG}-${SHORT_SHA}"
+            fi
           elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             IMAGE_TAG="${GITHUB_REF_NAME}"
           elif [ "${GITHUB_REF_TYPE}" = "branch" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
-            IMAGE_TAG="${GITHUB_SHA}"
+            IMAGE_TAG="main-${SHORT_SHA}"
           else
             IMAGE_TAG="latest"
           fi
