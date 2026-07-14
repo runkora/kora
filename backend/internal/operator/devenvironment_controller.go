@@ -162,6 +162,12 @@ type DevEnvironmentReconciler struct {
 	// returning a fake.
 	InVClusterHelmFactory func(namespace string, restConfig *rest.Config) HelmInterface
 
+	// TODO(wp-8-integration): resolveRef (devenvironment_ref.go) is called
+	// from reconcileInVClusterPlatformAndReadiness, wired separately.
+	// RefResolver resolves the symbolic spec.ref "main" to an immutable tag.
+	// Production wiring supplies NewCraneRefResolver; tests inject a fake.
+	RefResolver RefResolver
+
 	// failureCounts tracks consecutive reconcile-stage failures, keyed by
 	// "{env-name}/{stage-reason}" — see failReconcile. Guarded by
 	// failureCountsMu; lazily initialized.
@@ -377,7 +383,21 @@ func minRequeue(requeue, fastRequeue time.Duration) time.Duration {
 func (r *DevEnvironmentReconciler) reconcileInVClusterPlatformAndReadiness(ctx context.Context, env *OrbitDevEnvironment) (string, time.Duration, error) {
 	log := r.Logger
 
-	if err := r.reconcileInVClusterPlatform(ctx, env); err != nil {
+	// spec.ref resolves once, at first provision: an immutable tag is
+	// stored verbatim, the symbolic "main" resolves to the newest
+	// main-{shortsha} tag. An unresolvable ref is non-retryable — resolveRef
+	// has already set phase Failed itself in that case, so this returns the
+	// same phase with a nil error rather than routing through failReconcile
+	// a second time (see failReconcile's doc comment on non-retryable causes).
+	resolvedRef, failed, err := r.resolveRef(ctx, env)
+	if failed {
+		return DevEnvPhaseFailed, 0, nil
+	}
+	if err != nil {
+		return "", 0, err
+	}
+
+	if err := r.reconcileInVClusterPlatform(ctx, env, resolvedRef); err != nil {
 		return "", 0, err
 	}
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformApplied, metav1.ConditionTrue,
@@ -1033,8 +1053,8 @@ func (r *DevEnvironmentReconciler) nextRequeueAfter(env *OrbitDevEnvironment, no
 // patchStatusFields snapshots env's status BEFORE mutate runs and skips the
 // API call entirely when mutate didn't actually change anything — a
 // reconcile driven by RequeueAfter (rather than a real external event) very
-// often recomputes the exact same Namespace/IngressHost/AppURL/ExpiresAt
-// every pass, and patching status unconditionally used to be a needless
+// often recomputes the exact same Namespace/IngressHost/AppURL/ExpiresAt/
+// ResolvedRef every pass, and patching status unconditionally used to be a needless
 // write on every one of them (and, before GenerationChangedPredicate,
 // self-inflicted infinite churn). Snapshotting AFTER mutation (or reusing a
 // snapshot taken before an earlier direct field assignment elsewhere) would
@@ -1055,16 +1075,20 @@ func (r *DevEnvironmentReconciler) patchStatusFields(ctx context.Context, env *O
 
 // statusFieldsEqual compares the subset of OrbitDevEnvironmentStatus fields
 // patchStatusFields callers ever mutate (Namespace, IngressHost, AppURL,
-// ExpiresAt, LastActivityAt). Deliberately narrower than a full struct
-// comparison: Conditions and the other status fields are written through
-// setDevEnvCondition/setDevEnvPhase, on their own patch calls, and are never
-// touched by a patchStatusFields mutate closure — comparing them here would
-// risk a false "changed" purely from a concurrent write this function never
-// made.
+// ExpiresAt, LastActivityAt, ResolvedRef — resolveRef in devenvironment_ref.go
+// is also a patchStatusFields caller). Deliberately narrower than a full
+// struct comparison: Conditions and the other status fields are written
+// through setDevEnvCondition/setDevEnvPhase, on their own patch calls, and
+// are never touched by a patchStatusFields mutate closure — comparing them
+// here would risk a false "changed" purely from a concurrent write this
+// function never made. Any new patchStatusFields caller that sets a status
+// field not listed here needs that field added below, or its write is
+// silently dropped as a false "unchanged".
 func statusFieldsEqual(a, b OrbitDevEnvironmentStatus) bool {
 	return a.Namespace == b.Namespace &&
 		a.IngressHost == b.IngressHost &&
 		a.AppURL == b.AppURL &&
+		a.ResolvedRef == b.ResolvedRef &&
 		timePtrEqual(a.ExpiresAt) == timePtrEqual(b.ExpiresAt) &&
 		timePtrEqual(a.LastActivityAt) == timePtrEqual(b.LastActivityAt)
 }
