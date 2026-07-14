@@ -170,6 +170,13 @@ const (
 	// from "the nested orbit-operator has actually finished the real release
 	// sequence" — status.phase must not report Ready until this is True.
 	ConditionDevEnvPlatformReady = "InVClusterPlatformReady"
+	// ConditionDevEnvProgressing reports False (with a Reason naming the
+	// failing stage and a Message carrying the underlying error) while a
+	// reconcile-stage error is happening but hasn't yet crossed the
+	// consecutive-failure threshold that promotes the environment to phase
+	// Failed. True means the last reconcile stage succeeded — set back to
+	// True on recovery so the condition never reads as a permanent stall.
+	ConditionDevEnvProgressing = "Progressing"
 )
 
 // DevEnvironment phase values. There is deliberately no "Expired" phase:

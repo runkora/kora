@@ -18,6 +18,8 @@ func AddToScheme(s *runtime.Scheme) error {
 		&OrbitTenantList{},
 		&Connection{},
 		&ConnectionList{},
+		&OrbitDevEnvironment{},
+		&OrbitDevEnvironmentList{},
 		&MCPServer{},
 		&MCPServerList{},
 	)
