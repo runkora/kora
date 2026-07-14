@@ -9,6 +9,17 @@ rules:
   - apiGroups: [""]
     resources: ["secrets", "configmaps", "namespaces", "serviceaccounts", "services", "endpoints"]
     verbs: ["*"]
+  # ResourceQuota/LimitRange — the capacity backstop the devenvironment
+  # reconciler applies to each orbit-devenv-{id} namespace
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges"]
+    verbs: ["*"]
+  # PersistentVolumeClaims — the vcluster chart's StatefulSet uses a
+  # volumeClaimTemplate for its datastore; Helm's install --wait readiness
+  # check needs to observe PVC status.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Pod and container management (needed for SPIRE, Istio, Orbit workloads)
   - apiGroups: [""]
     resources: ["pods", "pods/log", "pods/exec"]
@@ -31,7 +42,8 @@ rules:
     verbs: ["*"]
   # Own CRDs
   - apiGroups: ["orbit.io"]
-    resources: ["orbitplatforms", "orbitplatforms/status", "orbittenants", "orbittenants/status"]
+    resources: ["orbitplatforms", "orbitplatforms/status", "orbittenants", "orbittenants/status",
+      "orbitdevenvironments", "orbitdevenvironments/status"]
     verbs: ["*"]
   # Connection CRs — the operator reads/watches them to aggregate the
   # egress-gateway connection registry (Amendment 3). Read-only: connections

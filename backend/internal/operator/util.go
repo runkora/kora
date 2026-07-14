@@ -15,15 +15,20 @@ type chartVersions struct {
 	SPIRECRDs string
 	SPIRE     string
 	Istio     string
+	VCluster  string
 }
 
 // defaultChartVersions returns the pinned versions that match
-// scripts/cluster/versions.env. Update both locations together when bumping.
+// scripts/cluster/versions.env. Update both locations together when bumping —
+// the version-bump regression suite (scripts/cluster/spike-*.sh, run against
+// the cloud host per the vcluster ADR §2 pinned decision 1/2) re-verifies
+// each pin on every bump.
 func defaultChartVersions() *chartVersions {
 	return &chartVersions{
 		SPIRECRDs: "0.5.0",
 		SPIRE:     "0.28.3",
 		Istio:     "1.29.1",
+		VCluster:  "0.35.1",
 	}
 }
 

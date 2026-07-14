@@ -109,17 +109,30 @@ func (h *HelmClient) InstallOrUpgrade(
 	// Skip upgrade when the release is already deployed at exactly the target
 	// chart version. This prevents SPIRE/Istio pre/post-upgrade hooks from
 	// running on every reconcile loop and stops the install-loop cascade.
-	// For local charts (chartVersion == "") we always upgrade so that local
-	// edits are picked up immediately.
-	if state.Deployed && chrt.Metadata.Version != "" && state.ChartVersion == chrt.Metadata.Version {
+	if shouldSkipUpgrade(state.Deployed, chartVersion, state.ChartVersion) {
 		h.logger.Debug(ctx, "helm release already at target version, skipping upgrade",
 			logging.Field{Key: "release", Value: releaseName},
-			logging.Field{Key: "version", Value: chrt.Metadata.Version},
+			logging.Field{Key: "version", Value: chartVersion},
 		)
 		return state, nil
 	}
 
 	return h.upgrade(ctx, cfg, releaseName, chrt, values)
+}
+
+// shouldSkipUpgrade reports whether InstallOrUpgrade should skip re-applying
+// an already-deployed release. It keys on the requested chartVersion
+// parameter — not the loaded chart's own Chart.yaml Metadata.Version, which
+// is always non-empty and previously was checked here instead, silently
+// defeating the "local charts always upgrade" promise: a locally baked
+// chart is always requested with chartVersion == "", but its Chart.yaml
+// Metadata.Version is a fixed string, so an operator image rebuilt with
+// edited chart templates but an unchanged Chart.yaml version would deploy
+// the new binary yet keep serving the OLD chart content forever, because
+// the already-deployed release's ChartVersion trivially matched the
+// freshly-loaded chart's own unchanged version (vcluster ADR pinned #20).
+func shouldSkipUpgrade(deployed bool, requestedVersion, deployedChartVersion string) bool {
+	return deployed && requestedVersion != "" && deployedChartVersion == requestedVersion
 }
 
 // Status returns the current state of a named release.

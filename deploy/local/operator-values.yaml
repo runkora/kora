@@ -9,3 +9,13 @@ image:
 
 # Disable leader election for single-replica local dev clusters
 leaderElection: false
+
+# Dev-environment config has no built-in default in Go (production requires
+# it to be set explicitly per cluster — see cmd/operator/config/config.go's
+# validateDevEnvRequiredConfig). These values keep the operator itself
+# startable on a local k3d cluster; they do not make dev environments fully
+# functional locally (k3d verification is out of scope — see code_plan.md).
+devEnv:
+  ingressDomain: dev.orbit.local
+  appExternalURL: https://orbit.local.clearroute.io:8443
+  imageRegistry: orbit-registry:5001
