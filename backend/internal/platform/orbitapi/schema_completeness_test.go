@@ -22,7 +22,6 @@ func TestStatusSchemaCompleteness(t *testing.T) {
 
 	statusType := reflect.TypeFor[OrbitDevEnvironmentStatus]()
 	for field := range statusType.Fields() {
-		field := field
 		tag := field.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			t.Fatalf("field %s has no usable json tag", field.Name)
