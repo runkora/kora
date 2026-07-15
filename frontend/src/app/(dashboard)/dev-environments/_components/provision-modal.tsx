@@ -23,9 +23,9 @@ interface ProvisionModalProps {
 }
 
 export function ProvisionModal({ open, onClose, onCreate }: ProvisionModalProps) {
-  // Defaults to "main" (latest main build) — the CRD's own symbolic default.
-  // Clear it and type an immutable tag (e.g. main-abc1234) to pin a specific
-  // build instead.
+  // Defaults to "main" — a floating tag that always tracks the latest main
+  // build, the CRD's own symbolic default. Clear it and type an immutable
+  // tag (e.g. v1.2.3) to pin a specific build instead.
   const [ref, setRef] = useState('main');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -54,7 +54,9 @@ export function ProvisionModal({ open, onClose, onCreate }: ProvisionModalProps)
           <FormField
             id="devenv-ref"
             label="Version"
-            hint={'"main" for the latest main build, or an immutable image tag (e.g. main-abc1234)'}
+            hint={
+              '"main" always tracks the latest main build, or pin an immutable image tag (e.g. v1.2.3)'
+            }
           >
             <Input
               id="devenv-ref"

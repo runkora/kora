@@ -352,7 +352,6 @@ func newDevEnvironmentReconciler(mgr ctrl.Manager, restCfg *rest.Config, logger 
 		InVClusterHelmFactory: func(namespace string, vcRestConfig *rest.Config) operator.HelmInterface {
 			return operator.NewHelmClient(namespace, vcRestConfig, logger)
 		},
-		RefResolver:            operator.NewCraneRefResolver(oc.Current.Operator.DevEnvImageRegistry),
 		ProvisionStageDuration: provisionStageDuration,
 		ReconcileFailuresTotal: reconcileFailuresTotal,
 		WakeDuration:           wakeDuration,

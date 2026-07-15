@@ -165,12 +165,6 @@ type DevEnvironmentReconciler struct {
 	// returning a fake.
 	InVClusterHelmFactory func(namespace string, restConfig *rest.Config) HelmInterface
 
-	// TODO(wp-8-integration): resolveRef (devenvironment_ref.go) is called
-	// from reconcileInVClusterPlatformAndReadiness, wired separately.
-	// RefResolver resolves the symbolic spec.ref "main" to an immutable tag.
-	// Production wiring supplies NewCraneRefResolver; tests inject a fake.
-	RefResolver RefResolver
-
 	// ProvisionStageDuration records how long each named reconcile stage
 	// takes, per pass (attribute "stage": namespace, identity, vcluster,
 	// in-vcluster apply, in-vcluster ready) — the data source for the ADR's

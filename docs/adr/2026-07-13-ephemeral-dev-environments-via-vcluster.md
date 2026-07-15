@@ -99,11 +99,13 @@ The five genuinely open decisions. (Isolation, trigger, identity, ingress, and s
 
 #### Option B2: Image-tag resolution; charts travel with the operator image *(chosen)*
 
-**Description:** `spec.ref` resolves to a single immutable image tag applied uniformly: the **in-vcluster operator image at that tag** (which bakes the charts, CRDs, and migrations of that ref — `Dockerfile.operator` already does this) and the Orbit service images at that tag. CI publishes immutably-tagged images per `main` merge (`main-{shortsha}`) and per branch build. Chart changes at a ref are covered *because the charts ship inside the operator image of that ref* — no separate chart publishing needed.
+**Description:** `spec.ref` resolves to a single image tag applied uniformly: the **in-vcluster operator image at that tag** (which bakes the charts, CRDs, and migrations of that ref — `Dockerfile.operator` already does this) and the Orbit service images at that tag. Chart changes at a ref are covered *because the charts ship inside the operator image of that ref* — no separate chart publishing needed.
 
 **Pros:** one artifact family, one resolution step; the existing "charts baked into the operator image" design (prototype Phase 2, second slice) becomes the versioning mechanism instead of an accident; preview environments become "set `spec.ref` to the branch tag".
 
 **Cons:** the *host* operator's devenv reconciler code is still the host's version — a `spec.ref` cannot change how the reconciler itself behaves (acceptable: the reconciler is host machinery, like the hypervisor under a VM); testing a change to the reconciler still means redeploying the host operator.
+
+**Revision (post-implementation):** the symbolic default `main` was originally going to resolve *once, at first provision*, to an immutable `main-{shortsha}` CI tag, pinning each environment to whatever main happened to be at creation. That pinning turned out not to be a goal for this feature — a dev environment should just track current `main`, not a commit frozen at creation. `main` now resolves to a literal, floating `main` tag that CI keeps republished, pulled with `pullPolicy: Always`; explicit immutable tags (e.g. a branch build, `v1.2.3`) still work verbatim for anyone who *does* want to pin, via `spec.ref`. See §3 below.
 
 #### Option B3: Leave `spec.ref` ignored (status quo)
 
@@ -220,13 +222,13 @@ These were each discovered by live debugging (full narratives in the prototype A
 
 The Phase 1 spike scripts (`scripts/cluster/spike-*.sh`) are retained permanently as the **regression suite for vcluster and Istio version bumps** — pins are upgraded deliberately, never floated, and the scripts re-run on every bump.
 
-### 3. Version selection — `spec.ref` (Decision B2)
+### 3. Version selection — `spec.ref` (Decision B2, revised)
 
-- **CI obligation (new):** every `main` merge publishes immutably-tagged images — `orbit-operator` and all service images — as `main-{shortsha}` to the cloud registry; branch builds publish `br-{slug}-{shortsha}` on demand. Tags are never moved or reused.
-- **Resolution:** `spec.ref` accepts either an immutable tag verbatim or the symbolic default `main`. The reconciler resolves a symbolic ref **once, at first provision**, to the newest matching immutable tag (registry list call) and records it as `status.resolvedRef`; all subsequent reconciles use `status.resolvedRef`. Environments are pinned from birth and never silently drift.
-- **Application:** `inVClusterOperatorValues` sets the in-vcluster operator image to `{registry}/orbit-operator:{resolvedRef}` with `pullPolicy: IfNotPresent` (replacing `:latest` + `Always`); the migration Job (`inVClusterOperatorImage()`) uses the same tag, so applied migrations always match the installed ref; `applyInVClusterOrbitPlatform` threads the ref into the `OrbitPlatform` values so service images resolve at the same tag. Charts and CRDs at the ref come for free — they are baked into the operator image at that ref (existing `Dockerfile.operator` design, now load-bearing).
+- **CI obligation:** every `main` merge republishes a single floating tag — literally `main` — for `orbit-operator` and all service images to the cloud registry. This tag moves; there is no per-commit accumulation and therefore no registry lifecycle/GC policy needed for it. `pull_request`/manual-dispatch/`v*`-tag image publishing is unaffected.
+- **Resolution:** `spec.ref` accepts either an immutable tag verbatim (e.g. a branch build's tag, or a real release tag) or the symbolic default `main`. The reconciler resolves `main` (or an unset `spec.ref`) to the literal tag `main` and records it as `status.resolvedRef` — purely so later reconciles reuse the same value without redoing the (trivial) resolution, **not** to pin the environment to a point-in-time build. An immutable tag given explicitly is stored and used verbatim, and *does* pin that environment, since it names one specific build.
+- **Application:** `inVClusterOperatorValues` sets the in-vcluster operator image to `{registry}/orbit-operator:{resolvedRef}` with `pullPolicy: Always` — resolvedRef is typically the floating `main` tag, so nodes must actually re-pull rather than reuse whatever they cached under that tag name; the migration Job (`inVClusterOperatorImage()`) uses the same tag; `applyInVClusterOrbitPlatform`/`inVClusterServiceImageTags` thread the ref (and `pullPolicy: Always`) into the `OrbitPlatform` values so every service image resolves at the same tag. Charts and CRDs at the ref come for free — they are baked into the operator image at that ref (existing `Dockerfile.operator` design, now load-bearing).
 - **Iteration story unchanged:** developers with a kubeconfig remain cluster-admin inside the vcluster and can `helm upgrade`/`kubectl set image` freely; `spec.ref` selects the starting point.
-- The identity API validates ref syntax (`ErrValidation` on garbage) and stores it on the registry row (already a column); the UI's provision modal offers "latest `main`" plus a free-text tag field.
+- The identity API validates ref syntax (`ErrValidation` on garbage) and stores it on the registry row (already a column); the UI's provision modal offers "latest `main`" plus a free-text tag field for anyone who wants to pin.
 
 ### 4. Governance
 

@@ -17,7 +17,7 @@ An `OrbitDevEnvironment` custom resource describes one disposable, full-stack Or
 ```bash
 kubectl delete orbitdevenvironment {id}
 # then provision a fresh one from the UI or:
-#   POST /api/v1/dev-environments  {"ref": "main-<shortsha>"}
+#   POST /api/v1/dev-environments  {"ref": "main"}   # or omit ref entirely — "main" is the default
 ```
 
 This is safe because the environment's PKI (the vcluster's client CA, used to sign kubeconfig CSRs) lives on the vcluster's own PVC, not in the CR or in Postgres — deleting the CR triggers the finalizer path that tears down the namespace (and its PVC) along with everything else, so there is no orphaned certificate material left behind to reconcile around. There is deliberately no "resume a half-provisioned environment" code path: partial state is always cheaper to discard and rebuild than to reconcile forward, given how young the reconciler's own state machine is.
@@ -46,6 +46,8 @@ This means: if you change `values.yaml` for a version-pinned remote chart (vclus
 - **Remote pinned charts** (`VCLUSTER_CHART_VERSION`, `ISTIO_CHART_VERSION` in `scripts/cluster/versions.env`) only re-apply when the pin itself changes.
 
 If you need a values-only change to reach already-running environments, bump the pinned version (even to the same upstream version under a synthetic suffix, if upstream hasn't cut a new release) or delete-and-re-provision the affected environments.
+
+**`spec.ref: main` is a floating tag, not a pin.** Unlike the pinned remote charts above, a dev environment's own images (`orbit-operator` and every Orbit service) resolve `spec.ref: main` (the default) to the literal tag `main`, which CI keeps republished on every push to `main` (`.github/workflows/docker.yml`), pulled with `pullPolicy: Always`. This means: a freshly provisioned environment always gets current main. It does **not** mean a *running* environment continuously updates as `main` moves forward — nothing forces a pod restart just because CI republished the tag, so a long-lived environment keeps running whatever content it last pulled (at provision, or at its last incidental pod restart) until it restarts again or is delete-and-re-provisioned. To pin an environment to one exact build instead (e.g. to reproduce a bug against a specific commit), set `spec.ref` to an explicit immutable tag (a branch build's tag, or a release tag) rather than leaving it at the `main` default.
 
 **Before rolling out any bump to `VCLUSTER_CHART_VERSION` or `ISTIO_CHART_VERSION`,** run the version-bump regression suite against the cloud staging host:
 

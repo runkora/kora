@@ -202,7 +202,6 @@ func newDevEnvTestReconcilerFull(t *testing.T, clock *fakeClock, objs ...client.
 			DefaultCPURequest: "100m", DefaultMemoryRequest: "128Mi",
 			DefaultCPULimit: "2", DefaultMemoryLimit: "3Gi",
 		},
-		RefResolver: &fakeRefResolver{tag: "main-abc1234"},
 		VClusterRestConfigFactory: func(context.Context, string) (*rest.Config, error) {
 			return &rest.Config{Host: "https://vcluster.fake"}, nil
 		},
