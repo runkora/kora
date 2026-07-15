@@ -13,6 +13,7 @@ import {
   Stack,
   Text,
 } from '@orbit/terra';
+import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
 
@@ -163,6 +164,62 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
               </Stack>
               <ChipRow label="Input" values={model.input_modalities} />
               <ChipRow label="Output" values={model.output_modalities} />
+            </Stack>
+
+            <Separator />
+
+            {/* Pricing */}
+            <Stack padding="snug" gap="none">
+              <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
+                <Text size="caption" color="muted">
+                  Pricing
+                </Text>
+              </Stack>
+              {model.pricing ? (
+                <>
+                  <Stack
+                    direction="horizontal"
+                    align="center"
+                    justify="between"
+                    paddingBlock="tight"
+                    paddingInline="cozy"
+                  >
+                    <Text size="caption" color="muted">
+                      Input /1M tokens
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(model.pricing.effective_input_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                  <Stack
+                    direction="horizontal"
+                    align="center"
+                    justify="between"
+                    paddingBlock="tight"
+                    paddingInline="cozy"
+                  >
+                    <Text size="caption" color="muted">
+                      Output /1M tokens
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(model.pricing.effective_output_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                </>
+              ) : (
+                <Stack
+                  direction="horizontal"
+                  align="center"
+                  gap="tight"
+                  paddingBlock="tight"
+                  paddingInline="cozy"
+                >
+                  <Icon name="alert-circle" size="2xs" color="status-degraded" />
+                  <Text size="caption" color="muted">
+                    Unknown
+                  </Text>
+                </Stack>
+              )}
             </Stack>
           </ModalBody>
 

@@ -13,6 +13,7 @@ import {
   Text,
   Heading,
 } from '@orbit/terra';
+import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
 
@@ -89,6 +90,27 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
                 ))}
               </Stack>
             )}
+
+            {/* Pricing */}
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" color="muted">
+                Effective Price
+              </Text>
+              {model.pricing ? (
+                <Stack gap="none" textAlign="end">
+                  <Text size="caption" mono>
+                    {fmtCost(model.pricing.effective_input_cost_per_1m)}/1M
+                  </Text>
+                  <Text size="caption" color="muted" mono>
+                    out: {fmtCost(model.pricing.effective_output_cost_per_1m)}/1M
+                  </Text>
+                </Stack>
+              ) : (
+                <Text size="caption" color="muted">
+                  —
+                </Text>
+              )}
+            </Stack>
 
             {/* Modalities */}
             <Stack gap="snug">
