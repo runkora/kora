@@ -10,7 +10,11 @@
 // pattern (agents/[slug]/_hooks/use-agent-detail.ts).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DevEnvironment, DevEnvironmentKubeconfigResponse, DevEnvironmentLimits } from '@orbit/shared/api';
+import type {
+  DevEnvironment,
+  DevEnvironmentKubeconfigResponse,
+  DevEnvironmentLimits,
+} from '@orbit/shared/api';
 import {
   createDevEnvironment,
   destroyDevEnvironment,
@@ -46,9 +50,7 @@ function reconcilePendingWakes(
   envs: DevEnvironment[],
 ): ReadonlySet<string> {
   if (prev.size === 0) return prev;
-  const stillSleeping = new Set(
-    envs.filter((e) => e.phase === 'Sleeping').map((e) => e.id),
-  );
+  const stillSleeping = new Set(envs.filter((e) => e.phase === 'Sleeping').map((e) => e.id));
   const next = new Set([...prev].filter((id) => stillSleeping.has(id)));
   return next.size === prev.size ? prev : next;
 }

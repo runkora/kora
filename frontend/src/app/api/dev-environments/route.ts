@@ -32,7 +32,10 @@ export const GET = withAuth(async (_req, session) => {
 export const POST = withAuth(async (req: NextRequest, session) => {
   if (config.devEnvironmentId) {
     return NextResponse.json(
-      { code: 'devenvironments_nested_forbidden', message: 'Dev environments cannot create further dev environments.' },
+      {
+        code: 'devenvironments_nested_forbidden',
+        message: 'Dev environments cannot create further dev environments.',
+      },
       { status: 403 },
     );
   }

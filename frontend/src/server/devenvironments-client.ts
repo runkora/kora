@@ -23,7 +23,8 @@ const UPSTREAM_TIMEOUT_MS = 10_000;
 // constant) so an operator raising the backend's own signTimeoutSeconds
 // doesn't silently desync the two — see devenvironments-client.test.ts for
 // the assertion that the two stay correctly ordered.
-export const DEVENV_KUBECONFIG_TIMEOUT_MS = Number(process.env.DEVENV_KUBECONFIG_TIMEOUT_MS) || 25_000;
+export const DEVENV_KUBECONFIG_TIMEOUT_MS =
+  Number(process.env.DEVENV_KUBECONFIG_TIMEOUT_MS) || 25_000;
 
 // The backend default this timeout must comfortably exceed — kept here
 // (rather than only in a comment) so devenvironments-client.test.ts can
