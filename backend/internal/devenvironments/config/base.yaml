@@ -1,0 +1,21 @@
+quota:
+  # Per-principal cap on active (non-deleted) environments. Override with
+  # ORBIT_DEVENV_MAX_ACTIVE_PER_OWNER for local dev.
+  maxActivePerOwner: 2
+
+kubeconfig:
+  # How long POST /v1/dev-environments/{id}/kubeconfig waits for the operator
+  # to sign a freshly submitted CSR before giving up with a 503. Bounded by a
+  # single-object watch (crclient.go), not a poll loop — this budget still
+  # applies as the overall deadline. Override with
+  # ORBIT_DEVENV_KUBECONFIG_SIGN_TIMEOUT_SECONDS.
+  signTimeoutSeconds: 20
+
+apiServer:
+  # host:port of the shared Istio ingress gateway's TLS-passthrough listener
+  # (orbitapi.DevEnvAPIGatewayPort) — what the minted kubeconfig's server:
+  # field actually points at. This does NOT need to resolve to a specific
+  # environment: SNI (tls-server-name, set to status.ingressHost) carries
+  # that. Required in every environment — no default is safe across
+  # clusters. Set via ORBIT_DEVENV_API_SERVER_EXTERNAL_ADDRESS.
+  externalAddress: ""
