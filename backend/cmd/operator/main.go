@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// Create controller-runtime manager.
-	mgr, err := initManager(restCfg)
+	mgr, err := initManager(restCfg, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to create controller-runtime manager",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -171,7 +171,7 @@ func buildRestConfig(ctx context.Context, logger logging.Logger) (*rest.Config, 
 
 // initManager creates the controller-runtime Manager with our CRD scheme and
 // options derived from operator config.
-func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
+func initManager(restCfg *rest.Config, logger logging.Logger) (ctrl.Manager, error) {
 	scheme := operator.NewScheme()
 
 	syncPeriod := oc.Current.SyncPeriod()
@@ -191,10 +191,11 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		}),
 	}
 
-	// Wire a discard logr into controller-runtime so it doesn't emit the
-	// "log.SetLogger was never called" warning. All meaningful logging goes
-	// through our own injected logging.Logger in the reconcilers.
-	ctrl.SetLogger(logr.Discard())
+	// Wire controller-runtime's own internal logging (leader election,
+	// webhook server, cache sync) through our injected logging.Logger instead
+	// of discarding it — logr.Discard() previously hid these entirely, with
+	// no operator-side signal when e.g. leader election or cache sync failed.
+	ctrl.SetLogger(logr.New(newCRLogSink(logger)))
 
 	return ctrl.NewManager(restCfg, opts)
 }
