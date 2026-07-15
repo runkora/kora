@@ -61,6 +61,11 @@ export function CatalogTab({
     });
   }, []);
 
+  const handleModelDeleted = useCallback((id: string) => {
+    setVirtualModels((prev) => prev.filter((m) => m.id !== id));
+    setSelectedModel(null);
+  }, []);
+
   const enabledVMs = virtualModels.filter((m) => m.enabled).length;
   const enabledPMs = providerModels.filter((m) => m.enabled).length;
   const connectedProviders = new Set(providerModels.map((m) => m.provider)).size;
@@ -144,6 +149,7 @@ export function CatalogTab({
           model={selectedModel}
           onClose={() => setSelectedModel(null)}
           onSaved={handleModelSaved}
+          onDeleted={handleModelDeleted}
           providerModels={providerModels}
         />
       )}

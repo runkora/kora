@@ -21,6 +21,7 @@ import {
   Toggle,
   Icon,
 } from '@orbit/terra';
+import { ConfirmDialog } from '@orbit/components';
 import type { VirtualModel, ProviderModel } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
@@ -30,13 +31,23 @@ interface EditorPanelProps {
   model: VirtualModel | null;
   onClose: () => void;
   onSaved: (vm: VirtualModel) => void;
+  onDeleted: (id: string) => void;
   providerModels: ProviderModel[];
 }
 
-export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorPanelProps) {
+export function EditorPanel({
+  model,
+  onClose,
+  onSaved,
+  onDeleted,
+  providerModels,
+}: EditorPanelProps) {
   const [draft, setDraft] = useState<VirtualModel | null>(model);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const knownFamilies = Array.from(new Set(providerModels.map((m) => m.family)))
     .filter(Boolean)
@@ -81,6 +92,28 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
       setError('Network error');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!draft) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/catalog/virtual-models/${encodeURIComponent(draft.id)}`, {
+        method: 'DELETE',
+      });
+      if (res.status === 204 || res.ok) {
+        onDeleted(draft.id);
+        onClose();
+        return;
+      }
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      setDeleteError(body.message ?? 'Delete failed');
+    } catch {
+      setDeleteError('Network error');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -203,6 +236,12 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
+          {!isNew && (
+            <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(true)}>
+              <Icon name="trash" size="2xs" color="subtle" />
+              Delete
+            </Button>
+          )}
           <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
@@ -217,6 +256,20 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
           </Button>
         </Stack>
       </SidePanelFooter>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete Virtual Model"
+        description={`Remove "${draft.displayName || draft.name}" and all its routes? This cannot be undone.`}
+        confirmLabel="Delete"
+        confirming={deleting}
+        error={deleteError}
+        onConfirm={() => void handleDelete()}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+      />
     </SidePanel>
   );
 }
