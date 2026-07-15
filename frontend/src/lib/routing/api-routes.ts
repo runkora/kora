@@ -114,8 +114,7 @@ export const ApiRoute = {
      * set. `GET(email)` cannot be used there since it always includes `?email=`.
      */
     PATH: (): string => `${authBase()}/discover`,
-    GET: (email: string): string =>
-      `${authBase()}/discover?email=${encodeURIComponent(email)}`,
+    GET: (email: string): string => `${authBase()}/discover?email=${encodeURIComponent(email)}`,
   },
 
   /**
@@ -154,8 +153,7 @@ export const ApiRoute = {
    * DELETE — revoke a grant by ID.
    */
   policyGrant: {
-    DELETE: (id: string): string =>
-      `${apiBase()}/policy/grants/${id}`,
+    DELETE: (id: string): string => `${apiBase()}/policy/grants/${id}`,
   },
 
   /**
@@ -175,8 +173,7 @@ export const ApiRoute = {
    * DELETE — remove a role→scope mapping.
    */
   policyRole: {
-    DELETE: (role: string): string =>
-      `${apiBase()}/policy/roles/${encodeURIComponent(role)}`,
+    DELETE: (role: string): string => `${apiBase()}/policy/roles/${encodeURIComponent(role)}`,
   },
 
   /**
@@ -212,8 +209,7 @@ export const ApiRoute = {
    * POST — simulate a policy check (proxies to policy-gateway).
    */
   policySimulate: {
-    POST: (): string =>
-      `${apiBase()}/policy/evaluate/simulate`,
+    POST: (): string => `${apiBase()}/policy/evaluate/simulate`,
   },
 
   /**
@@ -300,23 +296,19 @@ export const ApiRoute = {
   agentTypes: {
     list: (): string => `${apiBase()}/agents/types`,
     create: (): string => `${apiBase()}/agents/types`,
-    detail: (id: string): string =>
-      `${apiBase()}/agents/types/${id}`,
-    delete: (id: string): string =>
-      `${apiBase()}/agents/types/${id}`,
+    detail: (id: string): string => `${apiBase()}/agents/types/${id}`,
+    delete: (id: string): string => `${apiBase()}/agents/types/${id}`,
     toolScopes: (): string => `${apiBase()}/agents/tool-scopes`,
     connectors: (): string => `${apiBase()}/agents/connectors`,
     mcpTools: (): string => `${apiBase()}/agents/mcp-tools`,
-    effectiveAccess: (id: string): string =>
-      `${apiBase()}/agents/types/${id}/effective-access`,
+    effectiveAccess: (id: string): string => `${apiBase()}/agents/types/${id}/effective-access`,
     /**
      * `/api/agents/types/effective-access`
      *
      * POST — resolves the effective-access view for a *draft* (unsaved)
      * connectivity config. Backs the Connectivity tab's live preview.
      */
-    previewEffectiveAccess: (): string =>
-      `${apiBase()}/agents/types/effective-access`,
+    previewEffectiveAccess: (): string => `${apiBase()}/agents/types/effective-access`,
     /**
      * `/api/agents/types/[typeId]/usage`
      *
@@ -324,8 +316,7 @@ export const ApiRoute = {
      *       from the inference gateway. Powers the token breakdown and spend
      *       cards on the agent overview page.
      */
-    usage: (id: string): string =>
-      `${apiBase()}/agents/types/${id}/usage`,
+    usage: (id: string): string => `${apiBase()}/agents/types/${id}/usage`,
     /**
      * `/api/agents/types/usage`
      *
@@ -344,10 +335,8 @@ export const ApiRoute = {
   environments: {
     list: (): string => `${apiBase()}/agents/environments`,
     create: (): string => `${apiBase()}/agents/environments`,
-    detail: (id: string): string =>
-      `${apiBase()}/agents/environments/${id}`,
-    delete: (id: string): string =>
-      `${apiBase()}/agents/environments/${id}`,
+    detail: (id: string): string => `${apiBase()}/agents/environments/${id}`,
+    delete: (id: string): string => `${apiBase()}/agents/environments/${id}`,
   },
 
   /**
@@ -357,10 +346,8 @@ export const ApiRoute = {
   triggerSources: {
     list: (): string => `${apiBase()}/trigger-sources`,
     create: (): string => `${apiBase()}/trigger-sources`,
-    detail: (id: string): string =>
-      `${apiBase()}/trigger-sources/${id}`,
-    delete: (id: string): string =>
-      `${apiBase()}/trigger-sources/${id}`,
+    detail: (id: string): string => `${apiBase()}/trigger-sources/${id}`,
+    delete: (id: string): string => `${apiBase()}/trigger-sources/${id}`,
   },
 
   triggers: {
@@ -384,16 +371,11 @@ export const ApiRoute = {
   devEnvironments: {
     list: (): string => `${apiBase()}/dev-environments`,
     create: (): string => `${apiBase()}/dev-environments`,
-    detail: (id: string): string =>
-      `${apiBase()}/dev-environments/${id}`,
-    destroy: (id: string): string =>
-      `${apiBase()}/dev-environments/${id}`,
-    extend: (id: string): string =>
-      `${apiBase()}/dev-environments/${id}/extend`,
-    wake: (id: string): string =>
-      `${apiBase()}/dev-environments/${id}/wake`,
-    kubeconfig: (id: string): string =>
-      `${apiBase()}/dev-environments/${id}/kubeconfig`,
+    detail: (id: string): string => `${apiBase()}/dev-environments/${id}`,
+    destroy: (id: string): string => `${apiBase()}/dev-environments/${id}`,
+    extend: (id: string): string => `${apiBase()}/dev-environments/${id}/extend`,
+    wake: (id: string): string => `${apiBase()}/dev-environments/${id}/wake`,
+    kubeconfig: (id: string): string => `${apiBase()}/dev-environments/${id}/kubeconfig`,
   },
 
   /**
@@ -409,22 +391,14 @@ export const ApiRoute = {
 
   runs: {
     list: (): string => `${apiBase()}/agents/runs`,
-    listForType: (typeId: string): string =>
-      `${apiBase()}/agents/types/${typeId}/runs`,
-    start: (typeId: string): string =>
-      `${apiBase()}/agents/types/${typeId}/runs`,
-    detail: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}`,
-    terminate: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}`,
-    messages: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}/messages`,
-    events: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}/events`,
-    usage: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}/usage`,
-    interrupt: (runId: string): string =>
-      `${apiBase()}/agents/runs/${runId}/interrupt`,
+    listForType: (typeId: string): string => `${apiBase()}/agents/types/${typeId}/runs`,
+    start: (typeId: string): string => `${apiBase()}/agents/types/${typeId}/runs`,
+    detail: (runId: string): string => `${apiBase()}/agents/runs/${runId}`,
+    terminate: (runId: string): string => `${apiBase()}/agents/runs/${runId}`,
+    messages: (runId: string): string => `${apiBase()}/agents/runs/${runId}/messages`,
+    events: (runId: string): string => `${apiBase()}/agents/runs/${runId}/events`,
+    usage: (runId: string): string => `${apiBase()}/agents/runs/${runId}/usage`,
+    interrupt: (runId: string): string => `${apiBase()}/agents/runs/${runId}/interrupt`,
   },
 
   /**
@@ -454,15 +428,9 @@ export const ApiRoute = {
    * DELETE — clear all pricing overrides (revert to synced prices).
    */
   catalogPricingOverride: {
-    PUT: (
-      provider: string,
-      modelId: string,
-    ): string =>
+    PUT: (provider: string, modelId: string): string =>
       `${apiBase()}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
-    DELETE: (
-      provider: string,
-      modelId: string,
-    ): string =>
+    DELETE: (provider: string, modelId: string): string =>
       `${apiBase()}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
 } as const;
