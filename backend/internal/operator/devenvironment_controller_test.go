@@ -124,8 +124,8 @@ func TestReconcile_ProvisionsNamespaceQuotaAndVCluster(t *testing.T) {
 		t.Errorf("app VirtualService gateways = %v, want [%s]", appGateways, systemNamespace+"/"+hostOrbitGatewayName)
 	}
 	appRoutes, _, _ := unstructured.NestedSlice(appVS.Object, "spec", "http")
-	if len(appRoutes) != 5 {
-		t.Fatalf("app VirtualService has %d http routes, want 5 (dex-exact + dex-prefix + exact + prefix + cookie)", len(appRoutes))
+	if len(appRoutes) != 4 {
+		t.Fatalf("app VirtualService has %d http routes, want 4 (dex-exact + dex-prefix + exact + prefix)", len(appRoutes))
 	}
 	appSE := &unstructured.Unstructured{}
 	appSE.SetGroupVersionKind(istioServiceEntryGVK())
@@ -159,10 +159,10 @@ func TestReconcile_ProvisionsNamespaceQuotaAndVCluster(t *testing.T) {
 
 // TestReconcile_AppRoutesAggregateAcrossEnvironments pins the one property
 // the aggregated app VirtualService exists for: with several environments on
-// the shared hostname, every environment's path-prefix routes come BEFORE
-// every environment's cookie-fallback route, so a stale routing cookie can
-// never shadow an explicit /{env-id} entry (Istio's merge order across
-// separate VirtualServices on one host is undefined).
+// the shared hostname, every environment's routes land in ONE aggregated
+// object in a deterministic order (Istio's merge order across separate
+// VirtualServices on one host is undefined), each environment's Dex routes
+// preceding its own app-prefix routes.
 func TestReconcile_AppRoutesAggregateAcrossEnvironments(t *testing.T) {
 	clock := newFakeClock(time.Now())
 	envA := newTestEnv("env-a", nil)
@@ -186,7 +186,6 @@ func TestReconcile_AppRoutesAggregateAcrossEnvironments(t *testing.T) {
 	want := []string{
 		"devenv-env-a-dex-entry", "devenv-env-a-dex-prefix", "devenv-env-a-entry", "devenv-env-a-prefix",
 		"devenv-env-b-dex-entry", "devenv-env-b-dex-prefix", "devenv-env-b-entry", "devenv-env-b-prefix",
-		"devenv-env-a-cookie", "devenv-env-b-cookie",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("route names = %v, want %v", names, want)

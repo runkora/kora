@@ -13,8 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse, delay } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders } from '@orbit/test-utils';
 import { SidebarStateProvider } from './sidebar-state';
 import { DashboardHeader } from './dashboard-header';
 
@@ -73,7 +72,6 @@ describe('DashboardHeader hamburger', () => {
 });
 
 describe('DashboardHeader dev environment banner', () => {
-  const EXIT_URL = '/api/dev-environment/exit';
   const mockLocation = { href: 'http://localhost/', origin: 'http://localhost', host: 'localhost' };
 
   beforeEach(() => {
@@ -110,53 +108,25 @@ describe('DashboardHeader dev environment banner', () => {
     expect(screen.getByRole('button', { name: /Return to Orbit/ })).toBeInTheDocument();
   });
 
-  it('clicking "Return to Orbit" calls the exit route and navigates to /', async () => {
+  it('clicking "Return to Orbit" navigates to the unprefixed root and disables the button', async () => {
+    // Deliberately unprefixed and no BFF round trip: leaving the environment
+    // for the host app is the whole point, and the gateway routes an
+    // unprefixed "/" to the main Orbit app's own catch-all now that the
+    // routing-cookie fallback is gone (devenvironment_app_ingress.go) —
+    // see also WP-14's backend regression test asserting no route ever
+    // matches on a cookie header again.
     vi.mocked(useSession).mockReturnValue({
       scopes: [],
       user: null,
       loaded: true,
       devEnvironmentId: 'bob-env',
     });
-    // Returns a plain 200, not the real route's 307 — the redirect itself is
-    // the route handler's own concern (frontend/src/app/api/dev-environment/exit/route.ts);
-    // this test only verifies DashboardHeader hits the endpoint and then forces
-    // a full navigation. A mocked redirect would make the fetch client try to
-    // follow it to an unhandled "/" request in this test environment.
-    let exitCalled = false;
-    server.use(
-      http.get(EXIT_URL, () => {
-        exitCalled = true;
-        return new HttpResponse(null, { status: 200 });
-      }),
-    );
 
     renderHeader();
     await userEvent.click(screen.getByRole('button', { name: /Return to Orbit/ }));
 
     await waitFor(() => {
-      expect(exitCalled).toBe(true);
       expect(mockLocation.href).toBe('/');
-    });
-  });
-
-  it('disables the "Return to Orbit" button while the request is in-flight', async () => {
-    vi.mocked(useSession).mockReturnValue({
-      scopes: [],
-      user: null,
-      loaded: true,
-      devEnvironmentId: 'bob-env',
-    });
-    server.use(
-      http.get(EXIT_URL, async () => {
-        await delay('infinite');
-        return new HttpResponse(null, { status: 200 });
-      }),
-    );
-
-    renderHeader();
-    await userEvent.click(screen.getByRole('button', { name: /Return to Orbit/ }));
-
-    await waitFor(() => {
       expect(screen.getByRole('button', { name: /Return to Orbit/ })).toBeDisabled();
     });
   });

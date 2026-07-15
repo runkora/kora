@@ -19,6 +19,8 @@
  */
 import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
 
+import { getClientDevEnvPrefix } from '@orbit/lib/routing';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** The subset of tenant OIDC config needed to drive the browser-side PKCE flow. */
@@ -50,8 +52,14 @@ export const TENANT_CONFIG_STORAGE_KEY = 'orbit_tenant_config';
  * the callback page creates another to complete it; both paths are one-shot).
  */
 export function buildUserManager(cfg: TenantOidcConfig): UserManager {
+  // Path-prefixed with the current dev-environment prefix ("" outside one) —
+  // must exactly match the redirect_uri each environment's Dex fixture
+  // registers (appAuthCallbackURL, devenvironment_app_ingress.go), or Dex
+  // rejects the token exchange with a redirect_uri mismatch.
   const redirect_uri =
-    typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '';
+    typeof window !== 'undefined'
+      ? `${window.location.origin}${getClientDevEnvPrefix()}/auth/callback`
+      : '';
 
   const settings: UserManagerSettings = {
     authority: cfg.issuerUrl,

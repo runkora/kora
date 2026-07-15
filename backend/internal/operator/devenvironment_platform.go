@@ -179,7 +179,7 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 		return fmt.Errorf("ensure in-vcluster frontend secret: %w", frontendSecretErr)
 	}
 	externalDexIssuer := r.appDexIssuerURL(env)
-	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues, r.appAuthCallbackURL(), externalDexIssuer); fixturesErr != nil {
+	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues, r.appAuthCallbackURL(env), externalDexIssuer); fixturesErr != nil {
 		return fmt.Errorf("ensure in-vcluster fixtures: %w", fixturesErr)
 	}
 	if migErr := r.ensureInVClusterMigrations(ctx, vcClient, resolvedRef); migErr != nil {

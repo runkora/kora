@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
-import { ApiRoute, usePrefix } from '@orbit/lib/routing';
+import { usePrefix } from '@orbit/lib/routing';
 import { useSidebarState } from './sidebar-state';
 import { useSession } from './permissions-provider';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
@@ -59,18 +59,14 @@ export function DashboardHeader() {
   const host = useSyncExternalStore(subscribeNoop, mcpGatewayHost, getServerHost);
   const endpoint = header?.showEndpoint ? host : '';
 
-  // The dev environment's own app-ingress gateway routes unprefixed requests by
-  // a routing cookie, not by URL (devenvironment_app_ingress.go) — a plain link
-  // to "/" would just land back here. This hits a BFF route that clears the
-  // cookie server-side, then forces a full navigation so the browser re-requests
-  // "/" with the cookie actually gone.
-  async function returnToOrbit() {
+  // Deliberately unprefixed: leaving this environment for the host app is
+  // the whole point, and the gateway routes an unprefixed "/" to the main
+  // Orbit app's own catch-all now that the routing-cookie fallback is gone
+  // (devenvironment_app_ingress.go) — a plain full-page navigation is
+  // sufficient, no BFF round trip needed.
+  function returnToOrbit() {
     setReturningToOrbit(true);
-    try {
-      await fetch(ApiRoute.devEnvironmentExit.GET());
-    } finally {
-      window.location.href = '/';
-    }
+    window.location.href = '/';
   }
 
   return (
@@ -170,7 +166,7 @@ export function DashboardHeader() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void returnToOrbit()}
+              onClick={returnToOrbit}
               disabled={returningToOrbit}
             >
               <Icon name={returningToOrbit ? 'loader' : 'external-link'} size="xs" />

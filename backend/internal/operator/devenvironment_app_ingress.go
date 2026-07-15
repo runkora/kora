@@ -17,35 +17,30 @@
 //
 // The per-environment prefix cannot be baked into the environment's own
 // frontend build: every environment installs the SAME image, and Next.js's
-// basePath is a build-time setting — so the environment's frontend emits
-// UNPREFIXED asset/navigation URLs (/_next/..., /dashboard) that carry no
-// environment ID for the gateway to route on. The routing-cookie fallback
-// implemented here bridges that gap until the frontend itself becomes
-// prefix-aware (a separate, in-progress work item — pinned decision 14):
+// basePath is a build-time setting — so the frontend itself has to be
+// prefix-aware at runtime (reading X-Forwarded-Prefix and threading it
+// through every internally-constructed URL — AppLink, usePrefixedRouter,
+// api-routes.ts, the OIDC redirect_uri) rather than relying on any
+// path-rewriting trick here. A prefixed request (/{env-id}, /{env-id}/*) is
+// routed by path: the prefix is stripped (the environment serves "/"
+// unprefixed, identical bits everywhere) and recorded in X-Forwarded-Prefix
+// so the frontend can restore it on every URL it builds afterward.
 //
-//   - A prefixed request (/{env-id}, /{env-id}/*) is routed by path: the
-//     prefix is stripped (the environment serves "/" unprefixed, identical
-//     bits everywhere), X-Forwarded-Prefix records what was stripped, and the
-//     response sets a host-scoped routing cookie naming the environment.
-//   - Every unprefixed request (assets, client-side navigation, BFF fetches,
-//     the OIDC callback) is routed by that cookie instead.
-//
-// Known, accepted limitations of the cookie scheme: the browser-visible URL
-// goes unprefixed after client-side navigation, so deep links must re-enter
-// through /{env-id}; and one browser profile talks to one environment at a
-// time — visiting another environment's prefix repoints the cookie (two
-// environments need two browser profiles).
+// This once had a routing-cookie fallback for requests the frontend couldn't
+// yet prefix itself (assets, client-side navigation, the OIDC callback) —
+// removed once the frontend became fully prefix-aware and staging traffic
+// confirmed the fallback route was never hit (pinned decision 14: an
+// unscoped routing cookie is a hijack vector, kept only as long as something
+// genuinely still depended on it).
 //
 // All app routes for all environments live in ONE aggregated VirtualService,
 // not one per environment: Istio's merge order across multiple
 // VirtualServices bound to the same host is undefined, so a per-environment
-// split could evaluate environment B's cookie-fallback route before
-// environment A's path-prefix route — a stale cookie would then shadow an
-// explicit /{env-id} entry and route it to the wrong environment. A single
-// VirtualService makes the precedence deterministic: every environment's
-// path routes first, every cookie fallback after (pinned decision 12).
-// Rebuilt from the full OrbitDevEnvironment list on every reconcile (same
-// pattern as PlatformReconciler.tenantNamespaces); safe because the
+// split could evaluate routes in an order this package does not control. A
+// single VirtualService makes the precedence deterministic: every
+// environment's Dex routes precede its own app-prefix route (pinned decision
+// 12). Rebuilt from the full OrbitDevEnvironment list on every reconcile
+// (same pattern as PlatformReconciler.tenantNamespaces); safe because the
 // controller runs single-threaded reconciles.
 package operator
 
@@ -83,32 +78,11 @@ const (
 	// why they cannot be split per environment).
 	devEnvAppVirtualServiceName = "devenv-app-routes"
 
-	// devEnvRouteCookieName is the host-scoped cookie the gateway sets on
-	// prefixed requests and routes unprefixed requests by. Set and consumed
-	// entirely at the gateway — no Orbit service ever reads it.
-	devEnvRouteCookieName = "orbit-devenv-route"
-
 	// devEnvAppGatewayPort is the environment gateway's plain-HTTP service
 	// port on the synced Service (the in-vcluster orbit-platform install runs
 	// with gateway TLS disabled — TLS for real infrastructure terminates once
 	// at the SHARED gateway, never per environment).
 	devEnvAppGatewayPort = 80
-
-	// devEnvRouteCookieMaxAgeSeconds bounds how long a stale routing cookie
-	// can misdirect the shared host's own (non-devenv) traffic. The cookie's
-	// match on devEnvAppCookieRoute has no uri constraint — it applies to
-	// every path on the shared host, including a plain visit to the real
-	// Orbit app — so an unbounded (session-only) cookie would leave the main
-	// app hijacked into a stale environment for as long as the browser
-	// session lasted, with no expiry and no indication anything was wrong
-	// (pinned decision 14). Every prefixed request re-sets this cookie
-	// (devEnvAppPrefixRoutes), so an actively-used environment's cookie never
-	// actually expires underfoot; only an abandoned one does. This is a
-	// stopgap, not the fix: the real fix is the frontend becoming
-	// prefix-aware so the cookie-fallback route is no longer needed for
-	// general navigation at all — its removal is a separate, later work item
-	// once that sweep is verified live (never before).
-	devEnvRouteCookieMaxAgeSeconds = 900
 )
 
 // appHostname is the shared hostname all environments' app traffic is served
@@ -133,21 +107,27 @@ func (r *DevEnvironmentReconciler) appURL(env *OrbitDevEnvironment) string {
 }
 
 // appAuthCallbackURL is the browser-facing OIDC redirect URI registered on
-// every environment's Dex client (devenvironment_fixtures.go). Host-scoped
-// and unprefixed — the frontend builds its redirect_uri from
-// window.location.origin, and the routing cookie (not a path prefix) carries
-// the environment identity on the callback request.
-func (r *DevEnvironmentReconciler) appAuthCallbackURL() string {
-	return strings.TrimSuffix(r.AppExternalURL, "/") + "/auth/callback"
+// this environment's Dex client (devenvironment_fixtures.go): the shared
+// app-ingress host, path-prefixed with this environment's own ID
+// ({AppExternalURL}/{env-id}/auth/callback), exactly like appDexIssuerURL
+// below. The frontend builds the matching redirect_uri client-side by
+// reading its own current path prefix (getClientDevEnvPrefix,
+// frontend/src/lib/oidc-client.ts) — both sides must agree, or Dex rejects
+// the token exchange with a redirect_uri mismatch. This used to be
+// unprefixed, host-scoped, and routed back to the right environment by the
+// (now-removed) routing cookie; the frontend becoming prefix-aware made
+// that unnecessary — the callback now travels through the same general
+// /{env-id}/* prefix route as everything else the environment serves.
+func (r *DevEnvironmentReconciler) appAuthCallbackURL(env *OrbitDevEnvironment) string {
+	return strings.TrimSuffix(r.AppExternalURL, "/") + "/" + env.Name + "/auth/callback"
 }
 
 // appDexIssuerURL is the browser- (and in-vcluster-identity-service-)
 // reachable OIDC issuer for one environment's fixture Dex:
-// {AppExternalURL}/{env-id}/dex. Unlike the app's own routes, this one is
-// NOT the cookie-routed unprefixed scheme — every caller of Dex (the browser
-// completing signinRedirect, and the in-vcluster identity service's own
-// discovery/JWKS fetch) always has the environment ID in hand, so the path
-// prefix alone is enough and no routing cookie is needed. Threaded into both
+// {AppExternalURL}/{env-id}/dex. Every caller of Dex (the browser completing
+// signinRedirect, and the in-vcluster identity service's own discovery/JWKS
+// fetch) always has the environment ID in hand, so the path prefix alone is
+// enough. Threaded into both
 // the fixture Dex's own "issuer:" config (devenvironment_fixtures.go) and the
 // seeded OrbitTenant's OIDC issuer (devenvironment_platform.go) — they must
 // agree exactly, or OIDC discovery's issuer check fails.
@@ -280,19 +260,14 @@ func (r *DevEnvironmentReconciler) reconcileDevEnvAppRoutes(ctx context.Context,
 		return r.deleteIstioResource(ctx, istioVirtualServiceGVK(), devEnvAppVirtualServiceName)
 	}
 
-	// Dex routes before this environment's own app prefix routes (a request
+	// Dex routes before this environment's own app prefix route: a request
 	// under /{env-id}/dex/* would otherwise be captured first by the app
 	// prefix route's broader /{env-id}/ match and forwarded, wrongly, to the
-	// environment's own frontend gateway instead of Dex) — then, across all
-	// environments, cookie fallbacks last so a stale routing cookie can never
-	// shadow an explicit /{env-id} entry (pinned decisions 12 and 14).
+	// environment's own frontend gateway instead of Dex (pinned decision 12).
 	var routes []any
 	for _, name := range names {
 		routes = append(routes, devEnvDexRoutes(name)...)
 		routes = append(routes, devEnvAppPrefixRoutes(name)...)
-	}
-	for _, name := range names {
-		routes = append(routes, devEnvAppCookieRoute(name))
 	}
 
 	spec := map[string]any{
@@ -312,22 +287,12 @@ func (r *DevEnvironmentReconciler) reconcileDevEnvAppRoutes(ctx context.Context,
 // devEnvAppPrefixRoutes builds one environment's path-routed entry points:
 // exact /{env-id} and prefix /{env-id}/, both stripped to "/" before reaching
 // the environment (identical bits — the environment serves unprefixed),
-// recording the stripped prefix in X-Forwarded-Prefix and pinning the routing
-// cookie for the unprefixed requests that follow.
+// recording the stripped prefix in X-Forwarded-Prefix so the environment's
+// own (prefix-aware) frontend can restore it on every URL it builds.
 func devEnvAppPrefixRoutes(name string) []any {
 	headers := map[string]any{
 		"request": map[string]any{
 			"set": map[string]any{"X-Forwarded-Prefix": "/" + name},
-		},
-		"response": map[string]any{
-			// add, not set: the environment's own Set-Cookie headers (the BFF
-			// session) must survive alongside the routing cookie.
-			"add": map[string]any{
-				"Set-Cookie": fmt.Sprintf(
-					"%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax",
-					devEnvRouteCookieName, name, devEnvRouteCookieMaxAgeSeconds,
-				),
-			},
 		},
 	}
 	exact := map[string]any{
@@ -345,29 +310,6 @@ func devEnvAppPrefixRoutes(name string) []any {
 		"route":   devEnvAppDestination(name),
 	}
 	return []any{exact, prefix}
-}
-
-// devEnvAppCookieRoute builds one environment's fallback route: any request
-// carrying this environment's routing cookie, forwarded as-is (unprefixed
-// asset/navigation/API paths are exactly what the environment serves).
-func devEnvAppCookieRoute(name string) map[string]any {
-	return map[string]any{
-		"name": "devenv-" + name + "-cookie",
-		"match": []any{
-			map[string]any{
-				"headers": map[string]any{
-					"cookie": map[string]any{
-						// Envoy regex matches are full-string: the cookie may
-						// sit anywhere in the header, but its VALUE must end
-						// at a ";" or the end of the header — {env-id} being a
-						// prefix of another environment's ID can never match.
-						"regex": fmt.Sprintf(`(.*;\s*)?%s=%s(\s*;.*)?`, devEnvRouteCookieName, name),
-					},
-				},
-			},
-		},
-		"route": devEnvAppDestination(name),
-	}
 }
 
 func devEnvAppDestination(name string) []any {
@@ -389,12 +331,10 @@ func devEnvAppDestination(name string) []any {
 // every one of its own routes (.well-known/openid-configuration, auth,
 // token, keys, ...) under its issuer's path, not under a bare "/dex" — a
 // request rewritten to "/dex/..." 404s against Dex, while the untouched
-// "/{env-id}/dex/..." path succeeds. No X-Forwarded-Prefix/routing-cookie
-// headers either: every caller of these routes (the browser's
-// signinRedirect, the in-vcluster identity service's discovery/JWKS fetch)
-// always has the environment ID in hand and builds the full
-// /{env-id}/dex/... URL directly, unlike the app's own unprefixed
-// asset/navigation requests that need the cookie fallback.
+// "/{env-id}/dex/..." path succeeds. No X-Forwarded-Prefix header either:
+// every caller of these routes (the browser's signinRedirect, the
+// in-vcluster identity service's discovery/JWKS fetch) always has the
+// environment ID in hand and builds the full /{env-id}/dex/... URL directly.
 func devEnvDexRoutes(name string) []any {
 	exact := map[string]any{
 		"name":  "devenv-" + name + "-dex-entry",

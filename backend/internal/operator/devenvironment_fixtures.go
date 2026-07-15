@@ -516,9 +516,11 @@ func redisService() *corev1.Service {
 // restart, which is fine for a disposable environment.
 //
 // externalCallbackURL is the browser-facing PKCE redirect URI under the
-// shared app-ingress host ("{appExternalURL}/auth/callback" — unprefixed,
-// because the routing cookie carries the environment identity for every
-// non-path-prefixed request; see devenvironment_app_ingress.go). Registered
+// shared app-ingress host, path-prefixed with this environment's own ID
+// ("{appExternalURL}/{env-id}/auth/callback", appAuthCallbackURL — see
+// devenvironment_app_ingress.go) — must exactly match the redirect_uri the
+// frontend sends (it reads its own current prefix client-side), or Dex
+// rejects the token exchange with a redirect_uri mismatch. Registered
 // alongside the relative device-flow callback.
 //
 // externalIssuerURL ({appExternalURL}/{env-id}/dex, appDexIssuerURL) is the

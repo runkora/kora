@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"slices"
-	"strings"
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -85,14 +84,16 @@ func TestReconcileDevEnvAppRoutes_AggregatesAcrossEnvironments(t *testing.T) {
 	}
 
 	names := httpRouteNames(t, vs)
-	// 2 environments x (2 dex + 2 prefix + 1 cookie) = 10.
-	if len(names) != 10 {
-		t.Fatalf("aggregated VirtualService has %d http routes, want 10 (both environments' dex+prefix+cookie routes): %v", len(names), names)
+	// 2 environments x (2 dex + 2 prefix) = 8. No cookie routes — the
+	// routing-cookie fallback was removed once the frontend became
+	// prefix-aware (pinned decision 14; see
+	// TestReconcileDevEnvAppRoutes_NoRouteEverMatchesOnCookieHeader).
+	if len(names) != 8 {
+		t.Fatalf("aggregated VirtualService has %d http routes, want 8 (both environments' dex+prefix routes): %v", len(names), names)
 	}
 	for _, want := range []string{
 		"devenv-alice-dex-entry", "devenv-alice-dex-prefix", "devenv-alice-entry", "devenv-alice-prefix",
 		"devenv-bob-dex-entry", "devenv-bob-dex-prefix", "devenv-bob-entry", "devenv-bob-prefix",
-		"devenv-alice-cookie", "devenv-bob-cookie",
 	} {
 		found := slices.Contains(names, want)
 		if !found {
@@ -101,14 +102,12 @@ func TestReconcileDevEnvAppRoutes_AggregatesAcrossEnvironments(t *testing.T) {
 	}
 }
 
-// TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefixThenCookie guards
-// pinned decisions 12 and 14: within one environment, its Dex routes must
-// precede its general prefix routes (otherwise the broader /{id}/ prefix
-// match would capture /{id}/dex/* requests first); and across ALL
-// environments, every cookie-fallback route must be ordered after every
-// dex/prefix route (a stale cookie must never be able to shadow an
-// explicit /{env-id} path entry).
-func TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefixThenCookie(t *testing.T) {
+// TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefix guards pinned decision
+// 12: within one environment, its Dex routes must precede its general prefix
+// route — otherwise the broader /{id}/ prefix match would capture
+// /{id}/dex/* requests first and forward them, wrongly, to the environment's
+// own frontend instead of Dex.
+func TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefix(t *testing.T) {
 	alice := newAppIngressTestEnv("alice")
 	bob := newAppIngressTestEnv("bob")
 	r := newAppIngressTestReconciler(t, alice, bob)
@@ -128,7 +127,6 @@ func TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefixThenCookie(t *testing.T
 		return -1
 	}
 
-	// Per-environment: dex before prefix.
 	for _, env := range []string{"alice", "bob"} {
 		dexIdx := indexOf("devenv-" + env + "-dex-prefix")
 		prefixIdx := indexOf("devenv-" + env + "-prefix")
@@ -136,20 +134,45 @@ func TestReconcileDevEnvAppRoutes_OrderingIsDexThenPrefixThenCookie(t *testing.T
 			t.Errorf("environment %q: dex route at %d, prefix route at %d — dex must come first", env, dexIdx, prefixIdx)
 		}
 	}
+}
 
-	// Across all environments: every cookie route after every non-cookie route.
-	lastNonCookie, firstCookie := -1, len(names)
-	for i, n := range names {
-		if strings.HasSuffix(n, "-cookie") {
-			if i < firstCookie {
-				firstCookie = i
-			}
-		} else if i > lastNonCookie {
-			lastNonCookie = i
-		}
+// TestReconcileDevEnvAppRoutes_NoRouteEverMatchesOnCookieHeader is WP-14's
+// regression test: the routing-cookie fallback (pinned decision 14) is gone,
+// and must never come back by accident. A cookie-matched route is exactly
+// the mechanism that could hijack a cookie-less or stale-cookie request to
+// "/" away from the main Orbit app's own catch-all — asserting none of the
+// generated routes match on any "cookie" header is the strongest guarantee
+// available without a live gateway to actually send such a request through.
+func TestReconcileDevEnvAppRoutes_NoRouteEverMatchesOnCookieHeader(t *testing.T) {
+	alice := newAppIngressTestEnv("alice")
+	r := newAppIngressTestReconciler(t, alice)
+
+	if err := r.reconcileDevEnvAppRoutes(context.Background(), "devenv.orbit.test", ""); err != nil {
+		t.Fatalf("reconcileDevEnvAppRoutes: %v", err)
 	}
-	if lastNonCookie >= firstCookie {
-		t.Errorf("a cookie-fallback route (first at index %d) is ordered before a non-cookie route (last at index %d): %v", firstCookie, lastNonCookie, names)
+	vs := getAggregatedAppVS(t, r)
+	routes, _, err := unstructured.NestedSlice(vs.Object, "spec", "http")
+	if err != nil {
+		t.Fatalf("read spec.http: %v", err)
+	}
+	for _, raw := range routes {
+		route, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		matches, _, _ := unstructured.NestedSlice(route, "match")
+		for _, rawMatch := range matches {
+			match, ok := rawMatch.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, hasCookieMatch := match["headers"]; hasCookieMatch {
+				headers, _ := match["headers"].(map[string]any)
+				if _, ok := headers["cookie"]; ok {
+					t.Errorf("route %v matches on a cookie header — the routing-cookie fallback must stay removed", route["name"])
+				}
+			}
+		}
 	}
 }
 
