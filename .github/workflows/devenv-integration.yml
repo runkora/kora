@@ -1,0 +1,101 @@
+name: Dev Environments Integration Suite
+
+# Runs the Ephemeral Dev Environments integration suite
+# (backend/tests/integration/devenvironments/) against the cloud staging
+# cluster on a schedule. Deliberately NOT wired into ci.yml/backend-ci.yml:
+# this suite provisions and tears down real vcluster environments (each run
+# is several minutes), targets a long-lived staging cluster rather than an
+# ephemeral CI runner, and must never run on every push/PR.
+#
+# Track V (code_plan.md §4, cloud enablement — infra, not repo changes) must
+# be complete before this workflow can pass: devenv node pool, image
+# pre-pull, registry wiring, ingress/DNS, SPIRE/CSI. This file wires the
+# workflow shape and the secret NAMES it expects; provisioning those
+# secrets and the staging cluster itself is Track V's job, not this PR's.
+#
+# Required repository secrets (none provisioned by this PR):
+#   ORBIT_STAGING_KUBECONFIG        base64-encoded kubeconfig for the staging cluster
+#   ORBIT_STAGING_CREDENTIALS_JSON  contents of a /tmp/orbit_credentials.json-shaped
+#                                    JSON document ({"access_token": "..."}) for a
+#                                    dedicated CI test principal — this suite grants
+#                                    and revokes real devenvironments:* scopes against
+#                                    that principal (TestDevEnv_RouteScopePairs), so it
+#                                    must be a disposable identity, never a human's.
+#                                    Refreshing this secret on the platform token's TTL
+#                                    is an infra concern (Track V), not handled here.
+# Required repository variables:
+#   ORBIT_STAGING_API_URL            identity API base URL (ORBIT_INTEGRATION_API_URL)
+#   ORBIT_STAGING_APP_URL            shared app host, browser-facing (ORBIT_INTEGRATION_APP_URL)
+#   ORBIT_STAGING_HOST_API_SERVER    staging cluster's real API server URL (ORBIT_INTEGRATION_HOST_API_SERVER)
+#   ORBIT_STAGING_POLICY_SERVICE_URL policy service base URL (POLICY_SERVICE_URL)
+#   ORBIT_STAGING_DEVENV_REF         pinned ref to provision (ORBIT_INTEGRATION_DEVENV_REF) —
+#                                    bump deliberately when validating a new main build,
+#                                    never point this at a floating "main"
+
+on:
+  schedule:
+    # Daily at 06:00 UTC. A provision/sleep/wake/expire cycle is 10-20+
+    # minutes per test; daily keeps staging load and CI minutes bounded
+    # while still catching version-bump regressions (vcluster/Istio) within
+    # a day.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devenv-integration-staging
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: Integration suite (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Skips cleanly (rather than failing) until Track V provisions these
+    # secrets — see the header comment. Remove this guard once they exist.
+    if: ${{ vars.ORBIT_STAGING_DEVENV_REF != '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write staging kubeconfig
+        run: |
+          mkdir -p "${RUNNER_TEMP}/orbit-staging"
+          echo "${KUBECONFIG_B64}" | base64 -d > "${RUNNER_TEMP}/orbit-staging/kubeconfig"
+        env:
+          KUBECONFIG_B64: ${{ secrets.ORBIT_STAGING_KUBECONFIG }}
+
+      - name: Write staging platform credentials
+        run: |
+          echo "${CREDENTIALS_JSON}" > /tmp/orbit_credentials.json
+        env:
+          CREDENTIALS_JSON: ${{ secrets.ORBIT_STAGING_CREDENTIALS_JSON }}
+
+      - name: Run dev-environment integration suite
+        working-directory: backend
+        run: go test -v -timeout=80m -tags=integration ./tests/integration/devenvironments/...
+        env:
+          ORBIT_INTEGRATION_KUBECONFIG: ${{ runner.temp }}/orbit-staging/kubeconfig
+          ORBIT_INTEGRATION_API_URL: ${{ vars.ORBIT_STAGING_API_URL }}
+          ORBIT_INTEGRATION_APP_URL: ${{ vars.ORBIT_STAGING_APP_URL }}
+          ORBIT_INTEGRATION_HOST_API_SERVER: ${{ vars.ORBIT_STAGING_HOST_API_SERVER }}
+          POLICY_SERVICE_URL: ${{ vars.ORBIT_STAGING_POLICY_SERVICE_URL }}
+          ORBIT_INTEGRATION_DEVENV_REF: ${{ vars.ORBIT_STAGING_DEVENV_REF }}
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Dev-environment staging integration suite failed — see the job log above. \
+          This is the version-bump regression signal for vcluster/Istio pins (code_plan.md WP-15)."

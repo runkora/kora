@@ -818,11 +818,21 @@ test-integration: auth-refresh-k3d ## Run integration tests (requires dev-cluste
 	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
-		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...; \
+		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./tests/integration/policy/...; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		if [ $$STATUS -eq 0 ]; then echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"; fi; \
 		exit $$STATUS
+
+.PHONY: test-integration-devenv
+test-integration-devenv: ## Run the Ephemeral Dev Environments integration suite against cloud staging (requires ORBIT_INTEGRATION_DEVENV_REF; see backend/tests/integration/devenvironments/devenvironment_test.go)
+	@echo "$(COLOR_YELLOW)Running dev-environment integration tests against staging...$(COLOR_RESET)"
+	@if [ -z "$(ORBIT_INTEGRATION_DEVENV_REF)" ]; then \
+		echo "$(COLOR_RED)ORBIT_INTEGRATION_DEVENV_REF is required (e.g. main-a1b2c3d) — refusing to float 'main'$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@cd $(BACKEND_DIR) && $(GOTEST) -v -timeout=60m -tags=integration ./tests/integration/devenvironments/...
+	@echo "$(COLOR_GREEN)✓ Dev-environment integration tests passed$(COLOR_RESET)"
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
