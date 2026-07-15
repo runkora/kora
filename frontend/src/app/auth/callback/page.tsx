@@ -33,10 +33,15 @@ import {
   TENANT_CONFIG_STORAGE_KEY,
   type TenantOidcConfig,
 } from '@orbit/lib/oidc-client';
-import { isSafeRedirectPath } from '@orbit/lib/routing';
+import { ApiRoute, isSafeRedirectPath, usePrefix } from '@orbit/lib/routing';
 
 export default function CallbackPage() {
   const router = useRouter();
+  // `next` (below) is restored from the OIDC state set by the login page,
+  // which already baked the dev-environment prefix in — so it's routed
+  // through the plain router. Every other redirect here targets a fresh
+  // literal path (/login?error=...) and needs the prefix added explicitly.
+  const prefix = usePrefix();
   // Guard against StrictMode double-invocation — only run the exchange once.
   const exchanged = useRef(false);
 
@@ -57,7 +62,7 @@ export default function CallbackPage() {
         if (!raw) {
           // No config found — either the user landed here directly (no login
           // flow was started in this tab) or sessionStorage was cleared.
-          router.replace('/login?error=invalid_request');
+          router.replace(`${prefix}/login?error=invalid_request`);
           return;
         }
 
@@ -71,12 +76,12 @@ export default function CallbackPage() {
             typeof (parsed as Record<string, unknown>).clientId !== 'string' ||
             typeof (parsed as Record<string, unknown>).tenantId !== 'string'
           ) {
-            router.replace('/login?error=invalid_request');
+            router.replace(`${prefix}/login?error=invalid_request`);
             return;
           }
           tenantConfig = parsed as TenantOidcConfig;
         } catch {
-          router.replace('/login?error=invalid_request');
+          router.replace(`${prefix}/login?error=invalid_request`);
           return;
         }
 
@@ -89,7 +94,7 @@ export default function CallbackPage() {
 
         const idToken = user.id_token;
         if (!idToken) {
-          router.replace('/login?error=invalid_callback');
+          router.replace(`${prefix}/login?error=invalid_callback`);
           return;
         }
 
@@ -111,29 +116,29 @@ export default function CallbackPage() {
         // allow a compromised or manipulated flow to authenticate against the
         // wrong tenant.
         if (typeof state.tenantId !== 'string' || !state.tenantId) {
-          router.replace('/login?error=invalid_callback');
+          router.replace(`${prefix}/login?error=invalid_callback`);
           return;
         }
         const tenantId = state.tenantId;
 
         // ── Step 4: seal into BFF session ──────────────────────────────────
-        const res = await fetch('/api/auth/session', {
+        const res = await fetch(ApiRoute.session.POST(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id_token: idToken, tenant_id: tenantId }),
         });
 
         if (!res.ok) {
-          router.replace('/login?error=server_error');
+          router.replace(`${prefix}/login?error=server_error`);
           return;
         }
 
         router.replace(next);
       } catch {
-        router.replace('/login?error=server_error');
+        router.replace(`${prefix}/login?error=server_error`);
       }
     }
-  }, [router]);
+  }, [router, prefix]);
 
   // The user sees this only for the brief moment the exchange is in-flight.
   return null;

@@ -3,7 +3,6 @@
 /** @tier 3 — agents/[slug]-scoped. Detail page with header + tabs. */
 
 import { useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
@@ -17,9 +16,9 @@ import {
   TabsTrigger,
   Text,
 } from '@orbit/terra';
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefixedRouter } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
@@ -36,7 +35,7 @@ interface AgentDetailPageProps {
 
 export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
   const { agent, status, error, deleteAgent } = useAgentDetailContext();
-  const router = useRouter();
+  const router = usePrefixedRouter();
 
   const [startRunOpen, setStartRunOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -63,10 +62,10 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
       <Stack gap="comfortable">
         <Stack direction="horizontal">
           <Button variant="ghost" size="sm" asChild>
-            <Link href={APP_ROUTES.agents.list}>
+            <AppLink to={APP_ROUTES.agents.list}>
               <Icon name="arrow-left" size="xs" />
               Agents
-            </Link>
+            </AppLink>
           </Button>
         </Stack>
         <EmptyState
@@ -75,7 +74,7 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
           description="This agent definition does not exist or may have been deleted."
           action={
             <Button asChild>
-              <Link href={APP_ROUTES.agents.list}>Back to Agents</Link>
+              <AppLink to={APP_ROUTES.agents.list}>Back to Agents</AppLink>
             </Button>
           }
         />
@@ -90,10 +89,10 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
       <Stack gap="comfortable">
         <Stack direction="horizontal">
           <Button variant="ghost" size="sm" asChild>
-            <Link href={APP_ROUTES.agents.list}>
+            <AppLink to={APP_ROUTES.agents.list}>
               <Icon name="arrow-left" size="xs" />
               Agents
-            </Link>
+            </AppLink>
           </Button>
         </Stack>
         <EmptyState
@@ -102,7 +101,7 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
           description={error ?? 'An unexpected error occurred.'}
           action={
             <Button asChild>
-              <Link href={APP_ROUTES.agents.list}>Back to Agents</Link>
+              <AppLink to={APP_ROUTES.agents.list}>Back to Agents</AppLink>
             </Button>
           }
         />
@@ -132,10 +131,10 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
       {/* Breadcrumb */}
       <Stack direction="horizontal">
         <Button variant="ghost" size="sm" asChild>
-          <Link href={APP_ROUTES.agents.list}>
+          <AppLink to={APP_ROUTES.agents.list}>
             <Icon name="arrow-left" size="xs" />
             Agents
-          </Link>
+          </AppLink>
         </Button>
       </Stack>
 

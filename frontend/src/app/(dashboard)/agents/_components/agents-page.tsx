@@ -3,7 +3,7 @@
 /** @tier 3 — agents-scoped. Main UI for the /agents list page. */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Badge,
   Button,
@@ -20,11 +20,11 @@ import {
   Text,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
 import { fmtTokens, fmtUsd } from '@orbit/utils';
 import type { AgentTypeUsage } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefix, usePrefixedRouter } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { fetchAgentTypesUsage } from '../_services/agents-api';
 import { StartRunModal } from './start-run-modal';
@@ -64,7 +64,8 @@ const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> =
 
 export function AgentsPage() {
   const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
-  const router = useRouter();
+  const router = usePrefixedRouter();
+  const prefix = usePrefix();
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
@@ -210,7 +211,7 @@ export function AgentsPage() {
               <Icon name="play" size="2xs" />
             </Button>
             <Button variant="ghost" size="icon-sm" aria-label={`Settings for ${row.name}`} asChild>
-              <Link href={APP_ROUTES.agents.detail(row.slug)}>
+              <Link href={prefix + APP_ROUTES.agents.detail(row.slug)}>
                 <Icon name="settings" size="2xs" />
               </Link>
             </Button>
@@ -218,7 +219,7 @@ export function AgentsPage() {
         ),
       },
     ],
-    [activeRunsByType],
+    [activeRunsByType, prefix],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -239,10 +240,10 @@ export function AgentsPage() {
             New Run
           </Button>
           <Button asChild>
-            <Link href={APP_ROUTES.agents.new}>
+            <AppLink to={APP_ROUTES.agents.new}>
               <Icon name="plus" size="xs" />
               New Agent
-            </Link>
+            </AppLink>
           </Button>
           <Separator
             orientation="vertical"
@@ -294,7 +295,7 @@ export function AgentsPage() {
           description="Create your first agent definition to start running AI tasks."
           action={
             <Button asChild>
-              <Link href={APP_ROUTES.agents.new}>New Agent</Link>
+              <AppLink to={APP_ROUTES.agents.new}>New Agent</AppLink>
             </Button>
           }
         />
@@ -386,7 +387,7 @@ export function AgentsPage() {
                     asChild
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Link href={APP_ROUTES.agents.detail(agent.slug)}>
+                    <Link href={prefix + APP_ROUTES.agents.detail(agent.slug)}>
                       <Icon name="settings" size="2xs" />
                     </Link>
                   </Button>

@@ -7,7 +7,7 @@
  * draft as the user edits, before any save. */
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import {
   Alert,
   Button,
@@ -172,10 +172,10 @@ export function AgentConnectivityTab() {
               description="A reusable bundle of egress hosts + connectors, folded into this agent's access."
               action={
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href={APP_ROUTES.environments}>
+                  <AppLink to={APP_ROUTES.environments}>
                     Manage environments
                     <Icon name="arrow-right" size="xs" />
-                  </Link>
+                  </AppLink>
                 </Button>
               }
             >

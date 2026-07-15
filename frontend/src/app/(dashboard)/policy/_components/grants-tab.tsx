@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { usePrefixedRouter } from '@orbit/lib/routing';
 import {
   Callout,
   Alert,
@@ -321,7 +322,7 @@ export function GrantsTab({
 // ── Pagination ───────────────────────────────────────────────────────────────
 
 function GrantsPagination({ page, limit, total }: { page: number; limit: number; total: number }) {
-  const router = useRouter();
+  const router = usePrefixedRouter();
   const totalPages = Math.ceil(total / limit);
   const start = (page - 1) * limit + 1;
   const end = Math.min(page * limit, total);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { ApiRoute } from '@orbit/lib/routing';
 import type {
   RunChatState,
   Turn,
@@ -121,7 +122,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // event handlers without re-subscribing the stream.
   const loadUsage = useCallback(() => {
     if (!runId) return;
-    void fetch(`/api/agents/runs/${runId}/usage`)
+    void fetch(ApiRoute.runs.usage(runId))
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { spend_usd?: number; total_tokens?: number } | null) => {
         if (!body) return;
@@ -162,7 +163,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // the opening usage snapshot.
   useEffect(() => {
     if (!runId) return;
-    void fetch(`/api/agents/runs/${runId}`)
+    void fetch(ApiRoute.runs.detail(runId))
       .then((r) => r.json())
       .then(
         (body: {
@@ -197,7 +198,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
     // The initial state is 'connecting'; reconnect() resets it before bumping
     // reconnectKey, so we don't need to setConnectionStatus here.
-    const es = new EventSource(`/api/agents/runs/${runId}/events`);
+    const es = new EventSource(ApiRoute.runs.events(runId));
     // Capture the throttle state object for the cleanup below — the ref's
     // .current is mutated but never reassigned, so this stays the live object.
     const usageRefresh = usageRefreshRef.current;
@@ -546,7 +547,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     setIsPending(true);
     setCommittedTurns((prev) => [...prev, turn]);
 
-    void fetch(`/api/agents/runs/${runId}/messages`, {
+    void fetch(ApiRoute.runs.messages(runId), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -554,7 +555,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   }
 
   function interruptRun(): void {
-    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' }).catch(() => undefined);
+    void fetch(ApiRoute.runs.interrupt(runId), { method: 'POST' }).catch(() => undefined);
   }
 
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;

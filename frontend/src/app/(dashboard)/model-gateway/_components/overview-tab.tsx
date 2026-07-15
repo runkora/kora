@@ -26,7 +26,7 @@ import {
   StatusDot,
   Text,
 } from '@orbit/terra';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefix } from '@orbit/lib/routing';
 import Link from 'next/link';
 import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';
 import { ChartLegend } from './chart-legend';
@@ -122,6 +122,7 @@ function KPICard({ icon, label, value, deltaPercent, deltaText, positiveIsBad }:
 // ── Model Health Card ─────────────────────────────────────────────────────────
 
 function ModelHealthCard({ models }: { models: ModelRow[] }) {
+  const prefix = usePrefix();
   const total = models.length;
   const available = models.filter((m) => m.status === 'available').length;
   const unavailable = total - available;
@@ -222,7 +223,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
           {total} models registered
         </Text>
         <Link
-          href={APP_ROUTES.modelGateway.models}
+          href={prefix + APP_ROUTES.modelGateway.models}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           View all →
@@ -326,6 +327,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
 // ── Top Models Card ───────────────────────────────────────────────────────────
 
 function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] }) {
+  const prefix = usePrefix();
   const top5 = [...costByModel]
     .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd)
     .slice(0, 5);
@@ -372,7 +374,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
           By spend, last 30 days
         </Text>
         <Link
-          href={APP_ROUTES.modelGateway.analytics}
+          href={prefix + APP_ROUTES.modelGateway.analytics}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           View analytics →
@@ -385,6 +387,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
 // ── Recent Logs Card ──────────────────────────────────────────────────────────
 
 function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
+  const prefix = usePrefix();
   return (
     <Card column>
       <CardHeader compact icon={<Icon name="scroll-text" />}>
@@ -440,7 +443,7 @@ function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
           Last {records.length} requests
         </Text>
         <Link
-          href={APP_ROUTES.modelGateway.logs}
+          href={prefix + APP_ROUTES.modelGateway.logs}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           View all logs →

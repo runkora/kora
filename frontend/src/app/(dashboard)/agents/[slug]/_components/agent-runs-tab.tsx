@@ -3,11 +3,10 @@
 /** @tier 3 — agents/[slug]-scoped. Runs table tab for the agent detail page. */
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefixedRouter } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
@@ -59,7 +58,7 @@ interface AgentRunsTabProps {
 
 export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   const { agent, runs, status, error, refresh, deleteRun } = useAgentDetailContext();
-  const router = useRouter();
+  const router = usePrefixedRouter();
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);

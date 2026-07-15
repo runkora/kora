@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { headers } from 'next/headers';
+import { APP_ROUTES, getDevEnvPrefix } from '@orbit/lib/routing';
 
-export default function ModelGatewayIndex() {
-  redirect(APP_ROUTES.modelGateway.overview);
+export default async function ModelGatewayIndex() {
+  const prefix = getDevEnvPrefix(await headers());
+  redirect(prefix + APP_ROUTES.modelGateway.overview);
 }

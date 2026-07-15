@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 
 import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/terra';
 import { hasScope } from '@orbit/lib/permissions';
+import { AppLink } from '@orbit/components/links';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';
 
@@ -60,9 +61,9 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     badge={badge}
                     asChild
                   >
-                    <a href={href} onClick={onNavigate}>
+                    <AppLink to={href} onClick={onNavigate}>
                       {itemLabel}
-                    </a>
+                    </AppLink>
                   </NavItem>
                 ),
               )}

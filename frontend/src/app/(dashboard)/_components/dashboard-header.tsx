@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
-import { ApiRoute } from '@orbit/lib/routing';
+import { ApiRoute, usePrefix } from '@orbit/lib/routing';
 import { useSidebarState } from './sidebar-state';
 import { useSession } from './permissions-provider';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
@@ -42,6 +42,7 @@ export function DashboardHeader() {
   const { toggle, isOpen } = useSidebarState();
   const { devEnvironmentId } = useSession();
   const [returningToOrbit, setReturningToOrbit] = useState(false);
+  const prefix = usePrefix();
 
   const segments = pathname.split('/').filter(Boolean);
   const section = segments[0] ?? '';
@@ -118,7 +119,7 @@ export function DashboardHeader() {
               asChild
               style={{ height: 28, padding: '0 9px 0 7px', gap: 5, fontSize: 12 }}
             >
-              <Link href={`/${section}`}>
+              <Link href={`${prefix}/${section}`}>
                 <Icon name="chevron-left" size="xs" />
                 Back
               </Link>

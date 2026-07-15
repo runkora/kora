@@ -17,6 +17,7 @@ import {
   PageSectionHeader,
 } from '@orbit/terra';
 import Link from 'next/link';
+import { usePrefix } from '@orbit/lib/routing';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
@@ -55,6 +56,7 @@ interface KeyCardProps {
 }
 
 function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
+  const prefix = usePrefix();
   const revoked = !!pat.revoked_at;
   const expired = !revoked && isExpired(pat.expires_at);
   const statusBadgeVariant = revoked ? 'secondary' : expired ? 'error' : 'healthy';
@@ -76,7 +78,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
             </Stack>
             <Stack direction="horizontal" align="center" gap="tight">
               <Link
-                href={`/model-gateway/logs?key=${pat.id}`}
+                href={`${prefix}/model-gateway/logs?key=${pat.id}`}
                 aria-label={`View logs for ${pat.name}`}
                 className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
               >

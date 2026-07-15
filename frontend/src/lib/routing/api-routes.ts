@@ -22,10 +22,23 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
+import { getClientDevEnvPrefix } from './devenv-prefix';
+
 // ── Base segments ─────────────────────────────────────────────────────────────
 
-const AUTH_BASE = '/api/auth' as const;
-const API_BASE = '/api' as const;
+/**
+ * Every BFF route this app serves lives under the current page's dev-
+ * environment prefix (e.g. "/abc123/api/...") when running inside one, and
+ * bare "/api/..." otherwise. Computed at call time (never cached at module
+ * load) since the prefix is only known once PrefixProvider has rendered
+ * client-side (prefix-context.tsx) — see devenv-prefix.ts.
+ */
+function apiBase(): string {
+  return getClientDevEnvPrefix() + '/api';
+}
+function authBase(): string {
+  return apiBase() + '/auth';
+}
 
 // ── Route registry ────────────────────────────────────────────────────────────
 
@@ -37,7 +50,7 @@ export const ApiRoute = {
    * checks that arrive through the Istio gateway.
    */
   health: {
-    GET: (): `${typeof API_BASE}/health` => `${API_BASE}/health`,
+    GET: (): string => `${apiBase()}/health`,
   },
 
   /**
@@ -48,7 +61,7 @@ export const ApiRoute = {
    * component on the dashboard.
    */
   identityHealth: {
-    GET: (): `${typeof API_BASE}/identity/health` => `${API_BASE}/identity/health`,
+    GET: (): string => `${apiBase()}/identity/health`,
   },
 
   /**
@@ -58,7 +71,7 @@ export const ApiRoute = {
    * analytics scope — safe to call from admin pages.
    */
   identityUsers: {
-    GET: (): `${typeof API_BASE}/identity/users` => `${API_BASE}/identity/users`,
+    GET: (): string => `${apiBase()}/identity/users`,
   },
 
   /**
@@ -68,7 +81,7 @@ export const ApiRoute = {
    * iron-session cookie, then redirects to `/login`.
    */
   logout: {
-    POST: (): `${typeof AUTH_BASE}/logout` => `${AUTH_BASE}/logout`,
+    POST: (): string => `${authBase()}/logout`,
   },
 
   /**
@@ -81,8 +94,8 @@ export const ApiRoute = {
    *        for client components that need to know who is logged in.
    */
   session: {
-    POST: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
-    GET: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
+    POST: (): string => `${authBase()}/session`,
+    GET: (): string => `${authBase()}/session`,
   },
 
   /**
@@ -100,9 +113,9 @@ export const ApiRoute = {
      * because the middleware matches `pathname` (no query string) against the
      * set. `GET(email)` cannot be used there since it always includes `?email=`.
      */
-    PATH: (): `${typeof AUTH_BASE}/discover` => `${AUTH_BASE}/discover`,
-    GET: (email: string): `${typeof AUTH_BASE}/discover?email=${string}` =>
-      `${AUTH_BASE}/discover?email=${encodeURIComponent(email)}`,
+    PATH: (): string => `${authBase()}/discover`,
+    GET: (email: string): string =>
+      `${authBase()}/discover?email=${encodeURIComponent(email)}`,
   },
 
   /**
@@ -112,7 +125,7 @@ export const ApiRoute = {
    *       the full list of available models. Requires an authenticated session.
    */
   models: {
-    GET: (): `${typeof API_BASE}/models` => `${API_BASE}/models`,
+    GET: (): string => `${apiBase()}/models`,
   },
 
   /**
@@ -121,7 +134,7 @@ export const ApiRoute = {
    * GET — proxies to the policy-service `GET /api/v1/policy/stats`.
    */
   policyStats: {
-    GET: (): `${typeof API_BASE}/policy/stats` => `${API_BASE}/policy/stats`,
+    GET: (): string => `${apiBase()}/policy/stats`,
   },
 
   /**
@@ -131,8 +144,8 @@ export const ApiRoute = {
    * POST — create a new grant.
    */
   policyGrants: {
-    GET: (): `${typeof API_BASE}/policy/grants` => `${API_BASE}/policy/grants`,
-    POST: (): `${typeof API_BASE}/policy/grants` => `${API_BASE}/policy/grants`,
+    GET: (): string => `${apiBase()}/policy/grants`,
+    POST: (): string => `${apiBase()}/policy/grants`,
   },
 
   /**
@@ -141,8 +154,8 @@ export const ApiRoute = {
    * DELETE — revoke a grant by ID.
    */
   policyGrant: {
-    DELETE: (id: string): `${typeof API_BASE}/policy/grants/${string}` =>
-      `${API_BASE}/policy/grants/${id}`,
+    DELETE: (id: string): string =>
+      `${apiBase()}/policy/grants/${id}`,
   },
 
   /**
@@ -152,8 +165,8 @@ export const ApiRoute = {
    * PUT — create or replace a role→scope mapping.
    */
   policyRoles: {
-    GET: (): `${typeof API_BASE}/policy/roles` => `${API_BASE}/policy/roles`,
-    PUT: (): `${typeof API_BASE}/policy/roles` => `${API_BASE}/policy/roles`,
+    GET: (): string => `${apiBase()}/policy/roles`,
+    PUT: (): string => `${apiBase()}/policy/roles`,
   },
 
   /**
@@ -162,8 +175,8 @@ export const ApiRoute = {
    * DELETE — remove a role→scope mapping.
    */
   policyRole: {
-    DELETE: (role: string): `${typeof API_BASE}/policy/roles/${string}` =>
-      `${API_BASE}/policy/roles/${encodeURIComponent(role)}`,
+    DELETE: (role: string): string =>
+      `${apiBase()}/policy/roles/${encodeURIComponent(role)}`,
   },
 
   /**
@@ -172,7 +185,7 @@ export const ApiRoute = {
    * GET — list scope vocabulary with optional usage counts.
    */
   policyVocabulary: {
-    GET: (): `${typeof API_BASE}/policy/vocabulary` => `${API_BASE}/policy/vocabulary`,
+    GET: (): string => `${apiBase()}/policy/vocabulary`,
   },
 
   /**
@@ -181,7 +194,7 @@ export const ApiRoute = {
    * GET — list all registered route→scope mappings.
    */
   policyRoutes: {
-    GET: (): `${typeof API_BASE}/policy/routes` => `${API_BASE}/policy/routes`,
+    GET: (): string => `${apiBase()}/policy/routes`,
   },
 
   /**
@@ -190,7 +203,7 @@ export const ApiRoute = {
    * GET — scope explain for a principal (proxies to policy-gateway).
    */
   policyExplain: {
-    GET: (): `${typeof API_BASE}/policy/evaluate/explain` => `${API_BASE}/policy/evaluate/explain`,
+    GET: (): string => `${apiBase()}/policy/evaluate/explain`,
   },
 
   /**
@@ -199,8 +212,8 @@ export const ApiRoute = {
    * POST — simulate a policy check (proxies to policy-gateway).
    */
   policySimulate: {
-    POST: (): `${typeof API_BASE}/policy/evaluate/simulate` =>
-      `${API_BASE}/policy/evaluate/simulate`,
+    POST: (): string =>
+      `${apiBase()}/policy/evaluate/simulate`,
   },
 
   /**
@@ -217,7 +230,7 @@ export const ApiRoute = {
       if (params?.key) qs.set('key', params.key);
       if (params?.cursor) qs.set('cursor', params.cursor);
       const q = qs.toString();
-      return q ? `${API_BASE}/usage?${q}` : `${API_BASE}/usage`;
+      return q ? `${apiBase()}/usage?${q}` : `${apiBase()}/usage`;
     },
   },
 
@@ -235,7 +248,7 @@ export const ApiRoute = {
       if (params?.granularity) qs.set('granularity', params.granularity);
       if (params?.tokenId) qs.set('token_id', params.tokenId);
       const q = qs.toString();
-      return q ? `${API_BASE}/analytics/me?${q}` : `${API_BASE}/analytics/me`;
+      return q ? `${apiBase()}/analytics/me?${q}` : `${apiBase()}/analytics/me`;
     },
   },
 
@@ -253,7 +266,7 @@ export const ApiRoute = {
       if (params?.granularity) qs.set('granularity', params.granularity);
       if (params?.modelId) qs.set('model_id', params.modelId);
       const q = qs.toString();
-      return q ? `${API_BASE}/analytics?${q}` : `${API_BASE}/analytics`;
+      return q ? `${apiBase()}/analytics?${q}` : `${apiBase()}/analytics`;
     },
   },
   /**
@@ -280,30 +293,30 @@ export const ApiRoute = {
       if (params?.sort_by !== undefined) qs.set('sort_by', params.sort_by);
       if (params?.order !== undefined) qs.set('order', params.order);
       const q = qs.toString();
-      return q ? `${API_BASE}/analytics/principals?${q}` : `${API_BASE}/analytics/principals`;
+      return q ? `${apiBase()}/analytics/principals?${q}` : `${apiBase()}/analytics/principals`;
     },
   },
 
   agentTypes: {
-    list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
-    create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
-    detail: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
-      `${API_BASE}/agents/types/${id}`,
-    delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
-      `${API_BASE}/agents/types/${id}`,
-    toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
-    connectors: (): `${typeof API_BASE}/agents/connectors` => `${API_BASE}/agents/connectors`,
-    mcpTools: (): `${typeof API_BASE}/agents/mcp-tools` => `${API_BASE}/agents/mcp-tools`,
-    effectiveAccess: (id: string): `${typeof API_BASE}/agents/types/${string}/effective-access` =>
-      `${API_BASE}/agents/types/${id}/effective-access`,
+    list: (): string => `${apiBase()}/agents/types`,
+    create: (): string => `${apiBase()}/agents/types`,
+    detail: (id: string): string =>
+      `${apiBase()}/agents/types/${id}`,
+    delete: (id: string): string =>
+      `${apiBase()}/agents/types/${id}`,
+    toolScopes: (): string => `${apiBase()}/agents/tool-scopes`,
+    connectors: (): string => `${apiBase()}/agents/connectors`,
+    mcpTools: (): string => `${apiBase()}/agents/mcp-tools`,
+    effectiveAccess: (id: string): string =>
+      `${apiBase()}/agents/types/${id}/effective-access`,
     /**
      * `/api/agents/types/effective-access`
      *
      * POST — resolves the effective-access view for a *draft* (unsaved)
      * connectivity config. Backs the Connectivity tab's live preview.
      */
-    previewEffectiveAccess: (): `${typeof API_BASE}/agents/types/effective-access` =>
-      `${API_BASE}/agents/types/effective-access`,
+    previewEffectiveAccess: (): string =>
+      `${apiBase()}/agents/types/effective-access`,
     /**
      * `/api/agents/types/[typeId]/usage`
      *
@@ -311,15 +324,15 @@ export const ApiRoute = {
      *       from the inference gateway. Powers the token breakdown and spend
      *       cards on the agent overview page.
      */
-    usage: (id: string): `${typeof API_BASE}/agents/types/${string}/usage` =>
-      `${API_BASE}/agents/types/${id}/usage`,
+    usage: (id: string): string =>
+      `${apiBase()}/agents/types/${id}/usage`,
     /**
      * `/api/agents/types/usage`
      *
      * GET — returns the 7-day token breakdown and spend for every agent type in
      *       the tenant. Powers the total + per-agent cost on the agents list.
      */
-    usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
+    usageAll: (): string => `${apiBase()}/agents/types/usage`,
   },
 
   /**
@@ -329,12 +342,12 @@ export const ApiRoute = {
    * detail/delete — full-replace (PUT) or delete a single environment by ID.
    */
   environments: {
-    list: (): `${typeof API_BASE}/agents/environments` => `${API_BASE}/agents/environments`,
-    create: (): `${typeof API_BASE}/agents/environments` => `${API_BASE}/agents/environments`,
-    detail: (id: string): `${typeof API_BASE}/agents/environments/${string}` =>
-      `${API_BASE}/agents/environments/${id}`,
-    delete: (id: string): `${typeof API_BASE}/agents/environments/${string}` =>
-      `${API_BASE}/agents/environments/${id}`,
+    list: (): string => `${apiBase()}/agents/environments`,
+    create: (): string => `${apiBase()}/agents/environments`,
+    detail: (id: string): string =>
+      `${apiBase()}/agents/environments/${id}`,
+    delete: (id: string): string =>
+      `${apiBase()}/agents/environments/${id}`,
   },
 
   /**
@@ -342,45 +355,45 @@ export const ApiRoute = {
    * identity binary via the BFF.
    */
   triggerSources: {
-    list: (): `${typeof API_BASE}/trigger-sources` => `${API_BASE}/trigger-sources`,
-    create: (): `${typeof API_BASE}/trigger-sources` => `${API_BASE}/trigger-sources`,
-    detail: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
-      `${API_BASE}/trigger-sources/${id}`,
-    delete: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
-      `${API_BASE}/trigger-sources/${id}`,
+    list: (): string => `${apiBase()}/trigger-sources`,
+    create: (): string => `${apiBase()}/trigger-sources`,
+    detail: (id: string): string =>
+      `${apiBase()}/trigger-sources/${id}`,
+    delete: (id: string): string =>
+      `${apiBase()}/trigger-sources/${id}`,
   },
 
   triggers: {
     list: (agentTypeId?: string): string =>
       agentTypeId
-        ? `${API_BASE}/triggers?agent_type_id=${encodeURIComponent(agentTypeId)}`
-        : `${API_BASE}/triggers`,
-    create: (): `${typeof API_BASE}/triggers` => `${API_BASE}/triggers`,
-    detail: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
-    delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
+        ? `${apiBase()}/triggers?agent_type_id=${encodeURIComponent(agentTypeId)}`
+        : `${apiBase()}/triggers`,
+    create: (): string => `${apiBase()}/triggers`,
+    detail: (id: string): string => `${apiBase()}/triggers/${id}`,
+    delete: (id: string): string => `${apiBase()}/triggers/${id}`,
   },
 
   triggerDeliveries: {
     list: (sourceId?: string): string =>
       sourceId
-        ? `${API_BASE}/trigger-deliveries?source_id=${encodeURIComponent(sourceId)}`
-        : `${API_BASE}/trigger-deliveries`,
+        ? `${apiBase()}/trigger-deliveries?source_id=${encodeURIComponent(sourceId)}`
+        : `${apiBase()}/trigger-deliveries`,
   },
 
   /** Dev Environments feature — ephemeral, vcluster-backed Orbit installs. Served by the identity binary via the BFF. */
   devEnvironments: {
-    list: (): `${typeof API_BASE}/dev-environments` => `${API_BASE}/dev-environments`,
-    create: (): `${typeof API_BASE}/dev-environments` => `${API_BASE}/dev-environments`,
-    detail: (id: string): `${typeof API_BASE}/dev-environments/${string}` =>
-      `${API_BASE}/dev-environments/${id}`,
-    destroy: (id: string): `${typeof API_BASE}/dev-environments/${string}` =>
-      `${API_BASE}/dev-environments/${id}`,
-    extend: (id: string): `${typeof API_BASE}/dev-environments/${string}/extend` =>
-      `${API_BASE}/dev-environments/${id}/extend`,
-    wake: (id: string): `${typeof API_BASE}/dev-environments/${string}/wake` =>
-      `${API_BASE}/dev-environments/${id}/wake`,
-    kubeconfig: (id: string): `${typeof API_BASE}/dev-environments/${string}/kubeconfig` =>
-      `${API_BASE}/dev-environments/${id}/kubeconfig`,
+    list: (): string => `${apiBase()}/dev-environments`,
+    create: (): string => `${apiBase()}/dev-environments`,
+    detail: (id: string): string =>
+      `${apiBase()}/dev-environments/${id}`,
+    destroy: (id: string): string =>
+      `${apiBase()}/dev-environments/${id}`,
+    extend: (id: string): string =>
+      `${apiBase()}/dev-environments/${id}/extend`,
+    wake: (id: string): string =>
+      `${apiBase()}/dev-environments/${id}/wake`,
+    kubeconfig: (id: string): string =>
+      `${apiBase()}/dev-environments/${id}/kubeconfig`,
   },
 
   /**
@@ -391,23 +404,27 @@ export const ApiRoute = {
    *       inside a dev environment's own in-vcluster frontend.
    */
   devEnvironmentExit: {
-    GET: (): `${typeof API_BASE}/dev-environment/exit` => `${API_BASE}/dev-environment/exit`,
+    GET: (): string => `${apiBase()}/dev-environment/exit`,
   },
 
   runs: {
-    list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
-    listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
-      `${API_BASE}/agents/types/${typeId}/runs`,
-    start: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
-      `${API_BASE}/agents/types/${typeId}/runs`,
-    detail: (runId: string): `${typeof API_BASE}/agents/runs/${string}` =>
-      `${API_BASE}/agents/runs/${runId}`,
-    terminate: (runId: string): `${typeof API_BASE}/agents/runs/${string}` =>
-      `${API_BASE}/agents/runs/${runId}`,
-    messages: (runId: string): `${typeof API_BASE}/agents/runs/${string}/messages` =>
-      `${API_BASE}/agents/runs/${runId}/messages`,
-    events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
-      `${API_BASE}/agents/runs/${runId}/events`,
+    list: (): string => `${apiBase()}/agents/runs`,
+    listForType: (typeId: string): string =>
+      `${apiBase()}/agents/types/${typeId}/runs`,
+    start: (typeId: string): string =>
+      `${apiBase()}/agents/types/${typeId}/runs`,
+    detail: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}`,
+    terminate: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}`,
+    messages: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}/messages`,
+    events: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}/events`,
+    usage: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}/usage`,
+    interrupt: (runId: string): string =>
+      `${apiBase()}/agents/runs/${runId}/interrupt`,
   },
 
   /**
@@ -417,7 +434,7 @@ export const ApiRoute = {
    *       Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached, has_limit }`.
    */
   usageBudget: {
-    GET: (): `${typeof API_BASE}/usage/budget` => `${API_BASE}/usage/budget`,
+    GET: (): string => `${apiBase()}/usage/budget`,
   },
 
   /**
@@ -427,7 +444,7 @@ export const ApiRoute = {
    *       price columns. Requires `platform:catalog:read` scope.
    */
   catalogPricing: {
-    GET: (): `${typeof API_BASE}/catalog/pricing` => `${API_BASE}/catalog/pricing`,
+    GET: (): string => `${apiBase()}/catalog/pricing`,
   },
 
   /**
@@ -440,13 +457,13 @@ export const ApiRoute = {
     PUT: (
       provider: string,
       modelId: string,
-    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
-      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+    ): string =>
+      `${apiBase()}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
     DELETE: (
       provider: string,
       modelId: string,
-    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
-      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+    ): string =>
+      `${apiBase()}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
 } as const;
 
@@ -464,7 +481,6 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>
   | ReturnType<(typeof ApiRoute)['discover']['PATH']>
-  | `${typeof AUTH_BASE}/discover?email=${string}`
   | ReturnType<(typeof ApiRoute)['models']['GET']>
   | ReturnType<(typeof ApiRoute)['policyStats']['GET']>
   | ReturnType<(typeof ApiRoute)['policyGrants']['GET']>
@@ -500,5 +516,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
+  | ReturnType<(typeof ApiRoute)['runs']['usage']>
+  | ReturnType<(typeof ApiRoute)['runs']['interrupt']>
   | ReturnType<(typeof ApiRoute)['devEnvironmentExit']['GET']>
   | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings

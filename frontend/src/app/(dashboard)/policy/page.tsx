@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { headers } from 'next/headers';
+import { APP_ROUTES, getDevEnvPrefix } from '@orbit/lib/routing';
 
-export default function PolicyIndexPage() {
-  redirect(APP_ROUTES.policy.overview);
+export default async function PolicyIndexPage() {
+  const prefix = getDevEnvPrefix(await headers());
+  redirect(prefix + APP_ROUTES.policy.overview);
 }

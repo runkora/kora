@@ -4,7 +4,7 @@
  * THIS agent, and shows recent deliveries that targeted it. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import { Alert, Badge, Button, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
@@ -286,7 +286,7 @@ export function AgentTriggersTab() {
       {sources.length === 0 && !loading && (
         <Callout variant="info">
           No webhook sources exist yet. Register one in{' '}
-          <Link href={APP_ROUTES.triggers}>Triggers</Link> before creating a trigger.
+          <AppLink to={APP_ROUTES.triggers}>Triggers</AppLink> before creating a trigger.
         </Callout>
       )}
 

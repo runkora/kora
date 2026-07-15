@@ -3,9 +3,8 @@
 /** @tier 3 — agents/[slug]-scoped. Business logic for the agent settings form. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefixedRouter } from '@orbit/lib/routing';
 import type { ModelObject, ToolScopeDefinition, Connector } from '@orbit/shared/api';
 import { updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -47,7 +46,7 @@ export function normalizeConnectors(connectors: Connector[]): Connector[] {
 
 export function useAgentSettings() {
   const { agent, deleteAgent } = useAgentDetailContext();
-  const router = useRouter();
+  const router = usePrefixedRouter();
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [name, setName] = useState(agent?.name ?? '');

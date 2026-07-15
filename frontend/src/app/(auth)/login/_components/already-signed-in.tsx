@@ -9,15 +9,14 @@
 
 import { useEffect } from 'react';
 
-import { useRouter } from 'next/navigation';
-
 import { Card, CardContent, CardFooter, CardHeader, Heading, Text } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
+import { usePrefixedRouter } from '@orbit/lib/routing';
 
 const REDIRECT_DELAY_MS = 3_000;
 
 export function AlreadySignedIn() {
-  const router = useRouter();
+  const router = usePrefixedRouter();
 
   useEffect(() => {
     const timer = setTimeout(() => {

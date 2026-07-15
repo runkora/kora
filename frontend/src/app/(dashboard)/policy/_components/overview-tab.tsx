@@ -24,7 +24,7 @@ import {
   TableCell,
   Icon,
 } from '@orbit/terra';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefix } from '@orbit/lib/routing';
 import { MetricCard } from '@orbit/components';
 import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';
@@ -47,6 +47,7 @@ interface OverviewTabProps {
 }
 
 export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: OverviewTabProps) {
+  const prefix = usePrefix();
   const scopeCoverage = useMemo(() => {
     const total = vocabulary.length;
     const used = vocabulary.filter((s) => s.grant_count > 0 || s.role_count > 0).length;
@@ -204,7 +205,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           </CardContent>
           <CardFooter compact justify="end">
             <Link
-              href={APP_ROUTES.policy.vocabulary}
+              href={prefix + APP_ROUTES.policy.vocabulary}
               className="text-xs text-subtle hover:text-foreground transition-colors"
             >
               View vocabulary →
@@ -327,7 +328,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           </CardContent>
           <CardFooter compact justify="end">
             <Link
-              href={APP_ROUTES.policy.grants}
+              href={prefix + APP_ROUTES.policy.grants}
               className="text-xs text-subtle hover:text-foreground transition-colors"
             >
               View all grants →
@@ -371,7 +372,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           </CardContent>
           <CardFooter compact justify="end">
             <Link
-              href={APP_ROUTES.policy.roles}
+              href={prefix + APP_ROUTES.policy.roles}
               className="text-xs text-subtle hover:text-foreground transition-colors"
             >
               Manage roles →

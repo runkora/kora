@@ -9,18 +9,20 @@
  */
 import { useState } from 'react';
 import { Button, Icon } from '@orbit/terra';
+import { ApiRoute, usePrefix } from '@orbit/lib/routing';
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
+  const prefix = usePrefix();
 
   async function handleLogout() {
     setPending(true);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch(ApiRoute.logout.POST(), { method: 'POST' });
     } finally {
       // Always navigate to /login — even if revocation fails the session cookie
       // is cleared server-side so the user is effectively signed out.
-      window.location.href = '/login';
+      window.location.href = `${prefix}/login`;
     }
   }
 

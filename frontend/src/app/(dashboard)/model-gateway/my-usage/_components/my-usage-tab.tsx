@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import { Alert, Button, Icon, NativeSelect, Progress, Stack, Text } from '@orbit/terra';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import type { PAT } from '@orbit/shared/api';
 import { fmtCost } from '@orbit/utils';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
@@ -111,7 +112,7 @@ export function MyUsageTab({ pats, initialBudget }: MyUsageTabProps) {
       <Stack direction="horizontal" align="center" gap="snug">
         <Icon name="key" size="2xs" color="subtle" />
         <Button asChild variant="ghost" size="sm">
-          <Link href="/model-gateway/keys">No API keys</Link>
+          <AppLink to={APP_ROUTES.modelGateway.keys}>No API keys</AppLink>
         </Button>
       </Stack>
     );

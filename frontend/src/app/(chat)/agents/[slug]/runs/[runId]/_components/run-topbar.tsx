@@ -6,7 +6,7 @@
  */
 
 import Link from 'next/link';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefix } from '@orbit/lib/routing';
 import { Stack, Text, Button, Badge, StatusDot } from '@orbit/terra';
 import { fmtUsd, fmtTokens } from '@orbit/utils';
 import { useRunContext } from '../_context/run-context';
@@ -46,6 +46,7 @@ function CanvasIcon() {
 }
 
 export function RunTopbar() {
+  const prefix = usePrefix();
   const {
     slug,
     agentName,
@@ -113,7 +114,7 @@ export function RunTopbar() {
     >
       {/* Back navigation */}
       <Link
-        href={APP_ROUTES.agents.detail(slug)}
+        href={prefix + APP_ROUTES.agents.detail(slug)}
         style={{
           display: 'flex',
           alignItems: 'center',

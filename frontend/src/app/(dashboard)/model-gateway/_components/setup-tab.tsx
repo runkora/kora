@@ -9,7 +9,8 @@
 //   1. Shared intro — how to self-service provision an API key
 //   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode
 
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import {
   Anchor,
   Card,
@@ -227,7 +228,7 @@ export function SetupTab() {
               <Text size="supporting" color="muted">
                 Open the{' '}
                 <Anchor asChild>
-                  <Link href="/model-gateway/keys">API Keys</Link>
+                  <AppLink to={APP_ROUTES.modelGateway.keys}>API Keys</AppLink>
                 </Anchor>{' '}
                 tab and click{' '}
                 <Text as="span" size="supporting" color="foreground" weight="emphasis">

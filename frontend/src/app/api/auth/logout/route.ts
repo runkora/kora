@@ -19,7 +19,7 @@ import { type NextRequest } from 'next/server';
 
 import { config } from '@orbit/server/config';
 import { getSession } from '@orbit/server/session';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, getDevEnvPrefix } from '@orbit/lib/routing';
 
 async function revokeToken(
   revokeUrl: string,
@@ -61,5 +61,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Destroy the local session cookie unconditionally.
   await session.destroy();
 
-  return Response.redirect(new URL(APP_ROUTES.login, request.url));
+  // Restores the dev-environment path prefix (X-Forwarded-Prefix, stripped
+  // by the gateway before this request arrived — see devenv-prefix.ts) so
+  // logging out from inside an environment lands back on that same
+  // environment's own /login instead of the unprefixed host root.
+  const prefix = getDevEnvPrefix(request.headers);
+  return Response.redirect(new URL(prefix + APP_ROUTES.login, request.url));
 }

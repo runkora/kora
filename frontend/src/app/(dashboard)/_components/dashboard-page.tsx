@@ -2,7 +2,7 @@
 
 /** @tier 3 — dashboard-scoped. Uses AgentTypeRow, RunRow, ConnectionRow, EnvironmentRow. */
 
-import Link from 'next/link';
+import { AppLink } from '@orbit/components/links';
 import {
   Button,
   Card,
@@ -234,10 +234,10 @@ export function DashboardPage({
                 </Text>
               </Stack>
               <Button variant="outline" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
+                <AppLink to={APP_ROUTES.agents.list}>
                   View all
                   <Icon name="chevron-right" size="2xs" />
-                </Link>
+                </AppLink>
               </Button>
             </Stack>
           </CardHeader>
@@ -300,10 +300,10 @@ export function DashboardPage({
                 Showing {displayedAgents.length} of {agentTypes.length} agent types
               </Text>
               <Button variant="ghost" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
+                <AppLink to={APP_ROUTES.agents.list}>
                   View all
                   <Icon name="chevron-right" size="2xs" />
-                </Link>
+                </AppLink>
               </Button>
             </CardFooter>
           )}
@@ -320,10 +320,10 @@ export function DashboardPage({
                 </Text>
               </Stack>
               <Button variant="outline" size="sm" asChild>
-                <Link href={APP_ROUTES.modelGateway.analytics}>
+                <AppLink to={APP_ROUTES.modelGateway.analytics}>
                   Analytics
                   <Icon name="chevron-right" size="2xs" />
-                </Link>
+                </AppLink>
               </Button>
             </Stack>
             <AnalyticsKPICards kpis={analytics.kpis} />
@@ -366,10 +366,10 @@ export function DashboardPage({
             </CardContent>
             <CardFooter justify="center" compact>
               <Button variant="ghost" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
+                <AppLink to={APP_ROUTES.agents.list}>
                   View agents
                   <Icon name="chevron-right" size="2xs" />
-                </Link>
+                </AppLink>
               </Button>
             </CardFooter>
           </Card>

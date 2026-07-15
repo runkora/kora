@@ -1,6 +1,9 @@
+'use client';
+
 import NextLink from 'next/link';
 import { Anchor, type AnchorProps } from '@orbit/terra';
 import { type AppRoute } from '@orbit/lib/routing/routes';
+import { usePrefix } from '@orbit/lib/routing';
 
 type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;
@@ -25,6 +28,10 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  * path is a compile-time error. To navigate to a new route, add it to the
  * `APP_ROUTES` array in `routes.ts` first.
  *
+ * Prefixes `to` with the current dev-environment path prefix (usePrefix(),
+ * "" outside one) so links stay inside the same environment across
+ * navigation instead of dropping to the unprefixed root.
+ *
  * For external links, use `ExternalLink` instead.
  *
  * @example
@@ -34,9 +41,10 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  *   <AppLink size="sm" to="/forgot-password">Forgot password?</AppLink>
  */
 export function AppLink({ to, children, ...props }: AppLinkProps) {
+  const prefix = usePrefix();
   return (
     <Anchor asChild {...props}>
-      <NextLink href={to}>{children}</NextLink>
+      <NextLink href={prefix + to}>{children}</NextLink>
     </Anchor>
   );
 }

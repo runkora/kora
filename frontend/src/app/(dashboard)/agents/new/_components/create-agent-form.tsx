@@ -3,7 +3,6 @@
 /** @tier 3 — agents/new-scoped. Form to create a new agent type. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Alert,
   Button,
@@ -21,8 +20,8 @@ import {
   Textarea,
 } from '@orbit/terra';
 import { ScopePicker } from '@orbit/components';
-import Link from 'next/link';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { AppLink } from '@orbit/components/links';
+import { APP_ROUTES, usePrefixedRouter } from '@orbit/lib/routing';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
   ModelObject,
@@ -79,7 +78,7 @@ function groupModelsByFamily(models: ModelObject[]): ModelGroup[] {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CreateAgentForm() {
-  const router = useRouter();
+  const router = usePrefixedRouter();
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -259,10 +258,10 @@ export function CreateAgentForm() {
       <Stack gap="snug">
         <Stack direction="horizontal" gap="snug" align="center">
           <Button variant="ghost" size="sm" asChild>
-            <Link href={APP_ROUTES.agents.list}>
+            <AppLink to={APP_ROUTES.agents.list}>
               <Icon name="arrow-left" size="xs" />
               Agents
-            </Link>
+            </AppLink>
           </Button>
         </Stack>
         <Heading variant="title">New Agent</Heading>
@@ -574,7 +573,7 @@ export function CreateAgentForm() {
 
       <Stack direction="horizontal" justify="end" gap="snug">
         <Button type="button" variant="outline" size="sm" asChild>
-          <Link href={APP_ROUTES.agents.list}>Cancel</Link>
+          <AppLink to={APP_ROUTES.agents.list}>Cancel</AppLink>
         </Button>
         <Button type="submit" variant="default" size="sm" disabled={submitting}>
           {submitting ? 'Creating…' : 'Create Agent'}

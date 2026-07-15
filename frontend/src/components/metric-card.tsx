@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * @tier 2 — App-level shared. Cross-feature; unifies StatCard (dashboard),
  * KPICard (model-gateway overview), and KPICard (policy overview) into one canonical
@@ -18,6 +20,7 @@ import {
   Text,
 } from '@orbit/terra';
 import Link from 'next/link';
+import { usePrefix } from '@orbit/lib/routing';
 
 export interface MetricCardProps {
   icon: React.ReactNode;
@@ -36,6 +39,7 @@ export interface MetricCardProps {
 }
 
 export function MetricCard({ icon, label, value, delta, breakdown, href }: MetricCardProps) {
+  const prefix = usePrefix();
   const deltaColor =
     delta == null
       ? undefined
@@ -81,7 +85,10 @@ export function MetricCard({ icon, label, value, delta, breakdown, href }: Metri
       </CardContent>
       {href && (
         <CardFooter compact justify="end">
-          <Link href={href} className="text-xs text-subtle hover:text-foreground transition-colors">
+          <Link
+            href={prefix + href}
+            className="text-xs text-subtle hover:text-foreground transition-colors"
+          >
             View all →
           </Link>
         </CardFooter>

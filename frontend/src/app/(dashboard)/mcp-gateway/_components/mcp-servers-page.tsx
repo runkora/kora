@@ -3,10 +3,9 @@
 /** @tier 3 — mcp-gateway-scoped. MCP server catalog: rich cards / table, multi-select, config builder. */
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button, Checkbox, Grid, Heading, Icon, Input, Stack, Text } from '@orbit/terra';
 import { EmptyState } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, usePrefixedRouter } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
 import type { IconName } from '@orbit/terra';
@@ -114,7 +113,7 @@ function CapabilityTags({ domains, max = 3 }: { domains: string[]; max?: number 
 }
 
 export function McpServersPage({ servers, error }: McpServersPageProps) {
-  const router = useRouter();
+  const router = usePrefixedRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<View>('grid');
   const [filter, setFilter] = useState<Filter>('all');

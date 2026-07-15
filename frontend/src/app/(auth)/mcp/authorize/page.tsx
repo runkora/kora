@@ -1,5 +1,6 @@
 import 'server-only';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 
 import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
 
@@ -7,6 +8,7 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import { getDevEnvPrefix } from '@orbit/lib/routing';
 
 import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_components/consent-flow';
 
@@ -81,6 +83,7 @@ function ConsentError({ title, message }: { title: string; message: string }) {
 }
 
 export default async function ConsentPage({ searchParams }: ConsentPageProps) {
+  const prefix = getDevEnvPrefix(await headers());
   const params = await searchParams;
   const clientId = str(params.client_id);
   const redirectUri = str(params.redirect_uri);
@@ -120,7 +123,9 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     if (state) back.set('state', state);
     if (scope) back.set('scope', scope);
     if (resource) back.set('resource', resource);
-    redirect(`/login?next=${encodeURIComponent(`/mcp/authorize?${back.toString()}`)}`);
+    redirect(
+      `${prefix}/login?next=${encodeURIComponent(`${prefix}/mcp/authorize?${back.toString()}`)}`,
+    );
   }
 
   // Name the application asking (registered via DCR).
@@ -195,7 +200,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     { k: 'scope', v: scope || 'mcp:invoke' },
   ];
 
-  const action = `/api/mcp/authorize?${new URLSearchParams({
+  const action = `${prefix}/api/mcp/authorize?${new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
     redirect_uri: redirectUri,
