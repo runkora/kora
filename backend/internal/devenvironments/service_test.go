@@ -745,7 +745,7 @@ func TestGenerateKubeconfigCSR_UsesDevEnvAdminOrganization(t *testing.T) {
 func TestAssembleKubeconfig_ServerAndSNIAreDecoupled(t *testing.T) {
 	certPEM := selfSignedTestCert(t, "dev-jordan")
 	yamlOut, _, err := assembleKubeconfig(
-		"jordan-env", "localhost:16443", "jordan-env.dev.orbit.local",
+		"jordan-env", "dev-jordan", "localhost:16443", "jordan-env.dev.orbit.local",
 		certPEM, []byte("fake-key-der-placeholder"), []byte("fake-ca-bundle"))
 	if err != nil {
 		t.Fatalf("assembleKubeconfig: %v", err)
@@ -764,5 +764,20 @@ func TestAssembleKubeconfig_ServerAndSNIAreDecoupled(t *testing.T) {
 	}
 	if cluster.TLSServerName != "jordan-env.dev.orbit.local" {
 		t.Errorf("tls-server-name = %q, want the ingress host (SNI routing)", cluster.TLSServerName)
+	}
+}
+
+// TestAssembleKubeconfig_RejectsCommonNameMismatch guards against an operator
+// bug (or a compromised operator) signing a CSR under the wrong identity: if
+// the signed certificate's CN doesn't match the registry row's owner,
+// assembleKubeconfig must refuse rather than hand out a kubeconfig that
+// grants access under someone else's identity.
+func TestAssembleKubeconfig_RejectsCommonNameMismatch(t *testing.T) {
+	certPEM := selfSignedTestCert(t, "dev-jordan")
+	_, _, err := assembleKubeconfig(
+		"jordan-env", "dev-someone-else", "localhost:16443", "jordan-env.dev.orbit.local",
+		certPEM, []byte("fake-key-der-placeholder"), []byte("fake-ca-bundle"))
+	if err == nil {
+		t.Fatal("assembleKubeconfig with mismatched CN = nil error, want a CN-mismatch error")
 	}
 }

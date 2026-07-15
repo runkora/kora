@@ -174,7 +174,17 @@ func (s *Service) CreateEnvironment(ctx context.Context, req CreateRequest) (*En
 	if err := s.cr.Create(ctx, cr); err != nil {
 		// The registry row and the CR cannot be created atomically — roll the
 		// row back so a failed create never leaves an orphaned, invisible
-		// quota consumer behind.
+		// quota consumer behind. context.WithoutCancel is used because this
+		// rollback must run even if ctx is already canceled (e.g. the caller
+		// gave up while s.cr.Create was still in flight) — but that means it
+		// can execute concurrently with the caller unwinding the original
+		// error. That race is acceptable here: MarkDeleted is idempotent (a
+		// retried or duplicate delete is a no-op), the rollback is
+		// best-effort only (a failure just logs — the row is still orphaned
+		// but harmless, since mergeList's own not-found path self-heals any
+		// registry row whose CR doesn't exist on the owner's next
+		// ListEnvironments call), and either way there is no CR for this ID
+		// to reconcile around.
 		if delErr := s.repo.MarkDeleted(context.WithoutCancel(ctx), id); delErr != nil {
 			s.logger.Warn(ctx, "failed to roll back registry row after CR create failure",
 				logging.Field{Key: "id", Value: id},
@@ -410,7 +420,7 @@ func (s *Service) Kubeconfig(ctx context.Context, id string) (*KubeconfigRespons
 
 	certPEM := []byte(cr.Status.KubeconfigCertificate)
 	kubeconfigYAML, expiresAt, err := assembleKubeconfig(
-		id, s.cfg.APIServer.ExternalAddress, cr.Status.IngressHost, certPEM, keyDER, []byte(cr.Status.KubeconfigCABundle))
+		id, rec.Owner, s.cfg.APIServer.ExternalAddress, cr.Status.IngressHost, certPEM, keyDER, []byte(cr.Status.KubeconfigCABundle))
 	if err != nil {
 		return nil, fmt.Errorf("assemble kubeconfig: %w", err)
 	}
@@ -424,6 +434,13 @@ func (s *Service) Kubeconfig(ctx context.Context, id string) (*KubeconfigRespons
 // first — the operator may have already signed by the time this call
 // starts, and a watch alone only streams events from "now" and would miss
 // that — then watches for the matching transition, bounded by SignTimeout.
+//
+// A timeout here almost always means the CR's fingerprint never matched what
+// this call submitted (a slow-signing operator would eventually deliver a
+// matching event well within SignTimeout). The last-seen fingerprint is
+// logged alongside the expected one so a stuck signing loop — e.g. a second
+// Kubeconfig() call overwriting spec.kubeconfigCSR before the first one's CSR
+// was signed — is diagnosable from logs rather than just "it timed out".
 func (s *Service) waitForSignedCertificate(ctx context.Context, id, fingerprint string) (*orbitapi.OrbitDevEnvironment, error) {
 	cr, err := s.cr.Get(ctx, id)
 	if err != nil {
@@ -432,6 +449,7 @@ func (s *Service) waitForSignedCertificate(ctx context.Context, id, fingerprint 
 	if kubeconfigSigned(cr, fingerprint) {
 		return cr, nil
 	}
+	lastSeenFingerprint := cr.Status.KubeconfigCSRFingerprint
 
 	waitCtx, cancel := context.WithTimeout(ctx, s.cfg.Kubeconfig.SignTimeout())
 	defer cancel()
@@ -446,19 +464,30 @@ func (s *Service) waitForSignedCertificate(ctx context.Context, id, fingerprint 
 		select {
 		case event, ok := <-w.ResultChan():
 			if !ok {
+				s.logSigningTimeout(ctx, id, fingerprint, lastSeenFingerprint)
 				return nil, ErrKubeconfigSigningTimedOut
 			}
 			cr, ok := event.Object.(*orbitapi.OrbitDevEnvironment)
 			if !ok {
 				continue
 			}
+			lastSeenFingerprint = cr.Status.KubeconfigCSRFingerprint
 			if kubeconfigSigned(cr, fingerprint) {
 				return cr, nil
 			}
 		case <-waitCtx.Done():
+			s.logSigningTimeout(ctx, id, fingerprint, lastSeenFingerprint)
 			return nil, ErrKubeconfigSigningTimedOut
 		}
 	}
+}
+
+func (s *Service) logSigningTimeout(ctx context.Context, id, expectedFingerprint, lastSeenFingerprint string) {
+	s.logger.Warn(ctx, "kubeconfig signing timed out waiting for matching CSR fingerprint",
+		logging.Field{Key: "id", Value: id},
+		logging.Field{Key: "expected_fingerprint", Value: expectedFingerprint},
+		logging.Field{Key: "last_seen_fingerprint", Value: lastSeenFingerprint},
+	)
 }
 
 func kubeconfigSigned(cr *orbitapi.OrbitDevEnvironment, fingerprint string) bool {
@@ -503,7 +532,16 @@ func generateKubeconfigCSR(owner string) (keyDER []byte, csrPEM []byte, err erro
 // devenvironment_ingress.go). Decoupling the physical address from the
 // per-environment identity this way means ingressHost never needs to be
 // independently DNS-resolvable — it exists only inside a TLS handshake.
-func assembleKubeconfig(id, apiServerExternalAddress, ingressHost string, certPEM, keyDER, caBundle []byte) (string, time.Time, error) {
+//
+// owner is the registry row's owner (the subject that requested this
+// kubeconfig, already ownership-checked by the caller) — cert.Subject.CommonName
+// must match it, since the CSR's CommonName is what the operator's signed
+// certificate grants access as. This is defense-in-depth against an operator
+// bug (or a compromised operator) signing a CSR under the wrong identity; the
+// CSR fingerprint match in waitForSignedCertificate already ties the
+// certificate to *a* request from this call, but not specifically to this
+// owner.
+func assembleKubeconfig(id, owner, apiServerExternalAddress, ingressHost string, certPEM, keyDER, caBundle []byte) (string, time.Time, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		return "", time.Time{}, errors.New("signed certificate is not valid PEM")
@@ -511,6 +549,9 @@ func assembleKubeconfig(id, apiServerExternalAddress, ingressHost string, certPE
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("parse signed certificate: %w", err)
+	}
+	if cert.Subject.CommonName != owner {
+		return "", time.Time{}, fmt.Errorf("signed certificate CN %q does not match owner %q", cert.Subject.CommonName, owner)
 	}
 
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
