@@ -16,6 +16,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/orbitapi"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,15 +47,76 @@ var devEnvRefPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 // quota enforcement, and CR lifecycle actions. It never touches Postgres or
 // the Kubernetes API directly — those are Repository and CRClient.
 type Service struct {
-	repo   Repository
-	cr     CRClient
-	cfg    *Config
-	logger logging.Logger
+	repo       Repository
+	cr         CRClient
+	cfg        *Config
+	policyEval policy.Evaluator
+	logger     logging.Logger
 }
 
-// NewService constructs a Service.
-func NewService(repo Repository, cr CRClient, cfg *Config, logger logging.Logger) *Service {
-	return &Service{repo: repo, cr: cr, cfg: cfg, logger: logger}
+// NewService constructs a Service. policyEval is used only by
+// DestroyEnvironment's admin-bypass check (callerHasAdminScope) — the DELETE
+// route requires just devenvironments:write, since both an owner destroying
+// their own environment and an admin force-destroying someone else's hit
+// the same route; the admin/owner branch is decided here, not by route-level
+// scope enforcement.
+func NewService(repo Repository, cr CRClient, cfg *Config, policyEval policy.Evaluator, logger logging.Logger) *Service {
+	return &Service{repo: repo, cr: cr, cfg: cfg, policyEval: policyEval, logger: logger}
+}
+
+// recordAudit writes one API-initiated audit event (actor_type "user",
+// attributed to the caller's verified platform token subject), best-effort:
+// a failure here is logged and swallowed rather than failing the API call
+// it's attached to — the audit trail must never be able to block a real
+// lifecycle action. Operator-driven ("system") events are derived and
+// written separately, by AuditIngester.
+func (s *Service) recordAudit(ctx context.Context, environmentID, action string, details map[string]any) {
+	if err := s.repo.InsertAuditEvent(ctx, AuditEvent{
+		EnvironmentID: environmentID,
+		Action:        action,
+		Actor:         ownerFromContext(ctx),
+		ActorType:     "user",
+		OccurredAt:    time.Now().UTC(),
+		Details:       details,
+	}); err != nil {
+		s.logger.Warn(ctx, "failed to record audit event",
+			logging.Field{Key: "environmentId", Value: environmentID},
+			logging.Field{Key: "action", Value: action},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// recordExpiredIfNotTerminal records an 'expired' audit event for
+// environmentID unless a 'destroyed' or 'force_destroyed' event already
+// accounts for its disappearance — shared by the self-heal paths below
+// (GetEnvironment, mergeList) and the CRD-watch audit ingester's own
+// Deleted-event handler, so an environment that expired while nobody was
+// watching still gets one 'expired' row on the next read that discovers it.
+func recordExpiredIfNotTerminal(ctx context.Context, repo Repository, logger logging.Logger, environmentID string) {
+	terminal, err := repo.HasTerminalAuditEvent(ctx, environmentID)
+	if err != nil {
+		logger.Warn(ctx, "failed to check terminal audit state before recording expiry",
+			logging.Field{Key: "environmentId", Value: environmentID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if terminal {
+		return
+	}
+	if err := repo.InsertAuditEvent(ctx, AuditEvent{
+		EnvironmentID: environmentID,
+		Action:        "expired",
+		Actor:         "system:operator",
+		ActorType:     "system",
+		OccurredAt:    time.Now().UTC(),
+	}); err != nil {
+		logger.Warn(ctx, "failed to record expired audit event",
+			logging.Field{Key: "environmentId", Value: environmentID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // Limits returns the caller-facing quota/TTL limits this service enforces,
@@ -122,6 +184,7 @@ func (s *Service) CreateEnvironment(ctx context.Context, req CreateRequest) (*En
 		return nil, fmt.Errorf("create OrbitDevEnvironment CR: %w", err)
 	}
 
+	s.recordAudit(ctx, id, "created", map[string]any{"ref": ref})
 	return mergeEnvironment(rec, cr), nil
 }
 
@@ -156,6 +219,7 @@ func (s *Service) GetEnvironment(ctx context.Context, id string) (*Environment, 
 			// The CR is gone (TTL expiry, or an out-of-band kubectl delete) —
 			// self-heal the registry rather than reporting a phantom row.
 			_ = s.repo.MarkDeleted(ctx, id)
+			recordExpiredIfNotTerminal(ctx, s.repo, s.logger, id)
 		}
 		return nil, err
 	}
@@ -191,6 +255,7 @@ func (s *Service) mergeList(ctx context.Context, recs []Record) ([]Environment, 
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				_ = s.repo.MarkDeleted(ctx, recs[i].ID)
+				recordExpiredIfNotTerminal(ctx, s.repo, s.logger, recs[i].ID)
 				continue
 			}
 			return nil, err
@@ -227,6 +292,7 @@ func (s *Service) ExtendEnvironment(ctx context.Context, id string, req ExtendRe
 	if err != nil {
 		return nil, fmt.Errorf("extend dev environment: %w", err)
 	}
+	s.recordAudit(ctx, id, "extended", map[string]any{"ttl": ttl.String()})
 	return mergeEnvironment(rec, cr), nil
 }
 
@@ -249,24 +315,65 @@ func (s *Service) WakeEnvironment(ctx context.Context, id string) (*Environment,
 	if err != nil {
 		return nil, fmt.Errorf("wake dev environment: %w", err)
 	}
+	s.recordAudit(ctx, id, "woken", nil)
 	return mergeEnvironment(rec, cr), nil
 }
 
 // DestroyEnvironment deletes an environment's CR — the operator's finalizer
 // tears down the namespace and everything in it — and marks the registry
-// row deleted.
+// row deleted. A non-owner caller is refused (ErrNotFound) unless they hold
+// devenvironments:admin, in which case the destroy proceeds as a
+// force-destroy: DELETE /api/v1/dev-environments/{id} is the same route for
+// both an owner's own destroy and an admin's force-destroy of someone
+// else's, so the branch is decided here rather than by route-level scope
+// enforcement (which only requires devenvironments:write for this route).
 func (s *Service) DestroyEnvironment(ctx context.Context, id string) error {
 	rec, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
+
+	isAdmin := false
 	if !ownerMatches(ctx, rec.Owner) {
-		return ErrNotFound
+		isAdmin, err = s.callerHasAdminScope(ctx)
+		if err != nil {
+			return fmt.Errorf("check admin scope: %w", err)
+		}
+		if !isAdmin {
+			return ErrNotFound
+		}
 	}
+
 	if err := s.cr.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete OrbitDevEnvironment CR: %w", err)
 	}
-	return s.repo.MarkDeleted(ctx, id)
+	if err := s.repo.MarkDeleted(ctx, id); err != nil {
+		return err
+	}
+
+	action, details := "destroyed", map[string]any{"owner": rec.Owner}
+	if isAdmin {
+		action = "force_destroyed"
+		details["admin"] = ownerFromContext(ctx)
+	}
+	s.recordAudit(ctx, id, action, details)
+	return nil
+}
+
+// callerHasAdminScope checks devenvironments:admin directly against the
+// policy evaluator, for DestroyEnvironment's owner-check bypass.
+func (s *Service) callerHasAdminScope(ctx context.Context) (bool, error) {
+	claims, _ := token.ClaimsFromContext(ctx)
+	result, err := s.policyEval.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "devenvironments",
+		Action:       "admin",
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.Allow, nil
 }
 
 // Kubeconfig brokers a short-lived kubeconfig for the vcluster: it generates
@@ -308,6 +415,7 @@ func (s *Service) Kubeconfig(ctx context.Context, id string) (*KubeconfigRespons
 		return nil, fmt.Errorf("assemble kubeconfig: %w", err)
 	}
 
+	s.recordAudit(ctx, id, "kubeconfig_issued", nil)
 	return &KubeconfigResponse{Kubeconfig: kubeconfigYAML, ExpiresAt: expiresAt}, nil
 }
 

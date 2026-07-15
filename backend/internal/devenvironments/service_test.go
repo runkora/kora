@@ -17,6 +17,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/orbitapi"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"k8s.io/apimachinery/pkg/watch"
@@ -29,10 +30,46 @@ type fakeRepository struct {
 	mu         sync.Mutex
 	recs       map[string]*Record
 	createCall int
+	audit      []AuditEvent
 }
 
 func newFakeRepository() *fakeRepository {
 	return &fakeRepository{recs: map[string]*Record{}}
+}
+
+func (f *fakeRepository) InsertAuditEvent(_ context.Context, e AuditEvent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, existing := range f.audit {
+		if existing.EnvironmentID == e.EnvironmentID && existing.Action == e.Action && existing.OccurredAt.Equal(e.OccurredAt) {
+			return nil // ON CONFLICT DO NOTHING
+		}
+	}
+	f.audit = append(f.audit, e)
+	return nil
+}
+
+func (f *fakeRepository) ListAuditEvents(_ context.Context, environmentID string) ([]AuditEvent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []AuditEvent
+	for _, e := range f.audit {
+		if e.EnvironmentID == environmentID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepository) HasTerminalAuditEvent(_ context.Context, environmentID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, e := range f.audit {
+		if e.EnvironmentID == environmentID && (e.Action == "destroyed" || e.Action == "force_destroyed") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (f *fakeRepository) Create(_ context.Context, rec *Record) error {
@@ -183,6 +220,25 @@ func (f *fakeCRClient) Watch(_ context.Context, _ string) (watch.Interface, erro
 	return watch.NewFake(), nil
 }
 
+func (f *fakeCRClient) WatchAll(_ context.Context) (watch.Interface, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.watchCall++
+	return watch.NewFake(), nil
+}
+
+// fakeEvaluator is a minimal policy.Evaluator stub — DestroyEnvironment's
+// admin-bypass check is the only thing in this package that consults an
+// Evaluator. allow controls every Check call's result.
+type fakeEvaluator struct {
+	policy.Evaluator // embed nil; only Check is ever called in this package
+	allow            bool
+}
+
+func (f *fakeEvaluator) Check(context.Context, policy.CheckInput) (policy.Result, error) {
+	return policy.Result{Allow: f.allow}, nil
+}
+
 // ── test helpers ─────────────────────────────────────────────────────────
 
 func ctxWithOwner(owner string) context.Context {
@@ -198,11 +254,19 @@ func testConfig() *Config {
 	}
 }
 
+// newTestService builds a Service with a deny-all policy evaluator — every
+// existing test's non-owner calls are expected to see ErrNotFound, never an
+// admin bypass. Tests exercising the admin bypass itself use
+// newTestServiceWithPolicy.
 func newTestService(repo Repository, cr CRClient, cfg *Config) *Service {
+	return newTestServiceWithPolicy(repo, cr, cfg, &fakeEvaluator{allow: false})
+}
+
+func newTestServiceWithPolicy(repo Repository, cr CRClient, cfg *Config, eval policy.Evaluator) *Service {
 	if cfg == nil {
 		cfg = testConfig()
 	}
-	return NewService(repo, cr, cfg, logging.NewDevelopmentLogger())
+	return NewService(repo, cr, cfg, eval, logging.NewDevelopmentLogger())
 }
 
 // selfSignedTestCert returns a throwaway self-signed certificate PEM block,
@@ -499,6 +563,83 @@ func TestDestroyEnvironment(t *testing.T) {
 	}
 	if _, err := svc.GetEnvironment(ctx, env.ID); !errors.Is(err, ErrNotFound) {
 		t.Error("registry row still active after destroy")
+	}
+
+	events, err := repo.ListAuditEvents(ctx, env.ID)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	var sawCreated, sawDestroyed bool
+	for _, e := range events {
+		switch e.Action {
+		case "created":
+			sawCreated = true
+		case "destroyed":
+			sawDestroyed = true
+			if e.ActorType != "user" || e.Actor != "dev-frank" {
+				t.Errorf("destroyed event = %+v, want actorType=user actor=dev-frank", e)
+			}
+			if e.Details["owner"] != "dev-frank" {
+				t.Errorf("destroyed event details = %v, want owner=dev-frank", e.Details)
+			}
+		}
+	}
+	if !sawCreated || !sawDestroyed {
+		t.Errorf("audit events = %+v, want both created and destroyed", events)
+	}
+}
+
+// TestDestroyEnvironment_AdminBypass guards the admin force-destroy path:
+// DELETE /api/v1/dev-environments/{id} is the same route for an owner's own
+// destroy and an admin's force-destroy of someone else's — the branch is
+// decided inside the service by consulting the policy evaluator directly.
+func TestDestroyEnvironment_AdminBypass(t *testing.T) {
+	repo, cr := newFakeRepository(), newFakeCRClient()
+	ownerCtx := ctxWithOwner("dev-owner")
+	ownerSvc := newTestService(repo, cr, nil)
+	env, err := ownerSvc.CreateEnvironment(ownerCtx, CreateRequest{})
+	if err != nil {
+		t.Fatalf("CreateEnvironment: %v", err)
+	}
+
+	// A non-owner, non-admin caller must still be refused.
+	noAdminSvc := newTestServiceWithPolicy(repo, cr, nil, &fakeEvaluator{allow: false})
+	if err := noAdminSvc.DestroyEnvironment(ctxWithOwner("someone-else"), env.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("destroy by non-owner, non-admin = %v, want ErrNotFound", err)
+	}
+	if _, getErr := cr.Get(ownerCtx, env.ID); getErr != nil {
+		t.Fatalf("CR should still exist after a refused destroy attempt: %v", getErr)
+	}
+
+	// A non-owner WITH devenvironments:admin succeeds as a force-destroy.
+	adminSvc := newTestServiceWithPolicy(repo, cr, nil, &fakeEvaluator{allow: true})
+	adminCtx := ctxWithOwner("admin-alice")
+	if err := adminSvc.DestroyEnvironment(adminCtx, env.ID); err != nil {
+		t.Fatalf("admin force-destroy: %v", err)
+	}
+	if _, err := cr.Get(adminCtx, env.ID); !errors.Is(err, ErrNotFound) {
+		t.Error("CR still exists after admin force-destroy")
+	}
+
+	events, err := repo.ListAuditEvents(adminCtx, env.ID)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	var found bool
+	for _, e := range events {
+		if e.Action != "force_destroyed" {
+			continue
+		}
+		found = true
+		if e.Actor != "admin-alice" || e.ActorType != "user" {
+			t.Errorf("force_destroyed event = %+v, want actor=admin-alice actorType=user", e)
+		}
+		if e.Details["owner"] != "dev-owner" || e.Details["admin"] != "admin-alice" {
+			t.Errorf("force_destroyed details = %v, want owner=dev-owner admin=admin-alice", e.Details)
+		}
+	}
+	if !found {
+		t.Errorf("audit events = %+v, want a force_destroyed event", events)
 	}
 }
 

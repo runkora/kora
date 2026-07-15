@@ -133,3 +133,107 @@ func TestPostgres_MarkDeletedAndCountActiveByOwner(t *testing.T) {
 		t.Errorf("MarkDeleted twice = %v, want ErrNotFound", err)
 	}
 }
+
+func TestPostgres_InsertAndListAuditEvents(t *testing.T) {
+	r, owner := testRepo(t)
+	ctx := context.Background()
+
+	rec := &Record{ID: "env-" + uuid.NewString()[:8], Owner: owner, CreatedAt: time.Now().UTC()}
+	if err := r.Create(ctx, rec); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	occurredAt := time.Now().UTC().Truncate(time.Millisecond)
+	if err := r.InsertAuditEvent(ctx, AuditEvent{
+		EnvironmentID: rec.ID, Action: "created", Actor: owner, ActorType: "user",
+		OccurredAt: occurredAt, Details: map[string]any{"ref": "main"},
+	}); err != nil {
+		t.Fatalf("InsertAuditEvent: %v", err)
+	}
+
+	events, err := r.ListAuditEvents(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("ListAuditEvents = %d events, want 1", len(events))
+	}
+	got := events[0]
+	if got.Action != "created" || got.Actor != owner || got.ActorType != "user" {
+		t.Errorf("event = %+v, want action=created actor=%s actorType=user", got, owner)
+	}
+	if !got.OccurredAt.Equal(occurredAt) {
+		t.Errorf("occurredAt = %v, want %v", got.OccurredAt, occurredAt)
+	}
+	if got.Details["ref"] != "main" {
+		t.Errorf("details = %v, want ref=main", got.Details)
+	}
+}
+
+func TestPostgres_InsertAuditEvent_IdempotentDoubleInsert(t *testing.T) {
+	r, owner := testRepo(t)
+	ctx := context.Background()
+
+	rec := &Record{ID: "env-" + uuid.NewString()[:8], Owner: owner, CreatedAt: time.Now().UTC()}
+	if err := r.Create(ctx, rec); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	occurredAt := time.Now().UTC().Truncate(time.Millisecond)
+	event := AuditEvent{EnvironmentID: rec.ID, Action: "destroyed", Actor: owner, ActorType: "user", OccurredAt: occurredAt}
+
+	if err := r.InsertAuditEvent(ctx, event); err != nil {
+		t.Fatalf("first InsertAuditEvent: %v", err)
+	}
+	if err := r.InsertAuditEvent(ctx, event); err != nil {
+		t.Fatalf("second InsertAuditEvent (identical key): %v", err)
+	}
+
+	events, err := r.ListAuditEvents(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("ListAuditEvents after duplicate insert = %d events, want exactly 1 (ON CONFLICT DO NOTHING)", len(events))
+	}
+}
+
+func TestPostgres_HasTerminalAuditEvent(t *testing.T) {
+	r, owner := testRepo(t)
+	ctx := context.Background()
+
+	rec := &Record{ID: "env-" + uuid.NewString()[:8], Owner: owner, CreatedAt: time.Now().UTC()}
+	if err := r.Create(ctx, rec); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	terminal, err := r.HasTerminalAuditEvent(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("HasTerminalAuditEvent before any event: %v", err)
+	}
+	if terminal {
+		t.Error("HasTerminalAuditEvent = true before any audit event was recorded")
+	}
+
+	if err := r.InsertAuditEvent(ctx, AuditEvent{
+		EnvironmentID: rec.ID, Action: "provision_ready", Actor: "system:operator", ActorType: "system",
+		OccurredAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertAuditEvent (provision_ready): %v", err)
+	}
+	terminal, err = r.HasTerminalAuditEvent(ctx, rec.ID)
+	if err != nil || terminal {
+		t.Errorf("HasTerminalAuditEvent after a non-terminal event = %v, err=%v, want false", terminal, err)
+	}
+
+	if err := r.InsertAuditEvent(ctx, AuditEvent{
+		EnvironmentID: rec.ID, Action: "force_destroyed", Actor: "admin@example.com", ActorType: "user",
+		OccurredAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertAuditEvent (force_destroyed): %v", err)
+	}
+	terminal, err = r.HasTerminalAuditEvent(ctx, rec.ID)
+	if err != nil || !terminal {
+		t.Errorf("HasTerminalAuditEvent after force_destroyed = %v, err=%v, want true", terminal, err)
+	}
+}

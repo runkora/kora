@@ -38,6 +38,11 @@ type CRClient interface {
 	// type, so this needs no custom index even on a non-cached direct
 	// client (see NewCRClient).
 	Watch(ctx context.Context, id string) (watch.Interface, error)
+	// WatchAll streams ADDED/MODIFIED/DELETED events for every
+	// OrbitDevEnvironment, unfiltered — used by the audit ingester
+	// (devenvironment_audit_ingester.go) to derive events from
+	// operator-driven phase transitions and CR deletions.
+	WatchAll(ctx context.Context) (watch.Interface, error)
 }
 
 // crClient is the production CRClient: a plain controller-runtime
@@ -115,6 +120,15 @@ func (cc *crClient) Watch(ctx context.Context, id string) (watch.Interface, erro
 	w, err := cc.c.Watch(ctx, list, client.MatchingFields{"metadata.name": id})
 	if err != nil {
 		return nil, fmt.Errorf("watch OrbitDevEnvironment %q: %w", id, err)
+	}
+	return w, nil
+}
+
+func (cc *crClient) WatchAll(ctx context.Context) (watch.Interface, error) {
+	list := &orbitapi.OrbitDevEnvironmentList{}
+	w, err := cc.c.Watch(ctx, list)
+	if err != nil {
+		return nil, fmt.Errorf("watch all OrbitDevEnvironments: %w", err)
 	}
 	return w, nil
 }

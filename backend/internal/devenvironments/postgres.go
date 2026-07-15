@@ -2,6 +2,7 @@ package devenvironments
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -87,6 +88,68 @@ func (r *PostgresRepository) CountActiveByOwner(ctx context.Context, owner strin
 		return 0, fmt.Errorf("count active dev environments: %w", err)
 	}
 	return count, nil
+}
+
+func (r *PostgresRepository) InsertAuditEvent(ctx context.Context, e AuditEvent) error {
+	var details []byte
+	if e.Details != nil {
+		var err error
+		details, err = json.Marshal(e.Details)
+		if err != nil {
+			return fmt.Errorf("marshal audit event details: %w", err)
+		}
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO dev_environment_audit_events (environment_id, action, actor, actor_type, occurred_at, details)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+		ON CONFLICT (environment_id, action, occurred_at) DO NOTHING`,
+		e.EnvironmentID, e.Action, e.Actor, e.ActorType, e.OccurredAt, details,
+	)
+	if err != nil {
+		return fmt.Errorf("insert dev environment audit event: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ListAuditEvents(ctx context.Context, environmentID string) ([]AuditEvent, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, environment_id, action, actor, actor_type, occurred_at, details
+		FROM dev_environment_audit_events
+		WHERE environment_id = $1
+		ORDER BY occurred_at ASC, id ASC`, environmentID)
+	if err != nil {
+		return nil, fmt.Errorf("query dev environment audit events: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		var details []byte
+		if err := rows.Scan(&e.ID, &e.EnvironmentID, &e.Action, &e.Actor, &e.ActorType, &e.OccurredAt, &details); err != nil {
+			return nil, fmt.Errorf("scan dev environment audit event: %w", err)
+		}
+		if len(details) > 0 {
+			if err := json.Unmarshal(details, &e.Details); err != nil {
+				return nil, fmt.Errorf("unmarshal audit event details: %w", err)
+			}
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (r *PostgresRepository) HasTerminalAuditEvent(ctx context.Context, environmentID string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM dev_environment_audit_events
+			WHERE environment_id = $1 AND action IN ('destroyed', 'force_destroyed')
+		)`, environmentID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check terminal audit event: %w", err)
+	}
+	return exists, nil
 }
 
 // scanner abstracts pgx.Row/pgx.Rows so scanRecord works for both a single

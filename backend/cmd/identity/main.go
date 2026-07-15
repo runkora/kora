@@ -210,7 +210,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Triggers — identity is the only externally-reachable,
 	// platform-token-authority binary — but unlike Triggers this gains a
 	// narrow (single-CRD) Kubernetes client.
-	devEnvCtrl, err := initDevEnvironmentsController(logger, db, svc, policyEval)
+	devEnvCtrl, err := initDevEnvironmentsController(ctx, logger, db, svc, policyEval)
 	if err != nil {
 		return nil, err
 	}
@@ -225,9 +225,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 // initDevEnvironmentsController wires the devenvironments feature: the
 // Postgres registry, the narrow (OrbitDevEnvironment-only) Kubernetes
-// client, and the controller. The identity service doubles as the auth
-// middleware provider, exactly as for Triggers.
+// client, the controller, and the CRD-watch audit ingester (Decision C3),
+// started as a background goroutine for the life of ctx. The identity
+// service doubles as the auth middleware provider, exactly as for Triggers.
 func initDevEnvironmentsController(
+	ctx context.Context,
 	logger logging.Logger,
 	db *storage.DB,
 	svc *identity.Service,
@@ -248,7 +250,9 @@ func initDevEnvironmentsController(
 	}
 
 	repo := devenvironments.NewPostgresRepository(db.Pool())
-	devEnvSvc := devenvironments.NewService(repo, crClient, devEnvCfg, logger)
+	devEnvSvc := devenvironments.NewService(repo, crClient, devEnvCfg, policyEval, logger)
+
+	go devenvironments.NewAuditIngester(crClient, repo, logger).Run(ctx)
 
 	return devenvironments.NewController(devEnvSvc, svc.AuthMiddleware(logger), policyEval, devEnvironmentRoutes(), ic.Current.Server.BasePath, logger), nil
 }

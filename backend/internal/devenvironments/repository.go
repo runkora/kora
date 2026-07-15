@@ -34,4 +34,33 @@ type Repository interface {
 	MarkDeleted(ctx context.Context, id string) error
 	// CountActiveByOwner counts owner's non-deleted rows, for quota enforcement.
 	CountActiveByOwner(ctx context.Context, owner string) (int, error)
+
+	// InsertAuditEvent records one audit event, idempotently: a duplicate
+	// (EnvironmentID, Action, OccurredAt) triple — a retried API call, a
+	// redelivered watch event, or an ingester restart replaying a
+	// still-in-flight derivation — is silently absorbed (ON CONFLICT DO
+	// NOTHING), never a duplicate row or an error.
+	InsertAuditEvent(ctx context.Context, e AuditEvent) error
+	// ListAuditEvents returns every event for one environment, oldest first.
+	ListAuditEvents(ctx context.Context, environmentID string) ([]AuditEvent, error)
+	// HasTerminalAuditEvent reports whether a 'destroyed' or 'force_destroyed'
+	// event already exists for environmentID — used to decide whether an
+	// observed CR deletion (the ingester's watch, or a service self-heal
+	// path) should be recorded as 'expired' (nobody destroyed it through the
+	// API) or is already accounted for.
+	HasTerminalAuditEvent(ctx context.Context, environmentID string) (bool, error)
+}
+
+// AuditEvent is one row of the dev_environment_audit_events audit trail
+// (Decision C3): every lifecycle action, whether API-initiated (actor_type
+// "user") or operator-driven and derived by the CRD-watch ingester
+// (actor_type "system", actor "system:operator").
+type AuditEvent struct {
+	ID            int64
+	EnvironmentID string
+	Action        string
+	Actor         string
+	ActorType     string // "user" or "system"
+	OccurredAt    time.Time
+	Details       map[string]any
 }
