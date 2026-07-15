@@ -167,13 +167,12 @@ func TestEnsureFixtures_DeploysPostgresRedisDexGlauth(t *testing.T) {
 	}
 }
 
-// TestInVClusterServiceImageTags_SetsEveryOrbitServiceToResolvedRefWithAlwaysPull
-// guards the resolvedRef threading added in this WP: every orbit-chart
-// service image.tag must resolve to the same ref the in-vcluster
-// orbit-operator itself was installed at, with pullPolicy: Always — resolvedRef
-// is typically the literal floating tag "main", so nodes must actually re-pull
-// rather than reuse whatever they cached under that tag name.
-func TestInVClusterServiceImageTags_SetsEveryOrbitServiceToResolvedRefWithAlwaysPull(t *testing.T) {
+// TestInVClusterServiceImageTags_PinsEveryOrbitServiceToResolvedRef guards
+// the resolvedRef threading added in this WP: every orbit-chart service
+// image.tag must resolve to the same immutable ref the in-vcluster
+// orbit-operator itself was installed at (pinned decision — image tags never
+// drift onto whatever :latest happens to be on the registry).
+func TestInVClusterServiceImageTags_PinsEveryOrbitServiceToResolvedRef(t *testing.T) {
 	values := inVClusterServiceImageTags("main-abc1234")
 	if len(values) != len(inVClusterServiceImageServices) {
 		t.Fatalf("got %d services, want %d", len(values), len(inVClusterServiceImageServices))
@@ -190,12 +189,9 @@ func TestInVClusterServiceImageTags_SetsEveryOrbitServiceToResolvedRefWithAlways
 		if image["tag"] != "main-abc1234" {
 			t.Errorf("values[%q][\"image\"][\"tag\"] = %v, want %q", svc, image["tag"], "main-abc1234")
 		}
-		if image["pullPolicy"] != "Always" {
-			t.Errorf("values[%q][\"image\"][\"pullPolicy\"] = %v, want %q", svc, image["pullPolicy"], "Always")
-		}
 	}
 	if _, ok := values["opaGateway"]; ok {
-		t.Error(`values["opaGateway"] must not be set — it is a third-party image, not built from this repo`)
+		t.Error(`values["opaGateway"] must not be pinned — it is a third-party image, not built from this repo`)
 	}
 }
 

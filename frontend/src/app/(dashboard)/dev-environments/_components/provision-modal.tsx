@@ -23,9 +23,10 @@ interface ProvisionModalProps {
 }
 
 export function ProvisionModal({ open, onClose, onCreate }: ProvisionModalProps) {
-  // Defaults to "main" — a floating tag that always tracks the latest main
-  // build, the CRD's own symbolic default. Clear it and type an immutable
-  // tag (e.g. v1.2.3) to pin a specific build instead.
+  // Defaults to "main" — the CRD's own symbolic default, which resolves to
+  // whatever version the host Orbit platform is itself currently running.
+  // Clear it and type an immutable tag (e.g. v1.2.3) to pin a different
+  // build instead.
   const [ref, setRef] = useState('main');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -55,7 +56,7 @@ export function ProvisionModal({ open, onClose, onCreate }: ProvisionModalProps)
             id="devenv-ref"
             label="Version"
             hint={
-              '"main" always tracks the latest main build, or pin an immutable image tag (e.g. v1.2.3)'
+              '"main" matches the version Orbit is currently running, or pin an immutable image tag (e.g. v1.2.3)'
             }
           >
             <Input

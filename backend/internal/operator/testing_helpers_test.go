@@ -194,6 +194,7 @@ func newDevEnvTestReconcilerFull(t *testing.T, clock *fakeClock, objs ...client.
 		VClusterVersion: "0.35.1",
 		ChartDir:        "/etc/orbit/charts",
 		ImageRegistry:   "orbit-registry:5001",
+		SelfImageTag:    "main-abc1234",
 		Quota: DevEnvQuota{
 			CPURequests: "6", MemoryRequests: "12Gi",
 			CPULimits: "48", MemoryLimits: "32Gi", MaxPods: "60",

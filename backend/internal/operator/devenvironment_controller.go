@@ -133,6 +133,15 @@ type DevEnvironmentReconciler struct {
 	// means "use built-in versioned image references" (production).
 	ImageRegistry string
 
+	// SelfImageTag is the tag THIS operator's own container is running at
+	// (cmd/operator/config's DevEnvSelfImageTag, threaded in by the chart
+	// unconditionally so it can never drift out of sync with what's
+	// actually deployed). resolveRef (devenvironment_ref.go) resolves the
+	// symbolic spec.ref "main" to this value — a dev environment always
+	// matches the currently deployed Orbit version exactly, never a
+	// separately published or floating tag.
+	SelfImageTag string
+
 	// Quota and LimitRange size the ResourceQuota/LimitRange applied to each
 	// environment's host namespace (cmd/operator/config's DevEnvQuota /
 	// DevEnvLimitRange — the measured per-environment footprint, vcluster

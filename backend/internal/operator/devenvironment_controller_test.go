@@ -732,8 +732,8 @@ func TestReconcile_InstallsInVClusterPlatformOnceReady(t *testing.T) {
 			t.Fatalf("OrbitValues[%q] missing or wrong type: %#v", svc, platform.Spec.OrbitValues[svc])
 		}
 		image, ok := values["image"].(map[string]any)
-		if !ok || image["tag"] != "main" {
-			t.Errorf("OrbitValues[%q].image.tag = %v, want %q (the harness's resolved ref)", svc, image["tag"], "main")
+		if !ok || image["tag"] != "main-abc1234" {
+			t.Errorf("OrbitValues[%q].image.tag = %v, want %q (the harness's resolved ref)", svc, image["tag"], "main-abc1234")
 		}
 	}
 
@@ -790,9 +790,9 @@ func TestReconcile_InstallsInVClusterPlatformOnceReady(t *testing.T) {
 	if err := vcClient.Get(context.Background(), client.ObjectKey{Name: inVClusterMigrationsJobName, Namespace: "orbit-system"}, job); err != nil {
 		t.Fatalf("migration Job not created inside the vcluster once postgres was ready: %v", err)
 	}
-	// resolvedRef defaults to the literal floating tag "main" — see
+	// resolvedRef pins this to the harness's fake tag, not :latest — see
 	// devenvironment_ref.go/inVClusterOperatorImage.
-	if img := job.Spec.Template.Spec.Containers[0].Image; img != "orbit-registry:5001/orbit-operator:main" {
+	if img := job.Spec.Template.Spec.Containers[0].Image; img != "orbit-registry:5001/orbit-operator:main-abc1234" {
 		t.Errorf("migration Job image = %q, want the operator's own registry-prefixed image at the resolved ref", img)
 	}
 	if inject := job.Spec.Template.Annotations["sidecar.istio.io/inject"]; inject != "false" {

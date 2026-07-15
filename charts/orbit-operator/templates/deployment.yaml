@@ -50,6 +50,14 @@ spec:
               value: {{ .Values.leaderElection | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            # Dev environments resolve their symbolic spec.ref "main" to
+            # whatever tag THIS operator itself is running at, rather than a
+            # separately published or floating tag — so a dev environment
+            # always matches the currently deployed Orbit version exactly.
+            # Same helper as this container's own image line above, so it
+            # can never drift out of sync with it.
+            - name: ORBIT_DEVENV_SELF_IMAGE_TAG
+              value: {{ include "orbit-operator.imageTag" . | quote }}
             {{- if .Values.opa }}
             {{- if .Values.opa.image }}
             - name: ORBIT_OPA_IMAGE

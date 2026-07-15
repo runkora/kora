@@ -98,6 +98,18 @@ type Config struct {
 		// ORBIT_DEVENV_IMAGE_REGISTRY.
 		DevEnvImageRegistry string `yaml:"devEnvImageRegistry"`
 
+		// DevEnvSelfImageTag is the tag THIS operator's own container is
+		// running at (charts/orbit-operator/templates/deployment.yaml
+		// threads it in unconditionally, via the same
+		// "orbit-operator.imageTag" helper the container's own image line
+		// uses, so it can never drift out of sync with what's actually
+		// deployed). A dev environment's symbolic spec.ref "main" resolves
+		// to this value — never a separately published or floating tag —
+		// so it always matches the currently deployed Orbit version
+		// exactly. Required in production; override via
+		// ORBIT_DEVENV_SELF_IMAGE_TAG.
+		DevEnvSelfImageTag string `yaml:"devEnvSelfImageTag"`
+
 		// DevEnvQuota holds the ResourceQuota ceilings applied to each dev
 		// environment's host namespace. Defaults below are derived from the
 		// measured per-environment footprint (~3.5 CPU / 6 Gi requested,
@@ -202,6 +214,9 @@ var Current = func() *Config {
 	if v := os.Getenv("ORBIT_DEVENV_IMAGE_REGISTRY"); v != "" {
 		cfg.Operator.DevEnvImageRegistry = v
 	}
+	if v := os.Getenv("ORBIT_DEVENV_SELF_IMAGE_TAG"); v != "" {
+		cfg.Operator.DevEnvSelfImageTag = v
+	}
 	if v := os.Getenv("ORBIT_DEVENV_QUOTA_CPU_REQUESTS"); v != "" {
 		cfg.Operator.DevEnvQuota.CPURequests = v
 	}
@@ -292,6 +307,7 @@ func validateDevEnvRequiredConfig(cfg *Config) {
 		{"operator.devEnvIngressDomain", "ORBIT_DEVENV_INGRESS_DOMAIN", cfg.Operator.DevEnvIngressDomain},
 		{"operator.devEnvAppExternalURL", "ORBIT_DEVENV_APP_EXTERNAL_URL", cfg.Operator.DevEnvAppExternalURL},
 		{"operator.devEnvImageRegistry", "ORBIT_DEVENV_IMAGE_REGISTRY", cfg.Operator.DevEnvImageRegistry},
+		{"operator.devEnvSelfImageTag", "ORBIT_DEVENV_SELF_IMAGE_TAG", cfg.Operator.DevEnvSelfImageTag},
 	}
 	for _, r := range required {
 		if r.value == "" {

@@ -59,10 +59,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # "main" is a floating tag on every push to the main branch — dev
-      # environments (backend/internal/operator/devenvironment_ref.go)
-      # resolve their symbolic spec.ref "main" straight to this tag rather
-      # than pinning to a specific commit, so they always run current main.
       - name: Derive image tag
         shell: bash
         run: |
@@ -73,7 +69,7 @@ jobs:
           elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             IMAGE_TAG="${GITHUB_REF_NAME}"
           elif [ "${GITHUB_REF_TYPE}" = "branch" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
-            IMAGE_TAG="main"
+            IMAGE_TAG="${GITHUB_SHA}"
           else
             IMAGE_TAG="latest"
           fi

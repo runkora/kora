@@ -332,6 +332,7 @@ func newDevEnvironmentReconciler(mgr ctrl.Manager, restCfg *rest.Config, logger 
 		VClusterVersion: oc.Current.Operator.DevEnvVClusterVersion,
 		ChartDir:        oc.Current.Operator.ChartDir,
 		ImageRegistry:   oc.Current.Operator.DevEnvImageRegistry,
+		SelfImageTag:    oc.Current.Operator.DevEnvSelfImageTag,
 		Quota: operator.DevEnvQuota{
 			CPURequests:    oc.Current.Operator.DevEnvQuota.CPURequests,
 			MemoryRequests: oc.Current.Operator.DevEnvQuota.MemoryRequests,

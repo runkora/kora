@@ -139,9 +139,9 @@ func VClusterRestConfig(ctx context.Context, hostClient client.Client, namespace
 // loop. Called from reconcileInVClusterPlatformAndReadiness once ensureVCluster
 // has succeeded — the vcluster's own API server (and therefore its
 // kubeconfig Secret) only exists after that. resolvedRef is
-// env.Status.ResolvedRef (resolveRef, devenvironment_ref.go) — the tag
-// (typically the literal floating "main") every image installed inside this
-// vcluster must resolve at.
+// env.Status.ResolvedRef (resolveRef, devenvironment_ref.go) — the
+// immutable tag every image installed inside this vcluster must resolve
+// at.
 func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Context, env *OrbitDevEnvironment, resolvedRef string) error {
 	ns := devEnvNamespace(env)
 
@@ -289,17 +289,18 @@ func (r *DevEnvironmentReconciler) inVClusterOperatorChartPath() string {
 
 // inVClusterOperatorValues mirrors deploy/local/operator-values.yaml: debug
 // logging and no leader election, since every environment's orbit-operator is
-// a single replica with nothing else to contend with. resolvedRef is
-// typically the literal floating tag "main" (devenvironment_ref.go) —
-// pullPolicy: Always so the environment actually runs current main content
-// rather than whatever image a node happened to cache under that tag name.
+// a single replica with nothing else to contend with. The image is pinned to
+// resolvedRef with IfNotPresent — never :latest+Always — because resolvedRef
+// (typically SelfImageTag, devenvironment_ref.go — the HOST operator's own
+// tag) names one specific, immutable build; there is nothing for a node to
+// go stale against.
 func (r *DevEnvironmentReconciler) inVClusterOperatorValues(resolvedRef string) map[string]any {
 	return map[string]any{
 		"logLevel": "debug",
 		"image": map[string]any{
 			"repository": r.inVClusterOperatorImageRepo(),
 			"tag":        resolvedRef,
-			"pullPolicy": "Always",
+			"pullPolicy": "IfNotPresent",
 		},
 		"leaderElection": false,
 	}
@@ -404,9 +405,9 @@ func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Cont
 		// the analogous passthrough for the nested-provisioning guard
 		// (charts/orbit/templates/identity/deployment.yaml's
 		// ORBIT_DEV_ENVIRONMENT_ID, consumed by cmd/identity's
-		// devenvironments feature). Every orbit-chart service image is set
-		// to resolvedRef so the whole environment installs at one
-		// consistent tag.
+		// devenvironments feature). Every orbit-chart service image is
+		// pinned to resolvedRef so the whole environment installs at one
+		// consistent commit.
 		OrbitValues: mergeMaps(inVClusterServiceImageTags(resolvedRef), map[string]any{
 			"frontendHost": appHost,
 			"frontend":     map[string]any{"config": map[string]any{"devEnvironmentId": env.Name}},
@@ -438,17 +439,14 @@ func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Cont
 	}
 }
 
-// inVClusterServiceImageTags sets every orbit-chart service in
+// inVClusterServiceImageTags pins every orbit-chart service in
 // inVClusterServiceImageServices to resolvedRef, as a raw OrbitValues map
 // (merged, not templated — no chart change needed: PlatformValues/OrbitValues
-// are already merged verbatim into the rendered chart values). pullPolicy:
-// Always, matching inVClusterOperatorValues — resolvedRef is typically the
-// literal floating tag "main", so these must actually re-pull rather than
-// reuse whatever a node cached under that tag name.
+// are already merged verbatim into the rendered chart values).
 func inVClusterServiceImageTags(resolvedRef string) map[string]any {
 	values := make(map[string]any, len(inVClusterServiceImageServices))
 	for _, svc := range inVClusterServiceImageServices {
-		values[svc] = map[string]any{"image": map[string]any{"tag": resolvedRef, "pullPolicy": "Always"}}
+		values[svc] = map[string]any{"image": map[string]any{"tag": resolvedRef}}
 	}
 	return values
 }
