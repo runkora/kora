@@ -163,12 +163,7 @@ export function DashboardHeader() {
       <Stack direction="horizontal" align="center" gap="snug">
         {devEnvironmentId ? (
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={returnToOrbit}
-              disabled={returningToOrbit}
-            >
+            <Button variant="outline" size="sm" onClick={returnToOrbit} disabled={returningToOrbit}>
               <Icon name={returningToOrbit ? 'loader' : 'external-link'} size="xs" />
               Return to Orbit
             </Button>
