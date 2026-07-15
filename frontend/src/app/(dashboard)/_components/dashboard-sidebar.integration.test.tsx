@@ -24,7 +24,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('./permissions-provider', () => ({
-  useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
+  useSession: vi
+    .fn()
+    .mockReturnValue({ scopes: [], user: null, loaded: false, devEnvironmentId: null }),
 }));
 
 import { usePathname } from 'next/navigation';
@@ -62,9 +64,32 @@ describe('DashboardSidebar', () => {
         scopes: ['platform:grants:read'],
         user: null,
         loaded: true,
+        devEnvironmentId: null,
       });
       renderSidebar();
       expect(screen.getByText('Policy')).toBeInTheDocument();
+    });
+
+    it('shows Dev Environments when the user holds devenvironments:read and is not in a dev env', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['devenvironments:read'],
+        user: null,
+        loaded: true,
+        devEnvironmentId: null,
+      });
+      renderSidebar();
+      expect(screen.getByText('Dev Environments')).toBeInTheDocument();
+    });
+
+    it('hides Dev Environments when this install is itself a dev environment, even with scope', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['devenvironments:read'],
+        user: null,
+        loaded: true,
+        devEnvironmentId: 'bob-env',
+      });
+      renderSidebar();
+      expect(screen.queryByText('Dev Environments')).not.toBeInTheDocument();
     });
   });
 

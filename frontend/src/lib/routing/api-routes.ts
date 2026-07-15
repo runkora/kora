@@ -367,6 +367,33 @@ export const ApiRoute = {
         : `${API_BASE}/trigger-deliveries`,
   },
 
+  /** Dev Environments feature — ephemeral, vcluster-backed Orbit installs. Served by the identity binary via the BFF. */
+  devEnvironments: {
+    list: (): `${typeof API_BASE}/dev-environments` => `${API_BASE}/dev-environments`,
+    create: (): `${typeof API_BASE}/dev-environments` => `${API_BASE}/dev-environments`,
+    detail: (id: string): `${typeof API_BASE}/dev-environments/${string}` =>
+      `${API_BASE}/dev-environments/${id}`,
+    destroy: (id: string): `${typeof API_BASE}/dev-environments/${string}` =>
+      `${API_BASE}/dev-environments/${id}`,
+    extend: (id: string): `${typeof API_BASE}/dev-environments/${string}/extend` =>
+      `${API_BASE}/dev-environments/${id}/extend`,
+    wake: (id: string): `${typeof API_BASE}/dev-environments/${string}/wake` =>
+      `${API_BASE}/dev-environments/${id}/wake`,
+    kubeconfig: (id: string): `${typeof API_BASE}/dev-environments/${string}/kubeconfig` =>
+      `${API_BASE}/dev-environments/${id}/kubeconfig`,
+  },
+
+  /**
+   * `/api/dev-environment/exit`
+   *
+   * GET — clears the host-side dev-environment routing cookie and redirects
+   *       to `/`. Only meaningful when the dashboard is being browsed from
+   *       inside a dev environment's own in-vcluster frontend.
+   */
+  devEnvironmentExit: {
+    GET: (): `${typeof API_BASE}/dev-environment/exit` => `${API_BASE}/dev-environment/exit`,
+  },
+
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
     listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
@@ -473,4 +500,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
+  | ReturnType<(typeof ApiRoute)['devEnvironmentExit']['GET']>
   | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings

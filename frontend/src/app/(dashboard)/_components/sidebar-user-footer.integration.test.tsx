@@ -19,6 +19,7 @@ vi.mock('./permissions-provider', () => ({
     scopes: [],
     user: { sub: 'user-test-123', email: 'dev@orbit.local', name: 'Dev User' },
     loaded: true,
+    devEnvironmentId: null,
   }),
 }));
 
@@ -44,7 +45,12 @@ describe('SidebarUserFooter', () => {
   });
 
   it('shows "Loading…" before the session is loaded (user is null)', () => {
-    vi.mocked(useSession).mockReturnValueOnce({ scopes: [], user: null, loaded: false });
+    vi.mocked(useSession).mockReturnValueOnce({
+      scopes: [],
+      user: null,
+      loaded: false,
+      devEnvironmentId: null,
+    });
     renderFooter();
     expect(screen.getByText('Loading…')).toBeInTheDocument();
   });
@@ -54,6 +60,7 @@ describe('SidebarUserFooter', () => {
       scopes: [],
       user: { sub: 'custom-sub', email: 'alice@orbit.local', name: 'Alice' },
       loaded: true,
+      devEnvironmentId: null,
     });
     renderFooter();
     expect(screen.getByText('alice@orbit.local')).toBeInTheDocument();
@@ -65,6 +72,7 @@ describe('SidebarUserFooter', () => {
       scopes: [],
       user: { sub: 'anon-sub', email: 'anon@orbit.local', name: '' },
       loaded: true,
+      devEnvironmentId: null,
     });
     renderFooter();
     expect(screen.getByText('anon@orbit.local')).toBeInTheDocument();

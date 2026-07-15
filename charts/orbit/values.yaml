@@ -293,6 +293,11 @@ frontend:
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
     nextPublicAppUrl: ""
+    # Set only on dev-environment (in-vcluster) installs, by the
+    # devenvironment reconciler — never by hand. Threaded into the BFF
+    # session response so client code can hide/guard dev-environment-
+    # provisioning UI when this install is itself running inside one.
+    devEnvironmentId: ""
 
   # Name of the existing Secret containing BFF_SESSION_SECRET.
   # Created by scripts/cluster/create-secrets.sh before the operator deploys this chart.

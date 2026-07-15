@@ -18,7 +18,8 @@
  * GET  — returns the public (non-sensitive) portion of the current session for
  *        use by client components that need to know who is logged in.
  *
- *        Response: 200 { user: SessionUser, expiresAt: number } — active session
+ *        Response: 200 { user: SessionUser, expiresAt: number, devEnvironmentId: string | null }
+ *                      — active session
  *                  401 { error: 'unauthorized' }                — no/expired session
  *
  * The access token and refresh token are NEVER included in GET responses —
@@ -263,5 +264,6 @@ export async function GET(): Promise<Response> {
     user: session.user,
     expiresAt: session.expiresAt,
     permissions: session.permissions ?? { scopes: [], evaluatedAt: 0 },
+    devEnvironmentId: config.devEnvironmentId,
   });
 }

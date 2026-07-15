@@ -11,6 +11,8 @@ export type NavEntry = {
   badge?: number;
   wip?: boolean;
   requiredScope?: string;
+  /** Hidden when the app itself is running inside a dev environment. */
+  hideInDevEnv?: boolean;
 };
 
 export type NavGroup = { label: string; items: NavEntry[] };
@@ -23,6 +25,13 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
   { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
+  {
+    label: 'Dev Environments',
+    href: APP_ROUTES.devEnvironments,
+    icon: 'rocket',
+    requiredScope: 'devenvironments:read',
+    hideInDevEnv: true,
+  },
   {
     label: 'Triggers',
     href: APP_ROUTES.triggers,

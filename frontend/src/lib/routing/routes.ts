@@ -39,6 +39,7 @@ export const APP_ROUTES = {
   },
   connections: '/connections',
   environments: '/environments',
+  devEnvironments: '/dev-environments',
   triggers: '/triggers',
   mcpGateway: {
     servers: '/mcp-gateway',
