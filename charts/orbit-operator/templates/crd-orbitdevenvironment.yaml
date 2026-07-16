@@ -44,9 +44,9 @@ spec:
             OrbitDevEnvironment declares an ephemeral, full-stack Orbit
             development environment backed by a vcluster. The CR name is the
             environment ID — the operator derives the host namespace as
-            "orbit-devenv-{name}". See the prototype ADR
-            (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md
-            on the feat/vcluster branch) for the full design rationale.
+            "orbit-devenv-{name}". See
+            docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md
+            for the full design rationale.
           type: object
           required:
             - spec

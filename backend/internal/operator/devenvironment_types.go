@@ -1,8 +1,7 @@
-// OrbitDevEnvironment CRD Go types — see the prototype ADR
-// (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md
-// on the feat/vcluster branch) for the full design rationale, and the
-// 2026-07-13 production-delivery ADR for what changed on the way to
-// production.
+// OrbitDevEnvironment CRD Go types — see
+// docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md for the
+// design rationale and what changed on the way to production from the
+// original prototype spike.
 //
 // The actual type definitions live in internal/platform/orbitapi (shared
 // with cmd/identity's devenvironments feature — internal/operator is itself

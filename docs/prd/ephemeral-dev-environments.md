@@ -5,7 +5,7 @@
 **Last Updated:** 2026-07-13
 **Owner:** Francis Holt (Platform Engineering)
 **Stakeholders:** Platform engineering team (primary users), operator of the shared staging/host cluster, security review
-**Technical design:** [ephemeral-development-environments-via-vcluster](../adr/2026-07-07-ephemeral-development-environments-via-vcluster.md) (ADR, including the full prototype log)
+**Technical design:** [ephemeral-dev-environments-via-vcluster](../adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md) (ADR)
 
 ---
 
@@ -453,7 +453,7 @@ Verified live on `k3d-orbit-local` (full detail in the ADR's progress log):
 
 ### Related Documents
 
-- [ephemeral-development-environments-via-vcluster](../adr/2026-07-07-ephemeral-development-environments-via-vcluster.md) — technical design + complete prototype log (spike results, ten Phase-2 slices, amendments, corrections)
+- [ephemeral-dev-environments-via-vcluster](../adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md) — technical design, re-affirming the architecture proved out by the earlier prototype spike
 - [ephemeral-dev-environments.md](ephemeral-dev-environments.md) — v1 PRD (superseded by this document on approval)
 - [local-development-environment](../adr/2026-03-10-local-development-environment.md) — the two-tier local strategy whose Tier 2 this replaces
 - [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) — the reconcile model the provisioning extends

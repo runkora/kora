@@ -29,7 +29,7 @@ Only two things fall outside the PR: cloud infrastructure work (Track V — not 
 
 **Docs of record (already resolved by the repo owner — do not re-litigate):**
 - PRD: `docs/prd/ephemeral-dev-environments.md` on `feat/vcluster-design`. The ADR's references to `ephemeral-dev-environments-new.md` are ignored; WP-1 amends those links.
-- Design ADR: `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md` on `feat/vcluster-design`. The prototype ADR `docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` stays on `feat/vcluster` as the reference record of the vibe-coded solution — it is **not ported**; consult it there (`git show origin/feat/vcluster:docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md`) for the "why" behind every pinned decision.
+- Design ADR: `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md` on `feat/vcluster-design`. The prototype ADR (dated 2026-07-07) stays on `feat/vcluster` as the reference record of the vibe-coded solution — it is **not ported**, and no path to it is checked into this tree since it will not exist once this branch merges to `main`; consult it via `git show origin/feat/vcluster:docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` for the "why" behind every pinned decision.
 
 **Flags to resolve early (ask the repo owner / infra owner):**
 - Staging facts needed before Track V and any live verification: registry host (CI publishes to `ghcr.io` today via `.github/workflows/docker.yml`), staging gateway external host, LB TCP :16443 capability, devenv node pool taints/labels, SPIRE + SPIFFE CSI status on staging, CI credentials for the scheduled integration suite.
@@ -138,7 +138,7 @@ Shared operator infra touched by the prototype:
 ### Stage 0 — Preconditions
 
 #### WP-1: Docs groundwork
-1. In `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md`: change every `../prd/ephemeral-dev-environments-new.md` link to `../prd/ephemeral-dev-environments.md`; where the ADR links `2026-07-07-ephemeral-development-environments-via-vcluster.md`, annotate that the prototype ADR lives on the `feat/vcluster` branch (not in this tree).
+1. In `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md`: change every `../prd/ephemeral-dev-environments-new.md` link to `../prd/ephemeral-dev-environments.md`; strip the checked-in path to `2026-07-07-ephemeral-development-environments-via-vcluster.md` (it will not exist on `main`) and refer to the prototype ADR by name only, noting it lives on the `feat/vcluster` branch.
 2. Ensure `docs/prd/ephemeral-dev-environments.md` exists on this branch (it does — verify) and register the 2026-07-13 ADR in `docs/adr/README.md` if absent.
 3. Commit `code_plan.md` (this file).
 

@@ -23,7 +23,7 @@ The 2026-07-07 ADR proposed the architecture; a deliberately vibe-coded prototyp
 
 ### Background
 
-- The chosen architecture — **A3** (vcluster per environment) + **B3** (`OrbitDevEnvironment` CRD reconciled by the operator) + **C3** (host-provided workload identity) — and its two later amendments (path-based shared-host app ingress; JWKS-mirror/JWT_RULE mesh authentication) are recorded, argued, and empirically validated in the prototype ADR (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree). They are **re-affirmed, not re-litigated** here.
+- The chosen architecture — **A3** (vcluster per environment) + **B3** (`OrbitDevEnvironment` CRD reconciled by the operator) + **C3** (host-provided workload identity) — and its two later amendments (path-based shared-host app ingress; JWKS-mirror/JWT_RULE mesh authentication) are recorded, argued, and empirically validated in the prototype ADR on the `feat/vcluster` branch (not present in this tree). They are **re-affirmed, not re-litigated** here.
 - The implementation exists and works: `backend/internal/devenvironments/` (API feature package in `cmd/identity`), `DevEnvironmentReconciler` plus eight `devenvironment_*.go` satellites in `backend/internal/operator/`, shared CRD types in `backend/internal/platform/orbitapi/`, the CRD in `charts/orbit-operator/templates/crd-orbitdevenvironment.yaml`, chart helpers (`orbit.spiffeIDBase`) in `charts/orbit/`, BFF routes and the *Dev Environments* page in `frontend/src/app/`.
 - The v1 PRD decisions stand: the rollout host is the **existing staging cluster**, and post-GA the button is available to **every authenticated Orbit user** under quota/TTL guardrails.
 - This feature **replaces Tier 2** (`make dev-cluster`) behind a parity gate, per [local-development-environment](2026-03-10-local-development-environment.md); Tier 1 (`make dev-up`) is untouched.
@@ -63,7 +63,7 @@ Define the production implementation and infrastructure for the dev-environments
 
 ## Considered Options
 
-The five genuinely open decisions. (Isolation, trigger, identity, ingress, and sleep options are in the prototype ADR (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree) and are not repeated.)
+The five genuinely open decisions. (Isolation, trigger, identity, ingress, and sleep options are in the prototype ADR on the `feat/vcluster` branch (not present in this tree) and are not repeated.)
 
 ### A. Productionisation strategy
 
@@ -398,7 +398,7 @@ Per-stage provision metrics, failure counters, and phase-inventory gauges (§10)
 
 ## Related Decisions
 
-- `ephemeral-development-environments-via-vcluster` (`docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` on the `feat/vcluster` branch — not present in this tree) — the prototype ADR this supersedes; canonical record of the spike, all ten Phase-2 slices, amendments, and corrections behind every pinned decision here
+- `ephemeral-development-environments-via-vcluster` (prototype ADR on the `feat/vcluster` branch — not present in this tree) — the prototype this supersedes; canonical record of the spike, all ten Phase-2 slices, amendments, and corrections behind every pinned decision here
 - [local-development-environment](2026-03-10-local-development-environment.md) — Tier 1 unchanged; Tier 2 retired by this delivery behind the parity gate
 - [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) — the reconcile model the `DevEnvironmentReconciler` extends
 - [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — the charts and `deploy/local/` reference install reused inside each environment; the baked-charts design that §3 makes load-bearing

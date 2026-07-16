@@ -1,7 +1,7 @@
 // In-vcluster Postgres/Redis/Dex/glauth fixtures for OrbitDevEnvironment
-// (decision 2 of docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md:
-// "Postgres, Redis, and Dex run inside the vcluster with fixture data;
-// environments never share the host control plane's database or Redis").
+// (decision 2 of the prototype spike: "Postgres, Redis, and Dex run inside
+// the vcluster with fixture data; environments never share the host control
+// plane's database or Redis").
 //
 // These are deliberately minimal, hand-built Deployments/Services rather than
 // a Helm chart, but Dex is backed by the same LDAP-via-glauth wiring Tier 1/2

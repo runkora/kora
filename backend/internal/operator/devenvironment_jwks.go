@@ -1,7 +1,6 @@
-// Host JWKS handoff for OrbitDevEnvironment — the resolution of the ADR's
-// "istiod XDS KubeJWTAuthenticator rejection" blocker
-// (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md,
-// Phase 2 sixth-slice decision: JWT_RULE + an in-pod JWKS mirror).
+// Host JWKS handoff for OrbitDevEnvironment — the resolution of the prototype
+// spike's "istiod XDS KubeJWTAuthenticator rejection" blocker (Phase 2
+// sixth-slice decision: JWT_RULE + an in-pod JWKS mirror).
 //
 // A devenvironment's mesh sidecars are host pods (vcluster syncs them onto
 // real host nodes), so the bound ServiceAccount token their istio-agent

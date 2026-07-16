@@ -12,8 +12,7 @@ import (
 // Extracted so reconcilers can be unit tested against a fake implementation
 // instead of a real Helm/Kubernetes backend — HelmClient itself talks to a
 // live cluster via its embedded rest.Config and cannot be exercised in
-// process. See docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md,
-// Implementation §Ring 1.
+// process.
 type HelmInterface interface {
 	InstallOrUpgrade(ctx context.Context, releaseName, chartPath, repoURL, chartVersion string, values map[string]any) (*ReleaseState, error)
 	Status(ctx context.Context, releaseName string) (*ReleaseState, error)

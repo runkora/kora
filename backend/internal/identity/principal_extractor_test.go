@@ -173,8 +173,7 @@ func TestPrincipalFromSpiffeID_AgentPathUnchanged(t *testing.T) {
 
 // ── devenv-prefixed SVIDs ─────────────────────────────────────────────────────
 //
-// docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md
-// (option C3) prefixes dev-environment SVIDs with /devenv/{env-id} because
+// Dev environments (option C3) prefix SVIDs with /devenv/{env-id} because
 // environment workloads are attested by the host SPIRE deployment. The
 // extractor must strip the prefix, lift the env-id into Claims, and otherwise
 // parse identically to the non-devenv shape.

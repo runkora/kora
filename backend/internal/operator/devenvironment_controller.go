@@ -76,11 +76,9 @@ const (
 //  6. Installs the in-vcluster Orbit platform once the vcluster itself is
 //     Ready, and reports Ready only once that nested install is Ready too.
 //
-// See the prototype ADR
-// (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md on
-// the feat/vcluster branch) for the full design rationale behind each of
-// these steps, and the 2026-07-13 production-delivery ADR for what changed
-// on the way to production.
+// See docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md for the
+// design rationale behind each of these steps and what changed on the way to
+// production from the original prototype spike.
 type DevEnvironmentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme

@@ -91,8 +91,7 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 //	Service:      spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
 //	System:       spiffe://orbit.{instance-id}/system/{component-name}
 //
-// Dev environments (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md)
-// prefix any of the above with /devenv/{env-id}, e.g.
+// Dev environments prefix any of the above with /devenv/{env-id}, e.g.
 // spiffe://orbit.{instance-id}/devenv/{env-id}/system/{component-name}. The
 // prefix is stripped before parsing and the env-id is lifted into
 // Claims["devenv_id"]; the resulting principal type/tenant/display-name are
@@ -125,8 +124,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	// Dev environments (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md,
-	// option C3) run under the host's trust domain with an extra /devenv/{env-id}
+	// Dev environments (option C3) run under the host's trust domain with an extra /devenv/{env-id}
 	// path segment, since environment workloads are attested by the host SPIRE
 	// deployment rather than a per-environment one. Strip that segment up front
 	// and fall through to the unchanged system/tenant parsing below; the env-id

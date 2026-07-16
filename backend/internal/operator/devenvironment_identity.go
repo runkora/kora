@@ -1,6 +1,5 @@
 // Host-provided workload identity for OrbitDevEnvironment (decision 3 /
-// option C3 of
-// docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md).
+// option C3 of the prototype spike).
 //
 // SPIRE cannot run inside a vcluster — its agent attests via the host
 // kubelet, where synced pods appear under translated names (the ADR's Option

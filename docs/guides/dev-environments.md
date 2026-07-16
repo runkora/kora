@@ -1,6 +1,6 @@
 # Ephemeral Dev Environments — Operator's Runbook
 
-This guide covers day-to-day operation of the Ephemeral Dev Environments feature: what to do when an environment gets stuck, how to read its status, and the handful of behaviours that look like bugs but are actually documented decisions. It assumes familiarity with the architecture in `docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` and `code_plan.md`.
+This guide covers day-to-day operation of the Ephemeral Dev Environments feature: what to do when an environment gets stuck, how to read its status, and the handful of behaviours that look like bugs but are actually documented decisions. It assumes familiarity with the architecture in `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md` and `code_plan.md`.
 
 ---
 
@@ -115,7 +115,7 @@ When something is stuck in `Provisioning`, the first stage with `status: "False"
 
 ## Related references
 
-- `docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md` — architecture and the pinned decisions this feature preserves.
+- `docs/adr/2026-07-13-ephemeral-dev-environments-via-vcluster.md` — architecture and the pinned decisions this feature preserves.
 - `code_plan.md` — the work-package breakdown this implementation was built from; §11 lists the full integration-suite checklist.
 - `backend/tests/integration/devenvironments/devenvironment_test.go` — the live staging integration suite (`make test-integration-devenv`).
 - `scripts/cluster/spike-*.sh` — the vcluster/Istio version-bump regression suite.

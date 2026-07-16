@@ -1,5 +1,5 @@
-// Kubeconfig CSR fulfillment for OrbitDevEnvironment (decision 6 of
-// docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md).
+// Kubeconfig CSR fulfillment for OrbitDevEnvironment (decision 6 of the
+// prototype spike).
 //
 // The identity service (Phase 3, not yet built) generates a client keypair on
 // the developer's behalf, places the CSR on the CR, and never holds the

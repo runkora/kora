@@ -1,8 +1,6 @@
 // OrbitDevEnvironment CRD Go types, shared between the operator (which
 // reconciles the CR) and cmd/identity's devenvironments feature (which
-// creates/reads it, decision 5 of the prototype ADR
-// (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md
-// on the feat/vcluster branch — not present in this tree)).
+// creates/reads it, per the prototype spike's decision 5).
 //
 // This package exists so both consumers can depend on the same type without
 // either importing the other's feature package — internal/operator is
