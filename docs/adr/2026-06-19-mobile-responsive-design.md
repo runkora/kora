@@ -1,11 +1,11 @@
 # Mobile & Tablet Responsive Design
 
-<!-- Filename: 2026-06-19-mobile-responsive-design.md -->
+<!-- Filename: mobile-responsive-design.md -->
 
 **Status:** Accepted  
 **Date:** 2026-06-19  
 **Deciders:** Platform Engineering  
-**Technical Story:** [PRD — Mobile & Tablet Responsive Design](../prd/2026-06-19-mobile-responsive-design.md)
+**Technical Story:** [PRD — Mobile & Tablet Responsive Design](../prd/mobile-responsive-design.md)
 
 ---
 
@@ -201,7 +201,7 @@ Phase 1 (2026-06-19): All changes above in a single PR.
 
 ## References
 
-- [PRD — Mobile & Tablet Responsive Design](../prd/2026-06-19-mobile-responsive-design.md)
+- [PRD — Mobile & Tablet Responsive Design](../prd/mobile-responsive-design.md)
 - [Terra Design System Reference](../../frontend/docs/reference/terra-design-system.md)
 - [Tailwind CSS v4 Responsive Design](https://tailwindcss.com/docs/responsive-design)
 - [Radix UI Dialog](https://www.radix-ui.com/primitives/docs/components/dialog)

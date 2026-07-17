@@ -17,6 +17,12 @@
 
 set -uo pipefail
 
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "ERROR: check-docs.sh requires bash 4+. You have bash ${BASH_VERSION}." >&2
+  echo "       Run: brew install bash" >&2
+  exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 

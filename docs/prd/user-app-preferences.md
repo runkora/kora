@@ -354,9 +354,9 @@ Proposed `tableId` values for v1:
 
 ### Related Documents
 
-- [ADR-0061](../adr/0061-user-app-preferences.md) — Architecture decision for storage approach, API design, and SSR hydration strategy
-- [`docs/design/inference-logs.md`](../design/inference-logs.md) — Logs table column inventory
-- [`docs/design/inference-analytics.md`](../design/inference-analytics.md) — Analytics table column inventory
+- [ADR-0061](../adr/2026-05-08-user-app-preferences.md) — Architecture decision for storage approach, API design, and SSR hydration strategy
+- [Inference Logs PRD](inference-logs.md) — Logs table column inventory
+- [Inference Analytics PRD](inference-analytics.md) — Analytics table column inventory
 
 ### Glossary
 
