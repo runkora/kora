@@ -75,10 +75,10 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 - Go 1.26 or later
 - Docker (Docker Desktop or Colima) with at least 4 CPUs and 8 GiB of RAM allocated to the VM
-- Node 24 and pnpm 10 (frontend)
 - Make
+- nvm, and Homebrew on macOS
 
-`make setup` installs the rest: k3d, kubectl, helm, and the Go tooling. Istio and SPIRE are not host tools; the operator installs them into the cluster during `make up`.
+`make setup` installs the rest: Node and pnpm through nvm, plus mkcert, k3d, kubectl, helm and the Go tooling. It runs `mkcert -install` to trust a local CA, so it prompts for your password once. Istio and SPIRE are not host tools; the operator installs them into the cluster during `make up`.
 
 ### Quick Start
 

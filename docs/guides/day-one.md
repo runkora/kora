@@ -4,12 +4,17 @@ Clone to a running change. Orbit runs in Kubernetes locally, the same way it run
 
 ## Prerequisites
 
-| Tool | Version | Notes |
+Install these yourself. `make setup` installs everything else, including Node, pnpm, k3d, kubectl, helm and the Go tooling.
+
+| Tool | Version | Why |
 |---|---|---|
-| Go | 1.26+ | control plane |
+| Go | 1.26+ | the control plane, and `make setup` uses `go install` |
 | Docker Desktop or Colima | 4 CPUs, 8 GiB allocated to the VM | runs the cluster and the backing services |
-| Node | 24 (`>=24 <25`) | frontend; `nvm install 24 && nvm use` |
-| pnpm | 10 | `corepack enable` |
+| Make | system | pre-installed on macOS and Linux |
+| nvm | any | `make setup` installs Node through it, and exits if it is missing |
+| Homebrew | any | macOS only; `make setup` installs `mkcert` with it |
+
+`make setup` runs `mkcert -install` to add a local CA to your system trust store, so it will prompt for your password once.
 
 ## Start
 

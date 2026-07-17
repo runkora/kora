@@ -8,15 +8,19 @@ This is the deep reference. For the shortest path from clone to a running change
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| Go | 1.26+ | control plane |
-| Docker Desktop or Colima | 4 CPUs, 8 GiB allocated to the VM | runs the cluster and the backing services |
-| Node | 24 (`>=24 <25`) | frontend host checks; `nvm install 24 && nvm use` |
-| pnpm | 10 (`>=10 <11`) | `corepack enable` |
-| Make | system | pre-installed on macOS and Linux |
+Install these yourself:
 
-`make setup` installs the rest: `goose`, `golangci-lint`, `gitleaks`, `buf`, `k3d`, `kubectl`, `helm`.
+| Tool | Version | Why |
+|---|---|---|
+| Go | 1.26+ | the control plane, and `make setup` uses `go install` |
+| Docker Desktop or Colima | 4 CPUs, 8 GiB allocated to the VM | runs the cluster and the backing services |
+| Make | system | pre-installed on macOS and Linux |
+| nvm | any | `make setup` installs Node through it, and exits if it is missing |
+| Homebrew | any | macOS only; `make setup` installs `mkcert` with it |
+
+`make setup` installs the rest: Node (`>=24 <25`) and pnpm (`>=10 <11`) via nvm and Corepack, plus `goose`, `golangci-lint`, `gitleaks`, `buf`, `mkcert`, `k3d`, `kubectl` and `helm`.
+
+It also runs `mkcert -install`, which adds a local CA to your system trust store and prompts for your password once. That CA is what makes `https://orbit.local.clearroute.io` trusted in your browser.
 
 ---
 
