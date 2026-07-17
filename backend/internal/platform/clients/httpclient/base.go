@@ -179,7 +179,7 @@ func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error 
 
 // HandleErrorResponse centralizes the entire non-2xx response path so service
 // clients never hand-roll it. In a single call it:
-//   - Reads up to 512 bytes from resp.Body and closes it (via ReadErrorBody)
+//   - Reads up to 512 bytes from resp.Body (via ReadErrorBody)
 //   - Sets the error.upstream_body span attribute
 //   - Constructs a wrapped error embedding sentinel, HTTP status, and upstream body
 //   - Records the full error event on the span
@@ -187,6 +187,9 @@ func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error 
 //
 // The sentinel should be a package-level errors.New variable from the calling
 // client (e.g. ErrUnexpectedStatus) so callers can use errors.Is for branching.
+//
+// Body ownership: the caller is responsible for closing resp.Body (typically via
+// defer resp.Body.Close()). HandleErrorResponse reads but does not close it.
 //
 // Usage — the entire non-2xx branch becomes two lines:
 //
@@ -220,16 +223,17 @@ func (b *Base) RecordError(span trace.Span, sentinel error) error {
 	return sentinel
 }
 
-// ReadErrorBody reads up to 512 bytes from resp.Body, closes it, records the
-// trimmed content as the error.upstream_body span attribute, and returns the
-// string so callers can embed it in their error.
+// ReadErrorBody reads up to 512 bytes from resp.Body, records the trimmed
+// content as the error.upstream_body span attribute, and returns the string so
+// callers can embed it in their error.
+//
+// Body ownership: ReadErrorBody reads but does not close resp.Body. The caller
+// is responsible for closing it (typically via defer resp.Body.Close()).
 //
 // Call this in the non-2xx branch of every service client before constructing
 // the error and calling span.RecordError. The 512-byte cap is large enough to
 // capture any structured error payload (JSON, plaintext) while defending
 // against unexpectedly large responses such as HTML gateway error pages.
-//
-// Callers do not need to close resp.Body separately — this method does it.
 //
 // Example usage in a service client:
 //
@@ -242,7 +246,6 @@ func (b *Base) RecordError(span trace.Span, sentinel error) error {
 //	}
 func (b *Base) ReadErrorBody(span trace.Span, resp *http.Response) string {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	resp.Body.Close()
 	upstream := strings.TrimSpace(string(body))
 	span.SetAttributes(attribute.String("error.upstream_body", upstream))
 	return upstream
