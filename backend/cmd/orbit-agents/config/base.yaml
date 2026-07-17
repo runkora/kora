@@ -23,6 +23,11 @@ policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
 
+# Agent type draft reaper: sweep hourly, delete drafts untouched for 30 days.
+drafts:
+  reaperIntervalSecs: 3600
+  retentionDays: 30
+
 agents:
   sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
   sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest

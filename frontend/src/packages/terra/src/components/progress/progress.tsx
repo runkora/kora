@@ -28,6 +28,8 @@ const progressVariants = cva(
         pending: 'bg-status-pending',
       },
       size: {
+        /** Hairline — 2 px; for chrome-level progress (e.g. a wizard header bar). */
+        hairline: 'h-0.5',
         /** Compact indicator — useful inside table cells or card footers. */
         sm: 'h-1.5',
         /** Standard bar — default for dashboard metric cards. */
@@ -110,7 +112,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
           className={cn(
             'relative flex-1 overflow-hidden rounded-full bg-surface-overlay',
             // Track height mirrors fill height
-            size === 'sm' ? 'h-1.5' : size === 'lg' ? 'h-3' : 'h-2',
+            size === 'hairline' ? 'h-0.5' : size === 'sm' ? 'h-1.5' : size === 'lg' ? 'h-3' : 'h-2',
           )}
         >
           <div className={cn(progressVariants({ variant, size }))} style={{ width: `${pct}%` }} />

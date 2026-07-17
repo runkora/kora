@@ -33,7 +33,8 @@ export const APP_ROUTES = {
   // ── Control Plane ────────────────────────────────────────────────────────
   agents: {
     list: '/agents' as const,
-    new: '/agents/new' as const,
+    /** Opens the agent builder modal over the agents list (?agent=new). */
+    new: '/agents?agent=new' as const,
     detail: (slug: string) => `/agents/${slug}` as const,
     run: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}` as const,
   },

@@ -32,7 +32,7 @@ const ModalTrigger = ({
   children,
 }: {
   label: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'builder';
   children: (onClose: () => void) => React.ReactNode;
 }) => {
   const [open, setOpen] = React.useState(false);
@@ -280,6 +280,44 @@ export const CustomHeader: Story = {
             </Button>
             <Button variant="default" size="sm" onClick={onClose}>
               Export
+            </Button>
+          </ModalFooter>
+        </>
+      )}
+    </ModalTrigger>
+  ),
+};
+
+/**
+ * The `builder` size — a full workspace modal (1200 × 840 px, clamped to the
+ * viewport minus a 2 rem margin). Unlike the width-only sizes it has an
+ * explicit height and `overflow-hidden`: children `flex-1` to fill the panel
+ * and manage their own internal scrolling (rail and content columns scroll
+ * independently). Used by the agent builder, which supplies a custom header
+ * with `ModalAccessibleTitle` for the accessible name.
+ */
+export const BuilderSize: Story = {
+  name: 'Size: builder',
+  render: () => (
+    <ModalTrigger label="Open builder" size="builder">
+      {(onClose) => (
+        <>
+          <ModalAccessibleTitle>Agent builder</ModalAccessibleTitle>
+          <div className="flex min-h-0 flex-1">
+            <div className="w-56 shrink-0 border-r border-border p-5">
+              <Text size="supporting" color="muted">
+                Step rail (fixed)
+              </Text>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <Text size="supporting" color="muted">
+                Step content — scrolls independently inside the fixed-height panel.
+              </Text>
+            </div>
+          </div>
+          <ModalFooter borderless={false}>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Close
             </Button>
           </ModalFooter>
         </>

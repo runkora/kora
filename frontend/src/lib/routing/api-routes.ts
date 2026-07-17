@@ -320,6 +320,16 @@ export const ApiRoute = {
      *       the tenant. Powers the total + per-agent cost on the agents list.
      */
     usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
+    /**
+     * `/api/agents/types/drafts`
+     *
+     * Agent type drafts — the builder's persistence. A draft is a saved form,
+     * private to the caller; it holds no grant and provisions nothing
+     * (docs/adr/2026-07-17-agent-builder.md §2).
+     */
+    drafts: (): `${typeof API_BASE}/agents/types/drafts` => `${API_BASE}/agents/types/drafts`,
+    draft: (id: string): `${typeof API_BASE}/agents/types/drafts/${string}` =>
+      `${API_BASE}/agents/types/drafts/${id}`,
   },
 
   /**

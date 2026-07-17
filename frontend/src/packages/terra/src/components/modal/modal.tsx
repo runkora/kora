@@ -14,6 +14,10 @@ const MODAL_SIZE: Record<Required<ModalProps>['size'], string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
+  // Full workspace modal (agent builder): explicit height so children can
+  // fill it (the root is already `flex flex-col`), `overflow-hidden` so the
+  // panel never scrolls — scrolling happens inside the step content instead.
+  builder: 'max-w-[1200px] w-[calc(100vw-4rem)] h-[840px] max-h-[calc(100vh-4rem)] overflow-hidden',
 };
 
 // ── Modal ────────────────────────────────────────────────────────────────────
@@ -29,8 +33,12 @@ export interface ModalProps {
    * - `'sm'` — `max-w-sm`  (384 px)
    * - `'md'` — `max-w-md`  (448 px) — default
    * - `'lg'` — `max-w-lg`  (512 px)
+   * - `'builder'` — full workspace modal (1200 × 840 px, clamped to the
+   *   viewport minus a 2 rem margin). Unlike the width-only sizes, `builder`
+   *   gives the panel an explicit height and `overflow-hidden`, so children
+   *   can `flex-1` to fill it and manage their own internal scrolling.
    */
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'builder';
   /**
    * When `false`, clicking outside the modal panel will NOT close it.
    * Use for modals that require an explicit action (e.g. copy-once token display).

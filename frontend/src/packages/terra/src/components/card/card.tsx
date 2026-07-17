@@ -105,6 +105,34 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
 
   /**
+   * When `true`, renders the card in its selected state: an accent border
+   * (`border-border-accent`) over a translucent accent fill (`bg-accent/10`).
+   *
+   * Use for single-select card surfaces — e.g. composing `RadioGroup` +
+   * `Card` where the card mirrors the group value. Composes with
+   * `interactive`: the selected border takes precedence over the default
+   * border while hover and focus-within treatments continue to apply.
+   *
+   * ```tsx
+   * <Card interactive selected={value === option.value} onClick={() => setValue(option.value)}>
+   *   …
+   * </Card>
+   * ```
+   */
+  selected?: boolean;
+
+  /**
+   * How the selected state is drawn. Only read when `selected` is `true`.
+   *
+   * - `'tint'` (default) — accent border over a translucent accent fill.
+   *   For compact single-select option cards (radio-card composition).
+   * - `'outline'` — accent border over `bg-surface-elevated`, no fill.
+   *   For large container cards (expandable pickers, multi-select trees)
+   *   where a tinted wash over the whole body would overwhelm the content.
+   */
+  selectedVariant?: 'tint' | 'outline';
+
+  /**
    * `overflow-y` CSS property. Use `'auto'` to make the card contents
    * vertically scrollable within a fixed height or `maxHeight` constraint.
    * Card already applies `overflow-hidden` — `overflowY` adds a scroll layer.
@@ -175,6 +203,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       className,
       column = false,
       interactive = false,
+      selected = false,
+      selectedVariant = 'tint',
       overflowY,
       maxHeight,
       toggleable = false,
@@ -193,10 +223,15 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         data-interactive={interactive ? 'true' : undefined}
+        data-selected={selected ? 'true' : undefined}
         className={cn(
           'rounded-lg border text-foreground overflow-hidden',
           border === 'default' ? 'border-border' : 'border-border-subtle',
           subtle ? 'bg-surface-elevated' : 'bg-surface',
+          selected &&
+            (selectedVariant === 'outline'
+              ? 'border-border-accent bg-surface-elevated'
+              : 'border-border-accent bg-accent/10'),
           (column || toggleable) && 'flex flex-col',
           divide && 'divide-y divide-border-subtle',
           interactive &&

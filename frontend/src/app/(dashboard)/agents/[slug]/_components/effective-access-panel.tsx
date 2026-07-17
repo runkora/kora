@@ -190,7 +190,7 @@ export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccess
             Effective access
           </Text>
           <Text size="caption" color="muted">
-            What this agent can actually reach — resolved live as you edit.
+            What this agent can actually reach, resolved live as you edit.
           </Text>
         </Stack>
       </Stack>
@@ -234,7 +234,7 @@ export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccess
               </Stack>
               {access.open ? (
                 <Text size="supporting" color="muted">
-                  Any host — open egress. Credentialed destinations are still gated by connections.
+                  Any host: open egress. Credentialed destinations are still gated by connections.
                 </Text>
               ) : access.hosts.length === 0 ? (
                 <Text size="supporting" color="muted">

@@ -401,6 +401,22 @@ export interface StartRunRequest {
 }
 
 /**
+ * A saved agent-builder form. Not an agent type: it holds no grant, provisions
+ * nothing, and is private to its creator. The payload is a partially-filled
+ * CreateAgentTypeRequest with no invariants — the reader must tolerate
+ * anything (docs/adr/2026-07-17-agent-builder.md §2). Mirrors Go:
+ * agents.AgentTypeDraft.
+ */
+export interface AgentTypeDraft {
+  id: string;
+  tenant_id: string;
+  created_by: string;
+  payload: Partial<CreateAgentTypeRequest>;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Per-connector auto-egress entry — the hosts a connection's adapter implies.
  * Mirrors Go: agents.ConnectorEgress.
  */

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -67,6 +68,23 @@ type RunRepository interface {
 	AppendRunMessage(ctx context.Context, m RunMessage) error
 }
 
+// DraftRepository is the persistence interface for agent type draft operations.
+// A draft has no invariants: the payload is opaque JSON. Ownership (tenant +
+// created_by) is enforced by the service layer from verified claims;
+// ListDrafts additionally filters at the query so a caller only ever sees
+// their own drafts.
+type DraftRepository interface {
+	CreateDraft(ctx context.Context, d AgentTypeDraft) error
+	GetDraft(ctx context.Context, id string) (*AgentTypeDraft, error)
+	ListDrafts(ctx context.Context, tenantID, createdBy string) ([]AgentTypeDraft, error)
+	// UpdateDraft fully replaces the draft payload and bumps updated_at.
+	UpdateDraft(ctx context.Context, id string, payload json.RawMessage) error
+	DeleteDraft(ctx context.Context, id string) error
+	// DeleteDraftsOlderThan removes drafts whose updated_at predates cutoff and
+	// returns how many were deleted. Used by the draft reaper.
+	DeleteDraftsOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
+}
+
 // EnvironmentRepository is the persistence interface for environment operations.
 type EnvironmentRepository interface {
 	CreateEnvironment(ctx context.Context, env Environment) error
@@ -83,4 +101,5 @@ type Repository interface {
 	AgentTypeRepository
 	RunRepository
 	EnvironmentRepository
+	DraftRepository
 }

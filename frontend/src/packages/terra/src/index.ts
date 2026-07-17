@@ -45,6 +45,17 @@ export { StatusDot, statusDotVariants } from './components/status-dot';
 export type { StatusDotProps } from './components/status-dot';
 
 export { StepDot, StepConnector } from './components/step-dot';
+export type { StepDotProps, StepConnectorProps } from './components/step-dot';
+
+export { RadioGroup, RadioGroupItem } from './components/radio-group';
+export type { RadioGroupProps, RadioGroupItemProps } from './components/radio-group';
+
+export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './components/collapsible';
+export type {
+  CollapsibleProps,
+  CollapsibleTriggerProps,
+  CollapsibleContentProps,
+} from './components/collapsible';
 
 export { Indicator } from './components/indicator';
 export type { IndicatorProps } from './components/indicator';

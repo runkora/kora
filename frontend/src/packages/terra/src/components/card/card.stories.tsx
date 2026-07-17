@@ -341,3 +341,59 @@ export const CardFooterVariants: Story = {
     </Stack>
   ),
 };
+
+/**
+ * Selected state — `selected` swaps the border for `border-border-accent`
+ * over a translucent `bg-accent/10` fill. Composes with `interactive` for
+ * single-select card surfaces (e.g. `RadioGroup` + `Card` pickers): hover
+ * and focus-within treatments continue to apply while selected.
+ */
+export const InteractiveSelected: Story = {
+  name: 'Interactive + selected',
+  render: () => (
+    <Stack gap="comfortable" className="w-80">
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        interactive, unselected
+      </Text>
+      <Card interactive>
+        <CardHeader>
+          <CardTitle>Claude Haiku</CardTitle>
+          <CardDescription>Fastest, lowest cost</CardDescription>
+        </CardHeader>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        interactive + selected
+      </Text>
+      <Card interactive selected>
+        <CardHeader>
+          <CardTitle>Claude Sonnet</CardTitle>
+          <CardDescription>Balanced default</CardDescription>
+        </CardHeader>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        selected only
+      </Text>
+      <Card selected>
+        <CardHeader>
+          <CardTitle>Claude Opus</CardTitle>
+          <CardDescription>Highest capability</CardDescription>
+        </CardHeader>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        selected, outline variant
+      </Text>
+      <Card selected selectedVariant="outline">
+        <CardHeader>
+          <CardTitle>Expandable picker</CardTitle>
+          <CardDescription>
+            Accent border, no fill — for large container cards where a tinted wash would overwhelm
+            the content.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </Stack>
+  ),
+};
