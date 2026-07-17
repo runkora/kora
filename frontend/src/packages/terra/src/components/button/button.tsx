@@ -53,7 +53,8 @@ const buttonVariants = cva(
           'bg-transparent text-subtle border border-border-subtle hover:bg-surface-elevated hover:text-foreground',
 
         /** Destructive — error intent */
-        destructive: 'bg-status-error text-foreground hover:bg-status-error/80',
+        destructive:
+          'bg-status-error/15 text-status-error border border-status-error/30 hover:bg-status-error/25',
       },
 
       size: {

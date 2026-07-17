@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { Alert, Button, Card, CardContent, CardHeader, Separator, Stack, Text } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
+import { FRAMEWORK_LABELS } from '../motif/framework-cards';
 import { StepHeader } from './step-header';
 
 interface ReviewRow {
@@ -70,12 +71,7 @@ export function StepReview() {
     return prefixes.size;
   }, [fields.mcpTools]);
 
-  const frameworkName =
-    fields.framework === 'claude-code'
-      ? 'Claude Code'
-      : fields.framework === 'codex'
-        ? 'Codex'
-        : 'Open Code';
+  const frameworkName = FRAMEWORK_LABELS[fields.framework];
 
   return (
     <Stack gap="relaxed">

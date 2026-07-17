@@ -23,6 +23,7 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { BUILDER_STEPS } from '../../_hooks/use-agent-builder';
+import { FRAMEWORK_LABELS } from '../motif/framework-cards';
 import { StepRail } from './step-rail';
 import { StepIdentity } from './step-identity';
 import { StepBehaviour } from './step-behaviour';
@@ -206,12 +207,7 @@ function SuccessPanel({ onClose }: { onClose: () => void }) {
   if (!created) return null;
 
   const model = catalogues.models.find((m) => m.id === fields.modelId);
-  const frameworkName =
-    fields.framework === 'claude-code'
-      ? 'Claude Code'
-      : fields.framework === 'codex'
-        ? 'Codex'
-        : 'Open Code';
+  const frameworkName = FRAMEWORK_LABELS[fields.framework];
   const summary: { icon: IconName; label: string; value: string }[] = [
     { icon: 'cpu', label: 'Model', value: model ? model.display_name || model.id : fields.modelId },
     { icon: 'square-terminal', label: 'Framework', value: frameworkName },

@@ -1,0 +1,345 @@
+'use client';
+
+/** @tier 3 — agents/[slug]-scoped. The Configuration tab: the builder's rail +
+ * section anatomy applied to editing, on the shared motif components. One
+ * dirty state, one save, one re-provision
+ * (docs/adr/2026-07-17-agent-detail-configuration.md). */
+
+import { useState } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  FormField,
+  Grid,
+  Input,
+  Separator,
+  Stack,
+  Text,
+  Textarea,
+} from '@orbit/terra';
+import { ConfirmDialog } from '@orbit/components';
+import type { AgentFramework } from '@orbit/shared/api';
+import { StepHeader } from '../../_components/builder/step-header';
+import { FrameworkCards } from '../../_components/motif/framework-cards';
+import { ModelPicker } from '../../_components/motif/model-picker';
+import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
+import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
+import { ConnectionCards } from '../../_components/motif/connection-cards';
+import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
+import { EnvironmentCard } from '../../_components/motif/environment-card';
+import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
+import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
+import { PlannedLimits } from '../../_components/motif/planned-limits';
+import { EffectiveAccessPanel } from './effective-access-panel';
+import { ConfigurationRail } from './configuration-rail';
+import { ConfigurationSaveBar } from './configuration-save-bar';
+import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
+
+function SectionLabel({ title, desc }: { title: string; desc: string }) {
+  return (
+    <Stack gap="tight">
+      <Text as="span" size="caption" weight="heavy" color="muted">
+        {title}
+      </Text>
+      <Text size="micro" color="subtle">
+        {desc}
+      </Text>
+    </Stack>
+  );
+}
+
+export function AgentConfigurationTab() {
+  const cfg = useAgentConfiguration();
+  const [active, setActive] = useState('identity');
+  // Capacity has a stored value on every live agent; "off" here means "leave
+  // it as it is", so the row dims but nothing is unset on save.
+  const [capacityOn, setCapacityOn] = useState(true);
+
+  if (!cfg.agent) return null;
+  const agent = cfg.agent;
+
+  const guardrailValues: GuardrailValues = {
+    agentBudgetOn: cfg.budgetLimitUSD !== '',
+    agentBudgetUsd: cfg.budgetLimitUSD || '500.00',
+    agentBudgetCadence: cfg.budgetCadence === 'weekly' ? 'weekly' : 'monthly',
+    runBudgetOn: cfg.budgetPerRunUSD !== '',
+    runBudgetUsd: cfg.budgetPerRunUSD || '5.00',
+    capacityOn,
+    capacity: cfg.maxConcurrentRuns,
+  };
+
+  const onGuardrailChange = <K extends keyof GuardrailValues>(
+    key: K,
+    value: GuardrailValues[K],
+  ) => {
+    switch (key) {
+      case 'agentBudgetOn':
+        cfg.setBudgetLimitUSD(value ? '500.00' : '');
+        break;
+      case 'agentBudgetUsd':
+        cfg.setBudgetLimitUSD(String(value));
+        break;
+      case 'agentBudgetCadence':
+        cfg.setBudgetCadence(String(value));
+        break;
+      case 'runBudgetOn':
+        cfg.setBudgetPerRunUSD(value ? '5.00' : '');
+        break;
+      case 'runBudgetUsd':
+        cfg.setBudgetPerRunUSD(String(value));
+        break;
+      case 'capacityOn':
+        setCapacityOn(Boolean(value));
+        break;
+      case 'capacity':
+        cfg.setMaxConcurrentRuns(String(value));
+        break;
+    }
+  };
+
+  return (
+    <Stack direction="horizontal" gap="relaxed" align="start">
+      <ConfigurationRail active={active} onSelect={setActive} updatedAt={agent.updatedAt} />
+
+      <Stack grow gap="relaxed">
+        {/* ── Identity ─────────────────────────────────────────────────────── */}
+        {active === 'identity' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="user"
+              title="Identity"
+              description="Who this agent is on the control plane. The slug is its permanent identity and cannot change."
+            />
+            <Grid cols={2} gap="comfortable">
+              <FormField label="Display name" required>
+                <Input
+                  value={cfg.name}
+                  onChange={(e) => cfg.setName(e.target.value)}
+                  maxLength={128}
+                />
+              </FormField>
+              <FormField label="Slug" hint="Cannot be changed after creation.">
+                <Input mono readOnly value={agent.slug} aria-label="Slug (immutable)" />
+              </FormField>
+            </Grid>
+            <FormField
+              label="Description"
+              hint="Optional. Shown in the catalogue and on its identity card."
+            >
+              <Textarea
+                value={cfg.description}
+                onChange={(e) => cfg.setDescription(e.target.value)}
+                rows={2}
+              />
+            </FormField>
+          </Stack>
+        )}
+
+        {/* ── Behaviour ────────────────────────────────────────────────────── */}
+        {active === 'behaviour' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="bot"
+              title="Behaviour"
+              description="How the agent behaves, and the model and framework it runs on."
+            />
+            <FormField label="System instructions" required>
+              <Textarea
+                value={cfg.systemPrompt}
+                onChange={(e) => cfg.setSystemPrompt(e.target.value)}
+                rows={5}
+              />
+            </FormField>
+            <Separator span="full" />
+            <Stack gap="cozy">
+              <Text as="span" size="caption" weight="heavy" color="muted">
+                Framework
+              </Text>
+              <FrameworkCards
+                value={cfg.framework}
+                onChange={(v: AgentFramework) => cfg.setFramework(v)}
+              />
+            </Stack>
+            <Stack gap="cozy">
+              <Stack direction="horizontal" align="center">
+                <Text as="span" size="caption" weight="heavy" color="muted">
+                  Model
+                </Text>
+                <Stack grow />
+                <Text as="span" size="micro" color="subtle">
+                  {cfg.models.length} enabled by your platform
+                </Text>
+              </Stack>
+              {cfg.modelsError && (
+                <Alert variant="error">Models failed to load: {cfg.modelsError}</Alert>
+              )}
+              <ModelPicker models={cfg.models} value={cfg.modelId} onChange={cfg.setModelId} />
+            </Stack>
+          </Stack>
+        )}
+
+        {/* ── Tools & access ───────────────────────────────────────────────── */}
+        {active === 'tools' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="wrench"
+              title="Tools & access"
+              description="The MCP servers, platform capabilities, and connections this agent may call. Every call is checked before it runs."
+            />
+            <Text as="span" size="supporting" color="muted">
+              <Text as="span" size="supporting" weight="heavy" color="accent">
+                {countGrantedServers(cfg.mcpServers, cfg.mcpCatalog, cfg.mcpTools)}
+              </Text>{' '}
+              servers ·{' '}
+              <Text as="span" size="supporting" weight="heavy">
+                {cfg.mcpTools.length}
+              </Text>{' '}
+              tools granted
+            </Text>
+            {cfg.mcpError && (
+              <Alert variant="error">MCP servers failed to load: {cfg.mcpError}</Alert>
+            )}
+            <McpToolTree
+              servers={cfg.mcpServers}
+              catalog={cfg.mcpCatalog}
+              granted={cfg.mcpTools}
+              onChange={cfg.setMcpTools}
+            />
+            <Separator span="full" />
+            <Stack gap="cozy">
+              <SectionLabel
+                title="Platform tools"
+                desc="Direct platform capabilities granted to the agent, beyond MCP servers."
+              />
+              <PlatformToolsCard
+                scopes={cfg.availableToolScopes}
+                granted={cfg.toolScopes}
+                onChange={cfg.setToolScopes}
+              />
+            </Stack>
+            <Separator span="full" />
+            <Stack gap="cozy">
+              <SectionLabel
+                title="Connections"
+                desc="Credentialed connections the agent may call. Credentials are injected just-in-time. The agent never sees them."
+              />
+              <ConnectionCards
+                available={cfg.availableConnections}
+                value={cfg.connectors}
+                onChange={cfg.setConnectors}
+              />
+            </Stack>
+          </Stack>
+        )}
+
+        {/* ── Network access ───────────────────────────────────────────────── */}
+        {active === 'network' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="network"
+              title="Network access"
+              description="The hosts the agent may reach, and the environment merged into its effective access."
+            />
+            <Stack gap="cozy">
+              <SectionLabel title="Network egress" desc="The hosts the agent may reach directly." />
+              <EgressModeCards
+                mode={cfg.connectivityMode}
+                hosts={cfg.connectivityHosts}
+                onModeChange={cfg.setConnectivityMode}
+                onHostsChange={cfg.setConnectivityHosts}
+              />
+            </Stack>
+            <Stack gap="cozy">
+              <SectionLabel
+                title="Environment"
+                desc="An environment merges its egress hosts and connections into the agent's effective access."
+              />
+              <EnvironmentCard
+                environments={cfg.environments}
+                value={cfg.environmentId}
+                onChange={cfg.setEnvironmentId}
+              />
+            </Stack>
+            <EffectiveAccessPanel
+              access={cfg.effectiveAccess}
+              loading={!cfg.effectiveAccess && !cfg.accessError}
+              error={cfg.accessError}
+            />
+          </Stack>
+        )}
+
+        {/* ── Guardrails ───────────────────────────────────────────────────── */}
+        {active === 'guardrails' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="shield"
+              title="Guardrails"
+              description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+            />
+            <Stack direction="horizontal" align="baseline" gap="snug">
+              <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
+                Limits
+              </Text>
+              <Text as="span" size="micro" color="subtle">
+                Every limit is optional. Switch on the ones you want Orbit to enforce.
+              </Text>
+            </Stack>
+            <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />
+            <PlannedLimits />
+          </Stack>
+        )}
+
+        {/* ── Danger zone ──────────────────────────────────────────────────── */}
+        {active === 'danger' && (
+          <Stack gap="relaxed">
+            <StepHeader
+              icon="triangle-alert"
+              title="Danger zone"
+              description="Destructive actions. These cannot be undone."
+            />
+            <Card border="default">
+              <CardContent padded>
+                <Stack direction="horizontal" align="center" gap="comfortable">
+                  <Stack grow gap="tight">
+                    <Text as="span" size="supporting" weight="heavy">
+                      Delete this agent
+                    </Text>
+                    <Text size="caption" color="muted">
+                      Deregisters the agent, tears down its workload, and terminates all associated
+                      runs.
+                    </Text>
+                  </Stack>
+                  <Button variant="destructive" onClick={() => cfg.setDeleteOpen(true)}>
+                    Delete agent
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
+        )}
+      </Stack>
+
+      <ConfigurationSaveBar
+        visible={cfg.isDirty}
+        saving={cfg.saving}
+        saveSuccess={cfg.saveSuccess}
+        saveError={cfg.saveError}
+        onSave={() => void cfg.handleSave()}
+        onDiscard={cfg.handleDiscard}
+      />
+
+      <ConfirmDialog
+        open={cfg.deleteOpen}
+        onClose={() => cfg.setDeleteOpen(false)}
+        title="Delete agent"
+        description={`Permanently delete "${agent.name}"? All associated runs will be terminated. This cannot be undone.`}
+        confirmLabel="Delete agent"
+        onConfirm={() => void cfg.handleDelete()}
+        confirming={cfg.deleting}
+        error={cfg.deleteError}
+      />
+    </Stack>
+  );
+}

@@ -1,11 +1,11 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Detail page with header + tabs. */
+/** @tier 3 — agents/[slug]-scoped. Detail page: identity header + four tabs
+ * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Badge,
   Button,
   Callout,
   Heading,
@@ -18,14 +18,13 @@ import {
   Text,
 } from '@orbit/terra';
 import Link from 'next/link';
-import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
+import { EmptyState, StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 import { AgentRunsTab } from './agent-runs-tab';
-import { AgentConnectivityTab } from './agent-connectivity-tab';
-import { AgentSettingsTab } from './agent-settings-tab';
+import { AgentConfigurationTab } from './agent-configuration-tab';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
@@ -35,26 +34,10 @@ interface AgentDetailPageProps {
 }
 
 export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
-  const { agent, status, error, deleteAgent } = useAgentDetailContext();
+  const { agent, status, error } = useAgentDetailContext();
   const router = useRouter();
 
   const [startRunOpen, setStartRunOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const handleDelete = useCallback(async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    const ok = await deleteAgent();
-    setDeleting(false);
-    if (!ok) {
-      setDeleteError('Failed to delete agent. Please try again.');
-      return;
-    }
-    setDeleteOpen(false);
-    router.push(APP_ROUTES.agents.list);
-  }, [deleteAgent, router]);
 
   // ── Not found ──────────────────────────────────────────────────────────────
 
@@ -121,24 +104,9 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
     provisioning: 'Provisioning',
     deleting: 'Deleting',
   };
-  const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> = {
-    'claude-code': 'default',
-    codex: 'outline',
-    opencode: 'secondary',
-  };
 
   return (
     <Stack gap="comfortable">
-      {/* Breadcrumb */}
-      <Stack direction="horizontal">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href={APP_ROUTES.agents.list}>
-            <Icon name="arrow-left" size="xs" />
-            Agents
-          </Link>
-        </Button>
-      </Stack>
-
       {/* Provisioning banner */}
       {agent.state === 'provisioning' && (
         <Callout variant="info">
@@ -146,48 +114,89 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
         </Callout>
       )}
 
-      {/* Page header */}
+      {/* ── Identity header (builder motif) ─────────────────────────────────── */}
       <Stack direction="horizontal" align="center" justify="between" wrap gap="comfortable">
-        <Stack gap="snug">
-          <Stack direction="horizontal" align="center" gap="snug" wrap>
-            <Heading variant="title">{agent.name}</Heading>
-            <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
-              {agent.framework}
-            </Badge>
-            <StatusBadge
-              status={statusMap[agent.state] ?? 'unknown'}
-              label={labelMap[agent.state]}
-            />
+        <Stack direction="horizontal" align="start" gap="cozy">
+          <Icon name="bot" size="lg" color="accent" container containerVariant="accent" label="" />
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
+              <Heading variant="title">{agent.name}</Heading>
+              <StatusBadge
+                status={statusMap[agent.state] ?? 'unknown'}
+                label={labelMap[agent.state]}
+              />
+            </Stack>
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
+              <Text as="span" mono size="supporting" color="subtle">
+                {agent.slug}
+              </Text>
+              <Text as="span" size="supporting" color="subtle">
+                ·
+              </Text>
+              <Stack direction="horizontal" align="center" gap="tight">
+                <Icon name="cpu" size="xs" color="subtle" label="" />
+                <Text as="span" mono size="supporting" color="subtle">
+                  {agent.modelId}
+                </Text>
+              </Stack>
+              <Text as="span" size="supporting" color="subtle">
+                ·
+              </Text>
+              <Stack direction="horizontal" align="center" gap="tight">
+                <Icon name="square-terminal" size="xs" color="subtle" label="" />
+                <Text as="span" size="supporting" color="subtle">
+                  {agent.framework}
+                </Text>
+              </Stack>
+            </Stack>
           </Stack>
-          <Text mono size="supporting" color="muted">
-            {agent.slug}
-          </Text>
         </Stack>
-        <Stack direction="horizontal" gap="snug">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setStartRunOpen(true)}
-            disabled={agent.state !== 'active'}
-          >
-            <Icon name="play" size="xs" />
-            Start Run
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(true)}>
-            <Icon name="trash" size="xs" />
-            Delete
-          </Button>
-        </Stack>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => setStartRunOpen(true)}
+          disabled={agent.state !== 'active'}
+        >
+          <Icon name="play" size="xs" />
+          Start Run
+        </Button>
       </Stack>
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="runs">Runs</TabsTrigger>
-          <TabsTrigger value="connectivity">Connectivity</TabsTrigger>
-          <TabsTrigger value="triggers">Triggers</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="overview">
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Icon name="activity" size="xs" />
+              <Text as="span" size="supporting">
+                Overview
+              </Text>
+            </Stack>
+          </TabsTrigger>
+          <TabsTrigger value="runs">
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Icon name="play" size="xs" />
+              <Text as="span" size="supporting">
+                Runs
+              </Text>
+            </Stack>
+          </TabsTrigger>
+          <TabsTrigger value="configuration">
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Icon name="edit" size="xs" />
+              <Text as="span" size="supporting">
+                Configuration
+              </Text>
+            </Stack>
+          </TabsTrigger>
+          <TabsTrigger value="triggers">
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Icon name="zap" size="xs" />
+              <Text as="span" size="supporting">
+                Triggers
+              </Text>
+            </Stack>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <AgentOverviewTab budget={budget} tenantCap={tenantCap} />
@@ -195,14 +204,11 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
         </TabsContent>
-        <TabsContent value="connectivity">
-          <AgentConnectivityTab />
+        <TabsContent value="configuration">
+          <AgentConfigurationTab />
         </TabsContent>
         <TabsContent value="triggers">
           <AgentTriggersTab />
-        </TabsContent>
-        <TabsContent value="settings">
-          <AgentSettingsTab />
         </TabsContent>
       </Tabs>
 
@@ -215,21 +221,6 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
           setStartRunOpen(false);
           router.push(APP_ROUTES.agents.run(agentSlug, runId));
         }}
-      />
-
-      {/* Delete confirm */}
-      <ConfirmDialog
-        open={deleteOpen}
-        onClose={() => {
-          setDeleteOpen(false);
-          setDeleteError(null);
-        }}
-        title="Delete agent"
-        description={`Permanently delete "${agent.name}"? All associated runs will be terminated. This cannot be undone.`}
-        confirmLabel="Delete agent"
-        onConfirm={() => void handleDelete()}
-        confirming={deleting}
-        error={deleteError}
       />
     </Stack>
   );
