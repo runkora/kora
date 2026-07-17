@@ -4,11 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// nullableTime returns nil for a zero time so the query's COALESCE falls through
+// to the column's DEFAULT. Passing the zero value directly would write a zero
+// timestamp and defeat the schema default.
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
 
 // PostgresRepository is the Postgres-backed implementation of Repository.
 type PostgresRepository struct {
@@ -39,9 +50,9 @@ func (r *PostgresRepository) GetUserByID(ctx context.Context, id string) (*User,
 // CreateUser inserts a new user, mapping a unique-constraint violation to
 // ErrDuplicateKey.
 func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
-	const query = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, $3)`
+	const query = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, COALESCE($3, CURRENT_TIMESTAMP))`
 
-	if _, err := r.pool.Exec(ctx, query, user.ID, user.Email, user.CreatedAt); err != nil {
+	if _, err := r.pool.Exec(ctx, query, user.ID, user.Email, nullableTime(user.CreatedAt)); err != nil {
 		if isDuplicateKeyError(err) {
 			return ErrDuplicateKey
 		}
@@ -59,8 +70,8 @@ func (r *PostgresRepository) CreateUserWithProfile(ctx context.Context, user *Us
 	}
 	defer tx.Rollback(ctx)
 
-	const userQuery = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, $3)`
-	if _, err := tx.Exec(ctx, userQuery, user.ID, user.Email, user.CreatedAt); err != nil {
+	const userQuery = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, COALESCE($3, CURRENT_TIMESTAMP))`
+	if _, err := tx.Exec(ctx, userQuery, user.ID, user.Email, nullableTime(user.CreatedAt)); err != nil {
 		if isDuplicateKeyError(err) {
 			return ErrDuplicateKey
 		}
@@ -80,11 +91,11 @@ func (r *PostgresRepository) CreateUserWithProfile(ctx context.Context, user *Us
 
 // CreateUsers inserts many users in a single round trip, demonstrating batching.
 func (r *PostgresRepository) CreateUsers(ctx context.Context, users []*User) error {
-	const query = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, $3)`
+	const query = `INSERT INTO users (id, email, created_at) VALUES ($1, $2, COALESCE($3, CURRENT_TIMESTAMP))`
 
 	batch := &pgx.Batch{}
 	for _, user := range users {
-		batch.Queue(query, user.ID, user.Email, user.CreatedAt)
+		batch.Queue(query, user.ID, user.Email, nullableTime(user.CreatedAt))
 	}
 
 	results := r.pool.SendBatch(ctx, batch)

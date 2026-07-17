@@ -44,7 +44,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `policygw` | ✅ implemented | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
 | `operator` | ✅ implemented | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
 | `identityproxy` | ✅ implemented | `ext_proc` server, token cache, refresh loop |
-| `example` | reference | Minimal `controller.go` + `repository.go` demonstrating the pattern |
+| `example` | reference | Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | ✅ implemented | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `errors` | ⛔ **stub (empty)** | Placeholder. |

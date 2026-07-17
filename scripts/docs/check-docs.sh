@@ -198,7 +198,7 @@ check_binaries() {
     fi
   done
 
-  [ "$found" -eq 0 ] && ok "binary table matches backend/cmd/ (rows, ports column, owns-tables)"
+  [ "$found" -eq 0 ] && ok "binary table matches backend/cmd/ (rows present both ways, owns-tables column)"
 }
 
 # ── counts ───────────────────────────────────────────────────────────────────
