@@ -295,7 +295,7 @@ function SuccessPanel({ onClose }: { onClose: () => void }) {
               </Stack>
             </Stack>
             {summary.map((row) => (
-              <Stack key={row.label}>
+              <Stack key={row.label} gap="none">
                 <Separator span="full" />
                 <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                   <Icon name={row.icon} size="xs" color="subtle" label="" />

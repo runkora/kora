@@ -49,7 +49,7 @@ export function PlannedLimits() {
           </Text>
         </Stack>
         {PLANNED.map((p) => (
-          <Stack key={p.title}>
+          <Stack key={p.title} gap="none">
             <Separator span="full" />
             <Stack direction="horizontal" align="center" gap="cozy" padding="cozy" disabled>
               <Icon

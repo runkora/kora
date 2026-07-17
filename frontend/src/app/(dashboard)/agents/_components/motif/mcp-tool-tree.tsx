@@ -194,7 +194,7 @@ export function McpToolTree({
                     const domainAll = domainGranted.length === domainScopes.length;
                     const domainSome = domainGranted.length > 0 && !domainAll;
                     return (
-                      <Stack key={domain.domain}>
+                      <Stack key={domain.domain} gap="none">
                         <Separator span="full" />
                         <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                           <Checkbox
@@ -218,7 +218,7 @@ export function McpToolTree({
                         {domain.tools.map((tool) => {
                           const toolOn = grantedSet.has(tool.scope);
                           return (
-                            <Stack key={tool.scope}>
+                            <Stack key={tool.scope} gap="none">
                               <Separator span="full" />
                               <Stack
                                 direction="horizontal"

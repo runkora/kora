@@ -7,20 +7,23 @@ import {
   Alert,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
+  Eyebrow,
   Grid,
   Icon,
   Input,
   Modal,
   ModalBody,
-  NativeSelect,
   ModalFooter,
   ModalHeader,
   Stack,
   Text,
+  Toggle,
+  ToggleRow,
   PageSectionHeader,
 } from '@orbit/terra';
 import { DataTable } from '@orbit/components';
@@ -31,7 +34,7 @@ import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
-import { ScopePicker } from '@orbit/components';
+import { ScopeTreePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { ViewToggle } from './view-toggle';
@@ -482,7 +485,6 @@ function UpsertRoleModal({
   // Initialized from props; component is keyed so it remounts for each open/edit.
   const [roleName, setRoleName] = useState(editingRole?.role ?? '');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
-  const [scopeSearch, setScopeSearch] = useState('');
   const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole?.budget);
   const [limitUSD, setLimitUSD] = useState(
     editingRole?.budget?.limit_usd ? String(editingRole.budget.limit_usd) : '',
@@ -516,13 +518,11 @@ function UpsertRoleModal({
   return (
     <Modal open={open} onClose={onClose} size="lg">
       <ModalHeader title={editingRole ? 'Edit Role' : 'Create Role'} />
-      <ModalBody flushY>
+      <ModalBody flushY constrained>
         <Stack gap="comfortable">
           {/* Role name */}
           <Stack gap="tight">
-            <Text size="caption" weight="emphasis">
-              Role Name
-            </Text>
+            <Eyebrow>Role Name</Eyebrow>
             <Input
               type="text"
               placeholder="e.g. ml-engineer"
@@ -534,82 +534,86 @@ function UpsertRoleModal({
 
           {/* Scopes */}
           <Stack gap="tight">
-            <Text size="caption" weight="emphasis">
-              Scopes ({selectedScopes.length} selected)
-            </Text>
-            <ScopePicker
-              availableScopes={availableScopes}
-              selectedScopes={selectedScopes}
-              onToggle={(scope, checked) => {
-                if (checked) {
-                  setSelectedScopes((prev) => [...prev, scope]);
-                } else {
-                  setSelectedScopes((prev) => prev.filter((s) => s !== scope));
-                }
-              }}
-              onToggleGroup={(scopes, checked) => {
-                if (checked) {
-                  setSelectedScopes((prev) => [...new Set([...prev, ...scopes])]);
-                } else {
-                  const remove = new Set(scopes);
-                  setSelectedScopes((prev) => prev.filter((s) => !remove.has(s)));
-                }
-              }}
-              search={scopeSearch}
-              onSearchChange={setScopeSearch}
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Eyebrow>Scopes</Eyebrow>
+              <Text size="caption" color="subtle">
+                ({selectedScopes.length} selected)
+              </Text>
+            </Stack>
+            <ScopeTreePicker
+              scopes={availableScopes}
+              selected={selectedScopes}
+              onChange={setSelectedScopes}
             />
           </Stack>
 
           {/* Budget */}
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" justify="between">
-              <Text size="caption" weight="emphasis">
-                Budget
-              </Text>
-              <Button
-                variant={budgetEnabled ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setBudgetEnabled((v) => !v)}
-              >
-                {budgetEnabled ? 'Enabled' : 'Set limit'}
-              </Button>
-            </Stack>
+          <Stack gap="snug">
+            <ToggleRow
+              label="Budget"
+              description="Spend ceiling on this role"
+              htmlFor="role-budget-toggle"
+              control={
+                <Toggle
+                  id="role-budget-toggle"
+                  checked={budgetEnabled}
+                  onChange={setBudgetEnabled}
+                />
+              }
+            />
             {budgetEnabled && (
               <Stack gap="snug">
                 <Stack direction="horizontal" align="center" gap="snug">
-                  <Text size="caption" color="muted">
-                    $
-                  </Text>
                   <Input
                     type="number"
                     placeholder="e.g. 50"
+                    startAdornment="$"
                     value={limitUSD}
                     onChange={(e) => setLimitUSD(e.target.value)}
                   />
-                  <Stack minWidth="form-field-sm">
-                    <NativeSelect
-                      value={cadence}
-                      onChange={(e) => setCadence(e.target.value)}
-                      aria-label="Reset window"
+                  <ButtonGroup>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={cadence === 'weekly'}
+                      onClick={() => setCadence('weekly')}
                     >
-                      <option value="monthly">per month</option>
-                      <option value="weekly">per week</option>
-                    </NativeSelect>
-                  </Stack>
+                      Weekly
+                    </Button>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={cadence === 'monthly'}
+                      onClick={() => setCadence('monthly')}
+                    >
+                      Monthly
+                    </Button>
+                  </ButtonGroup>
                 </Stack>
-                <Stack direction="horizontal" align="center" justify="between">
+                <Stack direction="horizontal" align="center" justify="between" gap="snug">
                   <Text size="caption" color="muted">
                     {pooled
                       ? 'Pooled: one shared pot for all members.'
                       : 'Per member: each principal with this role gets this limit.'}
                   </Text>
-                  <Button
-                    variant={pooled ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setPooled((v) => !v)}
-                  >
-                    {pooled ? 'Pooled' : 'Per member'}
-                  </Button>
+                  <ButtonGroup>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={!pooled}
+                      onClick={() => setPooled(false)}
+                    >
+                      Per member
+                    </Button>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={pooled}
+                      onClick={() => setPooled(true)}
+                    >
+                      Pooled
+                    </Button>
+                  </ButtonGroup>
                 </Stack>
               </Stack>
             )}

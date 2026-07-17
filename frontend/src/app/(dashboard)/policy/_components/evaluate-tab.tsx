@@ -12,6 +12,7 @@ import {
   CardTitle,
   Heading,
   Input,
+  NativeSelect,
   Separator,
   Stack,
   Text,
@@ -190,25 +191,24 @@ export function EvaluateTab({
         <CardContent>
           <Stack gap="comfortable">
             <Text size="caption" color="muted">
-              Shows the effective scope set for a principal — the union of scopes from OIDC role
+              Shows the effective scope set for a principal: the union of scopes from OIDC role
               mappings and direct grants. Your own session is loaded by default. For other
               principals, only grant-based scopes are shown (OIDC roles require their session).
             </Text>
             <Stack direction="horizontal" align="end" gap="snug" wrap>
-              <Stack gap="tight">
+              <Stack gap="tight" minWidth="form-field-sm">
                 <Text size="caption" weight="emphasis">
                   Type
                 </Text>
-                <select
+                <NativeSelect
                   value={lookupType}
                   onChange={(e) => setLookupType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
-                  className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                 >
                   <option value="AGENT">AGENT</option>
                   <option value="HUMAN">HUMAN</option>
                   <option value="SERVICE">SERVICE</option>
-                </select>
+                </NativeSelect>
               </Stack>
               <Stack gap="tight" grow minWidth="form-field">
                 <Text size="caption" weight="emphasis">
@@ -316,7 +316,7 @@ export function EvaluateTab({
                         <Stack gap="snug" align="center" paddingBlock="spacious">
                           <Icon name="shield-off" size="md" color="subtle" />
                           <Text size="caption" color="muted">
-                            No effective scopes — this principal has no permissions.
+                            No effective scopes: this principal has no permissions.
                           </Text>
                         </Stack>
                       </CardContent>
@@ -350,20 +350,19 @@ export function EvaluateTab({
 
             {/* Principal row */}
             <Stack direction="horizontal" align="start" gap="snug" wrap>
-              <Stack gap="tight">
+              <Stack gap="tight" minWidth="form-field-sm">
                 <Text size="caption" weight="emphasis">
                   Principal type
                 </Text>
-                <select
+                <NativeSelect
                   value={simPrincipalType}
                   onChange={(e) => setSimPrincipalType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
-                  className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                 >
                   <option value="AGENT">AGENT</option>
                   <option value="HUMAN">HUMAN</option>
                   <option value="SERVICE">SERVICE</option>
-                </select>
+                </NativeSelect>
               </Stack>
               <Stack gap="tight" grow minWidth="form-field-sm">
                 <Text size="caption" weight="emphasis">
@@ -391,11 +390,10 @@ export function EvaluateTab({
                     (optional)
                   </Text>
                 </Stack>
-                <select
+                <NativeSelect
                   value={simRole}
                   onChange={(e) => setSimRole(e.target.value)}
                   aria-label="Role"
-                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                 >
                   <option value="">No role (grants only)</option>
                   {availableRoles.map((r) => (
@@ -403,17 +401,17 @@ export function EvaluateTab({
                       {r}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Stack>
               <Stack gap="tight" grow minWidth="form-field">
                 <Text size="caption" weight="emphasis">
                   Scope to check
                 </Text>
-                <select
+                <NativeSelect
                   value={simScope}
                   onChange={(e) => setSimScope(e.target.value)}
                   aria-label="Scope to check"
-                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
+                  mono
                 >
                   <option value="">Select a scope...</option>
                   {scopeGroups.map(([group, scopes]) => (
@@ -425,7 +423,7 @@ export function EvaluateTab({
                       ))}
                     </optgroup>
                   ))}
-                </select>
+                </NativeSelect>
               </Stack>
               <Button
                 size="sm"

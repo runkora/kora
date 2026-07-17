@@ -26,6 +26,10 @@ export type { ScopeChipProps } from './scope-chip';
 export { ScopePicker } from './scope-picker';
 export type { ScopePickerProps } from './scope-picker';
 
+/** Tri-state collapsible-card scope selector grouped by resource type. */
+export { ScopeTreePicker } from './scope-tree-picker';
+export type { ScopeTreePickerProps } from './scope-tree-picker';
+
 /** Backend connection status card, polls BFF /api/identity/health. */
 export { HealthStatus } from './health-status';
 
@@ -72,3 +76,6 @@ export type { CopyRowProps } from './copy-row';
 
 export { EffectiveAccessPanel } from './effective-access-panel';
 export { ModelPicker } from './model-picker';
+
+/** Per-connection action grants as collapsible tri-state cards. */
+export { ConnectionCards } from './connection-cards';

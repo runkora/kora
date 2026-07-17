@@ -51,7 +51,7 @@ function ReviewGroup({
       <CardContent padded compact>
         <Stack gap="none">
           {rows.map((row, i) => (
-            <Stack key={row.k}>
+            <Stack key={row.k} gap="none">
               {i > 0 && <Separator span="full" />}
               <Stack direction="horizontal" align="center" gap="comfortable" paddingBlock="snug">
                 <Text as="span" size="caption" color="subtle">

@@ -33,7 +33,7 @@ An audit of every other dashboard feature then found the demand that justifies p
 
 ## Migration programme
 
-Consumers move in phases, each shippable and screenshot-verified: (1) policy grant/role editors, rail + sections + tri-state scope tree + a live effective-scopes panel generalised from evaluate-tab; (2) environments and model-gateway catalog, consuming `EffectiveAccessPanel`, `EgressModeCards`, `ModelPicker`, and `SaveBar`; (3) mcp-gateway, reclassified after visual review from redesign to **token-alignment refactor**: it already renders the motif faithfully by hand, so the work is swapping inline styles for the system components with before/after screenshots required to match; (4) a sweep for hardcoded chart colours, cadence selects, and em dashes in UI copy.
+Consumers move in phases, each shippable and screenshot-verified: (1) policy grant/role editors, radio-card principal types, tri-state scope tree, adornment budget fields. The planned "live effective-scopes panel" is deferred: the evaluate-tab lookup resolves an existing principal's scopes by API, and no endpoint expands a draft scope set, so a live panel would have nothing true to show. It returns with a draft-expansion endpoint; (2) environments and model-gateway catalog, consuming `EffectiveAccessPanel`, `EgressModeCards`, `ModelPicker`, and `SaveBar`; (3) mcp-gateway, reclassified after visual review from redesign to **token-alignment refactor**: it already renders the motif faithfully by hand, so the work is swapping inline styles for the system components with before/after screenshots required to match; (4) a sweep for hardcoded chart colours, cadence selects, and em dashes in UI copy.
 
 ## Consequences
 

@@ -95,7 +95,7 @@ export function PlatformToolsCard({
             {scopes.map((s) => {
               const on = grantedSet.has(s.scope);
               return (
-                <Stack key={s.scope}>
+                <Stack key={s.scope} gap="none">
                   <Separator span="full" />
                   <Stack
                     direction="horizontal"

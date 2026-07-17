@@ -137,9 +137,16 @@ interface EffectiveAccessPanelProps {
   access: EffectiveAccess | null;
   loading: boolean;
   error: string | null;
+  /** Subtitle under the panel title. Defaults to the agent phrasing. */
+  description?: string;
 }
 
-export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccessPanelProps) {
+export function EffectiveAccessPanel({
+  access,
+  loading,
+  error,
+  description = 'What this agent can actually reach, resolved live as you edit.',
+}: EffectiveAccessPanelProps) {
   // Which source section the user is hovering — drives the union highlight.
   const [hovered, setHovered] = useState<Source | null>(null);
 
@@ -190,7 +197,7 @@ export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccess
             Effective access
           </Text>
           <Text size="caption" color="muted">
-            What this agent can actually reach, resolved live as you edit.
+            {description}
           </Text>
         </Stack>
       </Stack>

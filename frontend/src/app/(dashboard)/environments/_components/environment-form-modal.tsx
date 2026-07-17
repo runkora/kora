@@ -1,12 +1,14 @@
 'use client';
 
 /** @tier 3 — environments-scoped. Create/edit modal for an environment: name,
- * description, egress-hosts editor, and the shared connectors picker. */
+ * description, egress-hosts editor, the shared connection cards, and a live
+ * effective-access preview. */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
+  Eyebrow,
   FormField,
   Input,
   Modal,
@@ -14,12 +16,15 @@ import {
   ModalFooter,
   ModalHeader,
   Stack,
-  Text,
   Textarea,
 } from '@orbit/terra';
-import type { ConnectionCatalogEntry, Connector } from '@orbit/shared/api';
-import { ConnectorsFields } from '../../agents/_components/connectors-fields';
-import { createEnvironment, updateEnvironment } from '../_services/environments-api';
+import type { ConnectionCatalogEntry, Connector, EffectiveAccess } from '@orbit/shared/api';
+import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
+import {
+  createEnvironment,
+  previewEnvironmentAccess,
+  updateEnvironment,
+} from '../_services/environments-api';
 import { EgressHostsEditor } from './egress-hosts-editor';
 import type { EnvironmentRow } from '../_types';
 
@@ -47,6 +52,22 @@ export function EnvironmentFormModal({
   const [connectors, setConnectors] = useState<Connector[]>(environment?.connectors ?? []);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // ── Effective access preview ────────────────────────────────────────────────
+  // An environment is exactly a posture + connectors bundle, so the same
+  // resolver behind the agent surfaces answers for a draft environment.
+  // Debounced so typing in the hosts editor doesn't spam the endpoint.
+  const [access, setAccess] = useState<EffectiveAccess | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void previewEnvironmentAccess({ egressHosts, connectors }).then((result) => {
+        setAccess(result.access);
+        setAccessError(result.error);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [egressHosts, connectors]);
 
   const handleSubmit = useCallback(async () => {
     const trimmedName = name.trim();
@@ -79,7 +100,7 @@ export function EnvironmentFormModal({
         title={isEdit ? 'Edit environment' : 'New environment'}
         description="Bundle the egress hosts and connectors an agent type can reference."
       />
-      <ModalBody flushY>
+      <ModalBody flushY constrained>
         <Stack gap="comfortable">
           <FormField id="environment-name" label="Name">
             <Input
@@ -106,18 +127,21 @@ export function EnvironmentFormModal({
           </FormField>
 
           <Stack gap="snug">
-            <Text size="caption" weight="emphasis">
-              Egress hosts
-            </Text>
+            <Eyebrow>Egress hosts</Eyebrow>
             <EgressHostsEditor value={egressHosts} onChange={setEgressHosts} />
           </Stack>
 
           <Stack gap="snug">
-            <Text size="caption" weight="emphasis">
-              Connectors
-            </Text>
-            <ConnectorsFields available={connections} value={connectors} onChange={setConnectors} />
+            <Eyebrow>Connections</Eyebrow>
+            <ConnectionCards available={connections} value={connectors} onChange={setConnectors} />
           </Stack>
+
+          <EffectiveAccessPanel
+            description="What this environment grants, resolved live as you edit."
+            access={access}
+            loading={!access && !accessError}
+            error={accessError}
+          />
 
           {submitError && <Alert variant="error">{submitError}</Alert>}
         </Stack>

@@ -28,7 +28,7 @@ import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
 import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
-import { ConnectionCards } from '../../_components/motif/connection-cards';
+import { ConnectionCards } from '@orbit/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
 import { EnvironmentCard } from '../../_components/motif/environment-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';

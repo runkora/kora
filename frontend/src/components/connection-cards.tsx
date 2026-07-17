@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
+/** @tier 2 — Orbit-domain-aware: per-connection action grants as collapsible tri-state cards. Used by: agents builder, agents configuration, environments. */
 
 import { useState } from 'react';
 import {
@@ -111,7 +111,7 @@ export function ConnectionCards({
                   {conn.actions.map((action) => {
                     const actionOn = current.includes(action);
                     return (
-                      <Stack key={action}>
+                      <Stack key={action} gap="none">
                         <Separator span="full" />
                         <Stack
                           direction="horizontal"
