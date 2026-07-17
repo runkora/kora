@@ -49,7 +49,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `errors` | ⛔ **stub (empty)** | Placeholder. |
 
-> `internal/events` does **not** exist yet: the platform-wide event spine is designed but unbuilt, and agent event streaming currently lives in `agents/`. Only `internal/errors` remains an intentional empty placeholder (`git`-tracked directory with no Go files). See the [architecture overview](architecture.md) for current capability status.
+> `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files). Build status for each capability lives in the [architecture overview](architecture.md).
 
 ---
 

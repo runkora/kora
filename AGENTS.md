@@ -235,11 +235,6 @@ This describes what the backend test suite **actually is today**, and (separatel
 - **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
-**Goals (aspirational, not yet built):**
-- **Broader integration coverage**: Postgres-backed repository tests for more feature packages, beyond the single `triggers` suite.
-- **An E2E layer**: full agent workflows exercised end-to-end through Orbit.
-- **A security-test layer**: dedicated tests for policy enforcement and credential isolation.
-
 Write tests alongside new code; unit tests are the default and must pass in `make check`.
 
 ## Implementation Principles

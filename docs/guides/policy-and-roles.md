@@ -314,7 +314,7 @@ Authorization: Bearer <system-token>
 
 Route registrations are in-memory in the policy service. On a policy service restart, services re-register as they come back up. During the brief window after restart, bundles have no routes and Layer 1 will deny all requests until services re-register.
 
-> **Operational constraint:** Because the route store is in-memory, the policy service must currently run as a single replica. With multiple replicas, a service registering with replica-1 would not have its routes visible in bundles compiled by replica-2. Persistent (PostgreSQL-backed) route storage is planned for a future iteration.
+> **Operational constraint:** Because the route store is in-memory, the policy service must currently run as a single replica. With multiple replicas, a service registering with replica-1 would not have its routes visible in bundles compiled by replica-2.
 
 > **Security prerequisite:** The bundle endpoint (`GET /bundles/{tenant_id}`) is unauthenticated: access is restricted by Istio `PeerAuthentication` STRICT mTLS. If STRICT mode is disabled, per-tenant bundles (containing grants) are exposed. Ensure `PeerAuthentication` STRICT mode is enabled for `orbit-system` in all environments.
 

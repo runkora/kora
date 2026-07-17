@@ -39,8 +39,6 @@ Each subsystem is described in [architecture.md](architecture.md); the design hi
 | **Operator & Deployment** | Kubernetes operator, Helm/GitOps, service mesh | [ADRs](adr/README.md#service-mesh-operator--deployment) |
 | **Frontend** | Next.js app, BFF, Terra design system | [frontend/README.md](../frontend/README.md) · [ADRs](adr/README.md#frontend--design-system) |
 
-> **Not yet built:** a platform-wide event spine, a general structured event bus for awareness and audit, is designed (ADRs exist) but unimplemented. See the per-pillar status table in [architecture.md](architecture.md#capabilities-in-detail).
-
 ## Conventions
 
 - **ADRs** are named `YYYY-MM-DD-kebab-slug.md` (decision date + slug, no sequential number) and cited by slug; see the [ADR index](adr/README.md) and [`adr/template.md`](adr/template.md).

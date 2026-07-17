@@ -7,10 +7,11 @@
 #   targets   Every `make <target>` named in a doc exists in the Makefile.
 #   binaries  The binary table and backend/cmd/ agree, in both directions.
 #   counts    No doc hardcodes "N binaries"/"N services".
+#   status    Build-status claims live only in docs/architecture.md.
 #   prose     No em dashes in living docs. ADRs and PRDs are exempt: they are
 #             point-in-time records, not prose we keep rewriting.
 #
-# Usage: scripts/docs/check-docs.sh [links|indexes|targets|binaries|counts|prose]
+# Usage: scripts/docs/check-docs.sh [links|indexes|targets|binaries|counts|status|prose]
 #        (no argument runs every check)
 # =============================================================================
 
@@ -218,6 +219,27 @@ check_counts() {
   [ "$found" -eq 0 ] && ok "no drift-prone counts in prose"
 }
 
+# ── status ───────────────────────────────────────────────────────────────────
+# "Designed but not yet built" is true until the day it ships, and then it is a
+# lie in however many files repeated it. Build status and roadmap claims live in
+# docs/architecture.md and nowhere else; everywhere else links to it. ADRs and
+# PRDs are exempt: they are point-in-time records by definition.
+STATUS_HOME="docs/architecture.md"
+check_status() {
+  head_ "Checking build-status claims live only in $STATUS_HOME..."
+  local found=0
+  while IFS= read -r file; do
+    while IFS= read -r hit; do
+      [ -z "$hit" ] && continue
+      fail "$file → '$hit' (build status belongs in $STATUS_HOME; link it instead)"
+      found=1
+    done < <(strip_fences < "$file" \
+      | grep -oiE "not yet (built|implemented)|designed but[ a-z]{0,12}(built|implemented)|coming soon|planned for a future[ a-z]*|in a future iteration" \
+      | sort -u)
+  done < <(md_files | grep -vE "^(docs/(adr|prd)/|\.claude/)" | grep -vx "$STATUS_HOME")
+  [ "$found" -eq 0 ] && ok "no build-status claims outside $STATUS_HOME"
+}
+
 # ── prose ────────────────────────────────────────────────────────────────────
 # House style: punctuation serves grammar, not drama. Use a comma, a full stop,
 # or a colon. Code blocks are exempt; so are ADRs and PRDs.
@@ -241,9 +263,10 @@ case "${1:-all}" in
   targets)  check_targets ;;
   binaries) check_binaries ;;
   counts)   check_counts ;;
+  status)   check_status ;;
   prose)    check_prose ;;
-  all)      check_links; check_indexes; check_targets; check_binaries; check_counts; check_prose ;;
-  *)        echo "usage: $0 [links|indexes|targets|binaries|counts|prose]" >&2; exit 2 ;;
+  all)      check_links; check_indexes; check_targets; check_binaries; check_counts; check_status; check_prose ;;
+  *)        echo "usage: $0 [links|indexes|targets|binaries|counts|status|prose]" >&2; exit 2 ;;
 esac
 
 echo

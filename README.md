@@ -57,9 +57,6 @@ The `tool-gateway` (with the `orbit-mcp` server) governs MCP tool access (catalo
 ### Observability
 OpenTelemetry traces and metrics across every service, W3C trace propagation through typed platform HTTP clients, log–trace correlation via the injected structured logger.
 
-### Future
-A platform-wide event spine, a general structured event bus for awareness and audit, is designed (ADRs exist) but not yet implemented. See [docs/architecture.md](docs/architecture.md) for the current build status.
-
 ## Use Cases
 
 - **Enterprise AI Operations**: Deploy agents with enterprise-grade security and governance
