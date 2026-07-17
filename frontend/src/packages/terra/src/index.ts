@@ -47,8 +47,17 @@ export type { StatusDotProps } from './components/status-dot';
 export { StepDot, StepConnector } from './components/step-dot';
 export type { StepDotProps, StepConnectorProps } from './components/step-dot';
 
+export { Eyebrow } from './components/eyebrow';
+export type { EyebrowProps } from './components/eyebrow';
+
+export { SectionHeading } from './components/section-heading';
+export type { SectionHeadingProps } from './components/section-heading';
+
 export { RadioGroup, RadioGroupItem } from './components/radio-group';
 export type { RadioGroupProps, RadioGroupItemProps } from './components/radio-group';
+
+export { RadioCard } from './components/radio-card';
+export type { RadioCardProps } from './components/radio-card';
 
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './components/collapsible';
 export type {
@@ -141,6 +150,12 @@ export type { TextareaProps } from './components/textarea';
 export { NavItem, navItemVariants } from './components/nav-item';
 export type { NavItemProps } from './components/nav-item';
 
+export { SectionNav } from './components/section-nav';
+export type { SectionNavProps, SectionNavSection } from './components/section-nav';
+
+export { SaveBar } from './components/save-bar';
+export type { SaveBarProps } from './components/save-bar';
+
 export { Progress, progressVariants } from './components/progress';
 export type { ProgressProps } from './components/progress';
 
@@ -220,6 +235,7 @@ export type { ShowProps, Breakpoint } from './components/show';
 // ─── Molecules ───────────────────────────────────────────────────────────────
 
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
+export type { TabsTriggerProps } from './components/tabs';
 
 // ─── Charts ──────────────────────────────────────────────────────────────────
 

@@ -165,37 +165,17 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
       {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Icon name="activity" size="xs" />
-              <Text as="span" size="supporting">
-                Overview
-              </Text>
-            </Stack>
+          <TabsTrigger value="overview" icon="activity">
+            Overview
           </TabsTrigger>
-          <TabsTrigger value="runs">
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Icon name="play" size="xs" />
-              <Text as="span" size="supporting">
-                Runs
-              </Text>
-            </Stack>
+          <TabsTrigger value="runs" icon="play">
+            Runs
           </TabsTrigger>
-          <TabsTrigger value="configuration">
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Icon name="edit" size="xs" />
-              <Text as="span" size="supporting">
-                Configuration
-              </Text>
-            </Stack>
+          <TabsTrigger value="configuration" icon="edit">
+            Configuration
           </TabsTrigger>
-          <TabsTrigger value="triggers">
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Icon name="zap" size="xs" />
-              <Text as="span" size="supporting">
-                Triggers
-              </Text>
-            </Stack>
+          <TabsTrigger value="triggers" icon="zap">
+            Triggers
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">

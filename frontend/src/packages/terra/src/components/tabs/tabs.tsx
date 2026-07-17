@@ -1,6 +1,8 @@
 import * as React from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { cn } from '../../utils';
+import { Icon } from '../icon/icon';
+import type { IconName } from '../icon/registry';
 
 /**
  * Tabs
@@ -59,11 +61,27 @@ TabsList.displayName = TabsPrimitive.List.displayName;
 
 // ─── TabsTrigger ──────────────────────────────────────────────────────────────
 
+export interface TabsTriggerProps extends React.ComponentPropsWithoutRef<
+  typeof TabsPrimitive.Trigger
+> {
+  /**
+   * Optional leading icon, rendered at `size="xs"` before the label. When set,
+   * the trigger switches to an inline-flex row with a 6 px gap; without it the
+   * trigger renders exactly as before.
+   *
+   * ```tsx
+   * <TabsTrigger value="settings" icon="settings">Settings</TabsTrigger>
+   * ```
+   */
+  icon?: IconName;
+}
+
 /**
  * TabsTrigger
  *
  * An individual tab button. Each trigger must have a `value` prop that
- * matches the corresponding `TabsContent` `value`.
+ * matches the corresponding `TabsContent` `value`. Pass `icon` for a leading
+ * icon rendered before the label.
  *
  * Visual states:
  *   - Inactive  — muted text, transparent underline border
@@ -74,13 +92,15 @@ TabsList.displayName = TabsPrimitive.List.displayName;
  */
 const TabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(({ className, ...props }, ref) => (
+  TabsTriggerProps
+>(({ className, icon, children, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
       // Layout — negative bottom margin bleeds the 2 px border over the list rail
       '-mb-px px-4 pb-2.5 pt-2',
+      // Icon row — only when a leading icon is present so plain triggers render as before
+      icon && 'inline-flex items-center gap-1.5',
       // Typography
       'text-sm font-medium leading-none whitespace-nowrap select-none',
       // Colour + transition
@@ -98,7 +118,10 @@ const TabsTrigger = React.forwardRef<
       className,
     )}
     {...props}
-  />
+  >
+    {icon ? <Icon name={icon} size="xs" /> : null}
+    {children}
+  </TabsPrimitive.Trigger>
 ));
 TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
 

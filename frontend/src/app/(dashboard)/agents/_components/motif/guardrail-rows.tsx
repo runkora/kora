@@ -87,14 +87,12 @@ export function GuardrailsFields({
         desc="Total spend cap per period"
       >
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
-          <Text as="span" size="caption" mono color="subtle">
-            $
-          </Text>
           <Stack maxWidth="form-field-sm">
             <Input
               mono
               compact
               inputMode="decimal"
+              startAdornment="$"
               value={values.agentBudgetUsd}
               onChange={(e) => onChange('agentBudgetUsd', e.target.value)}
               aria-label="Agent budget in USD"
@@ -129,14 +127,12 @@ export function GuardrailsFields({
         desc="Max spend on a single run"
       >
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
-          <Text as="span" size="caption" mono color="subtle">
-            $
-          </Text>
           <Stack maxWidth="form-field-sm">
             <Input
               mono
               compact
               inputMode="decimal"
+              startAdornment="$"
               value={values.runBudgetUsd}
               onChange={(e) => onChange('runBudgetUsd', e.target.value)}
               aria-label="Run budget in USD"

@@ -3,11 +3,20 @@
 /** @tier 3 — agents-scoped. Builder step 5: the complete configuration, grouped by owning step. */
 
 import { useMemo } from 'react';
-import { Alert, Button, Card, CardContent, CardHeader, Separator, Stack, Text } from '@orbit/terra';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  SectionHeading,
+  Separator,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
-import { StepHeader } from './step-header';
 
 interface ReviewRow {
   k: string;
@@ -75,7 +84,7 @@ export function StepReview() {
 
   return (
     <Stack gap="relaxed">
-      <StepHeader
+      <SectionHeading
         icon="rocket"
         title="Review & create"
         description="Confirm the configuration and create the agent. Nothing exists until you do."

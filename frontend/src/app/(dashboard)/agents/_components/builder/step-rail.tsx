@@ -2,7 +2,17 @@
 
 /** @tier 3 — agents-scoped. The builder's left step rail: progress dots, titles, identity-first note. */
 
-import { Button, Card, CardContent, Icon, Stack, StepConnector, StepDot, Text } from '@orbit/terra';
+import {
+  Button,
+  Card,
+  CardContent,
+  Eyebrow,
+  Icon,
+  Stack,
+  StepConnector,
+  StepDot,
+  Text,
+} from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { BUILDER_STEPS } from '../../_hooks/use-agent-builder';
 
@@ -19,9 +29,7 @@ export function StepRail() {
       overflowY="auto"
     >
       <Stack paddingInline="snug" paddingBottom="comfortable">
-        <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
-          Create agent
-        </Text>
+        <Eyebrow>Create agent</Eyebrow>
       </Stack>
 
       <Stack>

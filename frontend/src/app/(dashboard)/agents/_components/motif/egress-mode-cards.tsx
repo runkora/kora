@@ -2,18 +2,7 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import {
-  Badge,
-  Card,
-  CardContent,
-  Grid,
-  Icon,
-  RadioGroup,
-  RadioGroupItem,
-  Stack,
-  Text,
-  Textarea,
-} from '@orbit/terra';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import type { ConnectivityMode } from '@orbit/shared/api';
 
@@ -57,37 +46,17 @@ export function EgressModeCards({
         aria-label="Network egress mode"
       >
         <Grid cols={3} gap="cozy">
-          {EGRESS_MODES.map((m) => {
-            const selected = mode === m.id;
-            return (
-              <Card key={m.id} interactive selected={selected} onClick={() => onModeChange(m.id)}>
-                <CardContent padded compact>
-                  <Stack gap="snug">
-                    <Stack direction="horizontal" align="center">
-                      <Icon
-                        name={m.icon}
-                        size="sm"
-                        color={selected ? 'accent' : 'muted'}
-                        container
-                        containerVariant={selected ? 'accent' : 'surface-subtle'}
-                        label=""
-                      />
-                      <Stack grow />
-                      <RadioGroupItem value={m.id} aria-label={m.name} />
-                    </Stack>
-                    <Stack gap="tight">
-                      <Text as="span" size="supporting" weight="heavy">
-                        {m.name}
-                      </Text>
-                      <Text size="micro" color="muted">
-                        {m.desc}
-                      </Text>
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {EGRESS_MODES.map((m) => (
+            <RadioCard
+              key={m.id}
+              value={m.id}
+              selected={mode === m.id}
+              onSelect={(v) => onModeChange(v as ConnectivityMode)}
+              icon={m.icon}
+              title={m.name}
+              description={m.desc}
+            />
+          ))}
         </Grid>
       </RadioGroup>
       {mode === 'whitelist' && (

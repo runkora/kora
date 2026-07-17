@@ -2,16 +2,15 @@
 
 /** @tier 3 — agents-scoped. Builder step 1: name, slug, description. */
 
-import { FormField, Grid, Input, Stack, Textarea } from '@orbit/terra';
+import { FormField, Grid, Input, SectionHeading, Stack, Textarea } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
-import { StepHeader } from './step-header';
 
 export function StepIdentity() {
   const { fields, setName, setSlug, setField } = useAgentBuilderContext();
 
   return (
     <Stack gap="relaxed">
-      <StepHeader
+      <SectionHeading
         icon="user"
         title="Identity"
         description="Give the agent a verified identity. This is who it is on the control plane, bound to your grants from the first call."

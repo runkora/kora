@@ -22,14 +22,35 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
    * `<select>` with `h-8`) and visual height parity is required.
    */
   compact?: boolean;
+  /**
+   * Content pinned inside the input's left edge — a currency sign, protocol
+   * prefix, or similar. Rendered in a non-interactive subtle mono span; the
+   * input text is inset (`pl-7`) to clear it.
+   *
+   * Named `startAdornment` (not `prefix`) because `prefix` is already a
+   * string-typed HTML attribute on inputs.
+   *
+   * ```tsx
+   * <Input type="number" startAdornment="$" endAdornment="/ 1M tokens" />
+   * ```
+   */
+  startAdornment?: React.ReactNode;
+  /**
+   * Content pinned inside the input's right edge — a unit label such as
+   * `/ 1M tokens`. Rendered in a non-interactive subtle mono span; the input
+   * text is inset (`pr-16`) to clear it.
+   */
+  endAdornment?: React.ReactNode;
 }
 
 /**
  * Input
  *
  * A single-line text input styled to the Terra token system. Supports all
- * native `<input>` attributes plus `hasError` for validation states and `mono`
- * for monospace rendering of technical values.
+ * native `<input>` attributes plus `hasError` for validation states, `mono`
+ * for monospace rendering of technical values, and `startAdornment` /
+ * `endAdornment` for in-field prefix/suffix decorations (currency signs,
+ * units).
  *
  * Pair with `Label` and wrap both in a `<div className="flex flex-col gap-1.5">`
  * to build a complete form field.
@@ -40,6 +61,9 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
  *
  * // Monospace — for API keys, paths, URL patterns:
  * <Input mono placeholder="/api/v1/agents/:id" />
+ *
+ * // Pricing field with currency and unit adornments:
+ * <Input type="number" startAdornment="$" endAdornment="/ 1M tokens" />
  * ```
  */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
@@ -49,6 +73,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       hasError = false,
       mono = false,
       compact = false,
+      startAdornment,
+      endAdornment,
       type = 'text',
       id,
       'aria-describedby': ariaDescribedby,
@@ -59,7 +85,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     ref,
   ) => {
     const field = useFormField();
-    return (
+    const hasAdornment = startAdornment != null || endAdornment != null;
+    const input = (
       <input
         type={type}
         ref={ref}
@@ -89,10 +116,37 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           'disabled:cursor-not-allowed disabled:opacity-40',
           // File input reset
           'file:border-0 file:bg-transparent file:text-sm file:font-medium',
+          // Adornment insets — only emitted when the wrapper renders the spans
+          startAdornment != null && 'pl-7',
+          endAdornment != null && 'pr-16',
           className,
         )}
         {...props}
       />
+    );
+
+    if (!hasAdornment) return input;
+
+    return (
+      <div data-slot="input-adorned" className="relative">
+        {startAdornment != null && (
+          <span
+            data-slot="input-start-adornment"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-subtle"
+          >
+            {startAdornment}
+          </span>
+        )}
+        {input}
+        {endAdornment != null && (
+          <span
+            data-slot="input-end-adornment"
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-subtle"
+          >
+            {endAdornment}
+          </span>
+        )}
+      </div>
     );
   },
 );

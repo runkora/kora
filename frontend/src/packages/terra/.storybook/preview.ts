@@ -39,10 +39,10 @@ const preview: Preview = {
      * The three values mirror Terra's surface token hierarchy so stories can
      * be verified on the actual backgrounds they will appear on in production:
      *
-     *   orbit   — `--color-background` (#070a0f)  — the root page background,
+     *   orbit   — `--color-background` (#060709)  — the root page background,
      *             the darkest surface. Default because most Orbit UI renders here.
      *
-     *   surface — `--color-surface`    (#0d1117)  — card and panel backgrounds,
+     *   surface — `--color-surface`    (#101214)  — card and panel backgrounds,
      *             one step lighter than orbit. Use for components that live
      *             inside cards or sidebars.
      *
@@ -53,14 +53,18 @@ const preview: Preview = {
      * Note: values are hardcoded hex strings, not CSS custom properties.
      * Storybook's background switcher runs outside the component render tree
      * and therefore cannot read `var(--color-background)` at runtime.
-     * Keep these in sync with the actual token values in tokens.css if the
-     * root surface colours ever change.
+     *
+     * These hexes mirror `--terra-bg-base: 13%` in tokens.css:
+     *   orbit   = oklch(13% 0.005 248) → #060709   (--terra-raw-black)
+     *   surface = oklch(18% 0.005 248) → #101214   (base + --terra-bg-step-1: 5%)
+     * If `--terra-bg-base` (or the neutral seeds) change, recompute BOTH values
+     * together — a stale canvas colour silently misrepresents contrast.
      */
     backgrounds: {
       default: 'orbit',
       values: [
-        { name: 'orbit', value: '#070a0f' },
-        { name: 'surface', value: '#0d1117' },
+        { name: 'orbit', value: '#060709' },
+        { name: 'surface', value: '#101214' },
         { name: 'light', value: '#ffffff' },
       ],
     },

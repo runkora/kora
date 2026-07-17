@@ -69,3 +69,6 @@ export type { CopyFieldProps } from './copy-field';
 /** Full-width ghost button row with label/value stack and copy icon — for modal detail views. */
 export { CopyRow } from './copy-row';
 export type { CopyRowProps } from './copy-row';
+
+export { EffectiveAccessPanel } from './effective-access-panel';
+export { ModelPicker } from './model-picker';

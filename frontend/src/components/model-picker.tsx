@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
+/** @tier 2 — Orbit-domain-aware: governed model selection (family groups, pricing, threshold search). Used by: agents builder, agents configuration, model-gateway routes (planned). */
 
 import { useMemo, useState } from 'react';
 import {

@@ -11,9 +11,12 @@ import {
   Button,
   Card,
   CardContent,
+  Eyebrow,
   FormField,
   Grid,
   Input,
+  SaveBar,
+  SectionHeading,
   Separator,
   Stack,
   Text,
@@ -21,9 +24,8 @@ import {
 } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
 import type { AgentFramework } from '@orbit/shared/api';
-import { StepHeader } from '../../_components/builder/step-header';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
-import { ModelPicker } from '../../_components/motif/model-picker';
+import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
 import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
 import { ConnectionCards } from '../../_components/motif/connection-cards';
@@ -32,9 +34,8 @@ import { EnvironmentCard } from '../../_components/motif/environment-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
-import { EffectiveAccessPanel } from './effective-access-panel';
+import { EffectiveAccessPanel } from '@orbit/components';
 import { ConfigurationRail } from './configuration-rail';
-import { ConfigurationSaveBar } from './configuration-save-bar';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
 
 function SectionLabel({ title, desc }: { title: string; desc: string }) {
@@ -107,7 +108,7 @@ export function AgentConfigurationTab() {
         {/* ── Identity ─────────────────────────────────────────────────────── */}
         {active === 'identity' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="user"
               title="Identity"
               description="Who this agent is on the control plane. The slug is its permanent identity and cannot change."
@@ -140,7 +141,7 @@ export function AgentConfigurationTab() {
         {/* ── Behaviour ────────────────────────────────────────────────────── */}
         {active === 'behaviour' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="bot"
               title="Behaviour"
               description="How the agent behaves, and the model and framework it runs on."
@@ -183,7 +184,7 @@ export function AgentConfigurationTab() {
         {/* ── Tools & access ───────────────────────────────────────────────── */}
         {active === 'tools' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="wrench"
               title="Tools & access"
               description="The MCP servers, platform capabilities, and connections this agent may call. Every call is checked before it runs."
@@ -237,7 +238,7 @@ export function AgentConfigurationTab() {
         {/* ── Network access ───────────────────────────────────────────────── */}
         {active === 'network' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="network"
               title="Network access"
               description="The hosts the agent may reach, and the environment merged into its effective access."
@@ -273,15 +274,13 @@ export function AgentConfigurationTab() {
         {/* ── Guardrails ───────────────────────────────────────────────────── */}
         {active === 'guardrails' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="shield"
               title="Guardrails"
               description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
-              <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
-                Limits
-              </Text>
+              <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
                 Every limit is optional. Switch on the ones you want Orbit to enforce.
               </Text>
@@ -294,7 +293,7 @@ export function AgentConfigurationTab() {
         {/* ── Danger zone ──────────────────────────────────────────────────── */}
         {active === 'danger' && (
           <Stack gap="relaxed">
-            <StepHeader
+            <SectionHeading
               icon="triangle-alert"
               title="Danger zone"
               description="Destructive actions. These cannot be undone."
@@ -321,11 +320,11 @@ export function AgentConfigurationTab() {
         )}
       </Stack>
 
-      <ConfigurationSaveBar
+      <SaveBar
         visible={cfg.isDirty}
         saving={cfg.saving}
-        saveSuccess={cfg.saveSuccess}
-        saveError={cfg.saveError}
+        success={cfg.saveSuccess}
+        error={cfg.saveError}
         onSave={() => void cfg.handleSave()}
         onDiscard={cfg.handleDiscard}
       />

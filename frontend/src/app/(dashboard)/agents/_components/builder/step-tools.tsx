@@ -3,17 +3,16 @@
 /** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, platform tools, connections, egress, environment. */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Separator, Stack, Text } from '@orbit/terra';
+import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/terra';
 import type { EffectiveAccess } from '@orbit/shared/api';
 import { previewEffectiveAccess } from '../../[slug]/_services/agent-detail-api';
-import { EffectiveAccessPanel } from '../../[slug]/_components/effective-access-panel';
+import { EffectiveAccessPanel } from '@orbit/components';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { ConnectionCards } from '../motif/connection-cards';
 import { EgressModeCards } from '../motif/egress-mode-cards';
 import { EnvironmentCard } from '../motif/environment-card';
 import { countGrantedServers, McpToolTree } from '../motif/mcp-tool-tree';
 import { PlatformToolsCard } from '../motif/platform-tools-card';
-import { StepHeader } from './step-header';
 
 /** Section heading shared by every block on this step. */
 function SectionLabel({ title, desc }: { title: string; desc: string }) {
@@ -64,7 +63,7 @@ export function StepTools() {
 
   return (
     <Stack gap="relaxed">
-      <StepHeader
+      <SectionHeading
         icon="wrench"
         title="Tools & access"
         description="Grant access to MCP servers. Every tool call is checked against these scopes before it runs."

@@ -267,7 +267,7 @@ export const RawPalette: Story = {
         title="Neutral Ramp"
         description="12-step neutral scale from black to near-white. Semantic tokens reference these — use those in components, not the raw vars."
       >
-        <Swatch cssVar="--terra-raw-black" label="Black" detail="#070a0f" />
+        <Swatch cssVar="--terra-raw-black" label="Black" detail="#060709" />
         <Swatch cssVar="--terra-raw-950" label="950" detail="#0c1017" />
         <Swatch cssVar="--terra-raw-900" label="900" detail="#111827" />
         <Swatch cssVar="--terra-raw-800" label="800" detail="#1a2333" />

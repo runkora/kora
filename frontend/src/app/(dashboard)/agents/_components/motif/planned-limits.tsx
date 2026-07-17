@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Badge, Card, CardContent, Icon, Separator, Stack, Text } from '@orbit/terra';
+import { Badge, Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 
 const PLANNED: { icon: IconName; title: string; desc: string }[] = [
@@ -43,9 +43,7 @@ export function PlannedLimits() {
     <Card subtle>
       <CardContent flush>
         <Stack direction="horizontal" align="baseline" gap="snug" padding="cozy">
-          <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
-            Planned
-          </Text>
+          <Eyebrow>Planned</Eyebrow>
           <Text as="span" size="micro" color="subtle">
             On the roadmap, not yet enforced
           </Text>

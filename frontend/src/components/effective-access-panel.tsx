@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. The "Effective access" resolved output: the
+/** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments (planned). The "Effective access" resolved output: the
  * union of hosts an agent can reach, colour-coded by provenance (own egress
  * posture, environment, connectors). Distinct from the editable layer cards — it
  * is a resolved *output*, given a subtle elevated/accent treatment. Hovering a

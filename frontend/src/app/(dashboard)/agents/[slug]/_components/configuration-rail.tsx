@@ -3,16 +3,11 @@
 /** @tier 3 — agents/[slug]-scoped. The Configuration tab's section rail:
  * numbered nav entries in the builder's anatomy, plus the audit card. */
 
-import { Button, Card, CardContent, Icon, Stack, StepDot, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Card, CardContent, Eyebrow, SectionNav, Stack, Text } from '@orbit/terra';
+import type { SectionNavSection } from '@orbit/terra';
 import { formatRelativeTime } from '../../_types';
 
-export interface ConfigSection {
-  key: string;
-  title: string;
-  sub: string;
-  icon: IconName;
-}
+export type ConfigSection = SectionNavSection;
 
 export const CONFIG_SECTIONS: ConfigSection[] = [
   { key: 'identity', title: 'Identity', sub: 'Name & description', icon: 'user' },
@@ -34,58 +29,12 @@ export function ConfigurationRail({
 }) {
   return (
     <Stack gap="comfortable" minWidth="compact" maxWidth="compact" shrink={false}>
-      <Stack gap="tight">
-        {CONFIG_SECTIONS.map((section, i) => {
-          const isActive = section.key === active;
-          return (
-            <Button
-              key={section.key}
-              variant={isActive ? 'secondary' : 'ghost'}
-              size="tile"
-              fullWidth
-              onClick={() => onSelect(section.key)}
-              aria-current={isActive ? 'true' : undefined}
-            >
-              <Stack direction="horizontal" align="center" gap="cozy" padding="snug" grow>
-                {isActive ? (
-                  <Icon
-                    name={section.icon}
-                    size="sm"
-                    color="accent"
-                    container
-                    containerVariant="accent"
-                    label=""
-                  />
-                ) : (
-                  <StepDot size="lg" state="pending">
-                    {i + 1}
-                  </StepDot>
-                )}
-                <Stack gap="tight" align="start" textAlign="start">
-                  <Text
-                    as="span"
-                    size="supporting"
-                    weight="heavy"
-                    color={isActive ? 'foreground' : 'muted'}
-                  >
-                    {section.title}
-                  </Text>
-                  <Text as="span" size="micro" color="subtle">
-                    {section.sub}
-                  </Text>
-                </Stack>
-              </Stack>
-            </Button>
-          );
-        })}
-      </Stack>
+      <SectionNav sections={CONFIG_SECTIONS} active={active} onSelect={onSelect} />
 
       <Card subtle>
         <CardContent padded compact>
           <Stack gap="tight">
-            <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
-              Audit
-            </Text>
+            <Eyebrow>Audit</Eyebrow>
             <Text size="micro" color="subtle">
               {updatedAt ? `Last edited ${formatRelativeTime(updatedAt)}. ` : ''}
               Saving re-provisions the agent and recompiles its grants before they apply.

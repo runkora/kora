@@ -2,18 +2,17 @@
 
 /** @tier 3 — agents-scoped. Builder step 2: system instructions, framework, model. */
 
-import { Alert, FormField, Separator, Stack, Text, Textarea } from '@orbit/terra';
+import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FrameworkCards } from '../motif/framework-cards';
-import { ModelPicker } from '../motif/model-picker';
-import { StepHeader } from './step-header';
+import { ModelPicker } from '@orbit/components';
 
 export function StepBehaviour() {
   const { fields, setField, catalogues } = useAgentBuilderContext();
 
   return (
     <Stack gap="relaxed">
-      <StepHeader
+      <SectionHeading
         icon="bot"
         title="Behaviour"
         description="Describe how the agent should behave, then choose the model and framework it runs on."

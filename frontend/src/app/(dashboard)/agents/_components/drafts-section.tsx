@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Button, Card, CardContent, Icon, Stack, Text } from '@orbit/terra';
+import { Button, Card, CardContent, Eyebrow, Icon, Stack, Text } from '@orbit/terra';
 import type { AgentTypeDraft } from '@orbit/shared/api';
 import { deleteDraft, fetchDrafts } from '../_services/agents-api';
 
@@ -49,9 +49,7 @@ export function DraftsSection() {
   return (
     <Stack gap="cozy">
       <Stack direction="horizontal" align="baseline" gap="snug">
-        <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
-          Drafts
-        </Text>
+        <Eyebrow>Drafts</Eyebrow>
         <Text as="span" size="micro" color="subtle">
           Saved builder sessions, visible only to you
         </Text>

@@ -61,3 +61,36 @@ export const AllStates: Story = {
     </div>
   ),
 };
+
+/** A currency sign pinned inside the left edge — the input text is inset to clear it. */
+export const WithStartAdornment: Story = {
+  args: { startAdornment: '$', type: 'number', defaultValue: '3.00', className: 'w-72' },
+};
+
+/** A unit label pinned inside the right edge. */
+export const WithEndAdornment: Story = {
+  args: { endAdornment: '/ 1M tokens', type: 'number', defaultValue: '15', className: 'w-72' },
+};
+
+/** Both adornments — the pricing-override field anatomy. */
+export const WithBothAdornments: Story = {
+  args: {
+    startAdornment: '$',
+    endAdornment: '/ 1M tokens',
+    type: 'number',
+    defaultValue: '3.00',
+    className: 'w-72',
+  },
+};
+
+/** Adornments compose with `compact` height and error state. */
+export const AdornmentStates: Story = {
+  render: () => (
+    <div className="flex flex-col gap-3 w-72">
+      <Input startAdornment="$" endAdornment="/ 1M tokens" defaultValue="3.00" />
+      <Input compact startAdornment="$" endAdornment="/ 1M tokens" defaultValue="3.00" />
+      <Input hasError startAdornment="$" defaultValue="not-a-number" />
+      <Input disabled startAdornment="$" placeholder="0.00" />
+    </div>
+  ),
+};

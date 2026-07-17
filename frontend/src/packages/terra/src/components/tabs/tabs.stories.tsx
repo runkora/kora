@@ -11,7 +11,7 @@ const meta: Meta = {
     layout: 'centered',
     backgrounds: {
       default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
+      values: [{ name: 'orbit', value: '#060709' }],
     },
   },
   tags: ['autodocs'],
@@ -193,6 +193,40 @@ export const WithBadgeCounts: Story = {
       <TabsContent value="info">
         <Text size="supporting" color="muted">
           No informational notices.
+        </Text>
+      </TabsContent>
+    </Tabs>
+  ),
+};
+
+export const WithIcons: Story = {
+  name: 'With icons',
+  render: () => (
+    <Tabs defaultValue="overview" className="w-[480px]">
+      <TabsList>
+        <TabsTrigger value="overview" icon="user">
+          Overview
+        </TabsTrigger>
+        <TabsTrigger value="configuration" icon="settings">
+          Configuration
+        </TabsTrigger>
+        <TabsTrigger value="guardrails" icon="shield">
+          Guardrails
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="overview">
+        <Text size="supporting" color="muted">
+          Agent identity and status at a glance.
+        </Text>
+      </TabsContent>
+      <TabsContent value="configuration">
+        <Text size="supporting" color="muted">
+          Prompt, model, and tool configuration.
+        </Text>
+      </TabsContent>
+      <TabsContent value="guardrails">
+        <Text size="supporting" color="muted">
+          Limits and capacity controls.
         </Text>
       </TabsContent>
     </Tabs>
