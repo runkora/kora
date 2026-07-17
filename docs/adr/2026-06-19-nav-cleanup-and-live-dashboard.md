@@ -214,7 +214,7 @@ The Inference KPIs and trend reuse the existing model-gateway components `Analyt
 ## Related Decisions
 
 - [2026-03-17-frontend-scaffolding-and-toolchain.md](2026-03-17-frontend-scaffolding-and-toolchain.md) — Established the Next.js app-router pattern this change follows.
-- [2026-03-25-terra-design-system.md](2026-03-25-terra-design-system.md) — Terra component constraints honoured throughout.
+- [2026-03-25-terra-frontend-design-system.md](2026-03-25-terra-frontend-design-system.md) — Terra component constraints honoured throughout.
 - [2026-05-04-frontend-component-consolidation.md](2026-05-04-frontend-component-consolidation.md) — Component-tier model followed for any new sub-components.
 
 ---

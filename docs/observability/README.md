@@ -6,7 +6,7 @@ OpenTelemetry-based observability for Orbit, providing distributed tracing, stru
 
 Orbit implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
 
-Orbit is a multi-service backend — it compiles to 13 binaries under `backend/cmd/` (the main API is `cmd/identity`), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
+Orbit is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
 
 ## Documentation Structure
 
@@ -44,39 +44,30 @@ Orbit is a multi-service backend — it compiles to 13 binaries under `backend/c
 
 ## Configuration
 
-Observability is configured via environment variables:
+Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`, and the environment is selected by `APP_ENV`. The shared observability tunables load from `internal/platform/observability/config/base.yaml` (plus its `{APP_ENV}.yaml` overlay) and can be overridden per-process with these environment variables:
 
 ```bash
-# Service identification
-OTEL_SERVICE_NAME=orbit                    # Service name (default: "orbit")
-OTEL_SERVICE_VERSION=0.1.0                 # Service version (default: "dev")
-ENVIRONMENT=production                     # Environment (default: "development")
+# Environment selector — picks which config overlay loads and sets the
+# deployment.environment resource attribute.
+# Values: "local" | "development" | "production" (default: "production")
+APP_ENV=local
 
-# Trace export
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 # OTLP collector endpoint (optional)
-OTEL_EXPORTER_OTLP_INSECURE=true          # Use insecure connection (dev only)
+# Trace export (override the YAML-loaded platform defaults)
+ORBIT_OTLP_ENDPOINT=localhost:4317   # OTLP collector endpoint (empty = export disabled)
+ORBIT_OTLP_INSECURE=true             # Disable TLS on the OTLP gRPC connection (dev only)
 
-# Sampling
-OTEL_TRACE_SAMPLING_RATE=0.1              # Sample 10% of traces (default: 0.1)
+# Sampling & logging
+ORBIT_SAMPLING_RATE=0.1              # Fraction of root spans to sample (0.0–1.0)
+ORBIT_LOG_FORMAT=console             # Log output style: "console" or "json"
 ```
 
-### Environment Modes
+### Exporter selection
 
-**Development** (`ENVIRONMENT=development`):
-- Exports traces to stdout with pretty-printing
-- High sampling rate (10% default)
-- Useful for local debugging
+The trace exporter is chosen at startup, in priority order:
 
-**Production** (`ENVIRONMENT=production`):
-- Requires `OTEL_EXPORTER_OTLP_ENDPOINT` to be set
-- Exports to OTLP collector (Jaeger, Tempo, etc.)
-- Uses TLS by default
-- Configurable sampling rate
-
-**Production without OTLP** (no endpoint configured):
-- No-op mode: spans are created but not exported
-- Logs still include trace_id/span_id for correlation
-- Minimal overhead
+1. **OTLP endpoint set** (`ORBIT_OTLP_ENDPOINT` non-empty): export to the OTLP collector (Jaeger, Tempo, …) in *any* environment. TLS is on unless `ORBIT_OTLP_INSECURE=true`.
+2. **`APP_ENV=local`, no endpoint**: stdout exporter, for laptop development.
+3. **Anything else with no endpoint** is a no-op: spans are created but not exported; logs still carry `trace_id`/`span_id` for correlation. This covers the development cluster until a collector is deployed, and any production misconfiguration.
 
 ## Usage
 
@@ -146,7 +137,7 @@ See [tracing.md](tracing.md) for detailed usage patterns.
 Orbit uses **W3C TraceContext** standard for trace propagation:
 
 1. **Incoming requests**: `TracingMiddleware` extracts trace context from the `traceparent` header and starts a `SpanKindServer` span
-2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span — never do this manually
+2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span. Never do this manually
 3. **Cross-service**: Trace context flows automatically across all service boundaries via the platform client layer
 
 Example propagation header:
@@ -166,8 +157,8 @@ docker run -d --name jaeger \
   -p 16686:16686 \
   jaegertracing/all-in-one:latest
 
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-export OTEL_EXPORTER_OTLP_INSECURE=true
+export ORBIT_OTLP_ENDPOINT=localhost:4317
+export ORBIT_OTLP_INSECURE=true
 ```
 
 Access UI at http://localhost:16686
@@ -206,21 +197,13 @@ As a control plane for autonomous agents, observability is critical:
 - Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
 - [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md) lint rules enforcing static span status descriptions and correct `RecordError` usage
 
-🚧 **Future Enhancements**:
-- Database query tracing
-- gRPC service tracing
-- Agent tool invocation tracing
-- Policy evaluation detailed spans
-- Metrics integration (OpenTelemetry Metrics)
-- Tail-based sampling for intelligent trace selection
-
 ## Quick Start
 
 ### 1. Development Mode (Stdout)
 
 ```bash
 # Start Orbit with stdout tracing
-ENVIRONMENT=development go run cmd/identity/main.go
+APP_ENV=local go run cmd/identity/main.go
 
 # Make a request
 curl http://localhost:8080/api/v1/example/health
@@ -235,9 +218,9 @@ curl http://localhost:8080/api/v1/example/health
 docker run -d -p4317:4317 -p16686:16686 jaegertracing/all-in-one:latest
 
 # Configure Orbit
-export ENVIRONMENT=production
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-export OTEL_EXPORTER_OTLP_INSECURE=true
+export APP_ENV=production
+export ORBIT_OTLP_ENDPOINT=localhost:4317
+export ORBIT_OTLP_INSECURE=true
 
 # Start Orbit
 go run cmd/identity/main.go
@@ -252,7 +235,7 @@ curl http://localhost:8080/api/v1/example/hello/world
 
 **Find traces by service:**
 - Open Jaeger UI
-- Select service: `orbit`
+- Select service: the binary's configured `observability.serviceName` (e.g. `orbit-identity`)
 - View recent traces
 
 **Find logs for a trace:**

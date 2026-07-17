@@ -272,7 +272,7 @@ No data migration is required — no quota data has been written in production.
 ## References
 
 - [PRD: LLM Cost Tracking](../prd/llm-cost-tracking.md)
-- [BUDGET-REDESIGN.md](../../BUDGET-REDESIGN.md) — Working notes, lineage diagrams, removal & rename plan
+- BUDGET-REDESIGN.md — Working notes, lineage diagrams, removal & rename plan
 
 ---
 

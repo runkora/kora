@@ -1,6 +1,6 @@
 # App-level shared components
 
-This document is the authoritative index of Tier 2 app-shared components — components that are Orbit-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
+This document is the authoritative index of Tier 2 app-shared components: components that are Orbit-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
 
 Before writing any UI boilerplate, check this list. If a component already covers the need, use it. If it almost covers the need, extend it via props rather than creating a new file.
 
@@ -60,7 +60,7 @@ interface StatusBadgeProps {
 
 **Import:** `import { ConfirmDialog } from '@orbit/components'`
 
-**When to use:** Any destructive action that requires user confirmation — delete, revoke, reset. Composes `Modal` from Terra internally.
+**When to use:** Any destructive action that requires user confirmation: delete, revoke, reset. Composes `Modal` from Terra internally.
 
 **When not to use:** Non-destructive confirmations where a simple button pair suffices; use a standard inline form instead.
 
@@ -97,7 +97,7 @@ interface ConfirmDialogProps {
 
 **Import:** `import { MetricCard } from '@orbit/components'`
 
-**When to use:** Any KPI/metric display in an overview or dashboard — icon + label + value + optional delta + optional breakdown rows + optional "View all" link.
+**When to use:** Any KPI/metric display in an overview or dashboard: icon + label + value + optional delta + optional breakdown rows + optional "View all" link.
 
 ```tsx
 interface MetricCardProps {
@@ -160,4 +160,27 @@ interface EventFeedItemProps {
     />
   ))}
 </ul>
+```
+
+---
+
+## ThemeToggle
+
+**Import:** `import { ThemeToggle } from '@orbit/components'`
+
+**When to use:** The user-facing control that switches between the light and dark
+themes (typically placed in the dashboard header).
+
+**How it works:** Calls `setTheme(...)` from `next-themes`, which flips the
+`data-theme` attribute on `<html>`. Terra's design tokens re-colour the entire UI
+from that attribute, so no other wiring is needed. It renders both a sun (switch
+to dark) and a moon (switch to light) `Button`; `globals.css` shows the one that
+matches the active theme so the control is correct at first paint. Takes no props.
+
+For how theming works end-to-end and how to author theme-aware components (use
+tokens, never hardcoded colours), see
+[Theming](./terra-design-system.md#theming-light--dark) in the Terra reference.
+
+```tsx
+<ThemeToggle />
 ```

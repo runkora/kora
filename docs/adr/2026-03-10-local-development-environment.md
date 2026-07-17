@@ -1,6 +1,6 @@
 # Local Development Environment
 
-**Status:** Accepted
+**Status:** Superseded by [kubernetes-only-local-development](2026-07-10-kubernetes-only-local-development.md)
 **Date:** 2026-03-10
 **Deciders:** Engineering Team
 **Technical Story:** Defining the local development environment strategy for Orbit — how engineers run the platform locally for day-to-day Go development and for full-stack integration testing against the SPIFFE/SPIRE, Istio, and Envoy infrastructure established in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), and 0015.

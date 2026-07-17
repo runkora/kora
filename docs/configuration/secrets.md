@@ -1,6 +1,6 @@
 # Secrets
 
-Secrets are values that, if leaked, would require a security incident response — passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
+Secrets are values that, if leaked, would require a security incident response: passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
 
 Orbit reads secrets from environment variables at runtime.
 
@@ -8,19 +8,11 @@ Orbit reads secrets from environment variables at runtime.
 
 ## Local Development
 
-Use a `.env` file at the repository root for local secrets. This file is gitignored and never committed.
+`make setup` generates a machine-local `.env` at the repository root. It is gitignored and never committed. It holds only `DB_PASSWORD`, `REDIS_PASSWORD` and `BFF_SESSION_SECRET`. The Postgres and Redis passwords are fixed local defaults; `BFF_SESSION_SECRET` is generated with `openssl rand`. Nothing needs editing before the platform runs.
 
-```bash
-cp .env.example .env   # run once after cloning (or: make env)
-```
+Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/local/orbit-values.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, port collisions).
 
-`.env.example` documents every required variable with safe placeholder values. Keep it up to date whenever you add a new secret.
-
-Start the server with your `.env` loaded:
-
-```bash
-make dev      # air reads .env automatically
-```
+`make up` reads `.env`, injects these values into the cluster's `orbit-secrets`, and brings the platform up.
 
 ---
 
@@ -35,7 +27,7 @@ if clientID == "" {
 }
 ```
 
-Fail fast on startup if a required secret is missing — don't let the service start in a broken state.
+Fail fast on startup if a required secret is missing, don't let the service start in a broken state.
 
 ---
 
@@ -43,12 +35,10 @@ Fail fast on startup if a required secret is missing — don't let the service s
 
 RSA private keys are PEM-encoded and multi-line. Standard `.env` parsers do not reliably preserve newlines, and `pem.Decode` requires real newlines to parse PEM headers and footers.
 
-**For local development**, write the key to a file and reference it by path:
+**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `orbit-secrets` as the inline `ORBIT_TOKEN_SIGNING_KEY`.
 
 ```bash
 make gen-signing-key          # writes secrets/signing.key (gitignored)
-# .env already contains:
-ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key
 ```
 
 **For CI/production**, secret managers (GitHub Actions secrets, Kubernetes Secrets, Vault) inject multi-line values with real newlines. Use the inline variable:
@@ -59,22 +49,15 @@ MIIEowIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----
 ```
 
-**Priority**: `ORBIT_TOKEN_SIGNING_KEY_FILE` is checked first. `ORBIT_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart — a warning is logged).
+**Priority**: `ORBIT_TOKEN_SIGNING_KEY_FILE` is checked first. `ORBIT_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart, and a warning is logged).
 
 ---
 
 ## Dex OIDC Credentials (Local Only)
 
-The local Dex identity provider requires a bcrypt password hash that cannot safely be stored in the root `.env` file — Docker Compose v2 interpolates `$` characters in the `environment:` block, which destroys `$2y$10$...` bcrypt hashes.
+Dex authenticates the local test user against `glauth`, an in-memory LDAP server, not against a static password list. The password hash is `GLAUTH_DEV_PASSWORD_HASH`, a sha256 of the literal `password`, defaulted in `docker-compose.yml` and rendered into `config/glauth/config.cfg` at container start.
 
-Dex credentials live in a separate file:
-
-```bash
-make dex-env                   # generates config/dex/.env with default password "password"
-make dex-hash password=custom  # generates config/dex/.env with a custom password
-```
-
-`config/dex/.env` is gitignored and never committed. It is loaded by Docker Compose via `env_file:`, which bypasses variable interpolation.
+Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with password `password`. Override the hash in `.env` if you want a different one.
 
 ---
 
@@ -84,26 +67,26 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `APP_ENV` | `.env` | Environment: `local`, `development`, `production`. Not a secret but controls config loading. |
+| `APP_ENV` | chart values / deployment env | Environment: `local`, `development`, `production`. Not a secret but controls config loading. In-cluster it is injected as an env var, not read from `.env`. |
 
 ### Database
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Defaults to `orbit` in `.env.example`. |
+| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
 
 ### Redis
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Defaults to `orbit` in `.env.example`. |
+| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
 
 ### Token Signing
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | `.env` | Path to RSA private key PEM file (mode 600). Local dev. Generate with `make gen-signing-key`. |
-| `ORBIT_TOKEN_SIGNING_KEY` | secret manager | Inline RSA private key PEM. CI/production. Takes precedence over `_FILE` if set. |
+| `ORBIT_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
+| `ORBIT_TOKEN_SIGNING_KEY` | `orbit-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
 
 ### OIDC / Federated Identity
 
@@ -117,7 +100,7 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `DEX_USER_PASSWORD_HASH` | `config/dex/.env` | bcrypt hash of the local Dex test user password. Generated by `make dex-env`. |
+| `GLAUTH_DEV_PASSWORD_HASH` | `docker-compose.yml` default | sha256 of the local test user's password. Override in `.env` to change it. |
 
 ---
 
@@ -125,20 +108,20 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 In deployed environments, inject secrets via your platform's secret mechanism:
 
-- **Kubernetes** — `Secret` objects mounted as environment variables or projected volumes
-- **AWS** — Secrets Manager or Parameter Store via the pod's IAM role
-- **GCP** — Secret Manager with Workload Identity
-- **HashiCorp Vault** — Agent sidecar injection
+- **Kubernetes**: `Secret` objects mounted as environment variables or projected volumes
+- **AWS**: Secrets Manager or Parameter Store via the pod's IAM role
+- **GCP**: Secret Manager with Workload Identity
+- **HashiCorp Vault**: Agent sidecar injection
 
-The application code is identical regardless — it always reads `os.Getenv`.
+The application code is identical regardless: it always reads `os.Getenv`.
 
 ---
 
 ## Adding a New Secret
 
 1. Add `os.Getenv("YOUR_VAR")` with a fail-fast check in the relevant service initializer
-2. Add the variable to `.env.example` with a placeholder value and an explanatory comment
-3. Add it to your local `.env`
+2. If it is machine-local, generate it into `.env` in the `env` target in the `Makefile`, and wire it into `orbit-secrets` via `scripts/cluster/create-secrets.sh`
+3. If it is an optional override, document it in `.env.example`
 4. Add it to this reference table above
 5. Add it to the relevant deployment secret store for staging/production
 
@@ -146,8 +129,8 @@ The application code is identical regardless — it always reads `os.Getenv`.
 
 ## Reference
 
-- [config.md](config.md) — YAML-based configuration for non-secret values
-- [guides/local-development.md](../guides/local-development.md) — Full local setup walkthrough
-- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md) — Configuration system design
-- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction
-- `SECURITY.md` — reporting vulnerabilities
+- [config.md](config.md): YAML-based configuration for non-secret values
+- [guides/local-development.md](../guides/local-development.md): Full local setup walkthrough
+- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): Configuration system design
+- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md): OIDC provider abstraction
+- `SECURITY.md`: reporting vulnerabilities

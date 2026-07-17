@@ -28,7 +28,7 @@ Instead, please report security issues via one of these methods:
 
 ### Email
 
-Alternatively, email security reports to: **security@clearroute.ai**
+Alternatively, email security reports to: **security@clearroute.io**
 
 Please include:
 - Description of the vulnerability

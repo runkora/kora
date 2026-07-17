@@ -46,6 +46,7 @@ Flags:
   --tenant <slug>   Target tenant namespace (defaults to 'example' for tenant-scoped services)
   --build-only      Build and push to localhost:5001; skip the kubectl rollout
   --no-build        Skip build+push; only do the kubectl rollout
+  --print-image     Print the image name for <service> and exit
 EOF
 }
 
@@ -333,6 +334,7 @@ TENANT=""
 SLUG=""
 BUILD_ONLY=0
 NO_BUILD=0
+PRINT_IMAGE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -341,6 +343,7 @@ while [ $# -gt 0 ]; do
     --slug) SLUG="$2"; shift 2 ;;
     --build-only) BUILD_ONLY=1; shift ;;
     --no-build) NO_BUILD=1; shift ;;
+    --print-image) PRINT_IMAGE=1; shift ;;
     --) shift; break ;;
     -*) err "Unknown flag: $1"; usage; exit 2 ;;
     *)
@@ -399,6 +402,28 @@ EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{slug\}/$SLUG}"
 if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]] \
   || [[ "$EXTRA_WORKLOADS" == *"{tenant}"* ]] || [[ "$EXTRA_WORKLOADS" == *"{slug}"* ]]; then
   err "Service '$SERVICE' requires --tenant <slug>"
+  exit 1
+fi
+
+# Callers that only need to know which image a service maps to, e.g. to test
+# whether it is already in the registry before paying for a rebuild.
+if [ "$PRINT_IMAGE" -eq 1 ]; then
+  printf '%s\n' "$IMAGE"
+  exit 0
+fi
+
+# ── preflight ─────────────────────────────────────────────────────────────────
+# Without this, a torn-down cluster surfaces as a raw
+# `dial tcp [::1]:5001: connect: connection refused` from `docker push`.
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "orbit-registry"; then
+  err "The local image registry (orbit-registry) is not running."
+  echo "  k3d owns it, so the cluster is down. Bring it up with: make up" >&2
+  exit 1
+fi
+if ! kubectl cluster-info >/dev/null 2>&1; then
+  err "No reachable Kubernetes cluster for the current kubectl context."
+  echo "  Context: $(kubectl config current-context 2>/dev/null || echo '<none>') (expected k3d-orbit-local)" >&2
+  echo "  Bring the cluster up with 'make up', or switch context." >&2
   exit 1
 fi
 

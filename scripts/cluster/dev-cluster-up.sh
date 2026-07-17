@@ -47,6 +47,30 @@ if ! docker inspect orbit-postgres &>/dev/null; then
   exit 1
 fi
 
+# ── inotify headroom ──────────────────────────────────────────────────────
+# Every meshed pod, the kubelet, and each Orbit service that hot-reloads a
+# ConfigMap opens inotify instances. Docker's Linux VM ships with
+# fs.inotify.max_user_instances=128, which a full Orbit cluster exhausts.
+# orbit-identity then cannot watch the tenant registry ("too many open files"),
+# never picks up the tenant, and `make auth` fails with oidc_not_configured.
+#
+# The k3d nodes are containers sharing the VM's kernel, so raising it once from a
+# privileged container fixes every node. It does not survive a VM restart, which
+# is why this runs on every cluster creation.
+INOTIFY_MIN_INSTANCES=1024
+
+step "Ensuring inotify headroom in the Docker VM"
+current="$(docker run --rm --privileged alpine:3.20 sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)"
+if [ "${current}" -ge "${INOTIFY_MIN_INSTANCES}" ] 2>/dev/null; then
+  ok "fs.inotify.max_user_instances=${current}"
+elif docker run --rm --privileged alpine:3.20 \
+    sysctl -w "fs.inotify.max_user_instances=${INOTIFY_MIN_INSTANCES}" >/dev/null 2>&1; then
+  ok "fs.inotify.max_user_instances raised ${current} -> ${INOTIFY_MIN_INSTANCES}"
+else
+  warn "Could not raise fs.inotify.max_user_instances (currently ${current})."
+  warn "ConfigMap hot-reload may fail with 'too many open files'."
+fi
+
 # ── Create k3d cluster ────────────────────────────────────────────────────
 step "Creating k3d cluster '${CLUSTER_NAME}'"
 if k3d cluster list | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then

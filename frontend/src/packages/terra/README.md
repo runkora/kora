@@ -1,10 +1,10 @@
-# Terra — Orbit Design System
+# Terra: Orbit Design System
 
 **`@orbit/terra`** · `frontend/src/packages/terra/`
 
 ---
 
-_Terra_ is Latin for earth — the destination of every orbital descent. Terra firma means solid ground. The design system is the solid, stable visual foundation that everything in Orbit lands on: the tokens, components, and visual language that carry the platform experience from the control plane down to the user's screen.
+_Terra_ is Latin for earth: the destination of every orbital descent. Terra firma means solid ground. The design system is the solid, stable visual foundation that everything in Orbit lands on: the tokens, components, and visual language that carry the platform experience from the control plane down to the user's screen.
 
 ---
 
@@ -16,15 +16,15 @@ Terra is a monorepo workspace package. It lives at `frontend/src/packages/terra/
 "@orbit/terra": "workspace:*"
 ```
 
-Changes to Terra are reflected immediately in the consuming app — no build step, no publish cycle.
+Changes to Terra are reflected immediately in the consuming app: no build step, no publish cycle.
 
 Terra is built on:
 
-- **[Radix UI](https://www.radix-ui.com/primitives)** — unstyled, accessibility-first React primitives (focus management, keyboard navigation, ARIA)
-- **[Tailwind CSS v4](https://tailwindcss.com/)** — utility-first styling with a semantic token layer
-- **[Storybook](https://storybook.js.org/)** — isolated component development and living documentation
+- **[Radix UI](https://www.radix-ui.com/primitives)**: unstyled, accessibility-first React primitives (focus management, keyboard navigation, ARIA)
+- **[Tailwind CSS v4](https://tailwindcss.com/)**: utility-first styling with a semantic token layer
+- **[Storybook](https://storybook.js.org/)**: isolated component development and living documentation
 
-> **On shadcn/ui:** The shadcn CLI is used once during development to scaffold initial Radix-based component boilerplate. It is not a runtime dependency — all shadcn-specific imports and references are stripped immediately after generation. The resulting components are Terra-native.
+> **On shadcn/ui:** The shadcn CLI is used once during development to scaffold initial Radix-based component boilerplate. It is not a runtime dependency: all shadcn-specific imports and references are stripped immediately after generation. The resulting components are Terra-native.
 
 ---
 
@@ -37,7 +37,7 @@ cd frontend/src/packages/terra
 pnpm storybook
 ```
 
-Storybook runs entirely in isolation — no Next.js app, no backend, no application code involved. This is the primary environment for building and reviewing components.
+Storybook runs entirely in isolation: no Next.js app, no backend, no application code involved. This is the primary environment for building and reviewing components.
 
 ### Use components in the frontend
 
@@ -72,7 +72,7 @@ Terra's visual vocabulary is defined as semantic CSS custom properties in `src/t
 
 **Never use arbitrary Tailwind shades** (e.g., `gray-950`, `blue-500`) in component code. Always reference a semantic token. If the right token doesn't exist yet, add it here first.
 
-### Color — Background & Surface
+### Color: Background & Surface
 
 | Token                      | Tailwind class        | Purpose                              |
 | -------------------------- | --------------------- | ------------------------------------ |
@@ -81,7 +81,7 @@ Terra's visual vocabulary is defined as semantic CSS custom properties in `src/t
 | `--color-surface-elevated` | `bg-surface-elevated` | Elevated panels, popovers, dropdowns |
 | `--color-surface-overlay`  | `bg-surface-overlay`  | Modal backdrops                      |
 
-### Color — Text
+### Color: Text
 
 | Token                | Tailwind class    | Purpose                    |
 | -------------------- | ----------------- | -------------------------- |
@@ -89,7 +89,7 @@ Terra's visual vocabulary is defined as semantic CSS custom properties in `src/t
 | `--color-muted`      | `text-muted`      | Secondary/supporting text  |
 | `--color-subtle`     | `text-subtle`     | Placeholder, disabled text |
 
-### Color — Accent & Brand
+### Color: Accent & Brand
 
 | Token                       | Tailwind class              | Purpose                         |
 | --------------------------- | --------------------------- | ------------------------------- |
@@ -97,7 +97,7 @@ Terra's visual vocabulary is defined as semantic CSS custom properties in `src/t
 | `--color-accent-hover`      | `bg-accent-hover`           | Hover state for accent elements |
 | `--color-accent-foreground` | `text-accent-foreground`    | Text on accent backgrounds      |
 
-### Color — Border
+### Color: Border
 
 | Token                   | Tailwind class         | Purpose                     |
 | ----------------------- | ---------------------- | --------------------------- |
@@ -105,7 +105,7 @@ Terra's visual vocabulary is defined as semantic CSS custom properties in `src/t
 | `--color-border-subtle` | `border-border-subtle` | Subtle/inset borders        |
 | `--color-border-accent` | `border-border-accent` | Focus rings, active borders |
 
-### Color — Status
+### Color: Status
 
 Status tokens represent agent, policy, and system health states. Use these consistently so operators can read UI state at a glance.
 
@@ -126,7 +126,7 @@ Background variants (e.g., `bg-status-healthy-subtle`) are available for badge a
 | `--font-sans` | Geist Sans | Body text, UI labels                       |
 | `--font-mono` | Geist Mono | Agent IDs, policy names, code, identifiers |
 
-Use `font-mono` for any value that represents a system identifier — agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
+Use `font-mono` for any value that represents a system identifier: agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
 
 ### Border Radius
 
@@ -136,19 +136,19 @@ Use `font-mono` for any value that represents a system identifier — agent IDs,
 | `--radius-md` | `rounded-md`   | Cards, inputs, buttons        |
 | `--radius-lg` | `rounded-lg`   | Modals, large panels          |
 
-### Shadows — none
+### Shadows: none
 
 **Terra is intentionally flat.** No shadow tokens are defined and no `shadow-*` utility classes should be used in components. Depth and hierarchy are expressed through:
 
-- **Background lightness** — `background` → `surface` → `surface-elevated` tokens create visual layering
-- **Borders** — `border-border` and `border-border-subtle` separate surfaces without adding drop shadows
-- **Spacing** — vertical rhythm and padding communicate structure
+- **Background lightness**: `background` → `surface` → `surface-elevated` tokens create visual layering
+- **Borders**: `border-border` and `border-border-subtle` separate surfaces without adding drop shadows
+- **Spacing**: vertical rhythm and padding communicate structure
 
 ---
 
 ## Components
 
-Each component lives in its own named folder under `src/components/`. The folder contains the component file, a co-located Storybook story, and an `index.ts` that re-exports the public API — e.g. `src/components/card/card.tsx`, `src/components/card/card.stories.tsx`, `src/components/card/index.ts`. There is no enforced subdirectory hierarchy beyond this — atomic design (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity, not a directory structure.
+Each component lives in its own named folder under `src/components/`. The folder contains the component file, a co-located Storybook story, and an `index.ts` that re-exports the public API, e.g. `src/components/card/card.tsx`, `src/components/card/card.stories.tsx`, `src/components/card/index.ts`. There is no enforced subdirectory hierarchy beyond this: atomic design (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity, not a directory structure.
 
 | Component                                                                         | Import         | Notes                                                                           |
 | --------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------- |
@@ -160,7 +160,7 @@ Each component lives in its own named folder under `src/components/`. The folder
 | `Separator`                                                                       | `@orbit/terra` | Horizontal/vertical divider                                                     |
 | `Skeleton`                                                                        | `@orbit/terra` | Loading placeholder                                                             |
 | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`                  | `@orbit/terra` | Radix Tooltip with Terra-token styling                                          |
-| `PageLayout`                                                                      | `@orbit/terra` | Root page wrapper — applies background, font, padding                           |
+| `PageLayout`                                                                      | `@orbit/terra` | Root page wrapper: applies background, font, padding                            |
 | `Section`                                                                         | `@orbit/terra` | Content section with consistent vertical rhythm                                 |
 | _(more added as features are built)_                                              |                |                                                                                 |
 
@@ -258,7 +258,7 @@ frontend/src/packages/terra/
 
 ## Adding a New Component
 
-### Step 1 — Scaffold (optional)
+### Step 1: Scaffold (optional)
 
 If the component has a Radix UI primitive, use the shadcn CLI to generate boilerplate:
 
@@ -276,7 +276,7 @@ npx shadcn@latest add <component-name>
 
 If there is no shadcn equivalent, write the component from scratch using Radix UI + Terra tokens directly.
 
-### Step 2 — Add an `index.ts`
+### Step 2: Add an `index.ts`
 
 Each component folder exposes its public API via `index.ts`:
 
@@ -285,7 +285,7 @@ Each component folder exposes its public API via `index.ts`:
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card';
 ```
 
-### Step 3 — Export from the package public API
+### Step 3: Export from the package public API
 
 All component exports are re-exported from the top-level `src/index.ts`:
 
@@ -305,7 +305,7 @@ export { PageLayout } from './components/page-layout';
 export { cn } from './utils';
 ```
 
-### Step 4 — Add a Storybook story
+### Step 4: Add a Storybook story
 
 Every component must have at least one story co-located in the same folder:
 
@@ -322,14 +322,14 @@ Stories are the primary way to review and document component variants. Run `pnpm
 
 When generating components for Orbit using Terra:
 
-1. **Import from `@orbit/terra`** — never import directly from internal paths like `src/components/button`
-2. **Use semantic token classes** — `bg-surface`, `text-foreground`, `text-muted`, `border-border`, `text-accent` — never arbitrary shades like `gray-800` or `blue-500`
+1. **Import from `@orbit/terra`**: never import directly from internal paths like `src/components/button`
+2. **Use semantic token classes**: `bg-surface`, `text-foreground`, `text-muted`, `border-border`, `text-accent`. Never arbitrary shades like `gray-800` or `blue-500`
 3. **Use `font-mono`** for any system identifier (agent IDs, policy names, event IDs, credential names)
 4. **Use status badge variants** for agent/policy health: `healthy`, `degraded`, `error`, `idle`, `pending`
-5. **Never use `shadow-*` classes** — Terra is a flat design system. Use `bg-surface-elevated` + `border-border` to distinguish layers instead
+5. **Never use `shadow-*` classes**: Terra is a flat design system. Use `bg-surface-elevated` + `border-border` to distinguish layers instead
 6. **Use `cn()`** from `@orbit/terra` for conditional class composition
 7. **Check `src/index.ts`** for the current list of available exports before reaching for a new primitive
-8. **Do not modify Terra while working on application code** — if a gap is found (a missing component, token, or variant), stop and propose the addition before making any change. Terra is a stable design API from the application's point of view; changes to the design system itself are a separate, deliberate act that requires explicit confirmation from the developer
+8. **Do not modify Terra while working on application code**: if a gap is found (a missing component, token, or variant), stop and propose the addition before making any change. Terra is a stable design API from the application's point of view; changes to the design system itself are a separate, deliberate act that requires explicit confirmation from the developer
 
 ---
 
@@ -356,7 +356,7 @@ Terra has no standalone `lint` or `format` scripts. Both tools are configured at
 
 - **Prettier** config lives at `frontend/.prettierrc.json`. Prettier resolves
   config by walking up the directory tree from each file, so Terra files inherit
-  this config automatically — no local `.prettierrc` is needed or wanted.
+  this config automatically: no local `.prettierrc` is needed or wanted.
 
 Run all checks from the **repository root** using `make`:
 

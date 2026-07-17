@@ -33,7 +33,7 @@ Coverage HTML reports are written to `frontend/coverage/unit/` and `frontend/cov
 
 ## Test Tiers
 
-### Tier 1 — Unit Tests (`*.test.ts`, `*.test.tsx`)
+### Tier 1: Unit Tests (`*.test.ts`, `*.test.tsx`)
 
 Pure-function and isolated-component tests with no network. Run under Vitest + jsdom (app) or happy-dom (Terra).
 
@@ -52,7 +52,7 @@ it('rejects an absolute URL', () => {
 });
 ```
 
-### Tier 2 — Component Tests (Terra, `*.test.tsx`)
+### Tier 2: Component Tests (Terra, `*.test.tsx`)
 
 Terra components tested with `happy-dom` via their own `vitest.config.ts`. These tests live inside `src/packages/terra/` and run in complete isolation from the app.
 
@@ -67,13 +67,13 @@ it('renders with the provided label', () => {
 });
 ```
 
-### Tier 3 — Integration Tests (`*.integration.test.ts`, `*.integration.test.tsx`)
+### Tier 3: Integration Tests (`*.integration.test.ts`, `*.integration.test.tsx`)
 
 Component and BFF route tests that exercise real fetch/state machines via MSW. Run under jsdom with `vitest.config.integration.ts`.
 
 - **Location**: colocated with the file under test
 - MSW server lifecycle is managed by `src/test-utils/setup.ts`
-- `onUnhandledRequest: 'error'` — every fetch must be handled by a registered handler
+- `onUnhandledRequest: 'error'`, every fetch must be handled by a registered handler
 - Use `server.use(...)` inside a test to override the default happy-path handlers
 
 ```ts
@@ -88,9 +88,9 @@ it('returns 503 when upstream is unreachable', async () => {
 });
 ```
 
-### Tier 4 — E2E Tests (`*.spec.ts` in `frontend/e2e/`)
+### Tier 4: E2E Tests (`*.spec.ts` in `frontend/e2e/`)
 
-Playwright tests against the running Next.js dev server. All BFF calls are intercepted with `page.route()` — the Go backend must never be required.
+Playwright tests against the running Next.js dev server. All BFF calls are intercepted with `page.route()`. The Go backend must never be required.
 
 ---
 
@@ -156,8 +156,8 @@ All helpers live in `src/test-utils/` and are importable from `@orbit/test-utils
 
 | Export | Description |
 |--------|-------------|
-| `server` | MSW `SetupServer` instance — call `server.use(...)` to add per-test handlers |
-| `renderWithProviders` | RTL `render` wrapper — extend with new providers as the app grows |
+| `server` | MSW `SetupServer` instance: call `server.use(...)` to add per-test handlers |
+| `renderWithProviders` | RTL `render` wrapper: extend with new providers as the app grows |
 | `createSessionUser(overrides?)` | Factory for `SessionUser` |
 | `createSessionPayload(overrides?)` | Factory for `SessionPayload` (includes a structurally valid fake JWT) |
 | `createBackendSessionResponse(overrides?, user?)` | Factory for `BackendSessionResponse` |
@@ -171,7 +171,7 @@ Default MSW handlers in `src/test-utils/msw/handlers/` provide happy-path respon
 
 `server-only` is an npm package that throws at import time if it's ever bundled into a client-side context. It's used at the top of BFF route files and `@orbit/server/*` modules to enforce the server boundary.
 
-Vitest runs in Node, not in a browser, so importing any module that contains `import 'server-only'` would throw — even though there is no real security boundary in a test environment.
+Vitest runs in Node, not in a browser, so importing any module that contains `import 'server-only'` would throw, even though there is no real security boundary in a test environment.
 
 The shim at `src/test-utils/server-only-shim.js` is an empty module. Both `vitest.config.unit.ts` and `vitest.config.integration.ts` alias `server-only` to this shim:
 
@@ -181,7 +181,7 @@ alias: {
 }
 ```
 
-**This does not weaken any production security boundary.** The production Next.js build is unaffected — the alias only applies inside Vitest. When a new module that imports `server-only` is added to the codebase, the shim handles it automatically with no additional per-module configuration.
+**This does not weaken any production security boundary.** The production Next.js build is unaffected: the alias only applies inside Vitest. When a new module that imports `server-only` is added to the codebase, the shim handles it automatically with no additional per-module configuration.
 
 ---
 
@@ -189,9 +189,9 @@ alias: {
 
 Every file in `frontend/e2e/` must satisfy:
 
-- **No live Go backend** — no requests to the real identity, inference, or policy services
-- **No database or Redis** — no infrastructure dependencies whatsoever
-- **No real OIDC IdP** — mock OIDC discovery and authorization endpoints with `page.route()`
+- **No live Go backend**: no requests to the real identity, inference, or policy services
+- **No database or Redis**: no infrastructure dependencies whatsoever
+- **No real OIDC IdP**: mock OIDC discovery and authorization endpoints with `page.route()`
 
 If a test needs the real backend, it is a **system-level** concern and does not belong in `frontend/e2e/`. It requires a separate test harness with Docker Compose (see [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) Category B).
 
@@ -201,14 +201,14 @@ This boundary keeps `make check` infrastructure-free and executable on every PR.
 
 ## Coverage Thresholds
 
-Coverage thresholds are **reporting-only** — they surface trends but never block a green build.
+Coverage thresholds are **reporting-only**: they surface trends but never block a green build.
 
 | Tier | Lines | Statements | Functions | Branches |
 |------|-------|------------|-----------|---------|
 | App unit | 15% | 15% | 15% | 10% |
 | App integration | 15% | 15% | 15% | 10% |
-| Terra (vitest.config.ts) | — | — | — | — |
+| Terra (vitest.config.ts) | n/a | n/a | n/a | n/a |
 
 Phase 3 targets: App ≥ 45%, Terra ≥ 70%.
 
-Coverage reports are uploaded as CI artifacts on every PR merge to `main`. A meaningful decline triggers a team review — not an automated block.
+Coverage reports are uploaded as CI artifacts on every PR merge to `main`. A meaningful decline triggers a team review, not an automated block.

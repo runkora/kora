@@ -6,14 +6,14 @@ This guide explains how Orbit's authorisation model works and how to configure a
 
 ## Overview
 
-Orbit uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request — agent, human, service account — passes through policy evaluation before the resource is reached.
+Orbit uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
 
 There are two complementary ways to give a principal access to something:
 
 | Mechanism | Best for |
 |---|---|
-| **Roles** | Groups of users that share the same access surface — e.g. all `engineer` users get inference access |
-| **Grants** | One-off or fine-grained per-principal assignments — e.g. a single agent gets access to one specific MCP tool |
+| **Roles** | Groups of users that share the same access surface, e.g. all `engineer` users get inference access |
+| **Grants** | One-off or fine-grained per-principal assignments, e.g. a single agent gets access to one specific MCP tool |
 
 Both compile into the same OPA bundle and are evaluated by the same Rego rules. They are not mutually exclusive.
 
@@ -34,13 +34,13 @@ platform:grants:write               manage grants
 platform:roles:write                manage role→scope mappings
 ```
 
-Parent scopes implicitly cover narrower child scopes. A grant of `inference:invoke` covers `inference:anthropic:invoke` — there is no need to enumerate every child scope.
+Parent scopes implicitly cover narrower child scopes. A grant of `inference:invoke` covers `inference:anthropic:invoke`. There is no need to enumerate every child scope.
 
 ### Scope Vocabulary
 
-The vocabulary is the finite registered set of valid scopes for a tenant. Grants and role assignments are validated against it at write time — a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
+The vocabulary is the finite registered set of valid scopes for a tenant. Grants and role assignments are validated against it at write time: a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
 
-Platform-level scopes (e.g. `platform:grants:write`) are seeded by the platform operator. Only SYSTEM principals can register or remove vocabulary entries.
+The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API: the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
 
 ### Grants
 
@@ -56,13 +56,13 @@ A grant asserts that a named principal within a tenant holds a set of scopes.
 
 `principal_type` is one of `AGENT`, `HUMAN`, or `SERVICE`.
 
-The `tenant_id` is derived from your platform token — you cannot create grants in another tenant. SYSTEM principals may supply an explicit `tenant_id` in the request body for cross-tenant administration.
+The `tenant_id` is derived from your platform token. You cannot create grants in another tenant. SYSTEM principals may supply an explicit `tenant_id` in the request body for cross-tenant administration.
 
-Grants are per-principal. If you have 50 engineers who all need the same access, you would need 50 grants — one per user sub. **This is what roles solve.**
+Grants are per-principal. If you have 50 engineers who all need the same access, you would need 50 grants: one per user sub. **This is what roles solve.**
 
 ### Roles
 
-A role maps an OIDC role name to a set of scopes. When a user's JWT carries a role claim, they are granted all scopes associated with that role — without any per-user grant record.
+A role maps an OIDC role name to a set of scopes. When a user's JWT carries a role claim, they are granted all scopes associated with that role, without any per-user grant record.
 
 ```json
 {
@@ -71,7 +71,7 @@ A role maps an OIDC role name to a set of scopes. When a user's JWT carries a ro
 }
 ```
 
-Any user whose OIDC token contains `"roles": ["engineer"]` automatically receives `inference:invoke` and `mcp:gmail:read` within the tenant. Adding a new engineer requires no policy change — just assigning the OIDC role in your identity provider.
+Any user whose OIDC token contains `"roles": ["engineer"]` automatically receives `inference:invoke` and `mcp:gmail:read` within the tenant. Adding a new engineer requires no policy change: just assigning the OIDC role in your identity provider.
 
 The `tenant_id` is derived from your platform token. SYSTEM principals may supply it explicitly.
 
@@ -84,7 +84,7 @@ The `tenant_id` is derived from your platform token. SYSTEM principals may suppl
 | `tenant-admin` | `platform:grants:read`, `platform:grants:write`, `platform:roles:read`, `platform:roles:write`, `platform:agents:read` |
 | `platform-admin` | All `tenant-admin` scopes plus `platform:tenants:manage` |
 
-Any user with the `tenant-admin` OIDC role can manage grants and roles for their tenant without a prior grant record existing. This is the bootstrapping mechanism — you do not need to create a grant to allow your first administrator to configure policy.
+Any user with the `tenant-admin` OIDC role can manage grants and roles for their tenant without a prior grant record existing. This is the bootstrapping mechanism: you do not need to create a grant to allow your first administrator to configure policy.
 
 ---
 
@@ -94,8 +94,8 @@ All policy service endpoints require a valid platform JWT, enforced at the contr
 
 | Principal type | Can operate on |
 |---|---|
-| `SYSTEM` | Any tenant — supply `tenant_id` explicitly in the request |
-| `HUMAN` / `AGENT` / `SERVICE` | Their own tenant only — `tenant_id` is derived from the token |
+| `SYSTEM` | Any tenant: supply `tenant_id` explicitly in the request |
+| `HUMAN` / `AGENT` / `SERVICE` | Their own tenant only: `tenant_id` is derived from the token |
 
 Attempting to supply a `tenant_id` that does not match your token returns `403 Forbidden`. There is no way for a non-SYSTEM principal to read or write another tenant's data.
 
@@ -114,24 +114,9 @@ If any of steps 2, 3, or 4 allows access, the request proceeds. If none do, it i
 
 ---
 
-## Managing the Scope Vocabulary
+## Reading the Scope Vocabulary
 
-Before creating grants or roles, the scopes you reference must exist in the vocabulary. Vocabulary management requires a SYSTEM principal — it is a platform operator operation.
-
-**Register a scope:**
-
-```
-POST /api/v1/policy/vocabulary
-Authorization: Bearer <system-token>
-
-{
-  "scope":         "mcp:jira:issues:write",
-  "resource_type": "mcp",
-  "path":          ["jira", "issues"],
-  "action":        "write",
-  "description":   "Create and update Jira issues via the MCP server"
-}
-```
+Before creating grants or roles, the scopes you reference must exist in the vocabulary. The vocabulary is populated by services registering their scope declarations (see [Route Registration](#route-registration)). There is no HTTP endpoint to add or remove a scope directly. Any authenticated principal can read it.
 
 **Get a single scope:**
 
@@ -146,16 +131,7 @@ GET /api/v1/policy/vocabulary
 GET /api/v1/policy/vocabulary?resource_type=mcp
 ```
 
-Any authenticated principal can read the vocabulary.
-
-**Remove a scope:**
-
-```
-DELETE /api/v1/policy/vocabulary/mcp:jira:issues:write
-Authorization: Bearer <system-token>
-```
-
-Removing a scope does not automatically remove grants that reference it — those grants will fail vocabulary validation on their next recompile. Clean up grants before removing scopes.
+Passing `?tenant_id=` additionally returns `grant_count` and `role_count` per scope: how many grants and roles in that tenant reference it.
 
 ---
 
@@ -175,7 +151,7 @@ Authorization: Bearer <platform-token>
 }
 ```
 
-The operation is a full replace — the `scopes` list provided becomes the complete set for that role. If the role does not exist it is created; if it exists its scopes are replaced.
+The operation is a full replace: the `scopes` list provided becomes the complete set for that role. If the role does not exist it is created; if it exists its scopes are replaced.
 
 All scopes must be registered in the vocabulary, or the request is rejected. SYSTEM principals must include `tenant_id` in the body.
 
@@ -223,7 +199,7 @@ Deleting a role removes the scope mapping. Users who previously received access 
 
 ## Managing Grants
 
-Use grants for per-principal access that does not fit a role — a specific agent that needs access to a narrow resource, or a service account with a custom scope set.
+Use grants for per-principal access that does not fit a role: a specific agent that needs access to a narrow resource, or a service account with a custom scope set.
 
 **Create a grant:**
 
@@ -239,9 +215,9 @@ Authorization: Bearer <platform-token>
 ```
 
 `principal_type` must be one of:
-- `AGENT` — a registered agent identity
-- `HUMAN` — a user identified by their OIDC `sub`
-- `SERVICE` — a service account identified by its SPIFFE ID
+- `AGENT`: a registered agent identity
+- `HUMAN`: a user identified by their OIDC `sub`
+- `SERVICE`: a service account identified by its SPIFFE ID
 
 SYSTEM principals must include `"tenant_id": "acme-corp"` in the body.
 
@@ -266,13 +242,13 @@ SYSTEM principals must include `?tenant_id=acme-corp`.
 DELETE /api/v1/policy/grants/{id}
 ```
 
-Grant deletion takes effect within the bundle polling interval (default: ≤ 30 seconds). There is no update operation — to change a grant's scopes, delete and recreate it.
+Grant deletion takes effect within the bundle polling interval (default: ≤ 30 seconds). There is no update operation: to change a grant's scopes, delete and recreate it.
 
 > Grant management requires `platform:grants:write`.
 
 ---
 
-## Roles vs Grants — When to Use Which
+## Roles vs Grants: When to Use Which
 
 | Situation | Use |
 |---|---|
@@ -280,10 +256,10 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 | One agent needs access to one specific MCP tool | Grant (agent → `mcp:jira:issues:write`) |
 | A service account needs a specific narrow scope | Grant (SERVICE → target scope) |
 | A delegating human authorises an agent | Delegation token (intersection enforced automatically) |
-| A new team member joins the engineering team | Add OIDC role in IdP — no policy change needed |
+| A new team member joins the engineering team | Add OIDC role in IdP: no policy change needed |
 | An agent is decommissioned | Delete the agent's grants |
 
-**Prefer roles for humans.** Per-user grants (`HUMAN` principal type with a `sub`) create maintenance sprawl — every new user needs a grant record, and every access change requires editing individual records. OIDC role assignments are managed in your identity provider and propagate automatically into policy bundles without any API calls.
+**Prefer roles for humans.** Per-user grants (`HUMAN` principal type with a `sub`) create maintenance sprawl: every new user needs a grant record, and every access change requires editing individual records. OIDC role assignments are managed in your identity provider and propagate automatically into policy bundles without any API calls.
 
 **Prefer grants for agents.** Agents have specific, narrow purposes. Granting them exactly the scopes they need (principle of least privilege) is easier to audit and review than broad role assignments.
 
@@ -293,11 +269,11 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 
 Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
 
-Platform services (inference gateway, policy gateway) register globally — their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes, but every `required_scope` must exist in that tenant's vocabulary first.
+Platform services (inference gateway, policy gateway) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes, but every `required_scope` must exist in that tenant's vocabulary first.
 
 ### How It Works
 
-Route registration uses the platform's identity mechanism — no explicit credentials are passed by the caller. The service's identity-proxy sidecar exchanges its SPIFFE SVID for a platform token, which is automatically injected on outbound requests by Envoy's ext_proc filter. The policy service derives the registration scope (global vs tenant) from the token's principal type:
+Route registration uses the platform's identity mechanism: no explicit credentials are passed by the caller. The service's identity-proxy sidecar exchanges its SPIFFE SVID for a platform token, which is automatically injected on outbound requests by Envoy's ext_proc filter. The policy service derives the registration scope (global vs tenant) from the token's principal type:
 
 - `SYSTEM` principal → global registration, compiled into every tenant bundle
 - `SERVICE` principal → tenant-scoped, compiled into that tenant's bundle only
@@ -322,8 +298,8 @@ The client retries with exponential backoff to handle the startup window while t
 
 For route registration (and any outbound platform call) to work, the service pod must have:
 
-1. `inject.istio.io/templates: "sidecar,spire,identity-proxy"` — adds the identity-proxy container, which exchanges the SPIFFE SVID for a platform JWT and injects it on outbound requests
-2. `orbit.io/identity-proxy: "enabled"` — activates the Envoy ext_proc filter that injects the token
+1. `inject.istio.io/templates: "sidecar,spire,identity-proxy"`: adds the identity-proxy container, which exchanges the SPIFFE SVID for a platform JWT and injects it on outbound requests
+2. `orbit.io/identity-proxy: "enabled"`: activates the Envoy ext_proc filter that injects the token
 
 Services that also run an OPA sidecar (for outbound scope enforcement) additionally need `orbit.io/opa-policy: "enabled"`. Platform services use identity-proxy without OPA.
 
@@ -338,9 +314,9 @@ Authorization: Bearer <system-token>
 
 Route registrations are in-memory in the policy service. On a policy service restart, services re-register as they come back up. During the brief window after restart, bundles have no routes and Layer 1 will deny all requests until services re-register.
 
-> **Operational constraint:** Because the route store is in-memory, the policy service must currently run as a single replica. With multiple replicas, a service registering with replica-1 would not have its routes visible in bundles compiled by replica-2. Persistent (PostgreSQL-backed) route storage is planned for a future iteration.
+> **Operational constraint:** Because the route store is in-memory, the policy service must currently run as a single replica. With multiple replicas, a service registering with replica-1 would not have its routes visible in bundles compiled by replica-2.
 
-> **Security prerequisite:** The bundle endpoint (`GET /bundles/{tenant_id}`) is unauthenticated — access is restricted by Istio `PeerAuthentication` STRICT mTLS. If STRICT mode is disabled, per-tenant bundles (containing grants) are exposed. Ensure `PeerAuthentication` STRICT mode is enabled for `orbit-system` in all environments.
+> **Security prerequisite:** The bundle endpoint (`GET /bundles/{tenant_id}`) is unauthenticated: access is restricted by Istio `PeerAuthentication` STRICT mTLS. If STRICT mode is disabled, per-tenant bundles (containing grants) are exposed. Ensure `PeerAuthentication` STRICT mode is enabled for `orbit-system` in all environments.
 
 ---
 
@@ -348,7 +324,7 @@ Route registrations are in-memory in the policy service. On a policy service res
 
 Policy changes (grant writes, role updates, route registrations) trigger an immediate bundle recompile for the affected tenant. Enforcement points (OPA sidecars, embedded evaluators) poll for new bundles on a configurable interval (default: 30–60 seconds). Access changes are effective within one polling cycle.
 
-Grant and role deletions follow the same timing — the access is revoked at the next polling cycle, not instantly at the API call.
+Grant and role deletions follow the same timing: the access is revoked at the next polling cycle, not instantly at the API call.
 
 ---
 
@@ -362,8 +338,6 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 |---|---|---|---|
 | `GET` | `/policy/vocabulary` | Any | List all registered scopes |
 | `GET` | `/policy/vocabulary/{scope}` | Any | Get a single scope entry |
-| `POST` | `/policy/vocabulary` | SYSTEM only | Register a scope |
-| `DELETE` | `/policy/vocabulary/{scope}` | SYSTEM only | Remove a scope |
 
 ### Grants
 
@@ -402,4 +376,4 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 
 - [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
 - [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
-- [Policy Enforcement Redesign](../archive/policy-enforcement-redesign.md) (archived — superseded by [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md))
+- [Policy Enforcement Redesign](../archive/policy-enforcement-redesign.md) (archived, superseded by [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md))

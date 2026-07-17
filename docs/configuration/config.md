@@ -49,7 +49,7 @@ type Config struct {
 var Current = config.MustLoadService[Config]("cmd/identity", config.Environment())
 ```
 
-`MustLoadService` panics on startup if the file is missing or unparseable — this surfaces misconfiguration immediately rather than silently at first use. `LoadService` returns the error instead of panicking.
+`MustLoadService` panics on startup if the file is missing or unparseable: this surfaces misconfiguration immediately rather than silently at first use. `LoadService` returns the error instead of panicking.
 
 > **`LoadService` vs `Load`.** The per-service loader `LoadService[T](serviceModule, env)` resolves config under `backend/cmd/{service}/config/` and is the primary pattern used by the service binaries. The generic loader `Load[T](module, env)` resolves config under an arbitrary module path (e.g. `internal/{feature}`) and is used by feature packages, as shown below. Both have `Must*` variants that panic on error.
 
@@ -129,7 +129,7 @@ server:
   readTimeoutSecs: 30  # ← new
 ```
 
-The loader uses `dec.KnownFields(true)`, so unknown keys in YAML are rejected at startup — typos surface immediately.
+The loader uses `dec.KnownFields(true)`, so unknown keys in YAML are rejected at startup: typos surface immediately.
 
 ---
 
@@ -185,8 +185,8 @@ svc := feature.NewService(db, redis, logger, featureCfg)
 
 ## Reference
 
-- `internal/platform/config/config.go` — the loader package (`Load`, `MustLoad`, `LoadService`, `MustLoadService`, `Environment`)
-- `internal/identity/service.go` — canonical example of feature-level `LoadConfig()` with secret overlays
-- `cmd/identity/config/config.go` — canonical example of binary-level `MustLoadService` package var
-- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md) — decision record and rationale
-- [Secrets reference](secrets.md) — how secrets are separated from config
+- `internal/platform/config/config.go`: the loader package (`Load`, `MustLoad`, `LoadService`, `MustLoadService`, `Environment`)
+- `internal/identity/service.go`: canonical example of feature-level `LoadConfig()` with secret overlays
+- `cmd/identity/config/config.go`: canonical example of binary-level `MustLoadService` package var
+- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): decision record and rationale
+- [Secrets reference](secrets.md): how secrets are separated from config

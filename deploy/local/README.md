@@ -1,4 +1,4 @@
-# Orbit Local Cluster — Deploy
+# Orbit Local Cluster: Deploy
 
 This directory contains Helm values files, local fixtures, and CR manifests
 needed to install Orbit into the k3d local development cluster using the
@@ -9,14 +9,20 @@ needed to install Orbit into the k3d local development cluster using the
 ## Quick Start
 
 ```bash
+make up   # composes the granular steps below, plus migrations. Idempotent.
+```
+
+`make up` is the one-shot. To drive a single stage, run the steps it composes:
+
+```bash
 make dev-cluster       # start Docker Compose (Postgres, Redis, Dex) + k3d cluster
 make cluster-operator  # build + deploy orbit-operator; installs SPIRE, Istio,
                        # orbit-platform, and orbit automatically via the OrbitPlatform CR
 make cluster-deploy    # create secrets (orbit-secrets) and apply workload fixtures
 ```
 
-That's it. The operator drives the full install sequence — you do not need to
-run `helm upgrade` commands manually.
+The operator drives the full install sequence, so you do not need to run
+`helm upgrade` commands manually.
 
 ---
 
@@ -50,7 +56,7 @@ declaring `OrbitPlatform` as `Ready`.
 ### `make cluster-deploy`
 
 1. Builds and pushes all service images (`identity`, `example`, `identity-proxy`).
-2. Runs `scripts/cluster/create-secrets.sh` — creates `orbit-secrets` in
+2. Runs `scripts/cluster/create-secrets.sh`: creates `orbit-secrets` in
    `orbit-system` and `orbit-tenant-example`.
 3. Applies all manifests in `deploy/local/fixtures/` (workload fixtures, including
    `orbit-tenant-example.yaml` which is fully self-contained).
@@ -72,15 +78,15 @@ deploy/local/
     └── example.yaml           # OrbitTenant CR for the example tenant (namespace: orbit-tenant-example)
 ```
 
-SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields —
-no separate values files for those components are needed.
+SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields,
+so no separate values files for those components are needed.
 
 ---
 
 ## Tenant Registry
 
 The operator builds the `orbit-tenants` ConfigMap in `orbit-system` directly
-from `OrbitTenant` CRs — it does **not** read `config/tenants.yaml`. The
+from `OrbitTenant` CRs. It does **not** read `config/tenants.yaml`. The
 ConfigMap is created eagerly during `OrbitPlatform` reconciliation (so
 `orbit-identity` can start before any tenants exist) and is updated whenever
 an `OrbitTenant` CR is created, modified, or deleted.
@@ -93,19 +99,8 @@ kubectl apply -f deploy/local/tenants/example.yaml
 ```
 
 The operator will reconcile the CR and update the ConfigMap automatically.
-`orbit-identity` picks up the change via its file watcher — no manual rollout
-restart required.
-
-For **non-cluster local dev** (`make dev` / air hot-reload on the host), the
-identity service reads `config/tenants.yaml` directly via the
-`ORBIT_TENANTS_CONFIG` environment variable:
-
-```bash
-export ORBIT_TENANTS_CONFIG=./config/tenants.yaml
-make dev
-```
-
-Or set `ORBIT_TENANTS_CONFIG=./config/tenants.yaml` in your `.env` file.
+`orbit-identity` picks up the change via its file watcher (no manual rollout
+restart required).
 
 ---
 
@@ -116,9 +111,9 @@ that reference it:
 
 | File | Field |
 |------|-------|
-| `deploy/local/orbit-platform.yaml` | `spec.trustDomain` — primary source; operator derives SPIRE and Istio trust domain from this |
-| `deploy/local/platform-values.yaml` | `global.trustDomain` — used by the orbit-platform Helm chart |
-| `deploy/local/orbit-values.yaml` | `global.trustDomain` — used by the orbit Helm chart |
+| `deploy/local/orbit-platform.yaml` | `spec.trustDomain`: primary source; operator derives SPIRE and Istio trust domain from this |
+| `deploy/local/platform-values.yaml` | `global.trustDomain`: used by the orbit-platform Helm chart |
+| `deploy/local/orbit-values.yaml` | `global.trustDomain`: used by the orbit Helm chart |
 
 All are currently set to `orbit.local.clearroute.io`. If you change `spec.trustDomain` in
 `orbit-platform.yaml`, update the two chart values files to match. A mismatch
@@ -131,7 +126,8 @@ will cause SPIFFE SAN validation failures and mTLS peer authentication will brea
 ```bash
 make redeploy-list               # show every service known to the redeploy dispatcher
 make redeploy-status             # show drift between cluster and local-registry images
-make redeploy SERVICE=identity   # build + push + restart a single service
+make redeploy                    # build + push + restart every service
+make redeploy SERVICE=identity   # narrow it to a single service
 
 # Per-service shortcuts (handle Dockerfile, build args, namespace, workload kind for you):
 make redeploy-identity           # +mkcert CA layer for Dex TLS

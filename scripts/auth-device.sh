@@ -19,10 +19,10 @@
 #
 # ─── Local dev (default) ──────────────────────────────────────────────────────
 #
-#   Dex is started automatically by `make dev-up`.
+#   Dex is started automatically by `make up`.
 #   No extra environment variables needed — just run:
 #
-#     make auth-device
+#     make auth
 #
 #   or directly:
 #
@@ -127,9 +127,9 @@ DEVICE_RESP=$(curl -s \
 if [ $? -ne 0 ]; then
   error "Failed to reach Orbit API at ${API_BASE}"
   echo ""
-  echo "  Is the stack running?  make dev-up && make dev"
+  echo "  Is the stack running?  make up"
   echo ""
-  echo "  Dex (local OIDC) is started by make dev-up — check it is healthy:"
+  echo "  Dex (local OIDC) is started by make up. Check it is healthy:"
   echo "    docker compose ps dex"
   echo ""
   exit 1

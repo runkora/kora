@@ -95,6 +95,9 @@ jobs:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: backend
 
+      - name: Check documentation for drift
+        run: make docs-check
+
   build:
     name: Build
     runs-on: ubuntu-latest
