@@ -375,9 +375,9 @@ This feature spans three sequential phases across backend and frontend. The phas
 
 ## Related Decisions
 
-- [ADR-0042](0042-user-profiles-table-for-principal-attribution.md) — Establishes `user_profiles` and the `(user_id, tenant_id)` scoping pattern this ADR extends.
-- [ADR-0030](0030-browser-auth-flow-and-bff-session-architecture.md) — BFF session architecture; `user_id` and `tenant_id` are sourced from the platform session token managed here.
-- [ADR-0019](0019-frontend-scaffolding-and-toolchain.md) — Next.js App Router; server component fetch and SSR hydration patterns apply here.
+- [ADR-0042](2026-04-19-user-profiles-table-for-principal-attribution.md) — Establishes `user_profiles` and the `(user_id, tenant_id)` scoping pattern this ADR extends.
+- [ADR-0030](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — BFF session architecture; `user_id` and `tenant_id` are sourced from the platform session token managed here.
+- [ADR-0019](2026-03-17-frontend-scaffolding-and-toolchain.md) — Next.js App Router; server component fetch and SSR hydration patterns apply here.
 
 ---
 

@@ -36,6 +36,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — `Accepted` · 2026-04-01
 - [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) — `Accepted` · 2026-04-02
 - [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `Accepted` · 2026-04-19
+- [User App Preferences](2026-05-08-user-app-preferences.md) — `Proposed` · 2026-05-08
 - [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — `Accepted` · 2026-03-21
 
 ### Policy & Authorization
@@ -223,3 +224,4 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
+| — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
