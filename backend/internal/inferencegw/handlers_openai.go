@@ -295,14 +295,25 @@ func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
 	return idx
 }
 
-// vmEffectivePricing returns the effective pricing for a virtual model by
-// finding the enabled route with the lowest combined (input + output) cost
-// that has a matching entry in the pricing index. Returns nil when no
-// costed enabled route exists.
-func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing) *modelObjectPricing {
+// vmEffectivePricing returns the pricing of the first available route for a
+// virtual model, where "first" means the lowest Priority value among available
+// routes. A route is available when it passes all three gates:
+//  1. route.Enabled (admin toggle)
+//  2. not in disabledRoutes (no provider_model_overrides row)
+//  3. the provider connector is configured in this deployment
+//
+// Returns nil when no available route has a matching entry in the pricing index.
+func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing, disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
 	var best *ModelPricing
+	bestPriority := 0
 	for _, route := range vm.Routes {
 		if !route.Enabled {
+			continue
+		}
+		if disabledRoutes[string(route.Provider)+"/"+route.ModelID] {
+			continue
+		}
+		if _, ok := connectors[route.Provider]; !ok {
 			continue
 		}
 		key := string(route.Provider) + "/" + normalisePricingModelID(route.Provider, route.ModelID)
@@ -310,9 +321,10 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing) *mo
 		if !ok {
 			continue
 		}
-		if best == nil || (p.InputCostPerMillion+p.OutputCostPerMillion) < (best.InputCostPerMillion+best.OutputCostPerMillion) {
+		if best == nil || route.Priority < bestPriority {
 			copy := p
 			best = &copy
+			bestPriority = route.Priority
 		}
 	}
 	if best == nil {
@@ -351,6 +363,11 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 
 	snap := c.svc.router.virtualCatalog.Load()
 
+	var disabledRoutes map[string]bool
+	if snap != nil {
+		disabledRoutes = snap.disabledRoutes
+	}
+
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(vms))
 	for _, vm := range vms {
@@ -376,7 +393,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
-			Pricing:          vmEffectivePricing(vm, pricingIdx),
+			Pricing:          vmEffectivePricing(vm, pricingIdx, disabledRoutes, c.svc.router.connectors),
 		})
 	}
 

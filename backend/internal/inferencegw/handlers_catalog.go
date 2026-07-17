@@ -213,7 +213,14 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm, map[string]*pricingEntryJSON{})})
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
 }
 
 func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +237,14 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, map[string]*pricingEntryJSON{})})
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
 }
 
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -274,7 +288,14 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated, map[string]*pricingEntryJSON{})})
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated, pricingMap)})
 }
 
 func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -434,11 +455,13 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-// vmCatalogPricing returns the effective pricing for a virtual model by
-// finding the enabled route with the lowest combined (input + output) effective
-// cost from the pricing map. Returns nil when no costed enabled route exists.
+// vmCatalogPricing returns the pricing of the first enabled route for a
+// virtual model, where "first" means the lowest Priority value among enabled
+// routes that have a matching entry in the pricing map. Returns nil when no
+// such route exists.
 func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) *virtualModelPricingJSON {
 	var best *pricingEntryJSON
+	bestPriority := 0
 	for _, route := range vm.Routes {
 		if !route.Enabled {
 			continue
@@ -447,9 +470,9 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 		if p == nil {
 			continue
 		}
-		if best == nil ||
-			(p.EffectiveInput+p.EffectiveOutput) < (best.EffectiveInput+best.EffectiveOutput) {
+		if best == nil || route.Priority < bestPriority {
 			best = p
+			bestPriority = route.Priority
 		}
 	}
 	if best == nil {
