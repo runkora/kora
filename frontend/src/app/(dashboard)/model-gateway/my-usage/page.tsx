@@ -4,6 +4,8 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAnalyticsMeFromGateway } from '../_services/analytics-server';
 import { listPATsFromIdentity } from '../_services/tokens-server';
 import { fetchPersonalBudgetFromGateway } from '../_services/budget-personal-server';
+import { getPreferences } from '../../_preferences/preferences-server';
+import { toDays } from '../../_preferences/period';
 import { MyUsageShell } from './_components/my-usage-shell';
 
 export default async function MyUsagePage() {
@@ -20,9 +22,12 @@ export default async function MyUsagePage() {
     );
   }
 
+  const preferences = await getPreferences(session.accessToken);
+  const days = toDays(preferences.myUsage.defaultPeriod);
+
   const [analyticsResult, patsResult, budgetResult] = await Promise.all([
     fetchAnalyticsMeFromGateway(session.accessToken, {
-      days: 30,
+      days,
       granularity: 'daily',
     }),
     listPATsFromIdentity(session.accessToken),

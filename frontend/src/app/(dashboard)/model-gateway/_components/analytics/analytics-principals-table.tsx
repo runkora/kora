@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, Button, Stack, Text } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import { ApiRoute } from '@orbit/lib/routing';
 import type {
   AnalyticsDays,
@@ -251,6 +252,7 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
       )}
 
       <DataTable
+        tableId="analyticsPrincipals"
         data={data?.data ?? []}
         columns={COLUMNS}
         getRowKey={(row) => row.principal_id}

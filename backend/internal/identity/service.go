@@ -78,6 +78,7 @@ type Service struct {
 	clients       ClientRepository
 	pats          PATRepository
 	profiles      UserProfileRepository
+	prefs         UserPreferencesRepository
 	policyClient  PolicyClient
 	policyEval    policy.Evaluator
 	logger        logging.Logger
@@ -137,6 +138,7 @@ func NewService(
 	clients ClientRepository,
 	pats PATRepository,
 	profiles UserProfileRepository,
+	prefs UserPreferencesRepository,
 	policyClient PolicyClient,
 	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
@@ -144,6 +146,9 @@ func NewService(
 ) (*Service, error) {
 	if profiles == nil {
 		profiles = noopUserProfileRepository{}
+	}
+	if prefs == nil {
+		prefs = noopUserPreferencesRepository{}
 	}
 	svc := &Service{
 		cfg:           cfg,
@@ -154,6 +159,7 @@ func NewService(
 		clients:       clients,
 		pats:          pats,
 		profiles:      profiles,
+		prefs:         prefs,
 		policyClient:  policyClient,
 		policyEval:    policyEval,
 		extractor:     extractor,
@@ -1022,6 +1028,42 @@ func (s *Service) ListUserProfiles(ctx context.Context, tenantID string, filter 
 		return nil, 0, fmt.Errorf("list user profiles: %w", err)
 	}
 	return profiles, total, nil
+}
+
+// ─── User preferences ─────────────────────────────────────────────────────────
+
+// GetPreferences returns the stored preferences document for the given
+// (userID, tenantID). Returns json.RawMessage("{}") — an empty document — if no row
+// exists yet; the frontend merges with hardcoded defaults.
+func (s *Service) GetPreferences(ctx context.Context, userID, tenantID string) (json.RawMessage, error) {
+	raw, err := s.prefs.Get(ctx, userID, tenantID)
+	if err != nil {
+		if errors.Is(err, ErrUserPreferencesNotFound) {
+			return json.RawMessage("{}"), nil
+		}
+		return nil, fmt.Errorf("get preferences: %w", err)
+	}
+	return raw, nil
+}
+
+// UpsertPreferences replaces the stored preferences document in its entirety.
+// Validates that the document does not exceed 64 KB before writing.
+func (s *Service) UpsertPreferences(ctx context.Context, userID, tenantID string, raw json.RawMessage) error {
+	if len(raw) > maxPreferencesDocBytes {
+		return ErrPreferencesDocumentTooLarge
+	}
+	if err := s.prefs.Upsert(ctx, userID, tenantID, raw); err != nil {
+		return fmt.Errorf("upsert preferences: %w", err)
+	}
+	return nil
+}
+
+// DeletePreferences removes the stored preferences document.
+func (s *Service) DeletePreferences(ctx context.Context, userID, tenantID string) error {
+	if err := s.prefs.Delete(ctx, userID, tenantID); err != nil {
+		return fmt.Errorf("delete preferences: %w", err)
+	}
+	return nil
 }
 
 // GetPATAttribution resolves a set of PAT UUIDs to their token names and owning user profiles.

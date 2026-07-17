@@ -4,6 +4,8 @@
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAnalyticsFromGateway } from '../_services/analytics-server';
 import { fetchModelsFromGateway } from '../_services/models-server';
+import { getPreferences } from '../../_preferences/preferences-server';
+import { toDays } from '../../_preferences/period';
 import { AnalyticsShell } from './_components/analytics-shell';
 
 export default async function AnalyticsPage() {
@@ -19,9 +21,12 @@ export default async function AnalyticsPage() {
     );
   }
 
+  const preferences = await getPreferences(session.accessToken);
+  const days = toDays(preferences.analytics.defaultPeriod);
+
   const [analyticsResult, modelsResult] = await Promise.all([
     fetchAnalyticsFromGateway(session.accessToken, {
-      days: 30,
+      days,
       granularity: 'daily',
     }),
     fetchModelsFromGateway(session.accessToken),

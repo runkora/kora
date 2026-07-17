@@ -57,6 +57,13 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /identity/tokens/attribution        Resolve PAT UUIDs → owning user profiles (requires auth).
 //	PATCH  /identity/tokens/{id}/scopes        Update PAT scopes (requires auth).
 //	DELETE /identity/tokens/{id}               Revoke a PAT by ID (requires auth).
+//
+//	GET    /identity/users                     List users in the caller's tenant (requires auth).
+//	GET    /identity/users/{id}                Get a single user profile (requires auth).
+//
+//	GET    /identity/preferences               Get the caller's preferences document (requires auth).
+//	PUT    /identity/preferences               Replace the caller's preferences document (requires auth).
+//	DELETE /identity/preferences               Delete the caller's preferences document (requires auth).
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
@@ -103,6 +110,11 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// User profile resolution: requires a human session token.
 	mux.HandleWithMiddleware("GET /users", auth, c.handleListUsers)
 	mux.HandleWithMiddleware("GET /users/{id}", auth, c.handleGetUser)
+
+	// User preferences: requires a human session token.
+	mux.HandleWithMiddleware("GET /preferences", auth, c.handleGetPreferences)
+	mux.HandleWithMiddleware("PUT /preferences", auth, c.handlePutPreferences)
+	mux.HandleWithMiddleware("DELETE /preferences", auth, c.handleDeletePreferences)
 }
 
 // rejectPATMiddleware rejects requests that carry a PAT token with 403

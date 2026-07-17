@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, Button, Icon, Stack, Text } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
@@ -240,6 +241,7 @@ export function ModelsTab() {
       />
 
       <DataTable
+        tableId="gatewayModels"
         data={models}
         columns={columns}
         getRowKey={(row) => row.id}

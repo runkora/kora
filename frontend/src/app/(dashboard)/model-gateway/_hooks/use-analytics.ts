@@ -42,15 +42,15 @@ function makeUseAnalytics(fetchFn: FetchFn) {
   return function useAnalytics(
     initialData: AnalyticsResponse | null,
     initialError: string | null = null,
+    initialDays?: AnalyticsDays,
   ): AnalyticsStateShape {
     const [data, setData] = useState<AnalyticsResponse | null>(initialData);
     const [status, setStatus] = useState<AnalyticsLoadStatus>(
       initialError ? 'error' : initialData ? 'success' : 'idle',
     );
     const [error, setError] = useState<string | null>(initialError);
-    const [days, setDaysState] = useState<AnalyticsDays>(
-      (initialData?.period_days as AnalyticsDays) ?? 30,
-    );
+    const ssrDays = (initialData?.period_days as AnalyticsDays | undefined) ?? 30;
+    const [days, setDaysState] = useState<AnalyticsDays>(initialDays ?? ssrDays);
     const [granularity, setGranularityState] = useState<AnalyticsGranularity>(
       (initialData?.granularity as AnalyticsGranularity) ?? 'daily',
     );

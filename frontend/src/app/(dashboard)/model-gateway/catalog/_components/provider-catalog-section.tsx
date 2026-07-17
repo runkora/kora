@@ -5,7 +5,6 @@ import {
   Alert,
   Badge,
   Button,
-  DataTable,
   Icon,
   Input,
   Modal,
@@ -16,7 +15,8 @@ import {
   Text,
   Toggle,
 } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
@@ -517,6 +517,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
   return (
     <>
       <DataTable
+        tableId="catalogProviders"
         data={localModels}
         columns={columns}
         getRowKey={(m) => `${m.provider}/${m.modelId}`}

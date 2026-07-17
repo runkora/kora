@@ -1,5 +1,3 @@
-'use client';
-
 import { PageLayout } from '@orbit/terra';
 import {
   DashboardHeader,
@@ -10,6 +8,10 @@ import {
   SidebarUserFooter,
 } from './_components';
 import { SidebarStateProvider } from './_components/sidebar-state';
+import { PreferencesProvider } from './_preferences/preferences-context';
+import { getPreferences } from './_preferences/preferences-server';
+import { mergeWithDefaults } from './_preferences/preferences.schema';
+import { getSession, isSessionValid } from '@orbit/server/session';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
@@ -28,19 +30,26 @@ import { SidebarStateProvider } from './_components/sidebar-state';
  * `PermissionsProvider` fetches the principal's scope set from the BFF session
  * and provides it to all client components via React context (docs/adr/2026-04-14-frontend-policy-projection.md).
  */
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
+  const initialPreferences = isSessionValid(session)
+    ? await getPreferences(session.accessToken)
+    : mergeWithDefaults({});
+
   return (
     <PermissionsProvider>
       <SidebarStateProvider>
-        <PageLayout
-          sidebarHeader={<SidebarBrandHeader />}
-          sidebar={<DashboardSidebar />}
-          sidebarFooter={<SidebarUserFooter />}
-          header={<DashboardHeader />}
-          mobileDrawer={<MobileSidebarDrawer />}
-        >
-          {children}
-        </PageLayout>
+        <PreferencesProvider initialPreferences={initialPreferences}>
+          <PageLayout
+            sidebarHeader={<SidebarBrandHeader />}
+            sidebar={<DashboardSidebar />}
+            sidebarFooter={<SidebarUserFooter />}
+            header={<DashboardHeader />}
+            mobileDrawer={<MobileSidebarDrawer />}
+          >
+            {children}
+          </PageLayout>
+        </PreferencesProvider>
       </SidebarStateProvider>
     </PermissionsProvider>
   );

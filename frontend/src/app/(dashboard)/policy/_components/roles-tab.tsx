@@ -11,7 +11,6 @@ import {
   CardContent,
   CardFooter,
   CardHeader,
-  DataTable,
   Grid,
   Icon,
   Input,
@@ -24,7 +23,8 @@ import {
   Text,
   PageSectionHeader,
 } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
@@ -445,6 +445,7 @@ function RoleTable({
 
   return (
     <DataTable
+      tableId="policyRoles"
       data={roles}
       columns={columns}
       getRowKey={(r) => r.id}

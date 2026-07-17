@@ -10,7 +10,6 @@ import {
   CardContent,
   CardFooter,
   CardHeader,
-  DataTable,
   Grid,
   Icon,
   Input,
@@ -23,7 +22,8 @@ import {
   Text,
   PageSectionHeader,
 } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import type {
   PATAttributionEntry,
   PATGrantAttribution,
@@ -630,6 +630,7 @@ function GrantTable({
 
   return (
     <DataTable
+      tableId="policyGrants"
       data={grants}
       columns={columns}
       getRowKey={(g) => g.id}

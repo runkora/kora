@@ -2,8 +2,9 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Callout, DataTable, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, Button, Callout, Stack, Text } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
@@ -317,6 +318,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       )}
 
       <DataTable
+        tableId="inferenceLogs"
         data={records}
         columns={columns}
         getRowKey={(row) => row.id}

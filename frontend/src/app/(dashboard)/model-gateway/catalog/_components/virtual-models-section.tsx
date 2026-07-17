@@ -1,8 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Badge, Button, DataTable, Icon, Stack, StatusDot, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/terra';
+import { DataTable } from '@orbit/components';
+import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
@@ -143,6 +144,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
 
   return (
     <DataTable
+      tableId="catalogVirtualModels"
       data={models}
       columns={columns}
       getRowKey={(m) => m.id}
