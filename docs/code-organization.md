@@ -1,6 +1,6 @@
 # Code Organization
 
-The canonical code organization for the Orbit backend. Packages that exist as empty placeholders for unbuilt subsystems are marked **stub**.
+The canonical code organization for the Orbit backend. Build status for each capability lives in the [architecture overview](architecture.md); this document describes the layout.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -35,19 +35,19 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 
 ### Feature packages (`backend/internal/`)
 
-| Package | Status | Owns |
-|---------|--------|------|
-| `identity` | ✅ implemented | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
-| `inferencegw` | ✅ implemented | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
-| `agents` | ✅ implemented | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/`, `toolscopes/` |
-| `policyservice` | ✅ implemented | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `roles/`, `routes/`, `vocabulary/` |
-| `policygw` | ✅ implemented | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
-| `operator` | ✅ implemented | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
-| `identityproxy` | ✅ implemented | `ext_proc` server, token cache, refresh loop |
-| `example` | reference | Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
-| `credentials` | ✅ implemented | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
-| `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
-| `errors` | ⛔ **stub (empty)** | Placeholder. |
+| Package | Owns |
+|---------|------|
+| `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
+| `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
+| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/`, `toolscopes/` |
+| `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `roles/`, `routes/`, `vocabulary/` |
+| `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
+| `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
+| `identityproxy` | `ext_proc` server, token cache, refresh loop |
+| `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
+| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
+| `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
+| `errors` | Nothing yet: an empty placeholder directory. |
 
 > `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files). Build status for each capability lives in the [architecture overview](architecture.md).
 
@@ -101,7 +101,7 @@ orbit/
 │   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
 │   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
 │   │   ├── example/                  # reference feature
-│   │   └── errors/                   # ⛔ stub (empty)
+│   │   └── errors/                   # empty placeholder
 │   │
 │   ├── go.mod
 │   └── go.sum

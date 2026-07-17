@@ -233,9 +233,16 @@ check_status() {
       [ -z "$hit" ] && continue
       fail "$file → '$hit' (build status belongs in $STATUS_HOME; link it instead)"
       found=1
-    done < <(strip_fences < "$file" \
-      | grep -oiE "not yet (built|implemented)|designed but[ a-z]{0,12}(built|implemented)|coming soon|planned for a future[ a-z]*|in a future iteration" \
-      | sort -u)
+    done < <({
+      # Prose claims.
+      strip_fences < "$file" \
+        | grep -oiE "not yet (built|implemented)|designed but[ a-z]{0,12}(built|implemented)|coming soon|planned for a future[ a-z]*|in a future iteration"
+      # Roadmap headings ("## Future", "### Future Enhancements"). Only as a
+      # heading: "in the future" in a sentence is ordinary English.
+      strip_fences < "$file" | grep -oiE "^#{1,6} .*\bfuture\b.*"
+      # Status markers wearing an emoji instead of a sentence.
+      strip_fences < "$file" | grep -oE "⛔|🚧"
+    } | sort -u)
   done < <(md_files | grep -vE "^(docs/(adr|prd)/|\.claude/)" | grep -vx "$STATUS_HOME")
   [ "$found" -eq 0 ] && ok "no build-status claims outside $STATUS_HOME"
 }

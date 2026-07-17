@@ -197,14 +197,6 @@ As a control plane for autonomous agents, observability is critical:
 - Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
 - [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md) lint rules enforcing static span status descriptions and correct `RecordError` usage
 
-🚧 **Future Enhancements**:
-- Database query tracing
-- gRPC service tracing
-- Agent tool invocation tracing
-- Policy evaluation detailed spans
-- Metrics integration (OpenTelemetry Metrics)
-- Tail-based sampling for intelligent trace selection
-
 ## Quick Start
 
 ### 1. Development Mode (Stdout)
