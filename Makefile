@@ -781,6 +781,13 @@ REDEPLOY_FLAGS := \
 
 .PHONY: redeploy
 redeploy: ## Rebuild and roll every service. SERVICE=<name> narrows it to one (see: make redeploy-list)
+	@# Pull a branch that adds a migration, redeploy, and the service would boot
+	@# against a stale schema with nothing saying why. A no-op migrate-up costs
+	@# ~0.1s, so the inner loop just keeps the schema current. Skipped when
+	@# Postgres is down, so redeploy.sh's preflight can give the better message.
+	@if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx orbit-postgres; then \
+		$(MAKE) --no-print-directory migrate-up; \
+	fi
 	@if [ -n "$(SERVICE)" ]; then \
 		bash scripts/cluster/redeploy.sh $(SERVICE) $(REDEPLOY_FLAGS); \
 	else \

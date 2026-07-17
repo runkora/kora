@@ -125,6 +125,8 @@ make redeploy SERVICE=identity   # rebuild and roll one service
 make redeploy                    # rebuild and roll every service
 ```
 
+`redeploy` applies any pending migrations first, so a branch that adds one needs no extra step from you.
+
 | Command | Does |
 |---|---|
 | `make redeploy SERVICE=<name>` | Build image, push to `orbit-registry:5001`, roll the workload. |
@@ -167,7 +169,7 @@ Both `service=` and `name=` are required. This writes a correctly timestamped fi
 | `make migrate-status` | Show applied and pending migrations. |
 | `make migrate-create service=X name=Y` | Generate a new migration file for a service. |
 
-`make up` runs `migrate-up`. Re-run it after pulling changes that add migration files.
+You should not need to run any of these by hand. `make up` and `make redeploy` both apply pending migrations first, so pulling a branch that adds one and redeploying just works. The manual targets are there for when you want to inspect or roll back.
 
 ---
 
