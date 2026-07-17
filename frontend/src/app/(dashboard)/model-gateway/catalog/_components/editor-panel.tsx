@@ -237,7 +237,12 @@ export function EditorPanel({
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
           {!isNew && (
-            <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              disabled={saving || deleting}
+            >
               <Icon name="trash" size="2xs" color="subtle" />
               Delete
             </Button>

@@ -63,7 +63,6 @@ export function CatalogTab({
 
   const handleModelDeleted = useCallback((id: string) => {
     setVirtualModels((prev) => prev.filter((m) => m.id !== id));
-    setSelectedModel(null);
   }, []);
 
   const enabledVMs = virtualModels.filter((m) => m.enabled).length;
