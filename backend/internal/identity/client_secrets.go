@@ -157,7 +157,10 @@ func (s *Service) watchClientSecrets(ctx context.Context, secretsPath string) {
 		logging.Field{Key: "path", Value: secretsPath},
 	)
 
+	// Use a channel-based timer (same goroutine, via select) to avoid the
+	// AfterFunc race described in GitHub issue #93.
 	var debounce *time.Timer
+	var debounceC <-chan time.Time
 	const debounceDelay = 200 * time.Millisecond
 
 	for {
@@ -176,11 +179,20 @@ func (s *Service) watchClientSecrets(ctx context.Context, secretsPath string) {
 				continue
 			}
 			if debounce != nil {
-				debounce.Stop()
+				if !debounce.Stop() {
+					select {
+					case <-debounce.C:
+					default:
+					}
+				}
 			}
-			debounce = time.AfterFunc(debounceDelay, func() {
-				s.reloadClientSecrets(ctx)
-			})
+			debounce = time.NewTimer(debounceDelay)
+			debounceC = debounce.C
+
+		case <-debounceC:
+			debounce = nil
+			debounceC = nil
+			s.reloadClientSecrets(ctx)
 
 		case watchErr, ok := <-watcher.Errors:
 			if !ok {
