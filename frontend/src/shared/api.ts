@@ -129,6 +129,28 @@ export interface ListPATsResponse {
   tokens: PAT[];
 }
 
+// ── Scopes Explain (policy-gateway) ──────────────────────────────────────────
+
+export interface GrantDetail {
+  grant_id: string;
+  scopes: string[];
+}
+
+export interface RoleDetail {
+  role: string;
+  scopes: string[];
+}
+
+export interface ScopesExplainResponse {
+  principal_type: string;
+  principal_id: string;
+  tenant_id: string;
+  from_roles: RoleDetail[];
+  from_grants: GrantDetail[];
+  effective_scopes: string[];
+  evaluated_at: string;
+}
+
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
 /** Execution framework the agent type targets. Mirrors Go: agents.Framework */

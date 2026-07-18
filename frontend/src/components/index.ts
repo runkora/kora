@@ -57,3 +57,7 @@ export type {
 /** Preference-backed period selector (7d/30d/90d). Requires PreferencesProvider (dashboard-scoped). */
 export { PeriodSelector } from './period-selector';
 export type { PeriodSelectorProps, PeriodPrefKey } from './period-selector';
+
+/** Click-to-copy button with visual feedback (copy → check icon transition). */
+export { CopyButton } from './copy-button';
+export type { CopyButtonProps } from './copy-button';

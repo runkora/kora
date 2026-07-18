@@ -1,4 +1,4 @@
-# 61. User App Preferences
+# User App Preferences
 
 **Status:** Proposed
 **Date:** 2026-05-08

@@ -159,25 +159,7 @@ export interface TenantBundleStatus {
 
 // ── Scopes Explain (policy-gateway) ──────────────────────────────────────────
 
-export interface GrantDetail {
-  grant_id: string;
-  scopes: string[];
-}
-
-export interface RoleDetail {
-  role: string;
-  scopes: string[];
-}
-
-export interface ScopesExplainResponse {
-  principal_type: string;
-  principal_id: string;
-  tenant_id: string;
-  from_roles: RoleDetail[];
-  from_grants: GrantDetail[];
-  effective_scopes: string[];
-  evaluated_at: string;
-}
+export type { GrantDetail, RoleDetail, ScopesExplainResponse } from '@orbit/shared/api';
 
 // ── Check Simulate (policy-gateway) ──────────────────────────────────────────
 

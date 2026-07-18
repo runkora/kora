@@ -1,0 +1,52 @@
+import { Heading, Stack, Text } from '@orbit/terra';
+import { getSession, isSessionValid } from '@orbit/server/session';
+import { listPATsFromIdentity } from '@orbit/server/services/identity-server';
+import { fetchScopesExplain } from '@orbit/server/services/policy-gateway-server';
+import { fetchUserProfile } from './_services/profile-server';
+import { UserIdentityCard } from './_components/user-identity-card';
+import { RolesPermissionsCard } from './_components/roles-permissions-card';
+import { ApiKeysCard } from './_components/api-keys-card';
+
+export default async function ProfilePage() {
+  const session = await getSession();
+
+  if (!isSessionValid(session)) {
+    return (
+      <Stack gap="comfortable">
+        <Stack gap="none">
+          <Heading variant="title">Profile</Heading>
+          <Text size="supporting" color="muted">
+            Your identity, permissions, and API keys.
+          </Text>
+        </Stack>
+        <Text color="status-error">Session expired. Please log in again.</Text>
+      </Stack>
+    );
+  }
+
+  const [profileResult, explainResult, tokensResult] = await Promise.all([
+    fetchUserProfile(session.accessToken, session.user.sub),
+    fetchScopesExplain(session.accessToken),
+    listPATsFromIdentity(session.accessToken),
+  ]);
+
+  return (
+    <Stack gap="comfortable">
+      <Stack gap="none">
+        <Heading variant="title">Profile</Heading>
+        <Text size="supporting" color="muted">
+          Your identity, permissions, and API keys.
+        </Text>
+      </Stack>
+      <UserIdentityCard session={session} profile={profileResult} />
+      <RolesPermissionsCard
+        explain={explainResult}
+        cachedScopes={session.permissions.scopes}
+        principalDisplayName={
+          profileResult.ok ? profileResult.data.display_name : session.user.name
+        }
+      />
+      <ApiKeysCard tokens={tokensResult} />
+    </Stack>
+  );
+}

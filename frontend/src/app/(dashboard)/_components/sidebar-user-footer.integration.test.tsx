@@ -4,11 +4,12 @@
  * Strategy:
  * - `./permissions-provider` is vi.mock'd so `useSession` returns controllable
  *   user state (loaded with user, loading with null, partial user without name).
- * - The LogoutButton is rendered as-is; its click behaviour is tested in
- *   health-status and logout integration tests.
+ * - The popover menu's logout action is exercised by opening the menu; the
+ *   logout fetch behaviour itself is covered by logout-button.integration.test.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
 import { SidebarUserFooter } from './sidebar-user-footer';
 
@@ -71,8 +72,20 @@ describe('SidebarUserFooter', () => {
     expect(screen.queryByText('Dev User')).not.toBeInTheDocument();
   });
 
-  it('renders the logout button', () => {
+  it('opens a menu with View Profile and Log out when the user trigger is clicked', async () => {
     renderFooter();
-    expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /user menu/i }));
+    expect(await screen.findByText('View Profile')).toBeInTheDocument();
+    expect(screen.getByText('Log out')).toBeInTheDocument();
+  });
+
+  it('closes the menu when View Profile is clicked', async () => {
+    renderFooter();
+    await userEvent.click(screen.getByRole('button', { name: /user menu/i }));
+    const profileLink = await screen.findByText('View Profile');
+    await userEvent.click(profileLink);
+    await waitFor(() => {
+      expect(screen.queryByText('View Profile')).not.toBeInTheDocument();
+    });
   });
 });

@@ -4,10 +4,14 @@ import { ApiError, orbitClient } from '@orbit/server/client';
 import type {
   CreatePATRequest,
   CreatePATResponse,
-  ListPATsResponse,
-  PAT,
   UpdatePATScopesRequest,
 } from '@orbit/shared/api';
+
+// ── Shared (promoted to src/server/services/) ─────────────────────────────────
+
+export { listPATsFromIdentity, type ListPATsResult } from '@orbit/server/services/identity-server';
+
+// ── Feature-local types ──────────────────────────────────────────────────────
 
 export interface PATAttributionEntry {
   id: string;
@@ -29,10 +33,6 @@ export type GetPATAttributionResult =
   | { ok: false; status: number; message: string };
 
 // ── Result types ──────────────────────────────────────────────────────────────
-
-export type ListPATsResult =
-  | { ok: true; tokens: PAT[] }
-  | { ok: false; status: number; message: string };
 
 export type CreatePATResult =
   | { ok: true; pat: CreatePATResponse }
@@ -56,17 +56,6 @@ function fromApiError(err: unknown): { ok: false; status: number; message: strin
 }
 
 // ── Service functions ─────────────────────────────────────────────────────────
-
-export async function listPATsFromIdentity(accessToken: string): Promise<ListPATsResult> {
-  try {
-    const data = await orbitClient.get<ListPATsResponse>('/identity/tokens', {
-      Authorization: `Bearer ${accessToken}`,
-    });
-    return { ok: true, tokens: data?.tokens ?? [] };
-  } catch (err) {
-    return fromApiError(err);
-  }
-}
 
 export async function createPATInIdentity(
   accessToken: string,
