@@ -30,7 +30,7 @@ export function CopyField({
   bordered = true,
   fullWidth = true,
 }: CopyFieldProps) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
@@ -42,12 +42,13 @@ export function CopyField({
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(value);
-    } catch {
-      return;
+      setStatus('copied');
+    } catch (err) {
+      console.error('Clipboard write failed:', err);
+      setStatus('failed');
     }
-    setCopied(true);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setCopied(false), 1500);
+    timerRef.current = setTimeout(() => setStatus('idle'), 1500);
   }, [value]);
 
   return (
@@ -80,8 +81,10 @@ export function CopyField({
             {value}
           </Text>
         </Stack>
-        {copied ? (
+        {status === 'copied' ? (
           <Icon name="check" size="2xs" color="status-healthy" shrink />
+        ) : status === 'failed' ? (
+          <Icon name="circle-x" size="2xs" color="status-error" shrink />
         ) : (
           <Icon name="copy" size="2xs" color="subtle" shrink />
         )}

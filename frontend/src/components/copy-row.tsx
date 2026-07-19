@@ -15,7 +15,7 @@ export interface CopyRowProps {
 }
 
 export function CopyRow({ label, value, mono }: CopyRowProps) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
@@ -24,12 +24,16 @@ export function CopyRow({ label, value, mono }: CopyRowProps) {
     };
   }, []);
 
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
-    });
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus('copied');
+    } catch (err) {
+      console.error('Clipboard write failed:', err);
+      setStatus('failed');
+    }
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setStatus('idle'), 1500);
   }, [value]);
 
   return (
@@ -43,8 +47,10 @@ export function CopyRow({ label, value, mono }: CopyRowProps) {
             {value}
           </Text>
         </Stack>
-        {copied ? (
+        {status === 'copied' ? (
           <Icon name="check" size="2xs" color="status-healthy" shrink />
+        ) : status === 'failed' ? (
+          <Icon name="circle-x" size="2xs" color="status-error" shrink />
         ) : (
           <Icon name="copy" size="2xs" color="muted" />
         )}
