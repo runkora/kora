@@ -839,6 +839,50 @@ const localPlugin = {
     },
 
     // -------------------------------------------------------------------------
+    // no-inline-clipboard-write
+    //
+    // Direct calls to navigator.clipboard.writeText() in product code are
+    // forbidden outside the shared component layer. All copy-to-clipboard
+    // interactions must go through <CopyButton> from @orbit/components (or a
+    // Tier 2 component in src/components/ that wraps it). This keeps copy UX
+    // consistent (icon, feedback timing, accessible label) and testable in one
+    // place.
+    //
+    // Allowed sites (configured via `ignores` in the config block below):
+    //   src/packages/terra/**   — terra primitives own their own clipboard (CodeBlock)
+    //   src/components/**       — the shared CopyButton and CopyRow implementations
+    // -------------------------------------------------------------------------
+    'no-inline-clipboard-write': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Use <CopyButton> from @orbit/components instead of navigator.clipboard.writeText() directly.',
+        },
+        messages: {
+          noInlineClipboard:
+            'Do not call navigator.clipboard.writeText() directly. ' +
+            'Use <CopyButton> from @orbit/components, or a Tier 2 component in src/components/ that wraps it.',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          MemberExpression(node) {
+            if (
+              node.object?.type === 'MemberExpression' &&
+              node.object.object?.name === 'navigator' &&
+              node.object.property?.name === 'clipboard' &&
+              node.property?.name === 'writeText'
+            ) {
+              context.report({ node, messageId: 'noInlineClipboard' });
+            }
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
     // no-direct-lucide-import
     //
     // Lucide React ships ~1,600 icons. Allowing direct imports would make it
@@ -1081,6 +1125,18 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-terra-disable-comment': 'error',
+    },
+  },
+
+  // ---- Inline clipboard.writeText ban (terra and shared components exempted) -
+  // Direct navigator.clipboard.writeText() calls in product code are forbidden.
+  // Use <CopyButton> from @orbit/components or a Tier 2 src/components/ wrapper.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/packages/terra/**', 'src/components/**'],
+    rules: {
+      'local/no-inline-clipboard-write': 'error',
     },
   },
 

@@ -1,10 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-
 import {
   Alert,
-  Button,
   Icon,
   Modal,
   ModalAccessibleTitle,
@@ -12,8 +9,10 @@ import {
   ModalFooter,
   Stack,
   Text,
+  Button,
 } from '@orbit/terra';
 import type { CreatePATResponse } from '@orbit/shared/api';
+import { CopyField } from '@orbit/components';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,19 +24,6 @@ interface TokenCreatedModalProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
-  // Track which pat id was last copied so `copied` resets automatically when
-  // a new token is shown — no setState-in-effect needed.
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copied = copiedId === pat?.id;
-
-  const handleCopy = useCallback(() => {
-    if (!pat) return;
-    void navigator.clipboard.writeText(pat.token).then(() => {
-      setCopiedId(pat.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
-  }, [pat]);
-
   return (
     <Modal open={!!pat} onClose={onClose} size="lg" dismissOnOutsideClick={false}>
       {/* No ModalHeader here — we have a custom layout with a warning banner.
@@ -83,25 +69,7 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
               <Text size="caption" color="subtle" weight="emphasis">
                 Your API key
               </Text>
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={handleCopy}
-                aria-label="Copy API key to clipboard"
-              >
-                <Stack direction="horizontal" align="center" justify="between" grow minWidth="none">
-                  <Stack grow minWidth="none">
-                    <Text size="supporting" mono truncate>
-                      {pat.token}
-                    </Text>
-                  </Stack>
-                  {copied ? (
-                    <Icon name="check" color="status-healthy" />
-                  ) : (
-                    <Icon name="copy" color="muted" />
-                  )}
-                </Stack>
-              </Button>
+              <CopyField value={pat.token} label="Copy API key to clipboard" mono />
               <Text size="caption" color="subtle">
                 {pat.expires_at
                   ? `Expires ${new Date(pat.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`

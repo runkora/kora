@@ -1,8 +1,8 @@
 /** @tier 3 — mcp-gateway-scoped. Syntax-coloured config block (JSON or CLI) with copy. */
 'use client';
 
-import { useState } from 'react';
-import { Button, Icon, Stack, Text } from '@orbit/terra';
+import { Icon, Stack, Text } from '@orbit/terra';
+import { CopyButton } from '@orbit/components';
 
 // Token colours taken verbatim from the design spec.
 const TONE = {
@@ -64,14 +64,6 @@ interface ConfigBlockProps {
 }
 
 export function ConfigBlock({ text, filename, command = false }: ConfigBlockProps) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = () => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   const commandLines = command ? tokenizeCommands(text) : null;
   const jsonTokens = command ? null : tokenizeJson(text);
 
@@ -105,31 +97,9 @@ export function ConfigBlock({ text, filename, command = false }: ConfigBlockProp
       ) : null}
 
       <Stack style={{ position: 'relative' }}>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={copy}
-          style={{
-            position: 'absolute',
-            top: 9,
-            right: 9,
-            zIndex: 1,
-            height: 28,
-            padding: '0 10px',
-            borderRadius: 6,
-            fontSize: 11.5,
-            ...(copied
-              ? {
-                  background: 'var(--color-accent-muted)',
-                  borderColor: 'var(--color-accent-border)',
-                  color: 'var(--color-accent)',
-                }
-              : {}),
-          }}
-        >
-          <Icon name={copied ? 'check' : 'copy'} size="2xs" />
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
+        <Stack style={{ position: 'absolute', top: 9, right: 9, zIndex: 1 }}>
+          <CopyButton value={text} label="Copy config" />
+        </Stack>
         <Stack
           style={{
             display: 'block',
