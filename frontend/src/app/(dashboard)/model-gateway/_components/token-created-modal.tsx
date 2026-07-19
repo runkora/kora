@@ -69,7 +69,7 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
               <Text size="caption" color="subtle" weight="emphasis">
                 Your API key
               </Text>
-              <CopyField value={pat.token} label="Copy API key to clipboard" mono />
+              <CopyField key={pat.token} value={pat.token} label="Copy API key to clipboard" mono />
               <Text size="caption" color="subtle">
                 {pat.expires_at
                   ? `Expires ${new Date(pat.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`

@@ -850,7 +850,7 @@ const localPlugin = {
     //
     // Allowed sites (configured via `ignores` in the config block below):
     //   src/packages/terra/**   — terra primitives own their own clipboard (CodeBlock)
-    //   src/components/**       — the shared CopyButton and CopyRow implementations
+    //   src/components/**       — the shared CopyButton, CopyField, and CopyRow implementations
     // -------------------------------------------------------------------------
     'no-inline-clipboard-write': {
       meta: {

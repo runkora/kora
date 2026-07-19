@@ -98,7 +98,7 @@ export function ConfigBlock({ text, filename, command = false }: ConfigBlockProp
 
       <Stack style={{ position: 'relative' }}>
         <Stack style={{ position: 'absolute', top: 9, right: 9, zIndex: 1 }}>
-          <CopyButton value={text} label="Copy config" />
+          <CopyButton key={text} value={text} label="Copy config" />
         </Stack>
         <Stack
           style={{

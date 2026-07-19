@@ -200,7 +200,7 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
           borderTop: '1px solid var(--color-border-subtle)',
         }}
       >
-        <CopyButton value={config} label="Copy config" />
+        <CopyButton key={config} value={config} label="Copy config" />
       </Stack>
     </SidePanel>
   );
