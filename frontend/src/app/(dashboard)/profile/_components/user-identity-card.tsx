@@ -51,13 +51,21 @@ export function UserIdentityCard({ session, profile }: UserIdentityCardProps) {
             <Text size="caption" weight="emphasis" color="subtle">
               Principal ID
             </Text>
-            <CopyField value={principalId} label="Copy principal ID" mono bordered={false} fullWidth={false} />
+            <CopyField
+              value={principalId}
+              label="Copy principal ID"
+              mono
+              bordered={false}
+              fullWidth={false}
+            />
           </Stack>
           <Stack gap="snug">
             <Text size="caption" weight="emphasis" color="subtle">
               Tenant
             </Text>
-            <Text mono size="supporting">{tenantId}</Text>
+            <Text mono size="supporting">
+              {tenantId}
+            </Text>
           </Stack>
         </Stack>
       </CardContent>

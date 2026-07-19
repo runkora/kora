@@ -67,7 +67,14 @@ export function CopyField({
         ...(!fullWidth && { alignSelf: 'flex-start' }),
       }}
     >
-      <Stack direction="horizontal" align="center" justify="between" grow minWidth="none" gap="snug">
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        grow
+        minWidth="none"
+        gap="snug"
+      >
         <Stack grow minWidth="none">
           <Text size="supporting" mono={mono} truncate>
             {value}
