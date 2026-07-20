@@ -6,6 +6,7 @@ package inferencegw
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -33,6 +34,12 @@ const (
 	ProviderVertexAI ProviderName = "vertexai"
 	ProviderAzure    ProviderName = "azure"
 )
+
+// IsBedrockFamily reports whether p is the base "bedrock" provider or a
+// named multi-account variant of the form "bedrock:<alias>".
+func (p ProviderName) IsBedrockFamily() bool {
+	return p == ProviderBedrock || strings.HasPrefix(string(p), "bedrock:")
+}
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
 

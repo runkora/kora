@@ -109,10 +109,11 @@ Treat each account as a fully distinct provider package with its own `ProviderNa
 
 Option 1 achieves all goals with the smallest change surface:
 
-- Only the `bedrock` package and `main.go` are modified — no interface changes, no schema changes, no handler changes.
-- The `ProviderName` type already supports arbitrary strings. The routing engine, catalog, usage records, and all handlers treat provider names opaquely.
+- Only the `bedrock` package, `main.go`, and four handler/pricing sites are modified — no interface changes, no schema changes.
+- While `ProviderName` is a plain string type, several handlers explicitly whitelist the three base names (`bedrock`, `vertexai`, `azure`) rather than treating them opaquely. A shared `IsBedrockFamily()` method on `ProviderName` handles all four sites (`isValidProvider`, `lookupPricing`, `normalisePricingModelID`, and the usage-filter validation) with minimal, targeted changes.
 - Named aliases (`prod`, `staging`) produce legible provider names in every system that displays them: the catalog UI, usage records, OTel traces, and policy scope vocabulary.
 - The existing `BEDROCK_ENABLED` path is left completely intact. Operators who do not set `BEDROCK_ACCOUNTS` see no change at all.
+- When `BEDROCK_ACCOUNTS` is set, the first alias is also registered under the canonical `bedrock` name, preserving routing for existing virtual model routes without requiring reconfiguration.
 
 ---
 
@@ -127,8 +128,9 @@ Option 1 achieves all goals with the smallest change surface:
 
 ### Negative
 
-- `main.go`'s `initControllers` function must distinguish between the single-factory and multi-factory cases, adding a small amount of conditional logic.
+- `main.go`'s `initControllers` function iterates the `[]NamedConnector` slice from `MultiFactory`, adding a small registration loop. This replaces the prior if/else; net complexity is lower.
 - Operators configuring multi-account mode must understand that `BEDROCK_ENABLED` is ignored when `BEDROCK_ACCOUNTS` is set.
+- Four sites in `handlers_catalog.go`, `pricing_source.go`, and `handlers_usage.go` that whitelist provider names require targeted updates; they were not identified during initial design because they appeared to treat `ProviderName` opaquely.
 
 ### Neutral
 
@@ -175,23 +177,30 @@ Aliases are validated at startup against the pattern `^[a-z0-9_-]+$`. An alias c
 ### Code Changes
 
 1. **`internal/inferencegw/providers/bedrock/connector.go`**
-   - Add `NamedConfig` struct: `{Name string; Config Config}`.
-   - Add `LoadMultiConfig() ([]NamedConfig, error)`: reads `BEDROCK_ACCOUNTS`, iterates, reads per-account env vars.
-   - Add `MultiFactory` struct that implements a new `MultiConnectorFactory` interface (returns `[]inferencegw.NamedConnector`).
-   - Preserve `Factory` (single-account) and `LoadConfig` unchanged.
+   - Remove `LoadConfig`, `Factory` (single-account entry points).
+   - Add `NamedConfig` struct: `{Alias string; Config Config}`.
+   - `LoadMultiConfig()` handles both modes: when `BEDROCK_ACCOUNTS` is set it iterates aliases; when only `BEDROCK_ENABLED=true` is set it synthesizes a single `NamedConfig` with an empty alias, which registers the connector under the canonical `"bedrock"` name. Both paths return `[]NamedConfig` — `main.go` has one code path regardless of mode.
+   - `MultiFactory.Build` iterates the slice and wraps each connector in `namedConnector`. `namedConnector.Name()` returns `ProviderBedrock` when the alias is empty and `"bedrock:<alias>"` otherwise.
 
 2. **`internal/inferencegw/connector.go`**
    - Add `NamedConnector` struct: `{Name ProviderName; Connector ProviderConnector}`.
    - Add `MultiConnectorFactory` interface: `Build(logger) ([]NamedConnector, error)`.
 
 3. **`internal/inferencegw/models.go`**
-   - No changes.
+   - Add `IsBedrockFamily() bool` method on `ProviderName`: returns true for `"bedrock"` and any `"bedrock:<alias>"` value.
 
-4. **`cmd/inference-gateway/main.go`**
-   - In `initControllers`: attempt `bedrock.MultiFactory{}.Build(logger)` first. If it returns connectors, register them. Otherwise fall back to the existing single-factory loop unchanged.
+4. **`internal/inferencegw/handlers_catalog.go`**
+   - `isValidProvider`: add `p.IsBedrockFamily()` branch so any `bedrock:<alias>` name passes validation.
+   - `lookupPricing`: replace `provider == ProviderBedrock` guard with `provider.IsBedrockFamily()`.
 
-5. **`.env.example`**
-   - Document the `BEDROCK_ACCOUNTS` variable and per-account naming convention.
+5. **`internal/inferencegw/pricing_source.go`**
+   - `normalisePricingModelID`: replace `provider != ProviderBedrock` guard with `!provider.IsBedrockFamily()`.
+
+6. **`internal/inferencegw/handlers_usage.go`**
+   - Remove the static `providerNames` allowlist. Replace the `parseEnumParam` call for `?provider=` with an inline `isValidProvider` check, which accepts `bedrock:<alias>` values.
+
+7. **`cmd/inference-gateway/main.go`**
+   - Replace the multi-account if/else block with a single `bedrock.MultiFactory{}.Build(logger)` call. Register all returned connectors; `main.go` has no knowledge of single vs. multi-account mode.
 
 ### Migration Path
 

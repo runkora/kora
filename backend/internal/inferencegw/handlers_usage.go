@@ -33,7 +33,6 @@ type listUsageResponse struct {
 
 // Allowed values for each enum query parameter.
 var (
-	providerNames = []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
 	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic, DialectResponses}
 	usageStatuses = []UsageStatus{
 		UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
@@ -72,7 +71,14 @@ var usageParamBinders = []usageParamBinder{
 		return nil, nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
-		return parseEnumParam(q.Get("provider"), "'provider'", providerNames, &f.Provider), nil
+		if raw := q.Get("provider"); raw != "" {
+			p := ProviderName(raw)
+			if !isValidProvider(p) {
+				return api.BadRequestError("invalid_param", "'provider' must be a known provider (bedrock, bedrock:<alias>, vertexai, azure)", nil), nil
+			}
+			f.Provider = &p
+		}
+		return nil, nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
 		return parseEnumParam(q.Get("api_dialect"), "'api_dialect'", apiDialects, &f.APIDialect), nil

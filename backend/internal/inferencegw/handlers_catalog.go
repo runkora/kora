@@ -333,17 +333,27 @@ func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pr
 }
 
 // lookupPricing returns the pricing entry for a provider+modelID pair from the
-// map built by buildPricingMap. For Bedrock, it applies two-pass normalisation:
+// map built by buildPricingMap. For Bedrock, it applies multi-pass normalisation:
 //  1. Strip region prefix + version suffix via normalisePricingModelID.
-//  2. If still no match and the ID ends in "-instruct", strip that suffix and
+//  2. For aliased Bedrock providers (bedrock:<alias>), retry under the canonical
+//     "bedrock" key — pricing rows are stored once under the base provider name.
+//  3. If still no match and the ID ends in "-instruct", strip that suffix and
 //     retry — handles AWS aliases like "qwen.qwen3-coder-480b-a35b-instruct"
 //     whose DB entry is stored as "qwen.qwen3-coder-480b-a35b".
 func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderName, modelID string) *pricingEntryJSON {
-	key := string(provider) + "/" + normalisePricingModelID(provider, modelID)
+	normID := normalisePricingModelID(provider, modelID)
+	key := string(provider) + "/" + normID
 	if p, ok := pricingMap[key]; ok {
 		return p
 	}
-	if provider == ProviderBedrock && bedrockInstructSuffix.MatchString(key) {
+	// For multi-account aliases, fall back to the canonical "bedrock" pricing row.
+	if provider.IsBedrockFamily() && provider != ProviderBedrock {
+		key = string(ProviderBedrock) + "/" + normID
+		if p, ok := pricingMap[key]; ok {
+			return p
+		}
+	}
+	if provider.IsBedrockFamily() && bedrockInstructSuffix.MatchString(key) {
 		fallbackKey := bedrockInstructSuffix.ReplaceAllString(key, "")
 		return pricingMap[fallbackKey]
 	}
@@ -529,13 +539,25 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// isValidProvider reports whether p is one of the known provider constants.
+// isValidProvider reports whether p is one of the known provider constants or
+// a multi-account Bedrock variant of the form "bedrock:<alias>".
+
+// canonicalPricingProvider maps a Bedrock alias (e.g. "bedrock:us") to the
+// canonical "bedrock" key used in the model_pricing table. Pricing rows are
+// synced once under the base provider name and shared across all accounts.
+func canonicalPricingProvider(p ProviderName) ProviderName {
+	if p.IsBedrockFamily() {
+		return ProviderBedrock
+	}
+	return p
+}
+
 func isValidProvider(p ProviderName) bool {
 	switch p {
 	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
 		return true
 	}
-	return false
+	return p.IsBedrockFamily()
 }
 
 // validateVirtualModelRequest validates the fields common to create and update
@@ -678,6 +700,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
 		return
 	}
+	provider = canonicalPricingProvider(provider)
 
 	var req setPricingOverrideRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -719,6 +742,7 @@ func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r 
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
 		return
 	}
+	provider = canonicalPricingProvider(provider)
 
 	if err := c.pricingCatalog.ClearOverride(ctx, provider, modelID); err != nil {
 		if errors.Is(err, ErrModelPricingNotFound) {

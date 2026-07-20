@@ -102,14 +102,17 @@ The Bedrock connector is constructed from a single Config struct populated by a 
 
 Introduce a `BEDROCK_ACCOUNTS` environment variable that accepts a comma-separated list of named account aliases (e.g. `prod,staging,dr`). For each alias, a per-account Config is loaded from prefixed environment variables (`BEDROCK_PROD_REGION`, `BEDROCK_STAGING_REGION`, etc.). Each account produces an independent `Connector` registered under a namespaced `ProviderName` of the form `bedrock:<alias>`.
 
-The `BEDROCK_ENABLED=true` path remains the default single-account path, registering a connector under the bare `bedrock` name. The two paths are mutually exclusive: if `BEDROCK_ACCOUNTS` is set, the old `BEDROCK_ENABLED` path is not consulted.
+The `BEDROCK_ENABLED=true` path remains supported. Rather than a separate code path, `LoadMultiConfig` absorbs it: when `BEDROCK_ACCOUNTS` is unset but `BEDROCK_ENABLED=true`, it synthesizes a single `NamedConfig` with an empty alias, producing a connector registered under the bare `"bedrock"` name — identical to the previous behavior. `main.go` always iterates the slice from `MultiFactory`; the if/else between single and multi-account modes is eliminated entirely.
 
-Because `ProviderName` is already a `string` type in the routing engine, no changes are required to the router, catalog, usage records, or handlers — the namespaced names flow through the existing infrastructure identically to any other provider.
+While `ProviderName` is already a `string` type, several handlers explicitly whitelist the three base provider names (`bedrock`, `vertexai`, `azure`) rather than treating them opaquely. These must be updated to accept `bedrock:<alias>` names: specifically `isValidProvider` in `handlers_catalog.go` (used by route validation and pricing override endpoints), `lookupPricing` (its `provider == ProviderBedrock` guard), `normalisePricingModelID` in `pricing_source.go`, and the provider filter in `handlers_usage.go`. A shared `IsBedrockFamily()` helper on `ProviderName` handles all four sites.
+
+In addition, when multi-account mode is active, the first listed alias is also registered under the canonical `bedrock` name. This preserves routing for existing virtual model routes that target the bare `bedrock` provider, avoiding a forced migration at upgrade time.
 
 ### Key Components
 
-- **`bedrock.LoadMultiConfig()`** — reads `BEDROCK_ACCOUNTS`, iterates aliases, and returns `[]NamedConfig{Name, Config}`.
-- **`bedrock.MultiFactory`** — a `ConnectorFactory` that produces multiple connectors (one per account). Replaces the single `Factory` in `main.go` when multi-account mode is active.
+- **`bedrock.LoadMultiConfig()`** — handles both modes: when `BEDROCK_ACCOUNTS` is set it reads N per-account configs; when only `BEDROCK_ENABLED=true` is set it synthesizes a single config with an empty alias, producing a connector named `"bedrock"`. Both paths return `[]NamedConfig`, giving `main.go` a single registration code path with no mode-branching.
+- **`bedrock.MultiFactory`** — iterates the slice from `LoadMultiConfig` and registers one connector per entry. Replaces both `Factory` (single-account) and the prior if/else in `main.go`.
+- **Handler validation updates** — `isValidProvider`, `lookupPricing`, `normalisePricingModelID`, and the usage-filter validation each hardcode the three base provider names; all four must be extended to accept `bedrock:<alias>` via a shared `IsBedrockFamily()` helper on `ProviderName`.
 - **Updated `.env.example`** — documents the new per-account variable naming convention.
 - **ADR** — records the design decision and its trade-offs.
 
@@ -120,8 +123,9 @@ Because `ProviderName` is already a `string` type in the routing engine, no chan
 ### In Scope
 
 - `BEDROCK_ACCOUNTS` environment variable and per-account variable convention.
-- `MultiFactory` that registers N connectors with provider names `bedrock:<alias>`.
-- Backwards compatibility: existing `BEDROCK_ENABLED` path untouched.
+- `MultiFactory` + unified `LoadMultiConfig` that absorbs both single-account and multi-account modes, removing the separate `Factory`/`LoadConfig` entry points.
+- `IsBedrockFamily()` helper on `ProviderName` and updates to the four handler/pricing sites that whitelist provider names.
+- Backwards compatibility: existing `BEDROCK_ENABLED` path handled inside `LoadMultiConfig`.
 - Updated `.env.example` documentation.
 - PRD and ADR.
 
@@ -177,7 +181,7 @@ Because `ProviderName` is already a `string` type in the routing engine, no chan
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Operator misconfigures alias names (e.g. spaces, slashes) | Malformed provider names in DB/logs | Low | Validate alias is `[a-z0-9_-]+` at startup; return error on invalid characters |
-| Existing virtual model routes break after upgrade | Routing failures for existing traffic | Low | `BEDROCK_ENABLED` path unchanged; existing `bedrock` provider name untouched |
+| Existing virtual model routes break after upgrade | Routing failures for existing traffic | Low | `BEDROCK_ENABLED` path absorbed into `LoadMultiConfig` — a single-account deployment with `BEDROCK_ENABLED=true` registers the connector under the canonical `"bedrock"` name, identical to the previous behavior. No reconfiguration required. |
 | N×ListModels calls at startup slow warm-up | Slower startup for large N | Low | Already parallelised via background goroutine in `WarmupProviderModels`; N is expected to be ≤ 5 |
 
 ---

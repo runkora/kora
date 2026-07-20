@@ -112,9 +112,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
 	// Adding a new provider is a single line here.
 	//
-	// Bedrock is special: when BEDROCK_ACCOUNTS is set, MultiFactory registers
-	// one connector per named account (bedrock:<alias>). When BEDROCK_ACCOUNTS
-	// is unset, the standard Factory single-account path is used instead.
+	// Bedrock uses MultiFactory, which handles both single-account (BEDROCK_ENABLED)
+	// and multi-account (BEDROCK_ACCOUNTS) configuration via a single code path.
 	factories := []inferencegw.ConnectorFactory{
 		vertexai.Factory{},
 		azure.Factory{},
@@ -122,30 +121,18 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
 
-	// Multi-account Bedrock: attempt multi-factory first.
-	bedrockMulti, errMulti := bedrock.MultiFactory{}.Build(logger)
-	if errMulti != nil {
-		return nil, fmt.Errorf("bedrock multi-account: %w", errMulti)
+	bedrockConnectors, err := bedrock.MultiFactory{}.Build(logger)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: %w", err)
 	}
-	if len(bedrockMulti) > 0 {
-		for _, nc := range bedrockMulti {
-			connectors[nc.Name] = nc.Connector
-			logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
-		}
-	} else {
-		// Single-account Bedrock fallback.
-		c, err := bedrock.Factory{}.Build(logger)
-		if err != nil {
-			return nil, fmt.Errorf("provider bedrock: %w", err)
-		}
-		if c != nil {
-			connectors[c.Name()] = c
-			logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(c.Name())})
-		}
+	for _, nc := range bedrockConnectors {
+		connectors[nc.Name] = nc.Connector
+		logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
 	}
 
+	var c inferencegw.ProviderConnector
 	for _, f := range factories {
-		c, err := f.Build(logger)
+		c, err = f.Build(logger)
 		if err != nil {
 			return nil, fmt.Errorf("provider %s: %w", f.Name(), err)
 		}

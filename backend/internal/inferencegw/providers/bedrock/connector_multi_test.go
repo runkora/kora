@@ -8,12 +8,47 @@ import (
 
 func TestLoadMultiConfig_disabled(t *testing.T) {
 	t.Setenv("BEDROCK_ACCOUNTS", "")
+	t.Setenv("BEDROCK_ENABLED", "")
 	cfgs, err := LoadMultiConfig()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(cfgs) != 0 {
 		t.Fatalf("expected nil configs, got %v", cfgs)
+	}
+}
+
+func TestLoadMultiConfig_singleAccountFallback(t *testing.T) {
+	t.Setenv("BEDROCK_ACCOUNTS", "")
+	t.Setenv("BEDROCK_ENABLED", "true")
+	t.Setenv("BEDROCK_REGION", "us-west-2")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_SESSION_TOKEN", "")
+
+	cfgs, err := LoadMultiConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfgs) != 1 {
+		t.Fatalf("expected 1 config, got %d", len(cfgs))
+	}
+	if cfgs[0].Alias != "" {
+		t.Errorf("expected empty alias for single-account fallback, got %q", cfgs[0].Alias)
+	}
+	if cfgs[0].Config.Region != "us-west-2" {
+		t.Errorf("expected region us-west-2, got %q", cfgs[0].Config.Region)
+	}
+}
+
+func TestLoadMultiConfig_singleAccountFallback_missingRegion(t *testing.T) {
+	t.Setenv("BEDROCK_ACCOUNTS", "")
+	t.Setenv("BEDROCK_ENABLED", "true")
+	t.Setenv("BEDROCK_REGION", "")
+
+	_, err := LoadMultiConfig()
+	if err == nil {
+		t.Fatal("expected error for missing region, got nil")
 	}
 }
 

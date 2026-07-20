@@ -95,7 +95,7 @@ var bedrockRegionPrefixes = []string{
 // stripping it at lookup time would produce a miss.
 // For non-Bedrock providers the ID is returned unchanged.
 func normalisePricingModelID(provider ProviderName, modelID string) string {
-	if provider != ProviderBedrock {
+	if !provider.IsBedrockFamily() {
 		return modelID
 	}
 	for _, pfx := range bedrockRegionPrefixes {
