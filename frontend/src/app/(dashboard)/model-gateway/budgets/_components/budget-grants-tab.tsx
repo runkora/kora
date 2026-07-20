@@ -141,13 +141,13 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
     <Stack gap="comfortable">
       <PageSectionHeader
         title="Grant Budgets"
-        description="Window and per-run limits carried by individual grants — humans, agents, and services."
+        description="Window and per-run limits carried by individual grants: humans, agents, and services."
       />
 
       <Callout>
         <Text size="caption" color="muted">
           Editing a budget here keeps the grant (and its spend attribution) intact. Grant scopes are
-          immutable — manage grants on the Policy → Grants page.
+          immutable. Manage grants on the Policy → Grants page.
         </Text>
       </Callout>
 

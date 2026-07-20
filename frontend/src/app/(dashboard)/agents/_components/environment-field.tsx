@@ -67,8 +67,8 @@ export function EnvironmentField({
 
   const control = loadError ? (
     <Text size="supporting" color="muted">
-      Could not load environments — try refreshing. Any environment already attached to this agent
-      is unchanged.
+      Could not load environments. Try refreshing. Any environment already attached to this agent is
+      unchanged.
     </Text>
   ) : environments.length === 0 ? (
     <Text size="supporting" color="muted">

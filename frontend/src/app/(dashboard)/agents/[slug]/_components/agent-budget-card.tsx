@@ -27,13 +27,13 @@ export function AgentBudgetCard({ budget, tenantCap }: AgentBudgetCardProps) {
           <Stack gap="snug">
             {tenantCap?.reached && (
               <Alert variant="error">
-                Tenant cap reached — this agent&apos;s inference requests are blocked until the
+                Tenant cap reached. This agent&apos;s inference requests are blocked until the
                 period resets or the cap is raised.
               </Alert>
             )}
             {budget?.spend_limit_reached && (
               <Alert variant="error">
-                Budget ceiling reached — this agent&apos;s inference requests are blocked until the
+                Budget ceiling reached. This agent&apos;s inference requests are blocked until the
                 period resets or its limit is raised.
               </Alert>
             )}
@@ -84,7 +84,7 @@ export function AgentBudgetCard({ budget, tenantCap }: AgentBudgetCardProps) {
           </Stack>
         ) : (
           <Text size="supporting" color="muted">
-            No budget configured — set one in Settings. Spend still counts toward the tenant cap.
+            No budget configured. Set one in Settings. Spend still counts toward the tenant cap.
           </Text>
         )}
       </CardContent>

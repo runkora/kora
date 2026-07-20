@@ -1,7 +1,7 @@
 # Agent Builder
 
 **Date:** 2026-07-17  
-**Status:** Proposed  
+**Status:** Accepted  
 **Deciders:** Engineering  
 **PRD:** [agent-builder](../prd/agent-builder.md)
 

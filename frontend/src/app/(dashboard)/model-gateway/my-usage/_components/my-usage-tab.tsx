@@ -76,7 +76,7 @@ function BudgetBanner({ budget }: { budget: BudgetStatus }) {
     <Stack gap="snug">
       {budget.spend_limit_reached && (
         <Alert variant="error">
-          A budget ceiling has been reached — inference requests are blocked until the period resets
+          A budget ceiling has been reached. Inference requests are blocked until the period resets
           or the limit is raised.
         </Alert>
       )}
@@ -121,7 +121,7 @@ export function MyUsageTab({ pats, initialBudget }: MyUsageTabProps) {
       {initialBudget && <BudgetBanner budget={initialBudget} />}
       <AnalyticsDashboard
         title="My Usage"
-        description="Your personal inference activity — spend, tokens, and request volume."
+        description="Your personal inference activity: spend, tokens, and request volume."
         data={data}
         status={status}
         error={error}

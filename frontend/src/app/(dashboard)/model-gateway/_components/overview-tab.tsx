@@ -73,7 +73,7 @@ const COLORS = {
   degraded: '#ffd046',
   error: '#ef4444',
   surfaceOverlay: '#34343d',
-  borderSubtle: '#44444d',
+  borderSubtle: 'var(--color-border-subtle)',
   foreground: '#ededef',
   subtle: '#8a8a94',
 };
@@ -244,7 +244,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
   return (
     <Card column>
       <CardHeader compact>
-        <CardTitle>Requests &amp; Errors — last 14 days</CardTitle>
+        <CardTitle>Requests &amp; Errors (last 14 days)</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={240}>
@@ -495,7 +495,7 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
           </Badge>
         </Stack>
         <Text size="supporting" color="muted">
-          Unified inference proxy — route, observe, and govern all LLM traffic from a single control
+          Unified inference proxy: route, observe, and govern all LLM traffic from a single control
           plane.
         </Text>
       </Stack>

@@ -18,9 +18,9 @@ export default async function KeysPage() {
         fetchUsageStats(session.accessToken),
       ])
     : [
-        { ok: false as const, status: 401, message: 'Session expired — please sign in again.' },
-        { ok: false as const, status: 401, message: 'Session expired — please sign in again.' },
-        { ok: false as const, status: 401, message: 'Session expired — please sign in again.' },
+        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
+        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
+        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
       ];
 
   const initialTokens = tokensResult.ok ? tokensResult.tokens : [];

@@ -80,7 +80,7 @@ export function CatalogTab({
         </Stack>
         <Text size="supporting" color="muted">
           Manage virtual models, routing rules, and provider access. Changes take effect immediately
-          — no gateway restart required.
+          with no gateway restart required.
         </Text>
         {initialError && (
           <Alert variant="error">

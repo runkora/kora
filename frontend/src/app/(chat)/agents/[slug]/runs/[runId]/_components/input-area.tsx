@@ -181,7 +181,7 @@ export function InputArea() {
             onKeyDown={handleKeyDown}
             placeholder={
               runState === 'budget_exhausted'
-                ? `${agentName} run stopped — budget exhausted`
+                ? `${agentName} run stopped: budget exhausted`
                 : isEnded
                   ? `${agentName} run has ended`
                   : isBusy

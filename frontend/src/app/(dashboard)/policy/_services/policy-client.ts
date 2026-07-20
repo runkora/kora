@@ -31,7 +31,7 @@ async function bffGet<T>(url: string): Promise<FetchResult<T>> {
   try {
     res = await fetch(url, { cache: 'no-store' });
   } catch {
-    return { data: null, error: 'Network error — could not reach the server.' };
+    return { data: null, error: 'Network error: could not reach the server.' };
   }
 
   if (!res.ok) {
@@ -58,7 +58,7 @@ async function bffMutate<T>(url: string, method: string, body?: unknown): Promis
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    return { data: null, error: 'Network error — could not reach the server.' };
+    return { data: null, error: 'Network error: could not reach the server.' };
   }
 
   if (!res.ok) {

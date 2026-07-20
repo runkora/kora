@@ -19,7 +19,7 @@ export default async function BudgetsPage() {
         roles={[]}
         grants={[]}
         identities={{}}
-        initialError="Session expired — please sign in again."
+        initialError="Session expired. Please sign in again."
       />
     );
   }

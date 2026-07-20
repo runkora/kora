@@ -118,13 +118,13 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
     <Stack gap="comfortable">
       <PageSectionHeader
         title="Role Budgets"
-        description="Weekly or monthly limits carried by OIDC roles — per-member allowances or shared pools."
+        description="Weekly or monthly limits carried by OIDC roles: per-member allowances or shared pools."
       />
 
       <Callout>
         <Text size="caption" color="muted">
           A role budget applies to all principals the IDP asserts the role for at login. Editing
-          here preserves the role&apos;s scope mappings — manage scopes on the Policy → Roles page.
+          here preserves the role&apos;s scope mappings. Manage scopes on the Policy → Roles page.
         </Text>
       </Callout>
 

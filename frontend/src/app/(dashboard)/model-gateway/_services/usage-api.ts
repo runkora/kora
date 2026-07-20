@@ -34,7 +34,7 @@ export async function fetchUsage(params?: {
   try {
     res = await fetch(ApiRoute.usage.GET(params), { cache: 'no-store' });
   } catch {
-    return { ...empty, error: 'Network error — could not reach the server.' };
+    return { ...empty, error: 'Network error: could not reach the server.' };
   }
 
   if (!res.ok) {

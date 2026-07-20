@@ -23,7 +23,7 @@ export function SyncStatusBanner({ sync }: SyncStatusBannerProps) {
         <Stack direction="horizontal" align="center" gap="snug">
           <Icon name="alert-circle" size="2xs" color="status-degraded" />
           <Text size="caption" color="muted">
-            Pricing data unavailable — effective prices cannot be displayed.
+            Pricing data unavailable. Effective prices cannot be displayed.
           </Text>
         </Stack>
       </Alert>
@@ -51,7 +51,7 @@ export function SyncStatusBanner({ sync }: SyncStatusBannerProps) {
         <Stack direction="horizontal" align="center" gap="snug" wrap>
           <Icon name="alert-circle" size="2xs" color="status-degraded" />
           <Text size="caption" color="muted">
-            Pricing data may be stale — last synced {fmtDate(sync.lastSyncedAt)}
+            Pricing data may be stale. Last synced {fmtDate(sync.lastSyncedAt)}
           </Text>
           <Badge variant="degraded" size="sm">
             {sync.modelsWithPricing} model{sync.modelsWithPricing !== 1 ? 's' : ''} with pricing
@@ -65,7 +65,7 @@ export function SyncStatusBanner({ sync }: SyncStatusBannerProps) {
     <Stack direction="horizontal" align="center" gap="snug" wrap>
       <Icon name="check-circle" size="2xs" color="status-healthy" />
       <Text size="caption" color="muted">
-        Pricing in sync — last synced {fmtDate(sync.lastSyncedAt)}
+        Pricing in sync. Last synced {fmtDate(sync.lastSyncedAt)}
       </Text>
       <Badge variant="healthy" size="sm">
         {sync.modelsWithPricing} model{sync.modelsWithPricing !== 1 ? 's' : ''} with pricing

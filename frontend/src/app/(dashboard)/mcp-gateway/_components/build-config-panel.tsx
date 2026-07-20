@@ -2,7 +2,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, SidePanel, SidePanelAccessibleTitle, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  Eyebrow,
+  Grid,
+  Icon,
+  SidePanel,
+  SidePanelAccessibleTitle,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { MCP_CLIENTS, buildMcpConfig, isCommandClient, type McpClient } from '@orbit/lib/mcp';
 import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';
@@ -10,27 +19,14 @@ import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
 import { CopyButton } from '@orbit/components';
 
+// Terra caption/micro variants are leading-none; the spec composed these labels
+// on the default 1.5 line box. `lineHeight` is kept inline where the line box
+// height is load-bearing for the surrounding layout (stacked rows, chip rows).
+
 interface BuildConfigPanelProps {
   servers: McpServer[];
   selected: string[];
   onClose: () => void;
-}
-
-function SecLabel({ children }: { children: string }) {
-  return (
-    <Text
-      as="span"
-      style={{
-        display: 'block',
-        fontSize: 10,
-        fontWeight: 600,
-        letterSpacing: '0.13em',
-        color: 'var(--color-subtle)',
-      }}
-    >
-      {children}
-    </Text>
-  );
 }
 
 export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPanelProps) {
@@ -48,20 +44,20 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
       <Stack
         direction="horizontal"
         align="center"
+        height="header"
+        shrink
         style={{
-          height: 56,
-          flexShrink: 0,
           gap: 10,
           padding: '0 18px',
           borderBottom: '1px solid var(--color-border-subtle)',
         }}
       >
         <Icon name="terminal" color="accent" size="sm" />
-        <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
-          <Text as="span" style={{ fontSize: 14, fontWeight: 600 }}>
+        <Stack grow gap="none" style={{ minWidth: 0 }}>
+          <Text as="span" size="supporting" weight="strong">
             Build config
           </Text>
-          <Text as="span" style={{ fontSize: 11, color: 'var(--color-subtle)' }}>
+          <Text as="span" size="micro" color="subtle" style={{ lineHeight: 1.5 }}>
             {chosen.length} server{chosen.length === 1 ? '' : 's'} · one gateway endpoint
           </Text>
         </Stack>
@@ -71,11 +67,11 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
       </Stack>
 
       {/* Body */}
-      <Stack style={{ flex: 1, overflowY: 'auto', padding: 18, gap: 16 }}>
+      <Stack grow overflowY="auto" gap="comfortable" style={{ padding: 18 }}>
         {/* CLIENT */}
-        <Stack style={{ gap: 8 }}>
-          <SecLabel>CLIENT</SecLabel>
-          <Stack style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <Stack gap="snug">
+          <Eyebrow>Client</Eyebrow>
+          <Grid cols={2} style={{ gap: 6 }}>
             {MCP_CLIENTS.map((c) => {
               const active = c.id === client;
               return (
@@ -87,31 +83,41 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
                     height: 34,
                     width: '100%',
                     gap: 7,
-                    justifyContent: 'center',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: 12.5,
-                    fontWeight: active ? 600 : 500,
+                    // Spec tiles select with a neutral border + overlay fill and sit on a
+                    // transparent ghost base. Card selected / RadioCard both draw an accent
+                    // border (and RadioCard adds a radio indicator), so either swap would
+                    // change pixels — the pick-one state stays token-styled on Button.
                     border: `1px solid ${active ? 'var(--color-border)' : 'transparent'}`,
                     background: active ? 'var(--color-surface-overlay)' : 'transparent',
                     color: active ? 'var(--color-foreground)' : 'var(--color-subtle)',
                   }}
                 >
                   <Icon name={c.icon} size="xs" />
-                  {c.label}
+                  <Text
+                    as="span"
+                    size="caption"
+                    weight={active ? 'strong' : 'emphasis'}
+                    color={active ? 'foreground' : 'subtle'}
+                  >
+                    {c.label}
+                  </Text>
                 </Button>
               );
             })}
-          </Stack>
+          </Grid>
         </Stack>
 
         {/* CONFIG */}
         <Stack style={{ gap: 7 }}>
           <Stack direction="horizontal" align="center" justify="between">
-            <SecLabel>CONFIG</SecLabel>
+            <Eyebrow>Config</Eyebrow>
             <Text
               as="span"
               mono
-              style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-subtle)' }}
+              size="micro"
+              weight="emphasis"
+              color="subtle"
+              style={{ lineHeight: 1.5 }}
             >
               {clientDef.file}
             </Text>
@@ -132,19 +138,19 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
         >
           <Icon name="shield" color="accent" size="sm" />
           <Stack style={{ gap: 2 }}>
-            <Text as="span" style={{ fontSize: 12.5, fontWeight: 600 }}>
+            <Text as="span" size="caption" weight="strong" style={{ lineHeight: 1.5 }}>
               Authentication
             </Text>
-            <Text as="span" style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-muted)' }}>
-              Humans authorise via OAuth on first connect — a browser window opens. Agents receive a
+            <Text as="span" size="caption" color="muted" style={{ lineHeight: 1.5 }}>
+              Humans authorise via OAuth on first connect. A browser window opens. Agents receive a
               just-in-time injected token; no secret is stored in this file.
             </Text>
           </Stack>
         </Stack>
 
         {/* GRANTS REQUIRED */}
-        <Stack style={{ gap: 8 }}>
-          <SecLabel>GRANTS REQUIRED</SecLabel>
+        <Stack gap="snug">
+          <Eyebrow>Grants required</Eyebrow>
           <Stack style={{ gap: 7 }}>
             {chosen.map((s) => (
               <Stack
@@ -163,28 +169,22 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
                 <Text
                   as="span"
                   mono
-                  style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--color-muted)' }}
+                  size="caption"
+                  weight="emphasis"
+                  color="muted"
+                  style={{ flex: 1 }}
                 >
                   {serverRollupScope(s.name)}
                 </Text>
-                <Text as="span" style={{ fontSize: 11, color: 'var(--color-subtle)' }}>
+                <Text as="span" size="micro" color="subtle">
                   {s.caller_identity === 'forward' ? 'Delegated' : 'Service'}
                 </Text>
               </Stack>
             ))}
           </Stack>
-          <Text
-            as="span"
-            style={{
-              display: 'block',
-              margin: '2px 2px 0',
-              fontSize: 11.5,
-              lineHeight: 1.5,
-              color: 'var(--color-subtle)',
-            }}
-          >
+          <Text size="micro" color="subtle" style={{ margin: '2px 2px 0', lineHeight: 1.5 }}>
             These grants are requested when you connect. Anything outside them is filtered from{' '}
-            <Text as="span" mono style={{ fontSize: 11.5 }}>
+            <Text as="span" mono size="micro" color="subtle">
               tools/list
             </Text>{' '}
             and rejected at call time.
@@ -194,8 +194,8 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
 
       {/* Footer */}
       <Stack
+        shrink
         style={{
-          flexShrink: 0,
           padding: '14px 18px',
           borderTop: '1px solid var(--color-border-subtle)',
         }}

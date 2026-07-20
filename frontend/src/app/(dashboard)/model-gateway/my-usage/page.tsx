@@ -15,7 +15,7 @@ export default async function MyUsagePage() {
     return (
       <MyUsageShell
         initialData={null}
-        initialError="Session expired — please sign in again."
+        initialError="Session expired. Please sign in again."
         pats={[]}
         initialBudget={null}
       />

@@ -4,7 +4,18 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Checkbox, Grid, Heading, Icon, Input, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  Card,
+  Checkbox,
+  Eyebrow,
+  Grid,
+  Heading,
+  Icon,
+  Input,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { EmptyState } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
@@ -12,6 +23,11 @@ import { relativeTime, serverRollupScope, statusColor } from '../_types';
 import type { IconName } from '@orbit/terra';
 import { ServerAvatar } from './server-avatar';
 import { BuildConfigPanel } from './build-config-panel';
+
+// Terra caption/micro variants are leading-none; the spec composed some labels
+// on the default 1.5 line box. `lineHeight` is kept inline where the line box
+// height is load-bearing for the surrounding layout. Font sizes 13/15px sit
+// more than a sub-pixel from any Text variant, so those spec values are kept.
 
 type Filter = 'all' | 'global' | 'tenant';
 type View = 'grid' | 'table';
@@ -29,7 +45,7 @@ function HealthDot({ status }: { status: string }) {
       style={{
         width: 6,
         height: 6,
-        borderRadius: 9999,
+        borderRadius: 'var(--radius-full)',
         background: statusColor(status),
         flexShrink: 0,
         display: 'inline-block',
@@ -51,6 +67,10 @@ function Chip({
   return (
     <Text
       as="span"
+      size="micro"
+      weight={mono ? 'emphasis' : 'regular'}
+      color={mono ? 'subtle' : 'muted'}
+      mono={mono}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -60,13 +80,8 @@ function Chip({
         borderRadius: 'var(--radius-sm)',
         border: '1px solid var(--color-border-subtle)',
         background: mono ? 'transparent' : 'var(--color-surface-overlay)',
-        fontFamily: mono ? 'var(--font-mono)' : undefined,
-        fontSize: 11,
-        fontWeight: mono ? 500 : 400,
-        lineHeight: 1,
         whiteSpace: 'nowrap',
         flexShrink: 0,
-        color: mono ? 'var(--color-subtle)' : 'var(--color-muted)',
       }}
     >
       {icon ? <Icon name={icon} size="2xs" /> : null}
@@ -97,13 +112,13 @@ function CapabilityTags({ domains, max = 3 }: { domains: string[]; max?: number 
       {extra > 0 ? (
         <Text
           as="span"
+          size="micro"
+          color="subtle"
           style={{
             height: 22,
             padding: '0 6px',
             display: 'inline-flex',
             alignItems: 'center',
-            fontSize: 11,
-            color: 'var(--color-subtle)',
           }}
         >
           +{extra}
@@ -160,6 +175,7 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
           variant="default"
           onClick={() => setPanelOpen(true)}
           disabled={selected.size === 0}
+          // 13px sits between caption (12) and supporting (14); spec value kept.
           style={{ height: 36, padding: '0 14px', gap: 8, fontSize: 13 }}
         >
           <Icon name="terminal" size="sm" />
@@ -278,73 +294,84 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
 
       {/* Floating selection tray */}
       {selected.size > 0 ? (
-        <Stack
-          direction="horizontal"
-          align="center"
+        <Card
+          border="default"
+          subtle
           style={{
             position: 'fixed',
             bottom: 22,
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 40,
-            gap: 14,
-            padding: '10px 12px 10px 18px',
             borderRadius: 'var(--radius-full)',
-            border: '1px solid var(--color-border)',
+            // Card subtle = surface-elevated; the spec tray floats one step higher.
             background: 'var(--color-surface-overlay)',
-            boxShadow: '0 12px 32px oklch(0% 0 0 / 0.45)',
+            // Terra is flat (ADR SD-3, no shadow tokens), but the tray floats over
+            // page content and needs a drop for legibility; expressed through the
+            // overlay scrim token rather than a raw colour.
+            boxShadow: '0 12px 32px var(--color-overlay)',
             animation: 'mcp-tray-in 220ms cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
-          <Text as="span" style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            <Text as="span" style={{ color: 'var(--color-accent)' }}>
-              {selected.size}
-            </Text>{' '}
-            selected
-          </Text>
-          <Stack direction="horizontal" align="center">
-            {selectedList.slice(0, 5).map((s, i) => (
-              <Text
-                as="span"
-                key={s.name}
-                title={s.display_name}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginLeft: i === 0 ? 0 : -6,
-                  borderRadius: 'var(--radius-full)',
-                  background: 'var(--color-surface)',
-                  border: '1.5px solid var(--color-surface-overlay)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: 'var(--font-mono)',
-                  fontWeight: 700,
-                  fontSize: 11,
-                  color: 'var(--color-muted)',
-                }}
-              >
-                {(s.name[0] ?? '?').toUpperCase()}
+          <Stack
+            direction="horizontal"
+            align="center"
+            style={{ gap: 14, padding: '10px 12px 10px 18px' }}
+          >
+            <Text as="span" weight="strong" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+              <Text as="span" color="accent">
+                {selected.size}
+              </Text>{' '}
+              selected
+            </Text>
+            <Stack direction="horizontal" align="center">
+              {/* Hand-rolled letter tiles — kept as-is (future AvatarTile candidate). */}
+              {selectedList.slice(0, 5).map((s, i) => (
+                <Text
+                  as="span"
+                  key={s.name}
+                  title={s.display_name}
+                  style={{
+                    width: 26,
+                    height: 26,
+                    marginLeft: i === 0 ? 0 : -6,
+                    borderRadius: 'var(--radius-full)',
+                    background: 'var(--color-surface)',
+                    border: '1.5px solid var(--color-surface-overlay)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    color: 'var(--color-muted)',
+                  }}
+                >
+                  {(s.name[0] ?? '?').toUpperCase()}
+                </Text>
+              ))}
+            </Stack>
+            <Button
+              variant="ghost"
+              shape="pill"
+              onClick={() => setSelected(new Set())}
+              style={{ height: 30, padding: '0 12px' }}
+            >
+              <Text as="span" size="caption" color="subtle">
+                Clear
               </Text>
-            ))}
+            </Button>
+            <Button
+              shape="pill"
+              onClick={() => setPanelOpen(true)}
+              // 13px sits between caption (12) and supporting (14); spec value kept.
+              style={{ height: 34, padding: '0 16px', gap: 7, fontSize: 13 }}
+            >
+              Build config
+              <Icon name="arrow-right" size="xs" />
+            </Button>
           </Stack>
-          <Button
-            variant="ghost"
-            shape="pill"
-            onClick={() => setSelected(new Set())}
-            style={{ height: 30, padding: '0 12px', fontSize: 12, color: 'var(--color-subtle)' }}
-          >
-            Clear
-          </Button>
-          <Button
-            shape="pill"
-            onClick={() => setPanelOpen(true)}
-            style={{ height: 34, padding: '0 16px', gap: 7, fontSize: 13 }}
-          >
-            Build config
-            <Icon name="arrow-right" size="xs" />
-          </Button>
-        </Stack>
+        </Card>
       ) : null}
 
       {panelOpen && selectedList.length > 0 ? (
@@ -371,15 +398,14 @@ function ServerCard({
 }) {
   const [hover, setHover] = useState(false);
   return (
-    <Stack
-      gap="none"
+    <Card
+      selected={selected}
+      selectedVariant="outline"
       style={{
-        border: `1px solid ${
-          selected || hover ? 'var(--color-accent)' : 'var(--color-border-subtle)'
-        }`,
-        background: selected ? 'var(--color-surface-elevated)' : 'var(--color-surface)',
-        borderRadius: 'var(--radius-lg)',
-        overflow: 'hidden',
+        // Spec draws the selected/hover border in accent-400; Card's selected
+        // border token is accent-600, so the border colour is overridden with
+        // the matching token to keep pixels identical.
+        borderColor: selected || hover ? 'var(--color-accent)' : undefined,
         transition: 'border-color 150ms, background 150ms',
       }}
     >
@@ -388,32 +414,30 @@ function ServerCard({
         onClick={onToggle}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        gap="cozy"
         style={{
           padding: '16px 16px 14px',
           cursor: 'pointer',
-          gap: 12,
           background: hover && !selected ? 'var(--color-surface-elevated)' : 'transparent',
           transition: 'background 150ms',
         }}
       >
-        <Stack direction="horizontal" align="start" style={{ gap: 12 }}>
+        <Stack direction="horizontal" align="start" gap="cozy">
           <ServerAvatar name={server.name} accent={server.name === 'orbit'} />
-          <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
-            <Stack direction="horizontal" align="center" style={{ gap: 8 }}>
-              <Text as="span" style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>
+          <Stack grow gap="none" style={{ minWidth: 0 }}>
+            <Stack direction="horizontal" align="center" gap="snug">
+              <Text as="span" weight="strong" style={{ fontSize: 15, letterSpacing: '-0.01em' }}>
                 {server.display_name}
               </Text>
               <HealthDot status={server.status} />
             </Stack>
             <Text
               as="span"
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontWeight: 500,
-                fontSize: 12,
-                color: 'var(--color-subtle)',
-                marginTop: 1,
-              }}
+              mono
+              size="caption"
+              weight="emphasis"
+              color="subtle"
+              style={{ marginTop: 1, lineHeight: 1.5 }}
             >
               {serverRollupScope(server.name)}
             </Text>
@@ -428,16 +452,7 @@ function ServerCard({
           </Stack>
         </Stack>
 
-        <Text
-          style={{
-            display: 'block',
-            margin: 0,
-            fontSize: 13,
-            lineHeight: 1.5,
-            color: 'var(--color-muted)',
-            minHeight: 38,
-          }}
-        >
+        <Text color="muted" style={{ fontSize: 13, lineHeight: 1.5, minHeight: 38 }}>
           {server.description || 'No description provided.'}
         </Text>
 
@@ -455,8 +470,8 @@ function ServerCard({
         justify="between"
         style={{ padding: '10px 16px', borderTop: '1px solid var(--color-border-subtle)' }}
       >
-        <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
-          <Text as="span" style={{ fontSize: 12, color: 'var(--color-muted)', fontWeight: 600 }}>
+        <Text as="span" size="caption" color="subtle">
+          <Text as="span" size="caption" color="muted" weight="strong">
             {server.tool_count}
           </Text>{' '}
           tools · synced {relativeTime(server.last_synced)}
@@ -474,7 +489,7 @@ function ServerCard({
           <Icon name="chevron-right" size="2xs" />
         </Button>
       </Stack>
-    </Stack>
+    </Card>
   );
 }
 
@@ -515,11 +530,11 @@ function ServerTable({
         }}
       >
         <Stack />
-        <ColLabel>Server</ColLabel>
-        <ColLabel>Access</ColLabel>
-        <ColLabel>Identity</ColLabel>
-        <ColLabel>Capabilities</ColLabel>
-        <ColLabel>Tools</ColLabel>
+        <Eyebrow>Server</Eyebrow>
+        <Eyebrow>Access</Eyebrow>
+        <Eyebrow>Identity</Eyebrow>
+        <Eyebrow>Capabilities</Eyebrow>
+        <Eyebrow>Tools</Eyebrow>
         <Stack />
       </Stack>
 
@@ -541,6 +556,8 @@ function ServerTable({
               cursor: 'pointer',
               borderTop: i === 0 ? 'none' : '1px solid var(--color-border)',
               transition: 'background 150ms',
+              // Selected rows wash with a 6% accent tint (token-derived); Card's
+              // selected surface doesn't apply to grid rows, so the mix is kept.
               ...(isSel
                 ? { background: 'color-mix(in oklch, var(--color-accent) 6%, transparent)' }
                 : hoveredRow === s.name
@@ -591,22 +608,5 @@ function ServerTable({
         );
       })}
     </Stack>
-  );
-}
-
-function ColLabel({ children }: { children: string }) {
-  return (
-    <Text
-      as="span"
-      style={{
-        fontSize: 10,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '0.1em',
-        color: 'var(--color-subtle)',
-      }}
-    >
-      {children}
-    </Text>
   );
 }

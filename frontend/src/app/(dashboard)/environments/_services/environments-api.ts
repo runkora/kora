@@ -24,7 +24,7 @@ export async function fetchEnvironments(): Promise<{
   try {
     res = await fetch(ApiRoute.environments.list(), { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error — could not reach the server.' };
+    return { data: [], error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -50,7 +50,7 @@ export async function createEnvironment(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { environment: null, error: 'Network error — could not reach the server.' };
+    return { environment: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -77,7 +77,7 @@ export async function updateEnvironment(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { environment: null, error: 'Network error — could not reach the server.' };
+    return { environment: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -113,7 +113,7 @@ export async function previewEnvironmentAccess(body: {
       cache: 'no-store',
     });
   } catch {
-    return { access: null, error: 'Network error — could not reach the server.' };
+    return { access: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}) as { message?: string });
@@ -133,7 +133,7 @@ export async function deleteEnvironment(id: string): Promise<{ error: string | n
   try {
     res = await fetch(ApiRoute.environments.delete(id), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });

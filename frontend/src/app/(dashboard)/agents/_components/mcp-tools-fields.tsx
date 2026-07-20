@@ -4,7 +4,7 @@
  * agent may call through the tool-gateway. Fine-grained — per tool, with
  * per-server and per-domain "select all" rollups. Compiles to
  * mcp:<server>:<tool>:use grant scopes (the credential parallel to
- * connectors-fields / connectivity-fields). Shared by the create form and the
+ * connectivity-fields). Shared by the create form and the
  * connectivity tab. */
 
 import { useMemo } from 'react';

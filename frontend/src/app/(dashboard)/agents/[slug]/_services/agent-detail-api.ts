@@ -21,7 +21,7 @@ export async function fetchAgentDetail(
   try {
     res = await fetch(ApiRoute.agentTypes.detail(id), { cache: 'no-store' });
   } catch {
-    return { agentType: null, error: 'Network error — could not reach the server.' };
+    return { agentType: null, error: 'Network error: could not reach the server.' };
   }
   if (res.status === 404) return { agentType: null, error: null };
   if (!res.ok) {
@@ -44,7 +44,7 @@ export async function fetchEffectiveAccess(
   try {
     res = await fetch(ApiRoute.agentTypes.effectiveAccess(id), { cache: 'no-store' });
   } catch {
-    return { access: null, error: 'Network error — could not reach the server.' };
+    return { access: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -73,7 +73,7 @@ export async function previewEffectiveAccess(
       cache: 'no-store',
     });
   } catch {
-    return { access: null, error: 'Network error — could not reach the server.' };
+    return { access: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}) as { message?: string });
@@ -93,7 +93,7 @@ export async function deleteAgentType(id: string): Promise<{ error: string | nul
   try {
     res = await fetch(ApiRoute.agentTypes.detail(id), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -112,7 +112,7 @@ export async function fetchAgentRuns(
   try {
     res = await fetch(ApiRoute.runs.listForType(agentTypeId), { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error — could not reach the server.' };
+    return { data: [], error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -133,7 +133,7 @@ export async function deleteRun(runId: string): Promise<{ error: string | null }
   try {
     res = await fetch(ApiRoute.runs.detail(runId), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -156,7 +156,7 @@ export async function updateAgentType(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { agentType: null, error: 'Network error — could not reach the server.' };
+    return { agentType: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -178,7 +178,7 @@ export async function fetchAgentTypeUsage(
   try {
     res = await fetch(ApiRoute.agentTypes.usage(id), { cache: 'no-store' });
   } catch {
-    return { usage: null, error: 'Network error — could not reach the server.' };
+    return { usage: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });

@@ -32,7 +32,7 @@ export async function createSource(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { source: null, error: 'Network error — could not reach the server.' };
+    return { source: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { source: null, error: await errorMessage(res) };
   const body = (await res.json()) as { data: WebhookSourceResponse };
@@ -51,7 +51,7 @@ export async function updateSource(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { source: null, error: 'Network error — could not reach the server.' };
+    return { source: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { source: null, error: await errorMessage(res) };
   const body = (await res.json()) as { data: WebhookSourceResponse };
@@ -63,7 +63,7 @@ export async function deleteSource(id: string): Promise<{ error: string | null }
   try {
     res = await fetch(ApiRoute.triggerSources.delete(id), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { error: await errorMessage(res) };
   return { error: null };
@@ -82,7 +82,7 @@ export async function createTrigger(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { trigger: null, error: 'Network error — could not reach the server.' };
+    return { trigger: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { trigger: null, error: await errorMessage(res) };
   const body = (await res.json()) as { data: Trigger };
@@ -101,7 +101,7 @@ export async function updateTrigger(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { trigger: null, error: 'Network error — could not reach the server.' };
+    return { trigger: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { trigger: null, error: await errorMessage(res) };
   const body = (await res.json()) as { data: Trigger };
@@ -113,7 +113,7 @@ export async function deleteTrigger(id: string): Promise<{ error: string | null 
   try {
     res = await fetch(ApiRoute.triggers.delete(id), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { error: await errorMessage(res) };
   return { error: null };

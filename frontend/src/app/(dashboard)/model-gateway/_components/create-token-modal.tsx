@@ -172,7 +172,7 @@ export function CreateTokenModal({
             </Stack>
             {availableScopes.length === 0 ? (
               <Text size="supporting" color="muted">
-                No scopes available — your account has no granted permissions.
+                No scopes available. Your account has no granted permissions.
               </Text>
             ) : (
               <ScopePicker

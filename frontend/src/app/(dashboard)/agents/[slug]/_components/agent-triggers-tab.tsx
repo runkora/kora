@@ -67,7 +67,7 @@ export function AgentTriggersTab() {
         setDeliveries(((await delRes.json()) as { data: TriggerDelivery[] }).data ?? []);
       if (!trgRes.ok) setLoadError('Failed to load triggers.');
     } catch {
-      setLoadError('Network error — could not load triggers.');
+      setLoadError('Network error: could not load triggers.');
     } finally {
       setLoading(false);
     }

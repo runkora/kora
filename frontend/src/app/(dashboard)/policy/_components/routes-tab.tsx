@@ -125,7 +125,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         <Callout>
           <Text size="caption" color="muted">
             Services register their route→scope mappings at startup. This is the source of truth for
-            what scope is required to call each endpoint — compiled into OPA bundles and enforced by
+            what scope is required to call each endpoint, compiled into OPA bundles and enforced by
             Envoy sidecars.
           </Text>
         </Callout>
@@ -150,7 +150,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       <Callout>
         <Text size="caption" color="muted">
           Services register their route→scope mappings at startup. This is the source of truth for
-          what scope is required to call each endpoint — compiled into OPA bundles and enforced by
+          what scope is required to call each endpoint, compiled into OPA bundles and enforced by
           Envoy sidecars.
         </Text>
       </Callout>

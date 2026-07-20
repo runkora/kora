@@ -89,7 +89,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       {/* Info box */}
       <Callout>
         <Text size="caption" color="muted">
-          Scopes use the format <Code>resource:path:action</Code>. Sibling scopes are independent —{' '}
+          Scopes use the format <Code>resource:path:action</Code>. Sibling scopes are independent:{' '}
           <Code>mcp:github:read</Code> does not grant <Code>mcp:github:write</Code>
         </Text>
       </Callout>

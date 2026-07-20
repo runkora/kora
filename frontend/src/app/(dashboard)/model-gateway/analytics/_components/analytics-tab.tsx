@@ -42,7 +42,7 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
       <TabsContent value="overview">
         <AnalyticsDashboard
           title="Analytics"
-          description="Tenant-wide inference analytics — spend, tokens, and request volume across all principals."
+          description="Tenant-wide inference analytics: spend, tokens, and request volume across all principals."
           data={data}
           status={status}
           error={error}

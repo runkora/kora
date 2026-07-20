@@ -18,6 +18,12 @@ import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from 
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
 
+// Terra caption/micro variants are leading-none; the spec composed these labels
+// on the default 1.5 line box. `lineHeight` is kept inline where the line box
+// height is load-bearing for the surrounding layout (stacked rows, chip rows).
+// Font sizes 13/15/17/26px sit more than a sub-pixel from any Text/Heading
+// variant, so those spec values are kept verbatim rather than snapped.
+
 interface McpServerDetailPageProps {
   serverSlug: string;
   server: McpServer | null;
@@ -55,17 +61,19 @@ export function McpServerDetailPage({
   const hColor = statusColor(server.status);
 
   return (
-    <Stack style={{ gap: 24 }}>
+    <Stack gap="relaxed">
       {/* Identity header */}
-      <Stack direction="horizontal" align="start" style={{ gap: 16 }}>
+      <Stack direction="horizontal" align="start" gap="comfortable">
         <ServerAvatar name={server.name} accent={accent} size="lg" />
-        <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
+        <Stack grow gap="none" style={{ minWidth: 0 }}>
           <Stack direction="horizontal" align="center" style={{ gap: 10 }} wrap>
-            <Text as="span" style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>
+            <Text as="span" weight="heavy" style={{ fontSize: 26, letterSpacing: '-0.02em' }}>
               {server.display_name}
             </Text>
             <Text
               as="span"
+              size="caption"
+              weight="strong"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -73,8 +81,6 @@ export function McpServerDetailPage({
                 height: 24,
                 padding: '0 9px',
                 borderRadius: 'var(--radius-full)',
-                fontSize: 12,
-                fontWeight: 600,
                 color: hColor,
                 background: `color-mix(in oklch, ${hColor} 14%, transparent)`,
                 border: `1px solid color-mix(in oklch, ${hColor} 34%, transparent)`,
@@ -85,7 +91,7 @@ export function McpServerDetailPage({
                 style={{
                   width: 6,
                   height: 6,
-                  borderRadius: 9999,
+                  borderRadius: 'var(--radius-full)',
                   background: hColor,
                   display: 'inline-block',
                   animation: 'mcp-pulse 2s ease-in-out infinite',
@@ -95,31 +101,21 @@ export function McpServerDetailPage({
             </Text>
           </Stack>
           <Stack direction="horizontal" align="center" style={{ gap: 10, marginTop: 6 }}>
-            <Text
-              as="span"
-              mono
-              style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-muted)' }}
-            >
+            <Text as="span" mono weight="strong" color="muted" style={{ fontSize: 13 }}>
               {server.name}
             </Text>
             <Text as="span" style={{ color: 'var(--color-border)' }}>
               ·
             </Text>
-            <Text as="span" style={{ fontSize: 13, color: 'var(--color-subtle)' }}>
+            <Text as="span" color="subtle" style={{ fontSize: 13 }}>
               {server.global ? 'Global' : 'Tenant'} server
             </Text>
           </Stack>
           {server.description ? (
             <Text
-              as="span"
-              style={{
-                display: 'block',
-                margin: '10px 0 0',
-                fontSize: 14,
-                lineHeight: 1.55,
-                color: 'var(--color-muted)',
-                maxWidth: 620,
-              }}
+              size="supporting"
+              color="muted"
+              style={{ margin: '10px 0 0', lineHeight: 1.55, maxWidth: 620 }}
             >
               {server.description}
             </Text>
@@ -132,12 +128,12 @@ export function McpServerDetailPage({
         style={{ display: 'grid', gridTemplateColumns: '1fr 372px', gap: 24, alignItems: 'start' }}
       >
         {/* Main — tools */}
-        <Stack style={{ gap: 16, minWidth: 0 }}>
+        <Stack gap="comfortable" style={{ minWidth: 0 }}>
           <Stack direction="horizontal" align="baseline" justify="between">
-            <Text as="span" style={{ fontSize: 17, fontWeight: 600 }}>
+            <Text as="span" weight="strong" style={{ fontSize: 17 }}>
               Tools
             </Text>
-            <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
+            <Text as="span" size="caption" color="subtle">
               {tools.length} across {groups.length} domain{groups.length === 1 ? '' : 's'}
             </Text>
           </Stack>
@@ -155,18 +151,23 @@ export function McpServerDetailPage({
             }}
           >
             <Icon name="shield-check" color="accent" size="sm" />
-            <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
-              <Text as="span" mono style={{ fontSize: 12, fontWeight: 600 }}>
+            <Stack grow gap="none" style={{ minWidth: 0 }}>
+              <Text as="span" mono size="caption" weight="strong" style={{ lineHeight: 1.5 }}>
                 {serverRollupScope(server.name)}
               </Text>
-              <Text as="span" style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2 }}>
-                Whole-server grant — allows every tool below
+              <Text
+                as="span"
+                size="caption"
+                color="muted"
+                style={{ marginTop: 2, lineHeight: 1.5 }}
+              >
+                Whole-server grant: allows every tool below
               </Text>
             </Stack>
           </Stack>
 
           {groups.length === 0 ? (
-            <Text as="span" style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+            <Text as="span" color="muted" style={{ fontSize: 13 }}>
               No tools have been introspected for this server yet.
             </Text>
           ) : (
@@ -175,7 +176,7 @@ export function McpServerDetailPage({
         </Stack>
 
         {/* Sidebar — connect + trust */}
-        <Stack style={{ gap: 16, position: 'sticky', top: 0 }}>
+        <Stack gap="comfortable" style={{ position: 'sticky', top: 0 }}>
           <ConnectCard slug={server.name} delegated={server.caller_identity === 'forward'} />
           <TrustCard server={server} />
         </Stack>
@@ -204,16 +205,17 @@ function DomainCard({ group }: { group: DomainGroup }) {
           background: 'var(--color-surface-elevated)',
         }}
       >
-        <Text as="span" style={{ fontSize: 14, fontWeight: 600, textTransform: 'capitalize' }}>
+        <Text as="span" size="supporting" weight="strong" style={{ textTransform: 'capitalize' }}>
           {group.domain}
         </Text>
         <Text
           as="span"
           mono
+          size="micro"
+          weight="emphasis"
+          color="subtle"
           style={{
-            fontSize: 11,
-            fontWeight: 500,
-            color: 'var(--color-subtle)',
+            lineHeight: 1.5,
             padding: '2px 7px',
             borderRadius: 'var(--radius-sm)',
             background: 'var(--color-surface)',
@@ -222,7 +224,7 @@ function DomainCard({ group }: { group: DomainGroup }) {
         >
           {group.rollupScope}
         </Text>
-        <Text as="span" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-subtle)' }}>
+        <Text as="span" size="micro" color="subtle" style={{ marginLeft: 'auto' }}>
           {group.tools.length} tools
         </Text>
       </Stack>
@@ -237,28 +239,22 @@ function DomainCard({ group }: { group: DomainGroup }) {
             borderTop: i === 0 ? 'none' : '1px solid var(--color-border-subtle)',
           }}
         >
-          <Stack style={{ width: 180, flexShrink: 0, gap: 0 }}>
-            <Text as="span" mono style={{ fontSize: 12.5, fontWeight: 600 }}>
+          <Stack gap="none" shrink style={{ width: 180 }}>
+            <Text as="span" mono size="caption" weight="strong" style={{ lineHeight: 1.5 }}>
               {t.toolName}
             </Text>
             <Text
               as="span"
               mono
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                color: 'var(--color-subtle)',
-                marginTop: 3,
-                wordBreak: 'break-all',
-              }}
+              size="micro"
+              weight="emphasis"
+              color="subtle"
+              style={{ lineHeight: 1.5, marginTop: 3, wordBreak: 'break-all' }}
             >
               {t.scope}
             </Text>
           </Stack>
-          <Text
-            as="span"
-            style={{ flex: 1, fontSize: 13, lineHeight: 1.5, color: 'var(--color-muted)' }}
-          >
+          <Text as="span" color="muted" style={{ flex: 1, fontSize: 13, lineHeight: 1.5 }}>
             {t.description || '—'}
           </Text>
         </Stack>
@@ -272,7 +268,7 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
   const config = buildMcpConfig(client, [slug]);
   const clientDef = MCP_CLIENTS.find((c) => c.id === client) ?? MCP_CLIENTS[0];
   const authNote = delegated
-    ? 'You authorise via OAuth on first connect — a browser window opens. Agents receive a just-in-time injected token; no secret is stored in this config.'
+    ? 'You authorise via OAuth on first connect. A browser window opens. Agents receive a just-in-time injected token; no secret is stored in this config.'
     : 'The gateway injects a scoped service credential at call time. No secret is stored in this config, and the upstream credential is never exposed to the client.';
 
   return (
@@ -294,15 +290,17 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
         }}
       >
         <Icon name="terminal" color="accent" size="sm" />
-        <Text as="span" style={{ fontSize: 14, fontWeight: 600 }}>
+        <Text as="span" size="supporting" weight="strong">
           Connect
         </Text>
-        <Text as="span" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-subtle)' }}>
+        <Text as="span" size="micro" color="subtle" style={{ marginLeft: 'auto' }}>
           MCP client
         </Text>
       </Stack>
       <Stack style={{ padding: '14px 16px', gap: 12 }}>
-        {/* Client mini-tabs */}
+        {/* Client mini-tabs — pick-one, but the spec draws a flat 26px segment with an
+            overlay fill on the active item; Card selected / RadioCard would draw an
+            accent border (and a radio dot), so the state stays token-styled here. */}
         <Stack
           direction="horizontal"
           style={{
@@ -321,19 +319,21 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
                 key={c.id}
                 role="button"
                 onClick={() => setClient(c.id)}
+                size="micro"
+                weight={active ? 'strong' : 'emphasis'}
+                color={active ? 'foreground' : 'subtle'}
                 style={{
                   flex: 1,
                   height: 26,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  // 6px nested radius: no token between --radius-sm (4px) and
+                  // --radius-md (8px), so the spec value is kept.
                   borderRadius: 6,
                   cursor: 'pointer',
-                  fontSize: 11,
-                  fontWeight: active ? 600 : 500,
                   whiteSpace: 'nowrap',
                   background: active ? 'var(--color-surface-overlay)' : 'transparent',
-                  color: active ? 'var(--color-foreground)' : 'var(--color-subtle)',
                 }}
               >
                 {c.short}
@@ -344,7 +344,10 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
         <Text
           as="span"
           mono
-          style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-subtle)' }}
+          size="micro"
+          weight="emphasis"
+          color="subtle"
+          style={{ lineHeight: 1.5 }}
         >
           {clientDef.file}
         </Text>
@@ -360,7 +363,7 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
           }}
         >
           <Icon name="info" color="accent" size="xs" />
-          <Text as="span" style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--color-muted)' }}>
+          <Text as="span" size="micro" color="muted" style={{ lineHeight: 1.5 }}>
             {authNote}
           </Text>
         </Stack>
@@ -393,13 +396,11 @@ function TrustCard({ server }: { server: McpServer }) {
       }}
     >
       <Text
-        as="span"
+        size="supporting"
+        weight="strong"
         style={{
-          display: 'block',
           padding: '13px 16px',
           borderBottom: '1px solid var(--color-border-subtle)',
-          fontSize: 14,
-          fontWeight: 600,
         }}
       >
         Trust &amp; connection
@@ -423,17 +424,14 @@ function TrustCard({ server }: { server: McpServer }) {
           >
             <Icon name={delegated ? 'user' : 'box'} size="sm" />
           </Text>
-          <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
-            <Text as="span" style={{ fontSize: 13, fontWeight: 600, color: idColor }}>
+          <Stack grow gap="none" style={{ minWidth: 0 }}>
+            <Text as="span" weight="strong" style={{ fontSize: 13, color: idColor }}>
               {delegated ? 'Delegated' : 'Service'} identity
             </Text>
-            <Text
-              as="span"
-              style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 3 }}
-            >
+            <Text as="span" size="caption" color="muted" style={{ lineHeight: 1.5, marginTop: 3 }}>
               {delegated
-                ? 'Acts as you — it inherits your Orbit identity and is bound by exactly your grants. It can never exceed what you can do.'
-                : 'Acts as itself — the gateway injects a dedicated service credential just-in-time. It never sees your identity or tokens.'}
+                ? 'Acts as you: it inherits your Orbit identity and is bound by exactly your grants. It can never exceed what you can do.'
+                : 'Acts as itself: the gateway injects a dedicated service credential just-in-time. It never sees your identity or tokens.'}
             </Text>
           </Stack>
         </Stack>
@@ -449,19 +447,16 @@ function TrustCard({ server }: { server: McpServer }) {
               justify="between"
               style={{ gap: 12 }}
             >
-              <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
+              <Text as="span" size="caption" color="subtle" style={{ lineHeight: 1.5 }}>
                 {m.k}
               </Text>
               <Text
                 as="span"
                 mono
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: m.color,
-                  textAlign: 'right',
-                  wordBreak: 'break-all',
-                }}
+                size="caption"
+                weight="emphasis"
+                align="end"
+                style={{ lineHeight: 1.5, color: m.color, wordBreak: 'break-all' }}
               >
                 {m.v}
               </Text>
@@ -481,8 +476,8 @@ function TrustCard({ server }: { server: McpServer }) {
           }}
         >
           <Icon name="info" color="subtle" size="2xs" />
-          <Text as="span" style={{ fontSize: 11, color: 'var(--color-subtle)' }}>
-            Reachability &amp; latency checks — coming soon
+          <Text as="span" size="micro" color="subtle" style={{ lineHeight: 1.5 }}>
+            Reachability &amp; latency checks: coming soon
           </Text>
         </Stack>
       </Stack>
