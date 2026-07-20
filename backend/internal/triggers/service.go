@@ -429,7 +429,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return 0, ErrSignatureInvalid
 	}
 
-	deliveryID := adapter.DeliveryID(headers)
+	deliveryID := adapter.DeliveryID(headers, body)
 	if deliveryID == "" {
 		// Replay protection keys entirely on the provider delivery id via the
 		// partial unique index on trigger_deliveries. The id is not covered by the

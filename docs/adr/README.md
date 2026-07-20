@@ -232,4 +232,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
+| 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

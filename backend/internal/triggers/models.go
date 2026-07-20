@@ -18,7 +18,8 @@ import (
 
 // Provider identifiers for the source adapters that ship in v1.
 const (
-	ProviderGitHub = "github"
+	ProviderGitHub       = "github"
+	ProviderAlertmanager = "alertmanager"
 )
 
 // Delivery processing statuses recorded in trigger_deliveries.

@@ -111,6 +111,7 @@ export function SourceFormModal({ open, onClose, onSaved }: SourceFormModalProps
                   onChange={(e) => setProvider(e.target.value)}
                 >
                   <option value="github">GitHub</option>
+                  <option value="alertmanager">Prometheus Alertmanager</option>
                 </NativeSelect>
               </FormField>
               {submitError && <Alert variant="error">{submitError}</Alert>}
