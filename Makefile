@@ -993,6 +993,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	nvm install $(NODE_VERSION); \
 	nvm use $(NODE_VERSION); \
 	echo "  Enabling Corepack..."; \
+	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0; \
 	corepack enable; \
 	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
