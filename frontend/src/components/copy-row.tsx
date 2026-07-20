@@ -37,7 +37,14 @@ export function CopyRow({ label, value, mono }: CopyRowProps) {
   }, [value]);
 
   return (
-    <Button variant="ghost" size="sm" fullWidth onClick={handleCopy} aria-label={`Copy ${label}`}>
+    <Button
+      variant="ghost"
+      size="sm"
+      fullWidth
+      onClick={handleCopy}
+      aria-label={`Copy ${label}`}
+      style={{ paddingBlockStart: '10px', paddingBlockEnd: '8px' }}
+    >
       <Stack direction="horizontal" align="center" justify="between" grow textAlign="start">
         <Stack gap="none">
           <Text size="caption" color="muted">
