@@ -133,13 +133,14 @@ export interface {Name}Props
 }
 
 const {Name} = React.forwardRef<HTMLDivElement, {Name}Props>(
-  ({ ...props }, ref) => {
+  ({ variant, size, ...rest }, ref) => {
+    // Destructure variant props explicitly; spread the rest to avoid passing reserved/unused attrs
     return (
       <div
         ref={ref}
         data-slot="{name}"
-        className={cn({name}Variants({ ... }))}
-        {...props}
+        className={cn({name}Variants({ variant, size }))}
+        {...rest}
       />
     )
   },
@@ -170,7 +171,7 @@ comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, 
 
 ```tsx
 /** @tier 2 — Orbit-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
-'use client'
+'use client'  // only if this file uses React hooks
 import { ... } from '@orbit/terra'
 // Import Orbit types as needed; no raw HTML
 
@@ -304,8 +305,8 @@ cd frontend && pnpm lint && pnpm tsc --noEmit
 Both must exit zero before the task is done. Do not declare success until they do.
 
 **Common violations to check:**
-- Forgot to add export to `index.ts` (TypeScript will catch missing re-exports; ESLint will catch
-  missing component barrel in Tier 2)
+- Missing barrel export in `index.ts` — lint and tsc only catch this if something already imports
+  from the barrel; always verify manually that the new component is exported
 - Raw `<div>` / `<span>` / `<p>` in a component file outside `src/packages/terra/` — replace with
   Terra primitives
 - `className` passed to a Terra component that declares `className?: never` — remove it
