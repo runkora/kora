@@ -1,0 +1,234 @@
+package triggers
+
+import (
+	"errors"
+	"net/http"
+	"testing"
+)
+
+// firingAlertmanagerBody is a canonical Alertmanager v4 payload for a firing
+// alert group, cribbed from the Prometheus docs (webhook_config). Used across
+// several tests.
+const firingAlertmanagerBody = `{
+	"version":"4",
+	"groupKey":"{}:{alertname=\"HighCPU\"}",
+	"status":"firing",
+	"receiver":"orbit",
+	"externalURL":"https://alertmanager.example.com",
+	"groupLabels":{"alertname":"HighCPU"},
+	"commonLabels":{"alertname":"HighCPU","severity":"critical","service":"api"},
+	"commonAnnotations":{"summary":"CPU above 90%","description":"api pod has been >90% CPU for 5m"},
+	"alerts":[{"status":"firing","labels":{"alertname":"HighCPU","instance":"api-0"},"annotations":{"summary":"CPU above 90%"},"startsAt":"2026-07-21T10:00:00Z","endsAt":"0001-01-01T00:00:00Z","generatorURL":"https://prometheus.example.com/g?e=1","fingerprint":"abc123"}]
+}`
+
+func TestAlertmanagerAdapter_Verify(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	secret := "shh-alerts"
+	body := []byte(firingAlertmanagerBody)
+
+	t.Run("valid", func(t *testing.T) {
+		h := http.Header{"Authorization": {"Bearer " + secret}}
+		if err := a.Verify(secret, h, body); err != nil {
+			t.Fatalf("expected valid bearer, got %v", err)
+		}
+	})
+
+	t.Run("missing header", func(t *testing.T) {
+		if err := a.Verify(secret, http.Header{}, body); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
+		}
+	})
+
+	t.Run("wrong scheme", func(t *testing.T) {
+		h := http.Header{"Authorization": {"Basic " + secret}}
+		if err := a.Verify(secret, h, body); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
+		}
+	})
+
+	t.Run("wrong token", func(t *testing.T) {
+		h := http.Header{"Authorization": {"Bearer nope"}}
+		if err := a.Verify(secret, h, body); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
+		}
+	})
+
+	t.Run("empty token", func(t *testing.T) {
+		h := http.Header{"Authorization": {"Bearer "}}
+		if err := a.Verify(secret, h, body); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
+		}
+	})
+
+	t.Run("wrong length token", func(t *testing.T) {
+		// hmac.Equal returns false immediately on length mismatch. That leaks the
+		// stored secret's length via timing, which is acceptable here because
+		// generateSecret() emits a fixed-length token, so the length is not
+		// itself a secret. A shorter or longer token must still be rejected.
+		h := http.Header{"Authorization": {"Bearer " + secret + "x"}}
+		if err := a.Verify(secret, h, body); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
+		}
+	})
+}
+
+func TestAlertmanagerAdapter_HeaderExtraction(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	firing := []byte(firingAlertmanagerBody)
+
+	if got := a.Provider(); got != ProviderAlertmanager {
+		t.Errorf("Provider = %q, want %q", got, ProviderAlertmanager)
+	}
+	if got := a.EventType(nil, firing); got != "alert.firing" {
+		t.Errorf("EventType(firing) = %q, want alert.firing", got)
+	}
+	resolved := []byte(`{"groupKey":"g","status":"resolved","alerts":[]}`)
+	if got := a.EventType(nil, resolved); got != "alert.resolved" {
+		t.Errorf("EventType(resolved) = %q, want alert.resolved", got)
+	}
+	// Allow-list guard: unknown statuses do NOT become their own event type.
+	// A trigger author who accidentally typed status:"unknown" (or a future
+	// Alertmanager release that adds a new status) must not silently gate on
+	// "alert.unknown".
+	if got := a.EventType(nil, []byte(`{"status":"unknown"}`)); got != "" {
+		t.Errorf("EventType(unknown) = %q, want empty", got)
+	}
+	if got := a.EventType(nil, []byte(`{"status":"pending"}`)); got != "" {
+		t.Errorf("EventType(pending) = %q, want empty", got)
+	}
+	if got := a.EventType(nil, []byte(`{"groupKey":"g"}`)); got != "" {
+		t.Errorf("EventType(no status) = %q, want empty", got)
+	}
+	if got := a.EventType(nil, []byte(`not json`)); got != "" {
+		t.Errorf("EventType(garbage) = %q, want empty", got)
+	}
+}
+
+func TestAlertmanagerAdapter_DeliveryID(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	body1 := []byte(firingAlertmanagerBody)
+	body2 := []byte(firingAlertmanagerBody) // byte-identical replay
+	// Same body → same id (dedupes repeat_interval reminders).
+	if a.DeliveryID(nil, body1) != a.DeliveryID(nil, body2) {
+		t.Error("expected identical bodies to hash identically")
+	}
+	// A resolved payload with the same groupKey must produce a different id.
+	resolved := []byte(`{"version":"4","groupKey":"{}:{alertname=\"HighCPU\"}","status":"resolved","receiver":"orbit","alerts":[]}`)
+	if a.DeliveryID(nil, body1) == a.DeliveryID(nil, resolved) {
+		t.Error("firing and resolved for the same groupKey must hash differently")
+	}
+	// Two Alertmanager instances sharing groupKey+status+body but with
+	// different receiver values must NOT collide (the whole point of including
+	// receiver in the hash). This is the multi-sender-per-source case flagged
+	// in the ADR's B1 Cons treatment.
+	senderA := []byte(`{"groupKey":"g","status":"firing","receiver":"team-a","alerts":[]}`)
+	senderB := []byte(`{"groupKey":"g","status":"firing","receiver":"team-b","alerts":[]}`)
+	if a.DeliveryID(nil, senderA) == a.DeliveryID(nil, senderB) {
+		t.Error("deliveries from different receivers must hash differently even with identical groupKey+status")
+	}
+	// A body with no groupKey/status must return "" so Ingest fails closed.
+	if got := a.DeliveryID(nil, []byte(`{"status":"firing"}`)); got != "" {
+		t.Errorf("DeliveryID(no groupKey) = %q, want empty", got)
+	}
+	if got := a.DeliveryID(nil, []byte(`{"groupKey":"g"}`)); got != "" {
+		t.Errorf("DeliveryID(no status) = %q, want empty", got)
+	}
+	if got := a.DeliveryID(nil, []byte(`not json`)); got != "" {
+		t.Errorf("DeliveryID(garbage) = %q, want empty", got)
+	}
+}
+
+func TestAlertmanagerAdapter_Fields_Firing(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	f := a.Fields("alert.firing", []byte(firingAlertmanagerBody))
+	want := map[string]string{
+		"event":                           "alert.firing",
+		"status":                          "firing",
+		"receiver":                        "orbit",
+		"group_key":                       `{}:{alertname="HighCPU"}`,
+		"external_url":                    "https://alertmanager.example.com",
+		"alerts.count":                    "1",
+		"group.labels.alertname":          "HighCPU",
+		"common.labels.alertname":         "HighCPU",
+		"common.labels.severity":          "critical",
+		"common.labels.service":           "api",
+		"common.annotations.summary":      "CPU above 90%",
+		"common.annotations.description":  "api pod has been >90% CPU for 5m",
+		"first_alert.status":              "firing",
+		"first_alert.starts_at":           "2026-07-21T10:00:00Z",
+		"first_alert.generator_url":       "https://prometheus.example.com/g?e=1",
+		"first_alert.fingerprint":         "abc123",
+		"first_alert.labels.alertname":    "HighCPU",
+		"first_alert.labels.instance":     "api-0",
+		"first_alert.annotations.summary": "CPU above 90%",
+	}
+	for k, v := range want {
+		if f[k] != v {
+			t.Errorf("field %q = %q, want %q", k, f[k], v)
+		}
+	}
+	// Match condition: severity=critical AND alertname=HighCPU should match.
+	cond := map[string][]string{
+		"common.labels.severity":  {"critical"},
+		"common.labels.alertname": {"HighCPU"},
+	}
+	if !matchesCondition(cond, f) {
+		t.Error("expected match for severity=critical, alertname=HighCPU")
+	}
+	// A trigger gating on severity=warning must NOT match.
+	if matchesCondition(map[string][]string{"common.labels.severity": {"warning"}}, f) {
+		t.Error("expected no match for severity=warning")
+	}
+}
+
+func TestAlertmanagerAdapter_Fields_Resolved(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	body := []byte(`{"version":"4","groupKey":"g","status":"resolved","receiver":"orbit",
+		"commonLabels":{"alertname":"HighCPU"},"commonAnnotations":{},
+		"alerts":[{"status":"resolved","labels":{"alertname":"HighCPU"},"annotations":{},"startsAt":"2026-07-21T10:00:00Z","endsAt":"2026-07-21T10:15:00Z","fingerprint":"abc123"}]}`)
+	f := a.Fields("alert.resolved", body)
+	if f["event"] != "alert.resolved" {
+		t.Errorf("event = %q, want alert.resolved", f["event"])
+	}
+	if f["status"] != "resolved" {
+		t.Errorf("status = %q, want resolved", f["status"])
+	}
+	if f["first_alert.status"] != "resolved" {
+		t.Errorf("first_alert.status = %q, want resolved", f["first_alert.status"])
+	}
+	if f["first_alert.ends_at"] != "2026-07-21T10:15:00Z" {
+		t.Errorf("first_alert.ends_at = %q, want the resolution timestamp", f["first_alert.ends_at"])
+	}
+	if f["common.labels.alertname"] != "HighCPU" {
+		t.Errorf("common.labels.alertname = %q", f["common.labels.alertname"])
+	}
+}
+
+func TestAlertmanagerAdapter_Fields_Malformed(t *testing.T) {
+	a := &alertmanagerAdapter{}
+	// Garbage body must not panic and yields empty optional fields.
+	f := a.Fields("alert.firing", []byte(`not json`))
+	if f["event"] != "alert.firing" {
+		t.Errorf("event should still be set, got %q", f["event"])
+	}
+	if f["alerts.count"] != "0" {
+		t.Errorf("alerts.count = %q, want 0 for malformed body", f["alerts.count"])
+	}
+	if f["common.labels.severity"] != "" {
+		t.Errorf("common.labels.severity should be empty for malformed body")
+	}
+}
+
+func TestAlertmanagerAdapter_Fields_NoAlerts(t *testing.T) {
+	// A group-level notification with an empty alerts array (unusual but possible)
+	// must not populate any first_alert.* fields.
+	a := &alertmanagerAdapter{}
+	body := []byte(`{"version":"4","groupKey":"g","status":"firing","alerts":[]}`)
+	f := a.Fields("alert.firing", body)
+	if f["alerts.count"] != "0" {
+		t.Errorf("alerts.count = %q, want 0", f["alerts.count"])
+	}
+	if _, ok := f["first_alert.status"]; ok {
+		t.Error("first_alert.status must not be set when alerts is empty")
+	}
+}

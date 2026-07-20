@@ -40,7 +40,7 @@ How should the Alertmanager adapter authenticate deliveries, expose an `event_ty
 - Per-alert fan-out — one delivery still produces at most one matched dispatch per trigger, over the aggregated fields. Users needing per-alert semantics should split their alerts at the Prometheus rule / Alertmanager routing level.
 - Prompt-templating injection hardening — deferred platform-wide, as with GitHub `pr.title` / `issue.body`. Annotation text authored in Prometheus rules is treated as untrusted data.
 - Rich Alertmanager response semantics — the receiver returns 2xx as long as the delivery was verified and recorded; we do not encode retry hints for Alertmanager.
-- Splitting adapters into `adapters/<provider>/` subdirectories — deferred until the third adapter lands (see Notes).
+- Splitting adapters into `adapters/<provider>/` subdirectories — deferred until the third adapter lands, or until either adapter grows a helper package (see Notes). One-file-per-adapter within the flat package is the current shape.
 
 ---
 
@@ -169,7 +169,7 @@ Rationale: >90% of practical triggers gate on `common.labels.alertname` or `comm
 `common.annotations.summary`, `common.annotations.description`, `first_alert.annotations.*`, and any `labels.<key>` are attacker-influenceable — whoever authors the Prometheus rule can craft the annotation and label text — and are substituted into prompts verbatim. Same treatment and same explicit inline comment as the GitHub `issues` fields at [`adapter.go:189–193`](../../backend/internal/triggers/adapter.go): treat as untrusted data; the real boundary is the agent's least-privilege tools + human review, not the prompt text. Injection hardening remains deferred platform-wide.
 
 **4. Provider identifier and adapter placement.**
-Add `ProviderAlertmanager = "alertmanager"` alongside `ProviderGitHub` in `models.go`. Register `&alertmanagerAdapter{}` in `NewRegistry()`. Adapter code lives alongside `githubAdapter` in `adapter.go`. At three adapters we split into `adapters/<provider>/` subdirectories (see Notes) — with two, the current single file remains the least-friction location.
+Add `ProviderAlertmanager = "alertmanager"` alongside `ProviderGitHub` in `models.go`. Register `&alertmanagerAdapter{}` in `NewRegistry()`. Adapter code lives in `adapter_alertmanager.go` alongside the sibling `adapter_github.go`; the interface, registry, and shared helpers stay in `adapter.go`. Tests split the same way (`adapter_alertmanager_test.go`, `adapter_github_test.go`, `adapter_test.go` for registry/matchesCondition). Third and future adapters drop in as their own `adapter_<provider>.go` file with a one-line `r.register(...)` addition. A `backend/internal/triggers/adapters/<provider>/` subdirectory split is deferred until an adapter grows a helper package (see Notes).
 
 ### Alignment with the three questions
 
@@ -191,7 +191,7 @@ Add `ProviderAlertmanager = "alertmanager"` alongside `ProviderGitHub` in `model
 
 - The `provider` string space grows unbounded — every future adapter is another dropdown option, another provider constant, and another set of allow-listed field keys to remember. Manageable at two, worth a template/plugin rethink at ~five. Not a v1 concern.
 - Bearer-token auth is weaker than GitHub's HMAC-per-body: token theft compromises any body sent to that source. Mitigation is the same as every other bearer credential (rotation + encrypted storage); Alertmanager gives us no better option without a proxy.
-- Two adapters now share one file (`adapter.go`), which is fine at this size but starts to smell at three — telegraphed in the Notes section as a follow-up refactor.
+- Each adapter lives in its own `adapter_<provider>.go` file. This is a mechanical readability win, not a real structural change — the interface and registry stay in `adapter.go`. A future subdirectory split (`adapters/<provider>/`) is the natural next step if an adapter grows a helper package.
 
 ### Neutral
 
@@ -252,9 +252,9 @@ Same as GitHub — the `trigger_deliveries` table is the queryable audit/debug s
 
 ## Notes
 
-### Follow-up: split adapters into `adapters/<provider>/` at three
+### Follow-up: split adapters into `adapters/<provider>/` subdirectories
 
-With two adapters, keeping both types in `backend/internal/triggers/adapter.go` is the least-friction shape. At the third adapter — or the moment either adapter grows a helper package (e.g. an Alertmanager response type, a GitHub App metadata resolver) — split into `backend/internal/triggers/adapters/github/` and `backend/internal/triggers/adapters/alertmanager/`. Adapter tests move with their adapters; the registry stays in `adapter.go` and imports each adapter package. This is a purely mechanical refactor with no interface changes.
+Each adapter already lives in its own file (`adapter_github.go`, `adapter_alertmanager.go`) alongside a sibling test file, with the interface and registry shared in `adapter.go`. That is the flat form. The next natural step — a `backend/internal/triggers/adapters/<provider>/` package per adapter — is deferred until an adapter grows a helper package (e.g. an Alertmanager response type, a GitHub App metadata resolver) or a third adapter lands. Adapter tests move with their adapters; the registry stays in `adapter.go` and imports each adapter package. This is a purely mechanical refactor with no interface changes.
 
 ### Follow-up: extract triggers into `orbit-triggers`
 

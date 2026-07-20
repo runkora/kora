@@ -103,6 +103,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
+- [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Proposed` · 2026-07-21
 
 ### MCP / Tool Gateway
 
