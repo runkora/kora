@@ -71,7 +71,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 **Cons:**
 - Weaker than HMAC-per-body: a captured bearer token authenticates any body, whereas a GitHub HMAC signature binds body + key. Replay of the same body to the same source is still deduped by the delivery-id guard; theft of the token from an Alertmanager config file is the real threat, mitigated by the same operational controls (secret rotation, encrypted storage) that Alertmanager users apply to any credential.
-- Length is not covered by `hmac.Equal` semantics unless we compare same-length values; addressed by using `hmac.Equal([]byte(token), []byte(secret))`, which is constant-time and length-safe.
+- Length is not covered by `hmac.Equal` semantics: it delegates to `subtle.ConstantTimeCompare`, which returns false immediately when the two slices differ in length. This is acceptable here because `generateSecret()` emits a fixed-length (43-char base64) token, so a length observation reveals nothing that isn't already public. The comparison is constant-time across the token bytes themselves.
 
 #### A2: Shared secret in the URL path
 
@@ -99,7 +99,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 #### B1: `event_type` from payload `status`, delivery id = content hash
 
-**Description:** `EventType` parses the top-level `status` field and returns `alert.firing` or `alert.resolved` (namespaced to keep the event-type space collision-free across providers). `DeliveryID` returns `sha256(groupKey || status || body)` in hex. `repeat_interval` reminders hash identically and are deduped by the existing partial unique index on `trigger_deliveries.(source_id, provider_delivery_id)`; a firing → resolved transition changes `status` and produces a new dispatch.
+**Description:** `EventType` parses the top-level `status` field and returns `alert.firing` or `alert.resolved` (namespaced to keep the event-type space collision-free across providers); any other status returns `""` so an unknown value never becomes its own event type. `DeliveryID` returns `sha256(receiver || groupKey || status || body)` in hex, with `\x00` separators between fields so field boundaries cannot alias. `repeat_interval` reminders hash identically and are deduped by the existing partial unique index on `trigger_deliveries.(source_id, provider_delivery_id)`; a firing → resolved transition changes `status` and produces a new dispatch; two Alertmanager instances with overlapping `groupKey` values do not collide because `receiver` is part of the hash.
 
 **Pros:**
 - Mirrors the GitHub `pull_request` / `push` split: the most common gating decision (firing vs resolved) is a top-level `event_type`, visible in the UI as its own dropdown value, and every trigger doesn't need a `match_condition` to distinguish them.
@@ -108,7 +108,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 **Cons:**
 - A payload that changes only the `alerts` array (same group, same status, but a new alert added mid-window) hashes differently and dispatches again — arguably correct (there's new information) but users who want strict "one dispatch per group" have to work around it via match conditions. Aligned with the Alertmanager mental model: the aggregated notification is what the agent responds to; content changes to that notification are new signal.
-- `groupKey` is Alertmanager-internal; if two Alertmanager instances route to the same Orbit source with overlapping group keys the hash could collide across senders. In practice each source has one Alertmanager, and adding `receiver` or the source id to the hash would only obscure the shape without changing the security properties.
+- `groupKey` is Alertmanager-internal; if two Alertmanager instances route to the same Orbit source with overlapping group keys the hash could collide across senders. In practice each source has one Alertmanager, but the collision case is easy to close: `receiver` (also part of the payload) is prepended to the hash inputs, namespacing the dedup key by sender without changing the surface for the common single-sender case.
 
 #### B2: Single `event_type` `alert`, `status` only via `match_condition`
 
@@ -136,7 +136,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 ## Decision
 
-**Chosen Option:** **A1 + B1** — bearer token authentication on `Authorization`, event type from payload `status` namespaced as `alert.firing` / `alert.resolved`, delivery id = `sha256(groupKey || status || body)`.
+**Chosen Option:** **A1 + B1** — bearer token authentication on `Authorization`, event type from payload `status` allow-listed to `alert.firing` / `alert.resolved`, delivery id = `sha256(receiver || groupKey || status || body)` with byte separators.
 
 ### Rationale
 
@@ -208,7 +208,7 @@ Add `ProviderAlertmanager = "alertmanager"` alongside `ProviderGitHub` in `model
 2. `backend/internal/triggers/adapter.go` — widen the `SourceAdapter.DeliveryID` signature to `(headers http.Header, body []byte) string`; add `alertmanagerAdapter` implementing `Provider`/`Verify`/`DeliveryID`/`EventType`/`Fields`; register it in `NewRegistry`. `githubAdapter.DeliveryID` gains an unused `body` parameter (documented as ignored on this adapter).
 3. `backend/internal/triggers/service.go` — one-line update at the current `adapter.DeliveryID(headers)` call site (`service.go:432`) to pass `body`.
 4. `backend/internal/triggers/adapter_test.go` — mirror the GitHub coverage (verify success/failure paths, header extraction, field extraction for firing and resolved, malformed body, dedup determinism); extend `TestRegistry` to assert both adapters register.
-5. `frontend/src/app/(dashboard)/triggers/_components/source-form-modal.tsx` — add the second `<option value="alertmanager">Prometheus Alertmanager</option>`; make the "paste this secret into your provider" help copy provider-conditional so the Alertmanager case mentions `http_config.authorization.credentials` instead of GitHub's webhook signing-secret field.
+5. `frontend/src/app/(dashboard)/triggers/_components/source-form-modal.tsx` — add the second `<option value="alertmanager">Prometheus Alertmanager</option>`. The existing help copy ("Store this secret securely. Configure it, along with the webhook path below, on the provider so deliveries can be verified.") is generic enough to work for either provider; provider-conditional guidance (e.g. explicit mention of `http_config.authorization.credentials`) is a UX follow-up if operator feedback shows the generic wording is confusing.
 
 ### Migration Path
 

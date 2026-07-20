@@ -66,7 +66,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	DELETE /api/v1/triggers/{id}             Delete a trigger.
 //	GET    /api/v1/trigger-deliveries        List recent deliveries (filter ?source_id=).
 func (c *Controller) Boot(mux *api.Mux) {
-	// Public inbound webhook — authenticated by HMAC signature, not a platform
+	// Public inbound webhook — authenticated by the per-source adapter (HMAC
+	// signature for GitHub, bearer token for Alertmanager), not a platform
 	// token, so it is registered without the auth chain (like /identity/device).
 	mux.Handle("POST /webhooks/{sourceID}", c.handleIngest)
 

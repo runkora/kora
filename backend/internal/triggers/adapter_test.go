@@ -252,7 +252,10 @@ func TestAlertmanagerAdapter_Verify(t *testing.T) {
 	})
 
 	t.Run("wrong length token", func(t *testing.T) {
-		// hmac.Equal is length-safe: a shorter/longer token must still be rejected.
+		// hmac.Equal returns false immediately on length mismatch. That leaks the
+		// stored secret's length via timing, which is acceptable here because
+		// generateSecret() emits a fixed-length token, so the length is not
+		// itself a secret. A shorter or longer token must still be rejected.
 		h := http.Header{"Authorization": {"Bearer " + secret + "x"}}
 		if err := a.Verify(secret, h, body); !errors.Is(err, ErrSignatureInvalid) {
 			t.Fatalf("expected ErrSignatureInvalid, got %v", err)
@@ -274,6 +277,16 @@ func TestAlertmanagerAdapter_HeaderExtraction(t *testing.T) {
 	if got := a.EventType(nil, resolved); got != "alert.resolved" {
 		t.Errorf("EventType(resolved) = %q, want alert.resolved", got)
 	}
+	// Allow-list guard: unknown statuses do NOT become their own event type.
+	// A trigger author who accidentally typed status:"unknown" (or a future
+	// Alertmanager release that adds a new status) must not silently gate on
+	// "alert.unknown".
+	if got := a.EventType(nil, []byte(`{"status":"unknown"}`)); got != "" {
+		t.Errorf("EventType(unknown) = %q, want empty", got)
+	}
+	if got := a.EventType(nil, []byte(`{"status":"pending"}`)); got != "" {
+		t.Errorf("EventType(pending) = %q, want empty", got)
+	}
 	if got := a.EventType(nil, []byte(`{"groupKey":"g"}`)); got != "" {
 		t.Errorf("EventType(no status) = %q, want empty", got)
 	}
@@ -291,9 +304,18 @@ func TestAlertmanagerAdapter_DeliveryID(t *testing.T) {
 		t.Error("expected identical bodies to hash identically")
 	}
 	// A resolved payload with the same groupKey must produce a different id.
-	resolved := []byte(`{"version":"4","groupKey":"{}:{alertname=\"HighCPU\"}","status":"resolved","alerts":[]}`)
+	resolved := []byte(`{"version":"4","groupKey":"{}:{alertname=\"HighCPU\"}","status":"resolved","receiver":"orbit","alerts":[]}`)
 	if a.DeliveryID(nil, body1) == a.DeliveryID(nil, resolved) {
 		t.Error("firing and resolved for the same groupKey must hash differently")
+	}
+	// Two Alertmanager instances sharing groupKey+status+body but with
+	// different receiver values must NOT collide (the whole point of including
+	// receiver in the hash). This is the multi-sender-per-source case flagged
+	// in the ADR's B1 Cons treatment.
+	senderA := []byte(`{"groupKey":"g","status":"firing","receiver":"team-a","alerts":[]}`)
+	senderB := []byte(`{"groupKey":"g","status":"firing","receiver":"team-b","alerts":[]}`)
+	if a.DeliveryID(nil, senderA) == a.DeliveryID(nil, senderB) {
+		t.Error("deliveries from different receivers must hash differently even with identical groupKey+status")
 	}
 	// A body with no groupKey/status must return "" so Ingest fails closed.
 	if got := a.DeliveryID(nil, []byte(`{"status":"firing"}`)); got != "" {
