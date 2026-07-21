@@ -284,6 +284,26 @@ export const ApiRoute = {
     },
   },
 
+  /**
+   * `/api/analytics/principals/{id}`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/analytics/principals/{id}`
+   *       and returns the full usage breakdown (time-series, KPIs, cost-by-model —
+   *       same shape as `/api/analytics/me`) for the specified principal. Backs the
+   *       admin drill-down from a Principals table row. Requires `platform:analytics:read`
+   *       scope. Accepts optional `days` (7 | 30 | 90) and `granularity` params.
+   */
+  analyticsPrincipalById: {
+    GET: (id: string, params?: { days?: number; granularity?: string }): string => {
+      const qs = new URLSearchParams();
+      if (params?.days !== undefined) qs.set('days', String(params.days));
+      if (params?.granularity) qs.set('granularity', params.granularity);
+      const q = qs.toString();
+      const path = `${API_BASE}/analytics/principals/${encodeURIComponent(id)}`;
+      return q ? `${path}?${q}` : path;
+    },
+  },
+
   agentTypes: {
     list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
     create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
@@ -473,4 +493,4 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
-  | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings
+  | string; // analyticsMe, analytics, analyticsPrincipals, analyticsPrincipalById include dynamic query strings

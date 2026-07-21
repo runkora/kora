@@ -116,6 +116,51 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
+// ─── GET /v1/analytics/principals/{id} ───────────────────────────────────────
+
+// handleAnalyticsPrincipalByID handles GET /v1/analytics/principals/{id}.
+//
+// Returns the same response shape as GET /v1/analytics/me (time-series
+// buckets, KPIs, cost-by-model) for the principal identified by {id}, scoped
+// to the caller's tenant. Backs the admin drill-down from a Principals table
+// row into that principal's full usage view. Requires the
+// platform:analytics:read scope — the same gate already covering
+// /v1/analytics and /v1/analytics/principals; no new scope or route-scope
+// entry is needed since the prefix match on "/v1/analytics" already covers
+// this path.
+func (c *Controller) handleAnalyticsPrincipalByID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipalByID")
+	defer span.End()
+
+	principalID := r.PathValue("id")
+	if principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "principal id is required", nil), nil)
+		return
+	}
+
+	filter, apiErr, parseErr := parseAnalyticsFilter(r.URL.Query())
+	if apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
+		return
+	}
+
+	span.SetAttributes(
+		attribute.String("app.analytics.scope", "principal_by_id"),
+		attribute.Int("app.analytics.days", filter.Days),
+		attribute.String("app.analytics.granularity", filter.Granularity),
+	)
+
+	resp, err := c.svc.AnalyticsPrincipalByID(ctx, principalID, filter)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
 // ─── shared parameter parsing ─────────────────────────────────────────────────
 
 var validDays = []int{7, 30, 90}

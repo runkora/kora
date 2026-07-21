@@ -72,3 +72,18 @@ export async function fetchAnalytics(params: {
     }),
   );
 }
+
+// Admin drill-down: same response shape as fetchAnalyticsMe, for a caller-chosen
+// principal. principalId is fixed per hook instance (see use-principal-analytics.ts) —
+// it is not part of the mutable filter state the way days/granularity are.
+export async function fetchAnalyticsPrincipalById(
+  principalId: string,
+  params: { days?: number; granularity?: string },
+): Promise<FetchAnalyticsResult> {
+  return fetchFromBFF(
+    ApiRoute.analyticsPrincipalById.GET(principalId, {
+      days: params.days,
+      granularity: params.granularity,
+    }),
+  );
+}

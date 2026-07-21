@@ -1,6 +1,6 @@
 # Inference Analytics: My Usage and Analytics Tabs
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-07-20)
 **Date:** 2026-04-27
 **Deciders:** Platform Engineering
 **Technical Story:** The Model Gateway UI has a Usage tab populated entirely with mock data. Two distinct audiences need analytics: individual users wanting personal token/spend visibility, and platform/tenant admins wanting tenant-wide aggregates. This ADR defines the API design, access control model, and frontend architecture for both surfaces.
@@ -30,7 +30,6 @@ The current Usage tab in the Model Gateway UI is entirely mocked — `_data/mock
 
 ### Non-Goals
 
-- Per-user drill-down within the Analytics tab (future iteration).
 - Materialized views or a separate analytics service (addressed if query latency becomes a problem).
 - Budget alerts, export, or real-time streaming updates.
 - Agent-attributed usage (agents not yet a platform concept).
@@ -107,6 +106,7 @@ The inference gateway already owns `inference_usage`, runs the authentication mi
 - Personal data isolation is enforced server-side — the client cannot request another user's data regardless of query parameters.
 - Shared chart components across My Usage and Analytics eliminates duplication.
 - `platform:analytics:read` follows the established scope pattern; no new policy infrastructure required.
+- *(2026-07-20)* Admins can drill into any principal's full usage breakdown directly from the Principals table, without a new scope, role, or infrastructure — `GET /v1/analytics/principals/{id}` reuses the personal-path aggregation query and the existing `platform:analytics:read` gate.
 
 ### Negative
 
@@ -228,6 +228,39 @@ ORDER BY 1 ASC
 - `error_rate` = `failed_requests / total_requests` — zero when no requests.
 - `avg_latency_ms` = `AVG(latency_ms)` across the full window (not a daily average of daily averages).
 
+#### `GET /v1/analytics/principals` — tenant-wide list (Principals table)
+
+*Documented retroactively 2026-07-20 — this endpoint shipped after the original ADR date without an accompanying doc update.*
+
+```
+GET /v1/analytics/principals?days=30&page=1&limit=20&sort_by=cost&order=desc
+Authorization: Bearer <session or PAT token>
+```
+
+Requires `platform:analytics:read`, same as `/v1/analytics`. Returns paginated, per-principal aggregate rows (not a time-series) — one row per `principal_id` with `request_count`, `total_tokens`, `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd`, `error_rate`, `avg_latency_ms`, and `last_active_at`, aggregated via a single `GROUP BY principal_id` query (`PostgresInferenceUsageRepository.ListPrincipalUsage`). Sortable by any of those columns via an allowlisted `sort_by` → SQL column map; paginated via `page`/`limit` (default 20, max 100).
+
+The Next.js BFF route (`/api/analytics/principals`) enriches each row with `email`/`display_name` by joining against `user_profiles` (see [user-profiles-table-for-principal-attribution](2026-04-19-user-profiles-table-for-principal-attribution.md)), falling back to the raw `principal_id` when no profile exists. It also injects synthetic zero-activity rows for tenant users with no usage in the window, when the result set fits on a single page.
+
+#### `GET /v1/analytics/principals/{id}` — per-principal drill-down (added 2026-07-20)
+
+```
+GET /v1/analytics/principals/{id}?days=30&granularity=daily
+Authorization: Bearer <session or PAT token>
+```
+
+Requires `platform:analytics:read` — the same scope already gating `/v1/analytics` and `/v1/analytics/principals`; no new scope or role mapping is introduced. `{id}` is the target `principal_id`; `tenant_id` is still always sourced from the authenticated caller's token, so a request can never cross tenants.
+
+Returns the **same response shape as `GET /v1/analytics/me`** (KPIs, daily/weekly/monthly buckets, cost-by-model) but for the specified principal instead of the caller's own identity. Reuses the personal-path SQL aggregation, substituting the query-supplied `principal_id` for the JWT-derived one — the only place in the analytics surface where a caller can request another principal's breakdown, and it is only reachable with `platform:analytics:read`.
+
+**Query parameters:**
+
+| Parameter | Values | Default | Notes |
+|---|---|---|---|
+| `days` | `7`, `30`, `90` | `30` | Lookback window in days |
+| `granularity` | `daily`, `weekly`, `monthly` | `daily` | Bucket size for time-series charts |
+
+Frontend: each row in the Principals table links to a per-principal usage view built from the same chart components as My Usage, fed by this endpoint. The link carries the `display_name`/`email` already resolved by the `/v1/analytics/principals` BFF route so the view can show whose usage it is without a second identity lookup.
+
 ### Required Indexes
 
 The aggregation query requires two indexes to meet the performance targets:
@@ -245,6 +278,8 @@ The aggregation query requires two indexes to meet the performance targets:
 // cmd/inference-gateway/main.go — inferenceRoutes()
 {PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
 ```
+
+This prefix match also covers `/v1/analytics/principals` and `/v1/analytics/principals/{id}` — both require `platform:analytics:read` and need no separate route-scope entry.
 
 The scope is declared in `inferenceScopes()`:
 
@@ -311,6 +346,7 @@ The six chart components in `usage/_components/` are de-coupled from `mock.ts` a
 - [inference-usage-logs](2026-04-17-inference-usage-logs.md) — Inference usage logs (the per-request records this feature aggregates)
 - [pat-scope-assignment-via-explicit-grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — PAT scope grants (the `platform:analytics:read` scope follows the same vocabulary pattern)
 - [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) — Route-to-scope registration used to wire `/v1/analytics` into the policy evaluator
+- [user-profiles-table-for-principal-attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `user_profiles` table used to resolve `display_name`/`email` for Principals table rows and the per-principal drill-down view
 
 ---
 
@@ -328,7 +364,7 @@ The six chart components in `usage/_components/` are de-coupled from `mock.ts` a
 
 **Why `days` not `from`/`to` date parameters?** Relative windows (7d, 30d, 90d) are what the UI controls expose and are safe against unbounded queries. Absolute date ranges can be added later once query performance is validated.
 
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-07-20
 
 
 

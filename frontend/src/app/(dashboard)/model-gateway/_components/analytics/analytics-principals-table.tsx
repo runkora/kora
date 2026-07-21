@@ -1,16 +1,30 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Badge, Button, Stack, Text } from '@orbit/terra';
 import { DataTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
-import { ApiRoute } from '@orbit/lib/routing';
+import { ApiRoute, APP_ROUTES } from '@orbit/lib/routing';
 import type {
   AnalyticsDays,
   AnalyticsPrincipalsPageResponse,
   PrincipalUsageRow,
 } from '../../_types';
 import { fmtCost, fmtDate, fmtNum } from '@orbit/utils';
+
+// principalUsageHref builds the admin drill-down link for a Principals table
+// row. display_name/email are carried as query params since they are already
+// resolved here (via the BFF's user_profiles join) — the drill-down page
+// reads them straight off the URL instead of re-resolving identity.
+function principalUsageHref(row: PrincipalUsageRow): string {
+  const qs = new URLSearchParams();
+  if (row.display_name) qs.set('display_name', row.display_name);
+  if (row.email) qs.set('email', row.email);
+  const path = APP_ROUTES.modelGateway.analyticsPrincipal(row.principal_id);
+  const q = qs.toString();
+  return q ? `${path}?${q}` : path;
+}
 
 // Maps DataTable column IDs to the sort_by keys accepted by the backend.
 // Columns absent from this map are not sortable server-side.
@@ -96,16 +110,22 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     header: 'User',
     locked: true,
     cell: (row) => (
-      <Stack gap="none">
-        <Text size="supporting" color="foreground">
-          {row.display_name || row.email || row.principal_id}
-        </Text>
-        {(row.display_name || row.email) && (
-          <Text size="caption" color="subtle" mono>
-            {row.email ?? row.principal_id}
+      <Link
+        href={principalUsageHref(row)}
+        className="hover:underline"
+        aria-label={`View full usage for ${row.display_name || row.email || row.principal_id}`}
+      >
+        <Stack gap="none">
+          <Text size="supporting" color="foreground">
+            {row.display_name || row.email || row.principal_id}
           </Text>
-        )}
-      </Stack>
+          {(row.display_name || row.email) && (
+            <Text size="caption" color="subtle" mono>
+              {row.email ?? row.principal_id}
+            </Text>
+          )}
+        </Stack>
+      </Link>
     ),
   },
   {

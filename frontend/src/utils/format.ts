@@ -17,7 +17,7 @@
  * Use when the exact count matters (token totals, log row counts).
  */
 export function fmtNum(n: number): string {
-  return n.toLocaleString();
+  return n.toLocaleString('en-US');
 }
 
 /**
