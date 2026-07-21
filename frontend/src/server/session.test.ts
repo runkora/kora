@@ -27,7 +27,6 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     refreshToken: 'test-refresh',
     expiresAt: BASE_EPOCH + 3600,
     tenantId: 'test-tenant',
-    permissions: { scopes: [], evaluatedAt: 0 },
     ...overrides,
   } as unknown as Parameters<typeof isSessionValid>[0];
 }
