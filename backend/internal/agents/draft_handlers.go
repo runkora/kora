@@ -10,12 +10,12 @@ import (
 
 // ── Agent type draft handlers ─────────────────────────────────────────────────
 //
-// Routes nest under /api/v1/agent-type-drafts, coexisting with
-// /api/v1/agent-types/{id} the same way tool-scopes does — Go's ServeMux
-// prefers the literal "drafts" segment over the {id} wildcard. Scopes are
-// inherited from the /api/v1/agent-types path-prefix bindings in
-// cmd/orbit-agents/main.go (GET → agents:types:read, POST/PATCH/DELETE →
-// agents:types:write); no new scope declarations are needed.
+// Routes live at the sibling prefix /api/v1/agent-type-drafts, not nested
+// under /api/v1/agent-types: a nested GET /agent-types/drafts/{id} is
+// ambiguous with GET /agent-types/{id}/effective-access in Go's ServeMux
+// (registration panics). The sibling prefix carries its own route-scope
+// bindings in cmd/orbit-agents/main.go (GET → agents:types:read,
+// POST/PATCH/DELETE → agents:types:write).
 // See docs/adr/2026-07-17-agent-builder.md.
 
 func (c *Controller) handleCreateDraft(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func (c *Controller) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 		c.writeDraftError(ctx, w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // writeDraftError maps draft service errors to HTTP responses. Another
