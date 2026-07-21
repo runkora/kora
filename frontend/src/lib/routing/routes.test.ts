@@ -23,7 +23,11 @@ describe('APP_ROUTES', () => {
 
   it('all modelGateway routes start with /', () => {
     for (const [key, value] of Object.entries(APP_ROUTES.modelGateway)) {
-      expect(value, `modelGateway.${key} should start with /`).toMatch(/^\//);
+      // Some entries (e.g. analyticsPrincipal) are dynamic route builder
+      // functions rather than plain strings — only assert on the literal ones.
+      if (typeof value === 'string') {
+        expect(value, `modelGateway.${key} should start with /`).toMatch(/^\//);
+      }
     }
   });
 });
