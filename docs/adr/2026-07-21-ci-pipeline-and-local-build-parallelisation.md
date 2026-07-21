@@ -23,6 +23,8 @@ Three findings drive this decision:
 2. **The 6m23s test step is compilation, not tests.** Summing the per-package `ok` lines shows ~90s of actual test execution (the slowest package, `internal/identity`, is 18.5s; most are ~1s). The rest is compiling 82 packages with `-race` and atomic coverage instrumentation against an effectively cold build cache. `actions/setup-go` keys its cache on `go.sum` alone and only saves on a key miss, so the cache is a snapshot of the tree at the last dependency change and decays as source evolves under an unchanged `go.sum`.
 3. **The standalone `go vet` step is redundant.** `.golangci.yml` sets `govet: enable-all: true`, so golangci-lint already runs everything `go vet` runs, plus more. The separate step pays a full compile (2m22s) to duplicate a 13s check.
 
+The frontend gate had the same shape in miniature: one job ran ~45s of static checks (lint, type check, format) serially ahead of ~75s of vitest suites, with no dependency between the two groups.
+
 Locally, `redeploy-platform` builds all 13 platform images serially, with a comment recording why: parallel builds overloaded the previous development machine's Colima VM and cascaded into mesh and Postgres failures. The current machine has 18 CPUs and 64 GiB RAM, with Colima allocated 8 CPUs / 16 GiB. The serial constraint is a workaround for hardware that no longer exists, but it is still the right default for lower-spec machines.
 
 A bake-based build path already exists (`docker-bake.hcl` + `docker-bake.local.hcl`, driven by `redeploy-platform-bake`) but has drifted: `docker-bake.local.hcl` is missing the `egress-gateway`, `orbit-mcp`, and `tool-gateway` targets, and the push loop derives image names as `orbit-$svc`, which produces `orbit-orbit-mcp` for the `orbit-mcp` service.
@@ -113,8 +115,10 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 
 ### Negative
 
-- Per-commit cache keys increase GitHub Actions cache churn; a long-idle branch may start from a stale restore-key match.
+- Per-commit cache keys across three backend key families increase GitHub Actions cache churn against the repo's 10 GB quota; eviction costs an occasional cold-ish run.
+- A fully cold lint run costs ~6m (inside the 15m ceiling). This recurs on cache eviction and on any `.golangci.yml` change.
 - `docker-bake.local.hcl` must be updated alongside `REDEPLOY_PLATFORM_SERVICES` when a service is added; drift between them breaks the opt-in path only.
+- The frontend split pays a second ~25s job setup in runner minutes on every push.
 
 ### Neutral
 
@@ -125,7 +129,10 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 
 ## Implementation
 
-- `.github/workflows/backend-ci.yml`: remove `needs: build`; explicit `actions/cache` for `~/.cache/go-build` + `~/go/pkg/mod` in Build and Test with per-job key prefixes; delete the `go vet` step.
+- `.github/workflows/backend-ci.yml`: remove `needs: build`; explicit `actions/cache` for `~/.cache/go-build` + `~/go/pkg/mod` in Build, Test, and Lint with per-job key prefixes; delete the `go vet` step.
+- The Lint job's cache additionally includes `~/.cache/golangci-lint` (the analysis cache), and the golangci-lint action runs with `skip-cache: true` so its built-in 7-day rotating cache does not double-save the same directory. Each job gets its own key family (`go-build-`, `go-test-`, `go-lint-`) because the three compile with different flag sets and would overwrite each other's saves.
+- `.golangci.yml`: `run.timeout` raised from 5m to 15m. A fully cold lint run (no compile cache, no analysis cache) takes ~6m, and `actions/cache` does not save on job failure, so a timeout failure left every subsequent run cold and failing the same way. The ceiling breaks that loop; warm runs finish in about a minute and never approach it. The cold cost recurs only on cache eviction or a `.golangci.yml` change, since golangci keys its analysis cache on the config hash.
+- `.github/workflows/frontend-ci.yml`: static checks (lint, type check, format) split into their own `frontend-static` job so the vitest suites no longer wait on them.
 - `Makefile`: `redeploy-platform` dispatches to the bake path when `ORBIT_PARALLEL_BUILDS=1`; `redeploy-platform-bake` becomes a single bake invocation of the `local-platform` group with corrected image-name push loop and the mkcert CA layer preserved.
 - `docker-bake.local.hcl`: add `orbit-egress-gateway`, `orbit-mcp`, `orbit-tool-gateway`; extend the `local-platform` group.
 - `.env.example`: document `ORBIT_PARALLEL_BUILDS=1` and recommended Colima sizing for high-spec machines.
@@ -135,10 +142,25 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 
 ## Validation
 
+### Measured Results
+
+Warm-cache timings from the implementing PR (#126), against the pre-change baseline:
+
+| Job | Baseline | Warm |
+| --- | --- | --- |
+| Backend Build | 2m48s | 0m46s |
+| Backend Lint | 3m36s | 1m07s |
+| Backend Test | 7m13s (gated on Build) | 1m31s |
+| Frontend Static Checks | (inside Frontend Check) | 1m07s |
+| Frontend Check | 2m32s | 1m43s |
+| **Total wall clock** | **10m07s** | **~1m50s** |
+
+The warm Test figure benefits from Go's test-result cache; a change touching many packages recompiles and re-runs those suites, so expect 1.5–3m in practice. The first run after merge (and after any cache eviction) is cold once, then stays warm.
+
 ### Success Metrics
 
-- Backend CI wall clock ≤ 4 minutes on a warm cache.
-- `ORBIT_PARALLEL_BUILDS=1 make redeploy-platform` completes a full rebuild faster than the serial loop on the reference machine, with all 13 images pushed and rolled correctly.
+- Backend CI wall clock ≤ 4 minutes on a warm cache (measured: under 2 minutes).
+- `ORBIT_PARALLEL_BUILDS=1 make redeploy-platform` completes a full rebuild faster than the serial loop on the reference machine, with all 13 images pushed and rolled correctly. Not yet measured; needs a resized Docker VM.
 
 ### Monitoring
 
