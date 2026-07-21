@@ -998,7 +998,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		corepack install -g pnpm@$(PNPM_VERSION); \
+		COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@$(PNPM_VERSION); \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
