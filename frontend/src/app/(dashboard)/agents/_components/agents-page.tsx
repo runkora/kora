@@ -28,6 +28,7 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { fetchAgentTypesUsage } from '../_services/agents-api';
 import { StartRunModal } from './start-run-modal';
+import { DraftsSection } from './drafts-section';
 import { formatRelativeTime } from '../_types';
 import type { AgentTypeRow } from '../_types';
 
@@ -267,6 +268,10 @@ export function AgentsPage() {
           </Button>
         </Stack>
       </Stack>
+
+      {/* The caller's saved builder drafts (own section — a draft has no
+          status, runs, or spend, so it does not merge into the agent table) */}
+      <DraftsSection />
 
       {/* Metric cards */}
       <Grid cols={{ base: 2, sm: 3, lg: 5 }} gap="comfortable">

@@ -61,6 +61,13 @@ export interface StatusDotProps extends VariantProps<typeof statusDotVariants> {
    */
   glow?: boolean;
 
+  /**
+   * When true, the dot pulses (opacity breathing) to signal an in-progress
+   * state: provisioning, connecting, syncing. Pair with `status="pending"`
+   * and `glow` for the strongest "something is happening" signal.
+   */
+  pulse?: boolean;
+
   /** @internal className is locked — all styling must go through typed props. */
   className?: never;
   children?: React.ReactNode;
@@ -86,7 +93,7 @@ export interface StatusDotProps extends VariantProps<typeof statusDotVariants> {
  * ```
  */
 const StatusDot = React.forwardRef<HTMLSpanElement, StatusDotProps>(
-  ({ status, size, glow = false, ...props }, ref) => {
+  ({ status, size, glow = false, pulse = false, ...props }, ref) => {
     const glowStyle: React.CSSProperties | undefined =
       glow && status && status !== 'muted'
         ? {
@@ -97,7 +104,7 @@ const StatusDot = React.forwardRef<HTMLSpanElement, StatusDotProps>(
     return (
       <span
         ref={ref}
-        className={cn(statusDotVariants({ status, size }))}
+        className={cn(statusDotVariants({ status, size }), pulse && 'animate-pulse')}
         style={glowStyle}
         {...props}
       />

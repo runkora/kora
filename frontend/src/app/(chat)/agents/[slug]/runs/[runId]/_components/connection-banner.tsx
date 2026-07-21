@@ -18,7 +18,7 @@ export function ConnectionBanner() {
 
   const isClosed = connectionStatus === 'closed';
   const message = isClosed
-    ? 'Connection lost. The agent may still be running — reconnect to resume the stream.'
+    ? 'Connection lost. The agent may still be running. Reconnect to resume the stream.'
     : 'Reconnecting to the agent stream…';
 
   return (

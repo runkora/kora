@@ -160,7 +160,7 @@ export function EditorPanel({
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     mono
                   >
-                    <option value="">— select —</option>
+                    <option value="">Select…</option>
                     {knownFamilies.map((f) => (
                       <option key={f} value={f}>
                         {f}

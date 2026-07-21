@@ -6,10 +6,12 @@ import {
   Callout,
   Alert,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
+  Eyebrow,
   Grid,
   Icon,
   Input,
@@ -17,11 +19,15 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
-  NativeSelect,
+  RadioCard,
+  RadioGroup,
   Stack,
   Text,
+  Toggle,
+  ToggleRow,
   PageSectionHeader,
 } from '@orbit/terra';
+import type { IconName } from '@orbit/terra';
 import { DataTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type {
@@ -46,7 +52,7 @@ import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
-import { ScopePicker } from '@orbit/components';
+import { ScopeTreePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';
@@ -169,8 +175,7 @@ export function GrantsTab({
       <Callout>
         <Text size="caption" color="muted">
           Grants assign specific scopes directly to a principal. Unlike roles (which map OIDC claims
-          to scopes), grants are explicit — they apply regardless of how the principal
-          authenticates.
+          to scopes), grants are explicit: they apply regardless of how the principal authenticates.
         </Text>
       </Callout>
 
@@ -737,6 +742,16 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
 
 // ── Create modal ─────────────────────────────────────────────────────────────
 
+const PRINCIPAL_TYPE_OPTIONS: {
+  value: PrincipalType;
+  icon: IconName;
+  description: string;
+}[] = [
+  { value: 'AGENT', icon: 'bot', description: 'Autonomous workload' },
+  { value: 'HUMAN', icon: 'user', description: 'A person in the tenant' },
+  { value: 'SERVICE', icon: 'server', description: 'External system' },
+];
+
 function CreateGrantModal({
   open,
   availableScopes,
@@ -751,13 +766,17 @@ function CreateGrantModal({
   const [principalType, setPrincipalType] = useState<PrincipalType>('AGENT');
   const [principalId, setPrincipalId] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
-  const [scopeSearch, setScopeSearch] = useState('');
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [limitUSD, setLimitUSD] = useState('');
   const [cadence, setCadence] = useState('monthly');
   const [perRunUSD, setPerRunUSD] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const selectPrincipalType = useCallback((value: string) => {
+    setPrincipalType(value as PrincipalType);
+    setPrincipalId('');
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     const trimmedId = principalId.trim();
@@ -781,7 +800,6 @@ function CreateGrantModal({
     if (result.ok) {
       setPrincipalId('');
       setSelectedScopes([]);
-      setScopeSearch('');
       setBudgetEnabled(false);
       setLimitUSD('');
       setPerRunUSD('');
@@ -804,35 +822,35 @@ function CreateGrantModal({
   return (
     <Modal open={open} onClose={onClose} size="lg">
       <ModalHeader title="Create Grant" />
-      <ModalBody flushY>
+      <ModalBody flushY constrained>
         <Stack gap="comfortable">
           {/* Principal type */}
           <Stack gap="tight">
-            <Text size="caption" weight="emphasis">
-              Principal Type
-            </Text>
-            <Stack direction="horizontal" gap="tight">
-              {(['AGENT', 'HUMAN', 'SERVICE'] as PrincipalType[]).map((t) => (
-                <Button
-                  key={t}
-                  variant={principalType === t ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setPrincipalType(t);
-                    setPrincipalId('');
-                  }}
-                >
-                  {t}
-                </Button>
-              ))}
-            </Stack>
+            <Eyebrow>Principal Type</Eyebrow>
+            <RadioGroup
+              value={principalType}
+              onValueChange={selectPrincipalType}
+              aria-label="Principal type"
+            >
+              <Grid cols={3} gap="cozy">
+                {PRINCIPAL_TYPE_OPTIONS.map((option) => (
+                  <RadioCard
+                    key={option.value}
+                    value={option.value}
+                    selected={principalType === option.value}
+                    onSelect={selectPrincipalType}
+                    icon={option.icon}
+                    title={option.value}
+                    description={option.description}
+                  />
+                ))}
+              </Grid>
+            </RadioGroup>
           </Stack>
 
           {/* Principal — user picker for HUMAN, freeform for others */}
           <Stack gap="tight">
-            <Text size="caption" weight="emphasis">
-              {principalType === 'HUMAN' ? 'User' : 'Principal ID'}
-            </Text>
+            <Eyebrow>{principalType === 'HUMAN' ? 'User' : 'Principal ID'}</Eyebrow>
             {principalType === 'HUMAN' ? (
               <UserPicker value={principalId} onChange={setPrincipalId} />
             ) : (
@@ -847,76 +865,67 @@ function CreateGrantModal({
 
           {/* Scopes */}
           <Stack gap="tight">
-            <Text size="caption" weight="emphasis">
-              Scopes ({selectedScopes.length} selected)
-            </Text>
-            <ScopePicker
-              availableScopes={availableScopes}
-              selectedScopes={selectedScopes}
-              onToggle={(scope, checked) => {
-                if (checked) {
-                  setSelectedScopes((prev) => [...prev, scope]);
-                } else {
-                  setSelectedScopes((prev) => prev.filter((s) => s !== scope));
-                }
-              }}
-              onToggleGroup={(scopes, checked) => {
-                if (checked) {
-                  setSelectedScopes((prev) => [...new Set([...prev, ...scopes])]);
-                } else {
-                  const remove = new Set(scopes);
-                  setSelectedScopes((prev) => prev.filter((s) => !remove.has(s)));
-                }
-              }}
-              search={scopeSearch}
-              onSearchChange={setScopeSearch}
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Eyebrow>Scopes</Eyebrow>
+              <Text size="caption" color="subtle">
+                ({selectedScopes.length} selected)
+              </Text>
+            </Stack>
+            <ScopeTreePicker
+              scopes={availableScopes}
+              selected={selectedScopes}
+              onChange={setSelectedScopes}
             />
           </Stack>
 
           {/* Budget */}
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" justify="between">
-              <Text size="caption" weight="emphasis">
-                Budget
-              </Text>
-              <Button
-                variant={budgetEnabled ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setBudgetEnabled((v) => !v)}
-              >
-                {budgetEnabled ? 'Enabled' : 'Set limit'}
-              </Button>
-            </Stack>
+          <Stack gap="snug">
+            <ToggleRow
+              label="Budget"
+              description="Spend ceiling on this grant"
+              htmlFor="grant-budget-toggle"
+              control={
+                <Toggle
+                  id="grant-budget-toggle"
+                  checked={budgetEnabled}
+                  onChange={setBudgetEnabled}
+                />
+              }
+            />
             {budgetEnabled && (
               <Stack gap="snug">
                 <Stack direction="horizontal" align="center" gap="snug">
-                  <Text size="caption" color="muted">
-                    $
-                  </Text>
                   <Input
                     type="number"
                     placeholder="e.g. 50"
+                    startAdornment="$"
                     value={limitUSD}
                     onChange={(e) => setLimitUSD(e.target.value)}
                   />
-                  <Stack minWidth="form-field-sm">
-                    <NativeSelect
-                      value={cadence}
-                      onChange={(e) => setCadence(e.target.value)}
-                      aria-label="Reset window"
+                  <ButtonGroup>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={cadence === 'weekly'}
+                      onClick={() => setCadence('weekly')}
                     >
-                      <option value="monthly">per month</option>
-                      <option value="weekly">per week</option>
-                    </NativeSelect>
-                  </Stack>
+                      Weekly
+                    </Button>
+                    <Button
+                      variant="outline-muted"
+                      size="sm"
+                      selected={cadence === 'monthly'}
+                      onClick={() => setCadence('monthly')}
+                    >
+                      Monthly
+                    </Button>
+                  </ButtonGroup>
                 </Stack>
                 <Stack direction="horizontal" align="center" gap="snug">
-                  <Text size="caption" color="muted">
-                    $
-                  </Text>
                   <Input
                     type="number"
                     placeholder="e.g. 5"
+                    startAdornment="$"
                     value={perRunUSD}
                     onChange={(e) => setPerRunUSD(e.target.value)}
                   />

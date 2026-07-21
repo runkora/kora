@@ -24,6 +24,7 @@ type Controller struct {
 	agentTypes   *AgentTypeService
 	runs         *RunService
 	environments *EnvironmentService
+	drafts       *DraftService
 	verifier     *token.Verifier
 	eval         policy.Evaluator
 	routes       []routescopes.RouteScope
@@ -42,6 +43,7 @@ func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	environments *EnvironmentService,
+	drafts *DraftService,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
 	routes []routescopes.RouteScope,
@@ -52,6 +54,7 @@ func NewController(
 		agentTypes:   agentTypes,
 		runs:         runs,
 		environments: environments,
+		drafts:       drafts,
 		verifier:     verifier,
 		eval:         eval,
 		routes:       routes,
@@ -105,6 +108,16 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
+	// Draft routes live on a SIBLING prefix, not under /agent-types: ServeMux
+	// rejects "GET /api/v1/agent-types/drafts/{id}" as ambiguous against the
+	// existing "GET /api/v1/agent-types/{id}/effective-access" (neither is more
+	// specific — both match ".../drafts/effective-access"), and panics at boot.
+	// The single-segment tool-scopes literal has no such two-segment collision.
+	mux.Handle("POST /api/v1/agent-type-drafts", c.handleCreateDraft)
+	mux.Handle("GET /api/v1/agent-type-drafts", c.handleListDrafts)
+	mux.Handle("GET /api/v1/agent-type-drafts/{id}", c.handleGetDraft)
+	mux.Handle("PATCH /api/v1/agent-type-drafts/{id}", c.handleUpdateDraft)
+	mux.Handle("DELETE /api/v1/agent-type-drafts/{id}", c.handleDeleteDraft)
 	mux.Handle("POST /api/v1/agent-types", c.handleCreateAgentType)
 	mux.Handle("POST /api/v1/agent-types/effective-access", c.handleEffectiveAccessPreview)
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)

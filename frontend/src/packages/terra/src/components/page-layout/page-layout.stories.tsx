@@ -12,7 +12,7 @@ const meta: Meta = {
     layout: 'fullscreen',
     backgrounds: {
       default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
+      values: [{ name: 'orbit', value: '#060709' }],
     },
   },
   tags: ['autodocs'],

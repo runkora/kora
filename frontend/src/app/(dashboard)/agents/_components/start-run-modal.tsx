@@ -88,7 +88,7 @@ export function StartRunModal({
 
   return (
     <Modal open={open} onClose={onClose} size="md">
-      <ModalHeader title={agentType ? `Start run — ${agentType.name}` : 'Start New Run'} />
+      <ModalHeader title={agentType ? `Start run: ${agentType.name}` : 'Start New Run'} />
       <ModalBody>
         <Stack gap="comfortable">
           {showPicker && (

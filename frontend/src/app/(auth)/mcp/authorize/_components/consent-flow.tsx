@@ -69,7 +69,7 @@ export function ConsentFlow(props: ConsentFlowProps) {
         window.location.href = body.redirect as string;
       }, 1400);
     } catch {
-      setError('Network error — please try again');
+      setError('Network error. Please try again.');
       setView('consent');
     }
   }
@@ -261,8 +261,8 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants
-          — {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
+          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants;
+          {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections
           </Text>
@@ -446,8 +446,8 @@ function ToolSurface(p: ConsentFlowProps) {
       >
         <Icon name="shield-check" size="sm" color="accent" />
         <Text style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--color-muted)' }}>
-          {p.clientName} receives only the tools <Strong>you</Strong> hold grants for on this server
-          — tools you can’t use are hidden from{' '}
+          {p.clientName} receives only the tools <Strong>you</Strong> hold grants for on this
+          server. Tools you can’t use are hidden from{' '}
           <Text as="span" mono style={{ fontSize: 11.5 }}>
             tools/list
           </Text>
@@ -506,7 +506,7 @@ function ConnectedCard({ clientName, redirect }: { clientName: string; redirect:
           <Text
             style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-muted)', marginTop: 8 }}
           >
-            Your tools are live. Return to {clientName} — its tool list now shows what you
+            Your tools are live. Return to {clientName}; its tool list now shows what you
             authorised.
           </Text>
         </Stack>

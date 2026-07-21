@@ -61,7 +61,7 @@ export function SourceFormModal({ open, onClose, onSaved }: SourceFormModalProps
         <>
           <ModalHeader
             title="Webhook source created"
-            description="Copy the signing secret now — it is shown only once."
+            description="Copy the signing secret now. It is shown only once."
           />
           <ModalBody flushY>
             <Stack gap="comfortable">

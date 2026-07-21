@@ -23,7 +23,7 @@ export default async function LogsPage({
         initialHasNextPage={false}
         initialNextCursor={null}
         initialPats={[]}
-        initialError="Session expired — please sign in again."
+        initialError="Session expired. Please sign in again."
       />
     );
   }

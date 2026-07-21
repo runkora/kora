@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { PageLayout } from '@orbit/terra';
 import {
   DashboardHeader,
@@ -7,6 +8,7 @@ import {
   SidebarBrandHeader,
   SidebarUserFooter,
 } from './_components';
+import { AgentBuilderRoot } from './agents/_components/builder/agent-builder-root';
 import { SidebarStateProvider } from './_components/sidebar-state';
 import { PreferencesProvider } from './_preferences/preferences-context';
 import { getPreferences } from './_preferences/preferences-server';
@@ -48,6 +50,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
             mobileDrawer={<MobileSidebarDrawer />}
           >
             {children}
+            {/* The agent builder opens over any dashboard route via ?agent=
+                (docs/adr/2026-07-17-agent-builder.md §1). useSearchParams
+                requires the Suspense boundary. */}
+            <Suspense fallback={null}>
+              <AgentBuilderRoot />
+            </Suspense>
           </PageLayout>
         </PreferencesProvider>
       </SidebarStateProvider>

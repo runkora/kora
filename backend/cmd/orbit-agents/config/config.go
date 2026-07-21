@@ -53,6 +53,8 @@ type Config struct {
 
 	Policy PolicyConfig `yaml:"policy"`
 
+	Drafts DraftsConfig `yaml:"drafts"`
+
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
@@ -87,6 +89,33 @@ type PolicyConfig struct {
 	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
+}
+
+// DraftsConfig configures the agent type draft reaper. Abandoned drafts are
+// swept after the retention window. See docs/adr/2026-07-17-agent-builder.md.
+type DraftsConfig struct {
+	// ReaperIntervalSecs is how often the draft reaper sweeps. Defaults to
+	// hourly when <= 0.
+	ReaperIntervalSecs int `yaml:"reaperIntervalSecs"`
+	// RetentionDays is how long an untouched draft survives before the reaper
+	// deletes it. Defaults to 30 days when <= 0.
+	RetentionDays int `yaml:"retentionDays"`
+}
+
+// ReaperInterval returns the configured sweep interval, defaulting to 1 hour.
+func (c *DraftsConfig) ReaperInterval() time.Duration {
+	if c.ReaperIntervalSecs <= 0 {
+		return time.Hour
+	}
+	return time.Duration(c.ReaperIntervalSecs) * time.Second
+}
+
+// RetentionDuration returns the configured draft retention, defaulting to 30 days.
+func (c *DraftsConfig) RetentionDuration() time.Duration {
+	if c.RetentionDays <= 0 {
+		return 30 * 24 * time.Hour
+	}
+	return time.Duration(c.RetentionDays) * 24 * time.Hour
 }
 
 // BundlePollInterval returns the configured poll interval, defaulting to 30s.

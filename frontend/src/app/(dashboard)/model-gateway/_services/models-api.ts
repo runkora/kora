@@ -22,7 +22,7 @@ export async function fetchModels(): Promise<FetchModelsResult> {
   try {
     res = await fetch(ApiRoute.models.GET(), { cache: 'no-store' });
   } catch {
-    return { models: [], error: 'Network error — could not reach the server.' };
+    return { models: [], error: 'Network error: could not reach the server.' };
   }
 
   if (!res.ok) {

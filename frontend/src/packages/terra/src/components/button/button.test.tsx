@@ -10,7 +10,7 @@ const VARIANT_CLASS = {
   outline: 'border',
   ghost: 'text-foreground',
   muted: 'text-subtle',
-  destructive: 'bg-status-error',
+  destructive: 'bg-status-error/15',
 } as const;
 
 // One characteristic Tailwind class per size — height for text sizes, width for

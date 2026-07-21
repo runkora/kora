@@ -8,7 +8,7 @@ const meta: Meta<typeof Section> = {
     layout: 'fullscreen',
     backgrounds: {
       default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
+      values: [{ name: 'orbit', value: '#060709' }],
     },
     docs: {
       description: {

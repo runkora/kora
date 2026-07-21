@@ -18,7 +18,7 @@ async function fetchFromBFF(url: string): Promise<FetchAnalyticsResult> {
   try {
     res = await fetch(url, { cache: 'no-store' });
   } catch {
-    return { ...emptyResult, error: 'Network error — could not reach the server.' };
+    return { ...emptyResult, error: 'Network error: could not reach the server.' };
   }
 
   if (!res.ok) {

@@ -32,7 +32,7 @@ const CHART_CONFIG: ChartConfig = {
 
 const COLORS = {
   surfaceOverlay: '#34343d',
-  borderSubtle: '#44444d',
+  borderSubtle: 'var(--color-border-subtle)',
   subtle: '#8a8a94',
 };
 

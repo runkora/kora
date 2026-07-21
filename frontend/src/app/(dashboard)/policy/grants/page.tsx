@@ -44,7 +44,7 @@ export default async function GrantsPage({ searchParams }: Props) {
   const error = !grantsResult.ok
     ? grantsResult.message
     : !vocabResult.ok
-      ? 'Failed to load available scopes — grant creation may be unavailable.'
+      ? 'Failed to load available scopes. Grant creation may be unavailable.'
       : null;
 
   // Resolve PAT and HUMAN principal IDs to user profiles in parallel.

@@ -17,7 +17,7 @@ const meta: Meta<typeof Progress> = {
     },
     size: {
       control: 'select',
-      options: ['sm', 'md', 'lg'],
+      options: ['hairline', 'sm', 'md', 'lg'],
     },
     value: { control: { type: 'range', min: 0, max: 100 } },
     showValue: { control: 'boolean' },
@@ -87,6 +87,7 @@ export const Pending: Story = {
 export const AllSizes: Story = {
   render: () => (
     <div className="flex flex-col gap-4 w-72">
+      <Progress label="Hairline" value={60} size="hairline" showValue />
       <Progress label="Small" value={60} size="sm" showValue />
       <Progress label="Medium" value={60} size="md" showValue />
       <Progress label="Large" value={60} size="lg" showValue />

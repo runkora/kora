@@ -197,7 +197,7 @@ function OpenCodeGuide() {
             </Heading>
             <Text size="caption" color="muted">
               OpenCode resolves <Code>{'{env:VAR_NAME}'}</Code> at runtime from the named
-              environment variable. Export <Code>ORBIT_API_KEY</Code> in your shell profile — no{' '}
+              environment variable. Export <Code>ORBIT_API_KEY</Code> in your shell profile; no{' '}
               <Code>/connect</Code> command is needed when the key is supplied this way.
             </Text>
           </Stack>
@@ -233,7 +233,7 @@ export function SetupTab() {
                 <Text as="span" size="supporting" color="foreground" weight="emphasis">
                   Create key
                 </Text>
-                . Give it a descriptive name — for example the machine or agent it will be used on.
+                . Give it a descriptive name, for example the machine or agent it will be used on.
               </Text>
             </Step>
 
@@ -269,7 +269,7 @@ export function SetupTab() {
 
             <Step number={3} title="Copy your key">
               <Text size="supporting" color="muted">
-                After creation, copy the key immediately — it will only be shown once.
+                After creation, copy the key immediately. It will only be shown once.
               </Text>
             </Step>
 

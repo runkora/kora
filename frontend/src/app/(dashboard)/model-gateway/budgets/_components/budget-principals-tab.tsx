@@ -238,7 +238,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
 
       <Callout>
         <Text size="caption" color="muted">
-          Role budgets are attributed from inference activity — a principal holding a budgeted role
+          Role budgets are attributed from inference activity: a principal holding a budgeted role
           appears here after their first request of the period. The effective limit is the highest
           limit across all applicable role and grant budgets.
         </Text>

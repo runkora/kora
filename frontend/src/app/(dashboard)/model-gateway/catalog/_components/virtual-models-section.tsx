@@ -110,7 +110,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
                   key={r.id || ri}
                   status={r.enabled ? 'healthy' : 'muted'}
                   size="sm"
-                  title={`${PROVIDER_LABELS[r.provider] ?? r.provider} — ${r.enabled ? 'active' : 'disabled'}`}
+                  title={`${PROVIDER_LABELS[r.provider] ?? r.provider}: ${r.enabled ? 'active' : 'disabled'}`}
                 />
               ))}
             </Stack>

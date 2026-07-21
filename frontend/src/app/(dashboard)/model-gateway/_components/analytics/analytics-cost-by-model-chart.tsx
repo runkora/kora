@@ -26,7 +26,7 @@ const COLORS = {
   healthy: '#9ce37d',
   degraded: '#ffd046',
   subtle: '#8a8a94',
-  borderSubtle: '#44444d',
+  borderSubtle: 'var(--color-border-subtle)',
   surfaceOverlay: '#34343d',
 };
 
@@ -117,7 +117,7 @@ export function AnalyticsCostByModelChart({
                 padding: '8px 12px',
               }}
               formatter={(value: unknown) => [fmt(Number(value)), 'Cost']}
-              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+              cursor={{ fill: 'color-mix(in oklch, var(--color-foreground) 5%, transparent)' }}
             />
             <Bar dataKey="cost" isAnimationActive={false}>
               {data.map((entry, index) => (

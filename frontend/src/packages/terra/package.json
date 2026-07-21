@@ -43,7 +43,9 @@
   },
   "peerDependencies": {
     "@radix-ui/react-label": ">=2",
+    "@radix-ui/react-collapsible": ">=1",
     "@radix-ui/react-dialog": ">=1",
+    "@radix-ui/react-radio-group": ">=1",
     "@radix-ui/react-popover": ">=1",
     "@radix-ui/react-separator": ">=1",
     "@radix-ui/react-slot": ">=1",

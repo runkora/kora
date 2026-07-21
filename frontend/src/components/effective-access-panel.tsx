@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. The "Effective access" resolved output: the
+/** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments (planned). The "Effective access" resolved output: the
  * union of hosts an agent can reach, colour-coded by provenance (own egress
  * posture, environment, connectors). Distinct from the editable layer cards — it
  * is a resolved *output*, given a subtle elevated/accent treatment. Hovering a
@@ -137,9 +137,16 @@ interface EffectiveAccessPanelProps {
   access: EffectiveAccess | null;
   loading: boolean;
   error: string | null;
+  /** Subtitle under the panel title. Defaults to the agent phrasing. */
+  description?: string;
 }
 
-export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccessPanelProps) {
+export function EffectiveAccessPanel({
+  access,
+  loading,
+  error,
+  description = 'What this agent can actually reach, resolved live as you edit.',
+}: EffectiveAccessPanelProps) {
   // Which source section the user is hovering — drives the union highlight.
   const [hovered, setHovered] = useState<Source | null>(null);
 
@@ -190,7 +197,7 @@ export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccess
             Effective access
           </Text>
           <Text size="caption" color="muted">
-            What this agent can actually reach — resolved live as you edit.
+            {description}
           </Text>
         </Stack>
       </Stack>
@@ -234,7 +241,7 @@ export function EffectiveAccessPanel({ access, loading, error }: EffectiveAccess
               </Stack>
               {access.open ? (
                 <Text size="supporting" color="muted">
-                  Any host — open egress. Credentialed destinations are still gated by connections.
+                  Any host: open egress. Credentialed destinations are still gated by connections.
                 </Text>
               ) : access.hosts.length === 0 ? (
                 <Text size="supporting" color="muted">

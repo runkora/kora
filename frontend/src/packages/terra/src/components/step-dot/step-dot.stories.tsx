@@ -33,7 +33,7 @@ const meta: Meta<typeof StepDot> = {
     layout: 'centered',
     backgrounds: {
       default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
+      values: [{ name: 'orbit', value: '#060709' }],
     },
   },
   tags: ['autodocs'],
@@ -45,8 +45,15 @@ const meta: Meta<typeof StepDot> = {
     },
     size: {
       control: 'radio',
-      options: ['md', 'sm'],
-      description: 'md = 24 px for onboarding steps; sm = 16 px for compact priority indicators',
+      options: ['md', 'sm', 'lg'],
+      description:
+        'md = 24 px for onboarding steps; sm = 16 px for compact priority indicators; lg = 30 px mono numerals for wizard rails',
+    },
+    state: {
+      control: 'radio',
+      options: [undefined, 'pending', 'current', 'complete'],
+      description:
+        'Wizard-rail state — pending (outlined), current (accent fill), complete (translucent accent). Supersedes variant when set.',
     },
   },
 };
@@ -159,6 +166,30 @@ export const StepFlow: Story = {
           </Text>
         </Stack>
       </Stack>
+    </Stack>
+  ),
+};
+
+/**
+ * Wizard rail — the three `state` appearances at the `lg` (30 px) size, with
+ * `StepConnector complete` tinting the line above finished steps. This is the
+ * agent-builder rail pattern.
+ */
+export const WizardRail: Story = {
+  name: 'Wizard rail — state + lg',
+  render: () => (
+    <Stack align="center" gap="none" className="h-[220px]">
+      <StepDot size="lg" state="complete">
+        1
+      </StepDot>
+      <StepConnector complete />
+      <StepDot size="lg" state="current">
+        2
+      </StepDot>
+      <StepConnector />
+      <StepDot size="lg" state="pending">
+        3
+      </StepDot>
     </Stack>
   ),
 };

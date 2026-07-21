@@ -4,12 +4,12 @@
 import { useCallback, useState } from 'react';
 import {
   Button,
+  ButtonGroup,
   Input,
   Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
-  NativeSelect,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -81,7 +81,7 @@ export function BudgetEditModal({
 
   return (
     <Modal open={open} onClose={onClose} size="md">
-      <ModalHeader title={`${initialBudget ? 'Edit' : 'Set'} Budget — ${subject}`} />
+      <ModalHeader title={`${initialBudget ? 'Edit' : 'Set'} Budget: ${subject}`} />
       <ModalBody flushY>
         <Stack gap="comfortable">
           <Stack gap="tight">
@@ -98,16 +98,24 @@ export function BudgetEditModal({
                 value={limitUSD}
                 onChange={(e) => setLimitUSD(e.target.value)}
               />
-              <Stack minWidth="form-field-sm">
-                <NativeSelect
-                  value={cadence}
-                  onChange={(e) => setCadence(e.target.value)}
-                  aria-label="Reset window"
+              <ButtonGroup role="group" aria-label="Reset window">
+                <Button
+                  variant="outline-muted"
+                  size="sm"
+                  selected={cadence === 'weekly'}
+                  onClick={() => setCadence('weekly')}
                 >
-                  <option value="monthly">per month</option>
-                  <option value="weekly">per week</option>
-                </NativeSelect>
-              </Stack>
+                  Weekly
+                </Button>
+                <Button
+                  variant="outline-muted"
+                  size="sm"
+                  selected={cadence === 'monthly'}
+                  onClick={() => setCadence('monthly')}
+                >
+                  Monthly
+                </Button>
+              </ButtonGroup>
             </Stack>
           </Stack>
 
@@ -127,7 +135,7 @@ export function BudgetEditModal({
               </Stack>
               <Text size="caption" color="subtle">
                 Per member: every principal asserting the role gets this limit. Pooled: one shared
-                pot — all members&apos; spend accumulates against a single counter.
+                pot where all members&apos; spend accumulates against a single counter.
               </Text>
             </Stack>
           )}

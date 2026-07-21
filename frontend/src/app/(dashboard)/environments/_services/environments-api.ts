@@ -4,7 +4,13 @@
 // throws — callers pattern-match on the returned `error` field.
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { Environment, EnvironmentRequest } from '@orbit/shared/api';
+import type {
+  Connector,
+  EffectiveAccess,
+  EffectiveAccessPreviewRequest,
+  Environment,
+  EnvironmentRequest,
+} from '@orbit/shared/api';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
 
@@ -18,7 +24,7 @@ export async function fetchEnvironments(): Promise<{
   try {
     res = await fetch(ApiRoute.environments.list(), { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error — could not reach the server.' };
+    return { data: [], error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -44,7 +50,7 @@ export async function createEnvironment(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { environment: null, error: 'Network error — could not reach the server.' };
+    return { environment: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -71,7 +77,7 @@ export async function updateEnvironment(
       body: JSON.stringify(payload),
     });
   } catch {
-    return { environment: null, error: 'Network error — could not reach the server.' };
+    return { environment: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
@@ -84,6 +90,42 @@ export async function updateEnvironment(
   return { environment: toEnvironmentRow(body.data), error: null };
 }
 
+// ── previewEnvironmentAccess ──────────────────────────────────────────────────
+
+// Resolves the effective-access view for a *draft* environment. An environment
+// is exactly a posture + connectors bundle, so the agent-types preview endpoint
+// answers truthfully with no environment folded in (`environment_id: null`).
+export async function previewEnvironmentAccess(body: {
+  egressHosts: string[];
+  connectors: Connector[];
+}): Promise<{ access: EffectiveAccess | null; error: string | null }> {
+  const request: EffectiveAccessPreviewRequest = {
+    connectivity: { mode: 'whitelist', hosts: body.egressHosts },
+    connectors: body.connectors,
+    environment_id: null,
+  };
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.previewEffectiveAccess(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      cache: 'no-store',
+    });
+  } catch {
+    return { access: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      access: null,
+      error: (errBody as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const okBody = (await res.json()) as { data: EffectiveAccess };
+  return { access: okBody.data, error: null };
+}
+
 // ── deleteEnvironment ─────────────────────────────────────────────────────────
 
 export async function deleteEnvironment(id: string): Promise<{ error: string | null }> {
@@ -91,7 +133,7 @@ export async function deleteEnvironment(id: string): Promise<{ error: string | n
   try {
     res = await fetch(ApiRoute.environments.delete(id), { method: 'DELETE' });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });

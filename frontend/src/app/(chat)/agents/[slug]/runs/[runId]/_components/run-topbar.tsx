@@ -206,7 +206,7 @@ export function RunTopbar() {
                 borderRadius: 2,
                 overflow: 'hidden',
               }}
-              title={`Run spend vs per-run budget — ${fmtUsd(spentUsd)} of ${fmtUsd(limit)}`}
+              title={`Run spend vs per-run budget: ${fmtUsd(spentUsd)} of ${fmtUsd(limit)}`}
             >
               <Stack
                 style={{

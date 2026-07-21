@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Alert,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
@@ -15,7 +16,6 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
-  NativeSelect,
   Progress,
   Stack,
   Text,
@@ -64,7 +64,7 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
           <Stack gap="snug">
             {cap.reached && (
               <Alert variant="error">
-                Tenant cap reached — agent and service inference is blocked until the next period or
+                Tenant cap reached. Agent and service inference is blocked until the next period or
                 a raised cap. Humans continue under their individual budgets.
               </Alert>
             )}
@@ -171,16 +171,24 @@ function TenantCapModal({
                 value={limitUSD}
                 onChange={(e) => setLimitUSD(e.target.value)}
               />
-              <Stack minWidth="form-field-sm">
-                <NativeSelect
-                  value={cadence}
-                  onChange={(e) => setCadence(e.target.value)}
-                  aria-label="Reset window"
+              <ButtonGroup role="group" aria-label="Reset window">
+                <Button
+                  variant="outline-muted"
+                  size="sm"
+                  selected={cadence === 'weekly'}
+                  onClick={() => setCadence('weekly')}
                 >
-                  <option value="monthly">per month</option>
-                  <option value="weekly">per week</option>
-                </NativeSelect>
-              </Stack>
+                  Weekly
+                </Button>
+                <Button
+                  variant="outline-muted"
+                  size="sm"
+                  selected={cadence === 'monthly'}
+                  onClick={() => setCadence('monthly')}
+                >
+                  Monthly
+                </Button>
+              </ButtonGroup>
             </Stack>
           </Stack>
           {submitError && (

@@ -15,7 +15,7 @@ export default async function AnalyticsPage() {
     return (
       <AnalyticsShell
         initialData={null}
-        initialError="Session expired — please sign in again."
+        initialError="Session expired. Please sign in again."
         models={[]}
       />
     );

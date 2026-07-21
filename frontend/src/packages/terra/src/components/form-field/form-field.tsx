@@ -149,7 +149,7 @@ const FormField = ({
         <Label htmlFor={id} className={labelSize === 'xs' ? 'text-xs' : undefined}>
           {label}
           {required && (
-            <span aria-hidden="true" className="ml-0.5 text-status-error">
+            <span aria-hidden="true" className="ml-0.5 text-accent">
               *
             </span>
           )}

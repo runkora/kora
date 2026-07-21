@@ -10,6 +10,8 @@ import {
   Input,
   NativeSelect,
   Output,
+  RadioCard,
+  RadioGroup,
   Separator,
   Stack,
   StepDot,
@@ -81,53 +83,48 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
         <Text size="supporting" weight="emphasis">
           Routing Strategy
         </Text>
-        <Grid cols={3} gap="snug">
-          {[
-            {
-              value: 'priority' as const,
-              label: 'Priority / Failover',
-              desc: 'Try routes in order. Move to next on failure.',
-              iconName: 'arrow-up-down' as const,
-            },
-            {
-              value: 'weighted' as const,
-              label: 'Weighted Split',
-              desc: 'Distribute traffic by percentage across routes.',
-              iconName: 'network' as const,
-            },
-            {
-              value: 'lowest_cost' as const,
-              label: 'Lowest Cost',
-              desc: 'Always route to the cheapest available provider.',
-              iconName: 'dollar-sign' as const,
-            },
-          ].map((s) => (
-            <Button
-              key={s.value}
-              size="tile"
-              fullWidth
-              variant={model.strategy === s.value ? 'accent-outline' : 'secondary'}
-              onClick={() => onChange({ ...model, strategy: s.value })}
-            >
-              <Stack
-                gap="tight"
-                align="start"
-                paddingBlock="cozy"
-                paddingInline="cozy"
-                grow
-                textAlign="start"
-              >
-                <Icon name={s.iconName} color={model.strategy === s.value ? 'accent' : 'muted'} />
-                <Text as="span" size="caption" weight="emphasis">
-                  {s.label}
-                </Text>
-                <Text as="span" size="caption" color="muted">
-                  {s.desc}
-                </Text>
-              </Stack>
-            </Button>
-          ))}
-        </Grid>
+        <RadioGroup
+          value={model.strategy}
+          onValueChange={(value) =>
+            onChange({ ...model, strategy: value as VirtualModel['strategy'] })
+          }
+          aria-label="Routing strategy"
+        >
+          <Grid cols={3} gap="snug">
+            {[
+              {
+                value: 'priority' as const,
+                label: 'Priority / Failover',
+                desc: 'Try routes in order. Move to next on failure.',
+                iconName: 'arrow-up-down' as const,
+              },
+              {
+                value: 'weighted' as const,
+                label: 'Weighted Split',
+                desc: 'Distribute traffic by percentage across routes.',
+                iconName: 'route' as const,
+              },
+              {
+                value: 'lowest_cost' as const,
+                label: 'Lowest Cost',
+                desc: 'Always route to the cheapest available provider.',
+                iconName: 'dollar-sign' as const,
+              },
+            ].map((s) => (
+              <RadioCard
+                key={s.value}
+                value={s.value}
+                selected={model.strategy === s.value}
+                onSelect={(value) =>
+                  onChange({ ...model, strategy: value as VirtualModel['strategy'] })
+                }
+                icon={s.iconName}
+                title={s.label}
+                description={s.desc}
+              />
+            ))}
+          </Grid>
+        </RadioGroup>
       </Stack>
 
       <Separator />
@@ -241,7 +238,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     }}
                     mono
                   >
-                    <option value="">— select a model —</option>
+                    <option value="">Select a model…</option>
                     {Array.from(new Set(modelsForProvider(route.provider).map((m) => m.family)))
                       .sort()
                       .map((family) => (
@@ -286,7 +283,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                         </Text>
                         <Output field>
                           <Text size="caption" mono color={pricing ? 'foreground' : 'subtle'}>
-                            {pricing ? fmtCost(pricing.effective_input_cost_per_1m) : '—'}
+                            {pricing ? fmtCost(pricing.effective_input_cost_per_1m) : '–'}
                           </Text>
                         </Output>
                       </Stack>
@@ -296,7 +293,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                         </Text>
                         <Output field>
                           <Text size="caption" mono color={pricing ? 'foreground' : 'subtle'}>
-                            {pricing ? fmtCost(pricing.effective_output_cost_per_1m) : '—'}
+                            {pricing ? fmtCost(pricing.effective_output_cost_per_1m) : '–'}
                           </Text>
                         </Output>
                       </Stack>
