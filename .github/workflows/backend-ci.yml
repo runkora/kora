@@ -72,7 +72,22 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache: false
+
+      # Same per-commit strategy as Build and Test, plus golangci-lint's
+      # analysis cache. Own key family: lint compiles with its own flag set,
+      # so sharing go-build-/go-test- keys would thrash their saves.
+      - name: Restore Go caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: ${{ runner.os }}-go-lint-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-go-lint-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-lint-
 
       - name: Verify dependencies
         run: |
@@ -94,6 +109,9 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: backend
+          # The explicit cache above owns ~/.cache/golangci-lint; the action's
+          # built-in cache uses a 7-day rotating key and would double-save.
+          skip-cache: true
 
       - name: Check documentation for drift
         run: make docs-check
