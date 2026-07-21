@@ -61,6 +61,50 @@ describe('ApiRoute', () => {
     });
   });
 
+  describe('analyticsPrincipalById', () => {
+    // Unlike discover/session/etc., this builder's return type is annotated as
+    // plain `string` rather than a template literal — TypeScript cannot verify
+    // the exact output, so (unlike most of this file) asserting concrete
+    // values here is not ceremonial.
+
+    it('GET with no params returns the bare path with no query string', () => {
+      expect(ApiRoute.analyticsPrincipalById.GET('principal-1')).toBe(
+        '/api/analytics/principals/principal-1',
+      );
+    });
+
+    it('GET with only days sets the days query param', () => {
+      expect(ApiRoute.analyticsPrincipalById.GET('principal-1', { days: 7 })).toBe(
+        '/api/analytics/principals/principal-1?days=7',
+      );
+    });
+
+    it('GET with days and granularity joins both query params', () => {
+      expect(
+        ApiRoute.analyticsPrincipalById.GET('principal-1', { days: 30, granularity: 'weekly' }),
+      ).toBe('/api/analytics/principals/principal-1?days=30&granularity=weekly');
+    });
+
+    it('GET omits granularity when it is an empty string', () => {
+      // `if (params?.granularity)` is a truthiness check, not `!== undefined`
+      // — an empty string is falsy and silently dropped. Documents that edge.
+      expect(ApiRoute.analyticsPrincipalById.GET('principal-1', { granularity: '' })).toBe(
+        '/api/analytics/principals/principal-1',
+      );
+    });
+
+    it('GET URL-encodes special characters in the principal id', () => {
+      // Principal IDs can be emails or contain slashes — both must be encoded
+      // so they don't get parsed as extra path segments or break the query string.
+      expect(ApiRoute.analyticsPrincipalById.GET('user@example.com')).toBe(
+        '/api/analytics/principals/user%40example.com',
+      );
+      expect(ApiRoute.analyticsPrincipalById.GET('team/sub-id')).toBe(
+        '/api/analytics/principals/team%2Fsub-id',
+      );
+    });
+  });
+
   describe('all paths start with /api', () => {
     it('every BFF route is under /api', () => {
       // The /api prefix is what Next.js middleware uses to distinguish BFF
