@@ -7,22 +7,14 @@
  */
 'use client';
 
-import { useState } from 'react';
-import { Button, Code, Icon, Stack, Text } from '@orbit/terra';
+import { Code, Stack, Text } from '@orbit/terra';
+import { CopyButton } from '@orbit/components';
 
 export interface MessageContentProps {
   content: string;
 }
 
 export function MessageContent({ content }: MessageContentProps) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-
-  async function handleCopy(code: string, index: number) {
-    await navigator.clipboard.writeText(code);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 1500);
-  }
-
   const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
 
   return (
@@ -32,7 +24,6 @@ export function MessageContent({ content }: MessageContentProps) {
         if (codeMatch) {
           const lang = codeMatch[1] || 'code';
           const code = codeMatch[2].trim();
-          const copied = copiedIndex === i;
           return (
             // Code block: <figure>/<figcaption>/<pre> are intentional semantic HTML.
             // A fenced code block is self-contained content (<figure>), the language
@@ -47,15 +38,7 @@ export function MessageContent({ content }: MessageContentProps) {
                     <Text size="micro" color="subtle" mono>
                       {lang}
                     </Text>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={copied ? 'Copied' : 'Copy code'}
-                      onClick={() => void handleCopy(code, i)}
-                    >
-                      <Icon name={copied ? 'check' : 'copy'} size="xs" />
-                    </Button>
+                    <CopyButton value={code} label="Copy code" />
                   </figcaption>
                 </Stack>
                 <pre className="bg-background px-4 py-3 overflow-x-auto">

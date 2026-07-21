@@ -1,59 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import {
-  Badge,
-  Button,
-  Icon,
-  Modal,
-  ModalBody,
-  ModalHeader,
-  Separator,
-  Stack,
-  Text,
-} from '@orbit/terra';
+import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/terra';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtNum, fmtTime } from '@orbit/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
-
-// ── CopyRow ───────────────────────────────────────────────────────────────────
-
-interface CopyRowProps {
-  label: string;
-  value: string;
-  mono?: boolean;
-}
-
-function CopyRow({ label, value, mono }: CopyRowProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [value]);
-
-  return (
-    <Button variant="ghost" size="sm" fullWidth onClick={handleCopy} aria-label={`Copy ${label}`}>
-      <Stack direction="horizontal" align="center" justify="between" grow>
-        <Stack gap="none">
-          <Text size="caption" color="muted">
-            {label}
-          </Text>
-          <Text size="supporting" weight="emphasis" mono={mono}>
-            {value}
-          </Text>
-        </Stack>
-        {copied ? (
-          <Icon name="check" size="2xs" color="status-healthy" shrink />
-        ) : (
-          <Icon name="copy" size="2xs" color="muted" />
-        )}
-      </Stack>
-    </Button>
-  );
-}
+import { CopyRow } from '@orbit/components';
 
 // ── DetailRow ─────────────────────────────────────────────────────────────────
 

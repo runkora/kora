@@ -1,11 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Callout,
   Alert,
   Badge,
-  Button,
   Code,
   Icon,
   Card,
@@ -25,6 +24,7 @@ import {
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
+import { CopyButton } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 
 interface VocabularyTabProps {
@@ -51,15 +51,6 @@ function groupScopes(scopes: ScopeEntryWithUsage[]): ScopeGroup[] {
 export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProps) {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
-  const [copiedScope, setCopiedScope] = useState<string | null>(null);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-
-  // Clean up copy timer on unmount
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
 
   const resourceTypes = useMemo(() => {
     const counts = new Map<string, number>();
@@ -85,13 +76,6 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
   }, [initialScopes, search, activeFilter]);
 
   const groups = useMemo(() => groupScopes(filtered), [filtered]);
-
-  const handleCopy = useCallback((scope: string) => {
-    navigator.clipboard.writeText(scope);
-    setCopiedScope(scope);
-    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = setTimeout(() => setCopiedScope(null), 1500);
-  }, []);
 
   return (
     <Stack gap="comfortable">
@@ -219,18 +203,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                             </Stack>
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => handleCopy(scope.scope)}
-                              aria-label={`Copy ${scope.scope}`}
-                            >
-                              {copiedScope === scope.scope ? (
-                                <Icon name="check" size="2xs" color="status-healthy" />
-                              ) : (
-                                <Icon name="copy" size="2xs" color="subtle" />
-                              )}
-                            </Button>
+                            <CopyButton value={scope.scope} label={`Copy ${scope.scope}`} />
                           </TableCell>
                         </TableRow>
                       ))}

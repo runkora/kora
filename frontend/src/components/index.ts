@@ -61,3 +61,11 @@ export type { PeriodSelectorProps, PeriodPrefKey } from './period-selector';
 /** Click-to-copy button with visual feedback (copy → check icon transition). */
 export { CopyButton } from './copy-button';
 export type { CopyButtonProps } from './copy-button';
+
+/** Input-field-styled copy trigger: shows value text with trailing copy icon, whole field is clickable. */
+export { CopyField } from './copy-field';
+export type { CopyFieldProps } from './copy-field';
+
+/** Full-width ghost button row with label/value stack and copy icon — for modal detail views. */
+export { CopyRow } from './copy-row';
+export type { CopyRowProps } from './copy-row';

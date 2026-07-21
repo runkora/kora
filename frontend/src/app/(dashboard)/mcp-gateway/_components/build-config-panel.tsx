@@ -8,6 +8,7 @@ import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
+import { CopyButton } from '@orbit/components';
 
 interface BuildConfigPanelProps {
   servers: McpServer[];
@@ -199,19 +200,7 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
           borderTop: '1px solid var(--color-border-subtle)',
         }}
       >
-        <Button
-          onClick={() => void navigator.clipboard.writeText(config)}
-          style={{
-            width: '100%',
-            height: 40,
-            borderRadius: 'var(--radius-md)',
-            fontSize: 13.5,
-            fontWeight: 600,
-          }}
-        >
-          <Icon name="copy" size="sm" />
-          Copy config
-        </Button>
+        <CopyButton key={config} value={config} label="Copy config" />
       </Stack>
     </SidePanel>
   );
