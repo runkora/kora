@@ -10,6 +10,7 @@ import noRawInlineElements from './rules/no-raw-inline-elements.mjs';
 import requireKebabFilename from './rules/require-kebab-filename.mjs';
 import noTerraDisableComment from './rules/no-terra-disable-comment.mjs';
 import noDirectLucideImport from './rules/no-direct-lucide-import.mjs';
+import noInlineClipboardWrite from './rules/no-inline-clipboard-write.mjs';
 
 const localPlugin = {
   rules: {
@@ -25,6 +26,7 @@ const localPlugin = {
     'require-kebab-filename': requireKebabFilename,
     'no-terra-disable-comment': noTerraDisableComment,
     'no-direct-lucide-import': noDirectLucideImport,
+    'no-inline-clipboard-write': noInlineClipboardWrite,
   },
 };
 
