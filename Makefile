@@ -514,15 +514,22 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 
 # Build + push every platform image in BUILD_ONLY mode. Used by cluster-operator
 # and cluster-update — anything that needs the local registry seeded but does
-# its own restart logic later. Serial on purpose (parallel builds overload the
-# Colima VM and cascade into mesh/Postgres failures). One prune at the end
-# instead of per-service so cache pruning happens just once.
+# its own restart logic later. Serial by default (parallel builds overload
+# low-spec Docker VMs and cascade into mesh/Postgres failures). On machines
+# with the headroom, set ORBIT_PARALLEL_BUILDS=1 in .env to switch to a single
+# parallel `docker buildx bake` graph — see the local development guide and
+# docs/adr/2026-07-21-ci-pipeline-and-local-build-parallelisation.md.
+# One prune at the end instead of per-service so cache pruning happens once.
 .PHONY: redeploy-platform
-redeploy-platform: ## Build + push every platform service to the local registry (no rollout)
+redeploy-platform: ## Build + push every platform service to the local registry (no rollout). ORBIT_PARALLEL_BUILDS=1 builds them in parallel.
+ifeq ($(ORBIT_PARALLEL_BUILDS),1)
+	@$(MAKE) --no-print-directory redeploy-platform-bake
+else
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
 		bash scripts/cluster/redeploy.sh $$svc --build-only || exit $$?; \
 	done
 	@docker image prune -f > /dev/null
+endif
 
 # Builds only what the registry is missing. `make up` is re-run constantly, and
 # rebuilding every image each time fills the k3d node's ephemeral storage, which
@@ -563,33 +570,43 @@ redeploy-tenant-missing: ## Build + push only the tenant images absent from the 
 redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to warm BuildKit caches (no rollout) — run once at start of session for fast subsequent redeploys
 	@echo "$(COLOR_GREEN)✓ All caches warm — single-service redeploys should now be fast$(COLOR_RESET)"
 
-# redeploy-platform-bake — opt-in alternative to redeploy-platform that drives
-# `docker buildx bake` against docker-bake.{hcl,local.hcl}. Buildx (v0.22)
-# doesn't expose a --no-parallel flag, so we serialize by invoking bake
-# **once per target** in a shell loop. We still get the bake wins (per-target
-# graph dedup of mod-download + COPY layers, single tagged image set, single
-# config source), without the across-target parallelism that wedges Colima.
-# Your memory documents that parallel image builds wedge the Colima VM.
+# redeploy-platform-bake — the ORBIT_PARALLEL_BUILDS=1 path behind
+# redeploy-platform. One `docker buildx bake` invocation over the whole
+# local-platform group: BuildKit builds every image concurrently and dedups the
+# shared mod-download + COPY layers across the graph, which the serial
+# `docker build` loop cannot do. Needs a Docker VM with real headroom
+# (≥12 CPUs / 24 GiB); on smaller VMs the concurrent build pressure cascades
+# into mesh/Postgres failures — keep the serial default there.
+# Image names below must match the bake target names in docker-bake.local.hcl,
+# which are also the registry image names (service `orbit-mcp` → image
+# `orbit-mcp`, not `orbit-orbit-mcp` — don't derive them from
+# REDEPLOY_PLATFORM_SERVICES).
+BAKE_PLATFORM_IMAGES := \
+	orbit-identity orbit-identity-proxy orbit-inference-gateway \
+	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
+	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-operator \
+	orbit-session-manager orbit-sandbox-exec
+
 .PHONY: redeploy-platform-bake
-redeploy-platform-bake: ## (Experimental) Build + push every platform service via docker buildx bake (serial loop — one target at a time)
+redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
-	echo "$(COLOR_YELLOW)Baking platform images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
-	for tgt in orbit-identity orbit-identity-proxy orbit-inference-gateway orbit-policy-service orbit-policy-gateway orbit-egress-gateway orbit-agents orbit-frontend orbit-operator orbit-session-manager orbit-sandbox-exec; do \
-		GIT_SHA="$$GIT_SHA" \
-			docker buildx bake \
-				-f docker-bake.hcl -f docker-bake.local.hcl \
-				--load $$tgt || exit $$?; \
-	done
-	@if [ -f secrets/mkcert-ca.pem ]; then \
+	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
+	GIT_SHA="$$GIT_SHA" \
+		docker buildx bake \
+			-f docker-bake.hcl -f docker-bake.local.hcl \
+			--load local-platform || exit $$?; \
+	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
 		printf 'FROM localhost:5001/orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
 			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
-	fi
-	@echo "$(COLOR_YELLOW)Pushing all platform images to localhost:5001...$(COLOR_RESET)"
-	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
-		docker push --quiet localhost:5001/orbit-$$svc:latest > /dev/null && \
-		echo "  ✓ orbit-$$svc"; \
+		docker tag localhost:5001/orbit-identity:latest "localhost:5001/orbit-identity:$$GIT_SHA"; \
+	fi; \
+	echo "$(COLOR_YELLOW)Pushing platform images to localhost:5001 (latest + $$GIT_SHA)...$(COLOR_RESET)"; \
+	for img in $(BAKE_PLATFORM_IMAGES); do \
+		docker push --quiet "localhost:5001/$$img:latest" > /dev/null && \
+		docker push --quiet "localhost:5001/$$img:$$GIT_SHA" > /dev/null && \
+		echo "  ✓ $$img" || exit $$?; \
 	done
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Platform images built and pushed via bake$(COLOR_RESET)"

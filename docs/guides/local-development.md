@@ -148,6 +148,25 @@ make redeploy SERVICE=frontend
 
 See [frontend/README.md](../../frontend/README.md) for the frontend workflow and host-side lint, type-check, and test loops.
 
+### Parallel builds on high-spec machines
+
+Full rebuilds (`make redeploy`, `make cluster-update`, first `make up`) build each image serially by default, which is safe on any machine but slow. If your Docker VM has real headroom, opt in to parallel builds in `.env`:
+
+```bash
+# .env
+ORBIT_PARALLEL_BUILDS=1
+```
+
+With the flag set, `make redeploy-platform` runs one `docker buildx bake` graph over every platform image. BuildKit builds them concurrently and deduplicates the shared Go module and source layers, so the shared compile work happens once instead of thirteen times. Single-service redeploys (`make redeploy SERVICE=<name>`) are unaffected.
+
+Size the VM before enabling it: at least 12 CPUs and 24 GiB. With Colima:
+
+```bash
+colima stop && colima start --cpu 12 --memory 32   # persists in ~/.colima
+```
+
+On smaller VMs (≤8 CPUs / 16 GiB), leave the flag unset: concurrent build pressure has previously wedged the VM and cascaded into mesh and Postgres failures. The decision record is [ci-pipeline-and-local-build-parallelisation](../adr/2026-07-21-ci-pipeline-and-local-build-parallelisation.md).
+
 ---
 
 ## Database migrations

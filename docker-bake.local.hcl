@@ -2,12 +2,16 @@
 //
 // Overlay for local k3d development — re-tags every image at localhost:5001
 // (the k3d local registry) and adds a :git-sha tag so kubectl describe shows
-// which build is running. Used only by `make redeploy-platform-bake`; CI
-// continues to use docker-bake.hcl alone.
+// which build is running. Used only by `make redeploy-platform-bake` (the
+// ORBIT_PARALLEL_BUILDS=1 path); CI continues to use docker-bake.hcl alone.
+//
+// Keep the local-platform group in sync with BAKE_PLATFORM_IMAGES in the
+// Makefile and REDEPLOY_PLATFORM_SERVICES — a service missing here silently
+// never rebuilds on the parallel path.
 //
 // Usage (typically driven by Makefile):
 //   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl \
-//     --no-parallel --load <target>
+//     --load local-platform
 
 variable "GIT_SHA" {
   default = "dev"
@@ -44,6 +48,18 @@ target "orbit-policy-gateway" {
     "localhost:5001/orbit-policy-gateway:${GIT_SHA}",
   ]
 }
+target "orbit-egress-gateway" {
+  tags = [
+    "localhost:5001/orbit-egress-gateway:latest",
+    "localhost:5001/orbit-egress-gateway:${GIT_SHA}",
+  ]
+}
+target "orbit-tool-gateway" {
+  tags = [
+    "localhost:5001/orbit-tool-gateway:latest",
+    "localhost:5001/orbit-tool-gateway:${GIT_SHA}",
+  ]
+}
 target "orbit-example" {
   tags = [
     "localhost:5001/orbit-example:latest",
@@ -51,7 +67,13 @@ target "orbit-example" {
   ]
 }
 
-// Re-tag the standalone targets (different Dockerfiles).
+// Re-tag the standalone targets (different Dockerfiles / non-matrix names).
+target "orbit-mcp" {
+  tags = [
+    "localhost:5001/orbit-mcp:latest",
+    "localhost:5001/orbit-mcp:${GIT_SHA}",
+  ]
+}
 target "orbit-agents" {
   tags = [
     "localhost:5001/orbit-agents:latest",
@@ -105,8 +127,11 @@ group "local-platform" {
     "orbit-inference-gateway",
     "orbit-policy-service",
     "orbit-policy-gateway",
+    "orbit-egress-gateway",
     "orbit-agents",
     "orbit-frontend",
+    "orbit-mcp",
+    "orbit-tool-gateway",
     "orbit-operator",
     "orbit-session-manager",
     "orbit-sandbox-exec",

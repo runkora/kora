@@ -86,9 +86,9 @@ jobs:
       - name: Verify no formatting changes
         run: git diff --exit-code
 
-      - name: Run go vet
-        run: make vet
-
+      # No standalone `go vet` step: .golangci.yml enables govet with
+      # enable-all, so golangci-lint runs everything vet runs. A separate step
+      # paid a full compile (~2m20s) to duplicate the check.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
@@ -110,7 +110,22 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          # setup-go keys its cache on go.sum alone and saves only on a key
+          # miss, so the build cache decays as source changes under an
+          # unchanged go.sum. The explicit cache below saves per commit and
+          # restores the nearest prefix match instead.
+          cache: false
+
+      - name: Restore Go caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-build-
 
       - name: Install proto tools
         run: |
@@ -126,9 +141,11 @@ jobs:
         run: make build-backend
 
   test:
+    # No `needs: build` — `go test` compiles its own artifacts and shares
+    # nothing with the Build job, so gating on it only serialised the two
+    # longest jobs. They now run concurrently.
     name: Test
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
       - name: Checkout code
@@ -138,7 +155,20 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache: false
+
+      # Separate key prefix from Build: race + coverage instrumentation
+      # produce distinct artifacts, and sharing one cache would thrash it.
+      - name: Restore Go caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-test-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-test-
 
       - name: Run tests
         run: make test
