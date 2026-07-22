@@ -231,19 +231,36 @@ func splitActionFragment(action string) (category, verb string) {
 
 // qualifierCeilingAllows reports whether the connection config declares a
 // qualifier allowlist under key and, if so, whether qualifier is in it.
-// declared=false (allow) when the config carries no non-empty list — the
-// ceiling is optional.
+//
+// The ceiling is an optional security boundary set by the tenant admin, so the
+// two "no ceiling" cases (config carries no key, or an explicit empty list) are
+// distinguished from the "declared but unusable" cases (config or the key's
+// value does not parse as an allowlist). The former allow (declared=false); the
+// latter FAIL CLOSED (allowed=false, declared=true) — a malformed ceiling must
+// never silently widen access past the intended allowlist.
 func qualifierCeilingAllows(config json.RawMessage, key, qualifier string) (allowed, declared bool) {
 	if len(config) == 0 || key == "" {
-		return true, false
+		return true, false // no config or no ceiling key configured — optional, allow
 	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(config, &raw); err != nil {
-		return true, false
+		// The whole connection config is unparseable. The adapter's own Resolve
+		// will also fail, but the ceiling is a security boundary — do not let it
+		// silently disappear on malformed input.
+		return false, true
+	}
+	rawList, ok := raw[key]
+	if !ok {
+		return true, false // ceiling key absent — the allowlist was not declared
 	}
 	var list []string
-	if err := json.Unmarshal(raw[key], &list); err != nil || len(list) == 0 {
-		return true, false
+	if err := json.Unmarshal(rawList, &list); err != nil {
+		// The ceiling key is present but is not a list of names — a malformed,
+		// declared ceiling. Fail closed rather than skip enforcement.
+		return false, true
+	}
+	if len(list) == 0 {
+		return true, false // explicit empty list ≡ no ceiling declared
 	}
 	for _, v := range list {
 		if strings.EqualFold(strings.TrimSpace(v), qualifier) {

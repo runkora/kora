@@ -90,8 +90,11 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	for _, d := range got {
 		switch d.Scope {
 		case "connection:github-prod:repo:write":
-			if d.ResourceType != "connection" || len(d.PathSegments) != 1 || d.PathSegments[0] != "github-prod" || d.Action != "repo:write" {
-				t.Errorf("structure = %+v, want resource=connection path=[github-prod] action=repo:write", d)
+			// Metadata matches the scope grammar: path = [name, category],
+			// action = the final verb — not path=[name], action="repo:write".
+			if d.ResourceType != "connection" || len(d.PathSegments) != 2 ||
+				d.PathSegments[0] != "github-prod" || d.PathSegments[1] != "repo" || d.Action != "write" {
+				t.Errorf("structure = %+v, want resource=connection path=[github-prod repo] action=write", d)
 			}
 			if !slices.Contains(d.Requires, "connection:github-prod:issues:write") ||
 				!slices.Contains(d.Requires, "connection:github-prod:contents:write") {

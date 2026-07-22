@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -117,11 +118,18 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 			for _, r := range action.Requires {
 				requires = append(requires, fmt.Sprintf("connection:%s:%s", conn.Name, r))
 			}
+			// An adapter action fragment ("issues:write", "repo:read", "use")
+			// carries its own category. Split it so the stored PathSegments and
+			// Action match the scope grammar the platform's ScopeCovers rule
+			// uses (last segment = action, middle = path): "issues:write"
+			// becomes path [name, issues] + action write, not path [name] +
+			// action "issues:write". The Scope string itself is unchanged.
+			pathSegs, verb := connectionScopeParts(conn.Name, action.Action)
 			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
 				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, action.Action),
 				ResourceType: "connection",
-				PathSegments: []string{conn.Name},
-				Action:       action.Action,
+				PathSegments: pathSegs,
+				Action:       verb,
 				Description:  fmt.Sprintf("%s — %s", conn.Name, action.Description),
 				Requires:     requires,
 			}); fresh {
@@ -132,6 +140,19 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 
 	sort.Slice(decls, func(i, j int) bool { return decls[i].Scope < decls[j].Scope })
 	return decls
+}
+
+// connectionScopeParts splits a connection scope into the grammar's path
+// segments and final action, given the connection name and the adapter action
+// fragment. The fragment's own segments (all but its last, e.g. the "issues" of
+// "issues:write") become path suffixes after the connection name; its last
+// segment is the action. A single-word fragment ("use") yields path [name] and
+// that word as the action.
+func connectionScopeParts(name, actionFragment string) (path []string, action string) {
+	parts := strings.Split(actionFragment, ":")
+	action = parts[len(parts)-1]
+	path = append([]string{name}, parts[:len(parts)-1]...)
+	return path, action
 }
 
 // AllScopes is the full set of scope declarations the gateway publishes: the
