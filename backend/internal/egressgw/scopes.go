@@ -68,9 +68,14 @@ func WriteScope() routescopes.ScopeDeclaration {
 // service from the supplied connections and their registered adapters.
 //
 // For each connection it emits one ScopeDeclaration per action the connection's
-// adapter can classify, plus a wildcard "connection:<name>:*" entry that an
-// admin can grant to bestow every action at once. The returned list is sorted
-// by Scope so registration is order-stable across calls.
+// adapter can classify — carrying the adapter's declared requires edges,
+// resolved to full same-connection scopes — plus the covering parents
+// "connection:<name>:read" / "connection:<name>:write", which the scope_covers
+// prefix rule makes the umbrella over every category and qualifier beneath
+// them. (The former "connection:<name>:*" wildcard entry is gone: no wildcard
+// rule exists in scope_covers, so it never authorized anything. See
+// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.) The
+// returned list is sorted by Scope so registration is order-stable across calls.
 //
 // Connections whose adapter is not in the registry are silently skipped — the
 // broker will reject calls to those connections at request time with
@@ -93,24 +98,32 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 			continue
 		}
 
-		// Wildcard scope: "connection:<name>:*" covers every action.
-		if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
-			Scope:        fmt.Sprintf("connection:%s:*", conn.Name),
-			ResourceType: "connection",
-			PathSegments: []string{conn.Name},
-			Action:       "*",
-			Description:  fmt.Sprintf("Use the %q connection for any action", conn.Name),
-		}); fresh {
-			decls = append(decls, d)
+		// Covering parents: connection:<name>:read / :write cover every
+		// category (and repository qualifier) of the matching verb by prefix.
+		for _, verb := range []string{"read", "write"} {
+			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
+				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, verb),
+				ResourceType: "connection",
+				PathSegments: []string{conn.Name},
+				Action:       verb,
+				Description:  fmt.Sprintf("Every %s action on the %q connection, all resources (covering parent)", verb, conn.Name),
+			}); fresh {
+				decls = append(decls, d)
+			}
 		}
 
 		for _, action := range adapter.Actions() {
+			requires := make([]string, 0, len(action.Requires))
+			for _, r := range action.Requires {
+				requires = append(requires, fmt.Sprintf("connection:%s:%s", conn.Name, r))
+			}
 			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
 				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, action.Action),
 				ResourceType: "connection",
 				PathSegments: []string{conn.Name},
 				Action:       action.Action,
 				Description:  fmt.Sprintf("%s — %s", conn.Name, action.Description),
+				Requires:     requires,
 			}); fresh {
 				decls = append(decls, d)
 			}

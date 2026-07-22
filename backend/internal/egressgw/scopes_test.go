@@ -3,6 +3,8 @@ package egressgw
 import (
 	"encoding/json"
 	"io"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -54,33 +56,50 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	got := AllScopes(conns, registry)
 
 	// AllScopes prepends the static platform connection scopes (read + write),
-	// then the per-connection scopes sorted lexicographically by Scope: wildcard
-	// + repo:read + repo:write, for each of two connections = 6, plus the two
-	// static scopes = 8 total.
-	wantScopes := []string{
-		"platform:connections:read",
-		"platform:connections:write",
-		"connection:github-prod:*",
-		"connection:github-prod:repo:read",
+	// then per connection: the two covering parents (connection:<n>:read/write)
+	// plus the adapter's 15 category/catch-all actions = 17 each, 36 total.
+	// No wildcard entry: connection:<n>:* matched nothing under scope_covers
+	// and is no longer published.
+	const perConn = 17
+	if want := 2 + 2*perConn; len(got) != want {
+		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), want, scopeStrings(got))
+	}
+	byScope := map[string]int{}
+	for _, d := range got {
+		byScope[d.Scope]++
+		if strings.HasSuffix(d.Scope, ":*") {
+			t.Errorf("wildcard entry %q must no longer be published", d.Scope)
+		}
+	}
+	for _, want := range []string{
+		"connection:github-prod:read",
+		"connection:github-prod:write",
+		"connection:github-prod:issues:write",
+		"connection:github-prod:metadata:read",
 		"connection:github-prod:repo:write",
-		"connection:github-staging:*",
-		"connection:github-staging:repo:read",
-		"connection:github-staging:repo:write",
-	}
-	if len(got) != len(wantScopes) {
-		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), len(wantScopes), scopeStrings(got))
-	}
-	for i, want := range wantScopes {
-		if got[i].Scope != want {
-			t.Errorf("scope[%d] = %q, want %q", i, got[i].Scope, want)
+		"connection:github-staging:contents:read",
+	} {
+		if byScope[want] != 1 {
+			t.Errorf("scope %q published %d times, want exactly once", want, byScope[want])
 		}
 	}
 
-	// The connection scopes carry their tenant-friendly metadata.
+	// The connection scopes carry their tenant-friendly metadata and requires
+	// edges: the legacy repo:write umbrella confers every category write, and
+	// category actions confer the metadata read.
 	for _, d := range got {
-		if d.Scope == "connection:github-prod:repo:write" {
+		switch d.Scope {
+		case "connection:github-prod:repo:write":
 			if d.ResourceType != "connection" || len(d.PathSegments) != 1 || d.PathSegments[0] != "github-prod" || d.Action != "repo:write" {
 				t.Errorf("structure = %+v, want resource=connection path=[github-prod] action=repo:write", d)
+			}
+			if !slices.Contains(d.Requires, "connection:github-prod:issues:write") ||
+				!slices.Contains(d.Requires, "connection:github-prod:contents:write") {
+				t.Errorf("repo:write requires = %v, want category writes conferred", d.Requires)
+			}
+		case "connection:github-prod:issues:write":
+			if !slices.Contains(d.Requires, "connection:github-prod:metadata:read") {
+				t.Errorf("issues:write requires = %v, want metadata:read conferred", d.Requires)
 			}
 		}
 	}
@@ -118,8 +137,9 @@ func TestConnectionScopes_DedupeOnDuplicateConnectionName(t *testing.T) {
 	}
 	got := ConnectionScopes(conns, registry)
 
-	// Expect 3 unique entries: wildcard + repo:read + repo:write.
-	wantCount := 3
+	// Expect one set of unique entries: 2 covering parents + the adapter's 15
+	// actions — duplicates from the repeated connection name are dropped.
+	wantCount := 17
 	if len(got) != wantCount {
 		t.Errorf("scopes = %d, want %d (got: %v)", len(got), wantCount, scopeStrings(got))
 	}

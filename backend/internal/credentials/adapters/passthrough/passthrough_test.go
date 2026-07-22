@@ -24,12 +24,12 @@ func TestPassthrough_ClassifyActionIsUniform(t *testing.T) {
 	a := passthrough.New()
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 		req, _ := http.NewRequest(method, "https://api.ipify.org/", nil)
-		got, err := a.ClassifyAction(req)
+		got, err := a.ClassifyAction(req, credentials.Connection{})
 		if err != nil {
 			t.Fatalf("ClassifyAction(%s): unexpected error %v", method, err)
 		}
-		if got != "use" {
-			t.Errorf("ClassifyAction(%s) = %q, want \"use\"", method, got)
+		if got.Action != "use" {
+			t.Errorf("ClassifyAction(%s) = %q, want \"use\"", method, got.Action)
 		}
 	}
 }

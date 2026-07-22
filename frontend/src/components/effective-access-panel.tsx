@@ -310,19 +310,32 @@ export function EffectiveAccessPanel({
                     </Text>
                   ) : (
                     <Stack gap="snug">
-                      {access.connector_egress.map((ce) => (
-                        <Stack key={ce.connection} gap="tight">
-                          <Stack direction="horizontal" align="center" gap="tight">
-                            <Text size="supporting" weight="emphasis">
-                              {ce.connection}
-                            </Text>
-                            <Badge variant="secondary" size="sm">
-                              {ce.adapter}
-                            </Badge>
+                      {access.connector_egress.map((ce) => {
+                        // Resource narrowing on the matching connector grant
+                        // (absent = all resources — no badge).
+                        const resources =
+                          access.connectors.find((c) => c.connection === ce.connection)
+                            ?.resources ?? [];
+                        return (
+                          <Stack key={ce.connection} gap="tight">
+                            <Stack direction="horizontal" align="center" gap="tight">
+                              <Text size="supporting" weight="emphasis">
+                                {ce.connection}
+                              </Text>
+                              <Badge variant="secondary" size="sm">
+                                {ce.adapter}
+                              </Badge>
+                              {resources.length > 0 && (
+                                <Badge variant="outline" size="sm">
+                                  {resources.length}{' '}
+                                  {resources.length === 1 ? 'resource' : 'resources'}
+                                </Badge>
+                              )}
+                            </Stack>
+                            <PlainHostChips hosts={ce.hosts} />
                           </Stack>
-                          <PlainHostChips hosts={ce.hosts} />
-                        </Stack>
-                      ))}
+                        );
+                      })}
                     </Stack>
                   )}
                 </SourceSection>

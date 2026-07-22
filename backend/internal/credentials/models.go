@@ -70,7 +70,11 @@ type CallerIdentity struct {
 	TenantID    string
 	PrincipalID string // agent principal, e.g. spiffe://.../agent/<slug>
 	RunID       string
-	Action      string // requested action, e.g. "repo:write"
+	Action      string // requested action, e.g. "contents:write"
+	// Qualifier is the resource the request was attributed to (e.g. the
+	// repository name), empty when none. Adapters that support it mint the
+	// credential narrowed to this resource.
+	Qualifier string
 }
 
 // Sentinel errors. Callers may test for these with errors.Is.

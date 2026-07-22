@@ -318,9 +318,12 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	if len(f.eval.calls) != 1 {
 		t.Fatalf("policy.Check calls = %d, want 1", len(f.eval.calls))
 	}
+	// A git push classifies as contents:write since the category taxonomy; the
+	// broker splits the fragment so the required scope is
+	// connection:github:contents:write (path=[github contents], action=write).
 	got := f.eval.calls[0]
-	if got.ResourceType != "connection" || len(got.PathSegments) != 1 || got.PathSegments[0] != "github" || got.Action != "repo:write" {
-		t.Errorf("policy input = %+v, want connection/[github]/repo:write", got)
+	if got.ResourceType != "connection" || len(got.PathSegments) != 2 || got.PathSegments[0] != "github" || got.PathSegments[1] != "contents" || got.Action != "write" {
+		t.Errorf("policy input = %+v, want connection/[github contents]/write", got)
 	}
 }
 
@@ -338,8 +341,11 @@ func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	if len(f.eval.calls) != 1 || f.eval.calls[0].Action != "repo:read" {
-		t.Fatalf("policy action = %q, want repo:read", f.eval.calls[0].Action)
+	// An unrecognized read path falls to the repo:read catch-all — the broker
+	// splits it into path=[github repo], action=read.
+	if len(f.eval.calls) != 1 || f.eval.calls[0].Action != "read" ||
+		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "repo" {
+		t.Fatalf("policy input = %+v, want connection/[github repo]/read", f.eval.calls[0])
 	}
 }
 

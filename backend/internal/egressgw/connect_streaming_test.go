@@ -215,7 +215,9 @@ func (*streamTestAdapter) Type() credentials.AdapterType { return credentials.Ad
 func (*streamTestAdapter) Actions() []credentials.ActionDeclaration {
 	return []credentials.ActionDeclaration{{Action: "repo:read"}}
 }
-func (*streamTestAdapter) ClassifyAction(*http.Request) (string, error) { return "repo:read", nil }
+func (*streamTestAdapter) ClassifyAction(*http.Request, credentials.Connection) (credentials.Classification, error) {
+	return credentials.Classification{Action: "repo:read"}, nil
+}
 func (*streamTestAdapter) Resolve(context.Context, credentials.Connection, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, nil
 }

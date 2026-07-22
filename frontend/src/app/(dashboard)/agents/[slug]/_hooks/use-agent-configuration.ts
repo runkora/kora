@@ -39,7 +39,13 @@ const PREVIEW_DEBOUNCE_MS = 400;
 function normalizeConnectors(connectors: Connector[]): string {
   return JSON.stringify(
     connectors
-      .map((c) => ({ connection: c.connection, actions: c.actions.slice().sort() }))
+      .map((c) => ({
+        connection: c.connection,
+        actions: c.actions.slice().sort(),
+        // Resource qualifiers participate in dirty-checking; absent and empty
+        // both mean "all resources" and normalize identically.
+        resources: (c.resources ?? []).slice().sort(),
+      }))
       .sort((a, b) => a.connection.localeCompare(b.connection)),
   );
 }

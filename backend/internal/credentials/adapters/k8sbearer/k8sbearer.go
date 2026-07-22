@@ -160,26 +160,29 @@ func (a *Adapter) Actions() []credentials.ActionDeclaration {
 // "cluster" catch-all — see resourceCategories' doc comment. Fine-grained
 // (namespace/resource-name/verb) authorization within a granted category is
 // delegated to the target cluster's own RBAC on the injected identity.
-func (a *Adapter) ClassifyAction(req *http.Request) (string, error) {
+func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
-		return "", credentials.ErrUnsupportedAction
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	if isUpgradeRequest(req) {
-		return "", credentials.ErrUnsupportedAction
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
 	category, ok := categorizeRequest(req.URL.Path)
 	if !ok {
-		return "", credentials.ErrUnsupportedAction
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
+	// The namespace qualifier instance is deferred to an amendment of the
+	// Kubernetes connection ADR — until then no qualifier is extracted, per
+	// docs/adr/2026-07-22-connection-scope-qualifiers.md (Instances).
 	switch strings.ToUpper(req.Method) {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return category + ":read", nil
+		return credentials.Classification{Action: category + ":read"}, nil
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-		return category + ":write", nil
+		return credentials.Classification{Action: category + ":write"}, nil
 	default:
-		return "", credentials.ErrUnsupportedAction
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 }
 
