@@ -41,6 +41,14 @@ var (
 	// ErrMissingToken is returned when GitHub's response decodes successfully but
 	// carries an empty token.
 	ErrMissingToken = errors.New("github installation token response missing token")
+
+	// ErrInstallationPermissions is returned when GitHub rejects a token-mint
+	// request (HTTP 422) because the requested permission level exceeds what the
+	// App installation actually holds. This is an upstream authority decision —
+	// the App is the ceiling — not an Orbit-internal error, so callers map it to
+	// a client-facing forbidden rather than a 500. See
+	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
+	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -111,7 +119,15 @@ func (c *Client) CreateInstallationToken(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
-		return InstallationToken{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		// 422 on a token mint means the requested permissions exceed the
+		// installation's own grant — an upstream ceiling, not a transport
+		// failure. Surface it as its own sentinel so the broker can map it to a
+		// forbidden instead of a 500.
+		sentinel := ErrUnexpectedStatus
+		if resp.StatusCode == http.StatusUnprocessableEntity {
+			sentinel = ErrInstallationPermissions
+		}
+		return InstallationToken{}, c.HandleErrorResponse(span, resp, sentinel)
 	}
 
 	var tok InstallationToken

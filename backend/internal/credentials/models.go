@@ -94,4 +94,13 @@ var (
 	// has no policy mapping for this adapter (e.g. an unsupported verb on a
 	// REST adapter). The gateway treats this as a deny.
 	ErrUnsupportedAction = errors.New("unsupported action for adapter")
+
+	// ErrCredentialScopeRejected is returned by an adapter's Resolve when the
+	// upstream authority refuses to issue a credential for the requested scope —
+	// Orbit's policy allowed the call, but the underlying credential (e.g. a
+	// GitHub App installation) is not itself granted that level of access. The
+	// broker maps this to a client-facing forbidden, distinct from an internal
+	// mint failure. This is the "defer to the upstream as the authority"
+	// principle surfacing as its own error class.
+	ErrCredentialScopeRejected = errors.New("upstream refused to issue a credential for the requested scope")
 )

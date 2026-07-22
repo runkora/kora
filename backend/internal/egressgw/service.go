@@ -113,6 +113,18 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 	cred, err := adapter.Resolve(ctx, *conn, identity)
 	if err != nil {
+		// The upstream refusing to issue a credential for this scope (e.g. the
+		// GitHub App installation lacks the permission Orbit authorized) is a
+		// forbidden, not an internal error — the App is the outer ceiling.
+		if errors.Is(err, credentials.ErrCredentialScopeRejected) {
+			b.logger.Info(ctx, "egress denied: upstream refused credential scope",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "action", Value: cls.Action},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "tenant_id", Value: tenantID},
+			)
+			return Decision{}, fmt.Errorf("%w: %w", ErrForbidden, err)
+		}
 		return Decision{}, fmt.Errorf("mint credential: %w", err)
 	}
 

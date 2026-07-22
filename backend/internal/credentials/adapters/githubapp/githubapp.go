@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -575,6 +576,14 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 		Permissions:  perms,
 	})
 	if err != nil {
+		// A 422 permissions rejection is the App installation's own ceiling —
+		// Orbit authorized the action, but the App is not granted this
+		// permission level. Translate to the adapter-agnostic sentinel so the
+		// broker returns a forbidden, not a 500.
+		if errors.Is(err, ghclient.ErrInstallationPermissions) {
+			return credentials.Credential{}, fmt.Errorf("%w: %s on %q: %w",
+				credentials.ErrCredentialScopeRejected, id.Action, id.Qualifier, err)
+		}
 		return credentials.Credential{}, fmt.Errorf("create installation token: %w", err)
 	}
 

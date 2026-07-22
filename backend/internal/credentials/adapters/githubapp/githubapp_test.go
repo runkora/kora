@@ -169,6 +169,34 @@ func TestAdapter_Resolve_GitHubError(t *testing.T) {
 	}
 }
 
+// TestAdapter_Resolve_InstallationPermissionCeiling locks the translation of a
+// GitHub 422 (the App installation lacks the requested permission level) into
+// the adapter-agnostic ErrCredentialScopeRejected, so the broker returns a
+// forbidden rather than a 500. See the 2026-07-22 category ADR.
+func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"message":"The level of access for permissions requested are not granted to this installation."}`))
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	conn := credentials.Connection{
+		ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
+	}
+
+	_, err := adapter.Resolve(context.Background(), conn,
+		credentials.CallerIdentity{Action: "issues:write", Qualifier: "orbit"})
+	if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
+		t.Fatalf("err = %v, want wrapped ErrCredentialScopeRejected", err)
+	}
+	if !errors.Is(err, ghclient.ErrInstallationPermissions) {
+		t.Fatalf("err = %v, want the underlying ErrInstallationPermissions preserved", err)
+	}
+}
+
 func TestAdapter_Resolve_InvalidConfig(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapter := New(nil, stubSecrets{pem: testKeyPEM(t)}, logger)

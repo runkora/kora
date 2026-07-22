@@ -216,6 +216,11 @@ export function ConnectionCards({
   onChange: (connectors: Connector[]) => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Resource picks made before any action is selected. A connector with zero
+  // actions is not emitted (it grants nothing), so its resources have nowhere
+  // to persist yet — hold them here so the picker works before the actions are
+  // chosen, and fold them into the connector the moment an action turns on.
+  const [pendingResources, setPendingResources] = useState<Record<string, string[]>>({});
 
   const connectorFor = (name: string): Connector | undefined =>
     value.find((c) => c.connection === name);
@@ -232,8 +237,9 @@ export function ConnectionCards({
     onChange([...others, next]);
   };
   const setConnectorActions = (name: string, actions: string[]) =>
-    emit(name, actions, connectorFor(name)?.resources);
+    emit(name, actions, connectorFor(name)?.resources ?? pendingResources[name]);
   const setConnectorResources = (name: string, resources: string[]) => {
+    setPendingResources((prev) => ({ ...prev, [name]: resources }));
     const current = connectorFor(name);
     if (current) {
       emit(name, current.actions, resources);
@@ -253,7 +259,7 @@ export function ConnectionCards({
       {available.map((conn) => {
         const connector = connectorFor(conn.name);
         const current = connector?.actions ?? [];
-        const resources = connector?.resources ?? [];
+        const resources = connector?.resources ?? pendingResources[conn.name] ?? [];
         const on = current.length > 0;
         const whole = on && current.length === conn.actions.length;
         const isOpen = !!expanded[conn.name];
@@ -318,7 +324,7 @@ export function ConnectionCards({
                   </CollapsibleTrigger>
                 </Stack>
                 <CollapsibleContent>
-                  {qualifier && on && (
+                  {qualifier && (
                     <Stack gap="none">
                       <Separator span="full" />
                       <ResourceScopeBlock
