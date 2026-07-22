@@ -24,12 +24,13 @@
 # "spiffe://" prefix — Istio adds it. Writing "spiffe://..." produces
 # "spiffe://spiffe://..." in the generated Envoy rule and never matches.
 #
-# The opa-gateway's own principal shape depends on whether SPIRE is actually
-# issuing its cert (platform.spiffe.spireEnabled) — see
-# orbit.workloadPrincipal's own doc comment (_helpers.tpl) for why this
-# can't just be the SPIRE-style path unconditionally: on a SPIRE-disabled
-# in-vcluster install, istiod's own default CA issues the cert instead, in
-# a different shape, and the SPIRE-style path never matches it.
+# The opa-gateway's own principal shape isn't a single fixed string — see
+# orbit.workloadPrincipals' own doc comment (_helpers.tpl) for why this
+# lists more than one candidate: whether SPIRE (the vcluster-mcp operator's
+# own host-side identity mechanism) or istiod's own default CA actually
+# issues a given pod's cert is a race this chart doesn't control, so both
+# plausible shapes are exempted rather than picking one and leaving the
+# other to intermittently 403.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -50,6 +51,6 @@ spec:
       from:
         - source:
             notPrincipals:
-              - "{{ include "orbit.workloadPrincipal" (dict "root" . "spireEnabled" .Values.platform.spiffe.spireEnabled "component" "opa-gateway" "serviceAccount" "orbit-opa-gateway") }}"
+{{ include "orbit.workloadPrincipals" (dict "root" . "spireEnabled" .Values.platform.spiffe.spireEnabled "component" "opa-gateway" "serviceAccount" "orbit-opa-gateway") | indent 14 }}
 {{- end }}
 
