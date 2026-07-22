@@ -108,6 +108,7 @@ async function fetchScopes(accessToken: string): Promise<string[]> {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
       },
+      cache: 'no-store',
       signal: AbortSignal.timeout(5_000),
     });
 
