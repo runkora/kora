@@ -680,6 +680,7 @@ func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *Orb
 //     (devenvironment_ingress.go's devEnvAPIGatewayPort): the gateway
 //     release installed *inside* a dev environment's own vcluster has no
 //     vcluster of its own to route to.
+//
 // buildOrbitPlatformSpiffeValues renders the "orbit" chart's
 // platform.spiffe.* values (reconcileOrbit). Kept pure, mirroring
 // buildGatewayValues/buildIstiodValues, so the distinction below can be
