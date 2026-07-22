@@ -1,7 +1,10 @@
 version: "2"
 
 run:
-  timeout: 5m
+  # Ceiling, not a duration: warm-cache runs finish in well under a minute.
+  # A fully cold run (first CI run after merge or cache eviction, with no
+  # analysis cache and no compile cache) takes ~6m, so 5m failed spuriously.
+  timeout: 15m
   tests: false
   modules-download-mode: readonly
 

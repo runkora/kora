@@ -23,6 +23,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
+- [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
 
 ### Identity, Auth & Tokens
 
@@ -232,4 +233,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
+| 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

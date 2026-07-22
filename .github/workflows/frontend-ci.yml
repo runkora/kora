@@ -9,9 +9,11 @@ env:
   PNPM_VERSION: '10'
 
 jobs:
-  # ── Static analysis + unit/integration tests ──────────────────────────────
-  frontend-check:
-    name: Frontend Check
+  # ── Static analysis ───────────────────────────────────────────────────────
+  # Split from the test job: the two share nothing beyond setup, and running
+  # them serially in one job put ~45s of static checks on the critical path.
+  frontend-static:
+    name: Frontend Static Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -41,6 +43,30 @@ jobs:
 
       - name: Format check
         run: make frontend-fmt
+
+  # ── Unit + integration tests ──────────────────────────────────────────────
+  frontend-check:
+    name: Frontend Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
 
       # Terra has its own vitest config; the app's unit config excludes src/packages/**.
       - name: Terra component tests
