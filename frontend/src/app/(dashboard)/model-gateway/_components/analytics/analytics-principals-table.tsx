@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { Badge, Button, Stack, Text } from '@orbit/terra';
+import { useRouter } from 'next/navigation';
+import { Badge, Stack, Text, Button } from '@orbit/terra';
 import { DataTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { ApiRoute, APP_ROUTES } from '@orbit/lib/routing';
@@ -13,17 +13,14 @@ import type {
 } from '../../_types';
 import { fmtCost, fmtDate, fmtNum } from '@orbit/utils';
 
-// principalUsageHref builds the admin drill-down link for a Principals table
-// row. display_name/email are carried as query params since they are already
-// resolved here (via the BFF's user_profiles join) — the drill-down page
-// reads them straight off the URL instead of re-resolving identity.
+// principalUsageHref builds the admin drill-down destination for a
+// Principals table row. Only principal_id is carried — display_name/email
+// are resolved server-side on the drill-down page itself (keyed off the
+// trusted path param) rather than trusted from client-supplied query params,
+// which were spoofable and leaked PII (email) into the URL/browser
+// history/logs.
 function principalUsageHref(row: PrincipalUsageRow): string {
-  const qs = new URLSearchParams();
-  if (row.display_name) qs.set('display_name', row.display_name);
-  if (row.email) qs.set('email', row.email);
-  const path = APP_ROUTES.modelGateway.analyticsPrincipal(row.principal_id);
-  const q = qs.toString();
-  return q ? `${path}?${q}` : path;
+  return APP_ROUTES.modelGateway.analyticsPrincipal(row.principal_id);
 }
 
 // Maps DataTable column IDs to the sort_by keys accepted by the backend.
@@ -110,22 +107,16 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     header: 'User',
     locked: true,
     cell: (row) => (
-      <Link
-        href={principalUsageHref(row)}
-        className="hover:underline"
-        aria-label={`View full usage for ${row.display_name || row.email || row.principal_id}`}
-      >
-        <Stack gap="none">
-          <Text size="supporting" color="foreground">
-            {row.display_name || row.email || row.principal_id}
+      <Stack gap="none">
+        <Text size="supporting" color="foreground">
+          {row.display_name || row.email || row.principal_id}
+        </Text>
+        {(row.display_name || row.email) && (
+          <Text size="caption" color="subtle" mono>
+            {row.email ?? row.principal_id}
           </Text>
-          {(row.display_name || row.email) && (
-            <Text size="caption" color="subtle" mono>
-              {row.email ?? row.principal_id}
-            </Text>
-          )}
-        </Stack>
-      </Link>
+        )}
+      </Stack>
     ),
   },
   {
@@ -260,6 +251,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
 // Parent should pass key={days} so this component remounts when the time
 // window changes, resetting page state and triggering a fresh fetch.
 export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
+  const router = useRouter();
   const { data, loading, error, page, goToPage, totalPages, handleSortChange } =
     useAnalyticsPrincipals(days);
 
@@ -288,6 +280,8 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         onSortChange={handleSortChange}
         emptyMessage="No inference activity in this period."
         filteredEmptyMessage="No users match your search."
+        onRowClick={(row) => router.push(principalUsageHref(row))}
+        onRowClickLabel="View full usage"
       />
 
       {totalPages > 1 && (

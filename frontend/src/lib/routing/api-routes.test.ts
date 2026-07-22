@@ -62,9 +62,11 @@ describe('ApiRoute', () => {
   });
 
   describe('analyticsPrincipalById', () => {
-    // Unlike discover/session/etc., this builder's return type is annotated as
-    // plain `string` rather than a template literal — TypeScript cannot verify
-    // the exact output, so (unlike most of this file) asserting concrete
+    // Unlike discover/session/etc., this builder's return type is annotated
+    // as plain `string`: the dynamic structure (${...}) in the path makes it
+    // a plain string rather than a template literal, so callers must
+    // construct URLs rather than relying on type-narrowed paths like
+    // ApiRoute.discover. So (unlike most of this file) asserting concrete
     // values here is not ceremonial.
 
     it('GET with no params returns the bare path with no query string', () => {

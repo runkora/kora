@@ -259,7 +259,11 @@ Returns the **same response shape as `GET /v1/analytics/me`** (KPIs, daily/weekl
 | `days` | `7`, `30`, `90` | `30` | Lookback window in days |
 | `granularity` | `daily`, `weekly`, `monthly` | `daily` | Bucket size for time-series charts |
 
-Frontend: each row in the Principals table links to a per-principal usage view built from the same chart components as My Usage, fed by this endpoint. The link carries the `display_name`/`email` already resolved by the `/v1/analytics/principals` BFF route so the view can show whose usage it is without a second identity lookup.
+Frontend: each row in the Principals table links to a per-principal usage view built from the same chart components as My Usage, fed by this endpoint. The link carries only `principal_id`; `display_name`/`email` are resolved server-side on the drill-down page itself (`fetchUsersByIDs`, keyed off the trusted path param) rather than passed through as client-supplied query params.
+
+*(Amended 2026-07-20: the original design carried `display_name`/`email` as URL query params to avoid a second identity lookup — but those params were never re-verified against `principal_id`, so the displayed name/email was spoofable by editing the URL, and email addresses were leaking into browser history and server logs as a result. The drill-down page now performs its own identity lookup instead.)*
+
+*(Amended 2026-07-20: the KPI query uses `COALESCE(SUM(...), 0)` with no `GROUP BY`, so a `principal_id` with zero matching `inference_usage` rows still returns 200 with an all-zero response, indistinguishable from a real principal with a quiet period. The drill-down page now treats a principal as "not found" only when both signals are empty — no identity match from `fetchUsersByIDs` AND `kpis.total_requests === 0` for the selected window — and renders a dedicated not-found empty state instead of a zeroed dashboard. Known limitation: a genuinely valid service account/PAT/agent principal that has never made a single request is indistinguishable from an invalid ID under this heuristic and will also show as "not found"; resolving that fully would require a canonical registry of all principal types, which doesn't exist today.)*
 
 ### Required Indexes
 

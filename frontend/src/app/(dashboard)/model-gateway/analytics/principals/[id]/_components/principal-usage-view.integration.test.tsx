@@ -54,6 +54,7 @@ function renderView(props: Partial<ComponentProps<typeof PrincipalUsageView>> = 
         email={null}
         initialData={null}
         initialError={null}
+        notFound={false}
         {...props}
       />
     </PreferencesProvider>,
@@ -115,6 +116,31 @@ describe('PrincipalUsageView — breadcrumb', () => {
 
     const link = screen.getByRole('link', { name: /Analytics/i });
     expect(link).toHaveAttribute('href', '/model-gateway/analytics?tab=principals');
+  });
+});
+
+describe('PrincipalUsageView — not found', () => {
+  it('renders a not-found empty state instead of the dashboard when notFound is true', () => {
+    renderView({ principalId: 'dev-user-2', notFound: true });
+
+    expect(screen.getByText('Principal not found')).toBeInTheDocument();
+    expect(screen.getByText(/dev-user-2/)).toBeInTheDocument();
+    // The dashboard title/description never render in the not-found state.
+    expect(screen.queryByText(/^Usage —/)).not.toBeInTheDocument();
+    // The breadcrumb back-link is still present. Exact match — "Analytics"
+    // alone — so this doesn't also match the "Back to Analytics" CTA below.
+    expect(screen.getByRole('link', { name: 'Analytics' })).toBeInTheDocument();
+    // A second CTA back to Analytics is offered inside the empty state.
+    expect(screen.getByRole('link', { name: 'Back to Analytics' })).toBeInTheDocument();
+  });
+
+  it('renders the dashboard, not the not-found state, when notFound is false even with no usage', () => {
+    renderView({
+      notFound: false,
+      initialData: analyticsResponse({ kpis: { ...analyticsResponse().kpis, total_requests: 0 } }),
+    });
+
+    expect(screen.queryByText('Principal not found')).not.toBeInTheDocument();
   });
 });
 
