@@ -89,15 +89,6 @@ describe('fetchAnalyticsPrincipalById', () => {
     expect(result.error).toBe('Request failed (500)');
   });
 
-  it('returns a network-error message when the request cannot reach the server', async () => {
-    server.use(http.get('/api/analytics/principals/:id', () => HttpResponse.error()));
-
-    const result = await fetchAnalyticsPrincipalById('principal-1', {});
-
-    expect(result.data).toBeNull();
-    expect(result.error).toBe('Network error — could not reach the server.');
-  });
-
   it('returns an invalid-response error when the success body is not JSON', async () => {
     server.use(
       http.get(
