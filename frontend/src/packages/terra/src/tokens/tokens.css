@@ -182,6 +182,7 @@
   --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.1);
   --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.12), 0 2px 8px oklch(0% 0 0 / 0.06);
 
+
   /* Chart series — same hue order as dark; deeper steps for the light surface */
   --terra-raw-chart-1: oklch(51.8% 0.146 250);
   --terra-raw-chart-2: oklch(59.3% 0.15 45);
