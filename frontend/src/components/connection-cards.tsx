@@ -12,11 +12,12 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  Eyebrow,
+  Grid,
   Icon,
   Input,
-  Label,
+  RadioCard,
   RadioGroup,
-  RadioGroupItem,
   Separator,
   Stack,
   Text,
@@ -86,13 +87,11 @@ function ResourceScopeBlock({
   };
 
   return (
-    <Stack gap="snug" paddingBlock="cozy" paddingInline="relaxed">
+    <Stack gap="cozy" paddingBlock="cozy" paddingInline="relaxed">
       <Stack gap="tight">
-        <Text as="span" size="caption" weight="heavy">
-          Resource scope
-        </Text>
+        <Eyebrow>Resource scope</Eyebrow>
         <Text as="span" size="micro" color="subtle">
-          {qualifier.description}
+          Which {plural(qualifier.name)} this connector may touch.
         </Text>
       </Stack>
       <RadioGroup
@@ -107,12 +106,27 @@ function ResourceScopeBlock({
         }}
         aria-label={`${connection} resource scope`}
       >
-        <Label>
-          <RadioGroupItem value="all" /> All {plural(qualifier.name)}
-        </Label>
-        <Label>
-          <RadioGroupItem value="selected" /> Selected {plural(qualifier.name)}
-        </Label>
+        <Grid cols={2} gap="cozy">
+          <RadioCard
+            value="all"
+            selected={mode === 'all'}
+            onSelect={() => {
+              setSelectedMode(false);
+              onResourcesChange([]);
+            }}
+            icon="globe"
+            title={`All ${plural(qualifier.name)}`}
+            description={`Everything the connection reaches, including ${plural(qualifier.name)} added later`}
+          />
+          <RadioCard
+            value="selected"
+            selected={mode === 'selected'}
+            onSelect={() => setSelectedMode(true)}
+            icon="filter"
+            title={`Selected ${plural(qualifier.name)}`}
+            description={`Only the ${plural(qualifier.name)} you pick below`}
+          />
+        </Grid>
       </RadioGroup>
       {mode === 'selected' && (
         <Stack gap="snug">
@@ -121,20 +135,21 @@ function ResourceScopeBlock({
               {resources.map((r) => {
                 const isStale = stale.includes(r);
                 return (
-                  <Stack key={r} direction="horizontal" align="center" gap="tight">
-                    <Badge variant={isStale ? 'degraded' : 'elevated'} size="sm" mono>
-                      {isStale && <Icon name="triangle-alert" size="xs" label="" />}
+                  <Button
+                    key={r}
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onResourcesChange(resources.filter((x) => x !== r))}
+                    aria-label={`Remove ${qualifier.name} ${r}`}
+                  >
+                    {isStale && (
+                      <Icon name="triangle-alert" size="xs" color="status-degraded" label="" />
+                    )}
+                    <Text as="span" size="micro" mono>
                       {r}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => onResourcesChange(resources.filter((x) => x !== r))}
-                      aria-label={`Remove ${qualifier.name} ${r}`}
-                    >
-                      <Icon name="close" size="xs" />
-                    </Button>
-                  </Stack>
+                    </Text>
+                    <Icon name="close" size="xs" color="muted" />
+                  </Button>
                 );
               })}
             </Stack>
@@ -143,26 +158,33 @@ function ResourceScopeBlock({
             <Stack direction="horizontal" align="center" gap="tight">
               <Icon name="triangle-alert" size="xs" color="status-degraded" label="" />
               <Text as="span" size="micro" color="subtle">
-                Highlighted {plural(qualifier.name)} are outside the connection&apos;s allowlist —
+                Marked {plural(qualifier.name)} are outside the connection&apos;s allowlist —
                 requests will be denied.
               </Text>
             </Stack>
           )}
-          <Input
-            compact
-            mono
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addResource(draft);
-                setDraft('');
-              }
-            }}
-            placeholder={`Add a ${qualifier.name}…`}
-            aria-label={`Add a ${qualifier.name} to ${connection}`}
-          />
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Stack maxWidth="card" grow>
+              <Input
+                compact
+                mono
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addResource(draft);
+                    setDraft('');
+                  }
+                }}
+                placeholder={`Add a ${qualifier.name}…`}
+                aria-label={`Add a ${qualifier.name} to ${connection}`}
+              />
+            </Stack>
+            <Text as="span" size="micro" color="subtle">
+              Enter to add
+            </Text>
+          </Stack>
           {suggestions.length > 0 && (
             <Stack gap="tight">
               <Text as="span" size="micro" color="subtle">
