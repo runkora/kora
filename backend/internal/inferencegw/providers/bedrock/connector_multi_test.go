@@ -91,6 +91,7 @@ func TestLoadMultiConfig_invalidAlias(t *testing.T) {
 		{"PROD", "uppercase"},
 		{"1prod", "digit-leading"},
 		{"-prod", "hyphen-leading"},
+		{"prod-east", "hyphen-interior"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -145,7 +146,7 @@ func TestMultiFactory_ProviderNameComputation(t *testing.T) {
 	}{
 		{"aus", "bedrock:aus"},
 		{"us", "bedrock:us"},
-		{"prod-east", "bedrock:prod-east"},
+		{"prod_east", "bedrock:prod_east"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.alias, func(t *testing.T) {

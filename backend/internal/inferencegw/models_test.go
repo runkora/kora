@@ -10,7 +10,7 @@ func TestIsBedrockFamily(t *testing.T) {
 	}{
 		{ProviderBedrock, true},
 		{"bedrock:us", true},
-		{"bedrock:prod-east", true},
+		{"bedrock:prod_east", true},
 		{"bedrock:aus_2", true},
 		{"bedrock:", false},      // bare colon — alias part is empty
 		{"bedrock:1prod", false}, // digit-leading alias

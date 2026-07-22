@@ -39,10 +39,9 @@ type Config struct {
 // ── Multi-account support ─────────────────────────────────────────────────────
 
 // aliasRe validates a Bedrock account alias. Aliases may only contain
-// lowercase letters, digits, hyphens, and underscores so that the composed
-// provider name "bedrock:<alias>" is safe to store in the database, appear in
-// OTel traces, and be used as an OPA scope segment.
-var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+// lowercase letters, digits, and underscores. Hyphens are excluded because
+// the prefix BEDROCK_<UPPER_ALIAS>_ must be a valid POSIX env var name.
+var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // NamedConfig pairs a validated alias with its per-account Config.
 type NamedConfig struct {
@@ -74,7 +73,7 @@ func LoadMultiConfig() ([]NamedConfig, error) {
 			continue
 		}
 		if !aliasRe.MatchString(alias) {
-			return nil, fmt.Errorf("bedrock: invalid account alias %q — must start with a letter and contain only [a-z0-9_-]", alias)
+			return nil, fmt.Errorf("bedrock: invalid account alias %q — must start with a letter and contain only [a-z0-9_]", alias)
 		}
 		prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
 		region := os.Getenv(prefix + "REGION")

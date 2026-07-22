@@ -158,7 +158,7 @@ When `BEDROCK_ACCOUNTS` is unset, Bedrock is disabled and no connector is regist
 
 ### Alias Validation
 
-Aliases are validated at startup against the pattern `^[a-z][a-z0-9_-]*$` — must start with a lowercase letter and contain only `[a-z0-9_-]`. An alias containing `:`, `/`, spaces, uppercase characters, or a leading digit/hyphen returns a startup error. This ensures provider names of the form `bedrock:<alias>` are safe to store, display, and use as OPA scope segments.
+Aliases are validated at startup against the pattern `^[a-z][a-z0-9_]*$` — must start with a lowercase letter and contain only `[a-z0-9_]`. Hyphens are excluded because the env var prefix `BEDROCK_<UPPER_ALIAS>_` must be a valid POSIX identifier. An alias containing `:`, `/`, `-`, spaces, uppercase characters, or a leading digit returns a startup error. This ensures provider names of the form `bedrock:<alias>` are safe to store, display, and use as OPA scope segments.
 
 ### Code Changes
 
