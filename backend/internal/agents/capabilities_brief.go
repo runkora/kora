@@ -46,8 +46,24 @@ func renderCapabilitiesBrief(access *EffectiveAccess) string {
 		}
 	}
 
-	b.WriteString("\n## Tooling\n")
-	b.WriteString("TLS to allowed hosts is trusted automatically (the platform CA is preconfigured), so git, curl, pip, npm, and similar tools work without -k/insecure flags or extra setup.\n")
+	b.WriteString("\n## Sandbox\n")
+	hasEgress := access.Open || len(access.Hosts) > 0
+	if hasEgress {
+		// Outbound calls and the platform CA trust that makes them work are only
+		// active in the sandbox pod. The agent container has neither the intercepted-TLS
+		// CA nor credential injection; any network tool used there will fail. The
+		// sandbox also provides the full engineering toolchain (git, curl, npm, pip,
+		// compilers, etc.). Instruct the agent to provision before it needs any of these,
+		// but not before — sandboxes consume real resources.
+		b.WriteString("Outbound network calls (git, curl, npm install, pip install, etc.) and the platform CA trust that makes them work require a sandbox. ")
+		b.WriteString("Call mcp__runtime__provision_sandbox before making any outbound connection or running build commands, compiling code, or starting servers. ")
+		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
+	} else {
+		// No outbound access configured. A sandbox is still the right place to
+		// run builds, tests, and local servers — it provides the full toolchain.
+		b.WriteString("This agent has no outbound network access. A sandbox is still useful for local builds, tests, and servers — call mcp__runtime__provision_sandbox before running build commands, compiling code, or starting servers. ")
+		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
+	}
 
 	return b.String()
 }

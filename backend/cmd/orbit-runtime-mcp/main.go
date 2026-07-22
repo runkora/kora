@@ -133,7 +133,7 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 			"tools": []map[string]any{
 				{
 					"name":        "provision_sandbox",
-					"description": "Provisions a sandbox execution environment for this session. Call this before running build commands, compiling code, starting servers, or installing packages. After this tool returns successfully, all Bash commands will execute inside the sandbox.",
+					"description": "Provisions a sandbox execution environment for this session. Call this before making any outbound network call (git clone, curl, npm install, pip install, etc.) or running build commands, compiling code, or starting servers. After this tool returns successfully, all Bash commands will execute inside the sandbox and outbound connections will work. Only call this when you actually need those capabilities — do not provision eagerly.",
 					"inputSchema": map[string]any{
 						"type":       "object",
 						"properties": map[string]any{},
