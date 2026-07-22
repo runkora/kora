@@ -317,6 +317,15 @@ platform:
   # Operator injects this from spec.spire.enabled in the OrbitPlatform CR.
   spiffe:
     enabled: true
+    # Whether SPIRE is actually the thing issuing workload certs (as
+    # opposed to platform.spiffe.enabled, which just means "pin custom SANs
+    # at all"). Distinct because a dev-environment install sets
+    # platform.spiffe.enabled: true (devEnvID is set) while still running
+    # with SPIRE fully disabled in-vcluster — istiod's own default CA
+    # issues certs there instead, in a different SAN shape. Operator
+    # injects this from spec.spire.enabled directly (never derived from
+    # devEnvID) — see orbit.workloadPrincipal (_helpers.tpl).
+    spireEnabled: true
 
 # -- NetworkPolicy toggle.
 # Should match the value used in the orbit-platform chart.

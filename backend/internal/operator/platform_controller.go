@@ -649,40 +649,76 @@ func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *Orb
 	}
 }
 
-func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	serviceType := p.Spec.Gateway.ServiceType
-	if serviceType == "" {
-		serviceType = "LoadBalancer"
+// buildGatewayValues renders the Istio ingress gateway chart's Helm values.
+// Kept pure (no cluster calls) so the pinned constraint below can be
+// asserted by unit test without a live Helm/Kubernetes backend:
+//
+//   - The gateway is wired to SPIRE via the sidecar-injection template
+//     mechanism (podAnnotations["inject.istio.io/templates"]), not the
+//     gateway chart's own raw env/volumes values — confirmed empirically:
+//     the chart's own "gateway" injection template already defines
+//     PILOT_CERT_PROVIDER and ISTIO_META_CLUSTER_ID with its own defaults,
+//     and the chart's proxy.istio.io/overrides mechanism (fed by
+//     .Values.env) does not win against a key the base template already
+//     sets — only genuinely new keys (e.g. SPIFFE_ENDPOINT_SOCKET) survive
+//     that path. Layering "spire" as an additional injection template
+//     alongside the base "gateway" template uses the same
+//     strategic-merge-by-name logic already proven correct for every other
+//     SPIRE-identified workload (buildSpireInjectionTemplate, applied via
+//     "sidecar,spire" elsewhere).
+//   - The "spire" template is included ONLY when p.Spec.SPIRE.Enabled: an
+//     in-vcluster gateway (SPIRE.Enabled=false) has no SPIRE agent to
+//     request an SVID from, and must fall back to istiod's own self-signed
+//     CA exactly like every other in-vcluster workload — mirroring the same
+//     host-only gate buildIstiodValues already applies to
+//     meshConfig.discoverySelectors. Without this gate the gateway's
+//     istio-proxy expects a SPIRE-issued serving cert that never arrives
+//     while istiod presents its self-signed one, and every XDS handshake
+//     fails with "certificate signed by unknown authority".
+//   - The TLS-passthrough port for routing external kubectl traffic to a
+//     dev environment's own vcluster API server is HOST-only too
+//     (devenvironment_ingress.go's devEnvAPIGatewayPort): the gateway
+//     release installed *inside* a dev environment's own vcluster has no
+//     vcluster of its own to route to.
+// buildOrbitPlatformSpiffeValues renders the "orbit" chart's
+// platform.spiffe.* values (reconcileOrbit). Kept pure, mirroring
+// buildGatewayValues/buildIstiodValues, so the distinction below can be
+// asserted by unit test without a live Helm/Kubernetes backend:
+//
+//   - enabled means "workloads carry SPIFFE identities and the chart's
+//     DestinationRules must pin their SANs" — true when this cluster runs
+//     SPIRE itself, and equally true on a dev-environment install, where
+//     identity is HOST-provided and every SVID is prefixed /devenv/<id>.
+//     Without the DRs, Istio falls back to the standard ns/sa SAN
+//     convention and rejects every SPIRE-issued custom SAN with a 503.
+//   - spireEnabled is deliberately NOT the same expression as enabled: it
+//     must reflect whether SPIRE itself is actually issuing this install's
+//     certs, not merely whether this is a devenv install. A SPIRE-disabled
+//     devenv install (SPIRE cannot run inside the vcluster: no in-vcluster
+//     SPIRE agent, no ClusterSPIFFEID selecting these pods) still has
+//     DevEnvironmentID set, so enabled is still true — the chart still
+//     needs to pin something — but every workload's real cert comes from
+//     the in-vcluster istiod's own default CA instead, in istiod's default
+//     ns/sa SAN shape, not the SPIRE-style devenv-prefixed path. Confirmed
+//     live (2026-07-22): checking only the SPIRE-style path unconditionally
+//     left orbit-opa-gateway's own bundle-fetch AuthorizationPolicy
+//     permanently unmatchable on every SPIRE-disabled install (see
+//     orbit.workloadPrincipal, charts/orbit/templates/_helpers.tpl).
+func buildOrbitPlatformSpiffeValues(p *OrbitPlatform) map[string]any {
+	return map[string]any{
+		"enabled":      p.Spec.SPIRE.Enabled || p.Spec.DevEnvironmentID != "",
+		"devEnvID":     p.Spec.DevEnvironmentID,
+		"spireEnabled": p.Spec.SPIRE.Enabled,
 	}
+}
 
-	// Wire the Istio ingress gateway to SPIRE so it shares the same CA root as
-	// all orbit-system sidecar proxies. Without this the gateway uses istiod's
-	// self-signed CA while sidecars use SPIRE's CA, causing TLS verify failures
-	// on every inbound route (CERTIFICATE_VERIFY_FAILED / SAN mismatch).
-	//
-	// This MUST go through the sidecar-injection template mechanism
-	// (podAnnotations["inject.istio.io/templates"]), not the gateway chart's
-	// own raw env/volumes values. Confirmed empirically: the gateway chart's
-	// "gateway" injection template already defines PILOT_CERT_PROVIDER and
-	// ISTIO_META_CLUSTER_ID with its own defaults, and the chart's
-	// proxy.istio.io/overrides mechanism (fed by .Values.env) does not win
-	// against a key the base template already sets — only genuinely new keys
-	// (e.g. SPIFFE_ENDPOINT_SOCKET) survive that path. Layering "spire" as an
-	// additional injection template alongside the base "gateway" template
-	// uses the same strategic-merge-by-name logic already proven correct for
-	// every other SPIRE-identified workload (buildSpireInjectionTemplate,
-	// applied via "sidecar,spire" elsewhere) — it, and not raw values, is
-	// what actually overrides these two keys.
+func buildGatewayValues(p *OrbitPlatform, serviceType string) map[string]any {
 	serviceValues := map[string]any{
 		"type": serviceType,
 	}
-	// Expose the shared TLS-passthrough port used to route external kubectl
-	// traffic to each dev environment's own vcluster API server
-	// (devenvironment_ingress.go's devEnvAPIGatewayPort). Only on the HOST's
-	// own gateway: p.Spec.SPIRE.Enabled is false only for the gateway release
-	// installed *inside* a dev environment's own vcluster, which has no
-	// vcluster of its own to route to.
+	injectionTemplates := "gateway"
 	if p.Spec.SPIRE.Enabled {
+		injectionTemplates = "gateway,spire"
 		serviceValues["ports"] = []map[string]any{
 			{"name": "status-port", "port": 15021, "protocol": "TCP", "targetPort": 15021},
 			{"name": "http2", "port": 80, "protocol": "TCP", "targetPort": 80},
@@ -690,16 +726,25 @@ func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatf
 			{"name": "tls-devenv-api", "port": devEnvAPIGatewayPort, "protocol": "TCP", "targetPort": devEnvAPIGatewayPort},
 		}
 	}
-	gatewayValues := map[string]any{
+	return map[string]any{
 		"service": serviceValues,
 		"podAnnotations": map[string]any{
 			"sidecar.istio.io/inject":   "true",
-			"inject.istio.io/templates": "gateway,spire",
+			"inject.istio.io/templates": injectionTemplates,
 			"prometheus.io/port":        "15020",
 			"prometheus.io/scrape":      "true",
 			"prometheus.io/path":        "/stats/prometheus",
 		},
 	}
+}
+
+func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
+	serviceType := p.Spec.Gateway.ServiceType
+	if serviceType == "" {
+		serviceType = "LoadBalancer"
+	}
+
+	gatewayValues := buildGatewayValues(p, serviceType)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -793,17 +838,7 @@ func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatfor
 			"namespaces": map[string]any{
 				"system": "orbit-system",
 			},
-			// spiffe.enabled means "workloads carry SPIFFE identities and the
-			// chart's DestinationRules must pin their SANs" — true when this
-			// cluster runs SPIRE itself, and equally true on a dev-environment
-			// install, where identity is HOST-provided and every SVID is
-			// prefixed /devenv/<id>. Without the DRs, Istio falls back to the
-			// standard ns/sa SAN convention and rejects every SPIRE-issued
-			// custom SAN with a 503.
-			"spiffe": map[string]any{
-				"enabled":  p.Spec.SPIRE.Enabled || p.Spec.DevEnvironmentID != "",
-				"devEnvID": p.Spec.DevEnvironmentID,
-			},
+			"spiffe": buildOrbitPlatformSpiffeValues(p),
 		},
 	})
 

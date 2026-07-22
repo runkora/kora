@@ -101,6 +101,47 @@ spiffe://{{ include "orbit.spiffePrincipalBase" . }}
 {{- end }}
 
 {{/*
+The principal to use when checking (not pinning) a SPECIFIC workload's own
+identity — e.g. an AuthorizationPolicy's source.principals/notPrincipals —
+as opposed to orbit.spiffeIDBase/spiffePrincipalBase above, which describe
+the trust-domain-wide base every DestinationRule SAN is pinned against.
+
+platform.spiffe.enabled (and devEnvID) being set does NOT by itself mean
+this workload's cert actually carries the custom SPIRE-style
+{trustDomain}[/devenv/{id}]/system/{component} path: that path only exists
+when SPIRE is the thing issuing the cert. On an in-vcluster dev-environment
+install with SPIRE disabled (platform.spiffe.spireEnabled: false — no SPIRE
+agent runs inside the vcluster, and no ClusterSPIFFEID selects these pods),
+every workload instead gets the in-vcluster istiod's own default per-
+ServiceAccount CA identity, spiffe://{trustDomain}/ns/{namespace}/sa/{sa} —
+a completely different shape. A policy checking the SPIRE-style path
+unconditionally never matches on such an install (confirmed live,
+2026-07-22: orbit-opa-gateway's actual cert SAN was
+spiffe://<trustDomain>/ns/orbit-system/sa/orbit-opa-gateway, not the
+devenv-prefixed system/opa-gateway path
+authorizationpolicy-policy-service.yaml was checking against — its bundle
+fetch was unconditionally DENYed on every SPIRE-disabled install as a
+result). Call this with the component name used in the SPIRE-style path
+(e.g. "opa-gateway") and the k8s ServiceAccount name used when SPIRE is
+absent (e.g. "orbit-opa-gateway") — the two are deliberately allowed to
+differ, since the SPIRE-style path is chosen by convention while the
+ServiceAccount name is chosen by the chart's own templates.
+
+Other spiffeIDBase-consuming templates in this chart (the per-service
+DestinationRules) pin the SPIRE-style SAN unconditionally too, and are
+likely subject to the same gap on a SPIRE-disabled install — not yet
+audited/fixed here; this helper only covers the one caller
+(authorizationpolicy-policy-service.yaml) confirmed broken live.
+*/}}
+{{- define "orbit.workloadPrincipal" -}}
+{{- if .spireEnabled -}}
+{{ include "orbit.spiffePrincipalBase" .root }}/system/{{ .component }}
+{{- else -}}
+{{ include "orbit.trustDomain" .root }}/ns/{{ include "orbit.systemNamespace" .root }}/sa/{{ .serviceAccount }}
+{{- end -}}
+{{- end }}
+
+{{/*
 The orbit-system namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}

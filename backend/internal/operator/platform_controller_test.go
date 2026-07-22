@@ -75,6 +75,88 @@ func TestBuildIstiodValues_DiscoverySelectorsExcludeDevenvOnHostOnly(t *testing.
 	}
 }
 
+// TestBuildGatewayValues_SpireInjectionTemplateHostOnly guards the gateway
+// analogue of pinned decision 10/15's SPIRE.Enabled gate: the gateway's
+// sidecar-injection templates must include "spire" only on a host install.
+// An in-vcluster gateway (SPIRE.Enabled=false) has no SPIRE agent to request
+// an SVID from and must fall back to istiod's own self-signed CA — carrying
+// the "spire" template anyway makes istio-proxy expect a SPIRE-issued
+// serving cert that never arrives, failing every XDS handshake against
+// istiod's self-signed one with "certificate signed by unknown authority"
+// (found live, 2026-07-22, in-vcluster devenv install).
+func TestBuildGatewayValues_SpireInjectionTemplateHostOnly(t *testing.T) {
+	host := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = true })
+	hostValues := buildGatewayValues(host, "LoadBalancer")
+	hostAnnotations, ok := hostValues["podAnnotations"].(map[string]any)
+	if !ok {
+		t.Fatalf(`values["podAnnotations"] missing or wrong type`)
+	}
+	if hostAnnotations["inject.istio.io/templates"] != "gateway,spire" {
+		t.Errorf(`host install: inject.istio.io/templates = %v, want "gateway,spire"`, hostAnnotations["inject.istio.io/templates"])
+	}
+	hostService, ok := hostValues["service"].(map[string]any)
+	if !ok || hostService["ports"] == nil {
+		t.Errorf("host install: service.ports must be set for the devenv-API TLS-passthrough port, got %#v", hostService["ports"])
+	}
+
+	inVCluster := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = false })
+	vclusterValues := buildGatewayValues(inVCluster, "ClusterIP")
+	vcAnnotations, ok := vclusterValues["podAnnotations"].(map[string]any)
+	if !ok {
+		t.Fatalf(`values["podAnnotations"] missing or wrong type`)
+	}
+	if vcAnnotations["inject.istio.io/templates"] != "gateway" {
+		t.Errorf(`in-vcluster install: inject.istio.io/templates = %v, want "gateway" (no "spire")`, vcAnnotations["inject.istio.io/templates"])
+	}
+	vcService, ok := vclusterValues["service"].(map[string]any)
+	if !ok {
+		t.Fatalf(`values["service"] missing or wrong type`)
+	}
+	if _, ok := vcService["ports"]; ok {
+		t.Errorf("in-vcluster install: service.ports must be unset, got %#v", vcService["ports"])
+	}
+}
+
+// TestBuildOrbitPlatformSpiffeValues_SpireEnabledDistinctFromEnabled guards
+// against the "enabled" flag being conflated with "SPIRE actually issues
+// this install's certs": a SPIRE-disabled devenv install (SPIRE cannot run
+// inside the vcluster) still needs platform.spiffe.enabled=true so the
+// chart pins SOMETHING, but spireEnabled must independently reflect
+// p.Spec.SPIRE.Enabled directly — never derived from DevEnvironmentID —
+// since every workload's real cert on such an install comes from the
+// in-vcluster istiod's own default CA (istiod's default ns/sa SAN shape),
+// not the SPIRE-style devenv-prefixed path. Conflating the two left
+// orbit-opa-gateway's own bundle-fetch AuthorizationPolicy permanently
+// unmatchable on every SPIRE-disabled install (found live, 2026-07-22).
+func TestBuildOrbitPlatformSpiffeValues_SpireEnabledDistinctFromEnabled(t *testing.T) {
+	host := newTestOrbitPlatform(func(p *OrbitPlatform) {
+		p.Spec.SPIRE.Enabled = true
+		p.Spec.DevEnvironmentID = ""
+	})
+	hostValues := buildOrbitPlatformSpiffeValues(host)
+	if hostValues["enabled"] != true {
+		t.Errorf("host install: enabled = %v, want true", hostValues["enabled"])
+	}
+	if hostValues["spireEnabled"] != true {
+		t.Errorf("host install: spireEnabled = %v, want true", hostValues["spireEnabled"])
+	}
+
+	devEnvNoSpire := newTestOrbitPlatform(func(p *OrbitPlatform) {
+		p.Spec.SPIRE.Enabled = false
+		p.Spec.DevEnvironmentID = "local-test"
+	})
+	devEnvValues := buildOrbitPlatformSpiffeValues(devEnvNoSpire)
+	if devEnvValues["enabled"] != true {
+		t.Errorf("SPIRE-disabled devenv install: enabled = %v, want true (devEnvID set, chart still pins something)", devEnvValues["enabled"])
+	}
+	if devEnvValues["spireEnabled"] != false {
+		t.Errorf("SPIRE-disabled devenv install: spireEnabled = %v, want false — must not be true just because DevEnvironmentID is set", devEnvValues["spireEnabled"])
+	}
+	if devEnvValues["devEnvID"] != "local-test" {
+		t.Errorf("devEnvID = %v, want %q", devEnvValues["devEnvID"], "local-test")
+	}
+}
+
 // TestBuildIstiodValues_MeshJWTValidationSetsEscapedJWTRuleWithAudiences
 // guards pinned decision 9: JWT_RULE must be YAML-escaped for the chart's
 // unescaped env template, and audiences must always be present and

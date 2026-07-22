@@ -23,6 +23,13 @@
 # AuthorizationPolicy to Envoy RBAC. Specify the principal WITHOUT the
 # "spiffe://" prefix — Istio adds it. Writing "spiffe://..." produces
 # "spiffe://spiffe://..." in the generated Envoy rule and never matches.
+#
+# The opa-gateway's own principal shape depends on whether SPIRE is actually
+# issuing its cert (platform.spiffe.spireEnabled) — see
+# orbit.workloadPrincipal's own doc comment (_helpers.tpl) for why this
+# can't just be the SPIRE-style path unconditionally: on a SPIRE-disabled
+# in-vcluster install, istiod's own default CA issues the cert instead, in
+# a different shape, and the SPIRE-style path never matches it.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -43,6 +50,6 @@ spec:
       from:
         - source:
             notPrincipals:
-              - "{{ include "orbit.spiffePrincipalBase" . }}/system/opa-gateway"
+              - "{{ include "orbit.workloadPrincipal" (dict "root" . "spireEnabled" .Values.platform.spiffe.spireEnabled "component" "opa-gateway" "serviceAccount" "orbit-opa-gateway") }}"
 {{- end }}
 
