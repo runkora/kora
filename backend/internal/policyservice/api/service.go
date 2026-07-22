@@ -60,6 +60,29 @@ func isStructurallyValidEgressScope(scope string) bool {
 	return host != "" && !strings.ContainsAny(host, " \t:/")
 }
 
+// qualifiedConnectionScopeBase recognizes a repository/resource-qualified
+// connection scope — connection:<name>:<category>:<qualifier>:<verb> — and
+// returns its unqualified base (the qualifier segment removed). Qualifiers are
+// grant data, not vocabulary (they name upstream resources — repositories,
+// namespaces — an open set), so the grant path validates them structurally: the
+// scope is grantable when its base exists in the vocabulary and the qualifier
+// segment is a well-formed, lowercase resource name. See
+// docs/adr/2026-07-22-connection-scope-qualifiers.md.
+func qualifiedConnectionScopeBase(scope string) (string, bool) {
+	parts := strings.Split(scope, ":")
+	if len(parts) < 5 || parts[0] != "connection" {
+		return "", false
+	}
+	qualifier := parts[len(parts)-2]
+	if qualifier == "" || qualifier != strings.ToLower(qualifier) || strings.ContainsAny(qualifier, " \t/*") {
+		return "", false
+	}
+	base := make([]string, 0, len(parts)-1)
+	base = append(base, parts[:len(parts)-2]...)
+	base = append(base, parts[len(parts)-1])
+	return strings.Join(base, ":"), true
+}
+
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
 // writes within this window are coalesced into a single recompilation.
 const recompileDebounce = 500 * time.Millisecond
@@ -142,6 +165,17 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		exists, err := s.vocabRepo.Exists(ctx, scope)
 		if err != nil {
 			return nil, fmt.Errorf("vocabulary check: %w", err)
+		}
+		if !exists {
+			// Resource-qualified connection scopes are grant data over an open
+			// upstream set — validated structurally against their unqualified
+			// vocabulary base, mirroring egress host scopes above.
+			if base, ok := qualifiedConnectionScopeBase(scope); ok {
+				exists, err = s.vocabRepo.Exists(ctx, base)
+				if err != nil {
+					return nil, fmt.Errorf("vocabulary check: %w", err)
+				}
+			}
 		}
 		if !exists {
 			return nil, &ScopeVocabularyError{Scope: scope}

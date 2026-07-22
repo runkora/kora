@@ -52,8 +52,9 @@ func (a *Adapter) Actions() []credentials.ActionDeclaration {
 
 // ClassifyAction maps every request to the uniform "use" action — a passthrough
 // connection authorizes its whole host uniformly, regardless of method or path.
-func (a *Adapter) ClassifyAction(_ *http.Request) (string, error) {
-	return actionUse, nil
+// It declares no qualifier dimension, so the qualifier is always empty.
+func (a *Adapter) ClassifyAction(_ *http.Request, _ credentials.Connection) (credentials.Classification, error) {
+	return credentials.Classification{Action: actionUse}, nil
 }
 
 // Resolve returns an empty credential: nothing is injected on the outbound leg.

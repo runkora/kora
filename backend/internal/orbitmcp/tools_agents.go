@@ -114,10 +114,12 @@ type createAgentArgs struct {
 }
 
 // connectorArg is one credential connection the agent may use and the actions
-// allowed on it. Call agents.connectors for valid connection names and actions.
+// allowed on it. Call agents.connectors for valid connection names, actions,
+// and the connection's resource-qualifier dimension (if any).
 type connectorArg struct {
 	Connection string   `json:"connection" jsonschema:"the registered connection name (e.g. github)"`
-	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. repo:read, repo:write)"`
+	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. contents:read, issues:write; repo:read/repo:write grant everything)"`
+	Resources  []string `json:"resources,omitempty" jsonschema:"optionally narrow the connector to specific upstream resources of the connection's qualifier dimension (e.g. bare repository names for a github connection). Omit for all resources — agents.connectors lists the dimension and any allowlist ceiling"`
 }
 
 // connectivityArg is the agent's outbound egress posture.

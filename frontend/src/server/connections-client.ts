@@ -1,12 +1,16 @@
 import 'server-only';
 import { config } from '@orbit/server/config';
-import type { ConnectionCatalogEntry } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@orbit/shared/api';
 
 /** The slice of the gateway's connection record the catalog picker needs. */
 interface GatewayConnection {
   name: string;
   adapter: string;
   actions?: string[];
+  /** Action fragments the backend adds automatically at attachment. */
+  baseline?: string[];
+  /** Present only for adapters with a resource-qualifier dimension. */
+  qualifier?: ConnectionQualifierEntry | null;
 }
 
 /**
@@ -38,5 +42,7 @@ export async function listConnections(accessToken: string): Promise<ConnectionCa
     name: c.name,
     adapter: c.adapter,
     actions: c.actions ?? [],
+    baseline: c.baseline ?? [],
+    qualifier: c.qualifier ?? null,
   }));
 }

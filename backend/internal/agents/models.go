@@ -111,7 +111,13 @@ func (c Connectivity) EgressScopes() []string {
 // and for which actions.
 type Connector struct {
 	Connection string   `json:"connection"` // registered connection name, e.g. "github"
-	Actions    []string `json:"actions"`    // adapter actions, e.g. ["repo:read","repo:write"]
+	Actions    []string `json:"actions"`    // adapter actions, e.g. ["contents:read","issues:write"]
+	// Resources optionally narrows the attachment to specific upstream
+	// resources (repositories, namespaces — the adapter's qualifier
+	// dimension). Empty means all resources: the compiled scopes stay
+	// unqualified, which the covers hierarchy makes the parent of every
+	// qualified form. See docs/adr/2026-07-22-connection-scope-qualifiers.md.
+	Resources []string `json:"resources,omitempty"`
 }
 
 // AgentBudget is the spending configuration applied to the agent's policy
@@ -163,10 +169,13 @@ type AgentType struct {
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set
-// granted to the agent principal: connection:<connection>:<action> for each
-// action. Empty connection names or actions are skipped. Action strings keep
-// their own ':' (e.g. "repo:read") so the full scope is a 4-segment
-// connection:<name>:<resource>:<verb>.
+// granted to the agent principal. An unrestricted connector compiles each action
+// to connection:<connection>:<action> (the action fragment keeps its own ':',
+// e.g. "contents:read", so the scope is connection:<name>:<category>:<verb>).
+// A connector with Resources compiles the qualifier into each category action —
+// connection:<name>:<category>:<resource>:<verb> — one scope per selected
+// resource. Single-word actions ("use") take no qualifier and stay unqualified.
+// Empty connection names or actions are skipped.
 func (at AgentType) ConnectorScopes() []string {
 	scopes := make([]string, 0, len(at.Connectors))
 	for _, c := range at.Connectors {
@@ -174,9 +183,24 @@ func (at AgentType) ConnectorScopes() []string {
 		if name == "" {
 			continue
 		}
+		resources := make([]string, 0, len(c.Resources))
+		for _, r := range c.Resources {
+			if r = strings.ToLower(strings.TrimSpace(r)); r != "" {
+				resources = append(resources, r)
+			}
+		}
 		for _, a := range c.Actions {
-			if a = strings.TrimSpace(a); a != "" {
+			if a = strings.TrimSpace(a); a == "" {
+				continue
+			}
+			i := strings.LastIndex(a, ":")
+			if len(resources) == 0 || i <= 0 {
 				scopes = append(scopes, "connection:"+name+":"+a)
+				continue
+			}
+			category, verb := a[:i], a[i+1:]
+			for _, r := range resources {
+				scopes = append(scopes, "connection:"+name+":"+category+":"+r+":"+verb)
 			}
 		}
 	}

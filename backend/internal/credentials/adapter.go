@@ -53,23 +53,43 @@ type CredentialAdapter interface {
 	Actions() []ActionDeclaration
 
 	// ClassifyAction inspects req and returns the policy action this call
-	// requires (e.g. "repo:write", "objects:read"). The action is concatenated
-	// with the connection name to produce the policy scope
-	// "connection:<name>:<action>". An adapter that authorizes the entire
-	// connection uniformly may return a single constant ("use", "invoke").
-	// Returning ErrUnsupportedAction tells the gateway to deny the request.
-	ClassifyAction(req *http.Request) (string, error)
+	// requires (e.g. "repo:write", "workloads:read") plus, for adapters with a
+	// declared qualifier dimension, the resource qualifier extracted from the
+	// request (e.g. the repository name). The broker builds the required scope
+	// connection:<name>:<category>[:<qualifier>]:<verb> from the result. An
+	// adapter that authorizes the entire connection uniformly may return a
+	// single constant action ("use", "invoke") and an empty qualifier.
+	//
+	// conn is the resolved connection the request was routed to — adapters use
+	// its config to verify resource authority (e.g. the GitHub adapter denies
+	// paths naming a foreign repository owner). Extraction must be canonical:
+	// a request naming a resource outside the connection's authority returns
+	// ErrUnsupportedAction, never an ambiguous qualifier. See
+	// docs/adr/2026-07-22-connection-scope-qualifiers.md.
+	ClassifyAction(req *http.Request, conn Connection) (Classification, error)
 
 	// Resolve returns the credential to apply for this call.
 	Resolve(ctx context.Context, conn Connection, id CallerIdentity) (Credential, error)
 }
 
+// Classification is the policy-facing result of mapping one inbound request:
+// the action fragment ("<category>:<verb>") and the optional resource
+// qualifier the request was attributed to (empty when the adapter has no
+// qualifier dimension or the request names no resource).
+type Classification struct {
+	Action    string
+	Qualifier string
+}
+
 // ActionDeclaration describes one action an adapter can classify. The Action
 // is the value returned by ClassifyAction; Description is shown to admins in
 // the connection dashboard and embedded in the published scope vocabulary.
+// Requires lists same-connection action fragments the action confers when
+// granted (published as vocabulary requires edges).
 type ActionDeclaration struct {
 	Action      string
 	Description string
+	Requires    []string
 }
 
 // SecretResolver fetches raw secret material (e.g. a GitHub App private key) by

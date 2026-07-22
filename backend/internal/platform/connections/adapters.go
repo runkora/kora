@@ -36,9 +36,29 @@ const (
 // Action vocabulary, shared by the gateway adapters (which classify requests
 // into these actions) and the connector picker (which offers them as grants).
 const (
-	ActionGitHubRepoRead  = "repo:read"
-	ActionGitHubRepoWrite = "repo:write"
-	ActionPassthroughUse  = "use"
+	// GitHub actions are category-scoped since the 2026-07-22 category ADR:
+	// each category is a route family of the GitHub surface with its own
+	// read/write pair. repo:read/repo:write survive as the catch-all for
+	// uncategorized routes and as the legacy umbrella (their vocabulary
+	// entries carry Requires edges to every category action). See
+	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
+	ActionGitHubRepoRead      = "repo:read"
+	ActionGitHubRepoWrite     = "repo:write"
+	ActionGitHubMetadataRead  = "metadata:read"
+	ActionGitHubContentsRead  = "contents:read"
+	ActionGitHubContentsWrite = "contents:write"
+	ActionGitHubIssuesRead    = "issues:read"
+	ActionGitHubIssuesWrite   = "issues:write"
+	ActionGitHubPullsRead     = "pulls:read"
+	ActionGitHubPullsWrite    = "pulls:write"
+	ActionGitHubActionsRead   = "actions:read"
+	ActionGitHubActionsWrite  = "actions:write"
+	ActionGitHubChecksRead    = "checks:read"
+	ActionGitHubChecksWrite   = "checks:write"
+	ActionGitHubAdminRead     = "admin:read"
+	ActionGitHubAdminWrite    = "admin:write"
+
+	ActionPassthroughUse = "use"
 
 	// Kubernetes actions are resource-category-scoped, not one coarse
 	// read/write pair — see docs/adr/2026-07-06-kubernetes-connection-bearer-
@@ -68,6 +88,29 @@ const (
 type ActionMeta struct {
 	Action      string
 	Description string
+
+	// Requires lists sibling action fragments this action confers when granted.
+	// The scope publisher resolves each fragment to the full same-connection
+	// scope (connection:<name>:<fragment>) and publishes it as the vocabulary
+	// entry's requires edge, expanded at bundle compile. Used for the legacy
+	// repo:read/repo:write umbrella bridge and the metadata:read discovery edge.
+	Requires []string
+}
+
+// QualifierMeta declares an adapter's optional grant-time resource dimension —
+// the connection-scope qualifier segment (connection:<name>:<category>:<qualifier>:<verb>).
+// See docs/adr/2026-07-22-connection-scope-qualifiers.md. Adapters without a
+// qualifier dimension leave it nil.
+type QualifierMeta struct {
+	// Name is the singular, human-facing dimension name ("repository",
+	// "namespace"), used by the attachment picker's labels.
+	Name string
+	// Description explains the dimension for admins.
+	Description string
+	// ConfigKey is the connection-config key holding the optional ceiling
+	// allowlist ([]string). The broker denies requests whose extracted
+	// qualifier falls outside a declared ceiling, before policy evaluation.
+	ConfigKey string
 }
 
 // adapterMeta is the static metadata for one adapter.
@@ -78,15 +121,63 @@ type adapterMeta struct {
 	// requiresHostname, when true, rejects a base host that is a bare IP
 	// literal. Only kubernetes sets this: see ErrBaseHostMustBeHostname.
 	requiresHostname bool
+
+	// qualifier is the adapter's grant-time resource dimension, nil when the
+	// adapter has none.
+	qualifier *QualifierMeta
+
+	// baselineActions are action fragments every connector attachment must
+	// include unqualified for the connector to function (e.g. GitHub clients
+	// probe metadata endpoints before real work). The attachment compiler adds
+	// them because vocabulary requires edges cannot reach repository-qualified
+	// grant scopes.
+	baselineActions []string
 }
+
+// githubCategoryReads / githubCategoryWrites are the category actions the
+// legacy repo:read / repo:write umbrellas confer via requires edges, keeping
+// pre-category grants behaviorally identical.
+var githubCategoryReads = []string{
+	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
+	ActionGitHubPullsRead, ActionGitHubActionsRead, ActionGitHubChecksRead, ActionGitHubAdminRead,
+}
+
+var githubCategoryWrites = []string{
+	ActionGitHubContentsWrite, ActionGitHubIssuesWrite, ActionGitHubPullsWrite,
+	ActionGitHubActionsWrite, ActionGitHubChecksWrite, ActionGitHubAdminWrite,
+}
+
+// githubMeta is the requires edge every GitHub category action carries:
+// gh/Octokit/most SDKs probe metadata endpoints before real work, so any
+// category grant auto-confers the metadata reads.
+var githubMeta = []string{ActionGitHubMetadataRead}
 
 var registry = map[string]adapterMeta{
 	AdapterGitHubApp: {
 		actions: []ActionMeta{
-			{Action: ActionGitHubRepoRead, Description: "Read access to the connection's GitHub repositories (clone, fetch, REST GET/HEAD)"},
-			{Action: ActionGitHubRepoWrite, Description: "Write access to the connection's GitHub repositories (push, REST POST/PATCH/PUT/DELETE)"},
+			{Action: ActionGitHubMetadataRead, Description: "Read repository metadata, rate limits, and installation identity (probed by most GitHub clients before any real work)"},
+			{Action: ActionGitHubContentsRead, Description: "Read repository contents: clone/fetch, contents/commits/branches/tags/releases APIs, raw and archive downloads", Requires: githubMeta},
+			{Action: ActionGitHubContentsWrite, Description: "Write repository contents: push, contents/git-data/releases writes, and merging pull requests", Requires: githubMeta},
+			{Action: ActionGitHubIssuesRead, Description: "Read issues, issue comments, labels, milestones, and assignees", Requires: githubMeta},
+			{Action: ActionGitHubIssuesWrite, Description: "Create and edit issues, issue comments, labels, and milestones", Requires: githubMeta},
+			{Action: ActionGitHubPullsRead, Description: "Read pull requests, reviews, and review comments", Requires: githubMeta},
+			{Action: ActionGitHubPullsWrite, Description: "Create and edit pull requests and reviews (merging is contents:write)", Requires: githubMeta},
+			{Action: ActionGitHubActionsRead, Description: "Read GitHub Actions workflows, runs, jobs, and artifacts (not secrets or variables)", Requires: githubMeta},
+			{Action: ActionGitHubActionsWrite, Description: "Dispatch, re-run, and cancel GitHub Actions workflows (not secrets or variables)", Requires: githubMeta},
+			{Action: ActionGitHubChecksRead, Description: "Read check runs, check suites, and commit statuses", Requires: githubMeta},
+			{Action: ActionGitHubChecksWrite, Description: "Create and update check runs, check suites, and commit statuses", Requires: githubMeta},
+			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: githubMeta},
+			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: githubMeta},
+			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs); as a legacy umbrella it also confers every category read", Requires: githubCategoryReads},
+			{Action: ActionGitHubRepoWrite, Description: "Catch-all write for uncategorized GitHub routes; as a legacy umbrella it also confers every category write", Requires: githubCategoryWrites},
 		},
 		egressHosts: githubEgressHosts,
+		qualifier: &QualifierMeta{
+			Name:        "repository",
+			Description: "Scope this connector to specific repositories of the installation (bare repository name; the installation fixes the owner)",
+			ConfigKey:   "repositories",
+		},
+		baselineActions: []string{ActionGitHubMetadataRead},
 	},
 	AdapterPassthrough: {
 		actions: []ActionMeta{
@@ -228,6 +319,30 @@ func ActionNames(adapter string) []string {
 	for _, a := range m.actions {
 		out = append(out, a.Action)
 	}
+	return out
+}
+
+// Qualifier returns the adapter's grant-time resource dimension, or nil when
+// the adapter declares none (or is unknown). The returned value is a copy.
+func Qualifier(adapter string) *QualifierMeta {
+	m, ok := registry[adapter]
+	if !ok || m.qualifier == nil {
+		return nil
+	}
+	q := *m.qualifier
+	return &q
+}
+
+// BaselineActions returns the action fragments every connector attachment must
+// include unqualified for the adapter's connections to function. Empty
+// (non-nil) for an unknown adapter or one with no baselines.
+func BaselineActions(adapter string) []string {
+	m, ok := registry[adapter]
+	if !ok {
+		return []string{}
+	}
+	out := make([]string, len(m.baselineActions))
+	copy(out, m.baselineActions)
 	return out
 }
 

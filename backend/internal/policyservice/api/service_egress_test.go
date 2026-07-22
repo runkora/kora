@@ -38,3 +38,40 @@ func TestIsStructurallyValidEgressScope(t *testing.T) {
 		})
 	}
 }
+
+// TestQualifiedConnectionScopeBase locks the grant-path recognition of
+// resource-qualified connection scopes (connection:<n>:<category>:<qualifier>:<verb>)
+// and the vocabulary base they validate against
+// (docs/adr/2026-07-22-connection-scope-qualifiers.md).
+func TestQualifiedConnectionScopeBase(t *testing.T) {
+	cases := []struct {
+		scope    string
+		wantBase string
+		wantOK   bool
+	}{
+		{"connection:github:issues:orbit:write", "connection:github:issues:write", true},
+		{"connection:github:repo:my-repo.js:read", "connection:github:repo:read", true},
+
+		// too shallow — unqualified shapes validate against the vocabulary directly
+		{"connection:github:issues:write", "", false},
+		{"connection:github:read", "", false},
+		{"connection:github:use", "", false},
+
+		// malformed qualifiers
+		{"connection:github:issues::write", "", false},       // empty
+		{"connection:github:issues:Orbit:write", "", false},  // not lowercase
+		{"connection:github:issues:a b:write", "", false},    // whitespace
+		{"connection:github:issues:*:write", "", false},      // wildcard — never valid
+		{"connection:github:issues:a/b:write", "", false},    // path separator
+		{"egress:api.github.com:connect", "", false},         // wrong resource type
+		{"mcp:orbit:tools:agents_list:use:extra", "", false}, // wrong resource type
+	}
+	for _, tc := range cases {
+		t.Run(tc.scope, func(t *testing.T) {
+			base, ok := qualifiedConnectionScopeBase(tc.scope)
+			if ok != tc.wantOK || base != tc.wantBase {
+				t.Errorf("qualifiedConnectionScopeBase(%q) = %q/%v, want %q/%v", tc.scope, base, ok, tc.wantBase, tc.wantOK)
+			}
+		})
+	}
+}

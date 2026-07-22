@@ -41,6 +41,14 @@ var (
 	// ErrMissingToken is returned when GitHub's response decodes successfully but
 	// carries an empty token.
 	ErrMissingToken = errors.New("github installation token response missing token")
+
+	// ErrInstallationPermissions is returned when GitHub rejects a token-mint
+	// request (HTTP 422) because the requested permission level exceeds what the
+	// App installation actually holds. This is an upstream authority decision —
+	// the App is the ceiling — not an Orbit-internal error, so callers map it to
+	// a client-facing forbidden rather than a 500. See
+	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
+	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -111,7 +119,15 @@ func (c *Client) CreateInstallationToken(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
-		return InstallationToken{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		// 422 on a token mint means the requested permissions exceed the
+		// installation's own grant — an upstream ceiling, not a transport
+		// failure. Surface it as its own sentinel so the broker can map it to a
+		// forbidden instead of a 500.
+		sentinel := ErrUnexpectedStatus
+		if resp.StatusCode == http.StatusUnprocessableEntity {
+			sentinel = ErrInstallationPermissions
+		}
+		return InstallationToken{}, c.HandleErrorResponse(span, resp, sentinel)
 	}
 
 	var tok InstallationToken
@@ -122,4 +138,70 @@ func (c *Client) CreateInstallationToken(
 		return InstallationToken{}, c.RecordError(span, ErrMissingToken)
 	}
 	return tok, nil
+}
+
+// listRepositoriesPageSize is GitHub's maximum per_page for the
+// installation-repositories listing.
+const listRepositoriesPageSize = 100
+
+// listRepositoriesMaxPages bounds the enumeration to a picker-sized result set;
+// installations larger than this are truncated (the attachment UI permits
+// manual entry beyond the enumerated set).
+const listRepositoriesMaxPages = 5
+
+// installationRepositoriesResponse is the wire shape of
+// GET /installation/repositories.
+type installationRepositoriesResponse struct {
+	TotalCount   int `json:"total_count"`
+	Repositories []struct {
+		Name string `json:"name"`
+	} `json:"repositories"`
+}
+
+// ListInstallationRepositories enumerates the repository names the
+// installation token can reach, for the connector attachment picker.
+// installationToken must be a live installation access token (metadata read
+// suffices). Results are bare repository names — the installation fixes the
+// owner — truncated at listRepositoriesMaxPages pages.
+func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error) {
+	names := make([]string, 0, listRepositoriesPageSize)
+	for page := 1; page <= listRepositoriesMaxPages; page++ {
+		endpoint := fmt.Sprintf("%s/installation/repositories?per_page=%d&page=%d", c.baseURL, listRepositoriesPageSize, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build installation repositories request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+installationToken)
+		req.Header.Set("Accept", acceptHeader)
+
+		_, span, resp, err := c.Do(ctx, "github.Client.ListInstallationRepositories", req)
+		if err != nil {
+			span.End()
+			return nil, fmt.Errorf("installation repositories call: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			err = c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+			_ = resp.Body.Close()
+			span.End()
+			return nil, err
+		}
+
+		var body installationRepositoriesResponse
+		err = c.DecodeJSON(span, resp, &body)
+		_ = resp.Body.Close()
+		span.End()
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range body.Repositories {
+			if r.Name != "" {
+				names = append(names, strings.ToLower(r.Name))
+			}
+		}
+		if len(body.Repositories) < listRepositoriesPageSize {
+			break
+		}
+	}
+	return names, nil
 }

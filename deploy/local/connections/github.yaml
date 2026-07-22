@@ -31,3 +31,8 @@ spec:
   config:
     app_id: "4015347"          # string — your GitHub App's App ID
     installation_id: 139299720 # number — the installation on your org/repos
+    owner: clear-route         # the account the installation is bound to —
+                               # enables repository-qualifier extraction and
+                               # foreign-owner denial (2026-07-22 ADRs); omit
+                               # and the connection keeps unqualified-only
+                               # (pre-qualifier) semantics

@@ -106,11 +106,16 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
             </Text>
           ) : (
             <Stack direction="horizontal" gap="tight" wrap>
-              {row.connectors.map((c) => (
-                <Badge key={c.connection} variant="outline" size="sm">
-                  {c.connection}
-                </Badge>
-              ))}
+              {row.connectors.map((c) => {
+                const resourceCount = c.resources?.length ?? 0;
+                return (
+                  <Badge key={c.connection} variant="outline" size="sm">
+                    {resourceCount > 0
+                      ? `${c.connection} · ${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}`
+                      : c.connection}
+                  </Badge>
+                );
+              })}
             </Stack>
           ),
       },

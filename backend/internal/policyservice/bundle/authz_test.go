@@ -405,6 +405,43 @@ func TestAuthz_AgentAllowedWithGrant(t *testing.T) {
 	}
 }
 
+// TestAuthz_QualifiedConnectionScopes locks the coverage behavior of
+// resource-qualified connection scopes
+// (docs/adr/2026-07-22-connection-scope-qualifiers.md): an unqualified grant
+// covers the qualified requirement by prefix, a qualified grant matches only
+// its own resource, and a qualified grant never satisfies a broader
+// (unqualified) requirement.
+func TestAuthz_QualifiedConnectionScopes(t *testing.T) {
+	pq := compileAndPrepare(t, bundleOpts{
+		grants: []*grants.Grant{agentGrant(testAgentID,
+			"connection:github:issues:write",          // unqualified — all repos
+			"connection:github:contents:orbit:read")}, // qualified — one repo
+	})
+
+	cases := []struct {
+		name  string
+		path  []string
+		verb  string
+		allow bool
+	}{
+		{"unqualified_grant_covers_qualified_request", []string{"github", "issues", "orbit"}, "write", true},
+		{"unqualified_grant_covers_other_repo", []string{"github", "issues", "webapp"}, "write", true},
+		{"unqualified_grant_covers_unqualified_request", []string{"github", "issues"}, "write", true},
+		{"qualified_grant_matches_its_repo", []string{"github", "contents", "orbit"}, "read", true},
+		{"qualified_grant_denies_sibling_repo", []string{"github", "contents", "webapp"}, "read", false},
+		{"qualified_grant_denies_unqualified_request", []string{"github", "contents"}, "read", false},
+		{"category_grant_denies_other_category", []string{"github", "admin", "orbit"}, "write", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "connection", tc.path, tc.verb)
+			if allow != tc.allow {
+				t.Errorf("connection/%v/%s: allow = %v (reason %q), want %v", tc.path, tc.verb, allow, reason, tc.allow)
+			}
+		})
+	}
+}
+
 func TestAuthz_AgentDeniedWithoutGrant(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{agentGrant(testAgentID, "inference:invoke")},

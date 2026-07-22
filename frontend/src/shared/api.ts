@@ -199,17 +199,40 @@ export interface Connectivity {
 export interface Connector {
   connection: string;
   actions: string[];
+  /**
+   * Optional narrowing to specific upstream resources (the adapter's qualifier
+   * dimension — repositories, namespaces). Omitted = all resources; the
+   * compiled scopes stay unqualified. Mirrors Go: agents.Connector.
+   */
+  resources?: string[];
+}
+
+/**
+ * A connection's resource-qualifier dimension, as declared by its adapter:
+ * the dimension's name ("repository", "namespace") and the connection's
+ * optional config-declared ceiling allowlist ([] when none is declared).
+ * Mirrors Go: agents.ConnectionQualifierEntry.
+ */
+export interface ConnectionQualifierEntry {
+  name: string;
+  description: string;
+  ceiling: string[];
 }
 
 /**
  * A connection available to attach as a connector, as surfaced by the egress
  * gateway's GET /connections. `actions` is the connection's scope ceiling — the
- * set of actions an agent may be granted through it.
+ * set of actions an agent may be granted through it. `baseline` lists the
+ * action fragments the backend adds automatically at attachment (always
+ * unqualified). `qualifier` is present only for adapters with a resource
+ * dimension.
  */
 export interface ConnectionCatalogEntry {
   name: string;
   adapter: string;
   actions: string[];
+  baseline: string[];
+  qualifier?: ConnectionQualifierEntry | null;
 }
 
 /**
