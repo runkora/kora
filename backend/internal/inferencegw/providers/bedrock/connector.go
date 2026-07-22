@@ -42,7 +42,7 @@ type Config struct {
 // lowercase letters, digits, hyphens, and underscores so that the composed
 // provider name "bedrock:<alias>" is safe to store in the database, appear in
 // OTel traces, and be used as an OPA scope segment.
-var aliasRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 // NamedConfig pairs a validated alias with its per-account Config.
 type NamedConfig struct {
@@ -148,7 +148,7 @@ func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, 
 		conn, err := New(&nc.Config, providerName, logger)
 		if err != nil {
 			if nc.Alias == "" {
-				return nil, fmt.Errorf("bedrock: %w", err)
+				return nil, err
 			}
 			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, err)
 		}
@@ -321,7 +321,11 @@ type profileEntry struct {
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	activeFMs, excludedFMs, err := c.listOnDemandFMs(ctx)
 	if err != nil {
-		return nil, err
+		c.logger.Warn(ctx, "bedrock: list foundation models failed",
+			logging.Field{Key: "provider", Value: string(c.providerName)},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil, fmt.Errorf("list foundation models: %w", err)
 	}
 	profilesByBase := c.listSystemProfiles(ctx)
 	models := mergeModels(activeFMs, excludedFMs, profilesByBase, c.providerName)

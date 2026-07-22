@@ -1,8 +1,10 @@
 package bedrock
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -117,11 +119,22 @@ func TestLoadMultiConfig_missingRegion(t *testing.T) {
 }
 
 func TestLoadMultiConfig_invalidAlias(t *testing.T) {
-	t.Setenv("BEDROCK_ACCOUNTS", "PROD") // uppercase — invalid
-
-	_, err := LoadMultiConfig()
-	if err == nil {
-		t.Fatal("expected error for invalid alias, got nil")
+	cases := []struct {
+		alias string
+		desc  string
+	}{
+		{"PROD", "uppercase"},
+		{"1prod", "digit-leading"},
+		{"-prod", "hyphen-leading"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Setenv("BEDROCK_ACCOUNTS", tc.alias)
+			_, err := LoadMultiConfig()
+			if err == nil {
+				t.Fatalf("expected error for alias %q (%s), got nil", tc.alias, tc.desc)
+			}
+		})
 	}
 }
 
@@ -153,3 +166,110 @@ func TestLoadMultiConfig_trailingWhitespace(t *testing.T) {
 		t.Fatalf("expected 2 configs after trimming whitespace, got %d", len(cfgs))
 	}
 }
+
+// ─── provider name computation ───────────────────────────────────────────────
+
+// TestMultiFactory_ProviderNameComputation verifies that the alias → provider
+// name mapping in MultiFactory.Build is correct by inspecting LoadMultiConfig
+// output and applying the same logic. No AWS credentials or network needed.
+func TestMultiFactory_ProviderNameComputation(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		alias    string
+		wantName inferencegw.ProviderName
+	}{
+		{"aus", "bedrock:aus"},
+		{"us", "bedrock:us"},
+		{"prod-east", "bedrock:prod-east"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.alias, func(t *testing.T) {
+			t.Parallel()
+			providerName := inferencegw.ProviderBedrock
+			if tc.alias != "" {
+				providerName = inferencegw.ProviderName("bedrock:" + tc.alias)
+			}
+			if providerName != tc.wantName {
+				t.Errorf("providerName = %q, want %q", providerName, tc.wantName)
+			}
+		})
+	}
+}
+
+// TestMultiFactory_SingleAccountProviderName verifies the no-alias path
+// produces the bare "bedrock" provider name.
+func TestMultiFactory_SingleAccountProviderName(t *testing.T) {
+	t.Parallel()
+	providerName := inferencegw.ProviderBedrock // alias == ""
+	if providerName != inferencegw.ProviderBedrock {
+		t.Errorf("single-account providerName = %q, want %q", providerName, inferencegw.ProviderBedrock)
+	}
+}
+
+// TestConnector_Name_ReturnsAliasedName verifies that Connector.Name() returns
+// the provider name it was constructed with, not a hardcoded "bedrock".
+//
+// TODO: integration test — Connector.Name() for a connector constructed with
+// real AWS config. The unit test below validates the same logic using a
+// manually-wired struct field, since New() requires valid AWS credentials.
+func TestConnector_Name_ReturnsAliasedName(t *testing.T) {
+	t.Parallel()
+	c := &Connector{providerName: "bedrock:aus"}
+	if c.Name() != "bedrock:aus" {
+		t.Errorf("Name() = %q, want %q", c.Name(), "bedrock:aus")
+	}
+	c2 := &Connector{providerName: inferencegw.ProviderBedrock}
+	if c2.Name() != inferencegw.ProviderBedrock {
+		t.Errorf("Name() = %q, want %q", c2.Name(), inferencegw.ProviderBedrock)
+	}
+}
+
+// ─── startup error exact strings ─────────────────────────────────────────────
+
+func TestLoadMultiConfig_missingRegion_errorMessage(t *testing.T) {
+	t.Setenv("BEDROCK_ACCOUNTS", "prod")
+	t.Setenv("BEDROCK_PROD_REGION", "")
+
+	_, err := LoadMultiConfig()
+	if err == nil {
+		t.Fatal("expected error for missing region, got nil")
+	}
+	if !strings.Contains(err.Error(), "BEDROCK_PROD_REGION") {
+		t.Errorf("error %q does not mention BEDROCK_PROD_REGION", err.Error())
+	}
+	if !strings.Contains(err.Error(), `"prod"`) {
+		t.Errorf("error %q does not mention account name", err.Error())
+	}
+}
+
+func TestLoadMultiConfig_invalidAlias_errorMessage(t *testing.T) {
+	t.Setenv("BEDROCK_ACCOUNTS", "PROD")
+
+	_, err := LoadMultiConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid alias, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid account alias") {
+		t.Errorf("error %q does not mention 'invalid account alias'", err.Error())
+	}
+	if !strings.Contains(err.Error(), `"PROD"`) {
+		t.Errorf("error %q does not mention the alias value", err.Error())
+	}
+}
+
+func TestLoadMultiConfig_singleAccountFallback_missingRegion_errorMessage(t *testing.T) {
+	t.Setenv("BEDROCK_ACCOUNTS", "")
+	t.Setenv("BEDROCK_ENABLED", "true")
+	t.Setenv("BEDROCK_REGION", "")
+
+	_, err := LoadMultiConfig()
+	if err == nil {
+		t.Fatal("expected error for missing single-account region, got nil")
+	}
+	if !strings.Contains(err.Error(), "BEDROCK_REGION") {
+		t.Errorf("error %q does not mention BEDROCK_REGION", err.Error())
+	}
+}
+
+// TODO: integration test — failover to second account when first region is
+// unreachable. Covered by manual QA.

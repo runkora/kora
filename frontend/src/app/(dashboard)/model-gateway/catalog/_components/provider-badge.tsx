@@ -1,15 +1,14 @@
 import { Badge } from '@orbit/terra';
-import type { Provider } from '../_types/catalog';
-import { PROVIDER_LABELS, PROVIDER_VARIANTS } from '../_utils/catalog-constants';
+import { providerLabel, providerBadgeVariant } from '../_utils/catalog-constants';
 
 interface ProviderBadgeProps {
-  provider: Provider;
+  provider: string;
 }
 
 export function ProviderBadge({ provider }: ProviderBadgeProps) {
   return (
-    <Badge variant={PROVIDER_VARIANTS[provider]} size="sm">
-      {PROVIDER_LABELS[provider]}
+    <Badge variant={providerBadgeVariant(provider)} size="sm">
+      {providerLabel(provider)}
     </Badge>
   );
 }

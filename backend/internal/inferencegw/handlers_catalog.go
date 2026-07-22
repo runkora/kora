@@ -443,7 +443,7 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 	if !isValidProvider(provider) {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.BadRequestError("invalid_provider",
-				fmt.Sprintf("provider %q is not valid; must be one of: bedrock, vertexai, azure", provider),
+				fmt.Sprintf("provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", provider),
 				nil),
 			nil)
 		return
@@ -539,9 +539,6 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// isValidProvider reports whether p is one of the known provider constants or
-// a multi-account Bedrock variant of the form "bedrock:<alias>".
-
 // canonicalPricingProvider maps a Bedrock alias (e.g. "bedrock:us") to the
 // canonical "bedrock" key used in the model_pricing table. Pricing rows are
 // synced once under the base provider name and shared across all accounts.
@@ -552,6 +549,8 @@ func canonicalPricingProvider(p ProviderName) ProviderName {
 	return p
 }
 
+// isValidProvider reports whether p is one of the known provider constants or
+// a multi-account Bedrock variant of the form "bedrock:<alias>".
 func isValidProvider(p ProviderName) bool {
 	switch p {
 	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
@@ -605,7 +604,7 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 // validateRouteInput validates a single route entry within a virtual model request.
 func validateRouteInput(i int, r routeInput) error {
 	if !isValidProvider(ProviderName(r.Provider)) {
-		return fmt.Errorf("route[%d].provider %q is not valid; must be one of: bedrock, vertexai, azure", i, r.Provider)
+		return fmt.Errorf("route[%d].provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", i, r.Provider)
 	}
 	if r.ModelID == "" {
 		return fmt.Errorf("route[%d].model_id is required", i)
@@ -697,7 +696,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !isValidProvider(provider) {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
 		return
 	}
 	provider = canonicalPricingProvider(provider)
@@ -739,7 +738,7 @@ func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r 
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !isValidProvider(provider) {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
 		return
 	}
 	provider = canonicalPricingProvider(provider)

@@ -701,3 +701,23 @@ func TestHandleGetAgentTypeUsage_MissingClaims(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusUnauthorized, w.Body)
 	}
 }
+
+// ── GET /usage — Bedrock alias provider filter ────────────────────────────────
+
+func TestHandleListUsage_BedrockAliasProvider_Accepted(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	alias := ProviderName("bedrock:us")
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"provider": string(alias),
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if repo.lastFilter.Provider == nil || *repo.lastFilter.Provider != alias {
+		t.Errorf("filter.Provider = %v, want %q", repo.lastFilter.Provider, alias)
+	}
+}

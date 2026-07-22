@@ -1,10 +1,9 @@
 // ── Domain types ──────────────────────────────────────────────────────────────
 //
-// Provider must stay in sync with the Go ProviderName enum and the DB CHECK
-// constraint (provider IN ('bedrock', 'vertexai', 'azure')).
-// When a new provider is added, update this type, PROVIDER_LABELS/PROVIDER_COLORS
-// in catalog-constants.ts, and the backend simultaneously.
-export type Provider = 'bedrock' | 'vertexai' | 'azure';
+// Provider is the string name of a backend provider.
+// The canonical values are 'bedrock', 'vertexai', and 'azure'.
+// Multi-account Bedrock aliases take the form 'bedrock:<alias>' (e.g. 'bedrock:us').
+export type Provider = 'bedrock' | 'vertexai' | 'azure' | `bedrock:${string}`;
 
 export type RoutingStrategy = 'priority' | 'weighted' | 'lowest_cost';
 

@@ -223,7 +223,7 @@ func TestValidateVirtualModelRequest_AllStrategiesAccepted(t *testing.T) {
 
 func TestIsValidProvider(t *testing.T) {
 	t.Parallel()
-	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
+	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod-east"}
 	for _, p := range valid {
 		if !isValidProvider(p) {
 			t.Errorf("isValidProvider(%q) = false, want true", p)
@@ -298,5 +298,90 @@ func TestToVirtualModelRoutes_Empty(t *testing.T) {
 	routes := toVirtualModelRoutes("vm-1", nil)
 	if len(routes) != 0 {
 		t.Errorf("len(routes) = %d, want 0 for nil input", len(routes))
+	}
+}
+
+// ─── lookupPricing ────────────────────────────────────────────────────────────
+
+func TestLookupPricing(t *testing.T) {
+	t.Parallel()
+	entry := &pricingEntryJSON{}
+	aliasEntry := &pricingEntryJSON{}
+
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/claude-sonnet":         entry,
+		"bedrock:us/claude-haiku":       aliasEntry,
+		"bedrock/claude-3-instruct-pre": {}, // for instruct strip
+	}
+
+	cases := []struct {
+		name     string
+		provider ProviderName
+		modelID  string
+		want     *pricingEntryJSON
+	}{
+		{
+			name:     "direct hit on canonical key",
+			provider: ProviderBedrock,
+			modelID:  "claude-sonnet",
+			want:     entry,
+		},
+		{
+			name:     "alias falls back to canonical bedrock key",
+			provider: "bedrock:aus",
+			modelID:  "claude-sonnet",
+			want:     entry,
+		},
+		{
+			name:     "alias key present — returns alias entry",
+			provider: "bedrock:us",
+			modelID:  "claude-haiku",
+			want:     aliasEntry,
+		},
+		{
+			name:     "both keys absent — returns nil",
+			provider: "bedrock:us",
+			modelID:  "claude-opus",
+			want:     nil,
+		},
+		{
+			name:     "instruct suffix stripped on bedrock alias",
+			provider: "bedrock:aus",
+			modelID:  "claude-3-instruct-pre-instruct",
+			want:     pricingMap["bedrock/claude-3-instruct-pre"],
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := lookupPricing(pricingMap, tc.provider, tc.modelID)
+			if got != tc.want {
+				t.Errorf("lookupPricing(%q, %q) = %v, want %v", tc.provider, tc.modelID, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── canonicalPricingProvider ─────────────────────────────────────────────────
+
+func TestCanonicalPricingProvider(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   ProviderName
+		want ProviderName
+	}{
+		{ProviderBedrock, ProviderBedrock},
+		{"bedrock:us", ProviderBedrock},
+		{"bedrock:prod-east", ProviderBedrock},
+		{ProviderVertexAI, ProviderVertexAI},
+		{ProviderAzure, ProviderAzure},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.in), func(t *testing.T) {
+			t.Parallel()
+			if got := canonicalPricingProvider(tc.in); got != tc.want {
+				t.Errorf("canonicalPricingProvider(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
