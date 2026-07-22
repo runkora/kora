@@ -48,9 +48,7 @@ export function CostByModelChart() {
           ...sorted.slice(0, MODEL_BAR_COLORS.length - 1),
           {
             model: 'Other',
-            cost: sorted
-              .slice(MODEL_BAR_COLORS.length - 1)
-              .reduce((s, row) => s + row.cost, 0),
+            cost: sorted.slice(MODEL_BAR_COLORS.length - 1).reduce((s, row) => s + row.cost, 0),
           },
         ];
 
