@@ -74,14 +74,21 @@ jobs:
           go-version-file: backend/go.mod
           cache: false
 
+      - name: Restore Go module cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+
       # Same per-commit strategy as Build and Test, plus golangci-lint's
       # analysis cache. Own key family: lint compiles with its own flag set,
       # so sharing go-build-/go-test- keys would thrash their saves.
-      - name: Restore Go caches
+      - name: Restore Go build cache
         uses: actions/cache@v4
         with:
           path: |
-            ~/go/pkg/mod
             ~/.cache/go-build
             ~/.cache/golangci-lint
           key: ${{ runner.os }}-go-lint-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
@@ -134,12 +141,21 @@ jobs:
           # restores the nearest prefix match instead.
           cache: false
 
-      - name: Restore Go caches
+      # Module cache is shared across Build/Test/Lint with a stable key: it
+      # only changes when go.sum does, so bundling it into the per-commit
+      # build caches stored the same few hundred MB three times per commit.
+      - name: Restore Go module cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-
@@ -175,14 +191,20 @@ jobs:
           go-version-file: backend/go.mod
           cache: false
 
-      # Separate key prefix from Build: race + coverage instrumentation
-      # produce distinct artifacts, and sharing one cache would thrash it.
-      - name: Restore Go caches
+      - name: Restore Go module cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+
+      # Separate key prefix from Build: race + coverage instrumentation
+      # produce distinct artifacts, and sharing one cache would thrash it.
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
           key: ${{ runner.os }}-go-test-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-go-test-${{ hashFiles('backend/go.sum') }}-

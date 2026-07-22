@@ -129,7 +129,7 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 
 ## Implementation
 
-- `.github/workflows/backend-ci.yml`: remove `needs: build`; explicit `actions/cache` for `~/.cache/go-build` + `~/go/pkg/mod` in Build, Test, and Lint with per-job key prefixes; delete the `go vet` step.
+- `.github/workflows/backend-ci.yml`: remove `needs: build`; explicit `actions/cache` in Build, Test, and Lint with per-job key prefixes for `~/.cache/go-build`, plus a single module cache (`~/go/pkg/mod`) shared by all three jobs and keyed on `go.sum` alone, since bundling the module cache into the per-commit keys stored the same content three times per commit; delete the `go vet` step.
 - The Lint job's cache additionally includes `~/.cache/golangci-lint` (the analysis cache), and the golangci-lint action runs with `skip-cache: true` so its built-in 7-day rotating cache does not double-save the same directory. Each job gets its own key family (`go-build-`, `go-test-`, `go-lint-`) because the three compile with different flag sets and would overwrite each other's saves.
 - `.golangci.yml`: `run.timeout` raised from 5m to 15m. A fully cold lint run (no compile cache, no analysis cache) takes ~6m, and `actions/cache` does not save on job failure, so a timeout failure left every subsequent run cold and failing the same way. The ceiling breaks that loop; warm runs finish in about a minute and never approach it. The cold cost recurs only on cache eviction or a `.golangci.yml` change, since golangci keys its analysis cache on the config hash.
 - `.github/workflows/frontend-ci.yml`: static checks (lint, type check, format) split into their own `frontend-static` job so the vitest suites no longer wait on them.
