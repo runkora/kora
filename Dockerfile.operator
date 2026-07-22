@@ -26,6 +26,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator/main.go
 
+# goose CLI, pinned to the same version local dev installs (Makefile's
+# GOOSE_VERSION) — the dev-environment migration Job
+# (devenvironment_migrations.go) runs this binary directly against the
+# fixture Postgres, never the reconciler speaking the wire protocol itself.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
+
+# Collect every per-service migrations/*.sql file into /migrations, flattened
+# (mirrors the Makefile's COLLECT_MIGRATIONS) — goose applies these from a
+# single flattened directory, so the migrations baked into a given operator
+# build always match that build exactly, with no external migration image
+# to version, trust, or mirror for air-gapped registries.
+RUN mkdir -p /migrations && \
+    find /app/cmd -path '*/migrations/*.sql' -exec cp {} /migrations/ \;
+
 # Collect every */config/*.yaml file into /configs/ maintaining relative paths.
 RUN find /app -path "*/config/*.yaml" | while read f; do \
         rel="${f#/app/}"; \
@@ -58,6 +74,12 @@ COPY --chown=65532:65532 charts/orbit/ /etc/orbit/charts/orbit/
 # loadValuesFile() probes this path as the production fallback after
 # the local-dev path ({ChartDir}/../deploy/local/) is tried first.
 COPY --chown=65532:65532 deploy/local/ /etc/orbit/values/
+
+# goose CLI + flattened per-service migrations — see the builder stage
+# comment. inVClusterMigrationsPath (devenvironment_migrations.go) expects
+# the .sql files at exactly /etc/orbit/migrations.
+COPY --from=builder --chown=65532:65532 /go/bin/goose /usr/local/bin/goose
+COPY --from=builder --chown=65532:65532 /migrations/ /etc/orbit/migrations/
 
 # Helm cache directory — operator writes here at runtime.
 RUN mkdir -p /tmp/orbit-helm-cache && chown 65532:65532 /tmp/orbit-helm-cache

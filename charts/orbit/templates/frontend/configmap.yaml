@@ -41,3 +41,10 @@ data:
   # Note: Next.js inlines NEXT_PUBLIC_* values into client bundles at build time —
   # the value here does not affect what was baked into the image, but should match it.
   NEXT_PUBLIC_APP_URL: {{ required "frontend.config.nextPublicAppUrl must be set" .Values.frontend.config.nextPublicAppUrl | quote }}
+
+  # Set only on dev-environment (in-vcluster) installs, by the devenvironment
+  # reconciler — never by hand. Legitimately empty on every host install, so
+  # unlike the keys above this is never `required`. Threaded into the BFF
+  # session response so client code can hide/guard dev-environment-
+  # provisioning UI when this install is itself running inside one.
+  ORBIT_DEV_ENVIRONMENT_ID: {{ .Values.frontend.config.devEnvironmentId | quote }}

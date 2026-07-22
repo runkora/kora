@@ -58,6 +58,22 @@ type OrbitPlatformSpec struct {
 	// Set enabled:false if Istio is already installed in the cluster.
 	Istio IstioSpec `json:"istio,omitempty"`
 
+	// MeshJWTValidation configures istiod's JWT_RULE authenticator for
+	// installs whose mesh workloads carry tokens signed by a DIFFERENT
+	// apiserver (dev environments — see MeshJWTValidationSpec).
+	// +optional
+	MeshJWTValidation MeshJWTValidationSpec `json:"meshJWTValidation,omitempty"`
+
+	// DevEnvironmentID marks this install as an Orbit dev environment and
+	// carries the environment's ID. Identity is then host-provided
+	// (spire.enabled=false) with every SVID path-scoped under
+	// /devenv/<id>/…, and the orbit chart's DestinationRule SANs are
+	// prefixed to match (platform.spiffe.devEnvID). Set by the
+	// devenvironment reconciler on the in-vcluster CR only — never on a
+	// host install.
+	// +optional
+	DevEnvironmentID string `json:"devEnvironmentID,omitempty"`
+
 	// Secrets references the pre-existing Secret containing platform credentials.
 	// The Secret must contain: DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY.
 	// The operator reads this Secret but never creates or rotates it.
@@ -110,6 +126,37 @@ type IstioSpec struct {
 	// Enabled controls whether the operator installs Istio. Default: true.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+}
+
+// MeshJWTValidationSpec configures an additional JWT authenticator on
+// istiod's XDS/CA endpoints (istiod's JWT_RULE env var), validating callers'
+// bound ServiceAccount tokens by pure signature check against an externally
+// supplied issuer/JWKS instead of a TokenReview against this cluster's own
+// apiserver.
+//
+// Set only on dev-environment (in-vcluster) installs, where mesh workloads
+// are host pods carrying HOST-signed tokens the virtual apiserver cannot
+// validate — see devenvironment_jwks.go. Host installs leave this disabled:
+// their workloads' tokens are their own apiserver's, and the default
+// KubeJWTAuthenticator handles them.
+type MeshJWTValidationSpec struct {
+	// Enabled turns the JWT_RULE authenticator (and its JWKS-mirror sidecar)
+	// on for this install's istiod.
+	Enabled bool `json:"enabled"`
+
+	// Issuer is the external token issuer, exactly as it appears in the
+	// tokens' iss claim (discovered from the issuing apiserver's
+	// /.well-known/openid-configuration, never assumed).
+	// +optional
+	Issuer string `json:"issuer,omitempty"`
+
+	// JWKS is the issuer's JSON Web Key Set document, verbatim. Public key
+	// material only — safe to carry in a CR spec. The operator serves it to
+	// istiod over pod-loopback HTTP (istiod's own JWKS fetch can attach
+	// neither a credential nor a custom CA, so it can never fetch it from
+	// the issuing apiserver directly).
+	// +optional
+	JWKS string `json:"jwks,omitempty"`
 }
 
 // GatewaySpec configures the Istio ingress gateway.
@@ -275,6 +322,7 @@ func (s *OrbitPlatformSpec) DeepCopyInto(out *OrbitPlatformSpec) {
 	*out = *s
 	out.SPIRE = s.SPIRE
 	out.Istio = s.Istio
+	out.MeshJWTValidation = s.MeshJWTValidation
 	out.Secrets = s.Secrets
 	out.Config = s.Config
 	out.UpgradeStrategy = s.UpgradeStrategy

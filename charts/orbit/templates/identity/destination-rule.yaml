@@ -28,5 +28,5 @@ spec:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "orbit.trustDomain" . }}/system/identity"
+        - "{{ include "orbit.spiffeIDBase" . }}/system/identity"
 {{- end }}

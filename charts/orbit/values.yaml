@@ -101,6 +101,11 @@ identity:
     # Platform access-token lifetime in minutes. 15 in production; raise on local
     # dev clusters to avoid re-auth churn (deploy/local/orbit-values.yaml sets 240 = 4h).
     accessTokenTtlMinutes: 15
+    # Set only on dev-environment (in-vcluster) installs, by the
+    # devenvironment reconciler — never by hand. Lets the identity service
+    # refuse CreateEnvironment from inside an environment it is itself
+    # running in (the nested-provisioning guard).
+    devEnvironmentId: ""
 
   # Name of the existing Secret containing environment variables for the
   # identity service (DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY, etc.).
@@ -288,6 +293,11 @@ frontend:
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
     nextPublicAppUrl: ""
+    # Set only on dev-environment (in-vcluster) installs, by the
+    # devenvironment reconciler — never by hand. Threaded into the BFF
+    # session response so client code can hide/guard dev-environment-
+    # provisioning UI when this install is itself running inside one.
+    devEnvironmentId: ""
 
   # Name of the existing Secret containing BFF_SESSION_SECRET.
   # Created by scripts/cluster/create-secrets.sh before the operator deploys this chart.

@@ -5,7 +5,8 @@
 # Installs (if not already present at the correct version):
 #   - k3d        >= 5.6   (local k3s cluster manager)
 #   - kubectl    >= 1.29  (Kubernetes CLI)
-#   - helm       >= 3.14  (Kubernetes package manager)
+#   - helm       >= 4.2   (Kubernetes package manager; cluster-operator-chart's
+#                          --force-conflicts needs Helm 4's server-side apply)
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
 #

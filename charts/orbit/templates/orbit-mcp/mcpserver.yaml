@@ -13,7 +13,7 @@ metadata:
     {{- include "orbit.orbitMcp.labels" . | nindent 4 }}
 spec:
   displayName: "Orbit Platform MCP"
-  description: "The control plane itself: manage agents, models, policy and runs through governed tools."
+  description: "The control plane itself — manage agents, models, policy and runs through governed tools."
   endpoint: "http://orbit-mcp.{{ include "orbit.systemNamespace" . }}.svc:8095/mcp"
   transport: streamable-http
   reintrospectIntervalSeconds: 900

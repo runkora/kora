@@ -41,4 +41,45 @@ resources:
     memory: 128Mi
   limits:
     cpu: 500m
-    memory: 512Mi
+    # 1Gi, not 512Mi: four serial in-process Helm installs per dev-environment
+    # provision (namespace/quota, vcluster, in-vcluster platform, fixtures)
+    # OOMKilled the operator at 512Mi during back-to-back provisions.
+    memory: 1Gi
+
+# Dev-environment (OrbitDevEnvironment) config. ingressDomain, appExternalURL,
+# and imageRegistry have no built-in Go default and are required in
+# production — the operator fails fast at startup if they resolve empty
+# (see cmd/operator/config/config.go's validateDevEnvRequiredConfig). Local
+# k3d dev sets them in deploy/local/operator-values.yaml.
+devEnv:
+  ingressDomain: ""
+  appExternalURL: ""
+  imageRegistry: ""
+  # Empty uses the operator binary's built-in pin (internal/operator/util.go's
+  # defaultChartVersions, kept in sync with scripts/cluster/versions.env's
+  # VCLUSTER_CHART_VERSION).
+  vclusterVersion: ""
+  # ResourceQuota ceilings per dev-environment host namespace, sized from the
+  # measured footprint (~3.5 CPU / 6 Gi requested, ~38 CPU / 27 Gi declared
+  # limits — every injected sidecar declares 2 CPU/1Gi). Empty keys fall back
+  # to the operator binary's own defaults.
+  quota:
+    cpuRequests: ""
+    memoryRequests: ""
+    cpuLimits: ""
+    memoryLimits: ""
+    maxPods: ""
+  # Default per-container request/limit inside a dev-environment namespace.
+  # defaultCPURequest must accommodate istiod's own 2Gi memory request — a
+  # LimitRange default below a workload's own request is a synchronous
+  # admission rejection.
+  limitRange:
+    defaultCPURequest: ""
+    defaultMemoryRequest: ""
+    defaultCPULimit: ""
+    defaultMemoryLimit: ""
+  # Place dev-environment workloads (host namespace + vcluster StatefulSet)
+  # on a dedicated, tainted node pool on staging. Empty/absent means no
+  # placement constraint (single-pool fallback is ResourceQuota-only).
+  nodeSelector: {}
+  tolerations: []
