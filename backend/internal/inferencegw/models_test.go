@@ -12,7 +12,8 @@ func TestIsBedrockFamily(t *testing.T) {
 		{"bedrock:us", true},
 		{"bedrock:prod-east", true},
 		{"bedrock:aus_2", true},
-		{"bedrock:", true}, // bare colon — HasPrefix matches
+		{"bedrock:", false},      // bare colon — alias part is empty
+		{"bedrock:1prod", false}, // digit-leading alias
 		{"vertexai", false},
 		{"azure", false},
 		{"", false},

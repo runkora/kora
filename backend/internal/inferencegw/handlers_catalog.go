@@ -455,6 +455,9 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 		return
 	}
 
+	// Enabled state is stored per alias — each Bedrock account can be independently
+	// enabled/disabled. Contrast with pricing overrides, which normalise to the
+	// canonical "bedrock" key and are shared across all accounts.
 	if err := c.store.SetProviderModelEnabled(ctx, provider, modelID, req.Enabled); err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to update provider model", nil), err)
 		return

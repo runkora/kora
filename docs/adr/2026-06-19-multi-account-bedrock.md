@@ -11,7 +11,7 @@
 
 ### Background
 
-The inference gateway's Bedrock connector (`internal/inferencegw/providers/bedrock`) is constructed from a single `Config` struct populated by a fixed set of environment variables: `BEDROCK_ENABLED`, `BEDROCK_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`. This produces a single `ProviderConnector` registered under the `bedrock` `ProviderName`.
+The inference gateway's Bedrock connector (`internal/inferencegw/providers/bedrock`) was previously constructed from a single `Config` struct populated by `BEDROCK_ENABLED`, `BEDROCK_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`. This produced a single `ProviderConnector` registered under the `bedrock` `ProviderName`.
 
 The `ProviderName` type is already a plain `string` alias. The routing engine, catalog, and usage records treat it as an opaque identifier — there is no structural reason it must be the literal string `"bedrock"`. The virtual model catalog's `VirtualModelRoute.Provider` field is already a free-form `ProviderName`, so new provider names flow through all existing infrastructure (routing, usage recording, catalog UI, policy scopes) without any schema changes.
 
@@ -26,7 +26,6 @@ Organisations operating multiple AWS accounts cannot use a single Orbit deployme
 
 - Support N simultaneously active Bedrock environments, each with independent AWS credentials and regions.
 - Register each environment as a distinct `ProviderConnector` with a namespaced name (`bedrock:<alias>`).
-- Preserve full backwards compatibility with the existing single-account path (`BEDROCK_ENABLED=true`).
 - Minimise blast radius — only the Bedrock package and `main.go` change.
 
 ### Non-Goals
@@ -40,7 +39,7 @@ Organisations operating multiple AWS accounts cannot use a single Orbit deployme
 
 ## Decision Drivers
 
-* **Zero breaking change** — existing `BEDROCK_ENABLED` deployments must work without any config change.
+* **Clean interface** — `BEDROCK_ACCOUNTS` is the single entry point; no fallback modes.
 * **Minimal interface impact** — the `ProviderConnector` and `ConnectorFactory` interfaces should not change.
 * **Self-documenting config** — account names (not indices) appear in provider names, logs, and the catalog UI.
 * **Leverage existing routing primitives** — virtual model routes, failover chains, and weighted routing already handle multiple providers; we need only to register more providers.
@@ -51,16 +50,15 @@ Organisations operating multiple AWS accounts cannot use a single Orbit deployme
 
 ### Option 1: Named accounts via `BEDROCK_ACCOUNTS` + per-account prefixed env vars
 
-Introduce `BEDROCK_ACCOUNTS=prod,staging` (comma-separated list of aliases). For each alias, read `BEDROCK_<UPPER_ALIAS>_REGION`, `BEDROCK_<UPPER_ALIAS>_ACCESS_KEY_ID`, etc. Register a connector per alias under `bedrock:<alias>`. When `BEDROCK_ACCOUNTS` is unset, fall back to the existing `BEDROCK_ENABLED` path unchanged.
+Introduce `BEDROCK_ACCOUNTS=prod,staging` (comma-separated list of aliases). For each alias, read `BEDROCK_<UPPER_ALIAS>_REGION`, `BEDROCK_<UPPER_ALIAS>_ACCESS_KEY_ID`, etc. Register a connector per alias under `bedrock:<alias>`. When `BEDROCK_ACCOUNTS` is unset, Bedrock is disabled entirely.
 
 **Pros:**
 - Self-documenting: `bedrock:prod` is meaningful in usage records and the catalog UI.
 - No interface changes.
-- The existing `BEDROCK_ENABLED` path is untouched — zero migration risk.
+- Single code path — `main.go` has no mode-switching logic.
 - The `ConnectorFactory` contract (`Build(logger) → (ProviderConnector, error)`) doesn't map to "build N connectors", but a `MultiFactory` type that returns a `[]ProviderConnector` is a small, contained addition.
 
 **Cons:**
-- Adds a second factory abstraction (`MultiFactory` alongside `ConnectorFactory`). `main.go` must handle both cases.
 - Alias validation (reject spaces, slashes, colons) must be added to avoid malformed provider names.
 
 ### Option 2: Indexed env vars (`BEDROCK_1_REGION`, `BEDROCK_2_REGION`, …)
@@ -112,8 +110,7 @@ Option 1 achieves all goals with the smallest change surface:
 - Only the `bedrock` package, `main.go`, and four handler/pricing sites are modified — no interface changes, no schema changes.
 - While `ProviderName` is a plain string type, several handlers explicitly whitelist the three base names (`bedrock`, `vertexai`, `azure`) rather than treating them opaquely. A shared `IsBedrockFamily()` method on `ProviderName` handles all four sites (`isValidProvider`, `lookupPricing`, `normalisePricingModelID`, and the usage-filter validation) with minimal, targeted changes.
 - Named aliases (`prod`, `staging`) produce legible provider names in every system that displays them: the catalog UI, usage records, OTel traces, and policy scope vocabulary.
-- The existing `BEDROCK_ENABLED` path is left completely intact. Operators who do not set `BEDROCK_ACCOUNTS` see no change at all.
-- When `BEDROCK_ACCOUNTS` is set, the first alias is also registered under the canonical `bedrock` name, preserving routing for existing virtual model routes without requiring reconfiguration.
+- Single entry point: `BEDROCK_ACCOUNTS` is the only configuration knob. No fallback modes, no dead code paths.
 
 ---
 
@@ -123,14 +120,13 @@ Option 1 achieves all goals with the smallest change surface:
 
 - Multi-account Bedrock routing becomes possible using existing virtual model catalog primitives (priority failover, weighted routing, lowest-cost selection across accounts).
 - Provider names in the catalog are self-documenting: `bedrock:prod` unambiguously identifies the production account.
-- No DB migrations — `ProviderName` is stored as a free-form string in `virtual_model_routes.provider` and `inference_usage.provider`.
+- No DB schema changes to `virtual_model_routes` or `inference_usage` column types — `provider` was already stored as a free-form string. A migration does add `CHECK` constraint extensions on `virtual_model_routes`, `inference_usage`, and `provider_model_overrides` to explicitly permit `bedrock:<alias>` values (the old constraints allowed only the three canonical names).
 - The feature composes naturally with existing cross-account strategies: a virtual model route with `bedrock:prod` (priority 1) and `bedrock:dr` (priority 2) gives automatic regional failover.
 
 ### Negative
 
-- `main.go`'s `initControllers` function iterates the `[]NamedConnector` slice from `MultiFactory`, adding a small registration loop. This replaces the prior if/else; net complexity is lower.
-- Operators configuring multi-account mode must understand that `BEDROCK_ENABLED` is ignored when `BEDROCK_ACCOUNTS` is set.
-- Four sites in `handlers_catalog.go`, `pricing_source.go`, and `handlers_usage.go` that whitelist provider names require targeted updates; they were not identified during initial design because they appeared to treat `ProviderName` opaquely.
+- `main.go`'s `initControllers` function iterates the `[]NamedConnector` slice from `MultiFactory`, adding a small registration loop.
+- Operators migrating from `BEDROCK_ENABLED=true` must set `BEDROCK_ACCOUNTS=<alias>` and update any existing virtual model routes from `provider: bedrock` to `provider: bedrock:<alias>`. The bare `bedrock` connector is not registered in the new model — routing will fail for unupdated routes.
 
 ### Neutral
 
@@ -143,22 +139,12 @@ Option 1 achieves all goals with the smallest change surface:
 
 ### Environment Variable Schema
 
-**Single-account mode (unchanged):**
-```
-BEDROCK_ENABLED=true
-BEDROCK_REGION=us-east-1
-AWS_ACCESS_KEY_ID=...        # optional — falls back to default chain
-AWS_SECRET_ACCESS_KEY=...    # optional
-AWS_SESSION_TOKEN=...        # optional
-```
-
-**Multi-account mode:**
 ```
 BEDROCK_ACCOUNTS=prod,staging,dr
 
 # Per-account variables (alias uppercased):
 BEDROCK_PROD_REGION=us-east-1
-BEDROCK_PROD_ACCESS_KEY_ID=...        # optional
+BEDROCK_PROD_ACCESS_KEY_ID=...        # optional — falls back to default chain
 BEDROCK_PROD_SECRET_ACCESS_KEY=...    # optional
 BEDROCK_PROD_SESSION_TOKEN=...        # optional
 
@@ -168,19 +154,19 @@ BEDROCK_STAGING_SECRET_ACCESS_KEY=... # optional
 BEDROCK_STAGING_SESSION_TOKEN=...     # optional
 ```
 
-When `BEDROCK_ACCOUNTS` is set, `BEDROCK_ENABLED` is not consulted. The registered provider names are `bedrock:prod`, `bedrock:staging`, `bedrock:dr`.
+When `BEDROCK_ACCOUNTS` is unset, Bedrock is disabled and no connector is registered. The registered provider names are `bedrock:prod`, `bedrock:staging`, `bedrock:dr`.
 
 ### Alias Validation
 
-Aliases are validated at startup against the pattern `^[a-z0-9_-]+$`. An alias containing `:`, `/`, spaces, or uppercase characters returns a startup error. This ensures provider names of the form `bedrock:<alias>` are safe to store, display, and use as OPA scope segments.
+Aliases are validated at startup against the pattern `^[a-z][a-z0-9_-]*$` — must start with a lowercase letter and contain only `[a-z0-9_-]`. An alias containing `:`, `/`, spaces, uppercase characters, or a leading digit/hyphen returns a startup error. This ensures provider names of the form `bedrock:<alias>` are safe to store, display, and use as OPA scope segments.
 
 ### Code Changes
 
 1. **`internal/inferencegw/providers/bedrock/connector.go`**
    - Remove `LoadConfig`, `Factory` (single-account entry points).
    - Add `NamedConfig` struct: `{Alias string; Config Config}`.
-   - `LoadMultiConfig()` handles both modes: when `BEDROCK_ACCOUNTS` is set it iterates aliases; when only `BEDROCK_ENABLED=true` is set it synthesizes a single `NamedConfig` with an empty alias, which registers the connector under the canonical `"bedrock"` name. Both paths return `[]NamedConfig` — `main.go` has one code path regardless of mode.
-   - `MultiFactory.Build` iterates the slice and wraps each connector in `namedConnector`. `namedConnector.Name()` returns `ProviderBedrock` when the alias is empty and `"bedrock:<alias>"` otherwise.
+   - `LoadMultiConfig()` reads `BEDROCK_ACCOUNTS`, validates each alias, and returns `[]NamedConfig`. Returns `nil, nil` when `BEDROCK_ACCOUNTS` is unset (Bedrock disabled). Returns an error if the env var is non-empty but yields zero valid aliases.
+   - `MultiFactory.Build` iterates the slice and registers each connector under `"bedrock:" + alias`.
 
 2. **`internal/inferencegw/connector.go`**
    - Add `NamedConnector` struct: `{Name ProviderName; Connector ProviderConnector}`.
@@ -204,7 +190,11 @@ Aliases are validated at startup against the pattern `^[a-z0-9_-]+$`. An alias c
 
 ### Migration Path
 
-None required. Existing deployments with `BEDROCK_ENABLED=true` are not affected. Operators adopting multi-account mode set `BEDROCK_ACCOUNTS` and remove `BEDROCK_ENABLED`.
+Operators migrating from `BEDROCK_ENABLED=true` must:
+
+1. Set `BEDROCK_ACCOUNTS=<alias>` and set per-account env vars (`BEDROCK_<ALIAS>_REGION`, etc.).
+2. Remove `BEDROCK_ENABLED`, `BEDROCK_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`.
+3. Update all virtual model routes from `provider: bedrock` to `provider: bedrock:<alias>`. The bare `bedrock` connector is never registered — routing will fail for unupdated routes until they reference a valid `bedrock:<alias>` name.
 
 ---
 
@@ -215,7 +205,7 @@ None required. Existing deployments with `BEDROCK_ENABLED=true` are not affected
 - A deployment with `BEDROCK_ACCOUNTS=prod,staging` starts successfully and logs two `provider enabled` lines.
 - `GET /v1/catalog/provider-models` returns models from each account under `bedrock:prod` and `bedrock:staging`.
 - A virtual model route with `provider: bedrock:prod` dispatches to the `prod` connector (verifiable via OTel trace provider attribute).
-- Existing single-account deployment with only `BEDROCK_ENABLED=true` is unaffected.
+- A deployment with `BEDROCK_ACCOUNTS` unset logs no Bedrock lines and returns no Bedrock models from the catalog.
 
 ---
 

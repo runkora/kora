@@ -31,6 +31,8 @@ ALTER TABLE provider_model_overrides
 -- +goose StatementEnd
 
 -- +goose Down
+-- NOTE: safe to roll back only when no bedrock:<alias> rows exist in each table.
+-- If aliased rows are present, the ADD CONSTRAINT will fail with a constraint violation.
 -- +goose StatementBegin
 ALTER TABLE virtual_model_routes
     DROP CONSTRAINT virtual_model_routes_provider_check,

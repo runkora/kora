@@ -53,79 +53,53 @@ type NamedConfig struct {
 }
 
 // LoadMultiConfig returns the set of Bedrock account configurations to register.
+// Bedrock is disabled when BEDROCK_ACCOUNTS is unset or empty.
 //
-// When BEDROCK_ACCOUNTS is set it reads N per-account configs (one per alias);
-// when only BEDROCK_ENABLED=true is set it synthesizes a single config with an
-// empty alias, which registers the connector under the canonical "bedrock" name.
-// Both paths produce the same slice type so main.go has a single code path.
+// Environment variables (ALIAS uppercased):
 //
-// Environment variables for named accounts (ALIAS uppercased):
-//
-//	BEDROCK_<ALIAS>_REGION           — required
-//	BEDROCK_<ALIAS>_ACCESS_KEY_ID    — optional
+//	BEDROCK_ACCOUNTS                  — comma-separated list of aliases, e.g. "prod,staging"
+//	BEDROCK_<ALIAS>_REGION            — required per alias
+//	BEDROCK_<ALIAS>_ACCESS_KEY_ID     — optional
 //	BEDROCK_<ALIAS>_SECRET_ACCESS_KEY — optional
-//	BEDROCK_<ALIAS>_SESSION_TOKEN    — optional
-//
-// Environment variables for single-account mode:
-//
-//	BEDROCK_ENABLED=true
-//	BEDROCK_REGION           — required
-//	AWS_ACCESS_KEY_ID        — optional
-//	AWS_SECRET_ACCESS_KEY    — optional
-//	AWS_SESSION_TOKEN        — optional
+//	BEDROCK_<ALIAS>_SESSION_TOKEN     — optional
 func LoadMultiConfig() ([]NamedConfig, error) {
-	if raw := os.Getenv("BEDROCK_ACCOUNTS"); raw != "" {
-		var configs []NamedConfig
-		for alias := range strings.SplitSeq(raw, ",") {
-			alias = strings.TrimSpace(alias)
-			if alias == "" {
-				continue
-			}
-			if !aliasRe.MatchString(alias) {
-				return nil, fmt.Errorf("bedrock: invalid account alias %q — must match [a-z0-9_-]+", alias)
-			}
-			prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
-			region := os.Getenv(prefix + "REGION")
-			if region == "" {
-				return nil, fmt.Errorf("bedrock: %sREGION is required for account %q", prefix, alias)
-			}
-			configs = append(configs, NamedConfig{
-				Alias: alias,
-				Config: Config{
-					Region:          region,
-					AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
-					SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
-					SessionToken:    os.Getenv(prefix + "SESSION_TOKEN"),
-				},
-			})
-		}
-		return configs, nil
-	}
-
-	// Single-account fallback: synthesize a config with an empty alias so the
-	// connector registers under the canonical "bedrock" name.
-	if os.Getenv("BEDROCK_ENABLED") != "true" {
+	raw := os.Getenv("BEDROCK_ACCOUNTS")
+	if raw == "" {
 		return nil, nil
 	}
-	region := os.Getenv("BEDROCK_REGION")
-	if region == "" {
-		return nil, fmt.Errorf("bedrock: BEDROCK_REGION is required when BEDROCK_ENABLED=true")
+	var configs []NamedConfig
+	for alias := range strings.SplitSeq(raw, ",") {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		if !aliasRe.MatchString(alias) {
+			return nil, fmt.Errorf("bedrock: invalid account alias %q — must start with a letter and contain only [a-z0-9_-]", alias)
+		}
+		prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
+		region := os.Getenv(prefix + "REGION")
+		if region == "" {
+			return nil, fmt.Errorf("bedrock: %sREGION is required for account %q", prefix, alias)
+		}
+		configs = append(configs, NamedConfig{
+			Alias: alias,
+			Config: Config{
+				Region:          region,
+				AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
+				SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
+				SessionToken:    os.Getenv(prefix + "SESSION_TOKEN"),
+			},
+		})
 	}
-	return []NamedConfig{{
-		Alias: "",
-		Config: Config{
-			Region:          region,
-			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
-			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-			SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
-		},
-	}}, nil
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("bedrock: BEDROCK_ACCOUNTS is set but contains no valid aliases (got %q)", raw)
+	}
+	return configs, nil
 }
 
 // MultiFactory implements inferencegw.MultiConnectorFactory for AWS Bedrock.
-// It handles both single-account (BEDROCK_ENABLED) and multi-account
-// (BEDROCK_ACCOUNTS) configuration, always returning a uniform slice so
-// main.go has a single registration code path.
+// It reads BEDROCK_ACCOUNTS and returns one NamedConnector per alias.
+// Returns nil when BEDROCK_ACCOUNTS is unset.
 type MultiFactory struct{}
 
 // Build reads env vars and returns one NamedConnector per configured account.
@@ -141,15 +115,9 @@ func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, 
 
 	out := make([]inferencegw.NamedConnector, 0, len(cfgs))
 	for _, nc := range cfgs {
-		providerName := inferencegw.ProviderBedrock
-		if nc.Alias != "" {
-			providerName = inferencegw.ProviderName("bedrock:" + nc.Alias)
-		}
+		providerName := inferencegw.ProviderName("bedrock:" + nc.Alias)
 		conn, err := New(&nc.Config, providerName, logger)
 		if err != nil {
-			if nc.Alias == "" {
-				return nil, err
-			}
 			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, err)
 		}
 		out = append(out, inferencegw.NamedConnector{

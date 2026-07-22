@@ -37,8 +37,14 @@ const (
 
 // IsBedrockFamily reports whether p is the base "bedrock" provider or a
 // named multi-account variant of the form "bedrock:<alias>".
+// The alias part must be non-empty and start with a lowercase letter;
+// bare "bedrock:" is not considered a valid member of the family.
 func (p ProviderName) IsBedrockFamily() bool {
-	return p == ProviderBedrock || strings.HasPrefix(string(p), "bedrock:")
+	if p == ProviderBedrock {
+		return true
+	}
+	after, ok := strings.CutPrefix(string(p), "bedrock:")
+	return ok && len(after) > 0 && after[0] >= 'a' && after[0] <= 'z'
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────

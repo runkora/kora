@@ -112,8 +112,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
 	// Adding a new provider is a single line here.
 	//
-	// Bedrock uses MultiFactory, which handles both single-account (BEDROCK_ENABLED)
-	// and multi-account (BEDROCK_ACCOUNTS) configuration via a single code path.
+	// Bedrock uses MultiFactory: set BEDROCK_ACCOUNTS=<alias1>,<alias2> to enable.
+	// Returns nil (provider disabled) when BEDROCK_ACCOUNTS is unset.
 	factories := []inferencegw.ConnectorFactory{
 		vertexai.Factory{},
 		azure.Factory{},

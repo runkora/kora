@@ -10,47 +10,12 @@ import (
 
 func TestLoadMultiConfig_disabled(t *testing.T) {
 	t.Setenv("BEDROCK_ACCOUNTS", "")
-	t.Setenv("BEDROCK_ENABLED", "")
 	cfgs, err := LoadMultiConfig()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(cfgs) != 0 {
 		t.Fatalf("expected nil configs, got %v", cfgs)
-	}
-}
-
-func TestLoadMultiConfig_singleAccountFallback(t *testing.T) {
-	t.Setenv("BEDROCK_ACCOUNTS", "")
-	t.Setenv("BEDROCK_ENABLED", "true")
-	t.Setenv("BEDROCK_REGION", "us-west-2")
-	t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
-	t.Setenv("AWS_SESSION_TOKEN", "")
-
-	cfgs, err := LoadMultiConfig()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfgs) != 1 {
-		t.Fatalf("expected 1 config, got %d", len(cfgs))
-	}
-	if cfgs[0].Alias != "" {
-		t.Errorf("expected empty alias for single-account fallback, got %q", cfgs[0].Alias)
-	}
-	if cfgs[0].Config.Region != "us-west-2" {
-		t.Errorf("expected region us-west-2, got %q", cfgs[0].Config.Region)
-	}
-}
-
-func TestLoadMultiConfig_singleAccountFallback_missingRegion(t *testing.T) {
-	t.Setenv("BEDROCK_ACCOUNTS", "")
-	t.Setenv("BEDROCK_ENABLED", "true")
-	t.Setenv("BEDROCK_REGION", "")
-
-	_, err := LoadMultiConfig()
-	if err == nil {
-		t.Fatal("expected error for missing region, got nil")
 	}
 }
 
@@ -185,24 +150,11 @@ func TestMultiFactory_ProviderNameComputation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.alias, func(t *testing.T) {
 			t.Parallel()
-			providerName := inferencegw.ProviderBedrock
-			if tc.alias != "" {
-				providerName = inferencegw.ProviderName("bedrock:" + tc.alias)
-			}
+			providerName := inferencegw.ProviderName("bedrock:" + tc.alias)
 			if providerName != tc.wantName {
 				t.Errorf("providerName = %q, want %q", providerName, tc.wantName)
 			}
 		})
-	}
-}
-
-// TestMultiFactory_SingleAccountProviderName verifies the no-alias path
-// produces the bare "bedrock" provider name.
-func TestMultiFactory_SingleAccountProviderName(t *testing.T) {
-	t.Parallel()
-	providerName := inferencegw.ProviderBedrock // alias == ""
-	if providerName != inferencegw.ProviderBedrock {
-		t.Errorf("single-account providerName = %q, want %q", providerName, inferencegw.ProviderBedrock)
 	}
 }
 
@@ -217,10 +169,6 @@ func TestConnector_Name_ReturnsAliasedName(t *testing.T) {
 	c := &Connector{providerName: "bedrock:aus"}
 	if c.Name() != "bedrock:aus" {
 		t.Errorf("Name() = %q, want %q", c.Name(), "bedrock:aus")
-	}
-	c2 := &Connector{providerName: inferencegw.ProviderBedrock}
-	if c2.Name() != inferencegw.ProviderBedrock {
-		t.Errorf("Name() = %q, want %q", c2.Name(), inferencegw.ProviderBedrock)
 	}
 }
 
@@ -256,20 +204,3 @@ func TestLoadMultiConfig_invalidAlias_errorMessage(t *testing.T) {
 		t.Errorf("error %q does not mention the alias value", err.Error())
 	}
 }
-
-func TestLoadMultiConfig_singleAccountFallback_missingRegion_errorMessage(t *testing.T) {
-	t.Setenv("BEDROCK_ACCOUNTS", "")
-	t.Setenv("BEDROCK_ENABLED", "true")
-	t.Setenv("BEDROCK_REGION", "")
-
-	_, err := LoadMultiConfig()
-	if err == nil {
-		t.Fatal("expected error for missing single-account region, got nil")
-	}
-	if !strings.Contains(err.Error(), "BEDROCK_REGION") {
-		t.Errorf("error %q does not mention BEDROCK_REGION", err.Error())
-	}
-}
-
-// TODO: integration test — failover to second account when first region is
-// unreachable. Covered by manual QA.
