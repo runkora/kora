@@ -18,14 +18,14 @@ import type { AnalyticsModelTokenBucket } from '../../_types';
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const PALETTE = [
-  'var(--color-accent)',
-  '#60a5fa',
-  '#34d399',
-  '#f472b6',
-  '#a78bfa',
-  '#fb923c',
-  '#22d3ee',
-  '#facc15',
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+  'var(--color-chart-6)',
+  'var(--color-chart-7)',
+  'var(--color-chart-8)',
 ];
 
 const MAX_MODELS = 8;

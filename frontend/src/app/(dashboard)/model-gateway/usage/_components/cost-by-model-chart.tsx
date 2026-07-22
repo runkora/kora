@@ -14,23 +14,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@orbi
 import { fmtUsd } from '@orbit/utils';
 import { MODEL_COSTS } from '../../_data/mock';
 
-// ── Chart Colors (Terra tokens as hex) ────────────────────────────────────────
+// ── Chart Colors (Terra tokens) ───────────────────────────────────────────────
 
 const COLORS = {
-  accent: '#e8a07a',
-  healthy: '#9ce37d',
-  degraded: '#ffd046',
-  surfaceOverlay: '#34343d',
+  surfaceOverlay: 'var(--color-surface-overlay)',
   borderSubtle: 'var(--color-border-subtle)',
-  subtle: '#8a8a94',
+  subtle: 'var(--color-subtle)',
 };
 
 const MODEL_BAR_COLORS = [
-  COLORS.accent,
-  COLORS.healthy,
-  COLORS.degraded,
-  COLORS.subtle,
-  COLORS.borderSubtle,
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+  'var(--color-chart-6)',
+  'var(--color-chart-7)',
+  'var(--color-chart-8)',
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -38,7 +38,8 @@ const MODEL_BAR_COLORS = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CostByModelChart() {
-  const data = [...MODEL_COSTS].sort((a, b) => b.cost - a.cost);
+  // Top 8 — one bar per chart token; never cycled.
+  const data = [...MODEL_COSTS].sort((a, b) => b.cost - a.cost).slice(0, MODEL_BAR_COLORS.length);
 
   return (
     <Card column>
@@ -81,10 +82,7 @@ export function CostByModelChart() {
             />
             <Bar dataKey="cost" isAnimationActive={false}>
               {data.map((entry, index) => (
-                <Cell
-                  key={`cell-${entry.model}`}
-                  fill={MODEL_BAR_COLORS[index % MODEL_BAR_COLORS.length]}
-                />
+                <Cell key={`cell-${entry.model}`} fill={MODEL_BAR_COLORS[index]} />
               ))}
             </Bar>
           </BarChart>

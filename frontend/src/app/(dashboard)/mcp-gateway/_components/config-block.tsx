@@ -4,10 +4,10 @@
 import { Icon, Stack, Text } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
 
-// Token colours taken verbatim from the design spec.
+// Token colours follow the design spec.
 const TONE = {
   key: 'var(--color-accent)',
-  str: '#9ce37d',
+  str: 'var(--color-status-healthy)',
   literal: 'var(--color-status-degraded)',
   subtle: 'var(--color-subtle)',
   foreground: 'var(--color-foreground)',

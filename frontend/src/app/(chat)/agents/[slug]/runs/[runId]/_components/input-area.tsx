@@ -168,7 +168,7 @@ export function InputArea() {
         style={{
           background: 'var(--color-surface-elevated)',
           boxShadow:
-            '0 8px 28px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.22), inset 0 0 0 1px rgb(255 255 255 / 0.16)',
+            '0 8px 28px oklch(0% 0 0 / 0.3), 0 2px 8px oklch(0% 0 0 / 0.15), inset 0 0 0 1px var(--color-border-subtle)',
         }}
       >
         <Stack style={{ padding: '12px 14px 10px', gap: 0 }}>
@@ -254,7 +254,7 @@ export function InputArea() {
                   flexShrink: 0,
                   background: canSend ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
                   border: `1px solid ${canSend ? 'transparent' : 'var(--color-border-subtle)'}`,
-                  color: canSend ? 'white' : 'var(--color-subtle)',
+                  color: canSend ? 'var(--color-accent-foreground)' : 'var(--color-subtle)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',

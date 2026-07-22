@@ -16,24 +16,24 @@ const TOOL_ICON_STYLES: Record<ToolIconName, { color: string; background: string
     background: 'color-mix(in oklch, var(--color-status-healthy) 14%, transparent)',
   },
   'file-text': {
-    color: '#f472b6',
-    background: 'color-mix(in oklch, #f472b6 14%, transparent)',
+    color: 'var(--color-chart-7)',
+    background: 'color-mix(in oklch, var(--color-chart-7) 14%, transparent)',
   },
   edit: {
-    color: '#60a5fa',
-    background: 'color-mix(in oklch, #60a5fa 14%, transparent)',
+    color: 'var(--color-chart-1)',
+    background: 'color-mix(in oklch, var(--color-chart-1) 14%, transparent)',
   },
   search: {
-    color: '#a78bfa',
-    background: 'color-mix(in oklch, #a78bfa 14%, transparent)',
+    color: 'var(--color-chart-3)',
+    background: 'color-mix(in oklch, var(--color-chart-3) 14%, transparent)',
   },
   database: {
-    color: '#fbbf24',
-    background: 'color-mix(in oklch, #fbbf24 14%, transparent)',
+    color: 'var(--color-chart-4)',
+    background: 'color-mix(in oklch, var(--color-chart-4) 14%, transparent)',
   },
   'external-link': {
-    color: '#22d3ee',
-    background: 'color-mix(in oklch, #22d3ee 14%, transparent)',
+    color: 'var(--color-chart-5)',
+    background: 'color-mix(in oklch, var(--color-chart-5) 14%, transparent)',
   },
   wrench: {
     color: 'var(--color-subtle)',

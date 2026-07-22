@@ -126,7 +126,7 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
             fontWeight: 500,
             background: 'var(--color-accent)',
             border: '1px solid transparent',
-            color: 'white',
+            color: 'var(--color-accent-foreground)',
           }}
         >
           Approve

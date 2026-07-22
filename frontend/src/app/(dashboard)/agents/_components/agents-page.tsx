@@ -411,7 +411,7 @@ export function AgentsPage() {
               minHeight: '160px',
               borderWidth: '1.5px',
               borderStyle: 'dashed',
-              borderColor: 'oklch(var(--color-border) / 1)',
+              borderColor: 'var(--color-border)',
               borderRadius: '8px',
               justifyContent: 'center',
               padding: '1.5rem',

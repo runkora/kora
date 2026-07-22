@@ -22,20 +22,20 @@ import {
 import type { AnalyticsCostByModel } from '../../_types';
 
 const COLORS = {
-  accent: '#e8a07a',
-  healthy: '#9ce37d',
-  degraded: '#ffd046',
-  subtle: '#8a8a94',
+  subtle: 'var(--color-subtle)',
   borderSubtle: 'var(--color-border-subtle)',
-  surfaceOverlay: '#34343d',
+  surfaceOverlay: 'var(--color-surface-overlay)',
 };
 
 const BAR_COLORS = [
-  COLORS.accent,
-  COLORS.healthy,
-  COLORS.degraded,
-  COLORS.subtle,
-  COLORS.borderSubtle,
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+  'var(--color-chart-6)',
+  'var(--color-chart-7)',
+  'var(--color-chart-8)',
 ];
 
 function fmt(usd: number): string {
@@ -47,9 +47,11 @@ interface ModelPoint {
   cost: number;
 }
 
+// Top 8 — one bar per chart token; never cycled.
 function toPoints(costByModel: AnalyticsCostByModel[]): ModelPoint[] {
   return [...costByModel]
     .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd)
+    .slice(0, BAR_COLORS.length)
     .map((m) => ({ model: m.model_id, cost: m.estimated_cost_usd }));
 }
 
@@ -121,7 +123,7 @@ export function AnalyticsCostByModelChart({
             />
             <Bar dataKey="cost" isAnimationActive={false}>
               {data.map((entry, index) => (
-                <Cell key={`cell-${entry.model}`} fill={BAR_COLORS[index % BAR_COLORS.length]} />
+                <Cell key={`cell-${entry.model}`} fill={BAR_COLORS[index]} />
               ))}
             </Bar>
           </BarChart>

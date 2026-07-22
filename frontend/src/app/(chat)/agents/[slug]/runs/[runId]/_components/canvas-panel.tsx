@@ -166,9 +166,9 @@ function DiffLineRow({ line }: { line: DiffLine }) {
       direction="horizontal"
       style={{
         background: isAdd
-          ? 'oklch(30% 0.1 140 / 0.13)'
+          ? 'color-mix(in oklch, var(--color-status-healthy) 13%, transparent)'
           : isDel
-            ? 'oklch(25% 0.1 25 / 0.13)'
+            ? 'color-mix(in oklch, var(--color-status-error) 13%, transparent)'
             : 'transparent',
       }}
     >
@@ -184,7 +184,9 @@ function DiffLineRow({ line }: { line: DiffLine }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
-          color: isDel ? 'oklch(42% 0.12 25 / 0.5)' : isAdd ? 'var(--chat-bds)' : 'var(--chat-bds)',
+          color: isDel
+            ? 'color-mix(in oklch, var(--color-status-error) 50%, transparent)'
+            : 'var(--chat-bds)',
         }}
       >
         {line.oldNum ?? ''}
@@ -201,7 +203,9 @@ function DiffLineRow({ line }: { line: DiffLine }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
-          color: isAdd ? 'oklch(45% 0.1 140 / 0.5)' : isDel ? 'var(--chat-bds)' : 'var(--chat-bds)',
+          color: isAdd
+            ? 'color-mix(in oklch, var(--color-status-healthy) 50%, transparent)'
+            : 'var(--chat-bds)',
         }}
       >
         {line.newNum ?? ''}
@@ -229,9 +233,9 @@ function DiffLineRow({ line }: { line: DiffLine }) {
           whiteSpace: 'pre',
           flex: 1,
           color: isAdd
-            ? 'oklch(82% 0.08 140)'
+            ? 'var(--color-status-healthy)'
             : isDel
-              ? 'oklch(72% 0.07 25)'
+              ? 'var(--color-status-error)'
               : 'var(--chat-subtle)',
         }}
       >
@@ -372,7 +376,7 @@ function TerminalView({ view }: { view: CanvasView }) {
         style={{
           flex: 1,
           overflow: 'auto',
-          background: 'oklch(10% 0.004 248)',
+          background: 'var(--color-background)',
           fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
           fontSize: 12.5,
           lineHeight: 1.65,
