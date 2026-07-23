@@ -7,11 +7,11 @@
 // delete, nothing else (docs/adr/2026-07-17-agent-builder.md §2).
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Button, Card, CardContent, Eyebrow, Icon, Stack, Text } from '@orbit/terra';
 import type { AgentTypeDraft } from '@orbit/shared/api';
 import { deleteDraft, fetchDrafts } from '../_services/agents-api';
+import { openBuilder } from '../_lib/builder-url';
 
 function draftName(draft: AgentTypeDraft): string {
   const name = (draft.payload as { name?: string }).name;
@@ -30,7 +30,6 @@ function since(iso: string): string {
 
 export function DraftsSection() {
   const [drafts, setDrafts] = useState<AgentTypeDraft[]>([]);
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const builderOpen = searchParams.get('agent') !== null;
 
@@ -75,8 +74,8 @@ export function DraftsSection() {
                     draft · edited {since(draft.updated_at)}
                   </Text>
                 </Stack>
-                <Button asChild variant="secondary" size="sm">
-                  <Link href={`${pathname}?agent=${draft.id}`}>Resume</Link>
+                <Button variant="secondary" size="sm" onClick={() => openBuilder(draft.id)}>
+                  Resume
                 </Button>
                 <Button
                   variant="ghost"
