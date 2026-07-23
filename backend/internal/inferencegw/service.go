@@ -591,8 +591,10 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 
 	info, ok := s.router.ResolveModelForPolicy(model)
 	if !ok {
-		// Model not in catalog — fail closed.
-		return ErrPolicyDenied
+		// Model is not in the virtual-model catalog. Return a distinct not-found
+		// error so callers can distinguish a typo/wrong model name from a real
+		// authorization denial for a known model.
+		return fmt.Errorf("%w: %q", ErrModelNotFound, model)
 	}
 	claims, _ := token.ClaimsFromContext(ctx)
 	result, err := s.policy.Check(ctx, policy.CheckInput{

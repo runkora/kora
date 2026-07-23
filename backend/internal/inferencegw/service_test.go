@@ -160,7 +160,7 @@ func buildTestRouter(vms []VirtualModel) *RoutingEngine {
 
 // ─── checkModelPolicy ────────────────────────────────────────────────────────
 
-func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
+func TestCheckModelPolicy_UnknownModel_ReturnsModelNotFound(t *testing.T) {
 	t.Parallel()
 	vms := []VirtualModel{
 		{Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true},
@@ -175,8 +175,12 @@ func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "totally-unknown-model")
-	if !errors.Is(err, ErrPolicyDenied) {
-		t.Errorf("expected ErrPolicyDenied for unknown model, got: %v", err)
+	if !errors.Is(err, ErrModelNotFound) {
+		t.Errorf("expected ErrModelNotFound for unknown model, got: %v", err)
+	}
+	// Must NOT look like a policy denial to the caller.
+	if errors.Is(err, ErrPolicyDenied) {
+		t.Error("unknown model must not return ErrPolicyDenied")
 	}
 }
 
@@ -217,8 +221,13 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
+	// Regression guard: a real authz denial for a known model must still be
+	// policy_denied / 403, not leaked as a model-not-found 404.
 	if !errors.Is(err, ErrPolicyDenied) {
 		t.Errorf("expected ErrPolicyDenied for denied virtual model, got: %v", err)
+	}
+	if errors.Is(err, ErrModelNotFound) {
+		t.Error("authz denial for a known model must not return ErrModelNotFound")
 	}
 }
 
