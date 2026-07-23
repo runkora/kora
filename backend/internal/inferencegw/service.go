@@ -186,8 +186,9 @@ func (s *Service) ChatCompletion(
 	// inference:invoke scope enforced at Layer 1 by Envoy.
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -327,9 +328,10 @@ func (s *Service) ChatCompletionStream(
 	// ── 2. Policy check ───────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -591,8 +593,10 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 
 	info, ok := s.router.ResolveModelForPolicy(model)
 	if !ok {
-		// Model not in catalog — fail closed.
-		return ErrPolicyDenied
+		// Model is not in the virtual-model catalog. Return a distinct not-found
+		// error so callers can distinguish a typo/wrong model name from a real
+		// authorization denial for a known model.
+		return fmt.Errorf("%w: %q", ErrModelNotFound, model)
 	}
 	claims, _ := token.ClaimsFromContext(ctx)
 	result, err := s.policy.Check(ctx, policy.CheckInput{
@@ -609,6 +613,18 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 		return ErrPolicyDenied
 	}
 	return nil
+}
+
+// modelPolicyFailure maps a checkModelPolicy error to the usage status, usage
+// code, and span message to record. An unknown model (ErrModelNotFound) is a
+// client 404, not an authorization failure, so it must not be recorded as a
+// policy denial in telemetry or usage; every other failure keeps the existing
+// policy-denied treatment.
+func modelPolicyFailure(err error) (status UsageStatus, code, spanMsg string) {
+	if errors.Is(err, ErrModelNotFound) {
+		return UsageStatusModelNotFound, "MODEL_NOT_FOUND", err.Error()
+	}
+	return UsageStatusPolicyDenied, "POLICY_DENIED", ErrPolicyDenied.Error()
 }
 
 // filterTargetsByPolicy batch-filters routing targets through the OPA policy
@@ -1573,8 +1589,9 @@ func (s *Service) Embeddings(
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -1687,8 +1704,9 @@ func (s *Service) Responses(
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -1809,9 +1827,10 @@ func (s *Service) ResponsesStream(
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -2024,8 +2043,9 @@ func (s *Service) AnthropicMessages(
 	// ── Policy check ──────────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
@@ -2156,9 +2176,10 @@ func (s *Service) AnthropicMessagesStream(
 	// ── Policy check ──────────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 

@@ -99,6 +99,7 @@ const (
 	UsageStatusSuccess        UsageStatus = "success"
 	UsageStatusProviderError  UsageStatus = "provider_error"
 	UsageStatusPolicyDenied   UsageStatus = "policy_denied"
+	UsageStatusModelNotFound  UsageStatus = "model_not_found"
 	UsageStatusBudgetExceeded UsageStatus = "budget_exceeded"
 	UsageStatusAuthError      UsageStatus = "auth_error"
 	UsageStatusTimeout        UsageStatus = "timeout"
@@ -296,6 +297,7 @@ type AnalyticsPrincipalsResponse struct {
 
 var (
 	ErrPolicyDenied          = errors.New("inference request denied by policy")
+	ErrModelNotFound         = errors.New("model not found in catalog")
 	ErrNoProvidersEnabled    = errors.New("no providers enabled")
 	ErrProviderNotConfigured = errors.New("provider is not enabled or configured")
 	ErrRoutingFailed         = errors.New("routing failed: no suitable provider/model found")

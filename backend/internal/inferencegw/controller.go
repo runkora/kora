@@ -137,6 +137,8 @@ func inferenceErrorResponse(err error) *api.APIError {
 		// backoff, leaving runs spinning on doomed calls; none retry 403, so
 		// the first rejection is final and the run can settle immediately.
 		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: "budget exceeded — a spending ceiling for this principal or run has been reached", StatusCode: 403}
+	case errors.Is(err, ErrModelNotFound):
+		return api.NotFoundError("model_not_found", err.Error(), nil)
 	case errors.Is(err, ErrPolicyDenied):
 		return api.ForbiddenError("policy_denied", "access denied by policy", nil)
 	case errors.Is(err, ErrProviderNotConfigured):
