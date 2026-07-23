@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Badge,
   Button,
   Callout,
   Heading,
@@ -148,6 +149,23 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
                   {agent.framework}
                 </Text>
               </Stack>
+              <Text as="span" size="supporting" color="subtle">
+                ·
+              </Text>
+              {/* Identity model — always shown; delegated gets badge emphasis
+                  because it changes who can start the agent and who sees runs. */}
+              {agent.identityMode === 'delegated' ? (
+                <Badge variant="default" size="sm">
+                  Delegated
+                </Badge>
+              ) : (
+                <Stack direction="horizontal" align="center" gap="tight">
+                  <Icon name="bot" size="xs" color="subtle" label="" />
+                  <Text as="span" size="supporting" color="subtle">
+                    Autonomous
+                  </Text>
+                </Stack>
+              )}
             </Stack>
           </Stack>
         </Stack>

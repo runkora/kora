@@ -160,6 +160,16 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         ),
       },
       {
+        id: 'startedBy',
+        header: 'Started by',
+        locked: true,
+        cell: (row) => (
+          <Text size="supporting" color="muted">
+            {row.createdByName ?? row.createdBy}
+          </Text>
+        ),
+      },
+      {
         id: 'started',
         header: 'Started',
         locked: true,
@@ -181,7 +191,9 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       : agent.systemPrompt;
 
   return (
-    <Stack gap="comfortable" paddingBlock="comfortable">
+    <Stack gap="comfortable">
+      {/* No root paddingBlock: Terra's TabsContent provides the uniform gap
+          below the tab rail, matching the other tabs. */}
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
       <Grid cols={{ base: 2, md: 3, lg: 5 }} gap="comfortable">
         <Card>
@@ -366,6 +378,17 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
                   </Text>
                   <Badge variant="secondary" size="sm">
                     {agent.modelId}
+                  </Badge>
+                </Stack>
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="supporting" color="muted">
+                    Identity model
+                  </Text>
+                  <Badge
+                    variant={agent.identityMode === 'delegated' ? 'default' : 'secondary'}
+                    size="sm"
+                  >
+                    {agent.identityMode === 'delegated' ? 'Delegated' : 'Autonomous'}
                   </Badge>
                 </Stack>
               </Stack>

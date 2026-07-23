@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
   AgentFramework,
+  AgentIdentityMode,
   AgentTypeDraft,
   ConnectionCatalogEntry,
   Connector,
@@ -55,6 +56,8 @@ export interface BuilderFields {
   slug: string;
   slugEdited: boolean;
   description: string;
+  /** Immutable after creation: who the agent acts as (autonomous | delegated). */
+  identityMode: AgentIdentityMode;
   systemPrompt: string;
   framework: AgentFramework;
   modelId: string;
@@ -112,6 +115,7 @@ const EMPTY_FIELDS: BuilderFields = {
   slug: '',
   slugEdited: false,
   description: '',
+  identityMode: 'autonomous',
   systemPrompt: '',
   framework: 'claude-code',
   modelId: '',
@@ -161,6 +165,7 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
     name: fields.name,
     slug: fields.slug,
     description: fields.description || undefined,
+    identity_mode: fields.identityMode,
     system_prompt: fields.systemPrompt || undefined,
     framework: fields.framework,
     model_id: fields.modelId || undefined,
@@ -185,6 +190,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     slug: payload.slug ?? '',
     slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? ''),
     description: payload.description ?? '',
+    identityMode: payload.identity_mode ?? 'autonomous',
     systemPrompt: payload.system_prompt ?? '',
     framework: payload.framework ?? 'claude-code',
     modelId: payload.model_id ?? '',

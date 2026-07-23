@@ -1,9 +1,19 @@
 'use client';
 
-/** @tier 3 — agents-scoped. Builder step 1: name, slug, description. */
+/** @tier 3 — agents-scoped. Builder step 1: name, slug, description, identity model. */
 
-import { FormField, Grid, Input, SectionHeading, Stack, Textarea } from '@orbit/terra';
+import {
+  FormField,
+  Grid,
+  Input,
+  SectionHeading,
+  Separator,
+  Stack,
+  Text,
+  Textarea,
+} from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
+import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
   const { fields, setName, setSlug, setField } = useAgentBuilderContext();
@@ -46,6 +56,25 @@ export function StepIdentity() {
           placeholder="What this agent is responsible for."
         />
       </FormField>
+
+      <Separator span="full" />
+
+      {/* ── Identity model ─────────────────────────────────────────────────── */}
+      <Stack gap="cozy">
+        <Stack direction="horizontal" align="center">
+          <Text as="span" size="caption" weight="heavy" color="muted">
+            Identity model
+          </Text>
+          <Stack grow />
+          <Text as="span" size="micro" color="subtle">
+            Permanent — cannot be changed after creation.
+          </Text>
+        </Stack>
+        <IdentityModeCards
+          value={fields.identityMode}
+          onChange={(v) => setField('identityMode', v)}
+        />
+      </Stack>
     </Stack>
   );
 }

@@ -6,14 +6,15 @@
 import type {
   AgentType,
   AgentBudget,
-  Run,
+  AgentIdentityMode,
+  RunWithAttribution,
   AgentTypeState,
   RunState,
   Connectivity,
   Connector,
 } from '@orbit/shared/api';
 
-export type { AgentTypeState, RunState, Connectivity, Connector };
+export type { AgentIdentityMode, AgentTypeState, RunState, Connectivity, Connector };
 
 export interface AgentTypeRow {
   id: string;
@@ -24,6 +25,8 @@ export interface AgentTypeRow {
   framework: string;
   /** Raw framework value for badge variant selection. */
   frameworkKey: string;
+  /** Identity model: acts as itself (autonomous) or as the person who runs it (delegated). Immutable. */
+  identityMode: AgentIdentityMode;
   state: AgentTypeState;
   toolScopes: string[];
   grantScopes: string[];
@@ -52,6 +55,10 @@ export interface RunRow {
   agentTypeSlug: string;
   state: RunState;
   createdBy: string;
+  /** Display name of the person who started the run (BFF-resolved), or null when unresolvable. */
+  createdByName: string | null;
+  /** True when the owning agent is delegated — the run acted on the starter's behalf and is private to them. */
+  delegated: boolean;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -81,6 +88,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     description: a.description,
     framework: FRAMEWORK_LABELS[a.framework] ?? a.framework,
     frameworkKey: a.framework,
+    identityMode: a.identity_mode ?? 'autonomous',
     state: a.state,
     toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
@@ -103,7 +111,7 @@ export function indexAgentTypes(agentTypes: AgentTypeRow[]): Map<string, AgentTy
   return new Map(agentTypes.map((a) => [a.id, a]));
 }
 
-export function toRunRow(r: Run, agentTypeById: Map<string, AgentTypeRow>): RunRow {
+export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, AgentTypeRow>): RunRow {
   const agent = agentTypeById.get(r.agent_type_id);
   const startedMs = r.started_at ? new Date(r.started_at).getTime() : null;
   const endMs = r.completed_at ? new Date(r.completed_at).getTime() : null;
@@ -115,6 +123,8 @@ export function toRunRow(r: Run, agentTypeById: Map<string, AgentTypeRow>): RunR
     agentTypeSlug: agent?.slug ?? r.agent_type_id,
     state: r.state,
     createdBy: r.created_by,
+    createdByName: r.created_by_name ?? null,
+    delegated: agent?.identityMode === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,
     createdAt: r.created_at,

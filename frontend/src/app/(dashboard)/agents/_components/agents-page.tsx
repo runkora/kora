@@ -169,7 +169,14 @@ export function AgentsPage() {
         header: 'Status',
         locked: true,
         cell: (row) => (
-          <StatusBadge status={statusMap[row.state] ?? 'unknown'} label={labelMap[row.state]} />
+          <Stack direction="horizontal" align="center" gap="tight" wrap>
+            <StatusBadge status={statusMap[row.state] ?? 'unknown'} label={labelMap[row.state]} />
+            {row.identityMode === 'delegated' && (
+              <Badge variant="default" size="sm">
+                Delegated
+              </Badge>
+            )}
+          </Stack>
         ),
       },
       {
@@ -323,10 +330,17 @@ export function AgentsPage() {
                   </Text>
                 }
                 action={
-                  <StatusBadge
-                    status={statusMap[agent.state] ?? 'unknown'}
-                    label={labelMap[agent.state]}
-                  />
+                  <Stack direction="horizontal" align="center" gap="tight">
+                    {agent.identityMode === 'delegated' && (
+                      <Badge variant="default" size="sm">
+                        Delegated
+                      </Badge>
+                    )}
+                    <StatusBadge
+                      status={statusMap[agent.state] ?? 'unknown'}
+                      label={labelMap[agent.state]}
+                    />
+                  </Stack>
                 }
                 divider
               />
@@ -347,7 +361,8 @@ export function AgentsPage() {
                     {agent.description || 'No description.'}
                   </Text>
 
-                  {/* Meta row: framework badge + tool count */}
+                  {/* Meta row: framework badge + tool count. The identity model
+                      sits in the header next to status, where posture signals live. */}
                   <Stack direction="horizontal" gap="tight" wrap>
                     <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
                       {agent.framework}

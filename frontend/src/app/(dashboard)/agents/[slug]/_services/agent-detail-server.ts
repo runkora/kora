@@ -3,6 +3,7 @@ import 'server-only';
 import type { AgentType, Run } from '@orbit/shared/api';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
+import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
@@ -37,8 +38,17 @@ export async function fetchAgentDetailFromBFF(
     const runsUpstream = await client.get<{ runs: Run[] }>(
       `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}`,
     );
+    const rawRuns = runsUpstream?.runs ?? [];
+    // Resolve run starters to display names (same enrichment as the runs BFF
+    // routes) so the server-rendered runs tab attributes runs on first paint.
+    const names = await resolveUserDisplayNames(
+      accessToken,
+      rawRuns.map((r) => r.created_by),
+    );
     const byId = indexAgentTypes([agent]);
-    const runs = (runsUpstream?.runs ?? []).map((r) => toRunRow(r, byId));
+    const runs = rawRuns.map((r) =>
+      toRunRow({ ...r, created_by_name: names.get(r.created_by) ?? null }, byId),
+    );
 
     return { ok: true, agent, runs };
   } catch (err) {

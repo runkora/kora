@@ -17,6 +17,7 @@ import {
 import type { IconName } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
+import { IDENTITY_MODE_LABELS } from '../motif/identity-mode-cards';
 
 interface ReviewRow {
   k: string;
@@ -110,6 +111,7 @@ export function StepReview() {
           rows={[
             { k: 'Name', v: fields.name || 'Not set' },
             { k: 'Slug', v: fields.slug || 'Not set', mono: fields.slug.length > 0 },
+            { k: 'Identity model', v: IDENTITY_MODE_LABELS[fields.identityMode] },
           ]}
         />
         <ReviewGroup

@@ -34,3 +34,42 @@ export async function listPATsFromIdentity(accessToken: string): Promise<ListPAT
     return fromApiError(err);
   }
 }
+
+// ── Principal display names ───────────────────────────────────────────────────
+
+interface IdentityUserEntry {
+  id: string;
+  email: string;
+  display_name: string;
+}
+
+interface IdentityUsersResponse {
+  users: IdentityUserEntry[];
+}
+
+/**
+ * Resolves principal ids to human-readable names via the identity service.
+ * Ids that are not tenant users (service principals, webhook sources) simply
+ * get no entry — callers fall back to the raw principal. Best-effort: any
+ * upstream failure returns an empty map rather than failing the caller.
+ */
+export async function resolveUserDisplayNames(
+  accessToken: string,
+  principalIds: string[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(principalIds.filter(Boolean))];
+  const names = new Map<string, string>();
+  if (ids.length === 0) return names;
+  try {
+    const data = await orbitClient.get<IdentityUsersResponse>(
+      `/identity/users?ids=${encodeURIComponent(ids.join(','))}&limit=100`,
+      { Authorization: `Bearer ${accessToken}` },
+    );
+    for (const u of data?.users ?? []) {
+      names.set(u.id, u.display_name || u.email);
+    }
+    return names;
+  } catch {
+    return names;
+  }
+}
