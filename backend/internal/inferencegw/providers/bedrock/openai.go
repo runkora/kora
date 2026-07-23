@@ -14,6 +14,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// errGPT5NoChatCompletions is returned when a GPT-5.x model is dispatched to the
+// Chat Completions path.  These models only support the Responses API on
+// bedrock-mantle.{region}.api.aws/openai/v1.
+var errGPT5NoChatCompletions = errors.New("GPT-5 models do not support Chat Completions on Bedrock Mantle; use the Responses API")
+
 // ChatCompletion sends a non-streaming request via the appropriate Bedrock endpoint.
 //
 // Bedrock has three physically separate endpoints:
@@ -28,6 +33,8 @@ func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatComple
 		return c.claudeChatCompletion(ctx, params)
 	case backendMantle:
 		return c.mantleChatCompletion(ctx, params)
+	case backendMantleGPT5:
+		return nil, fmt.Errorf("bedrock: model %q: %w", params.Model, errGPT5NoChatCompletions)
 	default:
 		return c.openaiChatCompletion(ctx, params)
 	}
@@ -40,6 +47,8 @@ func (c *Connector) ChatCompletionStream(ctx context.Context, params openai.Chat
 		return c.claudeChatCompletionStream(ctx, params)
 	case backendMantle:
 		return c.mantleChatCompletionStream(ctx, params)
+	case backendMantleGPT5:
+		return nil, fmt.Errorf("bedrock: model %q: %w", params.Model, errGPT5NoChatCompletions)
 	default:
 		return c.openaiChatCompletionStream(ctx, params)
 	}
