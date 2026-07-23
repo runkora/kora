@@ -125,7 +125,7 @@ func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateS
 		return nil, fmt.Errorf("encrypt signing secret: %w", err)
 	}
 
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil)
+	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("create source grant: %w", err)
 	}
@@ -282,8 +282,19 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 		// an agent type across a tenant boundary.
 		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
 	}
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 6): a delegated agent acts on behalf of the person who runs it,
+	// so a run with no person behind it is impossible — orbit-agents refuses
+	// SERVICE-principal starts at run time, and binding is refused here first
+	// (the earlier, friendlier failure). identity_mode is immutable and the
+	// trigger's agent binding is immutable, so checking at create time makes
+	// "no trigger ever binds a delegated agent" an invariant; UpdateTrigger
+	// needs no counterpart.
+	if at.IdentityMode == agentsclient.IdentityModeDelegated {
+		return nil, fmt.Errorf("%w: agent type %q uses the delegated identity model: delegated agents cannot be bound to automated sources; only a person can start their runs", ErrValidation, req.AgentTypeID)
+	}
 
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(at.Slug), nil)
+	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(at.Slug), nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("create trigger grant: %w", err)
 	}
@@ -331,7 +342,10 @@ func (s *Service) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger
 }
 
 // UpdateTrigger edits the mutable fields of a trigger. The agent binding is
-// immutable (recreate to retarget).
+// immutable (recreate to retarget) — which is also why no delegated-agent
+// check is needed here: CreateTrigger refuses delegated bindings, agent
+// identity_mode is immutable, so no existing trigger can ever come to bind a
+// delegated agent through an update.
 func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
