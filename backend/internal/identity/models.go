@@ -285,6 +285,90 @@ type UserProfileFilter struct {
 	Limit  int      // defaults to 20, max 100
 }
 
+// ─── Delegation types ─────────────────────────────────────────────────────────
+
+// DelegationIssuance is a delegation event record stored in delegation_issuances
+// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). The signed
+// delegation JWT is never persisted — retrieval re-signs a fresh token from
+// this record, keyed by the stable JTI.
+type DelegationIssuance struct {
+	JTI                    string        `db:"jti"`
+	RunID                  string        `db:"run_id"`
+	TenantID               string        `db:"tenant_id"`
+	DelegatorPrincipalID   string        `db:"delegator_principal_id"`
+	DelegatorPrincipalType PrincipalType `db:"delegator_principal_type"`
+	// DelegatorPATID carries the PAT UUID when the delegation was minted with a
+	// PAT platform token — the lineage that lets PAT revocation reach issuances.
+	DelegatorPATID   *string    `db:"delegator_pat_id"`
+	AgentPrincipalID string     `db:"agent_principal_id"`
+	CreatedAt        time.Time  `db:"created_at"`
+	RevokedAt        *time.Time `db:"revoked_at"`
+}
+
+// CreateDelegationRequest is the body for POST /identity/delegation.
+// Tenant and delegator identity come exclusively from verified platform token
+// claims — never from unverified body fields. When SubjectToken is present it
+// is fully verified (signature, expiry, JTI blocklist) and the delegator is
+// derived from IT; otherwise the delegator is the transport principal.
+type CreateDelegationRequest struct {
+	// AgentPrincipalID is the SPIFFE URI of the agent being delegated to (act.sub).
+	AgentPrincipalID string `json:"agent_principal_id"`
+	// RunID binds the delegation to a single run.
+	RunID string `json:"run_id"`
+	// SubjectToken is the RFC 8693 subject_token: the DELEGATOR's own platform
+	// token, carried in the body by a platform service brokering the mint.
+	// Pods with an identity-proxy sidecar cannot forward a caller bearer in the
+	// Authorization header — the proxy overwrites it with the pod's own service
+	// token on all egress — so the runner's proof of identity travels here
+	// instead, exactly as RFC 8693 token exchange models it.
+	SubjectToken string `json:"subject_token,omitempty"`
+}
+
+// DelegationIssuanceResponse is the wire form of a DelegationIssuance.
+// It never carries a token: the only consumers of the signed delegation JWT
+// are identity-proxies retrieving it under SPIFFE attestation.
+type DelegationIssuanceResponse struct {
+	JTI                    string  `json:"jti"`
+	RunID                  string  `json:"run_id"`
+	TenantID               string  `json:"tenant_id"`
+	DelegatorPrincipalID   string  `json:"delegator_principal_id"`
+	DelegatorPrincipalType string  `json:"delegator_principal_type"`
+	AgentPrincipalID       string  `json:"agent_principal_id"`
+	CreatedAt              string  `json:"created_at"`
+	RevokedAt              *string `json:"revoked_at,omitempty"`
+}
+
+// ListDelegationsResponse is returned by GET /identity/delegation.
+type ListDelegationsResponse struct {
+	Delegations []DelegationIssuanceResponse `json:"delegations"`
+}
+
+// DelegationTokenResponse is returned by GET /identity/delegation/run/{run_id}
+// to a mesh-attested caller: a freshly re-signed delegation JWT for the run.
+type DelegationTokenResponse struct {
+	DelegationToken string `json:"delegation_token"`
+	ExpiresIn       int    `json:"expires_in"` // seconds
+	RunID           string `json:"run_id"`
+}
+
+// newDelegationIssuanceResponse converts a storage record to its wire form.
+func newDelegationIssuanceResponse(d *DelegationIssuance) DelegationIssuanceResponse {
+	resp := DelegationIssuanceResponse{
+		JTI:                    d.JTI,
+		RunID:                  d.RunID,
+		TenantID:               d.TenantID,
+		DelegatorPrincipalID:   d.DelegatorPrincipalID,
+		DelegatorPrincipalType: string(d.DelegatorPrincipalType),
+		AgentPrincipalID:       d.AgentPrincipalID,
+		CreatedAt:              d.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if d.RevokedAt != nil {
+		revoked := d.RevokedAt.UTC().Format(time.RFC3339)
+		resp.RevokedAt = &revoked
+	}
+	return resp
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
@@ -312,6 +396,12 @@ var (
 	ErrPATScopesRequired           = errors.New("at least one scope is required")
 	ErrPATUpdateFailed             = errors.New("PAT scope update failed")
 	ErrUserProfileNotFound         = errors.New("user profile not found")
+	ErrDelegationNotFound          = errors.New("no active delegation issuance found")
+	ErrDelegationRunActive         = errors.New("an active delegation issuance already exists for this run")
+	ErrDelegationPrincipalType     = errors.New("delegations can only be minted by HUMAN or PAT principals")
+	ErrDelegationSubjectToken      = errors.New("invalid or expired subject_token")
+	ErrDelegationAgentMismatch     = errors.New("caller identity does not match the delegation's agent principal")
+	ErrDelegationRevokeForbidden   = errors.New("only the delegator or a platform service may revoke a delegation")
 	ErrUserPreferencesNotFound     = errors.New("user preferences not found")
 	ErrPreferencesDocumentTooLarge = errors.New("preferences document exceeds 64 KB limit")
 )

@@ -354,7 +354,7 @@ type mockPolicyClient struct {
 	deleteGrantErr error
 }
 
-func (m *mockPolicyClient) CreateGrant(_ context.Context, _, _, _ string, _ []string, _ *clientpolicy.BudgetAssignment) (string, error) {
+func (m *mockPolicyClient) CreateGrant(_ context.Context, _, _, _ string, _ []string, _ *clientpolicy.BudgetAssignment, _ bool) (string, error) {
 	if m.createGrantErr != nil {
 		return "", m.createGrantErr
 	}
@@ -517,6 +517,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		pats,
 		nil,
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -595,6 +596,7 @@ tenants:
 		newMockPATRepo(),
 		nil,
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -663,6 +665,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		newMockAuthCodeRepo(),
 		newMockClientRepo(),
 		pats,
+		nil,
 		nil,
 		nil,
 		policy,
@@ -1030,6 +1033,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		pats,
 		profiles,
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1090,6 +1094,7 @@ tenants:
 		newMockAuthCodeRepo(),
 		newMockClientRepo(),
 		newMockPATRepo(),
+		nil,
 		nil,
 		nil,
 		&mockPolicyClient{},
@@ -1186,6 +1191,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		newMockPATRepo(),
 		nil,
 		prefsRepo,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},

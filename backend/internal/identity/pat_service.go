@@ -75,7 +75,7 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 	// PAT row) is inert — the PAT JWT was never issued to the caller, so no token
 	// exists that could exercise the grant. The policy dashboard may show a stale
 	// entry until the next cleanup cycle.
-	grantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), id, req.Scopes, nil)
+	grantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), id, req.Scopes, nil, false)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "grant creation failed")
@@ -210,7 +210,7 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 	//   - If UpdateScopes fails:   new grant is cleaned up, old grant still referenced.
 	//   - If old grant deletion fails: it becomes an inert orphan — the PAT now
 	//     references the new grant so no live token can exercise the old grant.
-	newGrantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), patID, req.Scopes, nil)
+	newGrantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), patID, req.Scopes, nil, false)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create new grant failed")
