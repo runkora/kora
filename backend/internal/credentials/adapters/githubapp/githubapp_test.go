@@ -494,6 +494,19 @@ func TestClassifyGraphQL(t *testing.T) {
 			owner:   "", // connection declares no owner
 			wantAct: "repo:read", wantQual: "",
 		},
+		{
+			// Leading fragment definitions precede a mutation: must not be
+			// downgraded to read on the strength of the first keyword.
+			name:  "leading_fragment_then_mutation_is_write",
+			body:  `{"query":"fragment F on Repository { id } mutation M { createRef(input:{}) { clientMutationId } }"}`,
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			// Leading fragment before a query stays a read (no mutation present).
+			name:  "leading_fragment_query_only_is_read",
+			body:  `{"query":"fragment F on Repository { id } query GetRepo { repository(owner:\"clear-route\", name:\"orbit\") { ...F } }"}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "orbit",
+		},
 	}
 
 	for _, tc := range cases {
@@ -549,6 +562,64 @@ func TestClassifyGraphQL_BodyPreservation(t *testing.T) {
 	}
 	if string(remaining) != body {
 		t.Errorf("body after ClassifyAction = %q, want %q", remaining, body)
+	}
+}
+
+// trackingBody is a request body that records whether Close was called, so a
+// test can assert the classifier does not leak the original body reader.
+type trackingBody struct {
+	r      *strings.Reader
+	closed bool
+}
+
+func (b *trackingBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *trackingBody) Close() error               { b.closed = true; return nil }
+
+// TestClassifyGraphQL_ClosesOriginalBody verifies the classifier closes the
+// original request body once it has buffered it (no file-handle/goroutine leak),
+// while still leaving the full body forwardable.
+func TestClassifyGraphQL_ClosesOriginalBody(t *testing.T) {
+	body := `{"query":"{ viewer { login } }"}`
+	tb := &trackingBody{r: strings.NewReader(body)}
+	req, _ := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil)
+	req.Body = tb
+
+	if _, err := classifyGraphQL(req, "clear-route"); err != nil {
+		t.Fatalf("classifyGraphQL: %v", err)
+	}
+	if !tb.closed {
+		t.Error("original request body was not closed (leak)")
+	}
+	got, _ := io.ReadAll(req.Body)
+	if string(got) != body {
+		t.Errorf("forwarded body = %q, want %q", got, body)
+	}
+}
+
+// TestClassifyGraphQL_OversizedBodyForwardedIntact verifies that a body larger
+// than graphqlBodySizeLimit fails closed to repo:write but is still forwarded
+// byte-for-byte, rather than truncated to the read limit.
+func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString(`{"query":"query { repository(owner:\"clear-route\", name:\"orbit\") { id } }","padding":"`)
+	sb.WriteString(strings.Repeat("x", graphqlBodySizeLimit+4096))
+	sb.WriteString(`"}`)
+	body := sb.String()
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", strings.NewReader(body))
+	got, err := classifyGraphQL(req, "clear-route")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Action != "repo:write" {
+		t.Errorf("oversized body: Action = %q, want repo:write (fail closed)", got.Action)
+	}
+	forwarded, readErr := io.ReadAll(req.Body)
+	if readErr != nil {
+		t.Fatalf("read forwarded body: %v", readErr)
+	}
+	if len(forwarded) != len(body) || string(forwarded) != body {
+		t.Errorf("oversized body truncated: forwarded %d bytes, want %d", len(forwarded), len(body))
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -289,20 +290,27 @@ func classifyGraphQL(req *http.Request, owner string) (credentials.Classificatio
 		return fallback, nil
 	}
 
-	limited := io.LimitReader(req.Body, graphqlBodySizeLimit+1)
+	original := req.Body
+	limited := io.LimitReader(original, graphqlBodySizeLimit+1)
 	buf, err := io.ReadAll(limited)
-	// Always restore the body so the forwarded request is byte-identical.
-	req.Body = io.NopCloser(bytes.NewReader(buf))
-	if req.GetBody == nil {
-		bodyBytes := buf
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-		}
-	}
 
 	if err != nil || int64(len(buf)) > graphqlBodySizeLimit {
-		// Unreadable or oversized body: fail closed.
+		// Unreadable or oversized body: fail closed on classification, but still
+		// forward the body WITHOUT truncation — the bytes already read (buf)
+		// followed by whatever remains unread in the original stream. The wrapper
+		// closes the original once forwarding is done, so nothing leaks. Leave
+		// req.GetBody untouched: we must not install one that replays only buf.
+		req.Body = &chainedBody{r: io.MultiReader(bytes.NewReader(buf), original), c: original}
 		return fallback, nil
+	}
+
+	// Whole body is buffered (<= limit): the original stream is fully drained,
+	// so close it (no leak) and serve byte-identical copies for forwarding and
+	// any resend.
+	_ = original.Close()
+	req.Body = io.NopCloser(bytes.NewReader(buf))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(buf)), nil
 	}
 
 	var gql graphqlRequest
@@ -339,13 +347,39 @@ func graphqlVerb(query string) string {
 	// Named operation: first token is the operation type keyword.
 	word := firstWord(t)
 	switch strings.ToLower(word) {
-	case "query", "fragment":
+	case "query":
+		return verbRead
+	case "fragment":
+		// Leading fragment definition(s): the operation type appears later in
+		// the document. Only downgrade to read when there is no mutation
+		// anywhere — never downgrade a real write to a read.
+		if graphqlMutationRe.MatchString(t) {
+			return verbWrite
+		}
 		return verbRead
 	default:
 		// "mutation", "subscription", or anything else → conservative write.
 		return verbWrite
 	}
 }
+
+// graphqlMutationRe matches a `mutation` operation keyword as a whole word.
+// GraphQL keywords are case-sensitive (lowercase), so it does not fold case. A
+// stray match (e.g. a field literally named "mutation") only over-classifies a
+// read as a write, which fails closed and never downgrades a write.
+var graphqlMutationRe = regexp.MustCompile(`\bmutation\b`)
+
+// chainedBody adapts a chained io.Reader to an io.ReadCloser that closes the
+// underlying request body on Close. It lets an oversized GraphQL request be
+// forwarded intact (already-read bytes followed by the unread remainder)
+// without leaking the original body reader.
+type chainedBody struct {
+	r io.Reader
+	c io.Closer
+}
+
+func (b *chainedBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *chainedBody) Close() error               { return b.c.Close() }
 
 // firstWord returns the first whitespace-delimited token of s.
 func firstWord(s string) string {
