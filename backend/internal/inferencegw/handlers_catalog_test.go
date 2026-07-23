@@ -223,7 +223,7 @@ func TestValidateVirtualModelRequest_AllStrategiesAccepted(t *testing.T) {
 
 func TestIsValidProvider(t *testing.T) {
 	t.Parallel()
-	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod-east"}
+	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod_east"}
 	for _, p := range valid {
 		if !isValidProvider(p) {
 			t.Errorf("isValidProvider(%q) = false, want true", p)
@@ -372,7 +372,7 @@ func TestCanonicalPricingProvider(t *testing.T) {
 	}{
 		{ProviderBedrock, ProviderBedrock},
 		{"bedrock:us", ProviderBedrock},
-		{"bedrock:prod-east", ProviderBedrock},
+		{"bedrock:prod_east", ProviderBedrock},
 		{ProviderVertexAI, ProviderVertexAI},
 		{ProviderAzure, ProviderAzure},
 	}

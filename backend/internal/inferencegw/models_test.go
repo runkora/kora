@@ -12,8 +12,9 @@ func TestIsBedrockFamily(t *testing.T) {
 		{"bedrock:us", true},
 		{"bedrock:prod_east", true},
 		{"bedrock:aus_2", true},
-		{"bedrock:", false},      // bare colon — alias part is empty
-		{"bedrock:1prod", false}, // digit-leading alias
+		{"bedrock:", false},          // bare colon — alias part is empty
+		{"bedrock:1prod", false},     // digit-leading alias
+		{"bedrock:prod-east", false}, // hyphen in alias — invalid POSIX env var name
 		{"vertexai", false},
 		{"azure", false},
 		{"", false},

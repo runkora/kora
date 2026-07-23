@@ -6,6 +6,7 @@ package inferencegw
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -35,16 +36,21 @@ const (
 	ProviderAzure    ProviderName = "azure"
 )
 
+// bedrockAliasRe mirrors the alias validation in the bedrock connector package.
+// Hyphens are excluded: the env var prefix BEDROCK_<UPPER_ALIAS>_ must be a
+// valid POSIX identifier, and we want IsBedrockFamily to reject any alias that
+// LoadMultiConfig would also reject.
+var bedrockAliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
 // IsBedrockFamily reports whether p is the base "bedrock" provider or a
 // named multi-account variant of the form "bedrock:<alias>".
-// The alias part must be non-empty and start with a lowercase letter;
-// bare "bedrock:" is not considered a valid member of the family.
+// The alias must satisfy bedrockAliasRe; bare "bedrock:" is not valid.
 func (p ProviderName) IsBedrockFamily() bool {
 	if p == ProviderBedrock {
 		return true
 	}
 	after, ok := strings.CutPrefix(string(p), "bedrock:")
-	return ok && len(after) > 0 && after[0] >= 'a' && after[0] <= 'z'
+	return ok && bedrockAliasRe.MatchString(after)
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
