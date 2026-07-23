@@ -33,8 +33,9 @@ var gpt5ModelIDs = map[string]bool{
 
 // isGPT5Model reports whether modelID belongs to the GPT-5.x family that AWS
 // serves on the Mantle /openai/v1 path rather than the standard /v1 path.
-// Cross-region prefixes are stripped before the lookup because Mantle models
-// have no inference-profile form, but we strip defensively to be future-safe.
+// Cross-region prefixes are stripped before the lookup — while Mantle models
+// today don't use cross-region forms, stripping defensively ensures the lookup
+// works correctly if AWS adds them in the future.
 func isGPT5Model(modelID string) bool {
 	return gpt5ModelIDs[stripRegionPrefix(modelID)]
 }

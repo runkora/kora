@@ -17,6 +17,7 @@ func TestInferBackendID_GPT5Models(t *testing.T) {
 		{"openai.gpt-5.6-luna"},
 		{"openai.gpt-5.6-sol"},
 		{"openai.gpt-5.6-terra"},
+		{"us.openai.gpt-5.6-terra"}, // prefixed form — stripRegionPrefix must normalise
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
