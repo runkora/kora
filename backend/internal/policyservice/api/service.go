@@ -145,7 +145,10 @@ func (s *Service) GatewayBundleHandler() http.HandlerFunc {
 	return s.bundleSrv.ServeGatewayHTTP
 }
 
-func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string, budget *grants.BudgetAssignment) (*grants.Grant, error) {
+// CreateGrant persists a grant after validating principal type and scopes.
+// delegationRequired stamps the fail-closed delegated-agent marker on the grant
+// (delegated-agent-identity ADR, Decision 2); false for ordinary grants.
+func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string, budget *grants.BudgetAssignment, delegationRequired bool) (*grants.Grant, error) {
 	switch principalType {
 	case grants.PrincipalTypeAgent, grants.PrincipalTypeHuman, grants.PrincipalTypePAT, grants.PrincipalTypeService:
 	default:
@@ -183,11 +186,12 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 	}
 
 	g := &grants.Grant{
-		TenantID:      tenantID,
-		PrincipalType: principalType,
-		PrincipalID:   principalID,
-		Scopes:        scopes,
-		Budget:        budget,
+		TenantID:           tenantID,
+		PrincipalType:      principalType,
+		PrincipalID:        principalID,
+		Scopes:             scopes,
+		Budget:             budget,
+		DelegationRequired: delegationRequired,
 	}
 	if err := s.grantRepo.Create(ctx, g); err != nil {
 		return nil, fmt.Errorf("create grant: %w", err)

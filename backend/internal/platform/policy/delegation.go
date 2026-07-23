@@ -17,12 +17,19 @@ type delegationTokenPayload struct {
 	Act   struct {
 		Sub string `json:"sub"`
 	} `json:"act"`
+	JTI                    string `json:"jti"`
+	RunID                  string `json:"run_id"`
+	DelegatorPrincipalType string `json:"delegator_principal_type"`
+	TenantID               string `json:"tenant_id"`
 }
 
 // ParseDelegationToken verifies and parses a delegation token.
 // The delegation token is issued by the Orbit identity service alongside the
 // platform token. Its structure: sub = delegator (human), act.sub = agent,
-// scope = space-separated scopes granted for this session (RFC 6749/8693).
+// run_id = the run the delegation is bound to (RFC 8693; docs/adr/2026-07-23-delegated-agent-identity.md).
+// v1 tokens carry NO scope claim — authority is evaluated live from grants —
+// but a scope claim, when present, is still parsed for forwards compatibility
+// with per-run scope subsets.
 //
 // The token is cryptographically verified using the same JWKS, issuer, and
 // audience as platform tokens. Signature, expiry, issuer, and audience are
@@ -47,8 +54,12 @@ func ParseDelegationToken(ctx context.Context, rawToken string, verifier *token.
 	}
 
 	return &DelegationClaims{
-		Sub:    payload.Sub,
-		ActSub: payload.Act.Sub,
-		Scopes: scopes,
+		Sub:                    payload.Sub,
+		ActSub:                 payload.Act.Sub,
+		Scopes:                 scopes,
+		JTI:                    payload.JTI,
+		RunID:                  payload.RunID,
+		DelegatorPrincipalType: payload.DelegatorPrincipalType,
+		TenantID:               payload.TenantID,
 	}, nil
 }

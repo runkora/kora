@@ -30,7 +30,7 @@ func compileAndPrepareBudgetQuery(t *testing.T, grantList []*grants.Grant, roleL
 		Audience: "orbit-platform",
 	}
 	compiler := bundle.NewCompiler(cfg, routes.NewStore())
-	cached, err := compiler.Compile(testTenantID, grantList, nil, roleList, tb)
+	cached, err := compiler.Compile(testTenantID, grantList, nil, roleList, tb, nil)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -61,8 +61,12 @@ type budgetEvalInput struct {
 	principalType string
 	roles         []string
 	runID         string
+	// delegatorID mirrors input.delegation.delegator_id — the VERIFIED
+	// delegation context ("" = not delegated).
+	delegatorID string
 	// spends, keyed exactly as the gateway sends them.
 	principalSpends map[string]float64 // window → usd
+	delegatorSpends map[string]float64 // window → usd (delegator's counters)
 	rolePoolSpends  map[string]float64 // role → usd
 	tenantSpends    map[string]float64 // window → usd
 	runSpend        float64
@@ -107,6 +111,9 @@ func evalBudget(t *testing.T, pq rego.PreparedEvalQuery, in budgetEvalInput) bud
 		"tenant":     in.tenantSpends,
 		"run":        in.runSpend,
 	}
+	if in.delegatorSpends != nil {
+		spends["delegator"] = in.delegatorSpends
+	}
 	input := map[string]any{
 		"principal": map[string]any{
 			"id":        in.principalID,
@@ -116,6 +123,9 @@ func evalBudget(t *testing.T, pq rego.PreparedEvalQuery, in budgetEvalInput) bud
 			"run_id":    in.runID,
 		},
 		"spends": spends,
+	}
+	if in.delegatorID != "" {
+		input["delegation"] = map[string]any{"delegator_id": in.delegatorID}
 	}
 	rs, err := pq.Eval(context.Background(), rego.EvalInput(input))
 	if err != nil {

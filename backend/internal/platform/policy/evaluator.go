@@ -112,6 +112,10 @@ type BudgetSpends struct {
 	Run float64 `json:"run"`
 	// Principal maps window → the principal's spend in that window.
 	Principal map[string]float64 `json:"principal"`
+	// Delegator maps window → the DELEGATOR's spend in that window (their own
+	// usage plus usage attributed to them from delegated runs). Read only when
+	// a verified delegation is present (delegated-agent-identity ADR, Decision 5).
+	Delegator map[string]float64 `json:"delegator,omitempty"`
 	// RolePools maps role name → the shared pool's spend.
 	RolePools map[string]float64 `json:"role_pools"`
 	// Tenant maps window → the tenant's rollup spend in that window.
@@ -124,7 +128,12 @@ type BudgetCheckRequest struct {
 	PrincipalType string
 	Roles         []string
 	RunID         string
-	Spends        BudgetSpends
+	// DelegatorID is the verified delegation's delegator — sourced exclusively
+	// from policy.DelegationFromContext, never from caller-asserted data. When
+	// set, the delegator's per-window and per-run ceilings apply as additional
+	// independent constraints (delegated-agent-identity ADR, Decision 5).
+	DelegatorID string
+	Spends      BudgetSpends
 }
 
 // BudgetCeiling is one applicable ceiling reported by the budget evaluation.
@@ -171,6 +180,12 @@ type CheckInput struct {
 	PathSegments []string
 	Action       string
 	Attributes   map[string]string
+	// RunID is the request's independently-asserted run identity — the
+	// /run/{run_id} path prefix extracted by middleware.StripRunPrefix (AGENT
+	// principals only). When delegation is present, the engine denies a
+	// delegation token bound to a different run
+	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4).
+	RunID string
 }
 
 // QueryInput is the input to a batch allow/deny across a resource catalog.
@@ -200,12 +215,22 @@ type DelegationClaims struct {
 	Sub    string
 	ActSub string
 	Scopes []string
+	// JTI identifies the delegation issuance — stable across re-signed tokens,
+	// and the key revocation blocklists (docs/adr/2026-07-23-delegated-agent-identity.md).
+	JTI string
+	// RunID binds the delegation to a single run.
+	RunID string
+	// DelegatorPrincipalType is the delegator's principal type (HUMAN or PAT).
+	DelegatorPrincipalType string
+	// TenantID is the tenant the delegation was minted in.
+	TenantID string
 }
 
 // BudgetCheckInput is the OPA input shape for the orbit.budget module.
 type BudgetCheckInput struct {
-	Principal budgetPrincipal `json:"principal"`
-	Spends    BudgetSpends    `json:"spends"`
+	Principal  budgetPrincipal   `json:"principal"`
+	Delegation *budgetDelegation `json:"delegation,omitempty"`
+	Spends     BudgetSpends      `json:"spends"`
 }
 
 type budgetPrincipal struct {
@@ -214,6 +239,12 @@ type budgetPrincipal struct {
 	Type     string   `json:"type"`
 	Roles    []string `json:"roles"`
 	RunID    string   `json:"run_id"`
+}
+
+// budgetDelegation carries the verified delegation context into the budget
+// evaluation; budget.rego keys the delegator ceilings on delegator_id.
+type budgetDelegation struct {
+	DelegatorID string `json:"delegator_id"`
 }
 
 // BudgetResult is returned by CheckBudget.

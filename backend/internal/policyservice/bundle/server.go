@@ -10,6 +10,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/principalroles"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -24,24 +25,46 @@ var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 // On startup it compiles all tenants' bundles from the current DB state.
 // On every grant or role write the policy service recompiles the affected tenant's bundle.
 type Server struct {
-	compiler         *Compiler
-	grantRepo        grants.Repository
-	vocabRepo        vocabulary.Repository
-	roleRepo         roles.Repository
-	tenantBudgetRepo tenantbudget.Repository
-	logger           logging.Logger
+	compiler           *Compiler
+	grantRepo          grants.Repository
+	vocabRepo          vocabulary.Repository
+	roleRepo           roles.Repository
+	tenantBudgetRepo   tenantbudget.Repository
+	principalRolesRepo principalroles.Repository
+	logger             logging.Logger
 }
 
 // NewServer creates a bundle Server wired to the provided repositories.
-func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, logger logging.Logger) *Server {
+func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, principalRolesRepo principalroles.Repository, logger logging.Logger) *Server {
 	return &Server{
-		compiler:         compiler,
-		grantRepo:        grantRepo,
-		vocabRepo:        vocabRepo,
-		roleRepo:         roleRepo,
-		tenantBudgetRepo: tenantBudgetRepo,
-		logger:           logger,
+		compiler:           compiler,
+		grantRepo:          grantRepo,
+		vocabRepo:          vocabRepo,
+		roleRepo:           roleRepo,
+		tenantBudgetRepo:   tenantBudgetRepo,
+		principalRolesRepo: principalRolesRepo,
+		logger:             logger,
 	}
+}
+
+// principalRolesForTenant loads the tenant's user→role membership snapshot for
+// the delegator-leg data document. Fails open to an empty map with a log line:
+// a membership read failure must not block bundle compilation — the delegator
+// role leg simply resolves no roles until the next successful recompile
+// (grants and direct-grant delegation remain fully enforced).
+func (s *Server) principalRolesForTenant(ctx context.Context, tenantID string) map[string][]string {
+	if s.principalRolesRepo == nil {
+		return nil
+	}
+	pr, err := s.principalRolesRepo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		s.logger.Error(ctx, "bundle compile: failed to list principal roles",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return pr
 }
 
 // Compiler returns the underlying bundle compiler. Used by the stats endpoint
@@ -81,8 +104,14 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 		tenantIDs = append(tenantIDs, tid)
 	}
 
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list vocabulary for gateway bundle: %w", err)
+	}
+
 	allGrants := make(map[string][]*grants.Grant, len(tenantIDs))
 	allRoles := make(map[string][]*roles.RoleEntry, len(tenantIDs))
+	allPrincipalRoles := make(map[string]map[string][]string, len(tenantIDs))
 	for _, tid := range tenantIDs {
 		tGrants, _, tErr := s.grantRepo.ListByTenant(ctx, tid, 0, 0)
 		if tErr != nil {
@@ -95,9 +124,11 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 			return fmt.Errorf("list roles for tenant %s: %w", tid, tErr)
 		}
 		allRoles[tid] = tRoles
+
+		allPrincipalRoles[tid] = s.principalRolesForTenant(ctx, tid)
 	}
 
-	_, err = s.compiler.CompileGateway(tenantIDs, allGrants, allRoles)
+	_, err = s.compiler.CompileGateway(tenantIDs, allGrants, allRoles, vocab, allPrincipalRoles)
 	return err
 }
 
@@ -176,7 +207,9 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		return fmt.Errorf("get tenant budget for tenant %s: %w", tenantID, err)
 	}
 
-	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries, roleEntries, tb)
+	principalRoles := s.principalRolesForTenant(ctx, tenantID)
+
+	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries, roleEntries, tb, principalRoles)
 	return err
 }
 

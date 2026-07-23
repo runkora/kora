@@ -45,6 +45,10 @@ type Grant struct {
 	PrincipalID   string            `json:"principal_id"`
 	Scopes        []string          `json:"scopes"`
 	Budget        *BudgetAssignment `json:"budget,omitempty"`
+	// DelegationRequired is the delegated-agent fail-closed marker
+	// (delegated-agent-identity ADR, Decision 2): the grant is a ceiling, not
+	// an entitlement, and the principal may act only under valid delegation.
+	DelegationRequired bool `json:"delegation_required"`
 }
 
 // TokenFunc is a function that returns a Bearer token for authenticating
@@ -74,23 +78,27 @@ func (c *Client) bearerToken(ctx context.Context) (string, error) {
 }
 
 type createGrantRequest struct {
-	TenantID      string            `json:"tenant_id"`
-	PrincipalType string            `json:"principal_type"`
-	PrincipalID   string            `json:"principal_id"`
-	Scopes        []string          `json:"scopes"`
-	Budget        *BudgetAssignment `json:"budget,omitempty"`
+	TenantID           string            `json:"tenant_id"`
+	PrincipalType      string            `json:"principal_type"`
+	PrincipalID        string            `json:"principal_id"`
+	Scopes             []string          `json:"scopes"`
+	Budget             *BudgetAssignment `json:"budget,omitempty"`
+	DelegationRequired bool              `json:"delegation_required,omitempty"`
 }
 
 // CreateGrant creates a grant for (principalType, principalID) → scopes within
 // the given tenant, optionally carrying a budget assignment (nil = none).
+// delegationRequired stamps the delegated-agent fail-closed marker on the grant
+// (delegated-agent-identity ADR, Decision 2); pass false for ordinary grants.
 // Returns the created grant ID.
-func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *BudgetAssignment) (string, error) {
+func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *BudgetAssignment, delegationRequired bool) (string, error) {
 	body, err := c.EncodeJSON(createGrantRequest{
-		TenantID:      tenantID,
-		PrincipalType: principalType,
-		PrincipalID:   principalID,
-		Scopes:        scopes,
-		Budget:        budget,
+		TenantID:           tenantID,
+		PrincipalType:      principalType,
+		PrincipalID:        principalID,
+		Scopes:             scopes,
+		Budget:             budget,
+		DelegationRequired: delegationRequired,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode grant request: %w", err)

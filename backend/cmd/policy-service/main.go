@@ -22,6 +22,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/api"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/principalroles"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
@@ -63,6 +64,7 @@ func realMain() error {
 	vocabRepo := vocabulary.NewPostgresRepository(db.Pool())
 	roleRepo := roles.NewPostgresRepository(db.Pool())
 	tenantBudgetRepo := tenantbudget.NewPostgresRepository(db.Pool())
+	principalRolesRepo := principalroles.NewPostgresRepository(db.Pool())
 	routeStore := routes.NewStore()
 
 	bundleCfg := bundle.Config{
@@ -72,7 +74,7 @@ func realMain() error {
 		FrontendHost: psc.Current.Bundle.FrontendHost,
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, logger)
 
 	// Pre-compile bundles for all tenants that have grants.
 	if tenantIDs, err := grantRepo.ListDistinctTenants(ctx); err == nil {

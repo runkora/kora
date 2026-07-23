@@ -43,6 +43,11 @@ type createGrantRequest struct {
 	PrincipalID   string                   `json:"principal_id"`
 	Scopes        []string                 `json:"scopes"`
 	Budget        *budgetAssignmentRequest `json:"budget,omitempty"`
+	// DelegationRequired marks the grant as a delegated-agent ceiling: the
+	// principal is denied all autonomous authorisation and may act only with
+	// valid delegation context (delegated-agent-identity ADR, Decision 2).
+	// Omitted → false (backwards compatible).
+	DelegationRequired bool `json:"delegation_required"`
 }
 
 // updateGrantBudgetRequest is the request body for PATCH /policy/grants/{id}.

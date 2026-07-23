@@ -15,8 +15,10 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -41,6 +43,18 @@ var (
 	// ErrMissingToken is returned when the identity exchange response decodes
 	// successfully but contains an empty access_token field.
 	ErrMissingToken = errors.New("identity exchange response missing access token")
+
+	// ErrDelegationNotFound is returned by GetDelegationForRun when the identity
+	// service reports no active delegation issuance for the run (HTTP 404 with
+	// code "delegation_not_found") — the run is autonomous, or the issuance was
+	// revoked. Callers treat this as "no delegation", never as a failure.
+	ErrDelegationNotFound = errors.New("no active delegation issuance for run")
+
+	// ErrDelegationForbidden is returned when the identity service refuses a
+	// delegation operation (HTTP 403) — e.g. the caller's principal type may
+	// not mint, or the retrieval caller's attested identity does not match the
+	// delegation's agent principal.
+	ErrDelegationForbidden = errors.New("delegation operation forbidden")
 )
 
 // ErrDecodeResponse is an alias for httpclient.ErrDecodeBody scoped to this
@@ -154,4 +168,180 @@ func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, 
 	)
 
 	return parsed.AccessToken, tokenExpiry, nil
+}
+
+// ── Delegation issuer endpoints (docs/adr/2026-07-23-delegated-agent-identity.md) ──
+
+// CreateDelegationRequest is the client's view of the POST
+// /api/v1/identity/delegation request body.
+type CreateDelegationRequest struct {
+	// AgentPrincipalID is the SPIFFE URI of the agent being delegated to (act.sub).
+	AgentPrincipalID string `json:"agent_principal_id"`
+	// RunID binds the delegation to a single run.
+	RunID string `json:"run_id"`
+	// SubjectToken is the RFC 8693 subject_token: the DELEGATOR's platform
+	// token, carried in the body because the Authorization header of a pod
+	// with an identity-proxy sidecar is overwritten with the pod's own service
+	// token on egress — a forwarded caller bearer cannot survive that hop.
+	SubjectToken string `json:"subject_token,omitempty"`
+}
+
+// DelegationIssuance is the client's view of the issuance record the identity
+// service returns. It never carries a token — the signed delegation JWT is
+// released only to mesh-attested identity-proxies via GetDelegationForRun.
+type DelegationIssuance struct {
+	JTI                    string `json:"jti"`
+	RunID                  string `json:"run_id"`
+	TenantID               string `json:"tenant_id"`
+	DelegatorPrincipalID   string `json:"delegator_principal_id"`
+	DelegatorPrincipalType string `json:"delegator_principal_type"`
+	AgentPrincipalID       string `json:"agent_principal_id"`
+}
+
+// DelegationToken is the client's view of the GET
+// /api/v1/identity/delegation/run/{run_id} response: a freshly re-signed
+// delegation JWT and its lifetime.
+type DelegationToken struct {
+	DelegationToken string `json:"delegation_token"`
+	ExpiresIn       int    `json:"expires_in"` // seconds
+	RunID           string `json:"run_id"`
+}
+
+// errorBody is the platform API error wire shape ({"code": …, "message": …}),
+// decoded from non-2xx responses to branch on distinct error codes.
+type errorBody struct {
+	Code string `json:"code"`
+}
+
+// CreateDelegation calls POST {baseURL}/api/v1/identity/delegation. The bearer
+// authenticates the TRANSPORT (in-cluster the identity-proxy overwrites it
+// with the pod's own token, which is fine); the delegator's identity travels
+// as req.SubjectToken, verified server-side, so identity never mints delegated
+// authority the runner does not hold (ADR Decision 3).
+func (c *Client) CreateDelegation(ctx context.Context, bearer string, req CreateDelegationRequest) (*DelegationIssuance, error) {
+	body, err := c.EncodeJSON(req)
+	if err != nil {
+		return nil, fmt.Errorf("build delegation request: %w", err)
+	}
+	endpoint := c.baseURL + "/api/v1/identity/delegation"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return nil, fmt.Errorf("build delegation request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	ctx, span, resp, err := c.Do(ctx, "identity.Client.CreateDelegation", httpReq)
+	defer span.End()
+	if err != nil {
+		return nil, fmt.Errorf("create delegation call: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		// Fall through to decode.
+	case http.StatusForbidden:
+		return nil, c.HandleErrorResponse(span, resp, ErrDelegationForbidden)
+	default:
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var issuance DelegationIssuance
+	if err = c.DecodeJSON(span, resp, &issuance); err != nil {
+		return nil, err
+	}
+
+	c.Logger().Info(ctx, "delegation issuance minted",
+		logging.Field{Key: "jti", Value: issuance.JTI},
+		logging.Field{Key: "run_id", Value: issuance.RunID},
+	)
+	return &issuance, nil
+}
+
+// RevokeDelegation calls DELETE {baseURL}/api/v1/identity/delegation/{jti}
+// with the given bearer token. orbit-agents calls this with its own exchanged
+// SERVICE platform token on terminal run state — the endpoint permits the
+// delegator or SERVICE/SYSTEM principals. Revoking an already-revoked or
+// missing issuance is treated as success (the tombstone is the desired end
+// state), so terminal-state cleanup is idempotent.
+func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error {
+	endpoint := c.baseURL + "/api/v1/identity/delegation/" + jti
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("build delegation revoke request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+
+	ctx, span, resp, err := c.Do(ctx, "identity.Client.RevokeDelegation", req)
+	defer span.End()
+	if err != nil {
+		return fmt.Errorf("revoke delegation call: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK, http.StatusNotFound:
+		// 404 = already gone; the desired end state holds.
+	case http.StatusForbidden:
+		return c.HandleErrorResponse(span, resp, ErrDelegationForbidden)
+	default:
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	c.Logger().Info(ctx, "delegation revoked",
+		logging.Field{Key: "jti", Value: jti},
+	)
+	return nil
+}
+
+// GetDelegationForRun calls GET {baseURL}/api/v1/identity/delegation/run/{runID}
+// with no bearer token: the endpoint authenticates by the caller's mesh-attested
+// SPIFFE identity from the XFCC header, exactly like Exchange. The identity
+// service releases the token only when that identity matches the delegation's
+// agent principal (ADR Decision 3).
+//
+// Returns ErrDelegationNotFound when the run has no active delegation — the
+// identity-proxy caches this as "autonomous, none".
+func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*DelegationToken, error) {
+	endpoint := c.baseURL + "/api/v1/identity/delegation/run/" + runID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build delegation retrieval request: %w", err)
+	}
+
+	_, span, resp, err := c.Do(ctx, "identity.Client.GetDelegationForRun", req)
+	defer span.End()
+	if err != nil {
+		return nil, fmt.Errorf("get delegation for run call: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Fall through to decode.
+	case http.StatusNotFound:
+		// Distinct code check keeps a routing-level 404 (wrong URL, service
+		// misdeploy) from being mistaken for "autonomous": only the identity
+		// service's explicit delegation_not_found is a negative result.
+		var eb errorBody
+		if decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 512)).Decode(&eb); decodeErr == nil && eb.Code == "delegation_not_found" {
+			span.SetAttributes(attribute.String("delegation.result", "none"))
+			return nil, ErrDelegationNotFound
+		}
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	case http.StatusForbidden:
+		return nil, c.HandleErrorResponse(span, resp, ErrDelegationForbidden)
+	default:
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var out DelegationToken
+	if err = c.DecodeJSON(span, resp, &out); err != nil {
+		return nil, err
+	}
+	if out.DelegationToken == "" {
+		return nil, c.RecordError(span, ErrMissingToken)
+	}
+	return &out, nil
 }

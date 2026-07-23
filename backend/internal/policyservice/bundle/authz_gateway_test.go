@@ -19,6 +19,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 	jwt "github.com/golang-jwt/jwt/v5"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
@@ -34,7 +35,13 @@ type gatewayBundleOpts struct {
 	roles        map[string][]*roles.RoleEntry
 	globalRoutes []routes.RouteScope
 	tenantRoutes map[string][]routes.RouteScope
-	frontendHost string
+	// vocab is the shared scope vocabulary (requires edges for the
+	// delegator-leg scope projection).
+	vocab []*vocabulary.ScopeEntry
+	// principalRoles maps tenant → user→role membership snapshot
+	// (delegator-leg role resolution).
+	principalRoles map[string]map[string][]string
+	frontendHost   string
 	// jwksURL overrides the default failing JWKS URL for tests that need real JWT verification.
 	jwksURL string
 }
@@ -107,11 +114,14 @@ func signTestJWT(t *testing.T, principalType, tenantID, principalID string, orbi
 
 // signDelegationJWT signs a delegation token (not verified by OPA — io.jwt.decode only).
 // scopes is the space-separated scope string in the delegation token.
+// delegator_principal_type is always HUMAN, matching what the identity service
+// mints (PAT-minted delegations normalise to the person at issuance).
 func signDelegationJWT(t *testing.T, delegatorID string, scopes []string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
-		"sub":   delegatorID,
-		"scope": strings.Join(scopes, " "),
+		"sub":                      delegatorID,
+		"scope":                    strings.Join(scopes, " "),
+		"delegator_principal_type": "HUMAN",
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := tok.SignedString(getTestRSAKey())
@@ -171,7 +181,7 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.CompileGateway(tenantIDs, allGrants, allRoles)
+	cached, err := compiler.CompileGateway(tenantIDs, allGrants, allRoles, opts.vocab, opts.principalRoles)
 	if err != nil {
 		t.Fatalf("compile gateway bundle: %v", err)
 	}
