@@ -33,7 +33,7 @@ const IDENTITY_MODES: { id: AgentIdentityMode; name: string; desc: string; icon:
   {
     id: 'delegated',
     name: IDENTITY_MODE_LABELS.delegated,
-    desc: 'Acts on behalf of the person who runs it, limited to what that person can access within the agent’s grants and drawing on their individual budget. Only a person can start it; triggers and automated sources cannot. Each person’s runs are private to them.',
+    desc: 'Acts on behalf of the person who runs it, limited to their access and spending their budget. Only a person can start it; triggers and automated sources cannot. Each person’s runs are private to them.',
     icon: 'user-check',
   },
 ];

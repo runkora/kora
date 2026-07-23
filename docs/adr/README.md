@@ -106,7 +106,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
-- [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Proposed` · 2026-07-23
+- [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 
 ### MCP / Tool Gateway
 
@@ -232,7 +232,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-17 | [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) | Accepted | — |
 | 2026-07-22 | [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) | Accepted | — |
 | 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted | — |
-| 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Proposed | — |
+| 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |

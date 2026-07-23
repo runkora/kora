@@ -1,8 +1,8 @@
 # Delegated Agent Identity - Product Requirements Document
 
-**Status:** In Review  
+**Status:** Approved  
 **Created:** 2026-07-17  
-**Last Updated:** 2026-07-23  
+**Last Updated:** 2026-07-24  
 **Owner:** Platform Engineering  
 **Stakeholders:** Platform Admins, Tenant Users, Security, Platform Engineering
 

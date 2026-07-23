@@ -1,6 +1,6 @@
 # Delegated Agent Identity
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-23
 **Deciders:** Justin Wilkin, Engineering Team
 **Technical Story:** [Delegated Agent Identity PRD](../prd/delegated-agent-identity.md) — a second agent identity model in which the agent acts on behalf of the person who runs it, bounded by the intersection of the agent's grants and the person's own access.
@@ -147,7 +147,7 @@ The field is exposed on the agent-types API and the `agents_create` / `agents_ge
 
 The required scope derives from the requested mode on create and from the STORED mode on update and delete, since widening an autonomous agent's grants is the same act as creating it with them. Because the Layer 1 route map is static per route and cannot read the requested mode from the body, the agent-type write routes register as authenticated-only (the established pattern for locally enforced routes) and the mode-derived check is enforced authoritatively in the orbit-agents service layer.
 
-Run-start scopes stay mode-blind (`agents:runs:{slug}:write`): per-slug granularity is already finer than per-mode, the grantor knows an agent's mode when granting its slug, and starting a delegated agent is the non-escalating action by construction. A broad "may start any delegated agent" grant would require inserting a bounded mode dimension before the unbounded slug, a breaking vocabulary migration deferred until the need is real (see Future Work).
+Run-start scopes stay per-agent (`agents:runs:{slug}:write`) by explicit ruling: a person may start delegated runs only on agents they have been granted access to, never "all delegated agents". Per-slug granularity is finer than per-mode, the grantor knows an agent's mode when granting its slug, and starting a delegated agent is the non-escalating action by construction.
 
 ### Decision 2: Fail-closed via a grant-level marker, not a missing grant
 
@@ -430,7 +430,7 @@ Each phase must pass `make check`; Phases 1–4 carry table-driven unit tests be
 - **Chained delegation.** The `act` claim nests; the policy model and product semantics for multi-hop are deliberately unaddressed.
 - **Per-run scope subsets.** Letting a person lend less than their full access for one run — the issuance API shape admits it (a `scope` request parameter validated against the person's access).
 - **Shared delegated-run visibility.** If starter-only privacy proves too strict, a deliberate sharing model rather than a wider default.
-- **Mode-qualified run-start scopes.** A broad "may start any delegated agent" grant needs a bounded mode dimension inserted before the unbounded slug in `agents:runs:*` scopes, which is a breaking vocabulary migration for every existing run grant. Deferred until per-slug granting proves insufficient.
+- **Mode-qualified run-start scopes.** Ruled out for now: access to start a delegated agent is granted per agent, not per mode. Revisit only if a broad "any delegated agent" grant ever becomes a real need; it would be a breaking vocabulary migration (bounded mode dimension before the unbounded slug in `agents:runs:*`).
 
 ---
 

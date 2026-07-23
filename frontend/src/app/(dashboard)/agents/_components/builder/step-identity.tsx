@@ -79,7 +79,7 @@ export function StepIdentity() {
           </Text>
           <Stack grow />
           <Text as="span" size="micro" color="subtle">
-            Permanent — cannot be changed after creation.
+            Permanent: cannot be changed after creation.
           </Text>
         </Stack>
         <IdentityModeCards
