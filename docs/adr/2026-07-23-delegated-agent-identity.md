@@ -181,10 +181,10 @@ Egress needs its own delegated rule, because today's only egress allow is autono
 
 The identity service implements the endpoint the execution-flow ADR specified:
 
-- `POST /identity/delegation` — mints a delegation token. Callable with a HUMAN or PAT platform token (PATs count as the person, per the PRD); AGENT / SERVICE / SYSTEM principals are refused, which structurally blocks a delegated run from starting another delegated agent.
+- `POST /identity/delegation` — mints a delegation token. The delegator must be a HUMAN or PAT principal (PATs count as the person, per the PRD), established one of two ways: a HUMAN/PAT caller delegates as themselves, or a platform SERVICE/SYSTEM transport carries the runner's platform token as the **RFC 8693 `subject_token`** in the body, which identity fully verifies (signature, expiry, JTI blocklist) and derives the delegator from. The body route exists because a pod with an identity-proxy sidecar cannot forward a caller bearer — the proxy overwrites `Authorization` on all egress with the pod's own token — which is precisely the case RFC 8693 models with `subject_token`. AGENT principals are refused as either delegator or transport, which structurally blocks a delegated run from starting another delegated agent. Accepting a verified subject token delegates nothing its bearer could not already do directly, so escalation stays structurally impossible.
 - `DELETE /identity/delegation/{jti}` — revokes via the existing Redis JTI blocklist.
 
-`RunService.StartRun` calls it when the agent type is delegated, **forwarding the runner's own bearer token** — identity never mints delegated authority the caller does not hold, so escalation at issuance is structurally impossible. The response carries the issuance record, not the token: the token never transits orbit-agents, and its only consumers are identity-proxies retrieving it under attestation (Decision 4). The claims extend the decided RFC 8693 shape:
+`RunService.StartRun` calls it when the agent type is delegated, carrying the runner's bearer as the `subject_token` — identity never mints delegated authority the runner does not hold, so escalation at issuance is structurally impossible. The response carries the issuance record, not the token: the token never transits orbit-agents further than the mint request, and its only consumers are identity-proxies retrieving it under attestation (Decision 4). The claims extend the decided RFC 8693 shape:
 
 ```json
 {
@@ -260,9 +260,14 @@ User (human or PAT)      orbit-agents                identity service           
       │                       │ run.created_by = sub       │                            │
       │                       │                            │                            │
       │                       │ POST /identity/delegation  │                            │
-      │                       │ (forwards the USER's token,│                            │
-      │                       │  body: agent, run_id)      │                            │
+      │                       │ (body: agent, run_id,      │                            │
+      │                       │  subject_token = the USER's│                            │
+      │                       │  token; transport auth =   │                            │
+      │                       │  orbit-agents' own, stamped│                            │
+      │                       │  by its identity-proxy)    │                            │
       │                       │───────────────────────────►│                            │
+      │                       │                            │ verify subject_token,      │
+      │                       │                            │ delegator := its person    │
       │                       │                            │ mint RFC 8693 JWT          │
       │                       │                            │ persist keyed by run_id    │
       │                       │◄───────────────────────────│                            │
