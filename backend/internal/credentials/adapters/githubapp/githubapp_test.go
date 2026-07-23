@@ -354,6 +354,14 @@ func TestPermissionsFor(t *testing.T) {
 		{"metadata", "metadata:read", nil, map[string]string{"metadata": "read"}},
 		{"contents_write", "contents:write", nil, map[string]string{"contents": "write", "metadata": "read"}},
 		{"issues_read", "issues:read", nil, map[string]string{"issues": "read", "metadata": "read"}},
+		// Pull-request tokens carry contents:read so PR create/edit can read the
+		// head/base refs (GitHub 422s "not all refs are readable" otherwise).
+		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "contents": "read", "metadata": "read"}},
+		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "contents": "read", "metadata": "read"}},
+		// The contents:read floor is still ceiling-bound: a connection that does
+		// not permit contents drops it.
+		{"pulls_write_ceiling_omits_contents", "pulls:write", map[string]string{"pull_requests": "write", "metadata": "read"},
+			map[string]string{"pull_requests": "write", "metadata": "read"}},
 		{"checks_write", "checks:write", nil, map[string]string{"checks": "write", "statuses": "write", "metadata": "read"}},
 		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
 		{"ceiling_drops_and_lowers", "admin:write", map[string]string{"administration": "read", "metadata": "read"},

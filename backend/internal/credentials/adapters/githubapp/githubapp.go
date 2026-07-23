@@ -739,25 +739,45 @@ func permissionsFor(action string, ceiling map[string]string) map[string]string 
 		}
 	}
 
+	// Pull-request operations also need read access to repository contents:
+	// creating or editing a PR reads the head/base branch refs, and GitHub
+	// rejects the call with 422 "not all refs are readable" when the token lacks
+	// contents:read. This is a read floor scoped to the same repository
+	// qualifier, so it never widens write access; it is still bounded by the
+	// connection ceiling below.
+	if category == catPulls && permissionLevels[derived["contents"]] < permissionLevels[verbRead] {
+		derived["contents"] = verbRead
+	}
+
 	if _, ok := derived[catMetadata]; !ok {
 		derived[catMetadata] = verbRead
 	}
 
-	if len(ceiling) > 0 {
-		for key, level := range derived {
-			ceilLevel, ok := ceiling[key]
-			switch {
-			case !ok && key == catMetadata:
-				// GitHub grants metadata read on every installation token
-				// implicitly; keep it even when the ceiling omits it.
-			case !ok:
-				delete(derived, key)
-			case permissionLevels[ceilLevel] < permissionLevels[level]:
-				derived[key] = ceilLevel
-			}
+	applyCeiling(derived, ceiling)
+	return derived
+}
+
+// applyCeiling intersects the derived permission set with the connection's
+// declared ceiling in place: permissions absent from the ceiling are dropped
+// (except the implicitly-granted metadata read), and any level above the
+// ceiling is lowered to it. A nil/empty ceiling means "no ceiling declared" and
+// leaves the set unchanged.
+func applyCeiling(derived, ceiling map[string]string) {
+	if len(ceiling) == 0 {
+		return
+	}
+	for key, level := range derived {
+		ceilLevel, ok := ceiling[key]
+		switch {
+		case !ok && key == catMetadata:
+			// GitHub grants metadata read on every installation token
+			// implicitly; keep it even when the ceiling omits it.
+		case !ok:
+			delete(derived, key)
+		case permissionLevels[ceilLevel] < permissionLevels[level]:
+			derived[key] = ceilLevel
 		}
 	}
-	return derived
 }
 
 // splitAction splits an action fragment at its last colon into category and
