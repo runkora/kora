@@ -225,7 +225,7 @@ func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string
 			FROM jsonb_array_elements_text(scopes) AS elem
 			WHERE elem != $1
 		)
-		WHERE scopes @> jsonb_build_array($1)
+		WHERE scopes @> jsonb_build_array($1::text)
 	`, scope)
 	if err != nil {
 		return fmt.Errorf("purge scope from grants: %w", err)
