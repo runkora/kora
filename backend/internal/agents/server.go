@@ -184,6 +184,13 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			// 403 with the explicit reason: the message names the missing
+			// mode-qualified scope and the identity model's stakes.
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to create agent type", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -244,8 +251,11 @@ func (c *Controller) handleGetEffectiveAccess(w http.ResponseWriter, r *http.Req
 }
 
 // handleEffectiveAccessPreview resolves the access view for a draft (unsaved)
-// connectivity config — backs the live preview as the user edits. Write-scoped
-// via the /api/v1/agent-types POST binding; nothing is persisted.
+// connectivity config — backs the live preview as the user edits.
+// Authenticated-only via the /api/v1/agent-types POST binding (the binding's
+// real scope check is the mode-qualified create in the service layer, which a
+// preview never reaches); nothing is persisted, and the preview reveals only
+// what the caller can already resolve for their own tenant.
 func (c *Controller) handleEffectiveAccessPreview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req EffectiveAccessPreviewRequest
@@ -283,6 +293,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to update agent type", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -298,6 +313,11 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

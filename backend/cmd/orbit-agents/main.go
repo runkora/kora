@@ -181,7 +181,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TenantNamespaceFn: cfg.TenantNamespace,
 	}, logger)
 
-	draftSvc := agents.NewDraftService(repo, agents.DraftServiceConfig{
+	draftSvc := agents.NewDraftService(repo, authz, agents.DraftServiceConfig{
 		ReaperInterval: cfg.Drafts.ReaperInterval(),
 		Retention:      cfg.Drafts.RetentionDuration(),
 	}, logger)
@@ -251,7 +251,12 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 			)
 			return
 		}
-		if err := client.Register(ctx, "orbit-agents", agentRoutes(), agentScopes(slugs)); err != nil {
+		// Drop routes whose RequiredScope is empty — those are
+		// "authenticated-only" and enforced locally (ScopeEnforcementMiddleware
+		// passes them through after auth; the service layer holds the real
+		// check). Registering them with empty scopes would deny everyone when
+		// Layer 1 sidecar enforcement is enabled in the future.
+		if err := client.Register(ctx, "orbit-agents", filterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
 			logger.Error(ctx, "route scope registration failed",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
@@ -271,18 +276,30 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 // must have their own explicit entry.
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
-		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
+		// Agent-type WRITE routes are authenticated-only at the route layer:
+		// the required scope is mode-qualified (agents:types:{mode}:write,
+		// delegated-agent-identity ADR Decision 1) and the mode comes from the
+		// request body on create and the stored row on update/delete — neither
+		// is visible to a static route map. The authoritative check lives in
+		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
+		// routes are excluded from policy-service registration (see
+		// filterScopedRoutes), the established pattern for locally enforced
+		// routes.
+		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: "agents:types:write"},
-		{PathPrefix: "/api/v1/agent-types/", Method: "DELETE", RequiredScope: "agents:types:write"},
-		// Drafts: sibling prefix (ServeMux ambiguity — see server.go Boot), same
-		// authority as agent types: drafting an agent requires create authority.
-		{PathPrefix: "/api/v1/agent-type-drafts", Method: "POST", RequiredScope: "agents:types:write"},
+		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: ""},
+		{PathPrefix: "/api/v1/agent-types/", Method: "DELETE", RequiredScope: ""},
+		// Drafts: sibling prefix (ServeMux ambiguity — see server.go Boot).
+		// Draft writes mirror the agent-type write posture: authenticated-only
+		// at the route layer, with the service requiring create authority for
+		// at least one identity mode (Authz.checkAnyAgentTypeWrite) so a
+		// delegated-only creator can still use the builder.
+		{PathPrefix: "/api/v1/agent-type-drafts", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-type-drafts", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-type-drafts/", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/api/v1/agent-type-drafts/", Method: "PATCH", RequiredScope: "agents:types:write"},
-		{PathPrefix: "/api/v1/agent-type-drafts/", Method: "DELETE", RequiredScope: "agents:types:write"},
+		{PathPrefix: "/api/v1/agent-type-drafts/", Method: "PATCH", RequiredScope: ""},
+		{PathPrefix: "/api/v1/agent-type-drafts/", Method: "DELETE", RequiredScope: ""},
 		{PathPrefix: "/api/v1/environments", Method: "POST", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments", Method: "GET", RequiredScope: "agents:environments:read"},
 		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
@@ -296,12 +313,34 @@ func agentRoutes() []routescopes.RouteScope {
 	}
 }
 
+// filterScopedRoutes returns the subset of routes that require a non-empty
+// scope. Used to exclude "authenticated-only" routes from policy-service
+// registration; those are enforced by the local ScopeEnforcementMiddleware
+// (pass-through after auth) plus the service-layer check that owns them.
+// Mirrors cmd/inference-gateway.
+func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
+	out := make([]routescopes.RouteScope, 0, len(in))
+	for _, r := range in {
+		if r.RequiredScope != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // agentScopes builds the full scope declaration list from the current agent type slugs.
 // Static top-level scopes are always included; per-slug scopes are added dynamically.
 func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	decls := []routescopes.ScopeDeclaration{
 		{Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"}, Action: "read", Description: "View and list agent type definitions"},
-		{Scope: "agents:types:write", ResourceType: "agents", PathSegments: []string{"types"}, Action: "write", Description: "Create and delete agent type definitions"},
+		{Scope: "agents:types:write", ResourceType: "agents", PathSegments: []string{"types"}, Action: "write", Description: "Create and mutate agent type definitions of any identity mode (prefix-covers the delegated and autonomous child scopes)"},
+		// Mode-qualified creation scopes (delegated-agent-identity ADR,
+		// Decision 1): creating an agent confers its authority, so the two
+		// identity modes are separately grantable. agents:types:write
+		// prefix-covers both via the scope_covers hierarchy, so existing
+		// grants and the reserved admin roles keep their current power.
+		{Scope: "agents:types:delegated:write", ResourceType: "agents", PathSegments: []string{"types", "delegated"}, Action: "write", Description: "Create and mutate delegated agent types (safe self-service: the agent's grants are only a ceiling on each runner's own access and can never exceed the person running it)"},
+		{Scope: "agents:types:autonomous:write", ResourceType: "agents", PathSegments: []string{"types", "autonomous"}, Action: "write", Description: "Create and mutate autonomous agent types (higher privilege: confers standing authority the agent holds on its own, whoever starts it)"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
 		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list connectivity environments"},

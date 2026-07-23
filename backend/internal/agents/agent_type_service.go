@@ -233,9 +233,12 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 
 // CreateAgentType registers a new agent type and initiates k8s provisioning.
 // Tenant is derived from the verified claims in ctx; the request-body field is
-// ignored. Coarse-level authorization (agents:types:write) is enforced by
-// ScopeEnforcementMiddleware before this method is called (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md); no
-// per-resource authz check is needed here since the resource does not yet exist.
+// ignored. The create route is authenticated-only at the route layer; the
+// authoritative authorization is the mode-qualified check below —
+// agents:types:{mode}:write derived from the requested identity mode after
+// defaulting, because creating an agent confers its authority and the two
+// modes are separately grantable tiers (delegated-agent-identity ADR,
+// Decision 1).
 func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
 	req.TenantID = tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.CreateAgentType",
@@ -257,6 +260,12 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 
 	validated, err := s.validateAgentTypeCreate(ctx, req)
 	if err != nil {
+		return nil, err
+	}
+
+	// Mode-qualified authorization AFTER defaulting: an omitted mode defaults
+	// to autonomous, which must not slip past the higher-privilege check.
+	if err := s.authz.checkAgentTypeModeWrite(ctx, validated.identityMode); err != nil {
 		return nil, err
 	}
 
@@ -515,7 +524,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 }
 
 // loadAgentTypeForWrite loads an agent type by ID and enforces tenant scoping
-// + authz write. Returns ErrNotFound on tenant mismatch or scope deny.
+// + the mode-qualified write check. Returns ErrNotFound on tenant mismatch;
+// a scope deny surfaces as ErrIdentityModeWriteForbidden (403 with the missing
+// scope named) — the required scope derives from the STORED identity mode,
+// since widening an autonomous agent's grants equals creating it with them
+// (delegated-agent-identity ADR, Decision 1).
 func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string, span trace.Span) (*AgentType, error) {
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
@@ -529,10 +542,7 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 	if at.TenantID != tenantFromContext(ctx) {
 		return nil, ErrNotFound
 	}
-	if err := s.authz.checkAgentType(ctx, *at, "write"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return nil, ErrNotFound
-		}
+	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
 		return nil, err
 	}
 	return at, nil
@@ -586,8 +596,10 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 }
 
 // DeleteAgentType initiates teardown of a managed agent type. Enforces tenant
-// scoping against ctx claims and runs an authz write check; tenant mismatch
-// or scope deny returns ErrNotFound (existence is itself information).
+// scoping against ctx claims (mismatch returns ErrNotFound) and the
+// mode-qualified write check on the STORED identity mode — deleting an agent
+// type is a mutation of the same tier as creating it, so it needs
+// agents:types:{storedMode}:write (delegated-agent-identity ADR, Decision 1).
 func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteAgentType",
 		trace.WithAttributes(attribute.String("agent_type_id", id)),
@@ -603,10 +615,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	if at.TenantID != tenantFromContext(ctx) {
 		return ErrNotFound
 	}
-	if err := s.authz.checkAgentType(ctx, *at, "write"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return ErrNotFound
-		}
+	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
 		return err
 	}
 	span.SetAttributes(attribute.String("slug", at.Slug))

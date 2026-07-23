@@ -4,7 +4,7 @@
  * The choice is immutable after creation, so the detail Configuration tab shows
  * the mode read-only rather than reusing these cards. */
 
-import { Grid, RadioCard, RadioGroup } from '@orbit/terra';
+import { Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import type { AgentIdentityMode } from '@orbit/shared/api';
 
@@ -41,28 +41,48 @@ const IDENTITY_MODES: { id: AgentIdentityMode; name: string; desc: string; icon:
 export function IdentityModeCards({
   value,
   onChange,
+  disabledModes,
 }: {
   value: AgentIdentityMode;
   onChange: (v: AgentIdentityMode) => void;
+  /**
+   * Modes the caller may not create, mapped to the inline explanation shown
+   * under the card. A disabled card is dimmed and unselectable (the same
+   * Stack-disabled treatment as other unavailable builder options); selection
+   * changes to a disabled mode are ignored.
+   */
+  disabledModes?: Partial<Record<AgentIdentityMode, string>>;
 }) {
+  const select = (v: string) => {
+    const mode = v as AgentIdentityMode;
+    if (disabledModes?.[mode]) return;
+    onChange(mode);
+  };
   return (
-    <RadioGroup
-      value={value}
-      onValueChange={(v) => onChange(v as AgentIdentityMode)}
-      aria-label="Identity model"
-    >
+    <RadioGroup value={value} onValueChange={select} aria-label="Identity model">
       <Grid cols={2} gap="cozy">
-        {IDENTITY_MODES.map((m) => (
-          <RadioCard
-            key={m.id}
-            value={m.id}
-            selected={value === m.id}
-            onSelect={(v) => onChange(v as AgentIdentityMode)}
-            icon={m.icon}
-            title={m.name}
-            description={m.desc}
-          />
-        ))}
+        {IDENTITY_MODES.map((m) => {
+          const disabledReason = disabledModes?.[m.id];
+          return (
+            <Stack key={m.id} gap="tight">
+              <Stack disabled={Boolean(disabledReason)} gap="none">
+                <RadioCard
+                  value={m.id}
+                  selected={value === m.id}
+                  onSelect={select}
+                  icon={m.icon}
+                  title={m.name}
+                  description={m.desc}
+                />
+              </Stack>
+              {disabledReason ? (
+                <Text size="micro" color="subtle">
+                  {disabledReason}
+                </Text>
+              ) : null}
+            </Stack>
+          );
+        })}
       </Grid>
     </RadioGroup>
   );

@@ -139,6 +139,16 @@ ALTER TABLE agent_types
 
 The field is exposed on the agent-types API and the `agents_create` / `agents_get` MCP tools, validated in `internal/agents` (immutability enforced in the service layer, alongside the existing update validation), and unlocks the identity-model selector that [agent-builder](2026-07-17-agent-builder.md) deliberately withheld.
 
+**Mode-qualified creation scopes.** Creating an agent confers its authority, and the create API accepts arbitrary grant scopes with no check against what the creator holds: minting an AUTONOMOUS agent is therefore a privilege-escalation vector, the same escalation-by-proxy the PRD closes at run time, moved to creation time. Minting a DELEGATED agent is structurally non-escalating, because its grants are only a ceiling intersected with each runner's live access. The vocabulary makes that difference grantable:
+
+- `agents:types:delegated:write` — create and mutate delegated agent types (safe self-service).
+- `agents:types:autonomous:write` — create and mutate autonomous agent types (confers standing authority; higher privilege).
+- `agents:types:write` prefix-covers both, so every existing grant and the tenant-admin / platform-admin reserved roles keep their current power with no migration.
+
+The required scope derives from the requested mode on create and from the STORED mode on update and delete, since widening an autonomous agent's grants is the same act as creating it with them. Because the Layer 1 route map is static per route and cannot read the requested mode from the body, the agent-type write routes register as authenticated-only (the established pattern for locally enforced routes) and the mode-derived check is enforced authoritatively in the orbit-agents service layer.
+
+Run-start scopes stay mode-blind (`agents:runs:{slug}:write`): per-slug granularity is already finer than per-mode, the grantor knows an agent's mode when granting its slug, and starting a delegated agent is the non-escalating action by construction. A broad "may start any delegated agent" grant would require inserting a bounded mode dimension before the unbounded slug, a breaking vocabulary migration deferred until the need is real (see Future Work).
+
 ### Decision 2: Fail-closed via a grant-level marker, not a missing grant
 
 A delegated agent **keeps its provisioned grant** — the grant is the ceiling half of the intersection and the admin's statement of what the agent may ever touch. What changes is that the grant stops being an entitlement on its own.
@@ -420,6 +430,7 @@ Each phase must pass `make check`; Phases 1–4 carry table-driven unit tests be
 - **Chained delegation.** The `act` claim nests; the policy model and product semantics for multi-hop are deliberately unaddressed.
 - **Per-run scope subsets.** Letting a person lend less than their full access for one run — the issuance API shape admits it (a `scope` request parameter validated against the person's access).
 - **Shared delegated-run visibility.** If starter-only privacy proves too strict, a deliberate sharing model rather than a wider default.
+- **Mode-qualified run-start scopes.** A broad "may start any delegated agent" grant needs a bounded mode dimension inserted before the unbounded slug in `agents:runs:*` scopes, which is a breaking vocabulary migration for every existing run grant. Deferred until per-slug granting proves insufficient.
 
 ---
 

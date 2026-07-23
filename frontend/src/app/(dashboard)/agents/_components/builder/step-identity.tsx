@@ -16,7 +16,19 @@ import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
-  const { fields, setName, setSlug, setField } = useAgentBuilderContext();
+  const { fields, setName, setSlug, setField, identityModeAccess } = useAgentBuilderContext();
+
+  // Mode-qualified create permissions (agents:types:{mode}:write, resolved
+  // with prefix covers so agents:types:write enables both). Until the scope
+  // set loads, nothing is disabled; the backend check is authoritative.
+  const disabledModes = {
+    ...(identityModeAccess.loaded && !identityModeAccess.autonomous
+      ? { autonomous: 'You do not have permission to create autonomous agents.' }
+      : null),
+    ...(identityModeAccess.loaded && !identityModeAccess.delegated
+      ? { delegated: 'You do not have permission to create delegated agents.' }
+      : null),
+  };
 
   return (
     <Stack gap="relaxed">
@@ -73,6 +85,7 @@ export function StepIdentity() {
         <IdentityModeCards
           value={fields.identityMode}
           onChange={(v) => setField('identityMode', v)}
+          disabledModes={disabledModes}
         />
       </Stack>
     </Stack>

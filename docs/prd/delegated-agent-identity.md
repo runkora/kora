@@ -196,6 +196,7 @@ The distinction is a governance posture, not an implementation detail, and it is
 
 **Must Have (P0):**
 - [ ] An agent declares exactly one identity model, delegated or autonomous, at creation, and it cannot be changed afterwards.
+- [ ] Creating a delegated agent and creating an autonomous agent are separately grantable permissions. An autonomous agent holds standing access its creator may not hold themselves, so creating one is the higher permission; a delegated agent can never act beyond the person running it, so creating one is safe to grant broadly. Whoever can create autonomous agents can also create delegated ones.
 - [ ] A delegated agent's access for a run is bounded by the person who started the run.
 - [ ] A delegated agent's grants act as a ceiling only. They confer nothing absent a person's live delegation, so the agent holds no standing access it can act on alone.
 - [ ] A delegated agent cannot be started without a person, and cannot be bound to an automated source.
@@ -282,7 +283,11 @@ The distinction is a governance posture, not an implementation detail, and it is
    - **Status:** Resolved. Only the person who started it can send it instructions. Messages steer the agent, and the agent acts with the starter's access under the starter's name, so letting anyone else steer would let them act with authority and attribution that are not theirs. A tenant admin retains governance controls, reading and terminating, without the ability to direct the work.
    - **Owner:** Platform Engineering
 
-7. **Whose budget does a delegated run spend?**
+7. **Who may create each kind of agent?**
+   - **Status:** Resolved. Two separately grantable permissions, with the autonomous one strictly higher. Creating an agent confers its access, and nothing requires a creator to hold the access they configure, so creating an autonomous agent is a way to obtain permissions by proxy. Creating a delegated agent is not: its configured access is only a ceiling on what each runner already holds. Teams can therefore be granted delegated-agent creation for self-service without opening the escalation path.
+   - **Owner:** Platform Engineering
+
+8. **Whose budget does a delegated run spend?**
    - **Status:** Resolved. Both. The agent's ceilings and the person's ceilings each apply independently, so the run stops at whichever is reached first, and its usage is attributed to the person as well as the agent. An agent's budget bounds the tool; it must not become a pool a person can spend from beyond their own allowance.
    - **Owner:** Platform Engineering
 

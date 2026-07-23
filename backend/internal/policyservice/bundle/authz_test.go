@@ -541,6 +541,58 @@ func TestAuthz_ScopeHierarchy_ChildDoesNotCoverParent(t *testing.T) {
 	}
 }
 
+// Mode-qualified agent-type creation scopes (delegated-agent-identity ADR,
+// Decision 1): agents:types:write prefix-covers both agents:types:{mode}:write
+// children (same resource type + action, path prefix), while each child covers
+// only its own mode and never the parent.
+func TestAuthz_ScopeHierarchy_AgentTypeModeScopes(t *testing.T) {
+	t.Run("parent covers delegated child", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "delegated"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:write to cover agents:types:delegated:write, got deny (reason: %s)", reason)
+		}
+	})
+	t.Run("parent covers autonomous child", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "autonomous"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:write to cover agents:types:autonomous:write, got deny (reason: %s)", reason)
+		}
+	})
+	t.Run("delegated child does not cover autonomous sibling", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, _ := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "autonomous"}, "write")
+		if allow {
+			t.Error("expected agents:types:delegated:write NOT to cover agents:types:autonomous:write, got allow")
+		}
+	})
+	t.Run("delegated child does not cover parent", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, _ := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types"}, "write")
+		if allow {
+			t.Error("expected agents:types:delegated:write NOT to cover agents:types:write, got allow")
+		}
+	})
+	t.Run("delegated child covers itself", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "delegated"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:delegated:write to cover itself, got deny (reason: %s)", reason)
+		}
+	})
+}
+
 func TestAuthz_ScopeHierarchy_DifferentAction(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{agentGrant(testAgentID, "inference:invoke")},
