@@ -15,9 +15,9 @@ import (
 )
 
 // errGPT5NoChatCompletions is returned when a GPT-5.x model is dispatched to the
-// Chat Completions path.  These models only support the Responses API on
-// bedrock-mantle.{region}.api.aws/openai/v1.
-var errGPT5NoChatCompletions = errors.New("GPT-5 models support only the Responses API at bedrock-mantle.{region}.api.aws/openai/v1")
+// Chat Completions path. These models only support the Responses API on Bedrock
+// (use POST /v1/responses).
+var errGPT5NoChatCompletions = errors.New("gpt-5 models do not support chat completions; use the Responses API (POST /v1/responses)")
 
 // ChatCompletion sends a non-streaming request via the appropriate Bedrock endpoint.
 //
