@@ -610,7 +610,12 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 		return fmt.Errorf("policy check: %w", err)
 	}
 	if !result.Allow {
-		return ErrPolicyDenied
+		// Carry the OPA deny reason verbatim: it distinguishes which leg of the
+		// delegated intersection denied (deny:delegation_required,
+		// deny:no_delegator_grant, deny:no_agent_grant, …) and flows through
+		// the 403 body into the run's visible error
+		// (docs/adr/2026-07-23-delegated-agent-identity.md, Phase 5).
+		return fmt.Errorf("%w: %s", ErrPolicyDenied, result.Reason)
 	}
 	return nil
 }
@@ -707,6 +712,16 @@ const spanStatusBudgetExceeded = "budget exceeded"
 // slated for removal in a follow-up migration.
 func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
 	rec.RunID = runIDFromContext(ctx)
+	// Stamp the delegator from the VERIFIED delegation context — set by the
+	// DelegationMiddleware after signature/blocklist checks, never from
+	// anything the caller asserts. Spend then rolls up to the person as well
+	// as the agent (delegated-agent-identity ADR, Decision 5).
+	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
+		delegatorID := d.Sub
+		delegatorType := d.DelegatorPrincipalType
+		rec.DelegatorID = &delegatorID
+		rec.DelegatorPrincipalType = &delegatorType
+	}
 	return s.usage.Create(ctx, rec)
 }
 
@@ -778,13 +793,65 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	if tenantBudget != nil {
 		scopes.TenantWindow = tenantBudget.ResetCadence
 	}
-	// Read the run counter only when a per-run ceiling exists; the write path
-	// sets RunID unconditionally so per-run cost is always attributed.
-	if runID := runIDFromContext(ctx); runID != "" && perRunLimit > 0 {
-		scopes.RunID = runID
-	}
+
+	// Delegator ceilings (delegated-agent-identity ADR, Decision 5): when a
+	// VERIFIED delegation is present, the delegator's per-window limits and
+	// per-run limit apply as additional independent ceilings.
+	var delegatorPerRunLimit float64
+	scopes.DelegatorID, scopes.DelegatorWindows, delegatorPerRunLimit = s.delegatorBudgetScopes(ctx, p.TenantID)
+
+	// Read the run counter only when a per-run ceiling exists (the agent's or
+	// the delegator's); the write path sets RunID unconditionally so per-run
+	// cost is always attributed.
+	scopes.RunID = runCounterID(ctx, perRunLimit, delegatorPerRunLimit)
 
 	return scopes, append(grantCats, roleCats...), roles
+}
+
+// runCounterID returns the run identity to READ the run counter under — only
+// when a per-run ceiling exists (the agent's or, under delegation, the
+// delegator's). Empty otherwise.
+func runCounterID(ctx context.Context, perRunLimit, delegatorPerRunLimit float64) string {
+	if perRunLimit <= 0 && delegatorPerRunLimit <= 0 {
+		return ""
+	}
+	return runIDFromContext(ctx)
+}
+
+// delegatorBudgetScopes resolves the delegator's ceiling configuration from
+// the VERIFIED delegation context: their id, the windows carrying configured
+// limits, and their per-run limit. The delegator's limits come from the same
+// bundle data the person's own enforcement uses, so the ceilings a delegated
+// run adds are exactly the ceilings the person already lives under. Fails
+// open on lookup errors, consistent with budgetScopesFor; returns zero values
+// for non-delegated traffic.
+func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (string, []string, float64) {
+	d := policy.DelegationFromContext(ctx)
+	if d == nil || d.Sub == "" {
+		return "", nil, 0
+	}
+
+	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, d.Sub)
+	if err != nil {
+		cats = nil
+	}
+
+	windowSet := map[string]struct{}{}
+	var perRunLimit float64
+	for _, c := range cats {
+		if c.LimitUSD > 0 {
+			windowSet[c.ResetCadence] = struct{}{}
+		}
+		if c.PerRunLimitUSD > perRunLimit {
+			perRunLimit = c.PerRunLimitUSD
+		}
+	}
+	windows := make([]string, 0, len(windowSet))
+	for w := range windowSet {
+		windows = append(windows, w)
+	}
+	sort.Strings(windows)
+	return d.Sub, windows, perRunLimit
 }
 
 // checkBudget evaluates the orbit.budget hierarchical ceilings via the policy
@@ -827,7 +894,10 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		PrincipalType: p.PrincipalType,
 		Roles:         roles,
 		RunID:         scopes.RunID,
-		Spends:        spends,
+		// From the verified delegation context via budgetScopesFor — never
+		// caller-asserted. Empty for non-delegated traffic.
+		DelegatorID: scopes.DelegatorID,
+		Spends:      spends,
 	})
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
@@ -844,16 +914,26 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 			{Key: "principal_id", Value: p.PrincipalID},
 			{Key: "tenant_id", Value: p.TenantID},
 		}
+		var breached []string
 		for _, c := range result.Ceilings {
 			if c.Reached() {
 				fields = append(fields, logging.Field{
 					Key:   "breached_" + c.Scope,
 					Value: fmt.Sprintf("%s %s: %.4f/%.4f", c.ID, c.Window, c.SpendUSD, c.LimitUSD),
 				})
+				breached = append(breached, c.Scope)
 			}
 		}
 		s.logger.Info(ctx, "budget.hard_block", fields...)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		if len(breached) > 0 {
+			// Name the breached ceiling scope(s) in the error so the run's
+			// visible refusal distinguishes e.g. the delegator's ceiling from
+			// the agent's (delegated-agent-identity ADR, Phase 5: refusal
+			// reasons distinguish which leg denied). Scopes only — never
+			// amounts — so nothing about another principal's budget leaks.
+			return ctx, fmt.Errorf("%w: the %s spending ceiling has been reached", ErrBudgetExceeded, strings.Join(breached, ", "))
+		}
 		return ctx, ErrBudgetExceeded
 	}
 
@@ -2321,6 +2401,10 @@ func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([
 	// Always enforce tenant and principal scoping from verified claims.
 	filter.TenantID = p.TenantID
 	filter.PrincipalID = &p.PrincipalID
+	// The personal view includes rows a delegated agent run attributed to the
+	// caller as delegator; each such row stays distinguishable (delegator_id
+	// set, principal_id = the agent). Delegated-agent-identity ADR, Decision 5.
+	filter.IncludeDelegated = true
 
 	records, hasNextPage, err := s.usage.List(ctx, filter)
 	if err != nil {
@@ -2355,6 +2439,10 @@ func (s *Service) AnalyticsMe(ctx context.Context, filter AnalyticsFilter) (Anal
 	}
 	filter.TenantID = p.TenantID
 	filter.PrincipalID = &p.PrincipalID
+	// A person's view includes their delegated agent runs (rows where
+	// delegator_id = their principal id), reported additively via the
+	// delegated_cost_usd KPI. Delegated-agent-identity ADR, Decision 5.
+	filter.IncludeDelegated = true
 	resp, err := s.usage.GetAnalytics(ctx, filter)
 	if err != nil {
 		return AnalyticsResponse{}, fmt.Errorf("analytics me: %w", err)

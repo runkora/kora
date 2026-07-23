@@ -142,6 +142,15 @@ type InferenceUsageRecord struct {
 	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
 	// the durable record behind role-pool counter rehydration.
 	PrincipalRoles []string `json:"principal_roles,omitempty"`
+	// DelegatorID is the person a delegated agent run acted on behalf of,
+	// stamped from the VERIFIED delegation context (never caller-asserted).
+	// nil for all non-delegated traffic. A row with DelegatorID set is a
+	// delegated row: PrincipalID names the agent, DelegatorID the person
+	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 5).
+	DelegatorID *string `json:"delegator_id,omitempty"`
+	// DelegatorPrincipalType is the delegator's principal type (HUMAN for v1
+	// delegations — PAT-minted delegations normalise to the person at issuance).
+	DelegatorPrincipalType *string `json:"delegator_principal_type,omitempty"`
 }
 
 // FailureDetails holds structured provider error context for non-success
@@ -163,20 +172,26 @@ type FailureDetails struct {
 // paired with PrincipalID — the AND predicate on the verified principal_id
 // prevents any cross-user row access without additional pre-validation.
 type InferenceUsageFilter struct {
-	TenantID      string
-	PrincipalID   *string
-	TokenID       *string // PAT record UUID; nil returns all records for the principal
-	PrincipalType *string
-	Provider      *ProviderName
-	ModelID       *string // filter by model_id column value
-	ModelFamily   *string // filter by model_family column value
-	APIDialect    *APIDialect
-	Status        *UsageStatus
-	From          *time.Time
-	To            *time.Time
-	Limit         int
-	CursorTime    *time.Time // if set, return rows strictly before this timestamp
-	CursorID      *string    // paired with CursorTime for stable sub-second ordering
+	TenantID    string
+	PrincipalID *string
+	// IncludeDelegated widens the PrincipalID predicate to also match rows
+	// where delegator_id = PrincipalID, so the personal usage view includes
+	// the caller's delegated agent runs (rows remain distinguishable: a
+	// delegated row carries delegator_id and the agent as principal_id). Set
+	// on the personal path only; never caller-controlled.
+	IncludeDelegated bool
+	TokenID          *string // PAT record UUID; nil returns all records for the principal
+	PrincipalType    *string
+	Provider         *ProviderName
+	ModelID          *string // filter by model_id column value
+	ModelFamily      *string // filter by model_family column value
+	APIDialect       *APIDialect
+	Status           *UsageStatus
+	From             *time.Time
+	To               *time.Time
+	Limit            int
+	CursorTime       *time.Time // if set, return rows strictly before this timestamp
+	CursorID         *string    // paired with CursorTime for stable sub-second ordering
 }
 
 // TokenUsageStat holds aggregated usage metrics for a single PAT.
@@ -198,6 +213,11 @@ type AnalyticsFilter struct {
 	VirtualModelID *string // optional virtual model filter, e.g. "anthropic/claude-sonnet-4-6" (tenant-wide path only)
 	Days           int     // lookback window: 7, 30, or 90
 	Granularity    string  // "daily", "weekly", or "monthly"
+	// IncludeDelegated widens the PrincipalID predicate to also match rows
+	// where delegator_id = PrincipalID, so a person's view includes their
+	// delegated agent runs (delegated-agent-identity ADR, Decision 5). Set on
+	// the personal path only; never caller-controlled.
+	IncludeDelegated bool
 }
 
 // AnalyticsKPIs holds the aggregated KPI values for the full query window.
@@ -214,6 +234,11 @@ type AnalyticsKPIs struct {
 	P99LatencyMS        float64 `json:"p99_latency_ms"`
 	ErrorRate           float64 `json:"error_rate"`
 	CacheHitRate        float64 `json:"cache_hit_rate"`
+	// DelegatedCostUSD is the estimated cost of the delegated rows within the
+	// window (rows carrying a delegator). On the personal path these are the
+	// caller's delegated agent runs; tenant-wide it is total delegated spend.
+	// Additive field — 0 when no delegated usage exists.
+	DelegatedCostUSD float64 `json:"delegated_cost_usd"`
 }
 
 // AnalyticsBucket is a single time-series data point for the chosen granularity.

@@ -52,6 +52,24 @@ func TestBuildFilter_MultipleFilters(t *testing.T) {
 	}
 }
 
+func TestBuildFilter_IncludeDelegatedWidensPrincipalPredicate(t *testing.T) {
+	t.Parallel()
+	pid := "user-1"
+	where, args := buildFilter(InferenceUsageFilter{PrincipalID: &pid, IncludeDelegated: true})
+	if !strings.Contains(where, "(principal_id = $1 OR delegator_id = $1)") {
+		t.Errorf("WHERE clause %q should widen to delegated rows", where)
+	}
+	if len(args) != 1 || args[0] != "user-1" {
+		t.Errorf("args = %v, want [user-1]", args)
+	}
+
+	// Without the flag the predicate stays exact.
+	where, _ = buildFilter(InferenceUsageFilter{PrincipalID: &pid})
+	if !strings.Contains(where, "principal_id = $1") || strings.Contains(where, "delegator_id") {
+		t.Errorf("WHERE clause %q must not widen without IncludeDelegated", where)
+	}
+}
+
 func TestBuildFilter_StatusFilter(t *testing.T) {
 	t.Parallel()
 	s := UsageStatusSuccess

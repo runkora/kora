@@ -2,48 +2,13 @@ package inferencegw
 
 import (
 	"context"
-	"net/http"
-	"regexp"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
-// Run identity travels as a base-URL path prefix: the session-manager runner
-// points each agent subprocess at {gateway}/run/{run_id}, so requests arrive
-// as /run/{run_id}/v1/…. StripRunPrefix extracts the run ID into request
-// context and rewrites the path back to the normal /v1/… form before any
-// other routing or enforcement sees it. Runtime-agnostic and fully
-// transparent to the agent process.
-// See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
-
-type runIDContextKey struct{}
-
-// runPrefixPattern matches /run/{run_id}/rest-of-path. Run IDs are UUIDs, but
-// the pattern stays permissive on length to avoid coupling to ID format;
-// consumers treat the value as opaque.
-var runPrefixPattern = regexp.MustCompile(`^/run/([A-Za-z0-9._-]{1,128})(/.*)$`)
-
-// StripRunPrefix is mounted at the server root, ahead of the base-path mount.
-// Non-run paths pass through untouched.
-func StripRunPrefix(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m := runPrefixPattern.FindStringSubmatch(r.URL.Path); m != nil {
-			r = r.WithContext(context.WithValue(r.Context(), runIDContextKey{}, m[1]))
-			r.URL.Path = m[2]
-			r.URL.RawPath = ""
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// runIDFromContext returns the request's run identity. Honored only for
-// AGENT principals — for every other principal type the prefix is ignored, so
-// a human or PAT caller cannot attach spend to a run.
-func runIDFromContext(ctx context.Context) string {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Orbit.PrincipalType != token.PrincipalTypeAgent {
-		return ""
-	}
-	runID, _ := ctx.Value(runIDContextKey{}).(string)
-	return runID
-}
+// Run identity extraction lives in internal/platform/middleware (StripRunPrefix
+// + RunIDFromContext) so the inference gateway and the MCP tool-gateway share
+// one strip-and-context mechanism. This shim keeps the gateway's internal call
+// sites unchanged. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md
+// and docs/adr/2026-07-23-delegated-agent-identity.md (Decision 4).
+func runIDFromContext(ctx context.Context) string { return mw.RunIDFromContext(ctx) }
