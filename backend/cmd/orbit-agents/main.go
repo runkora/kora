@@ -120,11 +120,18 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 
 	cfg := agentsConfig.Current
 
+	// The identity client authenticates orbit-agents' own service-to-service
+	// calls: its mesh-attested exchange yields the SERVICE platform token used
+	// as the bearer for the policy client and for delegation revocation.
+	var idClient *identityclient.Client
+	if cfg.Platform.IdentityServiceURL != "" {
+		idClient = identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+	}
+
 	// Build a policy client for grant management at agent provision/deprovision time.
 	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
 	var pc *policyclient.Client
-	if cfg.Platform.PolicyServiceURL != "" {
-		idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+	if cfg.Platform.PolicyServiceURL != "" && idClient != nil {
 		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, func(ctx context.Context) (string, error) {
 			tok, _, err := idClient.Exchange(ctx)
 			return tok, err
@@ -197,6 +204,21 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	atSvc.SetEnvironmentLookup(repo)
 	atSvc.SetScopeResolver(resolver)
 	runSvc.SetScopeResolver(resolver)
+
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 3): StartRun on a delegated agent mints a delegation forwarding
+	// the CALLER's bearer; terminal run states revoke it with orbit-agents' own
+	// exchanged SERVICE token (the same token source the policy client uses).
+	// Without an identity service URL the broker stays nil and delegated runs
+	// fail closed.
+	if idClient != nil {
+		broker := agents.NewDelegationBroker(idClient, func(ctx context.Context) (string, error) {
+			tok, _, err := idClient.Exchange(ctx)
+			return tok, err
+		}, cfg.Platform.TrustDomain, logger)
+		runSvc.SetDelegationBroker(broker)
+		atSvc.SetDelegationBroker(broker)
+	}
 
 	server := apiServer.Server(
 		ctx,

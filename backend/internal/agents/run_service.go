@@ -34,21 +34,28 @@ type RunServiceConfig struct {
 // RunService is the single state machine authority for agent runs.
 // Every run state transition anywhere in the system goes through RunService.
 type RunService struct {
-	repo     RunRepository
-	atRepo   AgentTypeRepository
-	sm       smClient
-	k8s      k8sProvisioner
-	pubsub   *PubSub
-	authz    *Authz
-	cfg      RunServiceConfig
-	logger   logging.Logger
-	resolver *ScopeResolver // resolves the runtime-environment brief; nil = no brief
+	repo       RunRepository
+	atRepo     AgentTypeRepository
+	sm         smClient
+	k8s        k8sProvisioner
+	pubsub     *PubSub
+	authz      *Authz
+	cfg        RunServiceConfig
+	logger     logging.Logger
+	resolver   *ScopeResolver    // resolves the runtime-environment brief; nil = no brief
+	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
 // brief appended to an agent's system prompt at run start. When unset, runs start
 // without the brief.
 func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
+
+// SetDelegationBroker installs the broker that mints a delegation issuance at
+// delegated-run start and revokes it on terminal state
+// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
+// starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
+func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
 
 // systemPromptWithBrief returns the agent's system prompt with the runtime-
 // environment brief appended (governed network + injected credentials), so the
@@ -111,17 +118,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	// Once the run row exists, any later failure (pod assign, session create) must
 	// not leave it stuck in pending/starting. Fail it synchronously rather than
-	// waiting for the stale-run reaper. WithoutCancel so cleanup runs even if the
-	// request context was canceled.
-	var createdRunID string
+	// waiting for the stale-run reaper. A delegation minted before the failure is
+	// revoked too — no delegation may outlive a run that never started.
+	var createdRunID, mintedJTI string
 	defer func() {
-		if retErr != nil && createdRunID != "" {
-			if ferr := s.repo.MarkRunFailed(context.WithoutCancel(ctx), createdRunID); ferr != nil {
-				s.logger.Warn(ctx, "failed to mark run failed after start error",
-					logging.Field{Key: "run_id", Value: createdRunID},
-					logging.Field{Key: "error", Value: ferr.Error()},
-				)
-			}
+		if retErr != nil {
+			s.cleanupFailedStart(ctx, createdRunID, mintedJTI)
 		}
 	}()
 	req.TenantID = tenantID
@@ -145,21 +147,18 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, err
 	}
 
-	// Ensure k8s resources exist — idempotent, fast no-op if already present.
-	// Guards against cluster resets where the DB retains agent types but the
-	// StatefulSet/Service/HPA were lost.
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	if provErr := s.k8s.ProvisionAgentType(ctx, *at, namespace); provErr != nil {
-		span.RecordError(provErr)
-		span.SetStatus(codes.Error, "ensure agent infrastructure")
-		return nil, fmt.Errorf("ensure agent infrastructure: %w", provErr)
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
+	// of a delegated agent, because the run executes with THEIR authority.
+	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
+	if err = s.authorizeDelegatedStart(ctx, span, delegated); err != nil {
+		return nil, err
 	}
 
-	podOrdinal, err := s.selectPod(ctx, at)
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+	podOrdinal, err := s.providePod(ctx, span, at, namespace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "select pod")
-		return nil, fmt.Errorf("select pod: %w", err)
+		return nil, err
 	}
 
 	run := Run{
@@ -168,6 +167,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		AgentTypeID: req.AgentTypeID,
 		State:       RunStatePending,
 		CreatedBy:   createdBy,
+		// Derived from the agent type (reads join it); carried on the response
+		// so run surfaces know the governance posture without a second lookup.
+		IdentityMode: at.IdentityMode.OrDefault(),
 	}
 	span.SetAttributes(attribute.String("run_id", run.ID))
 
@@ -184,6 +186,19 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	}
 	run.State = RunStateStarting
 	run.PodOrdinal = podOrdinal
+
+	// Mint the run's delegation from the CALLER's own bearer token (ADR Leg 1):
+	// identity never mints delegated authority the caller does not hold, and the
+	// response carries only the issuance record — the token never transits
+	// orbit-agents. Mint failure fails the run start (fail closed).
+	if delegated {
+		jti, mintErr := s.mintRunDelegation(ctx, span, run.ID, *at, namespace)
+		if mintErr != nil {
+			return nil, mintErr
+		}
+		mintedJTI = jti
+		run.DelegationJTI = &jti
+	}
 
 	podURL := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
 	smReq := sessionmanager.CreateSessionRequest{
@@ -257,6 +272,13 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		}
 		return nil, nil, err
 	}
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 6): a delegated agent's run is private to its starter; only a
+	// tenant admin may additionally read (and terminate) it. Denies map to
+	// ErrNotFound so existence is not leaked. Autonomous runs are unaffected.
+	if err := checkDelegatedRunVisibility(ctx, at, run); err != nil {
+		return nil, nil, err
+	}
 	return run, at, nil
 }
 
@@ -287,7 +309,11 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, e
 		),
 	)
 	defer span.End()
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID)
+	// Delegated identity model (Decision 6): non-admin callers see a delegated
+	// agent's runs only where created_by matches their verified subject. The
+	// filter is applied inside the repository query — never by trimming the
+	// result in memory — so counts stay correct. Autonomous runs are unfiltered.
+	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx))
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
@@ -338,6 +364,9 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		}
 	}
 
+	// Termination is a terminal state: tombstone the run's delegation issuance
+	// before the row (and its recorded JTI) is deleted.
+	s.revokeRunDelegation(ctx, run)
 	s.deprovisionSandbox(ctx, run)
 	if err := s.repo.DeleteRun(ctx, id); err != nil {
 		span.RecordError(err)
@@ -398,6 +427,9 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 			)
 			return nil
 		}
+		// The delegation ends with the run (delegated-agent-identity ADR,
+		// Decision 3): tombstone the issuance so no access survives terminal state.
+		s.revokeRunDelegation(ctx, run)
 		s.deprovisionSandbox(ctx, run)
 	}
 	return nil
@@ -452,6 +484,12 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 
 	run, at, err := s.loadRunForAction(ctx, runID, "write")
 	if err != nil {
+		return err
+	}
+	// Steer constraint (Decision 6): only the starter may message a delegated
+	// run — tenant admins included, because the message executes with the
+	// starter's authority under the starter's name.
+	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
@@ -543,6 +581,12 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
+	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
+	// the same starter-only rule as SendMessage. Terminate does not: admins keep
+	// governance termination via loadRunForAction's visibility rule alone.
+	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+		return err
+	}
 	if run.State != RunStateActive {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
@@ -630,6 +674,25 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
 	return endpoint, nil
+}
+
+// providePod ensures the agent type's k8s resources exist (idempotent, fast
+// no-op if already present — guards against cluster resets where the DB
+// retains agent types but the StatefulSet/Service/HPA were lost) and picks the
+// least-loaded pod ordinal for a new run. Errors are recorded on span.
+func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentType, namespace string) (int, error) {
+	if provErr := s.k8s.ProvisionAgentType(ctx, *at, namespace); provErr != nil {
+		span.RecordError(provErr)
+		span.SetStatus(codes.Error, "ensure agent infrastructure")
+		return 0, fmt.Errorf("ensure agent infrastructure: %w", provErr)
+	}
+	podOrdinal, err := s.selectPod(ctx, at)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "select pod")
+		return 0, fmt.Errorf("select pod: %w", err)
+	}
+	return podOrdinal, nil
 }
 
 // selectPod picks the least-loaded pod ordinal for a new run.
@@ -724,6 +787,9 @@ func (s *RunService) StartReaper(ctx context.Context) {
 					)
 					continue
 				}
+				// Reaped runs reached a terminal state outside Transition —
+				// tombstone their delegation issuances here too.
+				s.revokeRunDelegation(ctx, run)
 				s.deprovisionSandbox(ctx, run)
 			}
 		}

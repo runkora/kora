@@ -32,7 +32,15 @@ type AgentTypeService struct {
 	hook     func()            // called after agent type create/delete; nil if unset
 	envs     environmentLookup // validates environment references; nil = skip validation
 	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
+	// delegation revokes run delegations when agent-type deletion force-deletes
+	// runs (the delegation ends with the run); nil = skip (issuer not wired).
+	delegation *DelegationBroker
 }
+
+// SetDelegationBroker installs the broker used to revoke delegation issuances
+// for runs force-deleted during agent-type deletion
+// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3).
+func (s *AgentTypeService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
 
 // NewAgentTypeService creates an AgentTypeService with the given dependencies.
 func NewAgentTypeService(
@@ -122,6 +130,18 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 // (connectivity posture, connectors, environment reference). Extracted from
 // UpdateAgentType to keep that method's cyclomatic complexity in check.
 func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest) error {
+	// identity_mode is immutable after creation (delegated-agent-identity ADR,
+	// Decision 1): the fail-closed enforcement stack is provisioned around the
+	// mode the agent was created with. Restating the current mode is a no-op;
+	// any change is rejected.
+	if req.IdentityMode != nil && *req.IdentityMode != "" {
+		if vErr := req.IdentityMode.Validate(); vErr != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidIdentityMode, vErr)
+		}
+		if *req.IdentityMode != at.IdentityMode.OrDefault() {
+			return fmt.Errorf("%w (current mode: %s)", ErrIdentityModeImmutable, at.IdentityMode.OrDefault())
+		}
+	}
 	if req.Connectivity != nil {
 		if vErr := req.Connectivity.Validate(); vErr != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
@@ -159,6 +179,58 @@ func (s *AgentTypeService) validateEnvironmentRef(ctx context.Context, tenantID 
 	return nil
 }
 
+// createValidated carries the validated + normalised create-request fields
+// out of validateAgentTypeCreate.
+type createValidated struct {
+	identityMode  IdentityMode
+	connectivity  Connectivity
+	environmentID *string
+}
+
+// validateAgentTypeCreate runs the create-request field validations (identity
+// mode, connectivity posture, connectors, environment reference) and returns
+// the normalised values. Extracted from CreateAgentType to keep that method's
+// cyclomatic complexity in check, mirroring validateAgentTypeUpdate.
+func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req CreateAgentTypeRequest) (createValidated, error) {
+	var out createValidated
+
+	// Identity model: autonomous unless explicitly created delegated. Immutable
+	// after creation (delegated-agent-identity ADR, Decision 1).
+	if err := req.IdentityMode.Validate(); err != nil {
+		return out, fmt.Errorf("%w: %w", ErrInvalidIdentityMode, err)
+	}
+	out.identityMode = req.IdentityMode.OrDefault()
+
+	// Connectivity posture: default to deny-by-default (none) when omitted.
+	connectivity := Connectivity{Mode: ConnectivityNone}
+	if req.Connectivity != nil {
+		connectivity = *req.Connectivity
+	}
+	if connectivity.Mode == "" {
+		connectivity.Mode = ConnectivityNone
+	}
+	if err := connectivity.Validate(); err != nil {
+		return out, fmt.Errorf("%w: %w", ErrInvalidConnectivity, err)
+	}
+	out.connectivity = connectivity
+
+	// Connectors: credential connections this agent may use, and for which
+	// actions. Compiles to connection:<name>:<action> grants alongside egress.
+	if err := ValidateConnectors(req.Connectors); err != nil {
+		return out, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	}
+
+	// Environment reference: blank = none. Validate it exists in this tenant —
+	// the FK guards bare existence but not tenant ownership.
+	if req.EnvironmentID != nil && strings.TrimSpace(*req.EnvironmentID) != "" {
+		out.environmentID = req.EnvironmentID
+	}
+	if err := s.validateEnvironmentRef(ctx, req.TenantID, out.environmentID); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 // CreateAgentType registers a new agent type and initiates k8s provisioning.
 // Tenant is derived from the verified claims in ctx; the request-body field is
 // ignored. Coarse-level authorization (agents:types:write) is enforced by
@@ -181,6 +253,11 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	framework := req.Framework
 	if framework == "" {
 		framework = AgentFrameworkClaudeCode
+	}
+
+	validated, err := s.validateAgentTypeCreate(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	toolScopes := req.ToolScopes
@@ -208,34 +285,6 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	// the 2026-06-30 amendment to agent-identity-and-policy-provisioning.
 	grantScopes = applyDerivedInferenceScopes(grantScopes, req.ModelID)
 
-	// Connectivity posture: default to deny-by-default (none) when omitted.
-	connectivity := Connectivity{Mode: ConnectivityNone}
-	if req.Connectivity != nil {
-		connectivity = *req.Connectivity
-	}
-	if connectivity.Mode == "" {
-		connectivity.Mode = ConnectivityNone
-	}
-	if err := connectivity.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, err)
-	}
-
-	// Connectors: credential connections this agent may use, and for which
-	// actions. Compiles to connection:<name>:<action> grants alongside egress.
-	if err := ValidateConnectors(req.Connectors); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
-	}
-
-	// Environment reference: blank = none. Validate it exists in this tenant —
-	// the FK guards bare existence but not tenant ownership.
-	var environmentID *string
-	if req.EnvironmentID != nil && strings.TrimSpace(*req.EnvironmentID) != "" {
-		environmentID = req.EnvironmentID
-	}
-	if err := s.validateEnvironmentRef(ctx, req.TenantID, environmentID); err != nil {
-		return nil, err
-	}
-
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -244,12 +293,13 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Description:             req.Description,
 		SystemPrompt:            req.SystemPrompt,
 		Framework:               framework,
+		IdentityMode:            validated.identityMode,
 		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
-		Connectivity:            connectivity,
+		Connectivity:            validated.connectivity,
 		Connectors:              req.Connectors,
 		MCPTools:                mcpTools,
-		EnvironmentID:           environmentID,
+		EnvironmentID:           validated.environmentID,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -583,7 +633,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	}
 
 	// Runs must be removed before the agent type row to satisfy the FK constraint.
-	deletedRunIDs, delRunsErr := s.runRepo.DeleteRunsByAgentType(ctx, id)
+	deletedRuns, delRunsErr := s.runRepo.DeleteRunsByAgentType(ctx, id)
 	if delRunsErr != nil {
 		span.RecordError(delRunsErr)
 		span.SetStatus(codes.Error, "delete runs for agent type")
@@ -593,13 +643,11 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	// DeprovisionAgentType only removes StatefulSet-scoped resources; per-run sandbox
 	// pods (sandbox-{runID}) outlive it. Delete them best-effort so they are not
 	// orphaned — the run rows are gone, so the reaper can no longer reclaim them.
-	for _, runID := range deletedRunIDs {
-		if delErr := s.k8s.DeleteSandbox(ctx, runID, namespace); delErr != nil {
-			s.logger.Warn(ctx, "failed to delete sandbox for deleted run",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
+	// Force-deletion is a terminal state, so any delegation issuances are
+	// tombstoned too (best-effort — the agent's grant is being removed anyway,
+	// which the fail-closed marker turns into a full deny).
+	for _, deleted := range deletedRuns {
+		s.cleanupForceDeletedRun(ctx, deleted, namespace)
 	}
 
 	if err := s.repo.DeleteAgentType(ctx, id); err != nil {
@@ -611,6 +659,21 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 		s.hook()
 	}
 	return nil
+}
+
+// cleanupForceDeletedRun tombstones a force-deleted run's delegation issuance
+// (the delegation ends with the run) and deletes its sandbox pod. Both are
+// best-effort — agent-type deletion must not wedge on either.
+func (s *AgentTypeService) cleanupForceDeletedRun(ctx context.Context, deleted DeletedRun, namespace string) {
+	if deleted.DelegationJTI != nil && *deleted.DelegationJTI != "" && s.delegation != nil {
+		s.delegation.RevokeBestEffort(ctx, *deleted.DelegationJTI, deleted.ID)
+	}
+	if delErr := s.k8s.DeleteSandbox(ctx, deleted.ID, namespace); delErr != nil {
+		s.logger.Warn(ctx, "failed to delete sandbox for deleted run",
+			logging.Field{Key: "run_id", Value: deleted.ID},
+			logging.Field{Key: "error", Value: delErr.Error()},
+		)
+	}
 }
 
 // WaitForStatefulSetReady blocks until the StatefulSet for the agent type is ready.
