@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -229,6 +230,39 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 	if errors.Is(err, ErrModelNotFound) {
 		t.Error("authz denial for a known model must not return ErrModelNotFound")
 	}
+}
+
+// modelPolicyFailure is what each request handler uses to decide the usage
+// status/code recorded when checkModelPolicy fails. An unknown model must be
+// recorded as model_not_found, not policy_denied, so telemetry and billing do
+// not misattribute a client typo as an authorization failure.
+func TestModelPolicyFailure(t *testing.T) {
+	t.Parallel()
+	t.Run("unknown model", func(t *testing.T) {
+		err := fmt.Errorf("%w: %q", ErrModelNotFound, "bogus-model")
+		status, code, msg := modelPolicyFailure(err)
+		if status != UsageStatusModelNotFound || code != "MODEL_NOT_FOUND" {
+			t.Errorf("unknown model: got (%s, %s), want (model_not_found, MODEL_NOT_FOUND)", status, code)
+		}
+		if !strings.Contains(msg, "bogus-model") {
+			t.Errorf("span message should name the model, got: %q", msg)
+		}
+	})
+	t.Run("policy denial", func(t *testing.T) {
+		status, code, msg := modelPolicyFailure(ErrPolicyDenied)
+		if status != UsageStatusPolicyDenied || code != "POLICY_DENIED" {
+			t.Errorf("denial: got (%s, %s), want (policy_denied, POLICY_DENIED)", status, code)
+		}
+		if msg != ErrPolicyDenied.Error() {
+			t.Errorf("span message: got %q, want %q", msg, ErrPolicyDenied.Error())
+		}
+	})
+	t.Run("wrapped policy-engine error stays policy_denied", func(t *testing.T) {
+		status, code, _ := modelPolicyFailure(fmt.Errorf("policy check: %w", errors.New("boom")))
+		if status != UsageStatusPolicyDenied || code != "POLICY_DENIED" {
+			t.Errorf("engine error: got (%s, %s), want (policy_denied, POLICY_DENIED)", status, code)
+		}
+	})
 }
 
 // ─── filterTargetsByPolicy ──────────────────────────────────────────────────

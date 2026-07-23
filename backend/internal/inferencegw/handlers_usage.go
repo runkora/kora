@@ -36,7 +36,8 @@ var (
 	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic, DialectResponses}
 	usageStatuses = []UsageStatus{
 		UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
-		UsageStatusAuthError, UsageStatusTimeout, UsageStatusRoutingFailed,
+		UsageStatusModelNotFound, UsageStatusAuthError, UsageStatusTimeout,
+		UsageStatusRoutingFailed,
 	}
 )
 
