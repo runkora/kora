@@ -213,7 +213,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // whenever GET /v1/models refreshes the catalog. It returns the register
 // function so the caller can drive the periodic self-heal loop.
 func initScopeRegistration(ctx context.Context, logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) {
-	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
+	// WithInitialDelay(0): the default 15s startup grace (waiting for the
+	// identity-proxy sidecar) would be added to *every* Register call, including
+	// each periodic self-heal tick and catalog-refresh — pure latency that
+	// delays recovery after a policy-service restart. The very first
+	// registration races the sidecar coming up, but that is already covered by
+	// the client's own retry-with-backoff, so no upfront delay is needed.
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
 
 	register := func(registerCtx context.Context) {
 		catalogScopes := router.CatalogScopes()
@@ -229,11 +235,14 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 		}
 	}
 
+	// The hook fires whenever GET /v1/models refreshes the catalog, long after
+	// startup. Use a fresh context.Background() rather than capturing the
+	// startup ctx, which by then may be stale/canceled.
 	router.SetCatalogUpdateHook(func(catalogScopes []inferencegw.CatalogScope) {
 		scopeDecls := inferenceScopes(catalogScopes)
 		scopedRoutes := filterScopedRoutes(inferenceRoutes())
-		if err := client.Register(ctx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
-			logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+		if err := client.Register(context.Background(), "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
 		}
 	})
 	go register(ctx)

@@ -23,19 +23,25 @@ func TestRunRegistrationLoop(t *testing.T) {
 
 	go runRegistrationLoop(ctx, register, interval, logger)
 
-	// Wait for at least 2 ticks.
-	time.Sleep(55 * time.Millisecond)
-	got := calls.Load()
-	if got < 2 {
-		t.Errorf("expected at least 2 registration calls in 55ms with 20ms interval, got %d", got)
+	// Poll until the loop has ticked at least twice. The bound is generous so a
+	// slow or loaded CI runner cannot flake on scheduler delays — the test only
+	// asserts that the ticker fires repeatedly, not that it hits a wall-clock
+	// deadline.
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("expected at least 2 registration calls within 2s (20ms interval), got %d", calls.Load())
+		}
+		time.Sleep(time.Millisecond)
 	}
 
-	// Cancel context and ensure no further calls accumulate.
+	// Cancel and assert the loop stops. Wait a few intervals for any in-flight
+	// tick to settle, snapshot the count, then confirm it does not advance.
 	cancel()
-	time.Sleep(30 * time.Millisecond)
-	afterCancel := calls.Load()
-	time.Sleep(30 * time.Millisecond)
-	if calls.Load() != afterCancel {
-		t.Errorf("registration called after context canceled: had %d, now %d", afterCancel, calls.Load())
+	time.Sleep(5 * interval)
+	stopped := calls.Load()
+	time.Sleep(5 * interval)
+	if got := calls.Load(); got != stopped {
+		t.Errorf("registration kept firing after context cancel: had %d, now %d", stopped, got)
 	}
 }
