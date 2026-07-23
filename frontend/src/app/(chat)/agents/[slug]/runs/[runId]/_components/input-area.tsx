@@ -167,8 +167,7 @@ export function InputArea() {
         data-floating=""
         style={{
           background: 'var(--color-surface-elevated)',
-          boxShadow:
-            '0 8px 28px oklch(0% 0 0 / 0.3), 0 2px 8px oklch(0% 0 0 / 0.15), inset 0 0 0 1px var(--color-border-subtle)',
+          boxShadow: 'var(--shadow-elevated), inset 0 0 0 1px var(--color-border-subtle)',
         }}
       >
         <Stack style={{ padding: '12px 14px 10px', gap: 0 }}>

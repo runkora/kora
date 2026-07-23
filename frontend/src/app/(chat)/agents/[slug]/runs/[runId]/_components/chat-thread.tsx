@@ -203,7 +203,7 @@ export function ChatThread() {
             onClick={() => scrollToBottom()}
             style={{
               background: 'var(--color-surface-elevated)',
-              boxShadow: '0 2px 8px rgb(0 0 0 / 0.25)',
+              boxShadow: 'var(--shadow-sm)',
               borderColor: 'var(--color-border)',
               gap: 6,
               paddingLeft: 12,

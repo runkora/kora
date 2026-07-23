@@ -133,6 +133,11 @@
   /* overlay-strong: heavier scrim for modals (vs side panels at 40%) */
   --terra-raw-overlay-strong: oklch(0% 0 0 / 50%);
 
+  /* Shadows — floating surfaces. Pure-black alpha shadows; light mode overrides  */
+  /* to pure-white (inverted) shadows so elevated surfaces lift on light bg.      */
+  --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.25);
+  --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.3), 0 2px 8px oklch(0% 0 0 / 0.15);
+
   /* Declared here, not inline in @theme — @theme inline bakes literals into    */
   /* utilities, and only var() references can be re-themed at runtime.           */
   /* subtle: L=63% is the minimum clearing WCAG AA 4.5:1 on every dark layer.    */
@@ -172,6 +177,10 @@
   --terra-raw-subtle: oklch(44% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-border: oklch(62% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-border-subtle: oklch(85% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  /* Shadows — lighter on a light background; reduced opacity vs dark mode */
+  --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.1);
+  --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.12), 0 2px 8px oklch(0% 0 0 / 0.06);
 
   /* Chart series — same hue order as dark; deeper steps for the light surface */
   --terra-raw-chart-1: oklch(51.8% 0.146 250);
@@ -242,6 +251,10 @@
   /* Overlay — for modal/drawer backdrop elements */
   --color-overlay: var(--terra-raw-overlay);
   --color-overlay-strong: var(--terra-raw-overlay-strong);
+
+  /* Shadows — floating surfaces (scroll-anchored buttons, input areas) */
+  --shadow-sm: var(--terra-raw-shadow-sm);
+  --shadow-elevated: var(--terra-raw-shadow-elevated);
 
   /* Typography */
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
