@@ -111,15 +111,28 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Register factories for every supported provider. Each factory reads its
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
 	// Adding a new provider is a single line here.
+	//
+	// Bedrock uses MultiFactory: set BEDROCK_ACCOUNTS=<alias1>,<alias2> to enable.
+	// Returns nil (provider disabled) when BEDROCK_ACCOUNTS is unset.
 	factories := []inferencegw.ConnectorFactory{
-		bedrock.Factory{},
 		vertexai.Factory{},
 		azure.Factory{},
 	}
 
 	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
+
+	bedrockConnectors, err := bedrock.MultiFactory{}.Build(logger)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: %w", err)
+	}
+	for _, nc := range bedrockConnectors {
+		connectors[nc.Name] = nc.Connector
+		logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
+	}
+
+	var c inferencegw.ProviderConnector
 	for _, f := range factories {
-		c, err := f.Build(logger)
+		c, err = f.Build(logger)
 		if err != nil {
 			return nil, fmt.Errorf("provider %s: %w", f.Name(), err)
 		}

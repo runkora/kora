@@ -21,14 +21,9 @@ import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
+import { providerLabel } from '../_utils/catalog-constants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-const PROVIDER_OPTIONS = [
-  { value: 'bedrock', label: 'AWS Bedrock' },
-  { value: 'vertexai', label: 'Vertex AI' },
-  { value: 'azure', label: 'Azure OpenAI' },
-];
 
 const STATUS_OPTIONS = [
   { value: 'enabled', label: 'Enabled' },
@@ -383,6 +378,18 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
   const [localModels, setLocalModels] = useState(initialModels);
   const [detailModel, setDetailModel] = useState<ProviderModel | null>(null);
 
+  const providerOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+    for (const m of localModels) {
+      if (!seen.has(m.provider)) {
+        seen.add(m.provider);
+        opts.push({ value: m.provider, label: providerLabel(m.provider) });
+      }
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [localModels]);
+
   const toggle = useCallback(async (provider: string, modelId: string, enabled: boolean) => {
     setLocalModels((prev) =>
       prev.map((m) => (m.provider === provider && m.modelId === modelId ? { ...m, enabled } : m)),
@@ -449,7 +456,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         sortAccessor: (m) => m.provider,
         filter: {
           mode: 'client',
-          options: PROVIDER_OPTIONS,
+          options: providerOptions,
           filterFn: (m, selected) => selected.has(m.provider),
         },
         cell: (m) => <ProviderBadge provider={m.provider} />,
@@ -511,7 +518,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         ),
       },
     ],
-    [toggle],
+    [toggle, providerOptions],
   );
 
   return (

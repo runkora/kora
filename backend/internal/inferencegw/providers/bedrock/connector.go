@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -27,7 +28,7 @@ import (
 )
 
 // Config holds the Bedrock connector configuration.
-// Populated exclusively from environment variables via LoadConfig — never from YAML.
+// Populated exclusively from environment variables via LoadMultiConfig — never from YAML.
 type Config struct {
 	Region          string
 	AccessKeyID     string // optional — falls back to default AWS credential chain
@@ -35,49 +36,95 @@ type Config struct {
 	SessionToken    string // optional — for temporary credentials
 }
 
-// LoadConfig reads Bedrock configuration from environment variables.
-// Returns nil when BEDROCK_ENABLED is not "true", indicating the connector
-// should not be registered. Returns an error if enabled but misconfigured.
+// ── Multi-account support ─────────────────────────────────────────────────────
+
+// aliasRe validates a Bedrock account alias. Aliases may only contain
+// lowercase letters, digits, and underscores. Hyphens are excluded because
+// the prefix BEDROCK_<UPPER_ALIAS>_ must be a valid POSIX env var name.
+var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// NamedConfig pairs a validated alias with its per-account Config.
+type NamedConfig struct {
+	// Alias is the operator-chosen name, e.g. "prod", "staging".
+	// It becomes the suffix in the provider name "bedrock:<alias>".
+	Alias  string
+	Config Config
+}
+
+// LoadMultiConfig returns the set of Bedrock account configurations to register.
+// Bedrock is disabled when BEDROCK_ACCOUNTS is unset or empty.
 //
-// Environment variables:
+// Environment variables (ALIAS uppercased):
 //
-//	BEDROCK_ENABLED          — set to "true" to enable
-//	BEDROCK_REGION           — AWS region, e.g. "us-east-1" (required when enabled)
-//	AWS_ACCESS_KEY_ID        — optional; falls back to the default AWS credential chain
-//	AWS_SECRET_ACCESS_KEY    — optional; falls back to the default AWS credential chain
-//	AWS_SESSION_TOKEN        — optional; for temporary credentials
-func LoadConfig() (*Config, error) {
-	if os.Getenv("BEDROCK_ENABLED") != "true" {
+//	BEDROCK_ACCOUNTS                  — comma-separated list of aliases, e.g. "prod,staging"
+//	BEDROCK_<ALIAS>_REGION            — required per alias
+//	BEDROCK_<ALIAS>_ACCESS_KEY_ID     — optional
+//	BEDROCK_<ALIAS>_SECRET_ACCESS_KEY — optional
+//	BEDROCK_<ALIAS>_SESSION_TOKEN     — optional
+func LoadMultiConfig() ([]NamedConfig, error) {
+	raw := os.Getenv("BEDROCK_ACCOUNTS")
+	if raw == "" {
+		return nil, nil
+	}
+	var configs []NamedConfig
+	for alias := range strings.SplitSeq(raw, ",") {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		if !aliasRe.MatchString(alias) {
+			return nil, fmt.Errorf("bedrock: invalid account alias %q — must start with a letter and contain only [a-z0-9_]", alias)
+		}
+		prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
+		region := os.Getenv(prefix + "REGION")
+		if region == "" {
+			return nil, fmt.Errorf("bedrock: %sREGION is required for account %q", prefix, alias)
+		}
+		configs = append(configs, NamedConfig{
+			Alias: alias,
+			Config: Config{
+				Region:          region,
+				AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
+				SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
+				SessionToken:    os.Getenv(prefix + "SESSION_TOKEN"),
+			},
+		})
+	}
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("bedrock: BEDROCK_ACCOUNTS is set but contains no valid aliases (got %q)", raw)
+	}
+	return configs, nil
+}
+
+// MultiFactory implements inferencegw.MultiConnectorFactory for AWS Bedrock.
+// It reads BEDROCK_ACCOUNTS and returns one NamedConnector per alias.
+// Returns nil when BEDROCK_ACCOUNTS is unset.
+type MultiFactory struct{}
+
+// Build reads env vars and returns one NamedConnector per configured account.
+// Returns nil when Bedrock is disabled entirely.
+func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, error) {
+	cfgs, err := LoadMultiConfig()
+	if err != nil {
+		return nil, err
+	}
+	if len(cfgs) == 0 {
 		return nil, nil
 	}
 
-	region := os.Getenv("BEDROCK_REGION")
-	if region == "" {
-		return nil, fmt.Errorf("bedrock: BEDROCK_REGION is required when BEDROCK_ENABLED=true")
+	out := make([]inferencegw.NamedConnector, 0, len(cfgs))
+	for _, nc := range cfgs {
+		providerName := inferencegw.ProviderName("bedrock:" + nc.Alias)
+		conn, err := New(&nc.Config, providerName, logger)
+		if err != nil {
+			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, err)
+		}
+		out = append(out, inferencegw.NamedConnector{
+			Name:      conn.Name(),
+			Connector: conn,
+		})
 	}
-
-	return &Config{
-		Region:          region,
-		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
-	}, nil
-}
-
-// Factory implements inferencegw.ConnectorFactory for AWS Bedrock.
-type Factory struct{}
-
-// Name returns the provider identifier.
-func (Factory) Name() inferencegw.ProviderName { return inferencegw.ProviderBedrock }
-
-// Build loads config from env vars and constructs the connector.
-// Returns (nil, nil) when BEDROCK_ENABLED is not "true".
-func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, error) {
-	cfg, err := LoadConfig()
-	if err != nil || cfg == nil {
-		return nil, err
-	}
-	return New(cfg, logger)
+	return out, nil
 }
 
 // Connector implements inferencegw.ProviderConnector for AWS Bedrock.
@@ -98,6 +145,7 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 // requests fall through to openaiClient, fail, and the router's failover advances to
 // the next target (same cold-start behavior as all provider model caches).
 type Connector struct {
+	providerName    inferencegw.ProviderName
 	openaiClient    *openai.Client
 	mantleClient    *openai.Client
 	anthropicClient *anthropic.Client
@@ -111,7 +159,7 @@ type Connector struct {
 }
 
 // New constructs a Bedrock Connector from a validated Config.
-func New(cfg *Config, logger logging.Logger) (*Connector, error) {
+func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logger) (*Connector, error) {
 	ctx := context.Background()
 
 	var awsCfg aws.Config
@@ -173,11 +221,12 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	runtimeClient := bedrockruntimeSDK.NewFromConfig(awsCfg)
 
 	return &Connector{
+		providerName:    providerName,
 		openaiClient:    &openaiClient,
 		mantleClient:    &mantleClient,
 		anthropicClient: &anthropicClient,
-		anthropicBridge: bridge.NewAnthropicResponsesBridge(&anthropicClient, inferencegw.ProviderBedrock, logger),
-		openAIBridge:    bridge.NewChatCompletionsResponsesBridge(&openaiClient, inferencegw.ProviderBedrock, logger),
+		anthropicBridge: bridge.NewAnthropicResponsesBridge(&anthropicClient, providerName, logger),
+		openAIBridge:    bridge.NewChatCompletionsResponsesBridge(&openaiClient, providerName, logger),
 		bedrockClient:   bedrockClient,
 		runtimeClient:   runtimeClient,
 		region:          cfg.Region,
@@ -186,7 +235,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 }
 
 func (c *Connector) Name() inferencegw.ProviderName {
-	return inferencegw.ProviderBedrock
+	return c.providerName
 }
 
 // regionToProfilePrefix maps the configured AWS region to the corresponding
@@ -239,10 +288,14 @@ type profileEntry struct {
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	activeFMs, excludedFMs, err := c.listOnDemandFMs(ctx)
 	if err != nil {
-		return nil, err
+		c.logger.Warn(ctx, "bedrock: list foundation models failed",
+			logging.Field{Key: "provider", Value: string(c.providerName)},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil, fmt.Errorf("list foundation models: %w", err)
 	}
 	profilesByBase := c.listSystemProfiles(ctx)
-	models := mergeModels(activeFMs, excludedFMs, profilesByBase)
+	models := mergeModels(activeFMs, excludedFMs, profilesByBase, c.providerName)
 	mantleModels, mantleIDs := c.listMantleModels(ctx)
 
 	// Deduplicate Mantle models against the merged list. Mantle returns bare
@@ -285,7 +338,7 @@ func (c *Connector) listMantleModels(ctx context.Context) ([]inferencegw.Provide
 	for iter.Next() {
 		id := iter.Current().ID
 		ids[id] = true
-		models = append(models, buildProviderModel(id, "", nil, nil))
+		models = append(models, buildProviderModel(id, "", nil, nil, c.providerName))
 	}
 	if err := iter.Err(); err != nil {
 		c.logger.Warn(ctx, "bedrock: list mantle models skipped",
@@ -387,7 +440,7 @@ func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEn
 // mergeModels combines on-demand foundation models and inference profiles into a
 // deduplicated []ProviderModel list. Where a profile exists for a given FM, the
 // profile ID (routable form) is used as the canonical ID rather than the raw FM ID.
-func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, profilesByBase map[string]profileEntry) []inferencegw.ProviderModel {
+func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, profilesByBase map[string]profileEntry, provider inferencegw.ProviderName) []inferencegw.ProviderModel {
 	seen := make(map[string]bool, len(activeFMs))
 	models := make([]inferencegw.ProviderModel, 0, len(activeFMs))
 
@@ -405,7 +458,7 @@ func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, 
 		seen[canonicalID] = true
 		inputMods := convertModalities(fm.inputMods)
 		outputMods := convertModalities(fm.outputMods)
-		models = append(models, buildProviderModel(canonicalID, fm.name, inputMods, outputMods))
+		models = append(models, buildProviderModel(canonicalID, fm.name, inputMods, outputMods, provider))
 	}
 
 	// Include profiles whose base FM is not in activeFMs
@@ -423,7 +476,7 @@ func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, 
 		}
 		seen[profile.id] = true
 		// Profiles don't carry modality data - inferred from model ID in buildProviderModel.
-		models = append(models, buildProviderModel(profile.id, profile.name, nil, nil))
+		models = append(models, buildProviderModel(profile.id, profile.name, nil, nil, provider))
 	}
 
 	return models

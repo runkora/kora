@@ -246,7 +246,7 @@ func computeCapabilities(canonicalID string, outputMods []inferencegw.Modality) 
 // model ID. name is the human-readable name returned by the API; if empty,
 // a fallback is derived from the model ID. inputMods/outputMods come from the
 // API response; if nil, they are inferred from the model ID.
-func buildProviderModel(canonicalID, name string, inputMods, outputMods []inferencegw.Modality) inferencegw.ProviderModel {
+func buildProviderModel(canonicalID, name string, inputMods, outputMods []inferencegw.Modality, provider inferencegw.ProviderName) inferencegw.ProviderModel {
 	if name == "" {
 		name = fallbackDisplayName(canonicalID)
 	}
@@ -258,7 +258,7 @@ func buildProviderModel(canonicalID, name string, inputMods, outputMods []infere
 		inputMods, outputMods = inferModalities(canonicalID)
 	}
 	return inferencegw.ProviderModel{
-		Provider:         inferencegw.ProviderBedrock,
+		Provider:         provider,
 		ModelID:          canonicalID,
 		Family:           modelFamily(canonicalID),
 		DisplayName:      name,

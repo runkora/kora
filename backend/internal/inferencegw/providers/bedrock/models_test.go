@@ -1,6 +1,30 @@
 package bedrock
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/clear-route/orbit/internal/inferencegw"
+)
+
+func TestBuildProviderModel_ProviderField(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		provider inferencegw.ProviderName
+	}{
+		{inferencegw.ProviderBedrock},
+		{"bedrock:aus"},
+		{"bedrock:us"},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.provider), func(t *testing.T) {
+			t.Parallel()
+			m := buildProviderModel("anthropic.claude-3-haiku-20240307-v1:0", "", nil, nil, tc.provider)
+			if m.Provider != tc.provider {
+				t.Errorf("Provider = %q, want %q", m.Provider, tc.provider)
+			}
+		})
+	}
+}
 
 // TestIsAnthropicModel validates all three ID forms the routing engine may
 // deliver to the connector, including the short-alias form that triggered the
