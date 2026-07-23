@@ -37,6 +37,10 @@ type Config struct {
 		RefreshThresholdSecs int    `yaml:"refreshThresholdSecs"`
 		BackoffInitialMs     int    `yaml:"backoffInitialMs"`
 		BackoffMaxSecs       int    `yaml:"backoffMaxSecs"`
+		// DelegationNegativeTTLSecs is how long a "run has no delegation"
+		// (autonomous) answer is cached before re-consulting the identity
+		// service (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4).
+		DelegationNegativeTTLSecs int `yaml:"delegationNegativeTTLSecs"`
 	} `yaml:"proxy"`
 
 	Observability struct {
@@ -78,6 +82,12 @@ func (c *Config) BackoffMax() time.Duration {
 // EnvoyReadyTimeout returns the maximum time to wait for Envoy to become ready.
 func (c *Config) EnvoyReadyTimeout() time.Duration {
 	return time.Duration(c.Server.EnvoyReadyTimeoutSecs) * time.Second
+}
+
+// DelegationNegativeTTL returns how long a "run has no delegation" answer is
+// cached before re-consulting the identity service.
+func (c *Config) DelegationNegativeTTL() time.Duration {
+	return time.Duration(c.Proxy.DelegationNegativeTTLSecs) * time.Second
 }
 
 // Current holds all non-secret configuration for the identity-proxy sidecar.
