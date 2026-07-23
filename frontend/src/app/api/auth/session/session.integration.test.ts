@@ -308,7 +308,11 @@ describe('GET /api/auth/session', () => {
     // Default: policy gateway returns an empty scope set.
     server.use(
       http.get('http://test-policy-gateway/policy/scopes', () =>
-        HttpResponse.json({ scopes: [], tenant_id: 'test-tenant', evaluated_at: new Date().toISOString() }),
+        HttpResponse.json({
+          scopes: [],
+          tenant_id: 'test-tenant',
+          evaluated_at: new Date().toISOString(),
+        }),
       ),
     );
   });
@@ -330,7 +334,11 @@ describe('GET /api/auth/session', () => {
     vi.mocked(isSessionValid).mockReturnValue(true);
     server.use(
       http.get('http://test-policy-gateway/policy/scopes', () =>
-        HttpResponse.json({ scopes: ['agents:read', 'connections:read'], tenant_id: 'test-tenant', evaluated_at: new Date().toISOString() }),
+        HttpResponse.json({
+          scopes: ['agents:read', 'connections:read'],
+          tenant_id: 'test-tenant',
+          evaluated_at: new Date().toISOString(),
+        }),
       ),
     );
 
@@ -340,7 +348,10 @@ describe('GET /api/auth/session', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.user).toEqual(payload.user);
     expect(body.expiresAt).toBe(payload.expiresAt);
-    expect((body.permissions as { scopes: string[] }).scopes).toEqual(['agents:read', 'connections:read']);
+    expect((body.permissions as { scopes: string[] }).scopes).toEqual([
+      'agents:read',
+      'connections:read',
+    ]);
   });
 
   it('returns empty scopes when the policy gateway is unavailable', async () => {
