@@ -61,6 +61,16 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 	)
 
 	switch c.dispatchBackend(params.Model) {
+	case backendMantleGPT5:
+		// GPT-5.x uses /openai/v1/responses — a separate client with a different base path.
+		resp, err := c.mantleGPT5Client.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
+		if err != nil {
+			c.logger.Error(ctx, "bedrock: responses error",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			return nil, convert.MapOpenAIError(inferencegw.ProviderBedrock, err)
+		}
+		return resp, nil
 	case backendMantle:
 		resp, err := c.mantleClient.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
 		if err != nil {
@@ -90,6 +100,24 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 	)
 
 	switch c.dispatchBackend(params.Model) {
+	case backendMantleGPT5:
+		// GPT-5.x uses /openai/v1/responses — a separate client with a different base path.
+		stream := c.mantleGPT5Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
+		ch := make(chan inferencegw.ResponsesStreamResult, 32)
+		go func() {
+			defer close(ch)
+			defer stream.Close()
+			for stream.Next() {
+				ch <- inferencegw.ResponsesStreamResult{Event: stream.Current()}
+			}
+			if err := stream.Err(); err != nil {
+				c.logger.Error(ctx, "bedrock: responsesStream error",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				ch <- inferencegw.ResponsesStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderBedrock, err)}
+			}
+		}()
+		return ch, nil
 	case backendMantle:
 		stream := c.mantleClient.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
