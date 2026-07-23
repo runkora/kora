@@ -4,7 +4,7 @@
  * The choice is immutable after creation, so the detail Configuration tab shows
  * the mode read-only rather than reusing these cards. */
 
-import { Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/terra';
+import { Grid, RadioCard, RadioGroup } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import type { AgentIdentityMode } from '@orbit/shared/api';
 
@@ -64,23 +64,16 @@ export function IdentityModeCards({
         {IDENTITY_MODES.map((m) => {
           const disabledReason = disabledModes?.[m.id];
           return (
-            <Stack key={m.id} gap="tight">
-              <Stack disabled={Boolean(disabledReason)} gap="none">
-                <RadioCard
-                  value={m.id}
-                  selected={value === m.id}
-                  onSelect={select}
-                  icon={m.icon}
-                  title={m.name}
-                  description={m.desc}
-                />
-              </Stack>
-              {disabledReason ? (
-                <Text size="micro" color="subtle">
-                  {disabledReason}
-                </Text>
-              ) : null}
-            </Stack>
+            <RadioCard
+              key={m.id}
+              value={m.id}
+              selected={value === m.id}
+              onSelect={select}
+              icon={m.icon}
+              title={m.name}
+              description={disabledReason ? `${m.desc} ${disabledReason}` : m.desc}
+              disabled={Boolean(disabledReason)}
+            />
           );
         })}
       </Grid>

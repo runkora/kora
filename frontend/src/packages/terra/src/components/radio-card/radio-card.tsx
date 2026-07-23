@@ -21,6 +21,12 @@ export interface RadioCardProps {
   title: string;
   /** Optional supporting line under the title. */
   description?: string;
+  /**
+   * Disables the option: the card dims, the radio control is disabled, and
+   * clicks are ignored. The card stays rendered at full size so a disabled
+   * option keeps its place in the group.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -54,10 +60,20 @@ export interface RadioCardProps {
  * ```
  */
 const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
-  ({ value, selected, onSelect, icon, title, description }, ref) => (
-    <Card ref={ref} interactive selected={selected} onClick={() => onSelect(value)}>
-      <CardContent padded compact>
-        <Stack gap="snug" data-slot="radio-card">
+  ({ value, selected, onSelect, icon, title, description, disabled }, ref) => (
+    // h-full: the card fills its container (a Grid cell), so radio cards in a
+    // group are structurally equal height regardless of description length.
+    <Card
+      ref={ref}
+      interactive={!disabled}
+      selected={selected}
+      onClick={disabled ? undefined : () => onSelect(value)}
+      column
+      className="h-full"
+      aria-disabled={disabled || undefined}
+    >
+      <CardContent padded compact grow>
+        <Stack gap="snug" data-slot="radio-card" disabled={Boolean(disabled)}>
           <Stack direction="horizontal" align="center">
             {icon ? (
               <Icon
@@ -70,7 +86,7 @@ const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
               />
             ) : null}
             <Stack grow />
-            <RadioGroupItem value={value} aria-label={title} />
+            <RadioGroupItem value={value} aria-label={title} disabled={disabled} />
           </Stack>
           <Stack gap="tight">
             <Text as="span" size="supporting" weight="heavy">

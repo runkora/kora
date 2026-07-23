@@ -77,3 +77,36 @@ function WithoutIconsDemo() {
 export const WithoutIcons: Story = {
   render: () => <WithoutIconsDemo />,
 };
+
+function DisabledOptionDemo() {
+  const [value, setValue] = React.useState('delegated');
+  return (
+    <RadioGroup value={value} onValueChange={setValue} aria-label="Identity model">
+      <Grid cols={2} gap="cozy">
+        <RadioCard
+          value="delegated"
+          selected={value === 'delegated'}
+          onSelect={setValue}
+          icon="user-check"
+          title="Delegated"
+          description="Acts on behalf of the person who runs it. A much longer description to show that both cards keep the same structural height."
+        />
+        <RadioCard
+          value="autonomous"
+          selected={value === 'autonomous'}
+          onSelect={setValue}
+          icon="bot"
+          title="Autonomous"
+          description="Short description."
+          disabled
+        />
+      </Grid>
+    </RadioGroup>
+  );
+}
+
+/** A disabled option dims, ignores clicks, and keeps equal height with its
+ * siblings regardless of description length. */
+export const DisabledOption: Story = {
+  render: () => <DisabledOptionDemo />,
+};
