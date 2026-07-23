@@ -11,6 +11,7 @@ import requireKebabFilename from './rules/require-kebab-filename.mjs';
 import noTerraDisableComment from './rules/no-terra-disable-comment.mjs';
 import noDirectLucideImport from './rules/no-direct-lucide-import.mjs';
 import noInlineClipboardWrite from './rules/no-inline-clipboard-write.mjs';
+import noHardcodedColor from './rules/no-hardcoded-color.mjs';
 
 const localPlugin = {
   rules: {
@@ -27,6 +28,7 @@ const localPlugin = {
     'no-terra-disable-comment': noTerraDisableComment,
     'no-direct-lucide-import': noDirectLucideImport,
     'no-inline-clipboard-write': noInlineClipboardWrite,
+    'no-hardcoded-color': noHardcodedColor,
   },
 };
 
