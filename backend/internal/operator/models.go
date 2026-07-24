@@ -119,6 +119,28 @@ type SPIRESpec struct {
 	// Enabled controls whether the operator installs SPIRE. Default: true.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+
+	// TrustBundlePEM is an external SPIRE deployment's own X.509 trust
+	// bundle (concatenated PEM), set only when Enabled is false and
+	// workloads still carry externally-issued SPIRE identities (the devenv
+	// case: identity is host-provided, not absent — see Enabled's own doc
+	// comment on the devenv-vs-absent distinction). buildIstiodValues wires
+	// this into meshConfig.caCertificates, but that does NOT achieve what
+	// the name suggests: caCertificates is Istio's plugin/CSR-signer-based
+	// custom-CA mechanism, not a generic "also trust this extra root"
+	// bucket, so it never actually reaches proxies as an additional trusted
+	// root (confirmed live). The real fix for the devenv gateway's
+	// cert-trust gap is buildGatewayValues including "spire" in the
+	// gateway's own sidecar-injection templates unconditionally, so it
+	// shares SPIRE's real root directly instead of needing istiod to
+	// bridge two separate ones. This field and the caCertificates values it
+	// feeds are now inert — kept only because the plumbing is harmless and
+	// tested, in case a future caCertificates-shaped consumer needs it.
+	// Public key material, not a secret — safe on a CR spec, same
+	// reasoning as
+	// MeshJWTValidation's own JWKS field.
+	// +kubebuilder:validation:Optional
+	TrustBundlePEM string `json:"trustBundlePEM,omitempty"`
 }
 
 // IstioSpec controls Istio installation.

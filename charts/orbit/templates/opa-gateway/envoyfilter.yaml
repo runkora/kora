@@ -11,6 +11,12 @@
 # requests (which Rego would pass through anyway). authz_gateway.rego retains
 # the :authority check as a secondary guard in case Envoy routing changes.
 #
+# The vcluster-mcp repo's devenv app-ingress traffic rides this SAME
+# frontendHost vhost (its own app_ingress.go attaches directly to this
+# platform's own orbit-gateway and reuses frontendHost, path-prefixed by
+# environment ID, rather than a devenv-only host of its own) — so it already
+# inherits this bypass for free. No separate devenv-specific carve-out here.
+#
 # Health checks and OIDC/JWKS discovery are bypassed by Rego.
 #
 # failure_mode_allow: false — fail-closed (zero trust). If OPA is unreachable
@@ -119,3 +125,4 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
               disabled: true
 {{- end }}
+

@@ -30,7 +30,11 @@ publicHosts:
   - orbit.local.clearroute.io
 
 # The external frontend/BFF host; the backend API is served at api.<frontendHost>.
-# Drives the frontend + api VirtualServices and the OPA frontend bypass.
+# Drives the frontend + api VirtualServices and the OPA frontend bypass. The
+# vcluster-mcp repo's devenv app-ingress traffic rides this SAME vhost (its
+# own app_ingress.go attaches directly to this chart's orbit-gateway and
+# reuses this host, path-prefixed by environment ID) — no separate devenv
+# host/value needed.
 frontendHost: orbit.local.clearroute.io
 
 global:
