@@ -87,13 +87,6 @@ spec:
               value: {{ .Values.identity.config.logFormat | quote }}
             - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
               value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
-            {{- if .Values.identity.config.devEnvironmentId }}
-            # Set only inside a dev environment's own vcluster — lets the
-            # identity service refuse CreateEnvironment from inside an
-            # environment it is itself running in.
-            - name: ORBIT_DEV_ENVIRONMENT_ID
-              value: {{ .Values.identity.config.devEnvironmentId | quote }}
-            {{- end }}
             {{- if .Values.publicHosts }}
             # Trusted-host allowlist for host-derived OAuth discovery metadata
             # (ADR 2026-07-04). Canonical host first.
