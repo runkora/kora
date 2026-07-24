@@ -137,48 +137,22 @@ func TestBuildIstiodValues_CACertificatesFromTrustBundleDevEnvOnly(t *testing.T)
 // TestBuildGatewayValues_SpireInjectionTemplateAlwaysIncluded guards the fix
 // for the browser-facing app path's cert-trust mismatch (found live,
 // 2026-07-22 — see ../vcluster's ADR): the gateway's sidecar-injection
-// templates must include "spire" on BOTH host and in-vcluster installs, so
-// the gateway shares the same real SPIRE-issued cert/root as every other
-// SPIRE-injected in-vcluster workload (identity there is host-provided via
-// the CSI-synced SPIFFE socket regardless of SPIRE.Enabled). An earlier
+// templates must unconditionally include "spire", so the gateway shares the
+// same real SPIRE-issued cert/root as every other SPIRE-injected workload
+// (identity is host-provided via the CSI-synced SPIFFE socket). An earlier
 // version of this function gated "spire" off for in-vcluster installs,
 // leaving the gateway trusting only istiod's self-signed root while its
 // peers trusted SPIRE's — two non-overlapping PKI hierarchies, surfacing as
 // every browser-facing devenv route 503ing with
-// "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate". The
-// devenv-API TLS-passthrough service port stays host-only — that gate is
-// about routing to a vcluster that only exists on the host, unrelated to
-// cert trust.
+// "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate".
 func TestBuildGatewayValues_SpireInjectionTemplateAlwaysIncluded(t *testing.T) {
-	host := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = true })
-	hostValues := buildGatewayValues(host, "LoadBalancer")
-	hostAnnotations, ok := hostValues["podAnnotations"].(map[string]any)
+	values := buildGatewayValues("LoadBalancer")
+	annotations, ok := values["podAnnotations"].(map[string]any)
 	if !ok {
 		t.Fatalf(`values["podAnnotations"] missing or wrong type`)
 	}
-	if hostAnnotations["inject.istio.io/templates"] != "gateway,spire" {
-		t.Errorf(`host install: inject.istio.io/templates = %v, want "gateway,spire"`, hostAnnotations["inject.istio.io/templates"])
-	}
-	hostService, ok := hostValues["service"].(map[string]any)
-	if !ok || hostService["ports"] == nil {
-		t.Errorf("host install: service.ports must be set for the devenv-API TLS-passthrough port, got %#v", hostService["ports"])
-	}
-
-	inVCluster := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = false })
-	vclusterValues := buildGatewayValues(inVCluster, "ClusterIP")
-	vcAnnotations, ok := vclusterValues["podAnnotations"].(map[string]any)
-	if !ok {
-		t.Fatalf(`values["podAnnotations"] missing or wrong type`)
-	}
-	if vcAnnotations["inject.istio.io/templates"] != "gateway,spire" {
-		t.Errorf(`in-vcluster install: inject.istio.io/templates = %v, want "gateway,spire"`, vcAnnotations["inject.istio.io/templates"])
-	}
-	vcService, ok := vclusterValues["service"].(map[string]any)
-	if !ok {
-		t.Fatalf(`values["service"] missing or wrong type`)
-	}
-	if _, ok := vcService["ports"]; ok {
-		t.Errorf("in-vcluster install: service.ports must be unset, got %#v", vcService["ports"])
+	if annotations["inject.istio.io/templates"] != "gateway,spire" {
+		t.Errorf(`inject.istio.io/templates = %v, want "gateway,spire"`, annotations["inject.istio.io/templates"])
 	}
 }
 

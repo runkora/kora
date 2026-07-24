@@ -706,11 +706,6 @@ func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *Orb
 //     and root as its peers, is what actually fixes it — the abandoned
 //     meshConfig.caCertificates approach (still present below, inert) was
 //     the wrong Istio mechanism entirely.
-//   - The TLS-passthrough port for routing external kubectl traffic to a
-//     dev environment's own vcluster API server is HOST-only too
-//     (devenvironment_ingress.go's devEnvAPIGatewayPort): the gateway
-//     release installed *inside* a dev environment's own vcluster has no
-//     vcluster of its own to route to.
 //
 // buildOrbitPlatformSpiffeValues renders the "orbit" chart's
 // platform.spiffe.* values (reconcileOrbit). Kept pure, mirroring
@@ -744,24 +739,14 @@ func buildOrbitPlatformSpiffeValues(p *OrbitPlatform) map[string]any {
 	}
 }
 
-func buildGatewayValues(p *OrbitPlatform, serviceType string) map[string]any {
-	serviceValues := map[string]any{
-		"type": serviceType,
-	}
-	injectionTemplates := "gateway,spire"
-	if p.Spec.SPIRE.Enabled {
-		serviceValues["ports"] = []map[string]any{
-			{"name": "status-port", "port": 15021, "protocol": "TCP", "targetPort": 15021},
-			{"name": "http2", "port": 80, "protocol": "TCP", "targetPort": 80},
-			{"name": "https", "port": 443, "protocol": "TCP", "targetPort": 443},
-			{"name": "tls-devenv-api", "port": devEnvAPIGatewayPort, "protocol": "TCP", "targetPort": devEnvAPIGatewayPort},
-		}
-	}
+func buildGatewayValues(serviceType string) map[string]any {
 	return map[string]any{
-		"service": serviceValues,
+		"service": map[string]any{
+			"type": serviceType,
+		},
 		"podAnnotations": map[string]any{
 			"sidecar.istio.io/inject":   "true",
-			"inject.istio.io/templates": injectionTemplates,
+			"inject.istio.io/templates": "gateway,spire",
 			"prometheus.io/port":        "15020",
 			"prometheus.io/scrape":      "true",
 			"prometheus.io/path":        "/stats/prometheus",
@@ -775,7 +760,7 @@ func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatf
 		serviceType = "LoadBalancer"
 	}
 
-	gatewayValues := buildGatewayValues(p, serviceType)
+	gatewayValues := buildGatewayValues(serviceType)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,

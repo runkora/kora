@@ -50,14 +50,6 @@ spec:
               value: {{ .Values.leaderElection | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
-            # Dev environments resolve their symbolic spec.ref "main" to
-            # whatever tag THIS operator itself is running at, rather than a
-            # separately published or floating tag — so a dev environment
-            # always matches the currently deployed Orbit version exactly.
-            # Same helper as this container's own image line above, so it
-            # can never drift out of sync with it.
-            - name: ORBIT_DEVENV_SELF_IMAGE_TAG
-              value: {{ include "orbit-operator.imageTag" . | quote }}
             {{- if .Values.opa }}
             {{- if .Values.opa.image }}
             - name: ORBIT_OPA_IMAGE
@@ -66,72 +58,6 @@ spec:
             {{- if .Values.opa.logLevel }}
             - name: ORBIT_OPA_LOG_LEVEL
               value: {{ .Values.opa.logLevel | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.devEnv }}
-            {{- if .Values.devEnv.ingressDomain }}
-            - name: ORBIT_DEVENV_INGRESS_DOMAIN
-              value: {{ .Values.devEnv.ingressDomain | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.appExternalURL }}
-            - name: ORBIT_DEVENV_APP_EXTERNAL_URL
-              value: {{ .Values.devEnv.appExternalURL | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.imageRegistry }}
-            - name: ORBIT_DEVENV_IMAGE_REGISTRY
-              value: {{ .Values.devEnv.imageRegistry | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.vclusterVersion }}
-            - name: ORBIT_DEVENV_VCLUSTER_VERSION
-              value: {{ .Values.devEnv.vclusterVersion | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.quota }}
-            {{- if .Values.devEnv.quota.cpuRequests }}
-            - name: ORBIT_DEVENV_QUOTA_CPU_REQUESTS
-              value: {{ .Values.devEnv.quota.cpuRequests | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.quota.memoryRequests }}
-            - name: ORBIT_DEVENV_QUOTA_MEMORY_REQUESTS
-              value: {{ .Values.devEnv.quota.memoryRequests | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.quota.cpuLimits }}
-            - name: ORBIT_DEVENV_QUOTA_CPU_LIMITS
-              value: {{ .Values.devEnv.quota.cpuLimits | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.quota.memoryLimits }}
-            - name: ORBIT_DEVENV_QUOTA_MEMORY_LIMITS
-              value: {{ .Values.devEnv.quota.memoryLimits | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.quota.maxPods }}
-            - name: ORBIT_DEVENV_QUOTA_MAX_PODS
-              value: {{ .Values.devEnv.quota.maxPods | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.devEnv.limitRange }}
-            {{- if .Values.devEnv.limitRange.defaultCPURequest }}
-            - name: ORBIT_DEVENV_LIMITRANGE_DEFAULT_CPU_REQUEST
-              value: {{ .Values.devEnv.limitRange.defaultCPURequest | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.limitRange.defaultMemoryRequest }}
-            - name: ORBIT_DEVENV_LIMITRANGE_DEFAULT_MEMORY_REQUEST
-              value: {{ .Values.devEnv.limitRange.defaultMemoryRequest | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.limitRange.defaultCPULimit }}
-            - name: ORBIT_DEVENV_LIMITRANGE_DEFAULT_CPU_LIMIT
-              value: {{ .Values.devEnv.limitRange.defaultCPULimit | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.limitRange.defaultMemoryLimit }}
-            - name: ORBIT_DEVENV_LIMITRANGE_DEFAULT_MEMORY_LIMIT
-              value: {{ .Values.devEnv.limitRange.defaultMemoryLimit | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.devEnv.nodeSelector }}
-            - name: ORBIT_DEVENV_NODE_SELECTOR
-              value: {{ .Values.devEnv.nodeSelector | toJson | quote }}
-            {{- end }}
-            {{- if .Values.devEnv.tolerations }}
-            - name: ORBIT_DEVENV_TOLERATIONS
-              value: {{ .Values.devEnv.tolerations | toJson | quote }}
             {{- end }}
             {{- end }}
           ports:
