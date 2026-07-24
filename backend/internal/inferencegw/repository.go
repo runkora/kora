@@ -134,7 +134,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			effective_input_cost_per_1m, effective_output_cost_per_1m,
 			effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
 			status, retry_count, error_code, failure_details, latency_ms, created_at,
-			run_id, principal_roles
+			run_id, principal_roles, delegator_id, delegator_principal_type
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
@@ -144,7 +144,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			$18,
 			$19, $20, $21, $22,
 			$23, $24, $25, $26, $27, $28,
-			$29, $30
+			$29, $30, $31, $32
 		)`
 
 	var provider *string
@@ -178,7 +178,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		rec.EffectiveInputCostPer1M, rec.EffectiveOutputCostPer1M,
 		rec.EffectiveCacheReadCostPer1M, rec.EffectiveCacheWriteCostPer1M,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
-		nullableText(rec.RunID), rec.PrincipalRoles,
+		nullableText(rec.RunID), rec.PrincipalRoles, rec.DelegatorID, rec.DelegatorPrincipalType,
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -197,7 +197,8 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id
 		       price_unknown,
 		       effective_input_cost_per_1m, effective_output_cost_per_1m,
 		       effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
-		       status, retry_count, error_code, failure_details, latency_ms, created_at
+		       status, retry_count, error_code, failure_details, latency_ms, created_at,
+		       delegator_id, delegator_principal_type
 		FROM inference_usage
 		WHERE id = $1 AND tenant_id = $2`
 
@@ -246,7 +247,8 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		       price_unknown,
 		       effective_input_cost_per_1m, effective_output_cost_per_1m,
 		       effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
-		       status, retry_count, error_code, failure_details, latency_ms, created_at
+		       status, retry_count, error_code, failure_details, latency_ms, created_at,
+		       delegator_id, delegator_principal_type
 		FROM inference_usage
 		%s
 		ORDER BY created_at DESC, id DESC
@@ -356,13 +358,26 @@ func (r *PostgresInferenceUsageRepository) GetAnalytics(ctx context.Context, fil
 	}, nil
 }
 
+// principalPredicate returns the personal-scope SQL predicate for the
+// analytics queries: principal_id alone, or — on the personal path — widened
+// to rows a delegated agent run attributed to the caller as delegator
+// (delegated-agent-identity ADR, Decision 5). The principal is always
+// argument $3: every analytics builder binds tenant_id=$1 and the cutoff=$2
+// before any optional filter.
+func principalPredicate(filter AnalyticsFilter) string {
+	if filter.IncludeDelegated {
+		return " AND (principal_id = $3 OR delegator_id = $3)"
+	}
+	return " AND principal_id = $3"
+}
+
 func (r *PostgresInferenceUsageRepository) getAnalyticsBuckets(ctx context.Context, filter AnalyticsFilter, cutoff time.Time, truncUnit string) ([]AnalyticsBucket, error) {
 	args := []any{filter.TenantID, cutoff}
 	n := 3
 
 	extraWhere := ""
 	if filter.PrincipalID != nil {
-		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		extraWhere += principalPredicate(filter)
 		args = append(args, *filter.PrincipalID)
 		n++
 	}
@@ -433,7 +448,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 
 	extraWhere := ""
 	if filter.PrincipalID != nil {
-		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		extraWhere += principalPredicate(filter)
 		args = append(args, *filter.PrincipalID)
 		n++
 	}
@@ -466,7 +481,8 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 		         ELSE 0 END                                                         AS error_rate,
 		    CASE WHEN COALESCE(SUM(prompt_tokens + cache_read_input_tokens + cache_creation_input_tokens), 0) > 0
 		         THEN SUM(cache_read_input_tokens)::float / SUM(prompt_tokens + cache_read_input_tokens + cache_creation_input_tokens)
-		         ELSE 0 END                                                         AS cache_hit_rate
+		         ELSE 0 END                                                         AS cache_hit_rate,
+		    COALESCE(SUM(estimated_cost_usd) FILTER (WHERE delegator_id IS NOT NULL), 0) AS delegated_cost_usd
 		FROM inference_usage
 		WHERE tenant_id = $1
 		  AND created_at >= $2%s`, extraWhere)
@@ -476,7 +492,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 	if err := row.Scan(
 		&k.TotalRequests, &k.TotalTokens, &k.PromptTokens, &k.CompletionTokens, &k.CacheReadTokens, &k.CacheCreationTokens,
 		&k.EstimatedCostUSD, &k.AvgLatencyMS, &k.P95LatencyMS, &k.P99LatencyMS,
-		&k.ErrorRate, &k.CacheHitRate,
+		&k.ErrorRate, &k.CacheHitRate, &k.DelegatedCostUSD,
 	); err != nil {
 		return AnalyticsKPIs{}, fmt.Errorf("analytics kpis scan: %w", err)
 	}
@@ -489,7 +505,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsCostByModel(ctx context.C
 
 	extraWhere := ""
 	if filter.PrincipalID != nil {
-		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		extraWhere += principalPredicate(filter)
 		args = append(args, *filter.PrincipalID)
 		n++
 	}
@@ -545,7 +561,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsTokensByModel(ctx context
 
 	extraWhere := ""
 	if filter.PrincipalID != nil {
-		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		extraWhere += principalPredicate(filter)
 		args = append(args, *filter.PrincipalID)
 		n++
 	}
@@ -715,13 +731,18 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 }
 
 // GetSpendSince returns the principal's total estimated_cost_usd from the
-// given instant onward.
+// given instant onward. Rows a delegated agent run attributed to the principal
+// as DELEGATOR count too: a person's window spend is their own usage plus
+// their delegated runs, so the delegator ceilings of
+// docs/adr/2026-07-23-delegated-agent-identity.md (Decision 5) enforce from
+// the same records that report them. Agent principals are unaffected —
+// delegator_id never carries an agent.
 func (r *PostgresInferenceUsageRepository) GetSpendSince(ctx context.Context, tenantID, principalID string, since time.Time) (float64, error) {
 	const q = `
 		SELECT COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND principal_id = $2
+		  AND (principal_id = $2 OR delegator_id = $2)
 		  AND created_at >= $3`
 
 	var total float64
@@ -894,14 +915,27 @@ func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Contex
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given
-// instant onward, tenant-scoped.
+// instant onward, tenant-scoped. Delegated rows attribute to BOTH the agent
+// (principal_id) and the person (delegator_id) — mirroring how the budget
+// ceilings count them (delegated-agent-identity ADR, Decision 5), so the
+// budgets listing reports the same window spend enforcement evaluates. Do NOT
+// sum this map across principals: a delegated row appears under two keys.
 func (r *PostgresInferenceUsageRepository) GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error) {
 	const q = `
-		SELECT principal_id, COALESCE(SUM(estimated_cost_usd), 0)
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND created_at >= $2
-		GROUP BY principal_id`
+		SELECT pid, COALESCE(SUM(cost), 0)
+		FROM (
+			SELECT principal_id AS pid, estimated_cost_usd AS cost
+			FROM inference_usage
+			WHERE tenant_id = $1
+			  AND created_at >= $2
+			UNION ALL
+			SELECT delegator_id AS pid, estimated_cost_usd AS cost
+			FROM inference_usage
+			WHERE tenant_id = $1
+			  AND created_at >= $2
+			  AND delegator_id IS NOT NULL
+		) attributed
+		GROUP BY pid`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
 	if err != nil {
@@ -976,18 +1010,37 @@ func (r *PostgresInferenceUsageRepository) GetPrincipalRoles(ctx context.Context
 // GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 // tenant within the calendar month containing the provided time value.
 func (r *PostgresInferenceUsageRepository) GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error) {
+	// Delegated rows attribute to BOTH the agent (principal_id) and the person
+	// (delegator_id), mirroring the independent budget ceilings that count them
+	// (delegated-agent-identity ADR, Decision 5). Do NOT sum spend_usd across
+	// rows of this result: a delegated request appears under two principals.
 	const q = `
-		SELECT principal_id,
-		       -- PAT usage attributes to the underlying human principal; the PAT
-		       -- is the credential, not the principal. Normalize so mixed
-		       -- session/PAT usage reports as HUMAN.
-		       MAX(CASE WHEN principal_type = 'PAT' THEN 'HUMAN' ELSE principal_type END) AS principal_type,
+		SELECT pid,
+		       MAX(ptype)                           AS principal_type,
 		       COALESCE(SUM(estimated_cost_usd), 0) AS spend_usd,
-		       MAX(created_at) AS last_active_at
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
-		GROUP BY principal_id
+		       MAX(created_at)                      AS last_active_at
+		FROM (
+			SELECT principal_id AS pid,
+			       -- PAT usage attributes to the underlying human principal; the PAT
+			       -- is the credential, not the principal. Normalize so mixed
+			       -- session/PAT usage reports as HUMAN.
+			       CASE WHEN principal_type = 'PAT' THEN 'HUMAN' ELSE principal_type END AS ptype,
+			       estimated_cost_usd,
+			       created_at
+			FROM inference_usage
+			WHERE tenant_id = $1
+			  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
+			UNION ALL
+			SELECT delegator_id AS pid,
+			       COALESCE(delegator_principal_type, 'HUMAN') AS ptype,
+			       estimated_cost_usd,
+			       created_at
+			FROM inference_usage
+			WHERE tenant_id = $1
+			  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
+			  AND delegator_id IS NOT NULL
+		) attributed
+		GROUP BY pid
 		ORDER BY spend_usd DESC`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, month.UTC())
@@ -1027,7 +1080,7 @@ type scannable interface {
 }
 
 // scanUsageRecord scans a single row into an InferenceUsageRecord.
-// Used by both Get and List (23 columns).
+// Used by both Get and List.
 func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	var rec InferenceUsageRecord
 	var provider *string
@@ -1046,6 +1099,7 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 		&rec.EffectiveInputCostPer1M, &rec.EffectiveOutputCostPer1M,
 		&rec.EffectiveCacheReadCostPer1M, &rec.EffectiveCacheWriteCostPer1M,
 		&status, &rec.RetryCount, &rec.ErrorCode, &failureDetailsRaw, &rec.LatencyMS, &rec.CreatedAt,
+		&rec.DelegatorID, &rec.DelegatorPrincipalType,
 	)
 	if err != nil {
 		return InferenceUsageRecord{}, err
@@ -1072,6 +1126,16 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	return rec, nil
 }
 
+// principalIDClause returns buildFilter's principal predicate template:
+// exact, or — for the personal view — widened to rows a delegated agent run
+// attributed to the caller as delegator (delegator_id = caller).
+func principalIDClause(includeDelegated bool) string {
+	if includeDelegated {
+		return "(principal_id = $%d OR delegator_id = $%[1]d)"
+	}
+	return "principal_id = $%d"
+}
+
 func buildFilter(f InferenceUsageFilter) (string, []any) {
 	var clauses []string
 	var args []any
@@ -1087,7 +1151,7 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 		add("tenant_id = $%d", f.TenantID)
 	}
 	if f.PrincipalID != nil {
-		add("principal_id = $%d", *f.PrincipalID)
+		add(principalIDClause(f.IncludeDelegated), *f.PrincipalID)
 	}
 	if f.TokenID != nil {
 		add("token_id = $%d", *f.TokenID)

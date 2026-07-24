@@ -36,7 +36,7 @@ vi.mock('iron-session', () => ({
 }));
 
 vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+  config: { orbitApiUrl: 'http://test-orbit-api', policyGatewayUrl: 'http://test-policy-gateway' },
 }));
 
 vi.mock('@orbit/server/session', () => ({
@@ -305,6 +305,16 @@ describe('GET /api/auth/session', () => {
   beforeEach(() => {
     vi.mocked(getSession).mockReset();
     vi.mocked(isSessionValid).mockReset();
+    // Default: policy gateway returns an empty scope set.
+    server.use(
+      http.get('http://test-policy-gateway/policy/scopes', () =>
+        HttpResponse.json({
+          scopes: [],
+          tenant_id: 'test-tenant',
+          evaluated_at: new Date().toISOString(),
+        }),
+      ),
+    );
   });
 
   it('returns 401 when there is no active session', async () => {
@@ -318,10 +328,19 @@ describe('GET /api/auth/session', () => {
     expect(body.error).toBe('unauthorized');
   });
 
-  it('returns 200 with user and expiresAt when the session is valid', async () => {
+  it('returns 200 with user, expiresAt, and permissions when the session is valid', async () => {
     const payload = createSessionPayload();
     vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
     vi.mocked(isSessionValid).mockReturnValue(true);
+    server.use(
+      http.get('http://test-policy-gateway/policy/scopes', () =>
+        HttpResponse.json({
+          scopes: ['agents:read', 'connections:read'],
+          tenant_id: 'test-tenant',
+          evaluated_at: new Date().toISOString(),
+        }),
+      ),
+    );
 
     const res = await GET();
 
@@ -329,6 +348,27 @@ describe('GET /api/auth/session', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.user).toEqual(payload.user);
     expect(body.expiresAt).toBe(payload.expiresAt);
+    expect((body.permissions as { scopes: string[] }).scopes).toEqual([
+      'agents:read',
+      'connections:read',
+    ]);
+  });
+
+  it('returns empty scopes when the policy gateway is unavailable', async () => {
+    const payload = createSessionPayload();
+    vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+    vi.mocked(isSessionValid).mockReturnValue(true);
+    server.use(
+      http.get('http://test-policy-gateway/policy/scopes', () => {
+        throw new Error('Network error');
+      }),
+    );
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect((body.permissions as { scopes: string[] }).scopes).toEqual([]);
   });
 
   it('does not expose accessToken, refreshToken, or tenantId in the response', async () => {

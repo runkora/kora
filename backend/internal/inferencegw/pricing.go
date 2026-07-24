@@ -36,7 +36,7 @@ type StaticPricingCache struct {
 func NewStaticPricingCache(entries []ModelPricing) *StaticPricingCache {
 	m := make(map[string]ModelPricing, len(entries))
 	for _, e := range entries {
-		m[string(e.Provider)+"/"+e.ModelID] = e
+		m[pricingKey(e.Provider, e.ModelID)] = e
 	}
 	return &StaticPricingCache{entries: m}
 }
@@ -51,7 +51,7 @@ func NewNopPricingCache() *StaticPricingCache {
 func (c *StaticPricingCache) Start(_ context.Context) {}
 
 func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	p, ok := c.entries[string(provider)+"/"+normalisePricingModelID(provider, modelID)]
+	p, ok := c.entries[pricingKey(provider, modelID)]
 	return p, ok
 }
 

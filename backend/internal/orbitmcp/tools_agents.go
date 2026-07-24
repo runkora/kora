@@ -33,7 +33,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	addEnumTool(srv, "agents.create",
 		"Create an agent type (agent definition) in the caller's tenant. Returns the created agent type. "+
 			"Supplying name, slug and model_id is enough — grant_scopes are auto-derived from the model.",
-		map[string][]any{"framework": agentFrameworks},
+		map[string][]any{"framework": agentFrameworks, "identity_mode": agentIdentityModes},
 		func(ctx context.Context, a createAgentArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Slug == "" {
 				return toolError(errors.New("name and slug are required")), nil
@@ -89,6 +89,13 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 // truth (internal/agents.AgentFramework constants) — keep in sync if it changes.
 var agentFrameworks = []any{"claude-code", "codex", "opencode"}
 
+// agentIdentityModes is the closed set of agent identity models, surfaced as a
+// JSON-Schema enum on the identity_mode field of agents.create. Mirrors
+// internal/agents.IdentityMode — keep in sync if it changes. Deliberately not
+// offered on agents.update: the identity model is immutable after creation
+// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 1).
+var agentIdentityModes = []any{"autonomous", "delegated"}
+
 // ── tool argument types (JSON schema is generated from these) ─────────────────
 
 type getAgentArgs struct {
@@ -103,6 +110,7 @@ type createAgentArgs struct {
 	Description             string           `json:"description,omitempty" jsonschema:"short human description of what the agent does"`
 	SystemPrompt            string           `json:"system_prompt,omitempty" jsonschema:"the system prompt the agent runs with"`
 	Framework               string           `json:"framework,omitempty" jsonschema:"agent CLI framework"`
+	IdentityMode            string           `json:"identity_mode,omitempty" jsonschema:"identity model, immutable after creation (default autonomous): autonomous = the agent acts as itself on its own grant; delegated = the agent acts on behalf of the person who runs it, bounded by the intersection of its grant and that person's live access"`
 	ModelID                 string           `json:"model_id,omitempty" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-4-6)"`
 	ToolScopes              []string         `json:"tool_scopes,omitempty" jsonschema:"tool scopes the agent may use — call the agents.tool_scopes tool to list the valid scopes and what each grants"`
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
@@ -114,10 +122,12 @@ type createAgentArgs struct {
 }
 
 // connectorArg is one credential connection the agent may use and the actions
-// allowed on it. Call agents.connectors for valid connection names and actions.
+// allowed on it. Call agents.connectors for valid connection names, actions,
+// and the connection's resource-qualifier dimension (if any).
 type connectorArg struct {
 	Connection string   `json:"connection" jsonschema:"the registered connection name (e.g. github)"`
-	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. repo:read, repo:write)"`
+	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. contents:read, issues:write; repo:read/repo:write grant everything)"`
+	Resources  []string `json:"resources,omitempty" jsonschema:"optionally narrow the connector to specific upstream resources of the connection's qualifier dimension (e.g. bare repository names for a github connection). Omit for all resources — agents.connectors lists the dimension and any allowlist ceiling"`
 }
 
 // connectivityArg is the agent's outbound egress posture.

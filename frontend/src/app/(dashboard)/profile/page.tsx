@@ -41,7 +41,7 @@ export default async function ProfilePage() {
       <UserIdentityCard session={session} profile={profileResult} />
       <RolesPermissionsCard
         explain={explainResult}
-        cachedScopes={session.permissions.scopes}
+        cachedScopes={explainResult.ok ? explainResult.data.effective_scopes : []}
         principalDisplayName={
           profileResult.ok ? profileResult.data.display_name : session.user.name
         }

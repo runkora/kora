@@ -7,13 +7,17 @@ import rego.v1
 # resolve with MAX. Fail-open throughout: no configuration = allow; missing
 # spend inputs leave the corresponding rules undefined = allow.
 #
-# Input shape (see docs/adr/2026-06-10-hierarchical-budget-enforcement.md):
+# Input shape (see docs/adr/2026-06-10-hierarchical-budget-enforcement.md and,
+# for the delegation extension, docs/adr/2026-07-23-delegated-agent-identity.md
+# Decision 5):
 #
 #   {
 #     "principal": { "id", "tenant_id", "type", "roles": [...], "run_id" },
+#     "delegation": { "delegator_id": "user-1" },        # verified; optional
 #     "spends": {
 #       "run": 1.25,
 #       "principal":  { "weekly": 3.0, "monthly": 12.0 },
+#       "delegator":  { "weekly": 1.0, "monthly": 4.0 },
 #       "role_pools": { "engineering": 240.0 },
 #       "tenant":     { "monthly": 1800.0 }
 #     }
@@ -93,6 +97,45 @@ ceilings contains c if {
 	prl > 0
 	c := {
 		"scope": "run",
+		"id": input.principal.run_id,
+		"window": "run",
+		"limit_usd": prl,
+		"spend_usd": object.get(input.spends, ["run"], 0),
+	}
+}
+
+# ── Delegator ceilings (delegated-agent-identity ADR, Decision 5) ────────────
+#
+# When a verified delegation is present, the DELEGATOR's per-window limits and
+# per-run limit apply as additional independent ceilings alongside the agent's:
+# the agent's budget can never become a pool the person spends beyond their own
+# allowance. input.delegation comes exclusively from the verified delegation
+# context — never from anything the caller asserts. The distinct "delegator" /
+# "delegator_run" scopes keep a delegator breach distinguishable from an agent
+# ceiling in logs and refusals.
+
+ceilings contains c if {
+	delegator := input.delegation.delegator_id
+	delegator != ""
+	some w, l in data.budgets[delegator].effective_limits
+	c := {
+		"scope": "delegator",
+		"id": delegator,
+		"window": w,
+		"limit_usd": l,
+		"spend_usd": object.get(input.spends, ["delegator", w], 0),
+	}
+}
+
+# The delegator's per-run limit caps the same run counter as the agent's.
+ceilings contains c if {
+	delegator := input.delegation.delegator_id
+	delegator != ""
+	input.principal.run_id != ""
+	prl := data.budgets[delegator].effective_per_run_limit_usd
+	prl > 0
+	c := {
+		"scope": "delegator_run",
 		"id": input.principal.run_id,
 		"window": "run",
 		"limit_usd": prl,

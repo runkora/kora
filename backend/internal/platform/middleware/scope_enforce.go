@@ -84,6 +84,10 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 				ResourceType: resourceType,
 				PathSegments: pathSegments,
 				Action:       action,
+				// The stripped /run/{run_id} prefix (AGENT principals only) —
+				// lets the engine deny a delegation token bound to another run
+				// (delegated-agent-identity ADR, Decision 4).
+				RunID: RunIDFromContext(ctx),
 			})
 			if err != nil {
 				logger.Error(ctx, "scope enforcement: evaluator failed",

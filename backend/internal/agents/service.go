@@ -55,10 +55,13 @@ type CreateAgentTypeRequest struct {
 	Description  string         `json:"description"`
 	SystemPrompt string         `json:"system_prompt"`
 	Framework    AgentFramework `json:"framework"`
-	ToolScopes   []string       `json:"tool_scopes"`
-	GrantScopes  []string       `json:"grant_scopes"`
-	Connectivity *Connectivity  `json:"connectivity"`
-	Connectors   []Connector    `json:"connectors"`
+	// IdentityMode selects the agent's identity model: autonomous (default) or
+	// delegated. Immutable after creation — see docs/adr/2026-07-23-delegated-agent-identity.md.
+	IdentityMode IdentityMode  `json:"identity_mode"`
+	ToolScopes   []string      `json:"tool_scopes"`
+	GrantScopes  []string      `json:"grant_scopes"`
+	Connectivity *Connectivity `json:"connectivity"`
+	Connectors   []Connector   `json:"connectors"`
 	// MCPTools are the governed MCP tools this agent may call (mcp:<server>:<tool>:use).
 	MCPTools []string `json:"mcp_tools"`
 	// EnvironmentID references a tenant Environment to merge into the grant.
@@ -91,6 +94,10 @@ type UpdateAgentTypeRequest struct {
 	// EnvironmentID changes the referenced environment. nil = unchanged; a
 	// pointer to "" detaches (no environment); a pointer to an id sets it.
 	EnvironmentID *string `json:"environment_id"`
+	// IdentityMode is accepted only to be validated: the identity model is
+	// immutable after creation, so any value other than the current one is
+	// rejected with ErrIdentityModeImmutable. nil/empty = untouched.
+	IdentityMode *IdentityMode `json:"identity_mode"`
 }
 
 type StartRunRequest struct {

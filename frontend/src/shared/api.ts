@@ -159,6 +159,17 @@ export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
 export type AgentTypeState = 'provisioning' | 'active' | 'deleting';
 
+/**
+ * An agent type's identity model — who the agent acts as. Chosen at creation
+ * and immutable afterwards (docs/adr/2026-07-23-delegated-agent-identity.md).
+ *   autonomous — acts as itself, on its own grants; automated sources may start it.
+ *   delegated  — acts on behalf of the person who runs it, bounded by their
+ *                access ∩ the agent's grants; startable by people only; runs
+ *                are private to the starter + tenant admins.
+ * Mirrors Go: agents.IdentityMode
+ */
+export type AgentIdentityMode = 'autonomous' | 'delegated';
+
 /** Lifecycle state of a single Run. Mirrors Go: agents.RunState */
 export type RunState =
   | 'pending'
@@ -199,17 +210,40 @@ export interface Connectivity {
 export interface Connector {
   connection: string;
   actions: string[];
+  /**
+   * Optional narrowing to specific upstream resources (the adapter's qualifier
+   * dimension — repositories, namespaces). Omitted = all resources; the
+   * compiled scopes stay unqualified. Mirrors Go: agents.Connector.
+   */
+  resources?: string[];
+}
+
+/**
+ * A connection's resource-qualifier dimension, as declared by its adapter:
+ * the dimension's name ("repository", "namespace") and the connection's
+ * optional config-declared ceiling allowlist ([] when none is declared).
+ * Mirrors Go: agents.ConnectionQualifierEntry.
+ */
+export interface ConnectionQualifierEntry {
+  name: string;
+  description: string;
+  ceiling: string[];
 }
 
 /**
  * A connection available to attach as a connector, as surfaced by the egress
  * gateway's GET /connections. `actions` is the connection's scope ceiling — the
- * set of actions an agent may be granted through it.
+ * set of actions an agent may be granted through it. `baseline` lists the
+ * action fragments the backend adds automatically at attachment (always
+ * unqualified). `qualifier` is present only for adapters with a resource
+ * dimension.
  */
 export interface ConnectionCatalogEntry {
   name: string;
   adapter: string;
   actions: string[];
+  baseline: string[];
+  qualifier?: ConnectionQualifierEntry | null;
 }
 
 /**
@@ -295,6 +329,8 @@ export interface AgentType {
   description: string;
   system_prompt: string;
   framework: AgentFramework;
+  /** Identity model — immutable after creation. Absent on pre-migration payloads (= autonomous). */
+  identity_mode?: AgentIdentityMode;
   tool_scopes: string[];
   grant_scopes: string[];
   connectivity: Connectivity;
@@ -349,6 +385,16 @@ export interface Run {
   summary?: string | null;
 }
 
+/**
+ * A Run as served by the Next.js BFF run routes. `created_by_name` is resolved
+ * by the BFF from the identity service (the same enrichment the analytics
+ * principals route performs) and is NOT part of the Go response — it is null
+ * or absent when the principal is not a tenant user (e.g. a webhook source).
+ */
+export interface RunWithAttribution extends Run {
+  created_by_name?: string | null;
+}
+
 /** Top-level response from GET /agents/types. */
 export interface AgentTypesListResponse {
   data: AgentType[];
@@ -380,6 +426,8 @@ export interface CreateAgentTypeRequest {
   description?: string;
   system_prompt?: string;
   framework?: AgentFramework;
+  /** Identity model. Omit for the default (autonomous). Immutable after creation. */
+  identity_mode?: AgentIdentityMode;
   tool_scopes?: string[];
   grant_scopes?: string[];
   connectivity?: Connectivity;

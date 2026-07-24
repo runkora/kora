@@ -15,23 +15,39 @@ import (
 // catalog the frontend connector picker consumes. actions is derived from the
 // adapter type via the shared internal/platform/connections metadata table; it
 // serializes as [] (never null) for any adapter without a declared vocabulary.
+// qualifier carries the adapter's grant-time resource dimension (nil when the
+// adapter has none) so the attachment picker can render the resource-scope
+// block; see docs/adr/2026-07-22-connection-scope-qualifiers.md.
 type ConnectionCatalogEntry struct {
-	Name    string   `json:"name"`
-	Adapter string   `json:"adapter"`
-	Actions []string `json:"actions"`
+	Name      string                    `json:"name"`
+	Adapter   string                    `json:"adapter"`
+	Actions   []string                  `json:"actions"`
+	Baseline  []string                  `json:"baseline"`
+	Qualifier *ConnectionQualifierEntry `json:"qualifier,omitempty"`
+}
+
+// ConnectionQualifierEntry describes a connection's resource-qualifier
+// dimension for the picker: the dimension's name ("repository", "namespace")
+// and the connection's optional config-declared ceiling allowlist.
+type ConnectionQualifierEntry struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Ceiling     []string `json:"ceiling"`
 }
 
 // connectionRegistryEntry is the wire shape of one element of connections.json,
 // the registry the operator's ConnectionAggregator renders into the
-// orbit-tenant-connections ConfigMap. Only non-sensitive fields are modeled —
-// secret_ref and config are intentionally ignored. base_host IS read: it is the
-// upstream authority (not a secret), and the grant compiler needs it to derive a
-// connector's auto-egress hosts via the shared adapter metadata table.
+// orbit-tenant-connections ConfigMap. secret_ref is intentionally ignored.
+// base_host IS read: it is the upstream authority (not a secret), and the grant
+// compiler needs it to derive a connector's auto-egress hosts via the shared
+// adapter metadata table. config is peeked only for the adapter's declared
+// qualifier-ceiling key (an allowlist of resource names — not secret material).
 type connectionRegistryEntry struct {
-	TenantID string `json:"tenant_id"`
-	Name     string `json:"name"`
-	Adapter  string `json:"adapter"`
-	BaseHost string `json:"base_host"`
+	TenantID string          `json:"tenant_id"`
+	Name     string          `json:"name"`
+	Adapter  string          `json:"adapter"`
+	BaseHost string          `json:"base_host"`
+	Config   json.RawMessage `json:"config,omitempty"`
 }
 
 // ConnectionCatalog serves the read-only, tenant-filtered connection catalog
@@ -65,13 +81,45 @@ func (c *ConnectionCatalog) ListByTenant(ctx context.Context, tenantID string) (
 		if e.TenantID != tenantID {
 			continue
 		}
-		out = append(out, ConnectionCatalogEntry{
-			Name:    e.Name,
-			Adapter: e.Adapter,
-			Actions: platformconns.ActionNames(e.Adapter),
-		})
+		entry := ConnectionCatalogEntry{
+			Name:     e.Name,
+			Adapter:  e.Adapter,
+			Actions:  platformconns.ActionNames(e.Adapter),
+			Baseline: platformconns.BaselineActions(e.Adapter),
+		}
+		if qm := platformconns.Qualifier(e.Adapter); qm != nil {
+			entry.Qualifier = &ConnectionQualifierEntry{
+				Name:        qm.Name,
+				Description: qm.Description,
+				Ceiling:     qualifierCeiling(e.Config, qm.ConfigKey),
+			}
+		}
+		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// qualifierCeiling extracts the adapter's qualifier-ceiling allowlist from a
+// connection's config. Empty (non-nil) when the config declares none.
+func qualifierCeiling(config json.RawMessage, key string) []string {
+	out := []string{}
+	if len(config) == 0 || key == "" {
+		return out
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(config, &raw); err != nil {
+		return out
+	}
+	var list []string
+	if err := json.Unmarshal(raw[key], &list); err != nil {
+		return out
+	}
+	for _, v := range list {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // ResolveConnection returns the adapter type and base host for the named

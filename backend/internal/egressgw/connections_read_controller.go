@@ -1,6 +1,7 @@
 package egressgw
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -73,6 +74,76 @@ func (c *ConnectionsReadController) Middleware() mw.MiddlewareHandler {
 // Boot registers the read-only routes.
 func (c *ConnectionsReadController) Boot(mux *api.Mux) {
 	mux.Handle("GET /connections", c.handleListConnections)
+	mux.Handle("GET /connections/{name}/resources", c.handleListConnectionResources)
+}
+
+// QualifierEnumerator is the optional adapter capability behind
+// GET /connections/{name}/resources: listing the upstream's current qualifier
+// values (repository names, namespaces) for the connector attachment picker,
+// through the connection's own credential. Adapters without a qualifier
+// dimension simply do not implement it. See
+// docs/adr/2026-07-22-connection-scope-qualifiers.md (Decision D).
+type QualifierEnumerator interface {
+	ListQualifierValues(ctx context.Context, conn credentials.Connection) ([]string, error)
+}
+
+// handleListConnectionResources enumerates the named connection's qualifier
+// values (e.g. the GitHub installation's repositories). Tenant-scoped from the
+// verified token; a connection whose adapter has no enumerator yields 404.
+func (c *ConnectionsReadController) handleListConnectionResources(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := platformtoken.ClaimsFromContext(ctx)
+	if !ok || claims.Orbit.TenantID == "" {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
+		return
+	}
+	tenantID := claims.Orbit.TenantID
+
+	name := r.PathValue("name")
+	conns, err := c.connRegistry.ListByTenant(ctx, tenantID)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "failed to list connections", nil), err)
+		return
+	}
+	var conn *credentials.Connection
+	for _, cn := range conns {
+		if cn != nil && cn.Name == name {
+			conn = cn
+			break
+		}
+	}
+	if conn == nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.NotFoundError(api.ErrCodeResourceNotFound, "connection not found", nil), nil)
+		return
+	}
+
+	adapter, ok := c.registry.Lookup(conn.Adapter)
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.NotFoundError(api.ErrCodeResourceNotFound, "connection adapter not registered", nil), nil)
+		return
+	}
+	enum, ok := adapter.(QualifierEnumerator)
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.NotFoundError(api.ErrCodeResourceNotFound, "connection declares no resource dimension", nil), nil)
+		return
+	}
+
+	values, err := enum.ListQualifierValues(ctx, *conn)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "failed to enumerate connection resources", nil), err)
+		return
+	}
+	if values == nil {
+		values = []string{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"resources": values})
 }
 
 // connectionJSON is the wire shape for one connection in the list response.

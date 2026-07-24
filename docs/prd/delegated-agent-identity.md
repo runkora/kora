@@ -1,8 +1,8 @@
 # Delegated Agent Identity - Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-07-17  
-**Last Updated:** 2026-07-17  
+**Last Updated:** 2026-07-24  
 **Owner:** Platform Engineering  
 **Stakeholders:** Platform Admins, Tenant Users, Security, Platform Engineering
 
@@ -56,11 +56,12 @@ Every agent in Orbit acts as itself, with its own standing access, regardless of
 - A delegated agent cannot be started by anything other than a person.
 - A user listing runs for a delegated agent sees their own runs and no one else's.
 - Every run surface shows the person who started it.
+- A person's spend surfaces include the cost of their delegated runs.
 - No change in behaviour for existing agents, all of which remain autonomous.
 
 ### Non-Goals
 
-- **Chained delegation.** An agent delegating onward to another agent is not addressed here.
+- **Chained delegation.** An agent delegating onward to another agent is not addressed here. A delegated run attempting to start another delegated agent is refused, because no person is starting it. Starting an autonomous agent from a run is an ordinary action, permitted only when the person could do it themselves.
 - **Escalation and mid-run approval.** Pausing a run to ask a human to authorise an action it cannot perform is a separate capability.
 - **Per-run scope selection.** A person cannot choose to lend an agent less than their full access for a given run. The bound is their access, in full.
 - **Changing existing agents.** Every agent that exists today stays autonomous, and this introduces no migration.
@@ -104,6 +105,7 @@ Every agent in Orbit acts as itself, with its own standing access, regardless of
 - [ ] Attribution is shown for both delegated and autonomous agents.
 - [ ] Runs started by an automated source identify the source.
 - [ ] A tenant admin can list and read every run in the tenant, including delegated runs they did not start.
+- [ ] A tenant admin can terminate any run in the tenant, but cannot send instructions to a delegated run they did not start.
 
 ---
 
@@ -154,9 +156,10 @@ The distinction is a governance posture, not an implementation detail, and it is
 
 - **Identity model:** a property of an agent, chosen at creation, that determines its governance posture.
 - **Delegated access:** an agent's access for a run is the overlap of its own grants and the runner's access.
-- **Run ownership:** a delegated agent's run belongs to the person who started it and is private to them.
+- **Run ownership:** a delegated agent's run belongs to the person who started it and is private to them. Only they can steer it; a tenant admin can read and terminate it.
+- **Budget bounding:** a delegated run spends against the person's budget as well as the agent's, and its usage is attributed to both.
 - **Attribution:** every run identifies the person or source accountable for it, shown as a recognisable name.
-- **Start constraint:** delegated agents are startable by people only.
+- **Start constraint:** delegated agents are startable by people only, whether interactively or through their own personal access token. Automated sources and service principals are refused.
 
 ---
 
@@ -193,10 +196,13 @@ The distinction is a governance posture, not an implementation detail, and it is
 
 **Must Have (P0):**
 - [ ] An agent declares exactly one identity model, delegated or autonomous, at creation, and it cannot be changed afterwards.
+- [ ] Creating a delegated agent and creating an autonomous agent are separately grantable permissions. An autonomous agent holds standing access its creator may not hold themselves, so creating one is the higher permission; a delegated agent can never act beyond the person running it, so creating one is safe to grant broadly. Whoever can create autonomous agents can also create delegated ones.
 - [ ] A delegated agent's access for a run is bounded by the person who started the run.
-- [ ] A delegated agent holds no standing access that lets it act outside a person's request.
+- [ ] A delegated agent's grants act as a ceiling only. They confer nothing absent a person's live delegation, so the agent holds no standing access it can act on alone.
 - [ ] A delegated agent cannot be started without a person, and cannot be bound to an automated source.
-- [ ] A delegated agent's runs are listable and readable only by the person who started them and by a tenant admin.
+- [ ] A delegated run draws down the person's budget as well as the agent's. Every applicable ceiling is enforced independently, so the stricter bound always wins, and the run's usage is attributed to the person as well as the agent.
+- [ ] A delegated agent's runs, including their messages, events, and outputs, are listable and readable only by the person who started them and by a tenant admin.
+- [ ] Only the person who started a delegated run can send it instructions. A tenant admin can read and terminate any run in the tenant, but cannot steer a delegated run they did not start.
 - [ ] A run records the identity of the principal accountable for it, and every run surface resolves that to a name a human recognises.
 - [ ] Revoking a person's access takes effect on their in-flight runs, without ending the run by any separate mechanism.
 - [ ] Existing agents are unaffected and remain autonomous.
@@ -213,9 +219,10 @@ The distinction is a governance posture, not an implementation detail, and it is
 
 **Security:**
 - A delegated agent cannot perform an action the person running it cannot perform, and this holds regardless of what the agent was granted at creation.
+- A person's access means everything they hold, however it was granted. Access a person derives from a role bounds a delegated run the same as access granted to them directly.
 - A person's access is evaluated at the moment the agent acts, not captured when the run starts, so revoking someone's access applies to their work already in flight.
 - Attribution cannot be set or altered by the caller.
-- A delegated agent must not retain access that survives the end of a person's request.
+- A delegated agent must not retain access that survives the end of the person's run.
 
 **Reliability:**
 - A run outlives any single interaction with it, and delegation must remain valid for the life of the run without weakening the bound.
@@ -268,6 +275,22 @@ The distinction is a governance posture, not an implementation detail, and it is
    - **Status:** Resolved. A run records the principal accountable for it, and the surface resolves that to a recognisable name at the point of display. Recording the principal rather than a name keeps attribution stable when a person's name or email changes, and keeps the record meaningful when the person no longer exists.
    - **Owner:** Platform Engineering
 
+5. **Does starting a run with a personal access token count as a person starting it?**
+   - **Status:** Resolved. Yes. A personal access token is the person's own credential and stays attributed to them, so a run it starts is that person's run and the delegation binds to them. This is how a person starts delegated runs from a CLI or the API. Automated sources and service principals remain refused; the constraint excludes runs with no accountable person, not runs where the person is not at a keyboard.
+   - **Owner:** Platform Engineering
+
+6. **Who can interact with a delegated run while it is live?**
+   - **Status:** Resolved. Only the person who started it can send it instructions. Messages steer the agent, and the agent acts with the starter's access under the starter's name, so letting anyone else steer would let them act with authority and attribution that are not theirs. A tenant admin retains governance controls, reading and terminating, without the ability to direct the work.
+   - **Owner:** Platform Engineering
+
+7. **Who may create each kind of agent?**
+   - **Status:** Resolved. Two separately grantable permissions, with the autonomous one strictly higher. Creating an agent confers its access, and nothing requires a creator to hold the access they configure, so creating an autonomous agent is a way to obtain permissions by proxy. Creating a delegated agent is not: its configured access is only a ceiling on what each runner already holds. Teams can therefore be granted delegated-agent creation for self-service without opening the escalation path.
+   - **Owner:** Platform Engineering
+
+8. **Whose budget does a delegated run spend?**
+   - **Status:** Resolved. Both. The agent's ceilings and the person's ceilings each apply independently, so the run stops at whichever is reached first, and its usage is attributed to the person as well as the agent. An agent's budget bounds the tool; it must not become a pool a person can spend from beyond their own allowance.
+   - **Owner:** Platform Engineering
+
 ---
 
 ## Timeline and Milestones
@@ -279,6 +302,7 @@ The distinction is a governance posture, not an implementation detail, and it is
 
 **Phase 2: Constraints and privacy**
 - Delegated agents are startable by people only, and their runs are private to the person who started them.
+- The ordering is safe: a delegated agent started by automation in any interim can act on nothing, because loss of delegated context fails closed rather than falling back.
 
 **Phase 3: Attribution**
 - Every run surface shows the accountable person or source.

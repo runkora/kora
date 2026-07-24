@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
@@ -46,14 +47,14 @@ func main() {
 	defer db.Close()
 	defer redis.Close()
 
-	server, err := initServer(ctx, logger, db, redis)
+	server, register, err := initServer(ctx, logger, db, redis)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1)
 	}
 
-	run(ctx, logger, server)
+	run(ctx, logger, server, register)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -106,22 +107,35 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
-	// ── Provider connectors ───────────────────────────────────────────────────
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context), error) {
+	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
 	// Register factories for every supported provider. Each factory reads its
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
 	// Adding a new provider is a single line here.
+	//
+	// Bedrock uses MultiFactory: set BEDROCK_ACCOUNTS=<alias1>,<alias2> to enable.
+	// Returns nil (provider disabled) when BEDROCK_ACCOUNTS is unset.
 	factories := []inferencegw.ConnectorFactory{
-		bedrock.Factory{},
 		vertexai.Factory{},
 		azure.Factory{},
 	}
 
 	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
+
+	bedrockConnectors, err := bedrock.MultiFactory{}.Build(logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bedrock: %w", err)
+	}
+	for _, nc := range bedrockConnectors {
+		connectors[nc.Name] = nc.Connector
+		logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
+	}
+
+	var c inferencegw.ProviderConnector
 	for _, f := range factories {
-		c, err := f.Build(logger)
+		c, err = f.Build(logger)
 		if err != nil {
-			return nil, fmt.Errorf("provider %s: %w", f.Name(), err)
+			return nil, nil, fmt.Errorf("provider %s: %w", f.Name(), err)
 		}
 		if c != nil {
 			connectors[f.Name()] = c
@@ -133,7 +147,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		logger.Warn(ctx, "warning: no providers enabled — all inference requests will fail")
 	}
 
-	// ── Domain layer ──────────────────────────────────────────────────────────
+	// ── Domain layer ────────────────────────────────────────────────────────────────────────────────
 	router := inferencegw.NewRoutingEngine(connectors)
 	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
 	pol.Start(ctx)
@@ -168,7 +182,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
-	initScopeRegistration(ctx, logger, router)
+	register := initScopeRegistration(ctx, logger, router)
 
 	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
 	go pricingCache.Start(ctx)
@@ -185,34 +199,58 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
+	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
+	jtiBlocklist := storage.NewJTIBlocklist(redis)
+	controllers := []api.Controller{
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
 		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
-	}, nil
+	}
+	return controllers, register, nil
 }
 
 // initScopeRegistration wires the policy-service scope vocabulary for the
 // inference gateway. It registers once immediately (in a background goroutine,
 // since the routescopes client retries until the identity-proxy sidecar is
 // ready) and installs a hook on the router so the vocabulary is re-synced
-// whenever GET /v1/models refreshes the catalog.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, router *inferencegw.RoutingEngine) {
-	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
+// whenever GET /v1/models refreshes the catalog. It returns the register
+// function so the caller can drive the periodic self-heal loop.
+func initScopeRegistration(ctx context.Context, logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) {
+	// WithInitialDelay(0): the default 15s startup grace (waiting for the
+	// identity-proxy sidecar) would be added to *every* Register call, including
+	// each periodic self-heal tick and catalog-refresh — pure latency that
+	// delays recovery after a policy-service restart. The very first
+	// registration races the sidecar coming up, but that is already covered by
+	// the client's own retry-with-backoff, so no upfront delay is needed.
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
 
-	register := func(catalogScopes []inferencegw.CatalogScope) {
+	register := func(registerCtx context.Context) {
+		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
 		// Drop routes whose RequiredScope is empty — those are
 		// "authenticated-only" and enforced locally by ScopeEnforcementMiddleware,
 		// not by OPA. Registering them with empty scopes would deny everyone
 		// when Layer 1 sidecar enforcement is enabled in the future.
 		scopedRoutes := filterScopedRoutes(inferenceRoutes())
-		if err := client.Register(ctx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
-			logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+			logger.Warn(registerCtx, "route re-registration failed",
+				logging.Field{Key: "error", Value: fmt.Errorf("register routes: %w", err).Error()})
 		}
 	}
 
-	router.SetCatalogUpdateHook(register)
-	go register(router.CatalogScopes())
+	// The hook fires whenever GET /v1/models refreshes the catalog, long after
+	// startup. Use a fresh context.Background() rather than capturing the
+	// startup ctx, which by then may be stale/canceled.
+	router.SetCatalogUpdateHook(func(catalogScopes []inferencegw.CatalogScope) {
+		scopeDecls := inferenceScopes(catalogScopes)
+		scopedRoutes := filterScopedRoutes(inferenceRoutes())
+		if err := client.Register(context.Background(), "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+	})
+	go register(ctx)
+
+	return register
 }
 
 // filterScopedRoutes returns the subset of routes that require a non-empty
@@ -228,7 +266,7 @@ func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
 	return out
 }
 
-// inferenceRoutes returns the static route→scope bindings for the inference gateway.
+// inferenceRoutes returns the static route->scope bindings for the inference gateway.
 //
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
@@ -293,12 +331,12 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context), error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, err := initControllers(ctx, logger, db, redis)
+	controllers, register, err := initControllers(ctx, logger, db, redis)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	server := apiServer.Server(
@@ -308,32 +346,34 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
-			// Rewrites /run/{run_id}/v1/… → /v1/… with the run identity in
+			// Rewrites /run/{run_id}/v1/... -> /v1/... with the run identity in
 			// context, ahead of all routing and enforcement. See
 			// docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
-			mw.NewMiddleware(inferencegw.StripRunPrefix),
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)
 
-	return server, nil
+	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context)) {
+	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	go func() {
-		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
+		logger.Info(runCtx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
-	<-quit
+	go runRegistrationLoop(runCtx, register, igc.Current.Policy.ReregistrationInterval(), logger)
+
+	<-runCtx.Done()
 	logger.Info(ctx, "Shutting down inference gateway...")
 
-	shutdownCtx, cancel := context.WithTimeout(ctx, igc.Current.ShutdownTimeout())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.ShutdownTimeout())
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
@@ -341,4 +381,22 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	}
 
 	logger.Info(ctx, "Inference gateway shutdown complete")
+}
+
+// runRegistrationLoop periodically re-registers the inference gateway routes
+// and catalog scopes with the policy service. This self-heals the in-memory
+// registration store after a policy-service restart. Matches the cadence of
+// the tool-gateway re-introspection loop (5-minute default).
+func runRegistrationLoop(ctx context.Context, register func(context.Context), interval time.Duration, logger logging.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			logger.Debug(ctx, "periodic route re-registration tick")
+			register(ctx)
+		}
+	}
 }

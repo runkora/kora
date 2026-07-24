@@ -137,8 +137,8 @@ func TestProcessor_HandleRequestHeaders_WithToken(t *testing.T) {
 	cache := NewTokenCache()
 	cache.Set("bearer-xyz", time.Now().Add(5*time.Minute))
 
-	p := NewProcessor(cache, discardLogger())
-	resp := p.handleRequestHeaders(context.Background())
+	p := NewProcessor(cache, nil, discardLogger())
+	resp := p.handleRequestHeaders(context.Background(), nil)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
 	}
@@ -167,8 +167,8 @@ func TestProcessor_HandleRequestHeaders_WithToken(t *testing.T) {
 
 func TestProcessor_HandleRequestHeaders_EmptyCache(t *testing.T) {
 	cache := NewTokenCache() // nothing Set
-	p := NewProcessor(cache, discardLogger())
-	resp := p.handleRequestHeaders(context.Background())
+	p := NewProcessor(cache, nil, discardLogger())
+	resp := p.handleRequestHeaders(context.Background(), nil)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
 	}
@@ -188,7 +188,7 @@ func TestServer_WaitForInitialToken_ImmediateSuccess(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{token: "tok-abc"}
 	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
+	srv := NewServer(cache, nil, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -210,7 +210,7 @@ func TestServer_WaitForInitialToken_RetriesAndSucceeds(t *testing.T) {
 	// Fail 2 times, then succeed on the 3rd call.
 	exc := &stubExchanger{failN: 2, token: "tok-retry"}
 	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
+	srv := NewServer(cache, nil, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -232,7 +232,7 @@ func TestServer_WaitForInitialToken_ContextCancelled(t *testing.T) {
 	// Always fail so waitForInitialToken never exits on its own.
 	exc := &stubExchanger{err: errors.New("always fail")}
 	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
+	srv := NewServer(cache, nil, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

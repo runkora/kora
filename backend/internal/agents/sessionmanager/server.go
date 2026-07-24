@@ -153,7 +153,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
 			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
-			ToolGatewayURL:    c.cfg.ToolGatewayURL,
+			ToolGatewayURL:    toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
 			MCPServers:        req.MCPServers,
 			RunID:             req.RunID,
 			ExtraEnv:          extraEnv,
@@ -344,5 +344,17 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 // inferenceURLForRun builds the per-run inference base URL used for
 // summarization and per-run budget attribution.
 func inferenceURLForRun(gatewayURL, runID string) string {
+	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
+}
+
+// toolGatewayURLForRun builds the per-run tool-gateway base URL written into
+// the per-run MCP config. Run identity travels as the same /run/{run_id} path
+// prefix the inference gateway uses, so MCP traffic carries run identity for
+// delegation binding and attribution (docs/adr/2026-07-23-delegated-agent-identity.md,
+// Decision 4). An empty gateway URL stays empty — no governed MCP entries.
+func toolGatewayURLForRun(gatewayURL, runID string) string {
+	if gatewayURL == "" {
+		return ""
+	}
 	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
 }

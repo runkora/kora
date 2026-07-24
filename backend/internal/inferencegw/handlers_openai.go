@@ -289,7 +289,7 @@ func aggregateVMMetadata(vm VirtualModel, idx map[pmKey]*ProviderModel) (
 func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
 	idx := make(map[string]ModelPricing, len(entries))
 	for _, e := range entries {
-		key := string(e.Provider) + "/" + normalisePricingModelID(e.Provider, e.ModelID)
+		key := pricingKey(e.Provider, e.ModelID)
 		idx[key] = e
 	}
 	return idx
@@ -316,7 +316,7 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing, dis
 		if _, ok := connectors[route.Provider]; !ok {
 			continue
 		}
-		key := string(route.Provider) + "/" + normalisePricingModelID(route.Provider, route.ModelID)
+		key := pricingKey(route.Provider, route.ModelID)
 		p, ok := pricingIdx[key]
 		if !ok {
 			continue

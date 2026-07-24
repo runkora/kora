@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -19,47 +20,15 @@ func agentClaims(tenantID string) *token.PlatformClaims {
 	}
 }
 
-func TestStripRunPrefix_RewritesPathAndStoresRunID(t *testing.T) {
-	t.Parallel()
-	var gotPath, gotRunID string
-	h := StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotRunID, _ = r.Context().Value(runIDContextKey{}).(string)
-	}))
-
-	req := httptest.NewRequest(http.MethodPost, "/run/run-42/v1/messages", nil)
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if gotPath != "/v1/messages" {
-		t.Errorf("path = %q, want /v1/messages", gotPath)
-	}
-	if gotRunID != "run-42" {
-		t.Errorf("run id = %q, want run-42", gotRunID)
-	}
-}
-
-func TestStripRunPrefix_NonRunPathUntouched(t *testing.T) {
-	t.Parallel()
-	var gotPath string
-	var hadRunID bool
-	h := StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_, hadRunID = r.Context().Value(runIDContextKey{}).(string)
-	}))
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if gotPath != "/v1/messages" || hadRunID {
-		t.Errorf("path = %q hadRunID = %v, want untouched path and no run id", gotPath, hadRunID)
-	}
-}
-
-func TestRunIDFromContext_AgentOnly(t *testing.T) {
+// TestRunIDFromContext_ShimBehaviour proves the gateway's internal shim reads
+// the run identity that the platform StripRunPrefix middleware stored, with
+// the AGENT-principal-only guard intact. The mechanism itself is tested in
+// internal/platform/middleware/run_context_test.go.
+func TestRunIDFromContext_ShimBehaviour(t *testing.T) {
 	t.Parallel()
 	var agentRunID, humanRunID string
 
-	hAgent := StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	hAgent := mw.StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		agentRunID = runIDFromContext(r.Context())
 	}))
 	reqAgent := httptest.NewRequest(http.MethodPost, "/run/run-42/v1/messages", nil)
@@ -69,7 +38,7 @@ func TestRunIDFromContext_AgentOnly(t *testing.T) {
 		t.Errorf("agent run id = %q, want run-42", agentRunID)
 	}
 
-	hHuman := StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	hHuman := mw.StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		humanRunID = runIDFromContext(r.Context())
 	}))
 	reqHuman := httptest.NewRequest(http.MethodPost, "/run/run-42/v1/messages", nil)

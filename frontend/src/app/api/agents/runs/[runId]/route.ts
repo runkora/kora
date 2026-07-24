@@ -3,7 +3,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
-import type { Run, AgentType } from '@orbit/shared/api';
+import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
+import type { Run, RunWithAttribution, AgentType } from '@orbit/shared/api';
 
 type Params = { runId: string };
 
@@ -16,10 +17,17 @@ export const GET = withAuth(
       if (!run) {
         return NextResponse.json({ code: 'not_found', message: 'Run not found' }, { status: 404 });
       }
-      const agentType = await client
-        .get<AgentType>(`/api/v1/agent-types/${run.agent_type_id}`)
-        .catch(() => null);
-      return NextResponse.json({ data: run, agent_type: agentType });
+      const [agentType, names] = await Promise.all([
+        client.get<AgentType>(`/api/v1/agent-types/${run.agent_type_id}`).catch(() => null),
+        // Best-effort: unresolvable principals keep created_by_name null and the
+        // UI falls back to the raw principal id.
+        resolveUserDisplayNames(session.accessToken, [run.created_by]),
+      ]);
+      const data: RunWithAttribution = {
+        ...run,
+        created_by_name: names.get(run.created_by) ?? null,
+      };
+      return NextResponse.json({ data, agent_type: agentType });
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

@@ -31,6 +31,12 @@ export interface TriggerFormAgent {
   id: string;
   slug: string;
   name: string;
+  /**
+   * Identity model. Delegated agents act on behalf of the person who runs them
+   * and cannot be started by automated sources, so they are disabled as binding
+   * targets. Omitted = autonomous (bindable).
+   */
+  identityMode?: 'autonomous' | 'delegated';
 }
 
 /** The editable shape of a trigger, decoupled from any feature's row type. */
@@ -100,8 +106,12 @@ export function TriggerFormModal({
   const [sourceId, setSourceId] = useState(
     trigger?.sourceId ?? defaultSourceId ?? sources[0]?.id ?? '',
   );
+  // Delegated agents cannot be trigger targets — default to the first bindable one.
   const [agentId, setAgentId] = useState(
-    trigger?.agentTypeId ?? lockedAgent?.id ?? agents[0]?.id ?? '',
+    trigger?.agentTypeId ??
+      lockedAgent?.id ??
+      agents.find((a) => a.identityMode !== 'delegated')?.id ??
+      '',
   );
   const [eventType, setEventType] = useState(trigger?.eventType ?? 'pull_request');
   const [promptTemplate, setPromptTemplate] = useState(trigger?.promptTemplate ?? '');
@@ -132,6 +142,14 @@ export function TriggerFormModal({
     }
     if (!isEdit && !resolvedAgent) {
       setSubmitError('Select a target agent.');
+      return;
+    }
+    // Defensive: the picker disables delegated agents, but a locked agent could
+    // still be delegated. Refuse here with the reason instead of a backend error.
+    if (!isEdit && resolvedAgent?.identityMode === 'delegated') {
+      setSubmitError(
+        'This agent is delegated: it only runs on behalf of a person and cannot be started by triggers.',
+      );
       return;
     }
     if (!eventType.trim()) {
@@ -242,7 +260,15 @@ export function TriggerFormModal({
           )}
 
           {!isEdit && !lockedAgent && (
-            <FormField id="trigger-agent" label="Target agent">
+            <FormField
+              id="trigger-agent"
+              label="Target agent"
+              hint={
+                agents.some((a) => a.identityMode === 'delegated')
+                  ? 'Delegated agents are unavailable: they act on behalf of the person who runs them, so only a person can start them, never a trigger.'
+                  : undefined
+              }
+            >
               <NativeSelect
                 id="trigger-agent"
                 value={agentId}
@@ -250,8 +276,10 @@ export function TriggerFormModal({
               >
                 {agents.length === 0 && <option value="">No agents available</option>}
                 {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
+                  <option key={a.id} value={a.id} disabled={a.identityMode === 'delegated'}>
+                    {a.identityMode === 'delegated'
+                      ? `${a.name} (delegated: cannot be triggered)`
+                      : a.name}
                   </option>
                 ))}
               </NativeSelect>
@@ -262,6 +290,13 @@ export function TriggerFormModal({
             <Text size="caption" color="muted">
               Target agent: {lockedAgent.name}
             </Text>
+          )}
+
+          {lockedAgent?.identityMode === 'delegated' && !isEdit && (
+            <Alert variant="warning">
+              {lockedAgent.name} is a delegated agent. It only runs on behalf of a person, so it
+              cannot be bound to a trigger or any automated source.
+            </Alert>
           )}
 
           <FormField
@@ -342,7 +377,13 @@ export function TriggerFormModal({
         <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
           Cancel
         </Button>
-        <Button size="sm" onClick={() => void handleSubmit()} disabled={submitting || !name.trim()}>
+        <Button
+          size="sm"
+          onClick={() => void handleSubmit()}
+          disabled={
+            submitting || !name.trim() || (!isEdit && resolvedAgent?.identityMode === 'delegated')
+          }
+        >
           {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create trigger'}
         </Button>
       </ModalFooter>

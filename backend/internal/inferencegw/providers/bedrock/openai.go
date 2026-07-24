@@ -14,6 +14,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// errGPT5NoChatCompletions is returned when a GPT-5.x model is dispatched to the
+// Chat Completions path. These models only support the Responses API on Bedrock
+// (use POST /v1/responses).
+var errGPT5NoChatCompletions = errors.New("gpt-5 models do not support chat completions; use the Responses API (POST /v1/responses)")
+
 // ChatCompletion sends a non-streaming request via the appropriate Bedrock endpoint.
 //
 // Bedrock has three physically separate endpoints:
@@ -28,6 +33,14 @@ func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatComple
 		return c.claudeChatCompletion(ctx, params)
 	case backendMantle:
 		return c.mantleChatCompletion(ctx, params)
+	case backendMantleGPT5:
+		return nil, &inferencegw.ConnectorError{
+			Provider:        inferencegw.ProviderBedrock,
+			Code:            "INVALID_REQUEST",
+			Retryable:       false,
+			ProviderMessage: fmt.Sprintf("bedrock: model %q: %s", params.Model, errGPT5NoChatCompletions),
+			Underlying:      errGPT5NoChatCompletions,
+		}
 	default:
 		return c.openaiChatCompletion(ctx, params)
 	}
@@ -40,6 +53,14 @@ func (c *Connector) ChatCompletionStream(ctx context.Context, params openai.Chat
 		return c.claudeChatCompletionStream(ctx, params)
 	case backendMantle:
 		return c.mantleChatCompletionStream(ctx, params)
+	case backendMantleGPT5:
+		return nil, &inferencegw.ConnectorError{
+			Provider:        inferencegw.ProviderBedrock,
+			Code:            "INVALID_REQUEST",
+			Retryable:       false,
+			ProviderMessage: fmt.Sprintf("bedrock: model %q: %s", params.Model, errGPT5NoChatCompletions),
+			Underlying:      errGPT5NoChatCompletions,
+		}
 	default:
 		return c.openaiChatCompletionStream(ctx, params)
 	}

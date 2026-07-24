@@ -16,6 +16,15 @@ import (
 // should not leak (see canRead).
 var ErrForbidden = errors.New("forbidden")
 
+// ErrIdentityModeWriteForbidden is returned when the principal lacks the
+// mode-qualified agent-type write scope (agents:types:{mode}:write) for the
+// identity mode being created or mutated. Handlers map it to a 403 whose
+// message names the missing scope and the identity model — unlike ErrForbidden
+// it is never softened to a 404, because the write routes are
+// authenticated-only at the route layer and the clear refusal is the point
+// (delegated-agent-identity ADR, Decision 1).
+var ErrIdentityModeWriteForbidden = errors.New("missing identity-mode write scope")
+
 // authz is the thin authorization layer for orbit-agents. It wraps the
 // platform's policy.Evaluator so service-layer code can ask resource-shaped
 // questions ("can this principal read this agent type?") without rebuilding
@@ -41,8 +50,10 @@ func NewAuthz(eval policy.Evaluator) *Authz { return &Authz{eval: eval} }
 // agent type. Returns ErrForbidden on deny; non-policy errors (bundle not
 // loaded, evaluator failure) propagate as wrapped errors.
 //
-// action is one of "read", "write" — matching the route→scope vocabulary
-// registered in cmd/orbit-agents/main.go.
+// action matches the route→scope vocabulary registered in
+// cmd/orbit-agents/main.go. In practice this is "read": agent-type WRITES are
+// authorized by checkAgentTypeModeWrite, whose required scope is qualified by
+// identity mode rather than slug.
 func (a *Authz) checkAgentType(ctx context.Context, at AgentType, action string) error {
 	r, err := a.eval.Check(ctx, policy.CheckInput{
 		Claims:       claimsFromContext(ctx),
@@ -94,6 +105,63 @@ func (a *Authz) filterAgentTypes(ctx context.Context, ats []AgentType) ([]AgentT
 		}
 	}
 	return out, nil
+}
+
+// checkAgentTypeModeWrite returns nil if the principal may write agent types
+// of the given identity mode — required scope agents:types:{mode}:write, which
+// the parent agents:types:write prefix-covers. The mode derives from the
+// requested mode on create and from the STORED mode on update/delete: widening
+// an autonomous agent's grants is the same act as creating it with them
+// (delegated-agent-identity ADR, Decision 1).
+func (a *Authz) checkAgentTypeModeWrite(ctx context.Context, mode IdentityMode) error {
+	r, err := a.eval.Check(ctx, policy.CheckInput{
+		Claims:       claimsFromContext(ctx),
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "agents",
+		PathSegments: []string{"types", string(mode)},
+		Action:       "write",
+	})
+	if err != nil {
+		return fmt.Errorf("authz check agent type mode write: %w", err)
+	}
+	if !r.Allow {
+		return fmt.Errorf("%w: %s agent types require the agents:types:%s:write scope (the parent agents:types:write also covers it); %s",
+			ErrIdentityModeWriteForbidden, mode, mode, identityModeStakes(mode))
+	}
+	return nil
+}
+
+// identityModeStakes states, for a refusal message, what the identity model
+// means for authority — why the scope tiers exist.
+func identityModeStakes(mode IdentityMode) string {
+	if mode == IdentityModeDelegated {
+		return "a delegated agent is limited to each runner's own access, so this is the safe self-service tier"
+	}
+	return "an autonomous agent holds standing authority of its own, whoever starts it, so creating or changing one is the higher-privilege tier"
+}
+
+// checkAnyAgentTypeWrite returns nil if the principal may write agent types of
+// at least one identity mode. Gates agent-type DRAFT writes: a draft is inert
+// (no grant, no slug, no cluster resource) but drafting is only useful with
+// create authority for some mode, and a delegated-only creator must be able to
+// use the builder.
+func (a *Authz) checkAnyAgentTypeWrite(ctx context.Context) error {
+	var lastErr error
+	for _, mode := range []IdentityMode{IdentityModeDelegated, IdentityModeAutonomous} {
+		err := a.checkAgentTypeModeWrite(ctx, mode)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrIdentityModeWriteForbidden) {
+			return err
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return fmt.Errorf("%w: drafting agent types requires agents:types:delegated:write or agents:types:autonomous:write (the parent agents:types:write covers both)",
+			ErrIdentityModeWriteForbidden)
+	}
+	return nil
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────

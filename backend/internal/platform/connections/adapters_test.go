@@ -12,7 +12,19 @@ import (
 // change here must be a conscious vocabulary change, not an accident.
 func TestActionNames(t *testing.T) {
 	cases := map[string][]string{
-		AdapterGitHubApp:   {"repo:read", "repo:write"},
+		// Category-scoped since docs/adr/2026-07-22-github-connection-category-
+		// scoped-actions.md; repo:read/repo:write survive as the catch-all +
+		// legacy umbrella.
+		AdapterGitHubApp: {
+			"metadata:read",
+			"contents:read", "contents:write",
+			"issues:read", "issues:write",
+			"pulls:read", "pulls:write",
+			"actions:read", "actions:write",
+			"checks:read", "checks:write",
+			"admin:read", "admin:write",
+			"repo:read", "repo:write",
+		},
 		AdapterPassthrough: {"use"},
 		AdapterKubernetesBearer: {
 			"workloads:read", "workloads:write",

@@ -84,6 +84,12 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 	// connection must reach. Granting a connector auto-allows exactly those hosts,
 	// independent of the agent's connectivity mode — a none-mode agent with a
 	// GitHub connector can still reach GitHub, and only GitHub.
+	//
+	// Baseline actions ride the same resolution: the adapter's declared
+	// baselines (e.g. GitHub metadata:read) are compiled as unqualified scopes
+	// on every attachment that grants at least one action. They must be added
+	// here — vocabulary requires edges cannot reach resource-qualified grant
+	// scopes. See docs/adr/2026-07-22-connection-scope-qualifiers.md.
 	if r.conns != nil {
 		for _, c := range connectors {
 			name := strings.TrimSpace(c.Connection)
@@ -100,10 +106,26 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 			for _, h := range platformconns.EgressHosts(adapter, baseHost) {
 				scopes = append(scopes, "egress:"+h+":connect")
 			}
+			if hasAction(c) {
+				for _, baseline := range platformconns.BaselineActions(adapter) {
+					scopes = append(scopes, "connection:"+name+":"+baseline)
+				}
+			}
 		}
 	}
 
 	return dedupeScopes(scopes), nil
+}
+
+// hasAction reports whether the connector grants at least one non-empty action
+// — baselines apply only to attachments that actually grant something.
+func hasAction(c Connector) bool {
+	for _, a := range c.Actions {
+		if strings.TrimSpace(a) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // dedupeScopes removes duplicate scope strings while preserving first-seen order.
@@ -242,28 +264,52 @@ func unionHosts(own, env []string, connectorEgress []ConnectorEgress) []string {
 }
 
 // mergeConnectors deduplicates connectors by connection name, unioning their
-// actions and preserving first-seen order. Empty names/actions are dropped.
+// actions and resources while preserving first-seen order. Empty names/actions
+// are dropped. Resource union: an empty Resources list means "all resources",
+// so any all-resources contribution dominates the merge (the merged connector
+// is unrestricted); otherwise the resource lists union.
 func mergeConnectors(in []Connector) []Connector {
-	actions := map[string][]string{}
+	type agg struct {
+		actions   []string
+		resources []string
+		all       bool
+	}
+	byName := map[string]*agg{}
 	order := make([]string, 0, len(in))
 	for _, c := range in {
 		name := strings.TrimSpace(c.Connection)
 		if name == "" {
 			continue
 		}
-		if _, ok := actions[name]; !ok {
+		a, ok := byName[name]
+		if !ok {
+			a = &agg{actions: []string{}, resources: []string{}}
 			order = append(order, name)
-			actions[name] = []string{}
+			byName[name] = a
 		}
-		for _, a := range c.Actions {
-			if a = strings.TrimSpace(a); a != "" && !slices.Contains(actions[name], a) {
-				actions[name] = append(actions[name], a)
+		for _, act := range c.Actions {
+			if act = strings.TrimSpace(act); act != "" && !slices.Contains(a.actions, act) {
+				a.actions = append(a.actions, act)
+			}
+		}
+		if len(c.Resources) == 0 {
+			a.all = true
+			continue
+		}
+		for _, r := range c.Resources {
+			if r = strings.ToLower(strings.TrimSpace(r)); r != "" && !slices.Contains(a.resources, r) {
+				a.resources = append(a.resources, r)
 			}
 		}
 	}
 	out := make([]Connector, 0, len(order))
 	for _, name := range order {
-		out = append(out, Connector{Connection: name, Actions: actions[name]})
+		a := byName[name]
+		resources := a.resources
+		if a.all {
+			resources = nil
+		}
+		out = append(out, Connector{Connection: name, Actions: a.actions, Resources: resources})
 	}
 	return out
 }

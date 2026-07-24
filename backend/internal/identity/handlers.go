@@ -64,6 +64,11 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /identity/preferences               Get the caller's preferences document (requires auth).
 //	PUT    /identity/preferences               Replace the caller's preferences document (requires auth).
 //	DELETE /identity/preferences               Delete the caller's preferences document (requires auth).
+//
+//	POST   /identity/delegation                Mint a delegation issuance for a run (requires auth; HUMAN or PAT only).
+//	GET    /identity/delegation                List the caller's active delegation issuances (requires auth).
+//	DELETE /identity/delegation/{jti}          Revoke a delegation (requires auth; delegator or SERVICE/SYSTEM).
+//	GET    /identity/delegation/run/{run_id}   Release a run's delegation token (XFCC mesh-attested, like /exchange).
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
@@ -115,6 +120,26 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /preferences", auth, c.handleGetPreferences)
 	mux.HandleWithMiddleware("PUT /preferences", auth, c.handlePutPreferences)
 	mux.HandleWithMiddleware("DELETE /preferences", auth, c.handleDeletePreferences)
+
+	// Delegation issuer (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 3). Deliberately NOT behind rejectPATMiddleware: a PAT counts
+	// as the person for delegation, so PAT callers may mint, list, and revoke
+	// their own issuances. The service layer refuses AGENT/SERVICE/SYSTEM
+	// minting and enforces revoke authorization.
+	delegationAuth := mw.MiddlewareChain(
+		c.svc.AuthMiddleware(c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
+	mux.HandleWithMiddleware("POST /delegation", delegationAuth, c.handleCreateDelegation)
+	mux.HandleWithMiddleware("GET /delegation", delegationAuth, c.handleListDelegations)
+	mux.HandleWithMiddleware("DELETE /delegation/{jti}", delegationAuth, c.handleRevokeDelegation)
+
+	// Run-token retrieval authenticates by mesh-attested SPIFFE identity
+	// (XFCC), exactly like POST /exchange — its caller, the identity-proxy,
+	// holds no bearer token. Registered with mux.Handle so it bypasses the
+	// bearer auth chain; the rego platform-internal bypass exempts the path
+	// at the edge the same way it exempts /identity/exchange.
+	mux.Handle("GET /delegation/run/{run_id}", c.handleGetDelegationForRun)
 }
 
 // rejectPATMiddleware rejects requests that carry a PAT token with 403

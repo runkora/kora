@@ -142,6 +142,11 @@ func realMain() error {
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/v1/mcp/… → /v1/mcp/… with the run identity
+			// in context — the same mechanism the inference gateway mounts, so
+			// per-run MCP configs carry run identity for delegation binding.
+			// See docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4.
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)

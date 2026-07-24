@@ -408,14 +408,16 @@ type startCall struct {
 type agentsStub struct {
 	server *httptest.Server
 
-	mu     sync.Mutex
-	calls  []startCall
-	status int // run-start response status; 0 → 201
+	mu         sync.Mutex
+	calls      []startCall
+	status     int    // run-start response status; 0 → 201
+	runErrBody string // run-start error body written when status >= 300
 
 	// agent-type resolution (GET /api/v1/agent-types/{id}).
-	atSlug   string // slug to return; "" → "code-reviewer"
-	atTenant string // tenant to return; "" → testTenant
-	atStatus int    // response status; 0 → 200
+	atSlug         string // slug to return; "" → "code-reviewer"
+	atTenant       string // tenant to return; "" → testTenant
+	atIdentityMode string // identity_mode to return; "" → autonomous-by-default
+	atStatus       int    // response status; 0 → 200
 }
 
 func newAgentsStub() *agentsStub {
@@ -423,7 +425,7 @@ func newAgentsStub() *agentsStub {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/agent-types/{id}", func(w http.ResponseWriter, r *http.Request) {
 		as.mu.Lock()
-		status, slug, tenant := as.atStatus, as.atSlug, as.atTenant
+		status, slug, tenant, identityMode := as.atStatus, as.atSlug, as.atTenant, as.atIdentityMode
 		as.mu.Unlock()
 		if status == 0 {
 			status = http.StatusOK
@@ -437,7 +439,7 @@ func newAgentsStub() *agentsStub {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		if status < 300 {
-			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q}`, r.PathValue("id"), tenant, slug)
+			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q,"identity_mode":%q}`, r.PathValue("id"), tenant, slug, identityMode)
 		}
 	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +455,7 @@ func newAgentsStub() *agentsStub {
 			agentTypeID:    req.AgentTypeID,
 			initialMessage: req.InitialMessage,
 		})
-		status := as.status
+		status, errBody := as.status, as.runErrBody
 		as.mu.Unlock()
 		if status == 0 {
 			status = http.StatusCreated
@@ -462,6 +464,8 @@ func newAgentsStub() *agentsStub {
 		w.WriteHeader(status)
 		if status < 300 {
 			_, _ = w.Write([]byte(`{"id":"run-1","state":"active"}`))
+		} else if errBody != "" {
+			_, _ = w.Write([]byte(errBody))
 		}
 	})
 	as.server = httptest.NewServer(mux)

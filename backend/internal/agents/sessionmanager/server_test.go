@@ -79,3 +79,28 @@ func TestCodexInferenceURLFormula(t *testing.T) {
 		}
 	}
 }
+
+// The tool-gateway base URL adopts the same /run/{run_id} prefix convention so
+// MCP traffic carries run identity for delegation binding (delegated-agent-
+// identity ADR, Decision 4). writeMCPConfig then appends /v1/mcp/<server>,
+// yielding {gw}/run/{run_id}/v1/mcp/<server>.
+func TestToolGatewayURLForRun(t *testing.T) {
+	tests := []struct {
+		name  string
+		base  string
+		runID string
+		want  string
+	}{
+		{"plain", "http://tool-gw.test", "run-abc", "http://tool-gw.test/run/run-abc"},
+		{"trailing slash trimmed", "http://tool-gw.test/", "run-xyz", "http://tool-gw.test/run/run-xyz"},
+		{"cluster dns", "http://orbit-tool-gateway.orbit-system.svc.cluster.local", "run-1", "http://orbit-tool-gateway.orbit-system.svc.cluster.local/run/run-1"},
+		{"empty base stays empty (no governed entries)", "", "run-1", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := toolGatewayURLForRun(tc.base, tc.runID); got != tc.want {
+				t.Errorf("toolGatewayURLForRun(%q, %q) = %q, want %q", tc.base, tc.runID, got, tc.want)
+			}
+		})
+	}
+}

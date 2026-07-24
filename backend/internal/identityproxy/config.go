@@ -36,4 +36,10 @@ type Config struct {
 	// EnvoyReadyTimeout is the maximum time to wait for Envoy to signal it is
 	// fully initialized (xDS received, mTLS cert loaded) before giving up.
 	EnvoyReadyTimeout time.Duration
+
+	// DelegationNegativeTTL is how long "no delegation for this run"
+	// (autonomous) is cached before re-consulting the identity service
+	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4). Zero
+	// falls back to 5 minutes.
+	DelegationNegativeTTL time.Duration
 }

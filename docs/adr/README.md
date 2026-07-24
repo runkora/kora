@@ -23,6 +23,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
+- [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
 
 ### Identity, Auth & Tokens
 
@@ -76,6 +77,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed` · 2026-06-06
 - [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
+- [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
+- [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted` · 2026-06-04
@@ -104,6 +107,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Proposed` · 2026-07-21
+- [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 
 ### MCP / Tool Gateway
 
@@ -227,11 +231,16 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-17 | [Agent Builder](2026-07-17-agent-builder.md) | Accepted | — |
 | 2026-07-17 | [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) | Accepted | — |
 | 2026-07-17 | [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) | Accepted | — |
+| 2026-07-22 | [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) | Accepted | — |
+| 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted | — |
+| 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
+| 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Accepted | — |
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
+| 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

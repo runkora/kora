@@ -23,7 +23,6 @@ import {
   getSessionOptions,
   SESSION_COOKIE_NAME,
   type SessionPayload,
-  type SessionPermissions,
   type BackendSessionResponse,
 } from '@orbit/server/auth-config';
 import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
@@ -59,42 +58,6 @@ async function tryRefresh(
 
     if (!response.ok) return null;
     return (await response.json()) as BackendSessionResponse;
-  } catch {
-    return null;
-  }
-}
-
-// ── Inline scopes refresh ────────────────────────────────────────────────────
-
-/**
- * Fetches the principal's effective scope set from the policy gateway.
- * Returns `null` on any failure — the caller preserves the existing
- * permission set rather than clearing it.
- */
-async function tryRefreshScopes(accessToken: string): Promise<SessionPermissions | null> {
-  const policyBase = process.env.POLICY_GATEWAY_URL?.replace(/\/$/, '');
-  if (!policyBase) return null;
-
-  try {
-    const res = await fetch(`${policyBase}/policy/scopes`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5_000),
-    });
-
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { scopes?: string[]; evaluated_at?: string };
-    return {
-      scopes: data.scopes ?? [],
-      evaluatedAt: data.evaluated_at
-        ? Math.floor(new Date(data.evaluated_at).getTime() / 1000)
-        : Math.floor(Date.now() / 1000),
-    };
   } catch {
     return null;
   }
@@ -170,13 +133,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     refreshedSession.accessToken = refreshed.access_token;
     refreshedSession.refreshToken = refreshed.refresh_token;
     refreshedSession.expiresAt = refreshed.issued_at + refreshed.expires_in;
-
-    // Refresh the permission set alongside the token. On failure, preserve
-    // the existing permissions rather than clearing them (fail-open for refresh,
-    // fail-closed only on initial login).
-    const newPermissions = await tryRefreshScopes(refreshed.access_token);
-    refreshedSession.permissions = newPermissions ??
-      session.permissions ?? { scopes: [], evaluatedAt: 0 };
 
     await refreshedSession.save();
 

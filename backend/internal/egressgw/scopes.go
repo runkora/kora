@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -68,9 +69,14 @@ func WriteScope() routescopes.ScopeDeclaration {
 // service from the supplied connections and their registered adapters.
 //
 // For each connection it emits one ScopeDeclaration per action the connection's
-// adapter can classify, plus a wildcard "connection:<name>:*" entry that an
-// admin can grant to bestow every action at once. The returned list is sorted
-// by Scope so registration is order-stable across calls.
+// adapter can classify — carrying the adapter's declared requires edges,
+// resolved to full same-connection scopes — plus the covering parents
+// "connection:<name>:read" / "connection:<name>:write", which the scope_covers
+// prefix rule makes the umbrella over every category and qualifier beneath
+// them. (The former "connection:<name>:*" wildcard entry is gone: no wildcard
+// rule exists in scope_covers, so it never authorized anything. See
+// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.) The
+// returned list is sorted by Scope so registration is order-stable across calls.
 //
 // Connections whose adapter is not in the registry are silently skipped — the
 // broker will reject calls to those connections at request time with
@@ -93,24 +99,39 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 			continue
 		}
 
-		// Wildcard scope: "connection:<name>:*" covers every action.
-		if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
-			Scope:        fmt.Sprintf("connection:%s:*", conn.Name),
-			ResourceType: "connection",
-			PathSegments: []string{conn.Name},
-			Action:       "*",
-			Description:  fmt.Sprintf("Use the %q connection for any action", conn.Name),
-		}); fresh {
-			decls = append(decls, d)
+		// Covering parents: connection:<name>:read / :write cover every
+		// category (and repository qualifier) of the matching verb by prefix.
+		for _, verb := range []string{"read", "write"} {
+			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
+				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, verb),
+				ResourceType: "connection",
+				PathSegments: []string{conn.Name},
+				Action:       verb,
+				Description:  fmt.Sprintf("Every %s action on the %q connection, all resources (covering parent)", verb, conn.Name),
+			}); fresh {
+				decls = append(decls, d)
+			}
 		}
 
 		for _, action := range adapter.Actions() {
+			requires := make([]string, 0, len(action.Requires))
+			for _, r := range action.Requires {
+				requires = append(requires, fmt.Sprintf("connection:%s:%s", conn.Name, r))
+			}
+			// An adapter action fragment ("issues:write", "repo:read", "use")
+			// carries its own category. Split it so the stored PathSegments and
+			// Action match the scope grammar the platform's ScopeCovers rule
+			// uses (last segment = action, middle = path): "issues:write"
+			// becomes path [name, issues] + action write, not path [name] +
+			// action "issues:write". The Scope string itself is unchanged.
+			pathSegs, verb := connectionScopeParts(conn.Name, action.Action)
 			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
 				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, action.Action),
 				ResourceType: "connection",
-				PathSegments: []string{conn.Name},
-				Action:       action.Action,
+				PathSegments: pathSegs,
+				Action:       verb,
 				Description:  fmt.Sprintf("%s — %s", conn.Name, action.Description),
+				Requires:     requires,
 			}); fresh {
 				decls = append(decls, d)
 			}
@@ -119,6 +140,19 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 
 	sort.Slice(decls, func(i, j int) bool { return decls[i].Scope < decls[j].Scope })
 	return decls
+}
+
+// connectionScopeParts splits a connection scope into the grammar's path
+// segments and final action, given the connection name and the adapter action
+// fragment. The fragment's own segments (all but its last, e.g. the "issues" of
+// "issues:write") become path suffixes after the connection name; its last
+// segment is the action. A single-word fragment ("use") yields path [name] and
+// that word as the action.
+func connectionScopeParts(name, actionFragment string) (path []string, action string) {
+	parts := strings.Split(actionFragment, ":")
+	action = parts[len(parts)-1]
+	path = append([]string{name}, parts[:len(parts)-1]...)
+	return path, action
 }
 
 // AllScopes is the full set of scope declarations the gateway publishes: the

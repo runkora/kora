@@ -88,13 +88,77 @@ _layer1_delegation_claims := claims if {
 	claims := decoded[1]
 }
 
+# An empty scope claim means "no scopes" (v1 delegation tokens carry none —
+# see the fail-closed marker section); leaving it undefined keeps the
+# token-scope leg satisfied instead of producing the never-matching [""] split.
 _delegation_scopes := scopes if {
 	_is_delegated
 	raw_scope := _layer1_delegation_claims.scope
+	raw_scope != ""
 	scopes := split(raw_scope, " ")
 }
 
 _delegator_id := _layer1_delegation_claims.sub if _is_delegated
+
+# The delegator's principal type from the delegation token (always HUMAN for
+# v1 tokens — PAT-minted delegations normalise to the person at issuance). A
+# token without the claim leaves this undefined, and with it the
+# delegator-grant leg: fail closed.
+_delegator_principal_type := _layer1_delegation_claims.delegator_principal_type if _is_delegated
+
+# ══ DELEGATION RUN BINDING ════════════════════════════════════════════════════
+#
+# Mirrors authz.rego (docs/adr/2026-07-23-delegated-agent-identity.md,
+# Decision 4): a delegation token is bound to one run via its run_id claim.
+# Where the request independently carries run identity — the /run/{run_id}
+# path prefix or the platform token's run_id claim (per-run sandbox SVIDs) —
+# a delegation bound to a different run is refused.
+
+_path_run_id := m[0][1] if {
+	m := regex.find_all_string_submatch_n(`^/run/([^/]+)/`, input.attributes.request.http.path, 1)
+	count(m) == 1
+}
+
+_delegation_run_id := _layer1_delegation_claims.run_id
+
+_delegation_run_mismatch if {
+	_is_delegated
+	_delegation_run_id != ""
+	_path_run_id != _delegation_run_id
+}
+
+_delegation_run_mismatch if {
+	_is_delegated
+	_delegation_run_id != ""
+	_claims.orbit.claims.run_id != _delegation_run_id
+}
+
+# ══ DELEGATION FAIL-CLOSED MARKER ═════════════════════════════════════════════
+#
+# Mirrors authz.rego (docs/adr/2026-07-23-delegated-agent-identity.md,
+# Decision 2): a grant carrying delegation_required marks its principal as a
+# delegated agent whose grant is a ceiling, never a standing entitlement. Every
+# autonomous allow path refuses such a principal, so a missing delegation token
+# means NO access rather than the agent's standing access.
+
+_principal_requires_delegation if {
+	some grant in data.tenants[_tenant_id].grants.grants
+	grant.principal_type == _principal_type
+	grant.principal_id == _principal_id
+	grant.delegation_required == true
+}
+
+# The token-scope leg applies only when the delegation context carries scopes —
+# v1 delegation tokens carry no scope claim (Decision 3); authority is
+# evaluated live from the agent-grant and delegator legs.
+_delegation_has_scopes if {
+	is_array(_delegation_scopes)
+	count(_delegation_scopes) > 0
+}
+
+_delegation_scope_satisfied if not _delegation_has_scopes
+
+_delegation_scope_satisfied if delegation_covers_required_scope
 
 # ══ FRONTEND HOST BYPASS ══════════════════════════════════════════════════════
 #
@@ -129,6 +193,12 @@ _is_platform_internal_path if {
 	some prefix in [
 		"/health",
 		"/api/v1/identity/exchange",
+		# Delegation run-token retrieval: the identity-proxy authenticates by
+		# mesh-attested SPIFFE identity (XFCC), not a bearer token — same
+		# treatment as /identity/exchange (delegated-agent-identity ADR,
+		# Decision 3). Release is gated in-process on the caller's SVID
+		# matching the issuance's agent principal.
+		"/api/v1/identity/delegation/run/",
 		"/api/v1/identity/.well-known/",
 		"/api/v1/policy/bundles/",
 		"/api/v1/webhooks/",
@@ -255,14 +325,61 @@ delegation_covers_required_scope if {
 	scope_covers(ds, _required_scope)
 }
 
-# TODO(M2): also check grant.principal_type against the delegator's principal type.
-# Two principal types sharing the same principal_id string would incorrectly satisfy
-# this check. Requires adding delegator_principal_type to the delegation token spec.
-delegator_covers_required_scope if {
+# ══ DELEGATOR LEG (delegated-agent-identity ADR, Decision 5) ═════════════════
+#
+# Mirrors authz.rego: the delegator's side of the intersection is the person's
+# FULL held access — direct grants plus role-derived scopes, resolved offline
+# from the tenant's bundle data — plus the vocabulary `requires` projection for
+# scopes a person is never granted (MCP tool scopes).
+
+# Direct grants. Principal type must match the delegation token's
+# delegator_principal_type so two principal types sharing an id string can
+# never satisfy this leg (closes the former TODO(M2)).
+_delegator_holds(scope) if {
 	some grant in data.tenants[_tenant_id].grants.grants
+	grant.principal_type == _delegator_principal_type
 	grant.principal_id == _delegator_id
 	some gs in grant.scopes
-	scope_covers(gs, _required_scope)
+	scope_covers(gs, scope)
+}
+
+# Role-derived access: membership from the bundled user_profiles snapshot (the
+# same source PAT role attribution uses), through the tenant's role→scope map.
+_delegator_holds(scope) if {
+	_delegator_principal_type == "HUMAN"
+	some role in data.tenants[_tenant_id].principal_roles.principal_roles[_delegator_id]
+	some role_scope in data.tenants[_tenant_id].roles.role_scopes[role]
+	scope_covers(role_scope, scope)
+}
+
+# Vocabulary requires-adjacency (the vocabulary is shared, bundled top-level).
+# graph.reachable only reports vertices that exist as graph KEYS, so every
+# requires TARGET gets a leaf entry too — otherwise the expansion would
+# silently drop targets and weaken the every-check below.
+_requires_graph[scope] := entry.requires if {
+	some scope, entry in data.vocabulary.scope_vocabulary
+	entry.requires
+}
+
+_requires_graph[scope] := [] if {
+	some _, entry in data.vocabulary.scope_vocabulary
+	some scope in entry.requires
+	not data.vocabulary.scope_vocabulary[scope].requires
+}
+
+_required_scope_expansion := graph.reachable(_requires_graph, {_required_scope}) - {_required_scope}
+
+# The delegator covers the required scope directly (grant or role)...
+delegator_covers_required_scope if _delegator_holds(_required_scope)
+
+# ...or through its vocabulary requires expansion, every scope of which the
+# delegator must cover — e.g. mcp:{server}:{tool}:use delegates through to the
+# person's connection:* authority.
+delegator_covers_required_scope if {
+	count(_required_scope_expansion) > 0
+	every required in _required_scope_expansion {
+		_delegator_holds(required)
+	}
 }
 
 # ══ ALLOW RULES ═══════════════════════════════════════════════════════════════
@@ -279,14 +396,16 @@ allow if _is_self_enforced_path
 # Authenticated principal — autonomous (no delegation).
 allow if {
 	not _is_delegated
+	not _principal_requires_delegation
 	principal_has_required_scope
 }
 
 # Authenticated principal — delegated.
 allow if {
 	_is_delegated
+	not _delegation_run_mismatch
 	principal_has_required_scope
-	delegation_covers_required_scope
+	_delegation_scope_satisfied
 	delegator_covers_required_scope
 }
 
@@ -294,6 +413,7 @@ allow if {
 # Not available for delegated requests — delegation constrains effective permissions.
 allow if {
 	not _is_delegated
+	not _principal_requires_delegation
 	_principal_type == "HUMAN"
 	some role in _principal_roles
 	some role_scope in data.tenants[_tenant_id].roles.role_scopes[role]
@@ -313,14 +433,29 @@ reason := "allow:self_enforced" if _is_self_enforced_path
 reason := concat("", ["grant:", matched_grant_scope]) if {
 	not _is_delegated
 	not _is_self_enforced_path
+	not _principal_requires_delegation
 	principal_has_required_scope
 }
 
 reason := concat("", ["delegation:", matched_grant_scope]) if {
 	_is_delegated
+	not _delegation_run_mismatch
 	principal_has_required_scope
-	delegation_covers_required_scope
+	_delegation_scope_satisfied
 	delegator_covers_required_scope
+}
+
+# Fail-closed marker fired: the principal's grant would have covered the
+# request, but the grant requires delegation and none is present. Gated on
+# principal_has_required_scope (and the bypass guards) so it can never
+# conflict with the other reason rules.
+reason := "deny:delegation_required" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	not _is_delegated
+	_principal_requires_delegation
+	principal_has_required_scope
 }
 
 matched_roles contains role_match if {
@@ -339,28 +474,43 @@ reason := concat("", ["role:", min(matched_roles)]) if {
 
 reason := "deny:no_delegation_scope" if {
 	_is_delegated
+	not _delegation_run_mismatch
 	principal_has_required_scope
-	not delegation_covers_required_scope
+	not _delegation_scope_satisfied
 }
 
 reason := "deny:no_delegator_grant" if {
 	_is_delegated
+	not _delegation_run_mismatch
 	principal_has_required_scope
-	delegation_covers_required_scope
+	_delegation_scope_satisfied
 	not delegator_covers_required_scope
 }
 
 reason := "deny:no_agent_grant" if {
 	_is_delegated
-	delegation_covers_required_scope
+	not _delegation_run_mismatch
+	_delegation_scope_satisfied
 	delegator_covers_required_scope
 	not principal_has_required_scope
+}
+
+# A delegation bound to a different run than the one the request asserts (or
+# the platform token attests). Guarded out of every other delegated reason
+# rule so complete-rule conflicts are impossible.
+reason := "deny:delegation_run_mismatch" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_is_delegated
+	_delegation_run_mismatch
 }
 
 reason := "deny:invalid_token" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
+	not _delegation_run_mismatch
 	not _claims
 }
 
@@ -368,6 +518,7 @@ reason := "deny:no_route_match" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
+	not _delegation_run_mismatch
 	_claims
 	not _required_scope
 }

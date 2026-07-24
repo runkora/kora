@@ -1,12 +1,34 @@
 'use client';
 
-/** @tier 3 — agents-scoped. Builder step 1: name, slug, description. */
+/** @tier 3 — agents-scoped. Builder step 1: name, slug, description, identity model. */
 
-import { FormField, Grid, Input, SectionHeading, Stack, Textarea } from '@orbit/terra';
+import {
+  FormField,
+  Grid,
+  Input,
+  SectionHeading,
+  Separator,
+  Stack,
+  Text,
+  Textarea,
+} from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
+import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
-  const { fields, setName, setSlug, setField } = useAgentBuilderContext();
+  const { fields, setName, setSlug, setField, identityModeAccess } = useAgentBuilderContext();
+
+  // Mode-qualified create permissions (agents:types:{mode}:write, resolved
+  // with prefix covers so agents:types:write enables both). Until the scope
+  // set loads, nothing is disabled; the backend check is authoritative.
+  const disabledModes = {
+    ...(identityModeAccess.loaded && !identityModeAccess.autonomous
+      ? { autonomous: 'You do not have permission to create autonomous agents.' }
+      : null),
+    ...(identityModeAccess.loaded && !identityModeAccess.delegated
+      ? { delegated: 'You do not have permission to create delegated agents.' }
+      : null),
+  };
 
   return (
     <Stack gap="relaxed">
@@ -46,6 +68,26 @@ export function StepIdentity() {
           placeholder="What this agent is responsible for."
         />
       </FormField>
+
+      <Separator span="full" />
+
+      {/* ── Identity model ─────────────────────────────────────────────────── */}
+      <Stack gap="cozy">
+        <Stack direction="horizontal" align="center">
+          <Text as="span" size="caption" weight="heavy" color="muted">
+            Identity model
+          </Text>
+          <Stack grow />
+          <Text as="span" size="micro" color="subtle">
+            Permanent: cannot be changed after creation.
+          </Text>
+        </Stack>
+        <IdentityModeCards
+          value={fields.identityMode}
+          onChange={(v) => setField('identityMode', v)}
+          disabledModes={disabledModes}
+        />
+      </Stack>
     </Stack>
   );
 }

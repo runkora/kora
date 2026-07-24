@@ -265,6 +265,55 @@ func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	}
 }
 
+func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
+	// Delegated identity model (delegated-agent-identity ADR, Decision 6): a
+	// delegated agent cannot be bound to an automated source — refused at
+	// create time with a reason naming the identity model. Autonomous agents
+	// (including an empty identity_mode from an older server) bind as before.
+	tests := []struct {
+		name         string
+		identityMode string
+		wantErr      bool
+	}{
+		{"delegated agent refused", "delegated", true},
+		{"autonomous agent allowed", "autonomous", false},
+		{"empty identity mode (older server) allowed", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			src := mustSource(t, svc)
+			deps.agents.atIdentityMode = tc.identityMode
+			grantsBefore := len(deps.policy.created)
+
+			tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
+			})
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				if deps.repo.triggers[tr.ID] == nil {
+					t.Error("trigger not persisted")
+				}
+				return
+			}
+			if !errors.Is(err, ErrValidation) {
+				t.Fatalf("got %v, want ErrValidation", err)
+			}
+			if !strings.Contains(err.Error(), "delegated agents cannot be bound to automated sources") {
+				t.Errorf("error %q should name the identity model as the reason", err)
+			}
+			if len(deps.repo.triggers) != 0 {
+				t.Error("no trigger should be persisted for a delegated agent")
+			}
+			if len(deps.policy.created) != grantsBefore {
+				t.Errorf("no trigger grant should be created for a delegated agent (grants %d → %d)", grantsBefore, len(deps.policy.created))
+			}
+		})
+	}
+}
+
 func TestUpdateTrigger(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, svc)
@@ -549,6 +598,35 @@ func TestDispatch_StartRunError_Failed(t *testing.T) {
 	}
 	if d.Error == nil || *d.Error == "" {
 		t.Error("failed delivery should record an error message")
+	}
+}
+
+func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
+	// Defense in depth for a trigger that predates the identity model (or a
+	// race): if orbit-agents' run-start principal gate refuses the SERVICE
+	// start with the delegated-identity 403, the delivery must record that
+	// reason legibly — the upstream body flows into the delivery error via the
+	// agents client's error wrapping, not as an opaque 403.
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.agents.status = http.StatusForbidden
+	deps.agents.runErrBody = `{"code":"forbidden","message":"this agent uses the delegated identity model: runs can only be started by a person (HUMAN or PAT principal)"}`
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	d := deps.repo.deliveryByID(delID)
+	if d.Status != StatusFailed {
+		t.Errorf("status = %q, want failed", d.Status)
+	}
+	if d.Error == nil || !strings.Contains(*d.Error, "delegated identity model") {
+		t.Errorf("delivery error = %v, want the delegated-identity reason recorded verbatim", d.Error)
+	}
+	runs := deps.repo.deliveryRunsFor(delID)
+	if len(runs) != 1 || runs[0].Status != RunStatusFailed {
+		t.Fatalf("delivery runs = %+v, want one failed row", runs)
+	}
+	if runs[0].Error == nil || !strings.Contains(*runs[0].Error, "delegated identity model") {
+		t.Errorf("delivery run error = %v, want the delegated-identity reason recorded verbatim", runs[0].Error)
 	}
 }
 

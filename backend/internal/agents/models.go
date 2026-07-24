@@ -26,6 +26,41 @@ const (
 	AgentFrameworkOpenCode   AgentFramework = "opencode"
 )
 
+// IdentityMode is an agent type's identity model — who the agent acts as.
+// Autonomous agents act on their own provisioned grant; delegated agents act on
+// behalf of the person who runs them, bounded by the intersection of the agent's
+// grant and the delegator's live access. Set at creation and immutable
+// thereafter (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 1).
+type IdentityMode string
+
+const (
+	// IdentityModeAutonomous — the agent acts as itself, on its own grant (default).
+	IdentityModeAutonomous IdentityMode = "autonomous"
+	// IdentityModeDelegated — the agent acts on behalf of the person who runs it;
+	// its grant is a ceiling, not an entitlement, and every action requires valid
+	// delegation context (fail-closed).
+	IdentityModeDelegated IdentityMode = "delegated"
+)
+
+// Validate checks the identity mode is a known value. Empty is accepted and
+// normalised to autonomous at create time.
+func (m IdentityMode) Validate() error {
+	switch m {
+	case IdentityModeAutonomous, IdentityModeDelegated, "":
+		return nil
+	default:
+		return fmt.Errorf("identity mode %q is invalid: want autonomous or delegated", m)
+	}
+}
+
+// OrDefault returns the mode with empty normalised to autonomous.
+func (m IdentityMode) OrDefault() IdentityMode {
+	if m == "" {
+		return IdentityModeAutonomous
+	}
+	return m
+}
+
 // ConnectivityMode is an agent type's outbound egress posture — the platform's
 // reachability gate for the agent's sandboxes. It compiles to egress:<host>:connect
 // scopes enforced at the sandbox OPA. See the egress-gateway ADR (Amendment
@@ -111,7 +146,13 @@ func (c Connectivity) EgressScopes() []string {
 // and for which actions.
 type Connector struct {
 	Connection string   `json:"connection"` // registered connection name, e.g. "github"
-	Actions    []string `json:"actions"`    // adapter actions, e.g. ["repo:read","repo:write"]
+	Actions    []string `json:"actions"`    // adapter actions, e.g. ["contents:read","issues:write"]
+	// Resources optionally narrows the attachment to specific upstream
+	// resources (repositories, namespaces — the adapter's qualifier
+	// dimension). Empty means all resources: the compiled scopes stay
+	// unqualified, which the covers hierarchy makes the parent of every
+	// qualified form. See docs/adr/2026-07-22-connection-scope-qualifiers.md.
+	Resources []string `json:"resources,omitempty"`
 }
 
 // AgentBudget is the spending configuration applied to the agent's policy
@@ -138,10 +179,13 @@ type AgentType struct {
 	Description  string         `json:"description"`
 	SystemPrompt string         `json:"system_prompt"`
 	Framework    AgentFramework `json:"framework"`
-	ToolScopes   []string       `json:"tool_scopes"`
-	GrantScopes  []string       `json:"grant_scopes"`
-	Connectivity Connectivity   `json:"connectivity"`
-	Connectors   []Connector    `json:"connectors,omitempty"`
+	// IdentityMode is the agent's identity model (autonomous or delegated).
+	// Immutable after creation — see docs/adr/2026-07-23-delegated-agent-identity.md.
+	IdentityMode IdentityMode `json:"identity_mode"`
+	ToolScopes   []string     `json:"tool_scopes"`
+	GrantScopes  []string     `json:"grant_scopes"`
+	Connectivity Connectivity `json:"connectivity"`
+	Connectors   []Connector  `json:"connectors,omitempty"`
 	// MCPTools are the governed MCP tools this agent may call through the
 	// tool-gateway, as mcp:<server>:<tool>:use scopes. A first-class field the
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
@@ -163,10 +207,13 @@ type AgentType struct {
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set
-// granted to the agent principal: connection:<connection>:<action> for each
-// action. Empty connection names or actions are skipped. Action strings keep
-// their own ':' (e.g. "repo:read") so the full scope is a 4-segment
-// connection:<name>:<resource>:<verb>.
+// granted to the agent principal. An unrestricted connector compiles each action
+// to connection:<connection>:<action> (the action fragment keeps its own ':',
+// e.g. "contents:read", so the scope is connection:<name>:<category>:<verb>).
+// A connector with Resources compiles the qualifier into each category action —
+// connection:<name>:<category>:<resource>:<verb> — one scope per selected
+// resource. Single-word actions ("use") take no qualifier and stay unqualified.
+// Empty connection names or actions are skipped.
 func (at AgentType) ConnectorScopes() []string {
 	scopes := make([]string, 0, len(at.Connectors))
 	for _, c := range at.Connectors {
@@ -174,9 +221,24 @@ func (at AgentType) ConnectorScopes() []string {
 		if name == "" {
 			continue
 		}
+		resources := make([]string, 0, len(c.Resources))
+		for _, r := range c.Resources {
+			if r = strings.ToLower(strings.TrimSpace(r)); r != "" {
+				resources = append(resources, r)
+			}
+		}
 		for _, a := range c.Actions {
-			if a = strings.TrimSpace(a); a != "" {
+			if a = strings.TrimSpace(a); a == "" {
+				continue
+			}
+			i := strings.LastIndex(a, ":")
+			if len(resources) == 0 || i <= 0 {
 				scopes = append(scopes, "connection:"+name+":"+a)
+				continue
+			}
+			category, verb := a[:i], a[i+1:]
+			for _, r := range resources {
+				scopes = append(scopes, "connection:"+name+":"+category+":"+r+":"+verb)
 			}
 		}
 	}
@@ -374,6 +436,24 @@ type Run struct {
 	// intent, derived from the initial message at run start. Null when the run
 	// had no initial message or when generation failed (best-effort).
 	Summary *string `json:"summary"`
+	// DelegationJTI identifies the delegation issuance minted for this run at
+	// start when the agent type is delegated (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 3). Nil for autonomous runs. orbit-agents revokes the issuance
+	// by this JTI when the run reaches a terminal state.
+	DelegationJTI *string `json:"delegation_jti,omitempty"`
+	// IdentityMode is the agent type's identity model, denormalised onto run
+	// reads (repository queries join agent_types) so every run surface can show
+	// the governance posture — and attribute created_by accordingly — without a
+	// second lookup. Not a runs column.
+	IdentityMode IdentityMode `json:"identity_mode,omitempty"`
+}
+
+// DeletedRun is one force-deleted run returned by DeleteRunsByAgentType: the
+// ID (for sandbox pod cleanup) and the delegation JTI, when the run was
+// delegated (for issuance revocation — the delegation ends with the run).
+type DeletedRun struct {
+	ID            string
+	DelegationJTI *string
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────

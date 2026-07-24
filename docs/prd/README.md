@@ -35,6 +35,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Frontend Test Strategy](frontend-test-strategy.md) | Implemented | [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) |
 | [Nav Cleanup and Live Dashboard](nav-cleanup-and-live-dashboard.md) | Approved | [nav-cleanup-and-live-dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md) |
 | [Mobile & Tablet Responsive Design](mobile-responsive-design.md) | Approved | [mobile-responsive-design](../adr/2026-06-19-mobile-responsive-design.md) |
+| [Multi-Account AWS Bedrock Support](multi-account-bedrock.md) | Approved | [multi-account-bedrock](../adr/2026-06-19-multi-account-bedrock.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 

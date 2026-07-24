@@ -65,22 +65,30 @@ const istioReadyURL = "http://localhost:15021/healthz/ready"
 
 // Processor implements ExternalProcessorServer.
 // It injects the cached platform JWT as an Authorization header on every
-// request. The zero-value is not usable — use NewProcessor.
+// request, and — when the request carries per-run identity — the run's
+// delegation token as X-Orbit-Delegation-Token
+// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4). Any inbound
+// delegation header is stripped unconditionally: the untrusted subprocess must
+// never be able to inject one. The zero-value is not usable — use NewProcessor.
 type Processor struct {
 	ext_procv3.UnimplementedExternalProcessorServer
 
-	cache  *TokenCache
-	logger logging.Logger
+	cache       *TokenCache
+	delegations *DelegationManager // nil disables delegation attachment (tests); stripping still applies
+	logger      logging.Logger
 }
 
-// NewProcessor constructs a Processor backed by the given cache.
-func NewProcessor(cache *TokenCache, logger logging.Logger) *Processor {
-	return &Processor{cache: cache, logger: logger}
+// NewProcessor constructs a Processor backed by the given caches. delegations
+// may be nil, in which case no delegation token is ever attached (inbound
+// delegation headers are still stripped).
+func NewProcessor(cache *TokenCache, delegations *DelegationManager, logger logging.Logger) *Processor {
+	return &Processor{cache: cache, delegations: delegations, logger: logger}
 }
 
 // Process is the bidirectional streaming RPC called by Envoy for every HTTP
 // request that passes through the ext_proc filter. We intercept request-header
-// messages, inject the Bearer token, and continue.
+// messages, inject the Bearer token (and the run's delegation token when
+// applicable), and continue.
 func (p *Processor) Process(stream ext_procv3.ExternalProcessor_ProcessServer) error {
 	ctx := stream.Context()
 
@@ -93,9 +101,9 @@ func (p *Processor) Process(stream ext_procv3.ExternalProcessor_ProcessServer) e
 			return status.Errorf(codes.Unknown, "recv error: %v", err)
 		}
 
-		switch req.Request.(type) {
+		switch msg := req.Request.(type) {
 		case *ext_procv3.ProcessingRequest_RequestHeaders:
-			resp := p.handleRequestHeaders(ctx)
+			resp := p.handleRequestHeaders(ctx, msg.RequestHeaders)
 			if sendErr := stream.Send(resp); sendErr != nil {
 				return status.Errorf(codes.Unknown, "send error: %v", sendErr)
 			}
@@ -110,9 +118,29 @@ func (p *Processor) Process(stream ext_procv3.ExternalProcessor_ProcessServer) e
 	}
 }
 
-// handleRequestHeaders reads the cached token and returns a ProcessingResponse
-// that injects the Authorization header into the upstream request.
-func (p *Processor) handleRequestHeaders(ctx context.Context) *ext_procv3.ProcessingResponse {
+// headerValue extracts a header value from an ext_proc HttpHeaders message.
+// Envoy populates RawValue; Value is the legacy string field.
+func headerValue(headers *ext_procv3.HttpHeaders, key string) string {
+	if headers == nil || headers.Headers == nil {
+		return ""
+	}
+	for _, h := range headers.Headers.Headers {
+		if h.GetKey() == key {
+			if raw := h.GetRawValue(); len(raw) > 0 {
+				return string(raw)
+			}
+			return h.GetValue()
+		}
+	}
+	return ""
+}
+
+// handleRequestHeaders reads the cached tokens and returns a ProcessingResponse
+// that injects the Authorization header — and, when the request carries run
+// identity (the /run/{run_id} path prefix, or this pod's own sandbox SVID) and
+// that run holds an active delegation, the X-Orbit-Delegation-Token header —
+// into the upstream request.
+func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv3.HttpHeaders) *ext_procv3.ProcessingResponse {
 	token, _, ok := p.cache.Get()
 	if !ok {
 		p.logger.Info(ctx, "token cache empty — request will proceed without Authorization header")
@@ -121,16 +149,50 @@ func (p *Processor) handleRequestHeaders(ctx context.Context) *ext_procv3.Proces
 		// "Spurious response message 0" and treat the ext_proc stream as
 		// errored, returning 503 even when failureModeAllow=true. The exchange
 		// endpoint authenticates via mTLS/XFCC — it does not need a Bearer
-		// token — so CONTINUE with no header mutation is correct behavior
-		// while the cache is being populated on startup or after rotation.
+		// token — so CONTINUE while the cache is being populated on startup or
+		// after rotation is correct. The inbound delegation header is still
+		// stripped: the subprocess must never smuggle one through this window.
 		return &ext_procv3.ProcessingResponse{
 			Response: &ext_procv3.ProcessingResponse_RequestHeaders{
 				RequestHeaders: &ext_procv3.HeadersResponse{
 					Response: &ext_procv3.CommonResponse{
 						Status: ext_procv3.CommonResponse_CONTINUE,
+						HeaderMutation: &ext_procv3.HeaderMutation{
+							RemoveHeaders: []string{delegationHeader},
+						},
 					},
 				},
 			},
+		}
+	}
+
+	// Remove any pre-existing values first to guarantee exactly one value per
+	// header. Without this, Envoy's default append behavior would produce two
+	// Authorization headers if the upstream request already carries one; and
+	// the delegation header is attacker-writable from inside the pod, so it is
+	// stripped whether or not we attach our own.
+	mutation := &ext_procv3.HeaderMutation{
+		RemoveHeaders: []string{authorizationHeader, delegationHeader},
+		SetHeaders: []*corev3.HeaderValueOption{
+			{
+				Header: &corev3.HeaderValue{
+					Key:      authorizationHeader,
+					RawValue: []byte("Bearer " + token),
+				},
+				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+			},
+		},
+	}
+
+	if p.delegations != nil {
+		if delegation, found := p.delegations.TokenForPath(ctx, headerValue(headers, ":path")); found {
+			mutation.SetHeaders = append(mutation.SetHeaders, &corev3.HeaderValueOption{
+				Header: &corev3.HeaderValue{
+					Key:      delegationHeader,
+					RawValue: []byte(delegation),
+				},
+				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+			})
 		}
 	}
 
@@ -138,22 +200,7 @@ func (p *Processor) handleRequestHeaders(ctx context.Context) *ext_procv3.Proces
 		Response: &ext_procv3.ProcessingResponse_RequestHeaders{
 			RequestHeaders: &ext_procv3.HeadersResponse{
 				Response: &ext_procv3.CommonResponse{
-					HeaderMutation: &ext_procv3.HeaderMutation{
-						// Remove any pre-existing Authorization header first to
-						// guarantee exactly one value. Without this, Envoy's
-						// default append behavior would produce two Authorization
-						// headers if the upstream request already carries one.
-						RemoveHeaders: []string{authorizationHeader},
-						SetHeaders: []*corev3.HeaderValueOption{
-							{
-								Header: &corev3.HeaderValue{
-									Key:      authorizationHeader,
-									RawValue: []byte("Bearer " + token),
-								},
-								AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-							},
-						},
-					},
+					HeaderMutation: mutation,
 				},
 			},
 		},
@@ -184,14 +231,18 @@ type Server struct {
 // It creates an envoyReady channel and injects it into the Refresher so that
 // any SVID-rotation callbacks fired before Envoy is ready will block instead
 // of racing ahead and hitting connection refused on the exchange endpoint.
+//
+// delegations may be nil (tests): the processor then never attaches a
+// delegation token, but still strips inbound delegation headers.
 func NewServer(
 	cache *TokenCache,
+	delegations *DelegationManager,
 	exchanger tokenExchanger,
 	refresher *Refresher,
 	logger logging.Logger,
 	cfg Config,
 ) *Server {
-	processor := NewProcessor(cache, logger)
+	processor := NewProcessor(cache, delegations, logger)
 
 	grpcSrv := grpc.NewServer()
 	healthSrv := health.NewServer()

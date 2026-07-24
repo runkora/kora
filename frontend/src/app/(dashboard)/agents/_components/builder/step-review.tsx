@@ -17,6 +17,7 @@ import {
 import type { IconName } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
+import { IDENTITY_MODE_LABELS } from '../motif/identity-mode-cards';
 
 interface ReviewRow {
   k: string;
@@ -80,6 +81,15 @@ export function StepReview() {
     return prefixes.size;
   }, [fields.mcpTools]);
 
+  // Surface resource-scoped connectors so the review does not silently drop
+  // the qualifier state (connection scope qualifiers ADR).
+  const connectionsSummary = useMemo(() => {
+    const scoped = fields.connectors.filter((c) => (c.resources?.length ?? 0) > 0).length;
+    return scoped > 0
+      ? `${fields.connectors.length} (${scoped} resource-scoped)`
+      : String(fields.connectors.length);
+  }, [fields.connectors]);
+
   const frameworkName = FRAMEWORK_LABELS[fields.framework];
 
   return (
@@ -101,6 +111,7 @@ export function StepReview() {
           rows={[
             { k: 'Name', v: fields.name || 'Not set' },
             { k: 'Slug', v: fields.slug || 'Not set', mono: fields.slug.length > 0 },
+            { k: 'Identity model', v: IDENTITY_MODE_LABELS[fields.identityMode] },
           ]}
         />
         <ReviewGroup
@@ -129,7 +140,7 @@ export function StepReview() {
             { k: 'MCP servers', v: String(grantedServers) },
             { k: 'MCP tools granted', v: String(fields.mcpTools.length), mono: true },
             { k: 'Platform scopes', v: String(fields.toolScopes.length), mono: true },
-            { k: 'Connections', v: String(fields.connectors.length) },
+            { k: 'Connections', v: connectionsSummary },
             { k: 'Network egress', v: fields.connectivityMode },
             { k: 'Environment', v: environment?.name ?? 'None' },
           ]}

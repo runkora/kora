@@ -53,6 +53,8 @@ export function RunTopbar() {
     runId,
     runState,
     summary,
+    startedBy,
+    delegated,
     canvasState,
     openCanvas,
     spentUsd,
@@ -171,6 +173,29 @@ export function RunTopbar() {
         <Badge variant="dim" size="sm" mono>
           {displayRunId}
         </Badge>
+        {/* Delegated runs execute with the starter's access under their name —
+            mark them so the attribution and privacy semantics are legible. */}
+        {delegated && (
+          <Badge variant="default" size="sm">
+            Delegated
+          </Badge>
+        )}
+        {startedBy && (
+          <Text
+            as="span"
+            style={{
+              fontSize: 12,
+              color: 'var(--color-subtle)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '14rem',
+            }}
+            title={`Started by ${startedBy}`}
+          >
+            by {startedBy}
+          </Text>
+        )}
       </Stack>
 
       {/* Task summary — shown when available, truncated with ellipsis */}

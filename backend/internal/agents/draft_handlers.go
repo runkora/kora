@@ -14,8 +14,9 @@ import (
 // under /api/v1/agent-types: a nested GET /agent-types/drafts/{id} is
 // ambiguous with GET /agent-types/{id}/effective-access in Go's ServeMux
 // (registration panics). The sibling prefix carries its own route-scope
-// bindings in cmd/orbit-agents/main.go (GET → agents:types:read,
-// POST/PATCH/DELETE → agents:types:write).
+// bindings in cmd/orbit-agents/main.go (GET → agents:types:read;
+// POST/PATCH/DELETE are authenticated-only at the route layer, with the
+// DraftService requiring create authority for at least one identity mode).
 // See docs/adr/2026-07-17-agent-builder.md.
 
 func (c *Controller) handleCreateDraft(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +95,11 @@ func (c *Controller) writeDraftError(ctx context.Context, w http.ResponseWriter,
 	case errors.Is(err, errNoVerifiedClaims):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ForbiddenError(api.ErrCodeForbidden, "request carries no verified principal", nil), nil)
+	case errors.Is(err, ErrIdentityModeWriteForbidden):
+		// Draft writes require create authority for at least one identity
+		// mode; the message names the missing scopes.
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	default:
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "draft operation failed", nil), err)

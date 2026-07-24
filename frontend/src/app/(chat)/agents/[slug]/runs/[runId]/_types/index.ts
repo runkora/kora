@@ -140,4 +140,8 @@ export interface RunChatState {
   tokensUsed: number;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
   summary: string | null;
+  /** Who started the run — BFF-resolved display name, or the raw principal id, or null until loaded. */
+  startedBy: string | null;
+  /** True when the agent is delegated: the run acts on the starter's behalf and is private to them. */
+  delegated: boolean;
 }

@@ -119,12 +119,12 @@ func TestClassifyAction_ResourceCategorization(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRequest: %v", err)
 			}
-			got, err := a.ClassifyAction(req)
+			got, err := a.ClassifyAction(req, credentials.Connection{})
 			if err != nil {
 				t.Fatalf("ClassifyAction(%s %s): unexpected error %v", tc.method, tc.path, err)
 			}
-			if got != tc.want {
-				t.Errorf("ClassifyAction(%s %s) = %q, want %q", tc.method, tc.path, got, tc.want)
+			if got.Action != tc.want {
+				t.Errorf("ClassifyAction(%s %s) = %q, want %q", tc.method, tc.path, got.Action, tc.want)
 			}
 		})
 	}
@@ -137,7 +137,7 @@ func TestClassifyAction_ResourceCategorization(t *testing.T) {
 func TestClassifyAction_UnrecognizedResourceDenied(t *testing.T) {
 	a := newAdapter(stubSecrets{})
 	req, _ := http.NewRequest(http.MethodGet, "https://k8s.example.com/apis/example.com/v1/namespaces/default/widgets", nil)
-	_, err := a.ClassifyAction(req)
+	_, err := a.ClassifyAction(req, credentials.Connection{})
 	if !errors.Is(err, credentials.ErrUnsupportedAction) {
 		t.Errorf("ClassifyAction(unrecognized CRD) error = %v, want ErrUnsupportedAction", err)
 	}
@@ -146,7 +146,7 @@ func TestClassifyAction_UnrecognizedResourceDenied(t *testing.T) {
 func TestClassifyAction_UnsupportedVerbDenied(t *testing.T) {
 	a := newAdapter(stubSecrets{})
 	req, _ := http.NewRequest("PROPFIND", "https://k8s.example.com/api/v1/pods", nil)
-	_, err := a.ClassifyAction(req)
+	_, err := a.ClassifyAction(req, credentials.Connection{})
 	if !errors.Is(err, credentials.ErrUnsupportedAction) {
 		t.Errorf("ClassifyAction(PROPFIND) error = %v, want ErrUnsupportedAction", err)
 	}
@@ -162,7 +162,7 @@ func TestClassifyAction_UpgradeRequestDenied(t *testing.T) {
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "SPDY/3.1")
 
-	_, err := a.ClassifyAction(req)
+	_, err := a.ClassifyAction(req, credentials.Connection{})
 	if !errors.Is(err, credentials.ErrUnsupportedAction) {
 		t.Errorf("ClassifyAction(upgrade) error = %v, want ErrUnsupportedAction", err)
 	}
@@ -170,7 +170,7 @@ func TestClassifyAction_UpgradeRequestDenied(t *testing.T) {
 
 func TestClassifyAction_NilRequestDenied(t *testing.T) {
 	a := newAdapter(stubSecrets{})
-	if _, err := a.ClassifyAction(nil); !errors.Is(err, credentials.ErrUnsupportedAction) {
+	if _, err := a.ClassifyAction(nil, credentials.Connection{}); !errors.Is(err, credentials.ErrUnsupportedAction) {
 		t.Errorf("ClassifyAction(nil) error = %v, want ErrUnsupportedAction", err)
 	}
 }

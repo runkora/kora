@@ -14,6 +14,7 @@ proxy:
   refreshThresholdSecs: 60
   backoffInitialMs: 500
   backoffMaxSecs: 30
+  delegationNegativeTTLSecs: 300
 
 observability:
   serviceName: orbit-identity-proxy

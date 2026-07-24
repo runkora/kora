@@ -18,6 +18,7 @@ import {
   Textarea,
   Toggle,
 } from '@orbit/terra';
+import { DelegatedRunNotice } from './motif/delegated-run-notice';
 import { fetchStartRun } from '../_services/agents-api';
 import type { AgentTypeRow } from '../_types';
 
@@ -111,6 +112,9 @@ export function StartRunModal({
               </NativeSelect>
             </FormField>
           )}
+          {/* Delegated agents act with the starter's access — say so up front,
+              in the individual's terms (attribution, privacy, budget). */}
+          {resolvedAgent?.identityMode === 'delegated' && <DelegatedRunNotice />}
           <FormField id="run-task" label="Task" hint="Describe what the agent should do." required>
             <Textarea
               id="run-task"

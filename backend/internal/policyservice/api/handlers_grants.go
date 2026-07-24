@@ -57,7 +57,7 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget)
+	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget, req.DelegationRequired)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return

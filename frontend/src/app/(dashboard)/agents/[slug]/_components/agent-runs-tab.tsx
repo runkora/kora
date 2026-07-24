@@ -4,7 +4,9 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+
+import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -123,6 +125,23 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         cell: (row) => runStatusBadge(row),
       },
       {
+        id: 'startedBy',
+        header: 'Started by',
+        locked: true,
+        cell: (row) => (
+          <Stack direction="horizontal" align="center" gap="tight">
+            <Text size="supporting" color="muted">
+              {row.createdByName ?? row.createdBy}
+            </Text>
+            {row.delegated && (
+              <Badge variant="default" size="sm">
+                Delegated
+              </Badge>
+            )}
+          </Stack>
+        ),
+      },
+      {
         id: 'started',
         header: 'Started',
         locked: true,
@@ -201,8 +220,13 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     [agent, router],
   );
 
+  // No paddingTop on the root: Terra's TabsContent already provides the
+  // uniform gap below the tab rail; adding more here doubled it on this tab.
   return (
-    <Stack gap="snug" paddingTop="comfortable">
+    <Stack gap="snug">
+      {/* Delegated agents run on behalf of their starter, so their runs are
+          private — make that legible rather than leaving lists mysteriously short. */}
+      {agent?.identityMode === 'delegated' && <DelegatedRunNotice />}
       {/* Show EmptyState when there are no runs and no error */}
       {status !== 'error' && runs.length === 0 && status !== 'loading' ? (
         <EmptyState

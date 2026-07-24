@@ -54,8 +54,11 @@ type Decision struct {
 	// request's Host within the caller's tenant.
 	Connection *credentials.Connection
 	// Action is the policy action the adapter classified the request as,
-	// e.g. "repo:write" — included in audit and observability.
+	// e.g. "contents:write" — included in audit and observability.
 	Action string
+	// Qualifier is the resource the request was attributed to (e.g. the
+	// repository name), empty when none — included in audit and observability.
+	Qualifier string
 	// Credential is what the proxy injects on the outbound leg. The platform
 	// token must be removed from the outbound request before this is applied.
 	Credential credentials.Credential

@@ -20,12 +20,13 @@ import (
 //   - handlers_embeddings.go  — OpenAI Embeddings API (POST /embeddings)
 //   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
-	svc      *Service
-	verifier *token.Verifier
-	eval     policy.Evaluator
-	routes   []routescopes.RouteScope
-	basePath string
-	logger   logging.Logger
+	svc       *Service
+	verifier  *token.Verifier
+	eval      policy.Evaluator
+	routes    []routescopes.RouteScope
+	basePath  string
+	blocklist mw.JTIBlocklist
+	logger    logging.Logger
 }
 
 // NewController constructs a ready-to-boot inference gateway Controller.
@@ -36,9 +37,13 @@ type Controller struct {
 // route → scope enforcement (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). basePath must match the server's
 // BasePath so the middleware can reconstruct absolute paths after
 // http.StripPrefix removes the prefix.
-func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
+//
+// blocklist is the shared revoked-JTI set (storage.NewJTIBlocklist) used to
+// reject revoked delegation tokens before natural expiry
+// (docs/adr/2026-07-23-delegated-agent-identity.md). May be nil in tests.
+func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
 }
 
 // GroupedBy returns the route prefix. The inference gateway mounts directly
@@ -61,7 +66,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 		xAPIKeyMiddleware(),
 		orbCredentialMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
-		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 }
@@ -136,9 +141,24 @@ func inferenceErrorResponse(err error) *api.APIError {
 		// (Claude Code, Codex, OpenCode) auto-retry 429 with minutes of
 		// backoff, leaving runs spinning on doomed calls; none retry 403, so
 		// the first rejection is final and the run can settle immediately.
-		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: "budget exceeded — a spending ceiling for this principal or run has been reached", StatusCode: 403}
+		// When checkBudget named the breached ceiling scope(s) (principal, run,
+		// delegator, …) the wrapped message is passed through so the run's
+		// visible refusal says whose ceiling ended it.
+		msg := "budget exceeded: a spending ceiling for this principal or run has been reached"
+		if wrapped := err.Error(); wrapped != ErrBudgetExceeded.Error() {
+			msg = wrapped
+		}
+		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: msg, StatusCode: 403}
+	case errors.Is(err, ErrModelNotFound):
+		return api.NotFoundError("model_not_found", err.Error(), nil)
 	case errors.Is(err, ErrPolicyDenied):
-		return api.ForbiddenError("policy_denied", "access denied by policy", nil)
+		// err.Error() carries the OPA deny reason verbatim (e.g.
+		// "deny:delegation_required", "deny:no_delegator_grant") when the check
+		// produced one — the run-visible surface for distinguishing which leg
+		// of the delegated intersection denied. Reasons are decision labels
+		// from our own bundle, never upstream secrets, so passing them through
+		// mirrors the scope-enforcement middleware's writeForbidden.
+		return api.ForbiddenError("policy_denied", err.Error(), nil)
 	case errors.Is(err, ErrProviderNotConfigured):
 		return api.BadRequestError("provider_not_configured", "the requested provider is not enabled", nil)
 	case errors.Is(err, ErrNoProvidersEnabled):

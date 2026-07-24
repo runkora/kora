@@ -45,7 +45,12 @@ type Grant struct {
 	PrincipalID   string            `json:"principal_id"`
 	Scopes        []string          `json:"scopes"`
 	Budget        *BudgetAssignment `json:"budget,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
+	// DelegationRequired marks the grant as a ceiling, not an entitlement: the
+	// principal (a delegated agent) is denied every autonomous authorisation
+	// path and may act only with valid delegation context. Fail-closed marker
+	// from docs/adr/2026-07-23-delegated-agent-identity.md, Decision 2.
+	DelegationRequired bool      `json:"delegation_required"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // ErrGrantNotFound is returned when a grant with the given ID does not exist.
@@ -121,9 +126,9 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 	}
 
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.CreatedAt)
+		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.DelegationRequired, g.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create grant: %w", err)
 	}
@@ -132,7 +137,7 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at
 		FROM policy_grants WHERE id = $1
 	`, id)
 	return r.scanGrant(row)
@@ -140,7 +145,7 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, er
 
 func (r *postgresRepository) List(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at,
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at,
 		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1`
@@ -167,7 +172,7 @@ func (r *postgresRepository) List(ctx context.Context, tenantID string, principa
 
 func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at,
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at,
 		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1
@@ -225,7 +230,7 @@ func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string
 			FROM jsonb_array_elements_text(scopes) AS elem
 			WHERE elem != $1
 		)
-		WHERE scopes @> jsonb_build_array($1)
+		WHERE scopes @> jsonb_build_array($1::text)
 	`, scope)
 	if err != nil {
 		return fmt.Errorf("purge scope from grants: %w", err)
@@ -281,7 +286,7 @@ func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {
 	var scopesJSON []byte
 	var budgetJSON []byte
 
-	err := row.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.CreatedAt)
+	err := row.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.DelegationRequired, &g.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrGrantNotFound
 	}
@@ -311,7 +316,7 @@ func (r *postgresRepository) collectGrantsWithTotal(rows pgx.Rows) ([]*Grant, in
 		var principalType string
 		var scopesJSON []byte
 		var budgetJSON []byte
-		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.CreatedAt, &total); err != nil {
+		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.DelegationRequired, &g.CreatedAt, &total); err != nil {
 			return nil, 0, fmt.Errorf("scan grant row: %w", err)
 		}
 		g.PrincipalType = PrincipalType(principalType)

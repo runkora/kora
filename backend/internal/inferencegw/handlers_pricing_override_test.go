@@ -269,3 +269,40 @@ func TestHandleSetPricingOverride_ZeroValueField(t *testing.T) {
 		t.Errorf("input = %v, want 0.0", mock.lastSetInput)
 	}
 }
+
+// ── alias provider normalisation ──────────────────────────────────────────────
+
+// TestHandleSetPricingOverride_AliasNormalisedToCanonical verifies that a
+// Bedrock alias (e.g. "bedrock:us") is normalised to the canonical "bedrock"
+// key before the repository is called — alias rows must not be stored in
+// model_pricing.
+func TestHandleSetPricingOverride_AliasNormalisedToCanonical(t *testing.T) {
+	t.Parallel()
+	mock := &mockPricingCatalogRepository{}
+	c := newPricingOverrideController(t, mock)
+
+	body := setPricingOverrideRequest{InputCostPer1M: new(3.0)}
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:us", "us.anthropic.claude-sonnet-4-6-v1:0", body)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body.String())
+	}
+	if mock.lastSetProvider != ProviderBedrock {
+		t.Errorf("provider = %q, want %q (alias must be normalised)", mock.lastSetProvider, ProviderBedrock)
+	}
+}
+
+func TestHandleClearPricingOverride_AliasNormalisedToCanonical(t *testing.T) {
+	t.Parallel()
+	mock := &mockPricingCatalogRepository{}
+	c := newPricingOverrideController(t, mock)
+
+	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "bedrock:aus", "anthropic.claude-3-haiku-20240307-v1:0", nil)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body.String())
+	}
+	if mock.lastClearProvider != ProviderBedrock {
+		t.Errorf("provider = %q, want %q (alias must be normalised)", mock.lastClearProvider, ProviderBedrock)
+	}
+}

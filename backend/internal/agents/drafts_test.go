@@ -122,7 +122,7 @@ func (m *mockDraftRepository) DeleteDraftsOlderThan(_ context.Context, cutoff ti
 func newDraftTestService(t *testing.T) (*DraftService, *mockDraftRepository) {
 	t.Helper()
 	repo := newMockDraftRepository()
-	svc := NewDraftService(repo, DraftServiceConfig{}, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewDraftService(repo, NewAuthz(&allowAllEvaluator{}), DraftServiceConfig{}, logging.NewLoggerWithOutput(io.Discard))
 	return svc, repo
 }
 

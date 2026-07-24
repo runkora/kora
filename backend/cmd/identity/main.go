@@ -137,12 +137,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	sessionRepo := identity.NewPostgresSessionRepository(db.Pool())
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
-	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
+	blocklist := identity.NewRedisJTIBlocklistRepository(redis)
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())
 	clientRepo := identity.NewRedisClientRepository(redis.Client())
 	patRepo := identity.NewPostgresPATRepository(db.Pool())
 	profileRepo := identity.NewPostgresUserProfileRepository(db.Pool())
 	prefsRepo := identity.NewPostgresUserPreferencesRepository(db.Pool())
+	delegationRepo := identity.NewPostgresDelegationRepository(db.Pool())
 
 	// Policy service integration for PAT grant management and scope validation.
 	policySvcURL := os.Getenv("ORBIT_POLICY_SERVICE_URL")
@@ -179,6 +180,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		patRepo,
 		profileRepo,
 		prefsRepo,
+		delegationRepo,
 		policyClient,
 		policyEval,
 		extractor,
@@ -338,6 +340,15 @@ func identityRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/identity/preferences", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "PUT", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "DELETE", RequiredScope: ""},
+		// Delegation issuer (docs/adr/2026-07-23-delegated-agent-identity.md).
+		// RequiredScope "" = any authenticated caller; the service layer
+		// enforces the HUMAN/PAT mint constraint and revoke authorization.
+		// GET /identity/delegation/run/{run_id} is intentionally absent — it is
+		// XFCC-authenticated and registered with mux.Handle, never reaching the
+		// scope middleware (same treatment as /identity/exchange).
+		{PathPrefix: "/api/v1/identity/delegation", Method: "POST", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/delegation", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/delegation", Method: "DELETE", RequiredScope: ""},
 	}
 }
 

@@ -47,9 +47,15 @@ var budgetRego string
 // The tenant-admin role is the bootstrapping exception — it grants
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
+//
+// MCP access is granted via the covering scope mcp:use rather than a
+// per-server scope (mcp:orbit:use). Under the prefix-coverage hierarchy the
+// tool-gateway enforces (see internal/toolgateway/scopes.go), mcp:use covers
+// every mcp:<server>:<tool>:use, so an admin can use any MCP server — orbit,
+// github, and any server added later — without enumerating each one here.
 var DefaultRoleScopes = map[string][]string{
 	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:orbit:use"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's
@@ -75,6 +81,11 @@ type grantEntry struct {
 	PrincipalType string   `json:"principal_type"`
 	PrincipalID   string   `json:"principal_id"`
 	Scopes        []string `json:"scopes"`
+	// DelegationRequired is the delegated-agent fail-closed marker
+	// (delegated-agent-identity ADR, Decision 2). Both rego layers deny every
+	// autonomous allow path to a principal holding a marked grant, so a
+	// delegated agent without valid delegation context can do nothing.
+	DelegationRequired bool `json:"delegation_required,omitempty"`
 }
 
 // vocabularyDocument is the JSON structure of data/vocabulary/data.json.
@@ -86,6 +97,21 @@ type scopeEntry struct {
 	ResourceType string   `json:"resource_type"`
 	Path         []string `json:"path"`
 	Action       string   `json:"action"`
+	// Requires carries the vocabulary requires edges into the bundle so both
+	// rego layers can resolve the delegator-leg scope projection offline: a
+	// required scope a person cannot hold (an MCP tool scope) is satisfied on
+	// the delegator leg when the person covers its requires expansion
+	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 5).
+	Requires []string `json:"requires,omitempty"`
+}
+
+// principalRolesDocument is the JSON structure of data/principal_roles/data.json:
+// user principal ID → current role names, from the user_profiles snapshot. The
+// rego delegator leg reads it to resolve a delegator's role-derived access
+// offline (delegated-agent-identity ADR, Decision 5) — the compile-time
+// counterpart of the request-time role lookup PATs already use.
+type principalRolesDocument struct {
+	PrincipalRoles map[string][]string `json:"principal_roles"`
 }
 
 // rolesDocument is the JSON structure of data/roles/data.json.
@@ -307,12 +333,13 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 }
 
 // Compile builds the OPA bundle for a single tenant from the provided grants,
-// vocabulary entries, role→scope mappings, and tenant budget cap (nil when
-// none is configured). The result is cached and replaces any prior bundle for
+// vocabulary entries, role→scope mappings, tenant budget cap (nil when none is
+// configured), and the tenant's user→role membership snapshot (nil when no
+// user carries roles). The result is cached and replaces any prior bundle for
 // that tenant. Returns the compiled bundle bytes.
-func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget) (*CachedBundle, error) {
+func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string) (*CachedBundle, error) {
 	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, tenantRoutes, c.cfg)
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, principalRoles, tenantRoutes, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -352,19 +379,22 @@ func (c *Compiler) RouteTenantIDs() []string {
 }
 
 // CompileGateway builds the cross-tenant OPA gateway bundle. The bundle
-// contains the shared global routes and per-tenant grants/roles/routes so
-// that authz_gateway.rego can enforce access for any external caller without
+// contains the shared global routes, the shared scope vocabulary, and
+// per-tenant grants/roles/routes/principal-role membership so that
+// authz_gateway.rego can enforce access for any external caller without
 // knowing the tenant at compile time. The result is cached and replaces any
 // prior gateway bundle.
 func (c *Compiler) CompileGateway(
 	tenantIDs []string,
 	allGrants map[string][]*grants.Grant,
 	allRoles map[string][]*roles.RoleEntry,
+	vocabEntries []*vocabulary.ScopeEntry,
+	allPrincipalRoles map[string]map[string][]string,
 ) (*CachedBundle, error) {
 	tenantRoutes := c.routes.AllTenantRoutes()
 	globalRoutes := c.routes.GlobalRoutes()
 
-	data, revision, err := buildGatewayBundle(tenantIDs, allGrants, allRoles, globalRoutes, tenantRoutes, c.cfg)
+	data, revision, err := buildGatewayBundle(tenantIDs, allGrants, allRoles, vocabEntries, allPrincipalRoles, globalRoutes, tenantRoutes, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build gateway bundle: %w", err)
 	}
@@ -457,28 +487,9 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 	return out
 }
 
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
-	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
-
-	// Build grants data document, expanding each grant's scopes with their
-	// transitive requires (from the vocabulary) so both the edge OPA and upstream
-	// services authorize on the effective set.
-	requiresMap := requiresFromVocab(vocabEntries)
-	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants))}
-	for _, g := range tenantGrants {
-		grantDoc.Grants = append(grantDoc.Grants, grantEntry{
-			ID:            g.ID,
-			PrincipalType: string(g.PrincipalType),
-			PrincipalID:   g.PrincipalID,
-			Scopes:        expandRequires(g.Scopes, requiresMap),
-		})
-	}
-	grantsJSON, err := json.Marshal(grantDoc)
-	if err != nil {
-		return nil, "", fmt.Errorf("marshal grants: %w", err)
-	}
-
-	// Build vocabulary data document
+// marshalVocabulary builds the vocabulary data document, carrying the requires
+// edges so both rego layers can resolve the delegator-leg scope projection.
+func marshalVocabulary(vocabEntries []*vocabulary.ScopeEntry) ([]byte, error) {
 	vocabDoc := vocabularyDocument{ScopeVocabulary: make(map[string]scopeEntry, len(vocabEntries))}
 	for _, e := range vocabEntries {
 		path := e.PathSegments
@@ -489,11 +500,61 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 			ResourceType: e.ResourceType,
 			Path:         path,
 			Action:       e.Action,
+			Requires:     e.Requires,
 		}
 	}
 	vocabJSON, err := json.Marshal(vocabDoc)
 	if err != nil {
-		return nil, "", fmt.Errorf("marshal vocabulary: %w", err)
+		return nil, fmt.Errorf("marshal vocabulary: %w", err)
+	}
+	return vocabJSON, nil
+}
+
+// marshalPrincipalRoles builds the principal_roles data document. A nil map
+// serializes to an empty document so rego lookups are undefined-safe.
+func marshalPrincipalRoles(principalRoles map[string][]string) ([]byte, error) {
+	if principalRoles == nil {
+		principalRoles = map[string][]string{}
+	}
+	out, err := json.Marshal(principalRolesDocument{PrincipalRoles: principalRoles})
+	if err != nil {
+		return nil, fmt.Errorf("marshal principal roles: %w", err)
+	}
+	return out, nil
+}
+
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
+	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
+
+	// Build grants data document, expanding each grant's scopes with their
+	// transitive requires (from the vocabulary) so both the edge OPA and upstream
+	// services authorize on the effective set.
+	requiresMap := requiresFromVocab(vocabEntries)
+	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants))}
+	for _, g := range tenantGrants {
+		grantDoc.Grants = append(grantDoc.Grants, grantEntry{
+			ID:                 g.ID,
+			PrincipalType:      string(g.PrincipalType),
+			PrincipalID:        g.PrincipalID,
+			Scopes:             expandRequires(g.Scopes, requiresMap),
+			DelegationRequired: g.DelegationRequired,
+		})
+	}
+	grantsJSON, err := json.Marshal(grantDoc)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal grants: %w", err)
+	}
+
+	// Build vocabulary data document (including requires edges).
+	vocabJSON, err := marshalVocabulary(vocabEntries)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Build principal_roles data document (delegator-leg role resolution).
+	principalRolesJSON, err := marshalPrincipalRoles(principalRoles)
+	if err != nil {
+		return nil, "", err
 	}
 
 	// Build roles data document: merge hardcoded platform admin roles with
@@ -546,7 +607,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
+		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "principal_roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -564,6 +625,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		{"grants/data.json", grantsJSON},
 		{"vocabulary/data.json", vocabJSON},
 		{"roles/data.json", rolesJSON},
+		{"principal_roles/data.json", principalRolesJSON},
 		{"routes/data.json", routesJSON},
 		{"config/data.json", cfgJSON},
 		{"budgets/data.json", budgetsJSON},
@@ -618,13 +680,18 @@ func writeTarGz(files []tarEntry) ([]byte, error) {
 //	policy/authz_gateway.rego
 //	config/data.json                       — jwks_url, issuer, audience, frontend_host
 //	routes/data.json                       — global (SYSTEM) route→scope mappings
+//	vocabulary/data.json                   — the shared scope vocabulary (requires edges
+//	                                         for the delegator-leg scope projection)
 //	tenants/<tenantID>/grants/data.json    — grants for that tenant
 //	tenants/<tenantID>/roles/data.json     — roles for that tenant
 //	tenants/<tenantID>/routes/data.json    — tenant-specific route→scope mappings
+//	tenants/<tenantID>/principal_roles/data.json — user→role membership snapshot
 func buildGatewayBundle(
 	tenantIDs []string,
 	allGrants map[string][]*grants.Grant,
 	allRoles map[string][]*roles.RoleEntry,
+	vocabEntries []*vocabulary.ScopeEntry,
+	allPrincipalRoles map[string]map[string][]string,
 	globalRoutes []routes.RouteScope,
 	tenantRoutes map[string][]routes.RouteScope,
 	cfg Config,
@@ -642,20 +709,27 @@ func buildGatewayBundle(
 		return nil, "", fmt.Errorf("marshal global routes: %w", err)
 	}
 
+	vocabJSON, err := marshalVocabulary(vocabEntries)
+	if err != nil {
+		return nil, "", err
+	}
+
 	files := []tarEntry{
 		{"policy/authz_gateway.rego", []byte(authzGatewayRego)},
 		{"config/data.json", cfgJSON},
 		{"routes/data.json", globalRoutesJSON},
+		{"vocabulary/data.json", vocabJSON},
 	}
 
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
 			grantDoc.Grants = append(grantDoc.Grants, grantEntry{
-				ID:            g.ID,
-				PrincipalType: string(g.PrincipalType),
-				PrincipalID:   g.PrincipalID,
-				Scopes:        g.Scopes,
+				ID:                 g.ID,
+				PrincipalType:      string(g.PrincipalType),
+				PrincipalID:        g.PrincipalID,
+				Scopes:             g.Scopes,
+				DelegationRequired: g.DelegationRequired,
 			})
 		}
 		var grantJSON, rolesJSON, tRoutesJSON []byte
@@ -682,17 +756,23 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal routes for tenant %s: %w", tenantID, err)
 		}
 
+		principalRolesJSON, prErr := marshalPrincipalRoles(allPrincipalRoles[tenantID])
+		if prErr != nil {
+			return nil, "", fmt.Errorf("tenant %s: %w", tenantID, prErr)
+		}
+
 		prefix := "tenants/" + tenantID + "/"
 		files = append(files,
 			tarEntry{prefix + "grants/data.json", grantJSON},
 			tarEntry{prefix + "roles/data.json", rolesJSON},
 			tarEntry{prefix + "routes/data.json", tRoutesJSON},
+			tarEntry{prefix + "principal_roles/data.json", principalRolesJSON},
 		)
 	}
 
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz_gateway", "routes", "config", "tenants"},
+		Roots:    []string{"orbit/authz_gateway", "routes", "config", "vocabulary", "tenants"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 		},

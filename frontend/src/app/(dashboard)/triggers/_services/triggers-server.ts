@@ -47,7 +47,12 @@ async function loadAgents(accessToken: string): Promise<AgentOption[]> {
     const upstream = await agentsClient(accessToken).get<{ agent_types: AgentType[] }>(
       '/api/v1/agent-types',
     );
-    return (upstream?.agent_types ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name }));
+    return (upstream?.agent_types ?? []).map((a) => ({
+      id: a.id,
+      slug: a.slug,
+      name: a.name,
+      identityMode: a.identity_mode ?? 'autonomous',
+    }));
   } catch {
     return [];
   }

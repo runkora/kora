@@ -9,3 +9,7 @@ token:
   patMaxTtlDays: 365
   # JWT aud claim. Override with ORBIT_TOKEN_AUDIENCE to scope tokens per cluster.
   audience: orbit-platform
+  # Delegation token lifetime (delegated-agent-identity ADR, Decision 3). A
+  # short backstop, not the revocation mechanism: retrieval re-signs from the
+  # live issuance record. Override with ORBIT_DELEGATION_TOKEN_TTL_MINUTES.
+  delegationTokenTtlMinutes: 60
