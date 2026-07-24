@@ -479,6 +479,26 @@ func buildIstiodValues(p *OrbitPlatform, opaImage, opaLogLevel string) (map[stri
 			},
 		}
 	}
+	// Devenv installs only (SPIRE.Enabled false, TrustBundlePEM set — see
+	// SPIRESpec's own doc comment): this istiod's meshConfig.caCertificates
+	// adds the external SPIRE deployment's trust bundle as an ADDITIONAL
+	// root, alongside istiod's own self-signed one, in the SAME ROOTCA SDS
+	// resource every proxy already fetches automatically. Without it, any
+	// proxy that is not itself SPIRE-injected — the shared ingress gateway,
+	// deliberately excluded from SPIRE injection so its own XDS
+	// control-plane connection to this istiod keeps working — has no trust
+	// path at all to a SPIRE-issued peer's certificate (every other
+	// in-vcluster service: identity, frontend, agents, ...). Confirmed
+	// live: CERTIFICATE_VERIFY_FAILED / "unable to get local issuer
+	// certificate" on that exact connection, on a completely fresh
+	// provision. A host install needs none of this: its gateway is itself
+	// SPIRE-injected (p.Spec.SPIRE.Enabled true there), so every proxy
+	// already shares one trust root.
+	if !p.Spec.SPIRE.Enabled && p.Spec.SPIRE.TrustBundlePEM != "" {
+		meshConfig["caCertificates"] = []map[string]any{
+			{"pem": p.Spec.SPIRE.TrustBundlePEM},
+		}
+	}
 	// istiod's own container env goes under the chart's FLAT top-level `env:`
 	// key — the deployment template's env-rendering block ranges over
 	// .Values.env directly. `.Values.pilot.env` is only referenced by the
@@ -666,15 +686,26 @@ func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *Orb
 //     strategic-merge-by-name logic already proven correct for every other
 //     SPIRE-identified workload (buildSpireInjectionTemplate, applied via
 //     "sidecar,spire" elsewhere).
-//   - The "spire" template is included ONLY when p.Spec.SPIRE.Enabled: an
-//     in-vcluster gateway (SPIRE.Enabled=false) has no SPIRE agent to
-//     request an SVID from, and must fall back to istiod's own self-signed
-//     CA exactly like every other in-vcluster workload — mirroring the same
-//     host-only gate buildIstiodValues already applies to
-//     meshConfig.discoverySelectors. Without this gate the gateway's
-//     istio-proxy expects a SPIRE-issued serving cert that never arrives
-//     while istiod presents its self-signed one, and every XDS handshake
-//     fails with "certificate signed by unknown authority".
+//   - The "spire" template is included UNCONDITIONALLY, on both host and
+//     in-vcluster installs. An in-vcluster gateway (SPIRE.Enabled=false)
+//     still has a real SPIRE agent to request an SVID from: identity there
+//     is host-provided (option C3) via the host's SPIFFE CSI socket, synced
+//     into the vcluster exactly like every other in-vcluster workload's —
+//     SPIRE.Enabled only gates whether THIS cluster runs its own
+//     spire-server/spire-agent, not whether the CSI-synced socket exists.
+//     Gating "spire" off here (an earlier version of this function did,
+//     reasoning the in-vcluster gateway had no SPIRE agent to talk to) left
+//     the gateway trusting only istiod's self-signed root while every other
+//     SPIRE-injected in-vcluster workload trusts SPIRE's — two
+//     non-overlapping PKI hierarchies with no common root, so every
+//     browser-facing route into a dev environment 503'd:
+//     "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate".
+//     Confirmed live (see ../vcluster's ADR, "gateway/istiod cert-trust
+//     mismatch" and "browser-facing app path" findings): including "spire"
+//     unconditionally, so the gateway shares the SAME real SPIRE-issued cert
+//     and root as its peers, is what actually fixes it — the abandoned
+//     meshConfig.caCertificates approach (still present below, inert) was
+//     the wrong Istio mechanism entirely.
 //   - The TLS-passthrough port for routing external kubectl traffic to a
 //     dev environment's own vcluster API server is HOST-only too
 //     (devenvironment_ingress.go's devEnvAPIGatewayPort): the gateway
@@ -717,9 +748,8 @@ func buildGatewayValues(p *OrbitPlatform, serviceType string) map[string]any {
 	serviceValues := map[string]any{
 		"type": serviceType,
 	}
-	injectionTemplates := "gateway"
+	injectionTemplates := "gateway,spire"
 	if p.Spec.SPIRE.Enabled {
-		injectionTemplates = "gateway,spire"
 		serviceValues["ports"] = []map[string]any{
 			{"name": "status-port", "port": 15021, "protocol": "TCP", "targetPort": 15021},
 			{"name": "http2", "port": 80, "protocol": "TCP", "targetPort": 80},

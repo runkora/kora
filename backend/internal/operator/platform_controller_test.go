@@ -75,16 +75,81 @@ func TestBuildIstiodValues_DiscoverySelectorsExcludeDevenvOnHostOnly(t *testing.
 	}
 }
 
-// TestBuildGatewayValues_SpireInjectionTemplateHostOnly guards the gateway
-// analogue of pinned decision 10/15's SPIRE.Enabled gate: the gateway's
-// sidecar-injection templates must include "spire" only on a host install.
-// An in-vcluster gateway (SPIRE.Enabled=false) has no SPIRE agent to request
-// an SVID from and must fall back to istiod's own self-signed CA — carrying
-// the "spire" template anyway makes istio-proxy expect a SPIRE-issued
-// serving cert that never arrives, failing every XDS handshake against
-// istiod's self-signed one with "certificate signed by unknown authority"
-// (found live, 2026-07-22, in-vcluster devenv install).
-func TestBuildGatewayValues_SpireInjectionTemplateHostOnly(t *testing.T) {
+// TestBuildIstiodValues_CACertificatesFromTrustBundleDevEnvOnly guards an
+// abandoned attempt at the shared ingress gateway's cert-trust gap (found
+// live, 2026-07-22): wiring a devenv install's (SPIRE.Enabled=false) trust
+// bundle into meshConfig.caCertificates so istiod pushes it to every proxy.
+// Confirmed live this does NOT achieve that goal — caCertificates is Istio's
+// mechanism for plugin/CSR-signer-based custom CAs, not a generic "also
+// trust this extra root" bucket, so it never reaches proxies as an
+// additional trusted root. The gateway's cert-trust gap is instead fixed by
+// buildGatewayValues including "spire" unconditionally
+// (TestBuildGatewayValues_SpireInjectionTemplateAlwaysIncluded), so the
+// gateway shares SPIRE's real root directly rather than needing istiod to
+// bridge two separate ones. This test and the caCertificates values it
+// guards are now inert (kept only because the plumbing is harmless and
+// tested) — caCertificates must stay unset on a host install
+// (SPIRE.Enabled=true) even if TrustBundlePEM were somehow set.
+func TestBuildIstiodValues_CACertificatesFromTrustBundleDevEnvOnly(t *testing.T) {
+	const bundle = "-----BEGIN CERTIFICATE-----\nfakebundle\n-----END CERTIFICATE-----\n"
+
+	inVCluster := newTestOrbitPlatform(func(p *OrbitPlatform) {
+		p.Spec.SPIRE.Enabled = false
+		p.Spec.SPIRE.TrustBundlePEM = bundle
+	})
+	vclusterValues, err := buildIstiodValues(inVCluster, "", "")
+	if err != nil {
+		t.Fatalf("buildIstiodValues: %v", err)
+	}
+	vcMeshConfig, ok := vclusterValues["meshConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf(`values["meshConfig"] missing or wrong type`)
+	}
+	caCerts, ok := vcMeshConfig["caCertificates"].([]map[string]any)
+	if !ok || len(caCerts) != 1 || caCerts[0]["pem"] != bundle {
+		t.Errorf("in-vcluster install: meshConfig.caCertificates = %#v, want one entry with pem = the trust bundle", vcMeshConfig["caCertificates"])
+	}
+
+	inVClusterNoBundle := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = false })
+	noBundleValues, err := buildIstiodValues(inVClusterNoBundle, "", "")
+	if err != nil {
+		t.Fatalf("buildIstiodValues: %v", err)
+	}
+	noBundleMeshConfig := noBundleValues["meshConfig"].(map[string]any)
+	if _, ok := noBundleMeshConfig["caCertificates"]; ok {
+		t.Errorf("in-vcluster install with no TrustBundlePEM: meshConfig.caCertificates must be unset, got %#v", noBundleMeshConfig["caCertificates"])
+	}
+
+	host := newTestOrbitPlatform(func(p *OrbitPlatform) {
+		p.Spec.SPIRE.Enabled = true
+		p.Spec.SPIRE.TrustBundlePEM = bundle
+	})
+	hostValues, err := buildIstiodValues(host, "", "")
+	if err != nil {
+		t.Fatalf("buildIstiodValues: %v", err)
+	}
+	hostMeshConfig := hostValues["meshConfig"].(map[string]any)
+	if _, ok := hostMeshConfig["caCertificates"]; ok {
+		t.Errorf("host install: meshConfig.caCertificates must be unset even if TrustBundlePEM is set, got %#v", hostMeshConfig["caCertificates"])
+	}
+}
+
+// TestBuildGatewayValues_SpireInjectionTemplateAlwaysIncluded guards the fix
+// for the browser-facing app path's cert-trust mismatch (found live,
+// 2026-07-22 — see ../vcluster's ADR): the gateway's sidecar-injection
+// templates must include "spire" on BOTH host and in-vcluster installs, so
+// the gateway shares the same real SPIRE-issued cert/root as every other
+// SPIRE-injected in-vcluster workload (identity there is host-provided via
+// the CSI-synced SPIFFE socket regardless of SPIRE.Enabled). An earlier
+// version of this function gated "spire" off for in-vcluster installs,
+// leaving the gateway trusting only istiod's self-signed root while its
+// peers trusted SPIRE's — two non-overlapping PKI hierarchies, surfacing as
+// every browser-facing devenv route 503ing with
+// "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate". The
+// devenv-API TLS-passthrough service port stays host-only — that gate is
+// about routing to a vcluster that only exists on the host, unrelated to
+// cert trust.
+func TestBuildGatewayValues_SpireInjectionTemplateAlwaysIncluded(t *testing.T) {
 	host := newTestOrbitPlatform(func(p *OrbitPlatform) { p.Spec.SPIRE.Enabled = true })
 	hostValues := buildGatewayValues(host, "LoadBalancer")
 	hostAnnotations, ok := hostValues["podAnnotations"].(map[string]any)
@@ -105,8 +170,8 @@ func TestBuildGatewayValues_SpireInjectionTemplateHostOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf(`values["podAnnotations"] missing or wrong type`)
 	}
-	if vcAnnotations["inject.istio.io/templates"] != "gateway" {
-		t.Errorf(`in-vcluster install: inject.istio.io/templates = %v, want "gateway" (no "spire")`, vcAnnotations["inject.istio.io/templates"])
+	if vcAnnotations["inject.istio.io/templates"] != "gateway,spire" {
+		t.Errorf(`in-vcluster install: inject.istio.io/templates = %v, want "gateway,spire"`, vcAnnotations["inject.istio.io/templates"])
 	}
 	vcService, ok := vclusterValues["service"].(map[string]any)
 	if !ok {
