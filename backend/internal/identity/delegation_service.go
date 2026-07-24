@@ -97,7 +97,18 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 			span.SetStatus(codes.Error, ErrDelegationSubjectToken.Error())
 			return nil, ErrDelegationSubjectToken
 		}
-		if blocked, blErr := s.blocklist.IsBlocked(ctx, subject.ID); blErr == nil && blocked {
+		// Fail closed on a blocklist backend error: unlike the auth-middleware
+		// path (which fails open so a cache outage cannot lock out all
+		// authentication), a mint that cannot confirm the subject token is
+		// unrevoked must refuse. The cost is a delayed run start, not a lockout,
+		// and delegation is fail-closed by design (ADR Decision 3).
+		blocked, blErr := s.blocklist.IsBlocked(ctx, subject.ID)
+		if blErr != nil {
+			span.RecordError(blErr)
+			span.SetStatus(codes.Error, ErrDelegationSubjectToken.Error())
+			return nil, fmt.Errorf("%w: blocklist check failed: %w", ErrDelegationSubjectToken, blErr)
+		}
+		if blocked {
 			span.RecordError(ErrDelegationSubjectToken)
 			span.SetStatus(codes.Error, ErrDelegationSubjectToken.Error())
 			return nil, ErrDelegationSubjectToken

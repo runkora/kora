@@ -247,7 +247,7 @@ One attachment component, already in the data path. The CLI subprocess and every
 
 Enforced via the service-layer authorization pattern of [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md):
 
-- **Start:** `StartRun` on a delegated agent requires a HUMAN or PAT principal; agents, services, and trigger-initiated starts are refused with a reason naming the identity model. Trigger *binding* is additionally refused at trigger create/update time (the earlier, friendlier failure), in both `internal/triggers` validation and the agents API.
+- **Start:** `StartRun` on a delegated agent requires a HUMAN or PAT principal; agents, services, and trigger-initiated starts are refused with a reason naming the identity model. Trigger *binding* is additionally refused at trigger create time (the earlier, friendlier failure), in `internal/triggers` validation, which reads the target agent's mode through the agents platform client. (Update needs no check: both the trigger's agent binding and the agent's identity mode are immutable.)
 - **Steer:** only the starter may send messages to a delegated run. Message-send on someone else's delegated run is refused for everyone, admins included — messages execute with the starter's authority under the starter's name.
 - **Visibility:** run list/get/events for a delegated agent filter to `created_by = caller` unless the caller holds the tenant-admin role; this covers messages, events, and outputs, applied in the repository/service layer, not the frontend.
 - **Governance:** tenant admins retain read and terminate on every run in the tenant.

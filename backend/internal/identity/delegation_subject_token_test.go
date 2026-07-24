@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -107,6 +108,34 @@ func TestHandleCreateDelegation_SubjectTokenRefusals(t *testing.T) {
 	}
 	if len(delegations.byJTI) != 0 {
 		t.Errorf("no issuance should be persisted, found %d", len(delegations.byJTI))
+	}
+}
+
+// A blocklist backend error on the subject-token path fails closed: the mint
+// refuses rather than accept a token it cannot confirm is unrevoked (ADR
+// Decision 3, fail-closed).
+func TestHandleCreateDelegation_SubjectTokenFailsClosedOnBlocklistError(t *testing.T) {
+	c, svc, delegations, blocklist := newDelegationTestController(t)
+
+	subject := signSubjectToken(t, svc, &Principal{
+		ID:             "user-runner",
+		Type:           PrincipalTypeHuman,
+		TenantID:       "t1",
+		IdentitySource: IdentitySourceFederated,
+	}, "subject-jti-blockerr")
+	blocklist.isBlockedErr = errors.New("redis unavailable")
+
+	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+		AgentPrincipalID: testAgentSpiffeID,
+		RunID:            "run-blockerr",
+		SubjectToken:     subject,
+	})
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", w.Code, w.Body.String())
+	}
+	if len(delegations.byJTI) != 0 {
+		t.Errorf("no issuance should be persisted when the blocklist check fails, found %d", len(delegations.byJTI))
 	}
 }
 
