@@ -107,6 +107,29 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
 
+// normalisePricingProvider collapses a multi-account Bedrock alias
+// ("bedrock:aus", "bedrock:us", …) to the base "bedrock" provider.
+//
+// Bedrock pricing is account- and region-agnostic: the catalog is keyed on the
+// base provider, while virtual-model routes and usage records carry per-account
+// aliases. Without collapsing the alias, a lookup for "bedrock:aus/…" can never
+// match a catalog entry stored under "bedrock/…". Non-Bedrock providers are
+// returned unchanged.
+func normalisePricingProvider(provider ProviderName) ProviderName {
+	if provider.IsBedrockFamily() {
+		return ProviderBedrock
+	}
+	return provider
+}
+
+// pricingKey is the canonical key for the pricing catalog: the normalised
+// provider and the normalised model ID. Every writer and reader of a pricing
+// map must build its key through this function, otherwise entries written under
+// the base provider are unreachable from an aliased one.
+func pricingKey(provider ProviderName, modelID string) string {
+	return string(normalisePricingProvider(provider)) + "/" + normalisePricingModelID(provider, modelID)
+}
+
 // bedrockLookupSuffix strips version/date suffixes from a **discovered** Bedrock
 // model ID at pricing-lookup time. Intentionally excludes "-instruct" because
 // that suffix is part of the model's identity in the pricing catalog for
