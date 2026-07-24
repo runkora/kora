@@ -326,6 +326,13 @@ platform:
     # injects this from spec.spire.enabled directly (never derived from
     # devEnvID) — see orbit.workloadPrincipal (_helpers.tpl).
     spireEnabled: true
+    # Marks this install as a dev environment and carries its ID —
+    # workload SVIDs are path-scoped under /devenv/{devEnvID}/ instead of
+    # the bare host-trust-domain shape (orbit.spiffePrincipalBase,
+    # _helpers.tpl). Empty on a host install. Never set this manually:
+    # whatever is provisioning the environment sets it via Helm values
+    # when installing this chart (e.g. from OrbitPlatform.spec.devEnvironmentID).
+    devEnvID: ""
 
 # -- NetworkPolicy toggle.
 # Should match the value used in the orbit-platform chart.
