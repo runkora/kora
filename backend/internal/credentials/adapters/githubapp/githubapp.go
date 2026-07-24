@@ -20,13 +20,16 @@
 package githubapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -182,11 +185,11 @@ func (a *Adapter) ClassifyAction(req *http.Request, conn credentials.Connection)
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		return classifyAPI(req.Method, path, owner)
+		return classifyAPI(req, path, owner)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
-		return classifyAPI(req.Method, strings.TrimPrefix(path, "/api/v3"), owner)
+		return classifyAPI(req, strings.TrimPrefix(path, "/api/v3"), owner)
 	case path == "/api/graphql":
-		return classifyAPI(req.Method, "/graphql", owner)
+		return classifyAPI(req, "/graphql", owner)
 	}
 
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
@@ -260,9 +263,243 @@ const (
 	catRepo     = "repo" // catch-all + legacy umbrella
 )
 
+// graphqlBodySizeLimit caps how much of a GraphQL request body is read for
+// classification. Queries larger than this are treated as unparseable and fall
+// back to the conservative repo:write default. 512 KiB covers any realistic
+// query; requests larger than this are almost certainly bulk data, not queries.
+const graphqlBodySizeLimit = 512 * 1024
+
+// graphqlRequest is the JSON envelope GitHub accepts for GraphQL.
+type graphqlRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+// classifyGraphQL parses the request body of a GraphQL call to distinguish
+// queries (reads) from mutations (writes), and attempts best-effort repository
+// qualifier extraction when the query or variables name an owner+repository.
+//
+// The body is always restored so the egress gateway can forward the original
+// request byte-for-byte. If the body is absent, unreadable, too large, or
+// unparseable the function fails closed: unqualified repo:write is returned,
+// identical to the pre-fix behavior.
+func classifyGraphQL(req *http.Request, owner string) (credentials.Classification, error) {
+	fallback := credentials.Classification{Action: ActionRepoWrite}
+
+	if req.Body == nil || req.Body == http.NoBody {
+		return fallback, nil
+	}
+
+	original := req.Body
+	limited := io.LimitReader(original, graphqlBodySizeLimit+1)
+	buf, err := io.ReadAll(limited)
+
+	if err != nil || int64(len(buf)) > graphqlBodySizeLimit {
+		// Unreadable or oversized body: fail closed on classification, but still
+		// forward the body WITHOUT truncation — the bytes already read (buf)
+		// followed by whatever remains unread in the original stream. The wrapper
+		// closes the original once forwarding is done, so nothing leaks. Leave
+		// req.GetBody untouched: we must not install one that replays only buf.
+		req.Body = &chainedBody{r: io.MultiReader(bytes.NewReader(buf), original), c: original}
+		return fallback, nil
+	}
+
+	// Whole body is buffered (<= limit): the original stream is fully drained,
+	// so close it (no leak) and serve byte-identical copies for forwarding and
+	// any resend.
+	_ = original.Close()
+	req.Body = io.NopCloser(bytes.NewReader(buf))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(buf)), nil
+	}
+
+	var gql graphqlRequest
+	if jsonErr := json.Unmarshal(buf, &gql); jsonErr != nil || gql.Query == "" {
+		return fallback, nil
+	}
+
+	verb := graphqlVerb(gql.Query)
+	action := catRepo + ":" + verb
+
+	qualifier := ""
+	if owner != "" {
+		q, deny := graphqlRepoQualifier(gql.Query, gql.Variables, owner)
+		if deny {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+		qualifier = q
+	}
+
+	return credentials.Classification{Action: action, Qualifier: qualifier}, nil
+}
+
+// graphqlVerb inspects the leading operation keyword of a GraphQL document and
+// returns verbRead for queries (including the anonymous shorthand { … } and
+// introspection) or verbWrite for mutations. All other documents (subscriptions,
+// anything unrecognized) default to verbWrite so classification never downgrades
+// a real write to a read.
+func graphqlVerb(query string) string {
+	t := strings.TrimSpace(query)
+	// Anonymous shorthand: document starts with { — it's a query.
+	if strings.HasPrefix(t, "{") {
+		return verbRead
+	}
+	// Named operation: first token is the operation type keyword.
+	word := firstWord(t)
+	switch strings.ToLower(word) {
+	case "query":
+		return verbRead
+	case "fragment":
+		// Leading fragment definition(s): the operation type appears later in
+		// the document. Only downgrade to read when there is no mutation
+		// anywhere — never downgrade a real write to a read.
+		if graphqlMutationRe.MatchString(t) {
+			return verbWrite
+		}
+		return verbRead
+	default:
+		// "mutation", "subscription", or anything else → conservative write.
+		return verbWrite
+	}
+}
+
+// graphqlMutationRe matches a `mutation` operation keyword as a whole word.
+// GraphQL keywords are case-sensitive (lowercase), so it does not fold case. A
+// stray match (e.g. a field literally named "mutation") only over-classifies a
+// read as a write, which fails closed and never downgrades a write.
+var graphqlMutationRe = regexp.MustCompile(`\bmutation\b`)
+
+// chainedBody adapts a chained io.Reader to an io.ReadCloser that closes the
+// underlying request body on Close. It lets an oversized GraphQL request be
+// forwarded intact (already-read bytes followed by the unread remainder)
+// without leaking the original body reader.
+type chainedBody struct {
+	r io.Reader
+	c io.Closer
+}
+
+func (b *chainedBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *chainedBody) Close() error               { return b.c.Close() }
+
+// firstWord returns the first whitespace-delimited token of s.
+func firstWord(s string) string {
+	end := strings.IndexAny(s, " \t\n\r(")
+	if end < 0 {
+		return s
+	}
+	return s[:end]
+}
+
+// graphqlRepoQualifier attempts to extract owner+repository from a GraphQL
+// query string and variables. It returns (qualifier, false) on success,
+// ("", false) when no repository can be determined (safe unqualified read),
+// and ("", true) when a repository is found but names a foreign owner (deny).
+//
+// Extraction is best-effort: it searches for the literal patterns that the
+// GitHub CLI and most GitHub GraphQL clients use. It does not parse the query
+// as a proper AST; a query that successfully hides its repository from this
+// scanner is simply left unqualified — it must be satisfied by an unqualified
+// grant, which is still correct and safe.
+func graphqlRepoQualifier(query string, variables map[string]any, connOwner string) (qualifier string, deny bool) {
+	repoOwner, repoName := "", ""
+
+	// Try variables first: GitHub CLI passes { owner, name } (or { owner, repo }).
+	if variables != nil {
+		repoOwner = stringVar(variables, "owner")
+		if n := stringVar(variables, "name"); n != "" {
+			repoName = n
+		} else {
+			repoName = stringVar(variables, "repo")
+		}
+	}
+
+	// Fall back to inline literal in the query text:
+	// repository(owner: "x", name: "y") or repository(owner:"x",name:"y").
+	if repoOwner == "" || repoName == "" {
+		o, n := extractInlineOwnerName(query)
+		if repoOwner == "" {
+			repoOwner = o
+		}
+		if repoName == "" {
+			repoName = n
+		}
+	}
+
+	if repoOwner == "" || repoName == "" {
+		// Repository cannot be determined — unqualified, not denied.
+		return "", false
+	}
+
+	if normalizeName(repoOwner) != connOwner {
+		return "", true
+	}
+	return normalizeName(repoName), false
+}
+
+// stringVar retrieves a string value from the variables map, returning "" when
+// the key is absent or the value is not a string.
+func stringVar(vars map[string]any, key string) string {
+	v, ok := vars[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+// extractInlineOwnerName searches for the literal GitHub GraphQL pattern
+// repository(owner:"x", name:"y") (with optional whitespace around punctuation)
+// within the query document and returns the owner and name values found, or
+// empty strings when the pattern is absent.
+func extractInlineOwnerName(query string) (owner, name string) {
+	// Locate the "repository(" call site.
+	const marker = "repository("
+	idx := strings.Index(strings.ToLower(query), marker)
+	if idx < 0 {
+		return "", ""
+	}
+	// Work only within the argument list that follows.
+	fragment := query[idx+len(marker):]
+	end := strings.Index(fragment, ")")
+	if end >= 0 {
+		fragment = fragment[:end]
+	}
+
+	owner = extractArgValue(fragment, "owner")
+	name = extractArgValue(fragment, "name")
+	return owner, name
+}
+
+// extractArgValue returns the quoted string value of a named GraphQL argument
+// within a fragment such as `owner: "clear-route", name: "orbit"`.
+func extractArgValue(fragment, arg string) string {
+	// Find "arg" followed by optional whitespace, colon, optional whitespace,
+	// and a double-quoted value.
+	needle := arg
+	pos := strings.Index(strings.ToLower(fragment), needle)
+	if pos < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(fragment[pos+len(needle):])
+	if !strings.HasPrefix(rest, ":") {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[1:])
+	if !strings.HasPrefix(rest, `"`) {
+		return ""
+	}
+	rest = rest[1:] // skip opening quote
+	before, _, ok := strings.Cut(rest, `"`)
+	if !ok {
+		return ""
+	}
+	return before
+}
+
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
 // category action plus repository qualifier.
-func classifyAPI(method, path, owner string) (credentials.Classification, error) {
+func classifyAPI(req *http.Request, path, owner string) (credentials.Classification, error) {
+	method := req.Method
 	verb, err := verbClass(method)
 	if err != nil {
 		return credentials.Classification{}, err
@@ -277,6 +514,8 @@ func classifyAPI(method, path, owner string) (credentials.Classification, error)
 	}
 
 	switch segs[0] {
+	case "graphql":
+		return classifyGraphQL(req, owner)
 	case "rate_limit", "user", "installation", "app", "meta", "octocat":
 		// Identity/limit/discovery endpoints most GitHub clients probe before
 		// real work — the metadata baseline covers them.
@@ -297,9 +536,8 @@ func classifyAPI(method, path, owner string) (credentials.Classification, error)
 		}
 		return classifyRepoPath(verb, segs[3:], qualifier), nil
 	default:
-		// /graphql, /search/*, /orgs/*, and every other root: the verb-classified
-		// catch-all, unqualified. GraphQL is always POST and thus a conservative
-		// write — finer classification would require parsing the query.
+		// /search/*, /orgs/*, and every other root: the verb-classified
+		// catch-all, unqualified.
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
 }
@@ -501,25 +739,45 @@ func permissionsFor(action string, ceiling map[string]string) map[string]string 
 		}
 	}
 
+	// Pull-request operations also need read access to repository contents:
+	// creating or editing a PR reads the head/base branch refs, and GitHub
+	// rejects the call with 422 "not all refs are readable" when the token lacks
+	// contents:read. This is a read floor scoped to the same repository
+	// qualifier, so it never widens write access; it is still bounded by the
+	// connection ceiling below.
+	if category == catPulls && permissionLevels[derived["contents"]] < permissionLevels[verbRead] {
+		derived["contents"] = verbRead
+	}
+
 	if _, ok := derived[catMetadata]; !ok {
 		derived[catMetadata] = verbRead
 	}
 
-	if len(ceiling) > 0 {
-		for key, level := range derived {
-			ceilLevel, ok := ceiling[key]
-			switch {
-			case !ok && key == catMetadata:
-				// GitHub grants metadata read on every installation token
-				// implicitly; keep it even when the ceiling omits it.
-			case !ok:
-				delete(derived, key)
-			case permissionLevels[ceilLevel] < permissionLevels[level]:
-				derived[key] = ceilLevel
-			}
+	applyCeiling(derived, ceiling)
+	return derived
+}
+
+// applyCeiling intersects the derived permission set with the connection's
+// declared ceiling in place: permissions absent from the ceiling are dropped
+// (except the implicitly-granted metadata read), and any level above the
+// ceiling is lowered to it. A nil/empty ceiling means "no ceiling declared" and
+// leaves the set unchanged.
+func applyCeiling(derived, ceiling map[string]string) {
+	if len(ceiling) == 0 {
+		return
+	}
+	for key, level := range derived {
+		ceilLevel, ok := ceiling[key]
+		switch {
+		case !ok && key == catMetadata:
+			// GitHub grants metadata read on every installation token
+			// implicitly; keep it even when the ceiling omits it.
+		case !ok:
+			delete(derived, key)
+		case permissionLevels[ceilLevel] < permissionLevels[level]:
+			derived[key] = ceilLevel
 		}
 	}
-	return derived
 }
 
 // splitAction splits an action fragment at its last colon into category and

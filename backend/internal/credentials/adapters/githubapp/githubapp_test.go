@@ -272,7 +272,7 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/orbit", "", "", true},
 
 		// Repo-less endpoints: unqualified
-		{"graphql", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
+		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
 		{"search", http.MethodGet, "https://api.github.com/search/code?q=x", "repo:read", "", false},
 		{"rate_limit", http.MethodGet, "https://api.github.com/rate_limit", "metadata:read", "", false},
 		{"user", http.MethodGet, "https://api.github.com/user", "metadata:read", "", false},
@@ -280,7 +280,7 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 
 		// GitHub Enterprise path prefixes on the appliance host
 		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/orbit/issues", "issues:read", "orbit", false},
-		{"ghe_graphql", http.MethodPost, "https://ghe.example.com/api/graphql", "repo:write", "", false},
+		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "repo:write", "", false},
 
 		// Content-host family: reads only, qualified when owner-addressed
 		{"codeload", http.MethodGet, "https://codeload.github.com/orbital/orbit/tar.gz/main", "contents:read", "orbit", false},
@@ -354,6 +354,14 @@ func TestPermissionsFor(t *testing.T) {
 		{"metadata", "metadata:read", nil, map[string]string{"metadata": "read"}},
 		{"contents_write", "contents:write", nil, map[string]string{"contents": "write", "metadata": "read"}},
 		{"issues_read", "issues:read", nil, map[string]string{"issues": "read", "metadata": "read"}},
+		// Pull-request tokens carry contents:read so PR create/edit can read the
+		// head/base refs (GitHub 422s "not all refs are readable" otherwise).
+		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "contents": "read", "metadata": "read"}},
+		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "contents": "read", "metadata": "read"}},
+		// The contents:read floor is still ceiling-bound: a connection that does
+		// not permit contents drops it.
+		{"pulls_write_ceiling_omits_contents", "pulls:write", map[string]string{"pull_requests": "write", "metadata": "read"},
+			map[string]string{"pull_requests": "write", "metadata": "read"}},
 		{"checks_write", "checks:write", nil, map[string]string{"checks": "write", "statuses": "write", "metadata": "read"}},
 		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
 		{"ceiling_drops_and_lowers", "admin:write", map[string]string{"administration": "read", "metadata": "read"},
@@ -414,5 +422,277 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	if _, ok := gotBody.Permissions["contents"]; ok {
 		t.Errorf("issues:write token must not carry contents, got %v", gotBody.Permissions)
+	}
+}
+
+// TestClassifyGraphQL exercises the GraphQL body parser in isolation, covering
+// the cases mandated by the bug report: query→read, mutation→write, anonymous
+// shorthand→read, qualified repo extraction, foreign-owner denial, and the
+// fail-closed fallback path for bad/absent bodies.
+func TestClassifyGraphQL(t *testing.T) {
+	const connOwner = "clear-route"
+
+	makeReq := func(t *testing.T, body string) *http.Request {
+		t.Helper()
+		var r *http.Request
+		if body == "" {
+			r, _ = http.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil)
+		} else {
+			r, _ = http.NewRequest(http.MethodPost, "https://api.github.com/graphql", strings.NewReader(body))
+		}
+		return r
+	}
+
+	cases := []struct {
+		name       string
+		body       string
+		owner      string
+		wantAct    string
+		wantQual   string
+		wantDenied bool
+	}{
+		{
+			name:  "named_query_with_repo_arg",
+			body:  `{"query":"query GetRepo { repository(owner:\"clear-route\", name:\"orbit\") { id } }"}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "orbit",
+		},
+		{
+			name:  "anonymous_shorthand_read",
+			body:  `{"query":"{ viewer { login } }"}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "",
+		},
+		{
+			name:  "mutation_write",
+			body:  `{"query":"mutation CreatePR { createPullRequest(input:{}) { pullRequest { number } } }"}`,
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			name:  "query_via_variables",
+			body:  `{"query":"query GetIssues($owner:String!,$name:String!){ repository(owner:$owner,name:$name){ issues(first:20){nodes{number}} } }","variables":{"owner":"clear-route","name":"orbit"}}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "orbit",
+		},
+		{
+			name:  "introspection_is_read",
+			body:  `{"query":"{ __schema { types { name } } }"}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "",
+		},
+		{
+			name:  "foreign_owner_denied",
+			body:  `{"query":"query { repository(owner:\"evil\", name:\"orbit\") { id } }"}`,
+			owner: connOwner, wantDenied: true,
+		},
+		{
+			name:  "no_body_fail_closed",
+			body:  "",
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			name:  "malformed_json_fail_closed",
+			body:  `not json at all`,
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			name:  "empty_query_fail_closed",
+			body:  `{"query":""}`,
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			name:    "no_declared_owner_unqualified_read",
+			body:    `{"query":"query { repository(owner:\"clear-route\", name:\"orbit\") { id } }"}`,
+			owner:   "", // connection declares no owner
+			wantAct: "repo:read", wantQual: "",
+		},
+		{
+			// Leading fragment definitions precede a mutation: must not be
+			// downgraded to read on the strength of the first keyword.
+			name:  "leading_fragment_then_mutation_is_write",
+			body:  `{"query":"fragment F on Repository { id } mutation M { createRef(input:{}) { clientMutationId } }"}`,
+			owner: connOwner, wantAct: "repo:write", wantQual: "",
+		},
+		{
+			// Leading fragment before a query stays a read (no mutation present).
+			name:  "leading_fragment_query_only_is_read",
+			body:  `{"query":"fragment F on Repository { id } query GetRepo { repository(owner:\"clear-route\", name:\"orbit\") { ...F } }"}`,
+			owner: connOwner, wantAct: "repo:read", wantQual: "orbit",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeReq(t, tc.body)
+			got, err := classifyGraphQL(req, tc.owner)
+			if tc.wantDenied {
+				if !errors.Is(err, credentials.ErrUnsupportedAction) {
+					t.Fatalf("expected ErrUnsupportedAction, got err=%v cls=%+v", err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Action != tc.wantAct {
+				t.Errorf("Action = %q, want %q", got.Action, tc.wantAct)
+			}
+			if got.Qualifier != tc.wantQual {
+				t.Errorf("Qualifier = %q, want %q", got.Qualifier, tc.wantQual)
+			}
+		})
+	}
+}
+
+// TestClassifyGraphQL_BodyPreservation verifies that ClassifyAction does not
+// consume the request body: after classification the full original bytes must
+// still be readable from req.Body.
+func TestClassifyGraphQL_BodyPreservation(t *testing.T) {
+	body := `{"query":"query { repository(owner:\"clear-route\", name:\"orbit\") { id } }"}`
+
+	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
+	conn := credentials.Connection{
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "clear-route"}),
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build req: %v", err)
+	}
+	req.ContentLength = int64(len(body))
+
+	if _, err := a.ClassifyAction(req, conn); err != nil {
+		t.Fatalf("ClassifyAction: %v", err)
+	}
+
+	if req.Body == nil {
+		t.Fatal("req.Body is nil after ClassifyAction")
+	}
+	remaining, readErr := io.ReadAll(req.Body)
+	if readErr != nil {
+		t.Fatalf("read body after ClassifyAction: %v", readErr)
+	}
+	if string(remaining) != body {
+		t.Errorf("body after ClassifyAction = %q, want %q", remaining, body)
+	}
+}
+
+// trackingBody is a request body that records whether Close was called, so a
+// test can assert the classifier does not leak the original body reader.
+type trackingBody struct {
+	r      *strings.Reader
+	closed bool
+}
+
+func (b *trackingBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *trackingBody) Close() error               { b.closed = true; return nil }
+
+// TestClassifyGraphQL_ClosesOriginalBody verifies the classifier closes the
+// original request body once it has buffered it (no file-handle/goroutine leak),
+// while still leaving the full body forwardable.
+func TestClassifyGraphQL_ClosesOriginalBody(t *testing.T) {
+	body := `{"query":"{ viewer { login } }"}`
+	tb := &trackingBody{r: strings.NewReader(body)}
+	req, _ := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil)
+	req.Body = tb
+
+	if _, err := classifyGraphQL(req, "clear-route"); err != nil {
+		t.Fatalf("classifyGraphQL: %v", err)
+	}
+	if !tb.closed {
+		t.Error("original request body was not closed (leak)")
+	}
+	got, _ := io.ReadAll(req.Body)
+	if string(got) != body {
+		t.Errorf("forwarded body = %q, want %q", got, body)
+	}
+}
+
+// TestClassifyGraphQL_OversizedBodyForwardedIntact verifies that a body larger
+// than graphqlBodySizeLimit fails closed to repo:write but is still forwarded
+// byte-for-byte, rather than truncated to the read limit.
+func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString(`{"query":"query { repository(owner:\"clear-route\", name:\"orbit\") { id } }","padding":"`)
+	sb.WriteString(strings.Repeat("x", graphqlBodySizeLimit+4096))
+	sb.WriteString(`"}`)
+	body := sb.String()
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", strings.NewReader(body))
+	got, err := classifyGraphQL(req, "clear-route")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Action != "repo:write" {
+		t.Errorf("oversized body: Action = %q, want repo:write (fail closed)", got.Action)
+	}
+	forwarded, readErr := io.ReadAll(req.Body)
+	if readErr != nil {
+		t.Fatalf("read forwarded body: %v", readErr)
+	}
+	if len(forwarded) != len(body) || string(forwarded) != body {
+		t.Errorf("oversized body truncated: forwarded %d bytes, want %d", len(forwarded), len(body))
+	}
+}
+
+// TestClassifyGraphQL_ViaClassifyAction exercises the full ClassifyAction path
+// so the routing from the host/path switch through classifyAPI to classifyGraphQL
+// is confirmed end-to-end.
+func TestClassifyGraphQL_ViaClassifyAction(t *testing.T) {
+	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
+	conn := credentials.Connection{
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "clear-route"}),
+	}
+
+	cases := []struct {
+		name     string
+		url      string
+		body     string
+		wantAct  string
+		wantQual string
+		wantErr  bool
+	}{
+		{
+			name:    "dotcom_graphql_query_qualified",
+			url:     "https://api.github.com/graphql",
+			body:    `{"query":"query { repository(owner:\"clear-route\", name:\"orbit\") { id } }"}`,
+			wantAct: "repo:read", wantQual: "orbit",
+		},
+		{
+			name:    "dotcom_graphql_mutation",
+			url:     "https://api.github.com/graphql",
+			body:    `{"query":"mutation { createPullRequest(input:{}) { pullRequest { number } } }"}`,
+			wantAct: "repo:write", wantQual: "",
+		},
+		{
+			name:    "ghe_graphql_query",
+			url:     "https://ghe.example.com/api/graphql",
+			body:    `{"query":"{ viewer { login } }"}`,
+			wantAct: "repo:read", wantQual: "",
+		},
+		{
+			name:    "foreign_owner_graphql_denied",
+			url:     "https://api.github.com/graphql",
+			body:    `{"query":"query { repository(owner:\"evil\", name:\"orbit\") { id } }"}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, tc.url, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatalf("build req: %v", err)
+			}
+			got, err := a.ClassifyAction(req, conn)
+			if tc.wantErr {
+				if !errors.Is(err, credentials.ErrUnsupportedAction) {
+					t.Fatalf("expected ErrUnsupportedAction, got err=%v cls=%+v", err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Action != tc.wantAct || got.Qualifier != tc.wantQual {
+				t.Errorf("got %q/%q, want %q/%q", got.Action, got.Qualifier, tc.wantAct, tc.wantQual)
+			}
+		})
 	}
 }
