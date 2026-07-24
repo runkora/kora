@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterModelsByScopes, modelUseScope } from './_filter';
+import { filterModelsByScopes, modelUseScope } from './model-scope-filter';
 
 const models = [
   { id: 'anthropic/claude-sonnet-4-6' },
