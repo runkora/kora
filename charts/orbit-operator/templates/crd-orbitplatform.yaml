@@ -72,14 +72,6 @@ spec:
                       description: Whether the operator installs and manages SPIRE.
                       type: boolean
                       default: true
-                    trustBundlePEM:
-                      description: An external SPIRE deployment's own X.509 trust
-                        bundle (concatenated PEM), set only when enabled is false
-                        and workloads still carry externally-issued SPIRE
-                        identities. Wired into meshConfig.caCertificates so
-                        every proxy, including ones not themselves SPIRE-injected,
-                        can validate a SPIRE-issued peer's certificate.
-                      type: string
                 istio:
                   description: Istio installation control.
                   type: object

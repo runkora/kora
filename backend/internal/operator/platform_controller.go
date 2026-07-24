@@ -479,26 +479,6 @@ func buildIstiodValues(p *OrbitPlatform, opaImage, opaLogLevel string) (map[stri
 			},
 		}
 	}
-	// Devenv installs only (SPIRE.Enabled false, TrustBundlePEM set — see
-	// SPIRESpec's own doc comment): this istiod's meshConfig.caCertificates
-	// adds the external SPIRE deployment's trust bundle as an ADDITIONAL
-	// root, alongside istiod's own self-signed one, in the SAME ROOTCA SDS
-	// resource every proxy already fetches automatically. Without it, any
-	// proxy that is not itself SPIRE-injected — the shared ingress gateway,
-	// deliberately excluded from SPIRE injection so its own XDS
-	// control-plane connection to this istiod keeps working — has no trust
-	// path at all to a SPIRE-issued peer's certificate (every other
-	// in-vcluster service: identity, frontend, agents, ...). Confirmed
-	// live: CERTIFICATE_VERIFY_FAILED / "unable to get local issuer
-	// certificate" on that exact connection, on a completely fresh
-	// provision. A host install needs none of this: its gateway is itself
-	// SPIRE-injected (p.Spec.SPIRE.Enabled true there), so every proxy
-	// already shares one trust root.
-	if !p.Spec.SPIRE.Enabled && p.Spec.SPIRE.TrustBundlePEM != "" {
-		meshConfig["caCertificates"] = []map[string]any{
-			{"pem": p.Spec.SPIRE.TrustBundlePEM},
-		}
-	}
 	// istiod's own container env goes under the chart's FLAT top-level `env:`
 	// key — the deployment template's env-rendering block ranges over
 	// .Values.env directly. `.Values.pilot.env` is only referenced by the
@@ -703,9 +683,8 @@ func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *Orb
 //     Confirmed live (see ../vcluster's ADR, "gateway/istiod cert-trust
 //     mismatch" and "browser-facing app path" findings): including "spire"
 //     unconditionally, so the gateway shares the SAME real SPIRE-issued cert
-//     and root as its peers, is what actually fixes it — the abandoned
-//     meshConfig.caCertificates approach (still present below, inert) was
-//     the wrong Istio mechanism entirely.
+//     and root as its peers, is what actually fixes it — an earlier attempt
+//     via meshConfig.caCertificates was the wrong Istio mechanism entirely.
 //
 // buildOrbitPlatformSpiffeValues renders the "orbit" chart's
 // platform.spiffe.* values (reconcileOrbit). Kept pure, mirroring
