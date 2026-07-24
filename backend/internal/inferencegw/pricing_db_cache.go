@@ -74,7 +74,7 @@ func (c *DatabasePricingCache) Start(ctx context.Context) {
 // lookup because the pricing catalog is keyed on the base ID from LiteLLM.
 func (c *DatabasePricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
 	snap := c.snap.Load()
-	key := string(provider) + "/" + normalisePricingModelID(provider, modelID)
+	key := pricingKey(provider, modelID)
 	p, ok := snap.entries[key]
 	return p, ok
 }
@@ -89,7 +89,7 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 
 	entries := make(map[string]ModelPricing, len(catalog))
 	for _, e := range catalog {
-		key := string(e.Provider) + "/" + e.ModelID
+		key := pricingKey(e.Provider, e.ModelID)
 		entries[key] = ModelPricing{
 			Provider:                 e.Provider,
 			ModelID:                  e.ModelID,
