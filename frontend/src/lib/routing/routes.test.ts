@@ -30,6 +30,18 @@ describe('APP_ROUTES', () => {
       }
     }
   });
+
+  it('analyticsPrincipal route builder produces a path starting with / and encodes its id', () => {
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('abc-123')).toMatch(/^\//);
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('abc-123')).toBe(
+      '/model-gateway/analytics/principals/abc-123',
+    );
+    // Reserved characters (e.g. a slash in an IdP-issued subject claim) must
+    // be percent-encoded so the id is treated as a single path segment.
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('team/sub-id')).toBe(
+      '/model-gateway/analytics/principals/team%2Fsub-id',
+    );
+  });
 });
 
 describe('PUBLIC_PATHS', () => {

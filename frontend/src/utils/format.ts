@@ -13,8 +13,12 @@
 // ── Numbers ───────────────────────────────────────────────────────────────────
 
 /**
- * Full locale-formatted integer, e.g. 1,234,567.
+ * Full integer with thousands separators, e.g. 1,234,567.
  * Use when the exact count matters (token totals, log row counts).
+ *
+ * Locale is pinned to 'en-US' (rather than the runtime/browser locale) so
+ * server-rendered and client-rendered output always match, avoiding React
+ * hydration mismatches.
  */
 export function fmtNum(n: number): string {
   return n.toLocaleString('en-US');

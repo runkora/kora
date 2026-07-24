@@ -70,7 +70,8 @@ export const APP_ROUTES = {
     catalog: '/model-gateway/catalog',
     myUsage: '/model-gateway/my-usage',
     analytics: '/model-gateway/analytics',
-    analyticsPrincipal: (id: string) => `/model-gateway/analytics/principals/${id}` as const,
+    analyticsPrincipal: (id: string) =>
+      `/model-gateway/analytics/principals/${encodeURIComponent(id)}` as const,
     budgets: '/model-gateway/budgets',
     logs: '/model-gateway/logs',
     keys: '/model-gateway/keys',

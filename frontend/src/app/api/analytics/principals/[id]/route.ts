@@ -34,7 +34,7 @@ export const GET = withAuth(
 
     if (!result.ok) {
       console.error(
-        `[GET /api/analytics/principals/${id}] upstream error ${result.status}: ${result.message}`,
+        `[GET /api/analytics/principals/:id] upstream error ${result.status}: ${result.message}`,
       );
       const clientStatus = result.status >= 500 ? 502 : result.status;
       return NextResponse.json(
