@@ -53,6 +53,10 @@ interface IdentityUsersResponse {
  * get no entry — callers fall back to the raw principal. Best-effort: any
  * upstream failure returns an empty map rather than failing the caller.
  */
+// Upstream /identity/users caps a single lookup at this many ids, so a page
+// with more distinct starters is split into batches and merged.
+const USER_LOOKUP_BATCH = 100;
+
 export async function resolveUserDisplayNames(
   accessToken: string,
   principalIds: string[],
@@ -61,12 +65,15 @@ export async function resolveUserDisplayNames(
   const names = new Map<string, string>();
   if (ids.length === 0) return names;
   try {
-    const data = await orbitClient.get<IdentityUsersResponse>(
-      `/identity/users?ids=${encodeURIComponent(ids.join(','))}&limit=100`,
-      { Authorization: `Bearer ${accessToken}` },
-    );
-    for (const u of data?.users ?? []) {
-      names.set(u.id, u.display_name || u.email);
+    for (let i = 0; i < ids.length; i += USER_LOOKUP_BATCH) {
+      const batch = ids.slice(i, i + USER_LOOKUP_BATCH);
+      const data = await orbitClient.get<IdentityUsersResponse>(
+        `/identity/users?ids=${encodeURIComponent(batch.join(','))}&limit=${USER_LOOKUP_BATCH}`,
+        { Authorization: `Bearer ${accessToken}` },
+      );
+      for (const u of data?.users ?? []) {
+        names.set(u.id, u.display_name || u.email);
+      }
     }
     return names;
   } catch {
