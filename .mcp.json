@@ -3,6 +3,10 @@
     "orbit": {
       "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit",
       "type": "streamable-http"
+    },
+    "vcluster-mcp": {
+      "url": "http://localhost:13317/mcp",
+      "type": "streamable-http"
     }
   }
 }
