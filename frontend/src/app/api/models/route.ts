@@ -3,33 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { fetchRawModelsFromGateway } from '../../(dashboard)/model-gateway/_services/models-server';
 import { fetchEffectiveScopes } from '../../(dashboard)/policy/_services/policy-server';
-
-// Derive the per-model inference scope from a model ID (e.g. "anthropic/claude-sonnet-4-6"
-// → "inference:anthropic:claude-sonnet-4-6:use"). Returns null for non-standard IDs.
-function modelUseScope(modelId: string): string | null {
-  const parts = modelId.split('/');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  return `inference:${parts[0]}:${parts[1]}:use`;
-}
-
-function filterModelsByScopes<T extends { id: string }>(
-  models: T[],
-  effectiveScopes: string[],
-): T[] {
-  // Extract all inference model-use scopes the caller holds.
-  const inferenceModelScopes = new Set(
-    effectiveScopes.filter((s) => s.startsWith('inference:') && s.endsWith(':use')),
-  );
-
-  // If the caller has no model-specific inference scopes, treat as broad access —
-  // all models pass through (e.g. admin PATs with only inference:invoke).
-  if (inferenceModelScopes.size === 0) return models;
-
-  return models.filter((m) => {
-    const scope = modelUseScope(m.id);
-    return scope !== null && inferenceModelScopes.has(scope);
-  });
-}
+import { filterModelsByScopes } from './model-scope-filter';
 
 export const GET = withAuth(async (_req: NextRequest, session) => {
   const [modelsResult, scopesResult] = await Promise.all([

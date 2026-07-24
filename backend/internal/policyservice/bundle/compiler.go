@@ -47,9 +47,15 @@ var budgetRego string
 // The tenant-admin role is the bootstrapping exception — it grants
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
+//
+// MCP access is granted via the covering scope mcp:use rather than a
+// per-server scope (mcp:orbit:use). Under the prefix-coverage hierarchy the
+// tool-gateway enforces (see internal/toolgateway/scopes.go), mcp:use covers
+// every mcp:<server>:<tool>:use, so an admin can use any MCP server — orbit,
+// github, and any server added later — without enumerating each one here.
 var DefaultRoleScopes = map[string][]string{
 	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:orbit:use"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's
