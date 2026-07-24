@@ -294,6 +294,29 @@ func (s *Service) RevokePAT(ctx context.Context, tenantID, userID, patID string)
 		}
 	}
 
+	// Cascade to delegations this PAT minted: a PAT is the person's credential,
+	// so revoking it must revoke the delegated authority it spawned
+	// (delegated-agent-identity ADR, Decision 3). Tombstone those issuances and
+	// blocklist their JTIs for the delegation TTL so already-released tokens are
+	// rejected before natural expiry. Best-effort: a failure here does not fail
+	// the PAT revocation, whose own JTI is already blocklisted above.
+	if jtis, delErr := s.delegations.RevokeByPAT(ctx, patID, now); delErr != nil {
+		s.logger.Error(ctx, "failed to revoke delegations minted by revoked PAT",
+			logging.Field{Key: "pat.id", Value: patID},
+			logging.Field{Key: "error", Value: delErr.Error()},
+		)
+	} else {
+		for _, jti := range jtis {
+			if err := s.blocklist.BlockJTI(ctx, jti, s.delegationTokenTTL()); err != nil {
+				s.logger.Error(ctx, "failed to blocklist delegation JTI on PAT revocation",
+					logging.Field{Key: "pat.id", Value: patID},
+					logging.Field{Key: "jti", Value: jti},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}
+	}
+
 	// Delete the policy grant. JTI blocklisting is the primary revocation
 	// mechanism (already effective above); grant deletion is a cleanup step
 	// that keeps the policy dashboard accurate.

@@ -36,6 +36,12 @@ type DelegationRepository interface {
 	// no active record with the JTI exists (already revoked or never issued).
 	Revoke(ctx context.Context, jti string, revokedAt time.Time) error
 
+	// RevokeByPAT tombstones every active issuance minted with the given PAT and
+	// returns their JTIs, so revoking a PAT cascades to the delegations it
+	// minted (the caller blocklists the returned JTIs). Returns an empty slice
+	// when the PAT minted no live delegations.
+	RevokeByPAT(ctx context.Context, patID string, revokedAt time.Time) ([]string, error)
+
 	// ListActiveByDelegator returns the active issuances a principal has minted
 	// within a tenant, newest first.
 	ListActiveByDelegator(ctx context.Context, tenantID, delegatorPrincipalID string) ([]DelegationIssuance, error)
@@ -112,6 +118,33 @@ func (r *postgresDelegationRepository) Revoke(ctx context.Context, jti string, r
 		return ErrDelegationNotFound
 	}
 	return nil
+}
+
+func (r *postgresDelegationRepository) RevokeByPAT(ctx context.Context, patID string, revokedAt time.Time) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		UPDATE delegation_issuances
+		SET    revoked_at = $1
+		WHERE  delegator_pat_id = $2
+		  AND  revoked_at IS NULL
+		RETURNING jti
+	`, revokedAt, patID)
+	if err != nil {
+		return nil, fmt.Errorf("revoke delegation issuances by PAT: %w", err)
+	}
+	defer rows.Close()
+
+	var jtis []string
+	for rows.Next() {
+		var jti string
+		if scanErr := rows.Scan(&jti); scanErr != nil {
+			return nil, fmt.Errorf("scan revoked delegation jti: %w", scanErr)
+		}
+		jtis = append(jtis, jti)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterate revoked delegation jtis: %w", rows.Err())
+	}
+	return jtis, nil
 }
 
 func (r *postgresDelegationRepository) ListActiveByDelegator(ctx context.Context, tenantID, delegatorPrincipalID string) ([]DelegationIssuance, error) {
@@ -212,6 +245,10 @@ func (noopDelegationRepository) GetByJTI(context.Context, string) (*DelegationIs
 
 func (noopDelegationRepository) Revoke(context.Context, string, time.Time) error {
 	return ErrDelegationNotFound
+}
+
+func (noopDelegationRepository) RevokeByPAT(context.Context, string, time.Time) ([]string, error) {
+	return nil, nil
 }
 
 func (noopDelegationRepository) ListActiveByDelegator(context.Context, string, string) ([]DelegationIssuance, error) {

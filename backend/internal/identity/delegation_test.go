@@ -89,6 +89,19 @@ func (m *mockDelegationRepository) Revoke(_ context.Context, jti string, revoked
 	return nil
 }
 
+func (m *mockDelegationRepository) RevokeByPAT(_ context.Context, patID string, revokedAt time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var jtis []string
+	for _, d := range m.byJTI {
+		if d.DelegatorPATID != nil && *d.DelegatorPATID == patID && d.RevokedAt == nil {
+			d.RevokedAt = &revokedAt
+			jtis = append(jtis, d.JTI)
+		}
+	}
+	return jtis, nil
+}
+
 func (m *mockDelegationRepository) ListActiveByDelegator(_ context.Context, tenantID, delegatorPrincipalID string) ([]DelegationIssuance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -145,6 +158,106 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 		t.Fatalf("newDelegationTestService: %v", err)
 	}
 	return svc, delegations, blocklist
+}
+
+// newDelegationTestServiceWithPAT wires both the delegation repo and the PAT
+// repo so the PAT-revocation cascade can be exercised end to end.
+func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRepository, *mockJTIBlocklistRepository, *mockPATRepository) {
+	t.Helper()
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("ORBIT_TENANTS_CONFIG", "")
+
+	cfg := &Config{
+		Token: TokenConfig{
+			AccessTokenTTLMinutes:     60,
+			RefreshTokenTTLDays:       30,
+			PATDefaultTTLDays:         90,
+			PATMaxTTLDays:             365,
+			Audience:                  "orbit-platform",
+			DelegationTokenTTLMinutes: 30,
+		},
+	}
+	delegations := newMockDelegationRepo()
+	blocklist := newMockBlocklistRepo()
+	pats := newMockPATRepo()
+	svc, err := NewService(
+		context.Background(),
+		cfg,
+		newMockSessionRepo(),
+		newMockRefreshTokenRepo(),
+		blocklist,
+		newMockAuthCodeRepo(),
+		newMockClientRepo(),
+		pats,
+		nil,
+		nil,
+		delegations,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
+		&XFCCPrincipalExtractor{},
+		logging.NewLoggerWithOutput(io.Discard),
+	)
+	if err != nil {
+		t.Fatalf("newDelegationTestServiceWithPAT: %v", err)
+	}
+	return svc, delegations, blocklist, pats
+}
+
+// TestRevokePAT_CascadesToMintedDelegations proves that revoking a PAT
+// tombstones and blocklists the delegations it minted, and leaves delegations
+// minted by other credentials untouched (ADR Decision 3).
+func TestRevokePAT_CascadesToMintedDelegations(t *testing.T) {
+	svc, delegations, blocklist, pats := newDelegationTestServiceWithPAT(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	patID := "pat-cascade"
+	pats.mu.Lock()
+	pats.pats[patID] = &PAT{
+		ID: patID, TenantID: "t1", UserID: "user-1", Name: "cascade-pat",
+		JTI: "pat-jti", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now,
+	}
+	pats.mu.Unlock()
+
+	// One delegation minted by this PAT, one minted by another credential.
+	patLineage := patID
+	mine := &DelegationIssuance{
+		JTI: "deleg-mine", RunID: "run-a", TenantID: "t1",
+		DelegatorPrincipalID: "user-1", DelegatorPrincipalType: token.PrincipalTypeHuman,
+		DelegatorPATID: &patLineage, AgentPrincipalID: testAgentSpiffeID, CreatedAt: now,
+	}
+	other := &DelegationIssuance{
+		JTI: "deleg-other", RunID: "run-b", TenantID: "t1",
+		DelegatorPrincipalID: "user-1", DelegatorPrincipalType: token.PrincipalTypeHuman,
+		AgentPrincipalID: testAgentSpiffeID, CreatedAt: now,
+	}
+	if err := delegations.CreateIssuance(ctx, mine); err != nil {
+		t.Fatalf("seed mine: %v", err)
+	}
+	if err := delegations.CreateIssuance(ctx, other); err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+
+	if err := svc.RevokePAT(ctx, "t1", "user-1", patID); err != nil {
+		t.Fatalf("RevokePAT: %v", err)
+	}
+
+	// The PAT-minted delegation is tombstoned and its JTI blocklisted.
+	if got, _ := delegations.GetByJTI(ctx, "deleg-mine"); got.RevokedAt == nil {
+		t.Error("expected PAT-minted delegation to be tombstoned")
+	}
+	if blocked, _ := blocklist.IsBlocked(ctx, "deleg-mine"); !blocked {
+		t.Error("expected PAT-minted delegation JTI to be blocklisted")
+	}
+	// The delegation minted by another credential is untouched.
+	if got, _ := delegations.GetByJTI(ctx, "deleg-other"); got.RevokedAt != nil {
+		t.Error("expected non-PAT delegation to survive PAT revocation")
+	}
+	if blocked, _ := blocklist.IsBlocked(ctx, "deleg-other"); blocked {
+		t.Error("non-PAT delegation JTI must not be blocklisted")
+	}
 }
 
 func newDelegationTestController(t *testing.T) (*Controller, *Service, *mockDelegationRepository, *mockJTIBlocklistRepository) {
