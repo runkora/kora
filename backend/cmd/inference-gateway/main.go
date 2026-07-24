@@ -199,8 +199,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
+	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
+	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
+	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
 		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
@@ -346,7 +349,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 			// Rewrites /run/{run_id}/v1/... -> /v1/... with the run identity in
 			// context, ahead of all routing and enforcement. See
 			// docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
-			mw.NewMiddleware(inferencegw.StripRunPrefix),
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)

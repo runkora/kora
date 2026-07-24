@@ -38,6 +38,12 @@ type bundleOpts struct {
 	vocab  []*vocabulary.ScopeEntry
 	roles  []*roles.RoleEntry
 	routes []routes.RouteScope
+	// principalRoles is the user→role membership snapshot emitted as
+	// principal_roles/data.json (delegator-leg role resolution).
+	principalRoles map[string][]string
+	// jwksURL overrides the default failing JWKS URL for Layer-1 tests that
+	// need real JWT verification (pair with startJWKSServer / signTestJWT).
+	jwksURL string
 }
 
 // compileAndPrepare compiles a real OPA bundle using the same compiler the
@@ -46,11 +52,15 @@ type bundleOpts struct {
 func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	t.Helper()
 
+	// Connection-refused URL by default so JWKS http.send fails fast instead
+	// of blocking on DNS timeout; opts.jwksURL points at a local test server
+	// for Layer-1 tests that need real JWT verification.
+	jwksURL := "http://127.0.0.1:1/jwks"
+	if opts.jwksURL != "" {
+		jwksURL = opts.jwksURL
+	}
 	cfg := bundle.Config{
-		// Connection-refused URL so JWKS http.send fails fast instead of
-		// blocking on DNS timeout. Layer 1 JWT tests that need real JWKS
-		// belong in the live-cluster integration suite.
-		JWKSURL:  "http://127.0.0.1:1/jwks",
+		JWKSURL:  jwksURL,
 		Issuer:   "orbit",
 		Audience: "orbit-platform",
 	}
@@ -64,7 +74,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil, opts.principalRoles)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -104,6 +114,11 @@ func evalLayer2(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformC
 		input["delegation_present"] = true
 		input["delegation_scopes"] = delegation.Scopes
 		input["delegator_id"] = delegation.Sub
+		// Mirrors buildOPAInput: the claim is omitted when empty, and the
+		// delegator-grant leg then fails closed.
+		if delegation.DelegatorPrincipalType != "" {
+			input["delegator_principal_type"] = delegation.DelegatorPrincipalType
+		}
 	}
 
 	return evalPolicy(t, pq, input)
@@ -223,7 +238,7 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil, opts.principalRoles)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -526,6 +541,58 @@ func TestAuthz_ScopeHierarchy_ChildDoesNotCoverParent(t *testing.T) {
 	}
 }
 
+// Mode-qualified agent-type creation scopes (delegated-agent-identity ADR,
+// Decision 1): agents:types:write prefix-covers both agents:types:{mode}:write
+// children (same resource type + action, path prefix), while each child covers
+// only its own mode and never the parent.
+func TestAuthz_ScopeHierarchy_AgentTypeModeScopes(t *testing.T) {
+	t.Run("parent covers delegated child", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "delegated"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:write to cover agents:types:delegated:write, got deny (reason: %s)", reason)
+		}
+	})
+	t.Run("parent covers autonomous child", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "autonomous"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:write to cover agents:types:autonomous:write, got deny (reason: %s)", reason)
+		}
+	})
+	t.Run("delegated child does not cover autonomous sibling", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, _ := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "autonomous"}, "write")
+		if allow {
+			t.Error("expected agents:types:delegated:write NOT to cover agents:types:autonomous:write, got allow")
+		}
+	})
+	t.Run("delegated child does not cover parent", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, _ := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types"}, "write")
+		if allow {
+			t.Error("expected agents:types:delegated:write NOT to cover agents:types:write, got allow")
+		}
+	})
+	t.Run("delegated child covers itself", func(t *testing.T) {
+		pq := compileAndPrepare(t, bundleOpts{
+			grants: []*grants.Grant{agentGrant(testAgentID, "agents:types:delegated:write")},
+		})
+		allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "agents", []string{"types", "delegated"}, "write")
+		if !allow {
+			t.Errorf("expected agents:types:delegated:write to cover itself, got deny (reason: %s)", reason)
+		}
+	})
+}
+
 func TestAuthz_ScopeHierarchy_DifferentAction(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{agentGrant(testAgentID, "inference:invoke")},
@@ -590,8 +657,9 @@ func TestAuthz_HumanRoleDeniedWhenDelegated(t *testing.T) {
 
 	claims := humanClaims(testHumanID, "tenant-admin")
 	delegation := &policy.DelegationClaims{
-		Sub:    testDelegateID,
-		Scopes: []string{"platform:grants:read"},
+		Sub:                    testDelegateID,
+		DelegatorPrincipalType: "HUMAN",
+		Scopes:                 []string{"platform:grants:read"},
 	}
 
 	allow, reason := evalLayer2(t, pq, claims, delegation, "platform", []string{"grants"}, "read")
@@ -613,8 +681,9 @@ func TestAuthz_Delegation_FullChain(t *testing.T) {
 	})
 
 	delegation := &policy.DelegationClaims{
-		Sub:    testDelegateID,
-		Scopes: []string{"inference:invoke"},
+		Sub:                    testDelegateID,
+		DelegatorPrincipalType: "HUMAN",
+		Scopes:                 []string{"inference:invoke"},
 	}
 
 	allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), delegation, "inference", nil, "invoke")
@@ -635,8 +704,9 @@ func TestAuthz_Delegation_DeniedNoDelegationScope(t *testing.T) {
 	})
 
 	delegation := &policy.DelegationClaims{
-		Sub:    testDelegateID,
-		Scopes: []string{"inference:list"}, // wrong scope
+		Sub:                    testDelegateID,
+		DelegatorPrincipalType: "HUMAN",
+		Scopes:                 []string{"inference:list"}, // wrong scope
 	}
 
 	allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), delegation, "inference", nil, "invoke")
@@ -654,8 +724,9 @@ func TestAuthz_Delegation_DeniedNoDelegatorGrant(t *testing.T) {
 	})
 
 	delegation := &policy.DelegationClaims{
-		Sub:    testDelegateID,
-		Scopes: []string{"inference:invoke"},
+		Sub:                    testDelegateID,
+		DelegatorPrincipalType: "HUMAN",
+		Scopes:                 []string{"inference:invoke"},
 	}
 
 	allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), delegation, "inference", nil, "invoke")
@@ -673,8 +744,9 @@ func TestAuthz_Delegation_DeniedNoAgentGrant(t *testing.T) {
 	})
 
 	delegation := &policy.DelegationClaims{
-		Sub:    testDelegateID,
-		Scopes: []string{"inference:invoke"},
+		Sub:                    testDelegateID,
+		DelegatorPrincipalType: "HUMAN",
+		Scopes:                 []string{"inference:invoke"},
 	}
 
 	allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), delegation, "inference", nil, "invoke")

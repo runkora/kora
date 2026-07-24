@@ -10,8 +10,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { hasScopeCovering } from '@orbit/lib/permissions';
+import { usePermissions } from '../../_components/permissions-provider';
 import type {
   AgentFramework,
+  AgentIdentityMode,
   AgentTypeDraft,
   ConnectionCatalogEntry,
   Connector,
@@ -55,6 +58,8 @@ export interface BuilderFields {
   slug: string;
   slugEdited: boolean;
   description: string;
+  /** Immutable after creation: who the agent acts as (autonomous | delegated). */
+  identityMode: AgentIdentityMode;
   systemPrompt: string;
   framework: AgentFramework;
   modelId: string;
@@ -85,11 +90,26 @@ export interface BuilderCatalogues {
   errors: Partial<Record<'models' | 'toolScopes' | 'connections' | 'mcp' | 'environments', string>>;
 }
 
+/**
+ * Mode-qualified agent-type create permissions, resolved from the session's
+ * effective scope set with the prefix-covers hierarchy (agents:types:write
+ * covers both children). Until `loaded`, both modes read as permitted; the
+ * backend's service-layer check is authoritative either way.
+ */
+export interface IdentityModeAccess {
+  loaded: boolean;
+  /** May create autonomous agent types (agents:types:autonomous:write). */
+  autonomous: boolean;
+  /** May create delegated agent types (agents:types:delegated:write). */
+  delegated: boolean;
+}
+
 export interface AgentBuilderStateShape {
   step: number;
   maxVisited: number;
   fields: BuilderFields;
   catalogues: BuilderCatalogues;
+  identityModeAccess: IdentityModeAccess;
   draftId: string | null;
   saveStatus: SaveStatus;
   submitting: boolean;
@@ -112,6 +132,7 @@ const EMPTY_FIELDS: BuilderFields = {
   slug: '',
   slugEdited: false,
   description: '',
+  identityMode: 'autonomous',
   systemPrompt: '',
   framework: 'claude-code',
   modelId: '',
@@ -161,6 +182,7 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
     name: fields.name,
     slug: fields.slug,
     description: fields.description || undefined,
+    identity_mode: fields.identityMode,
     system_prompt: fields.systemPrompt || undefined,
     framework: fields.framework,
     model_id: fields.modelId || undefined,
@@ -185,6 +207,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     slug: payload.slug ?? '',
     slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? ''),
     description: payload.description ?? '',
+    identityMode: payload.identity_mode ?? 'autonomous',
     systemPrompt: payload.system_prompt ?? '',
     framework: payload.framework ?? 'claude-code',
     modelId: payload.model_id ?? '',
@@ -253,14 +276,56 @@ export function useAgentBuilder(params: {
     errors: {},
   });
 
+  // ── Identity-mode create permissions ───────────────────────────────────────
+  // Resolved from the session scope set the app already loads (the
+  // PermissionsProvider caches the policy gateway's effective-scope
+  // projection). Coverage uses the prefix-covers hierarchy, never string
+  // equality: agents:types:write covers both mode-qualified children.
+  const { scopes: sessionScopes, loaded: scopesLoaded } = usePermissions();
+  const identityModeAccess = useMemo<IdentityModeAccess>(
+    () => ({
+      loaded: scopesLoaded,
+      autonomous: !scopesLoaded || hasScopeCovering(sessionScopes, 'agents:types:autonomous:write'),
+      delegated: !scopesLoaded || hasScopeCovering(sessionScopes, 'agents:types:delegated:write'),
+    }),
+    [scopesLoaded, sessionScopes],
+  );
+
+  // Derived, not stored: when the selected identity mode is one the caller
+  // cannot create but the other mode is available, the selection resolves to
+  // the available mode. This turns the static autonomous default into
+  // "delegated by default" for delegated-only creators (and mirror-image),
+  // including a resumed draft whose stored mode the caller cannot create.
+  // When neither mode is available the selection stands: the identity step
+  // disables both cards and the server refuses. The resolved fields feed the
+  // UI, the draft saver, and submission alike.
+  const resolvedFields = useMemo<BuilderFields>(() => {
+    if (!identityModeAccess.loaded) return fields;
+    if (
+      fields.identityMode === 'autonomous' &&
+      !identityModeAccess.autonomous &&
+      identityModeAccess.delegated
+    ) {
+      return { ...fields, identityMode: 'delegated' };
+    }
+    if (
+      fields.identityMode === 'delegated' &&
+      !identityModeAccess.delegated &&
+      identityModeAccess.autonomous
+    ) {
+      return { ...fields, identityMode: 'autonomous' };
+    }
+    return fields;
+  }, [fields, identityModeAccess]);
+
   // Refs the debounced saver reads without re-arming on every keystroke.
   // Synced on commit — the debounce fires long after, so it always sees the
   // latest committed values.
-  const fieldsRef = useRef(fields);
+  const fieldsRef = useRef(resolvedFields);
   const stepRef = useRef(step);
   const draftIdRef = useRef(draftId);
   useEffect(() => {
-    fieldsRef.current = fields;
+    fieldsRef.current = resolvedFields;
     stepRef.current = step;
     draftIdRef.current = draftId;
   });
@@ -502,8 +567,9 @@ export function useAgentBuilder(params: {
   return {
     step,
     maxVisited,
-    fields,
+    fields: resolvedFields,
     catalogues,
+    identityModeAccess,
     draftId,
     saveStatus,
     submitting,

@@ -93,6 +93,12 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // from the created agent (agent_type.model_id), never hardcoded here.
   const [model, setModel] = useState('');
   const [summary, setSummary] = useState<string | null>(null);
+  // Who started the run — the BFF-resolved display name, falling back to the
+  // raw principal id when unresolvable. Null until metadata loads.
+  const [startedBy, setStartedBy] = useState<string | null>(null);
+  // True when the agent is delegated: the run acts on the starter's behalf and
+  // is private to them + tenant admins.
+  const [delegated, setDelegated] = useState(false);
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -166,10 +172,16 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       .then((r) => r.json())
       .then(
         (body: {
-          data?: { state: RunState; summary?: string | null };
+          data?: {
+            state: RunState;
+            summary?: string | null;
+            created_by?: string;
+            created_by_name?: string | null;
+          };
           agent_type?: {
             name?: string;
             model_id?: string;
+            identity_mode?: 'autonomous' | 'delegated';
             budget?: { per_run_limit_usd?: number };
           };
         }) => {
@@ -179,9 +191,13 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           if (typeof body.data?.summary === 'string') {
             setSummary(body.data.summary);
           }
+          if (body.data) {
+            setStartedBy(body.data.created_by_name ?? body.data.created_by ?? null);
+          }
           if (body.agent_type) {
             setAgentName(body.agent_type.name ?? 'Agent');
             setModel(body.agent_type.model_id ?? '');
+            setDelegated(body.agent_type.identity_mode === 'delegated');
             const limit = body.agent_type.budget?.per_run_limit_usd;
             setPerRunLimitUsd(typeof limit === 'number' && limit > 0 ? limit : null);
           }
@@ -565,6 +581,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     agentName,
     model,
     summary,
+    startedBy,
+    delegated,
     runState,
     turns: allTurns,
     isStreaming: inProgressTurn !== null,

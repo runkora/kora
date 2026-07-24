@@ -25,6 +25,7 @@ import {
 import { ConfirmDialog } from '@orbit/components';
 import type { AgentFramework } from '@orbit/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
+import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
 import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
 import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
@@ -133,6 +134,17 @@ export function AgentConfigurationTab() {
                 value={cfg.description}
                 onChange={(e) => cfg.setDescription(e.target.value)}
                 rows={2}
+              />
+            </FormField>
+            {/* The identity model is immutable — display only, like the slug. */}
+            <FormField
+              label="Identity model"
+              hint="Chosen at creation and cannot be changed. Recreate the agent to use the other model."
+            >
+              <Input
+                readOnly
+                value={IDENTITY_MODE_SUMMARIES[agent.identityMode]}
+                aria-label="Identity model (immutable)"
               />
             </FormField>
           </Stack>

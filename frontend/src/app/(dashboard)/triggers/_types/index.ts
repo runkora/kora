@@ -52,6 +52,11 @@ export interface AgentOption {
   id: string;
   slug: string;
   name: string;
+  /**
+   * Identity model of the agent. Delegated agents cannot be bound to triggers
+   * (they only run on behalf of a person), so the picker disables them.
+   */
+  identityMode: 'autonomous' | 'delegated';
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────

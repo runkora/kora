@@ -31,22 +31,23 @@ type mockRepository struct {
 	messages   []RunMessage
 	nextSeqNo  int64
 
-	createAgentTypeErr   error
-	getAgentTypeErr      error
-	listAgentTypesErr    error
-	setAgentTypeStateErr error
-	deleteAgentTypeErr   error
-	createRunErr         error
-	getRunErr            error
-	listRunsErr          error
-	setRunStateErr       error
-	assignPodErr         error
-	deleteRunErr         error
-	activeRunsOverride   map[int]int
-	activeRunsErr        error
-	appendRunEventErr    error
-	listRunEventsErr     error
-	appendRunMessageErr  error
+	createAgentTypeErr     error
+	getAgentTypeErr        error
+	listAgentTypesErr      error
+	setAgentTypeStateErr   error
+	deleteAgentTypeErr     error
+	createRunErr           error
+	getRunErr              error
+	listRunsErr            error
+	setRunStateErr         error
+	setRunDelegationJTIErr error
+	assignPodErr           error
+	deleteRunErr           error
+	activeRunsOverride     map[int]int
+	activeRunsErr          error
+	appendRunEventErr      error
+	listRunEventsErr       error
+	appendRunMessageErr    error
 }
 
 func newMockRepository() *mockRepository {
@@ -205,10 +206,20 @@ func (m *mockRepository) GetRun(_ context.Context, id string) (*Run, error) {
 		return nil, ErrNotFound
 	}
 	cp := *r
+	cp.IdentityMode = m.runIdentityModeLocked(r)
 	return &cp, nil
 }
 
-func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string) ([]Run, error) {
+// runIdentityModeLocked mirrors the postgres agent_types join: run reads carry
+// the agent type's identity mode. Callers must hold m.mu.
+func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
+	if at, ok := m.agentTypes[r.AgentTypeID]; ok {
+		return at.IdentityMode.OrDefault()
+	}
+	return r.IdentityMode.OrDefault()
+}
+
+func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility) ([]Run, error) {
 	if m.listRunsErr != nil {
 		return nil, m.listRunsErr
 	}
@@ -216,9 +227,18 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID strin
 	defer m.mu.Unlock()
 	var out []Run
 	for _, r := range m.runs {
-		if r.TenantID == tenantID && (agentTypeID == "" || r.AgentTypeID == agentTypeID) {
-			out = append(out, *r)
+		if r.TenantID != tenantID || (agentTypeID != "" && r.AgentTypeID != agentTypeID) {
+			continue
 		}
+		mode := m.runIdentityModeLocked(r)
+		// Mirror the SQL visibility clause: (at.identity_mode <> 'delegated'
+		// OR (subject <> '' AND r.created_by = subject)).
+		if !vis.SeeAll && mode == IdentityModeDelegated && (vis.Subject == "" || r.CreatedBy != vis.Subject) {
+			continue
+		}
+		cp := *r
+		cp.IdentityMode = mode
+		out = append(out, cp)
 	}
 	return out, nil
 }
@@ -264,6 +284,19 @@ func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockRepository) SetRunDelegationJTI(_ context.Context, runID, jti string) error {
+	if m.setRunDelegationJTIErr != nil {
+		return m.setRunDelegationJTIErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Mirror postgres: zero rows affected (run gone) is not an error.
+	if r, ok := m.runs[runID]; ok {
+		r.DelegationJTI = &jti
+	}
+	return nil
+}
+
 func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	if m.deleteRunErr != nil {
 		return m.deleteRunErr
@@ -277,17 +310,17 @@ func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) ([]string, error) {
+func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) ([]DeletedRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var ids []string
+	var deleted []DeletedRun
 	for id, r := range m.runs {
 		if r.AgentTypeID == agentTypeID {
-			ids = append(ids, id)
+			deleted = append(deleted, DeletedRun{ID: id, DelegationJTI: r.DelegationJTI})
 			delete(m.runs, id)
 		}
 	}
-	return ids, nil
+	return deleted, nil
 }
 
 func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {

@@ -51,4 +51,24 @@ describe('RadioCard', () => {
     renderCards(vi.fn());
     expect(screen.getByText('First option.')).toBeInTheDocument();
   });
+
+  it('ignores surface clicks and disables the radio control when disabled', () => {
+    const onSelect = vi.fn();
+    render(
+      <RadioGroup value="a" aria-label="Options">
+        <RadioCard value="a" selected onSelect={onSelect} title="Option A" />
+        <RadioCard
+          value="b"
+          selected={false}
+          onSelect={onSelect}
+          title="Option B"
+          description="Not available."
+          disabled
+        />
+      </RadioGroup>,
+    );
+    fireEvent.click(screen.getByText('Option B'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'Option B' })).toBeDisabled();
+  });
 });

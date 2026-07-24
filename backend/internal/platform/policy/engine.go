@@ -256,10 +256,53 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 	return nil
 }
 
+// Delegation binding deny reasons. Static sentinels: they surface in span
+// status descriptions and structured logs at the enforcement points, so they
+// must never carry dynamic content (docs/adr/2026-07-23-delegated-agent-identity.md,
+// Decision 4).
+const (
+	// ReasonDelegationActSubMismatch — the delegation's act.sub is not the
+	// platform-token subject: the token was minted for a different agent.
+	ReasonDelegationActSubMismatch = "deny:delegation_act_sub_mismatch"
+	// ReasonDelegationRunMismatch — the delegation is bound to a different run
+	// than the one independently asserted (sandbox platform-token run_id claim,
+	// or the stripped /run/{run_id} path prefix). A token lifted from one run
+	// is useless anywhere run identity is independently known.
+	ReasonDelegationRunMismatch = "deny:delegation_run_mismatch"
+)
+
+// checkDelegationBinding rejects a delegation token presented outside the run
+// and agent it was minted for. Returns a non-empty deny reason on mismatch.
+// Evaluated before any bundle lookup — the denial holds regardless of policy.
+func checkDelegationBinding(input CheckInput) string {
+	d := input.Delegation
+	if d == nil {
+		return ""
+	}
+	if d.ActSub != "" && d.ActSub != input.Claims.Subject {
+		return ReasonDelegationActSubMismatch
+	}
+	if d.RunID == "" {
+		return ""
+	}
+	// Sandbox mode: the platform token carries the per-run SVID's run_id claim.
+	if tokenRunID := input.Claims.Orbit.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
+		return ReasonDelegationRunMismatch
+	}
+	// Path mode: the request asserted a /run/{run_id} prefix.
+	if input.RunID != "" && input.RunID != d.RunID {
+		return ReasonDelegationRunMismatch
+	}
+	return ""
+}
+
 // Check evaluates the allow rule for the given input. Implements Evaluator.
 func (e *engine) Check(ctx context.Context, input CheckInput) (Result, error) {
 	if input.Claims == nil {
 		return Result{Reason: "no claims provided"}, nil
+	}
+	if reason := checkDelegationBinding(input); reason != "" {
+		return Result{Reason: reason}, nil
 	}
 	tenantID := input.Claims.Orbit.TenantID
 
@@ -269,10 +312,6 @@ func (e *engine) Check(ctx context.Context, input CheckInput) (Result, error) {
 	}
 	if tb == nil {
 		return Result{Reason: "no policy configured for tenant"}, nil
-	}
-
-	if input.Delegation != nil && input.Delegation.ActSub != "" && input.Delegation.ActSub != input.Claims.Subject {
-		return Result{Reason: "deny:delegation_act_sub_mismatch"}, nil
 	}
 
 	opaInput := buildOPAInput(input.Claims, input.Delegation, input.ResourceType, input.PathSegments, input.Action, input.Attributes)
@@ -401,15 +440,11 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	}, nil
 }
 
-// CheckBudget evaluates the orbit.budget hierarchical ceiling rules.
-// Implements Evaluator. Fails open (allow=true, hasLimit=false) when the
-// tenant bundle is unavailable or evaluation fails.
-func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error) {
-	tb, err := e.bundleForTenant(ctx, tenantID)
-	if err != nil || tb == nil {
-		return BudgetResult{Allow: true}, nil // fail open: no bundle available
-	}
-
+// buildBudgetCheckInput assembles the OPA input for the orbit.budget module,
+// normalising nil maps to empty ones so rego sees JSON objects, never null.
+// The delegation block is attached only when a verified delegation is present
+// (delegated-agent-identity ADR, Decision 5).
+func buildBudgetCheckInput(tenantID string, req BudgetCheckRequest) BudgetCheckInput {
 	roles := req.Roles
 	if roles == nil {
 		roles = []string{}
@@ -434,6 +469,25 @@ func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetChe
 		},
 		Spends: spends,
 	}
+	if req.DelegatorID != "" {
+		input.Delegation = &budgetDelegation{DelegatorID: req.DelegatorID}
+		if input.Spends.Delegator == nil {
+			input.Spends.Delegator = map[string]float64{}
+		}
+	}
+	return input
+}
+
+// CheckBudget evaluates the orbit.budget hierarchical ceiling rules.
+// Implements Evaluator. Fails open (allow=true, hasLimit=false) when the
+// tenant bundle is unavailable or evaluation fails.
+func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error) {
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return BudgetResult{Allow: true}, nil // fail open: no bundle available
+	}
+
+	input := buildBudgetCheckInput(tenantID, req)
 
 	rs, err := tb.budgetQuery.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
@@ -823,9 +877,14 @@ type opaInput struct {
 	DelegationPresent bool           `json:"delegation_present"`
 	DelegationScopes  []string       `json:"delegation_scopes"`
 	DelegatorID       string         `json:"delegator_id,omitempty"`
-	RequiredScope     string         `json:"required_scope"`
-	Resource          resourceInput  `json:"resource"`
-	Action            string         `json:"action"`
+	// DelegatorPrincipalType is the verified delegation token's
+	// delegator_principal_type claim (always HUMAN for v1 tokens). The rego
+	// delegator-grant leg matches grants on principal type as well as id, so
+	// omitting it fails the leg closed.
+	DelegatorPrincipalType string        `json:"delegator_principal_type,omitempty"`
+	RequiredScope          string        `json:"required_scope"`
+	Resource               resourceInput `json:"resource"`
+	Action                 string        `json:"action"`
 }
 
 type principalInput struct {
@@ -864,8 +923,16 @@ func buildOPAInput(
 
 	if delegation != nil {
 		input.DelegationPresent = true
+		// Normalise nil → empty so the rego sees a JSON array, never null: v1
+		// delegation tokens carry no scope claim, and an empty/absent scope set
+		// means the token-scope leg of the intersection is satisfied and
+		// authority is evaluated live (delegated-agent-identity ADR, Decision 3).
 		input.DelegationScopes = delegation.Scopes
+		if input.DelegationScopes == nil {
+			input.DelegationScopes = []string{}
+		}
 		input.DelegatorID = delegation.Sub
+		input.DelegatorPrincipalType = delegation.DelegatorPrincipalType
 	}
 
 	return input

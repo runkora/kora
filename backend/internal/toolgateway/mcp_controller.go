@@ -272,7 +272,13 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 			logging.Field{Key: "tool", Value: tool},
 			logging.Field{Key: "principal", Value: claims.Subject},
 			logging.Field{Key: "reason", Value: res.Reason})
-		c.writeRPCError(ctx, w, req.ID, -32001, "tool not permitted")
+		// Pass the OPA deny reason through verbatim: it distinguishes which leg
+		// of the delegated intersection denied (deny:delegation_required,
+		// deny:no_delegator_grant, …) and this RPC error is what surfaces in
+		// the run's transcript (delegated-agent-identity ADR, Phase 5). Reasons
+		// are decision labels from our own bundle — same disclosure as the
+		// scope-enforcement middleware's writeForbidden.
+		c.writeRPCError(ctx, w, req.ID, -32001, "tool not permitted ("+res.Reason+")")
 		return
 	}
 	span.SetAttributes(attribute.String("mcp.decision", "allow"))

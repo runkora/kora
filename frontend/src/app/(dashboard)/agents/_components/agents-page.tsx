@@ -28,6 +28,7 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { fetchAgentTypesUsage } from '../_services/agents-api';
 import { StartRunModal } from './start-run-modal';
+import { openBuilder } from '../_lib/builder-url';
 import { DraftsSection } from './drafts-section';
 import { formatRelativeTime } from '../_types';
 import type { AgentTypeRow } from '../_types';
@@ -169,7 +170,14 @@ export function AgentsPage() {
         header: 'Status',
         locked: true,
         cell: (row) => (
-          <StatusBadge status={statusMap[row.state] ?? 'unknown'} label={labelMap[row.state]} />
+          <Stack direction="horizontal" align="center" gap="tight" wrap>
+            <StatusBadge status={statusMap[row.state] ?? 'unknown'} label={labelMap[row.state]} />
+            {row.identityMode === 'delegated' && (
+              <Badge variant="default" size="sm">
+                Delegated
+              </Badge>
+            )}
+          </Stack>
         ),
       },
       {
@@ -239,11 +247,9 @@ export function AgentsPage() {
             <Icon name="play" size="xs" />
             New Run
           </Button>
-          <Button asChild>
-            <Link href={APP_ROUTES.agents.new}>
-              <Icon name="plus" size="xs" />
-              New Agent
-            </Link>
+          <Button onClick={() => openBuilder()}>
+            <Icon name="plus" size="xs" />
+            New Agent
           </Button>
           <Separator
             orientation="vertical"
@@ -297,11 +303,7 @@ export function AgentsPage() {
           icon="bot"
           title="No agents yet"
           description="Create your first agent definition to start running AI tasks."
-          action={
-            <Button asChild>
-              <Link href={APP_ROUTES.agents.new}>New Agent</Link>
-            </Button>
-          }
+          action={<Button onClick={() => openBuilder()}>New Agent</Button>}
         />
       ) : viewMode === 'grid' ? (
         /* ── Grid view ─────────────────────────────────────────────────────── */
@@ -323,10 +325,17 @@ export function AgentsPage() {
                   </Text>
                 }
                 action={
-                  <StatusBadge
-                    status={statusMap[agent.state] ?? 'unknown'}
-                    label={labelMap[agent.state]}
-                  />
+                  <Stack direction="horizontal" align="center" gap="tight">
+                    {agent.identityMode === 'delegated' && (
+                      <Badge variant="default" size="sm">
+                        Delegated
+                      </Badge>
+                    )}
+                    <StatusBadge
+                      status={statusMap[agent.state] ?? 'unknown'}
+                      label={labelMap[agent.state]}
+                    />
+                  </Stack>
                 }
                 divider
               />
@@ -347,7 +356,8 @@ export function AgentsPage() {
                     {agent.description || 'No description.'}
                   </Text>
 
-                  {/* Meta row: framework badge + tool count */}
+                  {/* Meta row: framework badge + tool count. The identity model
+                      sits in the header next to status, where posture signals live. */}
                   <Stack direction="horizontal" gap="tight" wrap>
                     <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
                       {agent.framework}
@@ -405,7 +415,7 @@ export function AgentsPage() {
             role="button"
             align="center"
             gap="tight"
-            onClick={() => router.push(APP_ROUTES.agents.new)}
+            onClick={() => openBuilder()}
             style={{
               cursor: 'pointer',
               minHeight: '160px',

@@ -832,13 +832,19 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		effectiveScopes = resolved
 	}
 
-	// Walk existing grants: keep the first whose SCOPES match (budget is
-	// reconciled separately), delete the rest. Remember the kept grant's budget
-	// so an unspecified desired budget survives.
+	// The delegation_required marker mirrors the agent's identity mode: a
+	// delegated agent's grant is a ceiling, never a standing entitlement
+	// (delegated-agent-identity ADR, Decision 2). Reconciled like scopes — a
+	// grant whose marker drifted from the identity mode is stale and replaced.
+	delegationRequired := at.IdentityMode.OrDefault() == IdentityModeDelegated
+
+	// Walk existing grants: keep the first whose SCOPES and delegation marker
+	// match (budget is reconciled separately), delete the rest. Remember the
+	// kept grant's budget so an unspecified desired budget survives.
 	var keepID string
 	var keptBudget *policyclient.BudgetAssignment
 	for _, g := range existing {
-		if keepID == "" && scopeSetsEqual(g.Scopes, effectiveScopes) {
+		if keepID == "" && grantMatchesDesired(g, effectiveScopes, delegationRequired) {
 			keepID = g.ID
 			keptBudget = g.Budget
 			continue
@@ -886,7 +892,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	if at.Budget == nil {
 		createBudget = firstBudget(existing)
 	}
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget); err != nil {
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
@@ -896,6 +902,14 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		logging.Field{Key: "tenant_id", Value: grantTenantID},
 	)
 	return nil
+}
+
+// grantMatchesDesired reports whether an existing grant already reflects the
+// desired state: the exact scope set and the delegation_required marker
+// matching the agent's identity mode. A grant whose marker drifted is stale
+// and gets replaced, exactly like a scope drift.
+func grantMatchesDesired(g policyclient.Grant, scopes []string, delegationRequired bool) bool {
+	return scopeSetsEqual(g.Scopes, scopes) && g.DelegationRequired == delegationRequired
 }
 
 // firstBudget returns the budget of the first grant carrying one, or nil.

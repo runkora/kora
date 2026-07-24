@@ -52,13 +52,23 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 }
 
 // AgentType is the subset of an orbit-agents agent type that callers need to
-// validate a binding before granting run scopes: its canonical slug and owning
-// tenant.
+// validate a binding before granting run scopes: its canonical slug, owning
+// tenant, and identity model.
 type AgentType struct {
 	ID       string `json:"id"`
 	TenantID string `json:"tenant_id"`
 	Slug     string `json:"slug"`
+	// IdentityMode is the agent's identity model — "autonomous" or "delegated"
+	// (docs/adr/2026-07-23-delegated-agent-identity.md). Empty (an older
+	// server) reads as autonomous. Triggers refuse to bind delegated agents:
+	// only a person may start their runs.
+	IdentityMode string `json:"identity_mode"`
 }
+
+// IdentityModeDelegated is the AgentType.IdentityMode value marking an agent
+// that acts on behalf of the person who runs it. Kept as a plain string so the
+// client stays decoupled from the orbit-agents feature package.
+const IdentityModeDelegated = "delegated"
 
 // GetAgentType resolves an agent type by id, authenticating with the supplied
 // platform bearer token. orbit-agents scopes the read to the token's tenant, so

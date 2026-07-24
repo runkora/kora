@@ -259,7 +259,32 @@ export function AgentTriggersTab() {
 
   if (!agent) return null;
 
-  const agentOption = { id: agent.id, slug: agent.slug, name: agent.name };
+  // Delegated agents cannot be bound to automated sources at all — explain the
+  // constraint here instead of offering a form that would be refused on submit.
+  if (agent.identityMode === 'delegated') {
+    return (
+      <Stack gap="comfortable">
+        <Stack gap="tight">
+          <Heading variant="section">Triggers</Heading>
+          <Text size="supporting" color="muted">
+            Run this agent automatically when a matching event arrives on a webhook source.
+          </Text>
+        </Stack>
+        <EmptyState
+          icon="user-check"
+          title="Delegated agents cannot be triggered"
+          description="This agent acts on behalf of the person who runs it, so only a person can start it. Triggers and other automated sources cannot be bound to it. To automate this work, create an autonomous agent instead."
+        />
+      </Stack>
+    );
+  }
+
+  const agentOption = {
+    id: agent.id,
+    slug: agent.slug,
+    name: agent.name,
+    identityMode: agent.identityMode,
+  };
 
   return (
     <Stack gap="comfortable">

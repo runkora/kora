@@ -179,8 +179,15 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) {
+		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			// 403 with the explicit reason: the message names the missing
+			// mode-qualified scope and the identity model's stakes.
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -244,8 +251,11 @@ func (c *Controller) handleGetEffectiveAccess(w http.ResponseWriter, r *http.Req
 }
 
 // handleEffectiveAccessPreview resolves the access view for a draft (unsaved)
-// connectivity config — backs the live preview as the user edits. Write-scoped
-// via the /api/v1/agent-types POST binding; nothing is persisted.
+// connectivity config — backs the live preview as the user edits.
+// Authenticated-only via the /api/v1/agent-types POST binding (the binding's
+// real scope check is the mode-qualified create in the service layer, which a
+// preview never reaches); nothing is persisted, and the preview reveals only
+// what the caller can already resolve for their own tenant.
 func (c *Controller) handleEffectiveAccessPreview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req EffectiveAccessPreviewRequest
@@ -278,8 +288,13 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) {
+		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrIdentityModeImmutable) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -298,6 +313,11 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -325,15 +345,32 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lift the caller's raw bearer into context: a delegated agent's run start
+	// forwards it to POST /identity/delegation so identity mints only authority
+	// the caller already holds (delegated-agent-identity ADR, Decision 3). The
+	// token was already verified by AuthMiddleware; this carries the raw string.
+	if bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); bearer != "" {
+		ctx = WithCallerBearer(ctx, bearer)
+	}
+
 	run, err := c.runs.StartRun(ctx, req)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		switch {
+		case errors.Is(err, ErrNotFound):
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
+		case errors.Is(err, ErrDelegatedRunPrincipal):
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
+				"this agent uses the delegated identity model: runs can only be started by a person (HUMAN or PAT principal)", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrDelegationUnavailable):
+			apiErr := api.InternalError(api.ErrCodeInternalError,
+				"this agent uses the delegated identity model and no delegation could be minted; the run was not started", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		default:
+			apiErr := api.InternalError(api.ErrCodeInternalError, "failed to start run", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		}
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to start run", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
@@ -416,6 +453,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrDelegatedRunSteer) {
+			// 403 with the explicit reason, not 404: visibility already admitted
+			// the caller (a tenant admin), so existence is not being protected.
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not accepting messages", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -436,6 +480,11 @@ func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) 
 	if err := c.runs.InterruptRun(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrDelegatedRunSteer) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

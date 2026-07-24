@@ -44,6 +44,13 @@ type TokenConfig struct {
 	// Audience is the JWT `aud` claim value. Defaults to "orbit-platform".
 	// Override per environment to scope tokens to a specific cluster or deployment.
 	Audience string `yaml:"audience"`
+
+	// DelegationTokenTTLMinutes is the lifetime of a delegation token
+	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). Deliberately
+	// short and never load-bearing for long runs: GET /identity/delegation/run/{run_id}
+	// re-signs a fresh token from the live issuance record, so revocation bites
+	// via the issuance tombstone and the JTI blocklist, not token expiry.
+	DelegationTokenTTLMinutes int `yaml:"delegationTokenTtlMinutes"`
 }
 
 // LoadConfig loads the identity service configuration from
@@ -71,6 +78,7 @@ func LoadConfig() (*Config, error) {
 	overrideInt(&cfg.Token.RefreshTokenTTLDays, "ORBIT_REFRESH_TOKEN_TTL_DAYS")
 	overrideInt(&cfg.Token.PATDefaultTTLDays, "ORBIT_PAT_DEFAULT_TTL_DAYS")
 	overrideInt(&cfg.Token.PATMaxTTLDays, "ORBIT_PAT_MAX_TTL_DAYS")
+	overrideInt(&cfg.Token.DelegationTokenTTLMinutes, "ORBIT_DELEGATION_TOKEN_TTL_MINUTES")
 	if os.Getenv("ORBIT_MCP_REQUIRE_PRE_REGISTRATION") == "true" {
 		cfg.OAuth.RequirePreRegistration = true
 	}

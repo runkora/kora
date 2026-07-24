@@ -2,13 +2,10 @@ package identity
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
-
-const jtiKeyPrefix = "orbit:jti:blocklist:"
 
 // ─── JTI blocklist repository interface ──────────────────────────────────────
 
@@ -26,32 +23,25 @@ type JTIBlocklistRepository interface {
 
 // ─── Redis implementation ─────────────────────────────────────────────────────
 
-// redisJTIBlocklistRepository implements JTIBlocklistRepository using Redis.
-// Keys are namespaced under orbit:jti:blocklist:{jti}.
+// redisJTIBlocklistRepository implements JTIBlocklistRepository via the shared
+// platform blocklist (internal/platform/storage.JTIBlocklist), so the identity
+// service writes to the exact namespace other services read revocation from
+// (e.g. DelegationMiddleware's revoked-delegation check).
 type redisJTIBlocklistRepository struct {
-	client *goredis.Client
+	blocklist *storage.JTIBlocklist
 }
 
 // NewRedisJTIBlocklistRepository creates a JTIBlocklistRepository backed by Redis.
-func NewRedisJTIBlocklistRepository(client *goredis.Client) JTIBlocklistRepository {
-	return &redisJTIBlocklistRepository{client: client}
+func NewRedisJTIBlocklistRepository(redis *storage.RedisClient) JTIBlocklistRepository {
+	return &redisJTIBlocklistRepository{blocklist: storage.NewJTIBlocklist(redis)}
 }
 
 // BlockJTI inserts a JTI into the blocklist with the given TTL.
 func (r *redisJTIBlocklistRepository) BlockJTI(ctx context.Context, jti string, ttl time.Duration) error {
-	key := jtiKeyPrefix + jti
-	if err := r.client.Set(ctx, key, "1", ttl).Err(); err != nil {
-		return fmt.Errorf("block jti %q: %w", jti, err)
-	}
-	return nil
+	return r.blocklist.BlockJTI(ctx, jti, ttl)
 }
 
 // IsBlocked reports whether a JTI is present in the blocklist.
 func (r *redisJTIBlocklistRepository) IsBlocked(ctx context.Context, jti string) (bool, error) {
-	key := jtiKeyPrefix + jti
-	n, err := r.client.Exists(ctx, key).Result()
-	if err != nil {
-		return false, fmt.Errorf("check jti %q: %w", jti, err)
-	}
-	return n > 0, nil
+	return r.blocklist.IsBlocked(ctx, jti)
 }

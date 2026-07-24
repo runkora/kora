@@ -34,7 +34,7 @@ func prepareAuthzFuncQuery(t *testing.T, query string) rego.PreparedEvalQuery {
 		Audience: "orbit-platform",
 	}
 	compiler := bundle.NewCompiler(cfg, routes.NewStore())
-	cached, err := compiler.Compile(testTenantID, nil, nil, nil, nil)
+	cached, err := compiler.Compile(testTenantID, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}

@@ -34,6 +34,9 @@ type stubEvaluator struct {
 	lastBudgetReq *policy.BudgetCheckRequest
 	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
 	budgetCategories []policy.BudgetCategory
+	// budgetCategoriesByPrincipal, when non-nil, overrides budgetCategories
+	// with a per-principal lookup (used by the delegator ceiling tests).
+	budgetCategoriesByPrincipal map[string][]policy.BudgetCategory
 	// budgetCategoriesErr, when non-nil, is returned by GetBudgetCategories.
 	budgetCategoriesErr error
 	// roleBudgets is returned by GetRoleBudgets. nil means no role budgets configured.
@@ -108,7 +111,10 @@ func (s *stubEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.Te
 	return s.tenantBudget, nil
 }
 
-func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, principalID string) ([]policy.BudgetCategory, error) {
+	if s.budgetCategoriesByPrincipal != nil {
+		return s.budgetCategoriesByPrincipal[principalID], s.budgetCategoriesErr
+	}
 	return s.budgetCategories, s.budgetCategoriesErr
 }
 

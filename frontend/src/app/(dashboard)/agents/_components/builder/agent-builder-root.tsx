@@ -13,9 +13,10 @@
 // changes only a prop, so it does not remount.
 
 import { useEffect } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { AgentBuilderProvider } from '../../_context/agent-builder-context';
 import { useAgentBuilder } from '../../_hooks/use-agent-builder';
+import { adoptBuilderDraft, closeBuilder } from '../../_lib/builder-url';
 import { AgentBuilderModal } from './agent-builder-modal';
 
 export function AgentBuilderRoot() {
@@ -26,25 +27,18 @@ export function AgentBuilderRoot() {
 }
 
 function AgentBuilderHost({ initialDraftId }: { initialDraftId: string | null }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const builder = useAgentBuilder({ initialDraftId });
 
   // Once a draft record exists, the URL adopts its id so refresh resumes.
   useEffect(() => {
     if (!builder.draftId || searchParams.get('agent') === builder.draftId) return;
-    const params = new URLSearchParams(searchParams);
-    params.set('agent', builder.draftId);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [builder.draftId, pathname, router, searchParams]);
+    adoptBuilderDraft(builder.draftId);
+  }, [builder.draftId, searchParams]);
 
   const close = () => {
     builder.saveNow();
-    const params = new URLSearchParams(searchParams);
-    params.delete('agent');
-    const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    closeBuilder();
   };
 
   return (

@@ -109,14 +109,15 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 
 	// Translate YAML config into the identityproxy package's Config type.
 	proxyCfg := identityproxy.Config{
-		SocketPath:        cfg.Server.SocketPath,
-		ReadyTimeout:      cfg.ReadyTimeout(),
-		BackoffInitial:    cfg.BackoffInitial(),
-		BackoffMax:        cfg.BackoffMax(),
-		PollInterval:      cfg.PollInterval(),
-		RefreshThreshold:  cfg.RefreshThreshold(),
-		HealthAddr:        cfg.Server.HealthAddr,
-		EnvoyReadyTimeout: cfg.EnvoyReadyTimeout(),
+		SocketPath:            cfg.Server.SocketPath,
+		ReadyTimeout:          cfg.ReadyTimeout(),
+		BackoffInitial:        cfg.BackoffInitial(),
+		BackoffMax:            cfg.BackoffMax(),
+		PollInterval:          cfg.PollInterval(),
+		RefreshThreshold:      cfg.RefreshThreshold(),
+		HealthAddr:            cfg.Server.HealthAddr,
+		EnvoyReadyTimeout:     cfg.EnvoyReadyTimeout(),
+		DelegationNegativeTTL: cfg.DelegationNegativeTTL(),
 	}
 
 	// Wire up the identity-proxy components.
@@ -128,13 +129,22 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 	// the XFCC header. See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md Service-to-Service Communication.
 	exchanger := identityclient.NewClient(identityURL, logger)
 	refresher := identityproxy.NewRefresher(cache, exchanger, logger, proxyCfg)
-	server := identityproxy.NewServer(cache, exchanger, refresher, logger, proxyCfg)
+	// Per-run delegation token attachment (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 4): the same identity client retrieves each run's delegation
+	// token under mesh/XFCC attestation — no bearer, exactly like /exchange.
+	delegations := identityproxy.NewDelegationManager(exchanger, logger, proxyCfg)
+	server := identityproxy.NewServer(cache, delegations, exchanger, refresher, logger, proxyCfg)
 
 	// Watch SVID rotations in the background. workloadapi.WatchX509Context
 	// blocks until ctx is canceled; the watcher invalidates the token cache
-	// and triggers a re-exchange whenever the SPIRE Agent delivers a new SVID.
+	// and triggers a re-exchange whenever the SPIRE Agent delivers a new SVID,
+	// and — in per-run sandbox pods — teaches the delegation manager its own
+	// run identity from the SVID path (sandbox mode).
 	go func() {
-		watcher := refresher.OnSVIDRotation(ctx)
+		watcher := identityproxy.NewMultiWatcher(
+			refresher.OnSVIDRotation(ctx),
+			delegations.SVIDWatcher(ctx),
+		)
 		if err := workloadapi.WatchX509Context(ctx, watcher,
 			workloadapi.WithAddr(spiffeSocket),
 		); err != nil && ctx.Err() == nil {

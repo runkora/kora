@@ -62,7 +62,7 @@ type tenantOIDCState struct {
 // PolicyClient abstracts grant management calls to the policy service.
 // Implemented by platform/clients/policy.Client in production.
 type PolicyClient interface {
-	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *clientpolicy.BudgetAssignment) (string, error)
+	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *clientpolicy.BudgetAssignment, delegationRequired bool) (string, error)
 	DeleteGrant(ctx context.Context, grantID string) error
 }
 
@@ -79,6 +79,7 @@ type Service struct {
 	pats          PATRepository
 	profiles      UserProfileRepository
 	prefs         UserPreferencesRepository
+	delegations   DelegationRepository
 	policyClient  PolicyClient
 	policyEval    policy.Evaluator
 	logger        logging.Logger
@@ -139,6 +140,7 @@ func NewService(
 	pats PATRepository,
 	profiles UserProfileRepository,
 	prefs UserPreferencesRepository,
+	delegations DelegationRepository,
 	policyClient PolicyClient,
 	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
@@ -150,6 +152,9 @@ func NewService(
 	if prefs == nil {
 		prefs = noopUserPreferencesRepository{}
 	}
+	if delegations == nil {
+		delegations = noopDelegationRepository{}
+	}
 	svc := &Service{
 		cfg:           cfg,
 		sessions:      sessions,
@@ -160,6 +165,7 @@ func NewService(
 		pats:          pats,
 		profiles:      profiles,
 		prefs:         prefs,
+		delegations:   delegations,
 		policyClient:  policyClient,
 		policyEval:    policyEval,
 		extractor:     extractor,

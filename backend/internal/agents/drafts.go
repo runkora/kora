@@ -83,16 +83,20 @@ type DraftServiceConfig struct {
 // DraftService manages agent type draft CRUD. Every operation is scoped to
 // the caller's verified tenant AND subject: a draft is unfinished personal
 // work, not a shared artifact. Payloads are validated only as JSON within the
-// size cap and otherwise stored opaquely — a draft has no invariants.
+// size cap and otherwise stored opaquely — a draft has no invariants. Writes
+// additionally require create authority for at least one identity mode
+// (checkAnyAgentTypeWrite): the draft routes are authenticated-only at the
+// route layer so a delegated-only creator can still use the builder.
 type DraftService struct {
 	repo   DraftRepository
+	authz  *Authz
 	cfg    DraftServiceConfig
 	logger logging.Logger
 }
 
 // NewDraftService constructs a DraftService.
-func NewDraftService(repo DraftRepository, cfg DraftServiceConfig, logger logging.Logger) *DraftService {
-	return &DraftService{repo: repo, cfg: cfg, logger: logger}
+func NewDraftService(repo DraftRepository, authz *Authz, cfg DraftServiceConfig, logger logging.Logger) *DraftService {
+	return &DraftService{repo: repo, authz: authz, cfg: cfg, logger: logger}
 }
 
 // callerFromContext returns the verified tenant and subject from the platform
@@ -132,6 +136,12 @@ func (s *DraftService) CreateDraft(ctx context.Context, req CreateDraftRequest) 
 	tenantID, createdBy, err := callerFromContext(ctx)
 	if err != nil {
 		span.SetStatus(codes.Error, errNoVerifiedClaims.Error())
+		return nil, err
+	}
+	// Drafting requires create authority for at least one identity mode. The
+	// draft route is authenticated-only at the route layer so a delegated-only
+	// creator can use the builder; this is the authoritative check.
+	if err = s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
 		return nil, err
 	}
 	payload, err := normalizeDraftPayload(req.Payload)
@@ -183,6 +193,9 @@ func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDra
 		trace.WithAttributes(attribute.String("draft_id", id)))
 	defer span.End()
 
+	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
+		return nil, err
+	}
 	draft, err := s.ownedDraft(ctx, id)
 	if err != nil {
 		return nil, err
@@ -211,6 +224,9 @@ func (s *DraftService) DeleteDraft(ctx context.Context, id string) error {
 		trace.WithAttributes(attribute.String("draft_id", id)))
 	defer span.End()
 
+	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
+		return err
+	}
 	if _, err := s.ownedDraft(ctx, id); err != nil {
 		return err
 	}

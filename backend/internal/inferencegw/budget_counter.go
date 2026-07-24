@@ -40,6 +40,16 @@ type SpendScopes struct {
 	PoolWindows map[string]string
 	// RunID is the request's run identity ("" = none).
 	RunID string
+	// DelegatorID is the person a delegated request acts on behalf of, from
+	// the VERIFIED delegation context ("" = not delegated). Their canonical
+	// window counters are read and written alongside the agent's
+	// (delegated-agent-identity ADR, Decision 5).
+	DelegatorID string
+	// DelegatorWindows are the windows with configured delegator ceilings.
+	// Like PrincipalWindows, only listed windows are read; the delegator's
+	// monthly counter is always written on increment (it feeds their
+	// reporting and personal budget view).
+	DelegatorWindows []string
 }
 
 // SpendCounter tracks canonical and attribution spend counters in Redis.
@@ -154,16 +164,9 @@ type spendRead struct {
 	assign    func(spends *policy.BudgetSpends, v float64)
 }
 
-// GetSpends reads every canonical counter named by scopes in one MGET,
-// rehydrating misses from the usage repository and priming Redis.
-func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
-	now := time.Now().UTC()
-	spends := policy.BudgetSpends{
-		Principal: map[string]float64{},
-		RolePools: map[string]float64{},
-		Tenant:    map[string]float64{},
-	}
-
+// spendReads assembles the canonical counter reads named by scopes: which
+// Redis key, how to rehydrate a miss from the DB, and where the value lands.
+func (c *RedisBudgetCounter) spendReads(scopes SpendScopes, now time.Time) []spendRead {
 	var reads []spendRead
 	for _, w := range scopes.PrincipalWindows {
 		window := w
@@ -174,6 +177,27 @@ func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) 
 			},
 			assign: func(s *policy.BudgetSpends, v float64) { s.Principal[window] = v },
 		})
+	}
+	// Delegator windows read exactly like the principal's: same key shape,
+	// same DB-authoritative rehydration (GetSpendSince attributes delegated
+	// rows to the delegator, so a cold counter primes with own + delegated
+	// spend).
+	if scopes.DelegatorID != "" {
+		for _, w := range scopes.DelegatorWindows {
+			window := w
+			reads = append(reads, spendRead{
+				key: principalKey(scopes.DelegatorID, window, now),
+				rehydrate: func(ctx context.Context) (float64, error) {
+					return c.usage.GetSpendSince(ctx, scopes.TenantID, scopes.DelegatorID, periodStart(window, now))
+				},
+				assign: func(s *policy.BudgetSpends, v float64) {
+					if s.Delegator == nil {
+						s.Delegator = map[string]float64{}
+					}
+					s.Delegator[window] = v
+				},
+			})
+		}
 	}
 	if scopes.TenantWindow != "" {
 		window := scopes.TenantWindow
@@ -204,7 +228,20 @@ func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) 
 			assign: func(s *policy.BudgetSpends, v float64) { s.Run = v },
 		})
 	}
+	return reads
+}
 
+// GetSpends reads every canonical counter named by scopes in one MGET,
+// rehydrating misses from the usage repository and priming Redis.
+func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
+	now := time.Now().UTC()
+	spends := policy.BudgetSpends{
+		Principal: map[string]float64{},
+		RolePools: map[string]float64{},
+		Tenant:    map[string]float64{},
+	}
+
+	reads := c.spendReads(scopes, now)
 	if len(reads) == 0 {
 		return spends, nil
 	}
@@ -300,6 +337,10 @@ func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendSc
 		}
 	}
 
+	if err := c.incrementDelegatorSpends(ctx, scopes, amount, now); err != nil {
+		return err
+	}
+
 	if scopes.TenantWindow != "" {
 		if err := c.incrementKey(ctx, tenantKey(scopes.TenantID, scopes.TenantWindow, now), amount, budgetKeyTTL); err != nil {
 			return err
@@ -320,6 +361,27 @@ func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendSc
 
 	for _, cat := range categories {
 		if err := c.incrementKey(ctx, categoryKey(scopes.PrincipalID, cat, now), amount, budgetKeyTTL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// incrementDelegatorSpends accumulates delegated spend against the DELEGATOR's
+// canonical window counters — the same keys their own usage increments — so
+// the person's ceilings and personal budget view include their delegated runs
+// (delegated-agent-identity ADR, Decision 5). Monthly is always written,
+// mirroring the principal path. No-op for non-delegated traffic.
+func (c *RedisBudgetCounter) incrementDelegatorSpends(ctx context.Context, scopes SpendScopes, amount float64, now time.Time) error {
+	if scopes.DelegatorID == "" {
+		return nil
+	}
+	windows := map[string]struct{}{"monthly": {}}
+	for _, w := range scopes.DelegatorWindows {
+		windows[w] = struct{}{}
+	}
+	for w := range windows {
+		if err := c.incrementKey(ctx, principalKey(scopes.DelegatorID, w, now), amount, budgetKeyTTL); err != nil {
 			return err
 		}
 	}

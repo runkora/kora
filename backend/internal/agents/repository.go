@@ -29,7 +29,12 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
-	ListRuns(ctx context.Context, tenantID string, agentTypeID string) ([]Run, error)
+	// ListRuns returns a tenant's runs, optionally narrowed to one agent type.
+	// vis applies the delegated-run visibility rule INSIDE the query (Decision 6
+	// of docs/adr/2026-07-23-delegated-agent-identity.md): unless vis.SeeAll,
+	// runs of delegated agent types are returned only where created_by equals
+	// vis.Subject. Autonomous-agent runs are never filtered.
+	ListRuns(ctx context.Context, tenantID string, agentTypeID string, vis RunVisibility) ([]Run, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
@@ -39,12 +44,18 @@ type RunRepository interface {
 	// fails after the row was created, so it never lingers in pending/starting
 	// waiting for the stale-run reaper.
 	MarkRunFailed(ctx context.Context, id string) error
+	// SetRunDelegationJTI stamps the delegation issuance minted for a delegated
+	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
+	// so terminal-state transitions can revoke it.
+	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
 	DeleteRun(ctx context.Context, id string) error
-	// DeleteRunsByAgentType force-deletes all runs for the given agent type and returns
-	// their IDs. Used during agent type deletion to clear the FK reference before the
-	// agent type row is removed; the returned IDs let the caller clean up each run's
-	// sandbox pod (named sandbox-{runID}), which is not covered by DeprovisionAgentType.
-	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]string, error)
+	// DeleteRunsByAgentType force-deletes all runs for the given agent type and
+	// returns them as (id, delegation JTI) pairs. Used during agent type deletion
+	// to clear the FK reference before the agent type row is removed; the returned
+	// IDs let the caller clean up each run's sandbox pod (named sandbox-{runID}),
+	// which is not covered by DeprovisionAgentType, and the JTIs let it revoke
+	// each run's delegation issuance.
+	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]DeletedRun, error)
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 	// ReapStaleRuns marks runs stuck in transient states for longer than
