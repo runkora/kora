@@ -1,6 +1,13 @@
 package inferencegw
 
-import "testing"
+import (
+	"context"
+	"io"
+	"testing"
+	"time"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
 
 // Multi-account Bedrock (#72) introduced per-account provider aliases
 // (bedrock:aus, bedrock:us, bedrock:usw) on virtual-model routes and usage
@@ -48,6 +55,45 @@ func TestPricingCacheResolvesAliasedBedrockProvider(t *testing.T) {
 	}
 	if p.InputCostPerMillion != 2 || p.OutputCostPerMillion != 10 {
 		t.Errorf("pricing = %v/%v, want 2/10", p.InputCostPerMillion, p.OutputCostPerMillion)
+	}
+}
+
+// Round-trip guard: DatabasePricingCache must WRITE (Refresh) and READ (Price)
+// through the same key builder. The catalog row is stored under the base
+// provider; the read arrives with a per-account alias and a cross-region model
+// ID. Any asymmetry between the two silently costs usage at zero.
+func TestDatabasePricingCacheKeyRoundTrip(t *testing.T) {
+	repo := &mockPricingCatalogRepository{
+		loadAllResult: []PricingCatalogEntry{{
+			Provider:     ProviderBedrock,
+			ModelID:      "anthropic.claude-sonnet-5",
+			SyncedInput:  2,
+			SyncedOutput: 10,
+		}},
+	}
+
+	cache := NewDatabasePricingCache(repo, time.Minute, logging.NewLoggerWithOutput(io.Discard))
+	if err := cache.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	for _, tc := range []struct {
+		provider ProviderName
+		modelID  string
+	}{
+		{ProviderBedrock, "anthropic.claude-sonnet-5"},
+		{"bedrock:aus", "au.anthropic.claude-sonnet-5"},
+		{"bedrock:usw", "us.anthropic.claude-sonnet-5"},
+	} {
+		p, ok := cache.Price(tc.provider, tc.modelID)
+		if !ok {
+			t.Errorf("Price(%q, %q) missed; write/read keys are asymmetric", tc.provider, tc.modelID)
+			continue
+		}
+		if p.InputCostPerMillion != 2 || p.OutputCostPerMillion != 10 {
+			t.Errorf("Price(%q, %q) = %v/%v, want 2/10",
+				tc.provider, tc.modelID, p.InputCostPerMillion, p.OutputCostPerMillion)
+		}
 	}
 }
 
