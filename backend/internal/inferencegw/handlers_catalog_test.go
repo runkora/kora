@@ -362,6 +362,46 @@ func TestLookupPricing(t *testing.T) {
 	}
 }
 
+// TestLookupPricingCrossProviderFallback covers the best-effort fallback that
+// borrows a price from another provider by bare model name when no row exists
+// for the request's provider (e.g. gpt-5.x on Bedrock, priced only under Azure).
+func TestLookupPricingCrossProviderFallback(t *testing.T) {
+	t.Parallel()
+	azureBare := &pricingEntryJSON{Provider: "azure", ModelID: "gpt-5.4", EffectiveInput: 2.5, EffectiveOutput: 15}
+	azureRegional := &pricingEntryJSON{Provider: "azure", ModelID: "us/gpt-5.4", EffectiveInput: 2.75, EffectiveOutput: 16.5}
+	bedrockExact := &pricingEntryJSON{Provider: "bedrock", ModelID: "openai.gpt-5.4", EffectiveInput: 3, EffectiveOutput: 20}
+
+	t.Run("no bedrock row borrows azure price, plainest model_id wins", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]*pricingEntryJSON{
+			"azure/gpt-5.4":    azureBare,
+			"azure/us/gpt-5.4": azureRegional,
+		}
+		if got := lookupPricing(m, "bedrock:us", "openai.gpt-5.4"); got != azureBare {
+			t.Errorf("got %v, want the bare azure row (2.5/15)", got)
+		}
+	})
+
+	t.Run("exact provider row wins over the cross-provider fallback", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]*pricingEntryJSON{
+			"bedrock/openai.gpt-5.4": bedrockExact,
+			"azure/gpt-5.4":          azureBare,
+		}
+		if got := lookupPricing(m, "bedrock:us", "openai.gpt-5.4"); got != bedrockExact {
+			t.Errorf("got %v, want the exact bedrock row (3/20)", got)
+		}
+	})
+
+	t.Run("unrelated model still misses", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]*pricingEntryJSON{"azure/gpt-5.4": azureBare}
+		if got := lookupPricing(m, "bedrock:us", "openai.nonexistent-model"); got != nil {
+			t.Errorf("got %v, want nil (no unrelated borrow)", got)
+		}
+	})
+}
+
 // ─── canonicalPricingProvider ─────────────────────────────────────────────────
 
 func TestCanonicalPricingProvider(t *testing.T) {

@@ -161,21 +161,47 @@ func pricingBareKey(provider ProviderName, modelID string) string {
 func modelPricingProvider(p ModelPricing) ProviderName { return p.Provider }
 func modelPricingModelID(p ModelPricing) string        { return p.ModelID }
 
+// barePricingRank orders candidates for the same bare model name. Lower wins:
+// the plainest (shortest) model ID first, then (provider, modelID) lexically as
+// a total-order tiebreak so the choice is deterministic regardless of the input
+// (or map) iteration order — identical requests must always resolve the same
+// price.
+func barePricingRank(provider ProviderName, modelID string) (int, string, string) {
+	return len(modelID), string(provider), modelID
+}
+
+func barePricingLess(aLen int, aProv, aID string, bLen int, bProv, bID string) bool {
+	if aLen != bLen {
+		return aLen < bLen
+	}
+	if aProv != bProv {
+		return aProv < bProv
+	}
+	return aID < bID
+}
+
 // bareFallbackIndex indexes pricing rows by pricingBareKey for the cross-provider
-// fallback, keeping the plainest (shortest) model ID per bare name so a bare
-// "gpt-5.4" is preferred over a dated or regional variant. provOf and idOf
+// fallback, keeping the plainest model ID per bare name (barePricingRank) so a
+// bare "gpt-5.4" is preferred over a dated or regional variant. provOf and idOf
 // extract the provider and model ID from each row so it works for any row type.
 func bareFallbackIndex[T any](rows []T, provOf func(T) ProviderName, idOf func(T) string) map[string]T {
 	idx := make(map[string]T, len(rows))
-	bestLen := make(map[string]int, len(rows))
+	type rank struct {
+		length int
+		prov   string
+		id     string
+	}
+	best := make(map[string]rank, len(rows))
 	for _, r := range rows {
-		bk := pricingBareKey(provOf(r), idOf(r))
+		prov, id := provOf(r), idOf(r)
+		bk := pricingBareKey(prov, id)
 		if bk == "" {
 			continue
 		}
-		if n, ok := bestLen[bk]; !ok || len(idOf(r)) < n {
+		l, pv, i := barePricingRank(prov, id)
+		if cur, ok := best[bk]; !ok || barePricingLess(l, pv, i, cur.length, cur.prov, cur.id) {
 			idx[bk] = r
-			bestLen[bk] = len(idOf(r))
+			best[bk] = rank{l, pv, i}
 		}
 	}
 	return idx

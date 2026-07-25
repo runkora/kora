@@ -368,14 +368,17 @@ func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderNam
 		return nil
 	}
 	var match *pricingEntryJSON
-	matchLen := 0
+	var mLen int
+	var mProv, mID string
 	for _, e := range pricingMap {
 		if pricingBareKey(ProviderName(e.Provider), e.ModelID) != want {
 			continue
 		}
-		if match == nil || len(e.ModelID) < matchLen {
-			match = e
-			matchLen = len(e.ModelID)
+		l, pv, i := barePricingRank(ProviderName(e.Provider), e.ModelID)
+		// Deterministic tiebreak (barePricingLess): pricingMap iteration order is
+		// random, so identical requests must not resolve different prices.
+		if match == nil || barePricingLess(l, pv, i, mLen, mProv, mID) {
+			match, mLen, mProv, mID = e, l, pv, i
 		}
 	}
 	return match
