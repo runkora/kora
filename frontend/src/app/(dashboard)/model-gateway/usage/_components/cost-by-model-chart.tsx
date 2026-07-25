@@ -38,19 +38,8 @@ const MODEL_BAR_COLORS = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CostByModelChart() {
-  // One bar per chart token; models beyond the top bars aggregate into "Other"
-  // so no spend is hidden and series colours are never cycled.
-  const sorted = [...MODEL_COSTS].sort((a, b) => b.cost - a.cost);
-  const data =
-    sorted.length <= MODEL_BAR_COLORS.length
-      ? sorted
-      : [
-          ...sorted.slice(0, MODEL_BAR_COLORS.length - 1),
-          {
-            model: 'Other',
-            cost: sorted.slice(MODEL_BAR_COLORS.length - 1).reduce((s, row) => s + row.cost, 0),
-          },
-        ];
+  // Top 8 — one bar per chart token; never cycled.
+  const data = [...MODEL_COSTS].sort((a, b) => b.cost - a.cost).slice(0, MODEL_BAR_COLORS.length);
 
   return (
     <Card column>
@@ -93,14 +82,7 @@ export function CostByModelChart() {
             />
             <Bar dataKey="cost" isAnimationActive={false}>
               {data.map((entry, index) => (
-                <Cell
-                  key={`cell-${entry.model}`}
-                  fill={
-                    index >= MODEL_BAR_COLORS.length - 1 && entry.model === 'Other'
-                      ? 'var(--color-subtle)'
-                      : MODEL_BAR_COLORS[index]
-                  }
-                />
+                <Cell key={`cell-${entry.model}`} fill={MODEL_BAR_COLORS[index]} />
               ))}
             </Bar>
           </BarChart>
