@@ -23,6 +23,24 @@ func main() {
 		port = "50051"
 	}
 
+	// Per-run HOME: this run's sandbox pod is mounted with SubPath: runID (see
+	// internal/agents/k8s.go sandboxContainer), scoping WORKSPACE to this run's
+	// own directory. Mirroring orbit-session-runner's {workDir}/.runhome
+	// (docs/adr/2026-06-04-per-session-home-isolation.md), overriding HOME here
+	// keeps kubeconfig and tool caches (npm, pip, go, etc.) inside that scoped
+	// directory instead of the pod's shared default home.
+	if err := setRunHome(); err != nil {
+		// Not fatal, and not an isolation risk: a failure here just leaves HOME at
+		// the container's default (/home/orbit), which is on this pod's own
+		// ephemeral filesystem, not the shared workspaces PVC — it cannot expose
+		// or collide with another run's data. The SubPath mount (sandboxContainer
+		// in internal/agents/k8s.go) is the actual isolation boundary and is
+		// unaffected by this fallback; the only consequence is that tool caches
+		// (npm, pip, go, etc.) land in the pod's default home instead of the
+		// scoped workspace, which is a cleanup/reuse concern, not a security one.
+		log.Printf("sandbox-exec: run home not set, falling back to default HOME: %v", err)
+	}
+
 	// Materialize the kubeconfig for whichever Kubernetes connections this agent
 	// is granted, before any command can run. It holds no credential — the egress
 	// gateway injects the brokered ServiceAccount token on the wire — so the agent
@@ -134,6 +152,22 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 		}
 	}
 	done <- nil
+}
+
+// setRunHome points HOME at {WORKSPACE}/.runhome, so kubeconfig and anything
+// tools write under $HOME lands inside this run's own SubPath-scoped
+// workspace directory rather than the pod's shared default home. A no-op
+// when WORKSPACE is unset (e.g. local/dev invocation outside a sandbox pod).
+func setRunHome() error {
+	workspace := os.Getenv("WORKSPACE")
+	if workspace == "" {
+		return nil
+	}
+	runHome := filepath.Join(workspace, ".runhome")
+	if err := os.MkdirAll(runHome, 0o700); err != nil {
+		return fmt.Errorf("create run home: %w", err)
+	}
+	return os.Setenv("HOME", runHome)
 }
 
 // kubeconfigPath is where the rendered kubeconfig lands. kubectl reads

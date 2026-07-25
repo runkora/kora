@@ -96,7 +96,7 @@ func TestKubeClusters_NoResolverWired(t *testing.T) {
 func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
 
-	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}})
+	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, "/workspaces/run-1")
 	var got string
 	for _, e := range env {
 		if e.Name == kubeconfig.ClustersEnvVar {
@@ -111,9 +111,52 @@ func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 		t.Errorf("decoded %+v (err %v), want the one cluster", clusters, err)
 	}
 
-	for _, e := range sandboxContainerEnv(cfg, nil) {
+	for _, e := range sandboxContainerEnv(cfg, nil, "/workspaces/run-1") {
 		if e.Name == kubeconfig.ClustersEnvVar {
 			t.Errorf("%s must be omitted when the agent has no kubernetes connection, got %q", e.Name, e.Value)
 		}
+	}
+}
+
+// TestSandboxContainer_WorkspaceMountScopedToRunID locks the fix for
+// https://github.com/clear-route/orbit/issues/134: the workspaces PVC is
+// shared by every run co-located on the same pod ordinal, so the sandbox
+// container must mount it with SubPath: runID at /workspaces/{runID} — never
+// the bare PVC root — so a run's sandbox pod cannot see a sibling run's
+// directory.
+func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	runID := "run-abc-123"
+
+	c := sandboxContainer(cfg, nil, runID)
+
+	var found bool
+	var gotMountPath, gotSubPath string
+	for _, m := range c.VolumeMounts {
+		if m.Name != "workspaces" {
+			continue
+		}
+		found = true
+		gotMountPath, gotSubPath = m.MountPath, m.SubPath
+	}
+	if !found {
+		t.Fatal("no \"workspaces\" volume mount found on the sandbox container")
+	}
+	wantMountPath := "/workspaces/" + runID
+	if gotMountPath != wantMountPath {
+		t.Errorf("workspaces MountPath = %q, want %q", gotMountPath, wantMountPath)
+	}
+	if gotSubPath != runID {
+		t.Errorf("workspaces SubPath = %q, want %q (unscoped SubPath exposes every sibling run's directory)", gotSubPath, runID)
+	}
+
+	var gotWorkspace string
+	for _, e := range c.Env {
+		if e.Name == "WORKSPACE" {
+			gotWorkspace = e.Value
+		}
+	}
+	if gotWorkspace != wantMountPath {
+		t.Errorf("WORKSPACE env = %q, want %q", gotWorkspace, wantMountPath)
 	}
 }
