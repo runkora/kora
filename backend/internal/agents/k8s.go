@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
@@ -264,6 +265,10 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 // The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container
 // (Edit, Write tools) are immediately visible in the sandbox without copying.
+// The PVC is shared by every run scheduled onto that pod ordinal, so the
+// mount is scoped with SubPath: run.ID (see sandboxContainer) — this run's
+// sandbox pod only ever has its own {runID} directory mounted, never a
+// sibling run's. See https://github.com/clear-route/orbit/issues/134.
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error) {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
 		trace.WithAttributes(
@@ -345,7 +350,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 				},
 			},
 			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
-			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters)},
+			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
 		},
 	}
 
@@ -545,9 +550,16 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // When SystemNamespace is empty (defensive — should never happen in
 // production) the CA env is omitted so the sandbox simply has no governed
 // egress.
-func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster) []corev1.EnvVar {
+func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
+		// WORKSPACE is this run's subPath-scoped workspace (see sandboxVolumes/
+		// sandboxContainer). sandbox-exec uses it to derive a per-run HOME
+		// (mirroring orbit-session-runner's {workDir}/.runhome, see
+		// docs/adr/2026-06-04-per-session-home-isolation.md) so kubeconfig and
+		// tool caches (npm, pip, go, etc.) never land in the pod's shared
+		// default home.
+		{Name: "WORKSPACE", Value: workspaceDir},
 	}
 	// Git identity for commits the agent makes in the sandbox. Setting both
 	// GIT_AUTHOR_* and GIT_COMMITTER_* makes the platform identity the author and
@@ -685,9 +697,16 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 // when an egress gateway URL can be derived, a read-only mount of the tenant
 // CA root is added so the env vars in sandboxContainerEnv point at a real
 // file.
-func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster) corev1.Container {
+//
+// The workspaces volume is mounted with SubPath: runID so this pod's view of
+// the (StatefulSet-shared) PVC is scoped to its own run directory only —
+// sibling runs co-located on the same pod ordinal share the underlying PVC
+// but are not mounted into each other's sandbox pods at all. See
+// https://github.com/clear-route/orbit/issues/134.
+func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, runID string) corev1.Container {
+	workspaceDir := filepath.Join("/workspaces", runID)
 	mounts := []corev1.VolumeMount{
-		{Name: "workspaces", MountPath: "/workspaces"},
+		{Name: "workspaces", MountPath: workspaceDir, SubPath: runID},
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -733,7 +752,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 				Drop: []corev1.Capability{"ALL"},
 			},
 		},
-		Env:          sandboxContainerEnv(cfg, kubeClusters),
+		Env:          sandboxContainerEnv(cfg, kubeClusters, workspaceDir),
 		VolumeMounts: mounts,
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
