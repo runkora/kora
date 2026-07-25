@@ -443,12 +443,14 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return 0, ErrSignatureInvalid
 	}
 
-	deliveryID := adapter.DeliveryID(headers)
+	deliveryID := adapter.DeliveryID(headers, body)
 	if deliveryID == "" {
 		// Replay protection keys entirely on the provider delivery id via the
-		// partial unique index on trigger_deliveries. The id is not covered by the
-		// HMAC signature, so a captured-and-replayed body with the id header
-		// stripped would otherwise re-dispatch unbounded. Reject fail-closed.
+		// partial unique index on trigger_deliveries. The id is not part of the
+		// authenticated payload for every provider (GitHub carries it in an
+		// unsigned header; Alertmanager derives it from body content), so a
+		// captured-and-replayed delivery whose id was stripped or unparseable
+		// would otherwise re-dispatch unbounded. Reject fail-closed.
 		return 0, ErrMissingDeliveryID
 	}
 	eventType := adapter.EventType(headers, body)
