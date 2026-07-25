@@ -355,9 +355,30 @@ func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderNam
 	}
 	if provider.IsBedrockFamily() && bedrockInstructSuffix.MatchString(key) {
 		fallbackKey := bedrockInstructSuffix.ReplaceAllString(key, "")
-		return pricingMap[fallbackKey]
+		if p, ok := pricingMap[fallbackKey]; ok {
+			return p
+		}
 	}
-	return nil
+	// Best-effort cross-provider fallback: no row exists for this provider, so
+	// borrow the same model's price from another provider by bare model name
+	// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure). Only reached
+	// on a full miss, so the O(n) scan runs for the few unpriced models, not all.
+	want := pricingBareKey(provider, modelID)
+	if want == "" {
+		return nil
+	}
+	var match *pricingEntryJSON
+	matchLen := 0
+	for _, e := range pricingMap {
+		if pricingBareKey(ProviderName(e.Provider), e.ModelID) != want {
+			continue
+		}
+		if match == nil || len(e.ModelID) < matchLen {
+			match = e
+			matchLen = len(e.ModelID)
+		}
+	}
+	return match
 }
 
 func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *http.Request) {

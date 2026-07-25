@@ -130,6 +130,52 @@ func pricingKey(provider ProviderName, modelID string) string {
 	return string(normalisePricingProvider(provider)) + "/" + normalisePricingModelID(provider, modelID)
 }
 
+// pricingBareKey returns a provider-agnostic key for a best-effort,
+// cross-provider pricing fallback: the normalised model ID with its Bedrock
+// vendor namespace ("openai." in "openai.gpt-5.4") and any leading region
+// segment ("us/gpt-5.4") removed, leaving the bare model name ("gpt-5.4").
+//
+// This lets a model served on a provider the pricing catalog does not price
+// borrow the price of the same model on another provider — e.g. gpt-5.x runs on
+// Bedrock (Mantle) but LiteLLM prices it only under Azure. It is deliberately
+// approximate and used ONLY when no exact (provider, model) row exists.
+func pricingBareKey(provider ProviderName, modelID string) string {
+	id := normalisePricingModelID(provider, modelID)
+	// Bedrock IDs are vendor-namespaced ("openai.gpt-5.4", "anthropic.claude-…").
+	// Other providers use the bare name, so only strip the namespace for Bedrock
+	// (stripping the first "." unconditionally would mangle "gpt-5.4" -> "4").
+	if provider.IsBedrockFamily() {
+		if i := strings.IndexByte(id, '.'); i > 0 {
+			id = id[i+1:]
+		}
+	}
+	// Some providers prefix a region segment ("us/gpt-5.4", "eu/gpt-5.4").
+	if i := strings.IndexByte(id, '/'); i >= 0 {
+		id = id[i+1:]
+	}
+	return id
+}
+
+// bareFallbackIndex indexes pricing rows by pricingBareKey for the cross-provider
+// fallback, keeping the plainest (shortest) model ID per bare name so a bare
+// "gpt-5.4" is preferred over a dated or regional variant. provOf and idOf
+// extract the provider and model ID from each row so it works for any row type.
+func bareFallbackIndex[T any](rows []T, provOf func(T) ProviderName, idOf func(T) string) map[string]T {
+	idx := make(map[string]T, len(rows))
+	bestLen := make(map[string]int, len(rows))
+	for _, r := range rows {
+		bk := pricingBareKey(provOf(r), idOf(r))
+		if bk == "" {
+			continue
+		}
+		if n, ok := bestLen[bk]; !ok || len(idOf(r)) < n {
+			idx[bk] = r
+			bestLen[bk] = len(idOf(r))
+		}
+	}
+	return idx
+}
+
 // bedrockLookupSuffix strips version/date suffixes from a **discovered** Bedrock
 // model ID at pricing-lookup time. Intentionally excludes "-instruct" because
 // that suffix is part of the model's identity in the pricing catalog for
