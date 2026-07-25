@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { NativeSelect, Stack, Tabs, TabsContent, TabsList, TabsTrigger } from '@orbit/terra';
 import type { ModelRow } from '../../_types';
 import { useAnalyticsContext } from '../../_context/analytics-context';
@@ -8,11 +9,24 @@ import { AnalyticsPrincipalsTable } from '../../_components/analytics/analytics-
 
 interface AnalyticsTabProps {
   models: ModelRow[];
+  /** Deep-linked tab, e.g. `?tab=principals` from the principal drill-down's back link. */
+  initialTab?: 'overview' | 'principals';
 }
 
-export function AnalyticsTab({ models }: AnalyticsTabProps) {
+export function AnalyticsTab({ models, initialTab = 'overview' }: AnalyticsTabProps) {
   const { data, status, error, days, granularity, modelId, setDays, setGranularity, setModelId } =
     useAnalyticsContext();
+
+  // Controlled so a deep-link (e.g. the principal drill-down's "Analytics"
+  // back link with ?tab=principals) can land on a specific tab, and so
+  // switching tabs keeps the URL shareable/refreshable via replaceState.
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  const handleTabChange = useCallback((value: string) => {
+    setActiveTab(value as 'overview' | 'principals');
+    const qs = value === 'principals' ? '?tab=principals' : '';
+    window.history.replaceState(null, '', `${window.location.pathname}${qs}`);
+  }, []);
 
   const filterSlot =
     models.length > 0 ? (
@@ -33,7 +47,7 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
     ) : undefined;
 
   return (
-    <Tabs defaultValue="overview">
+    <Tabs value={activeTab} onValueChange={handleTabChange}>
       <TabsList>
         <TabsTrigger value="overview">Overview</TabsTrigger>
         <TabsTrigger value="principals">Principals</TabsTrigger>

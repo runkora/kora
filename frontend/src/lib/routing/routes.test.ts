@@ -23,8 +23,24 @@ describe('APP_ROUTES', () => {
 
   it('all modelGateway routes start with /', () => {
     for (const [key, value] of Object.entries(APP_ROUTES.modelGateway)) {
-      expect(value, `modelGateway.${key} should start with /`).toMatch(/^\//);
+      // Some entries (e.g. analyticsPrincipal) are dynamic route builder
+      // functions rather than plain strings — only assert on the literal ones.
+      if (typeof value === 'string') {
+        expect(value, `modelGateway.${key} should start with /`).toMatch(/^\//);
+      }
     }
+  });
+
+  it('analyticsPrincipal route builder produces a path starting with / and encodes its id', () => {
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('abc-123')).toMatch(/^\//);
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('abc-123')).toBe(
+      '/model-gateway/analytics/principals/abc-123',
+    );
+    // Reserved characters (e.g. a slash in an IdP-issued subject claim) must
+    // be percent-encoded so the id is treated as a single path segment.
+    expect(APP_ROUTES.modelGateway.analyticsPrincipal('team/sub-id')).toBe(
+      '/model-gateway/analytics/principals/team%2Fsub-id',
+    );
   });
 });
 

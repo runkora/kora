@@ -59,7 +59,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) — `Accepted` · 2026-04-01
 - [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) — `Accepted` · 2026-04-17
 - [Inference Usage Logs](2026-04-17-inference-usage-logs.md) — `Accepted` · 2026-04-17
-- [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) — `Accepted` · 2026-04-27
+- [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) — `Accepted (Amended 2026-07-20)` · 2026-04-27
 - [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — `Accepted` · 2026-05-03
 - [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) — `Accepted` · 2026-06-05
 - [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) — `Accepted (Decision 5 superseded 2026-06-10)` · 2026-06-05
@@ -186,7 +186,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-19 | [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) | Accepted | 0041 |
 | 2026-04-19 | [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) | Accepted | 0042 |
 | 2026-04-27 | [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) | Accepted | 0044 |
-| 2026-04-27 | [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) | Accepted | 0043 |
+| 2026-04-27 | [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) | Accepted (Amended 2026-07-20) | 0043 |
 | 2026-05-03 | [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) | Accepted | 0045 |
 | 2026-05-04 | [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) | Accepted | 0046 |
 | 2026-05-04 | [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) | Accepted | 0048 |

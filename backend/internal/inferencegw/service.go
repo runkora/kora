@@ -2483,3 +2483,25 @@ func (s *Service) AnalyticsPrincipals(ctx context.Context, filter AnalyticsPrinc
 	}
 	return resp, nil
 }
+
+// AnalyticsPrincipalByID returns the same aggregated breakdown as AnalyticsMe
+// (time-series buckets, KPIs, cost-by-model) but for the specified principal
+// rather than the caller's own identity. TenantID is always sourced from the
+// verified JWT — callers cannot cross tenants regardless of the requested
+// principalID. The caller is responsible for ensuring the request carries the
+// platform:analytics:read scope — enforcement happens at the route
+// registration layer, the same gate already covering /v1/analytics and
+// /v1/analytics/principals.
+func (s *Service) AnalyticsPrincipalByID(ctx context.Context, principalID string, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = &principalID
+	resp, err := s.usage.GetAnalytics(ctx, filter)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics principal by id: %w", err)
+	}
+	return resp, nil
+}

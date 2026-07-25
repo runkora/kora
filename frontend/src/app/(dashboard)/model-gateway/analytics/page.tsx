@@ -8,7 +8,17 @@ import { getPreferences } from '../../_preferences/preferences-server';
 import { toDays } from '../../_preferences/period';
 import { AnalyticsShell } from './_components/analytics-shell';
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  // Only "principals" is a recognised deep-link target today (used by the
+  // per-principal drill-down's back link); anything else falls back to the
+  // default Overview tab.
+  const initialTab = tab === 'principals' ? 'principals' : 'overview';
+
   const session = await getSession();
 
   if (!isSessionValid(session)) {
@@ -17,6 +27,7 @@ export default async function AnalyticsPage() {
         initialData={null}
         initialError="Session expired. Please sign in again."
         models={[]}
+        initialTab={initialTab}
       />
     );
   }
@@ -37,6 +48,7 @@ export default async function AnalyticsPage() {
       initialData={analyticsResult.ok ? analyticsResult.data : null}
       initialError={analyticsResult.ok ? null : analyticsResult.message}
       models={modelsResult.ok ? modelsResult.models : []}
+      initialTab={initialTab}
     />
   );
 }

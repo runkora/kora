@@ -1,8 +1,8 @@
 # Inference Analytics - Product Requirements Document
 
-**Status:** Implemented
+**Status:** Implemented (Amended 2026-07-20)
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-07-20
 **Owner:** Platform Engineering
 **Stakeholders:** Platform Engineering, Tenant Admins, Platform Admins, Individual API Consumers
 
@@ -65,7 +65,6 @@ The inference gateway records a detailed usage row for every request — capturi
 
 ### Non-Goals
 
-- Per-user breakdowns within the Analytics tab (admin drill-down by user — future iteration).
 - Log export or CSV download.
 - Budget alerts or spend thresholds.
 - Real-time / push-based chart updates (polling on page load is sufficient for v1).
@@ -119,6 +118,19 @@ The inference gateway records a detailed usage row for every request — capturi
 - [ ] The `platform:analytics:read` scope is automatically assigned to the `platform-admin` and `tenant-admin` roles in the default role→scope mappings.
 - [ ] Admins can filter charts by model to understand per-model trends.
 
+---
+
+**As a** platform admin,
+**I want to** click a principal row on the Analytics tab and see that individual's full usage breakdown,
+**So that** I can investigate a specific user's or agent's cost, token, and error trends without asking them to self-report.
+
+**Acceptance Criteria:**
+- [ ] Each row in the Principals table on the Analytics tab links to a per-principal usage view.
+- [ ] The per-principal view shows the same time-series, KPIs, and cost-by-model breakdown as My Usage, scoped to the selected principal.
+- [ ] The view is fed by a new endpoint, gated by `platform:analytics:read` — the same scope already required for the Analytics tab and Principals table, so no new scope or role is introduced.
+- [ ] The per-principal view displays the principal's resolved `display_name`/`email` (already available from the Principals table's identity enrichment) so it's clear whose usage is shown; falls back to the raw `principal_id` when no profile exists.
+- [ ] A caller without `platform:analytics:read` is denied at the policy layer, consistent with the existing tenant-wide analytics endpoints.
+
 ### Secondary User Stories
 
 **As a** platform or tenant admin,
@@ -144,12 +156,14 @@ The inference gateway records a detailed usage row for every request — capturi
 
 ### High-Level Approach
 
-Two `GET` endpoints on the inference gateway aggregate `inference_usage` records into daily buckets via SQL, returning pre-computed time-series data suitable for direct chart rendering:
+`GET` endpoints on the inference gateway aggregate `inference_usage` records into daily buckets via SQL, returning pre-computed time-series data suitable for direct chart rendering:
 
 - **`GET /v1/analytics/me`** — personal scope. Open to any authenticated caller (omitted from route-scope registration, following the `/v1/usage` pattern). The server always extracts `principal_id` and `tenant_id` from the token and enforces them as fixed SQL predicates — the client cannot supply either. Supports an optional `token_id` query parameter to narrow results to a single PAT.
 - **`GET /v1/analytics`** — tenant-wide scope. Requires `platform:analytics:read`, registered in the route-scope vocabulary. Returns data across all users in the tenant. Supports an optional `model_id` filter.
+- **`GET /v1/analytics/principals`** — tenant-wide scope, requires `platform:analytics:read`. Returns paginated, per-principal aggregate rows (cost, tokens, requests, error rate, latency) for the Principals table. Enriched with `email`/`display_name` in the BFF route via a join against `user_profiles`.
+- **`GET /v1/analytics/principals/{id}`** *(added 2026-07-20)* — tenant-wide scope, requires `platform:analytics:read`. Returns the same response shape as `/v1/analytics/me` (time-series, KPIs, cost-by-model) but for the specified `principal_id` instead of the caller's own identity. Backs the admin drill-down from a Principals table row into that principal's full usage view.
 
-Both endpoints return the same response shape. The My Usage tab calls `/v1/analytics/me`; the Analytics tab calls `/v1/analytics`.
+`/v1/analytics/me` and `/v1/analytics/principals/{id}` return the same response shape. The My Usage tab calls `/v1/analytics/me`; the Analytics tab's Overview calls `/v1/analytics`; the Principals table calls `/v1/analytics/principals`; clicking a principal row calls `/v1/analytics/principals/{id}`.
 
 The frontend replaces all mock data in the current Usage tab (renamed Analytics) with real API calls, and adds a new My Usage tab after Models in the Model Gateway nav using the same chart components.
 
@@ -206,6 +220,8 @@ A new scope `platform:analytics:read` is added to the platform vocabulary and ba
 
 - **`GET /v1/analytics/me` endpoint** — personal analytics, open to any authenticated caller. Aggregates `inference_usage` via SQL for the authenticated `principal_id`; supports optional `token_id` PAT filter.
 - **`GET /v1/analytics` endpoint** — tenant-wide analytics, requires `platform:analytics:read`. Aggregates across all users; supports optional `model_id` filter. Both endpoints return the same response shape.
+- **`GET /v1/analytics/principals` endpoint** — tenant-wide per-principal aggregate rows backing the Principals table; requires `platform:analytics:read`.
+- **`GET /v1/analytics/principals/{id}` endpoint** — per-principal drill-down, same response shape as `/v1/analytics/me`; requires `platform:analytics:read`.
 - **`platform:analytics:read` scope** — new vocabulary entry; baked into `defaultRoleScopes` for `tenant-admin` and `platform-admin`; enforced by the inference gateway's OPA policy middleware.
 - **Analytics context / hook** — frontend data-fetching layer, mirrors the pattern established by `LogsContext`. Shared by both My Usage and Analytics tabs, parameterised by scope.
 - **Chart components** — the six chart components from the current (mocked) Usage tab, de-coupled from mock data and accepting real API response shapes.
@@ -220,6 +236,9 @@ A new scope `platform:analytics:read` is added to the platform vocabulary and ba
 
 - `GET /v1/analytics/me` backend endpoint (personal, any authenticated caller)
 - `GET /v1/analytics` backend endpoint (tenant-wide, requires `platform:analytics:read`)
+- `GET /v1/analytics/principals` backend endpoint (tenant-wide per-principal rows, requires `platform:analytics:read`)
+- `GET /v1/analytics/principals/{id}` backend endpoint (per-principal full breakdown, same shape as `/v1/analytics/me`, requires `platform:analytics:read`)
+- Analytics tab: clicking a principal row on the Principals table links to that principal's full usage breakdown (reuses My Usage chart components)
 - `platform:analytics:read` scope added to vocabulary and default role mappings
 - **My Usage** tab: personal analytics scoped to `principal_id`, visible to all users
 - **Analytics** tab: tenant-wide analytics, visible only to `platform-admin` and `tenant-admin`
@@ -231,7 +250,6 @@ A new scope `platform:analytics:read` is added to the platform vocabulary and ba
 
 ### Out of Scope
 
-- Per-user breakdown within Analytics (drill-down by user identity — future iteration)
 - Spend alerts or budget thresholds
 - CSV export or data download
 - Real-time updates (page-load fetch is sufficient)
@@ -240,7 +258,6 @@ A new scope `platform:analytics:read` is added to the platform vocabulary and ba
 
 ### Future Considerations
 
-- Admin drill-down: filter Analytics by `principal_id` to see a specific user's usage
 - Anomaly detection or cost spike alerts
 - Comparison view: current period vs previous period deltas on KPI cards
 - Provider-level breakdown chart
@@ -269,6 +286,8 @@ A new scope `platform:analytics:read` is added to the platform vocabulary and ba
 - [ ] Granularity selector: daily, weekly, monthly
 - [ ] PAT filter on My Usage
 - [ ] All mock data removed from chart components
+- [ ] `GET /v1/analytics/principals/{id}` endpoint returning the same shape as `/v1/analytics/me` for the specified principal, scoped to the tenant, requiring `platform:analytics:read`
+- [ ] Analytics tab: clicking a principal row navigates to that principal's full usage breakdown, reusing My Usage chart components and carrying the resolved `display_name`/`email`
 
 **Should Have (P1):**
 - [ ] Model filter on Analytics tab

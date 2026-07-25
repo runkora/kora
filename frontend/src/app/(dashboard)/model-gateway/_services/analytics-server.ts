@@ -95,6 +95,21 @@ export async function fetchAnalyticsFromGateway(
   return fetchAnalytics(accessToken, '/analytics', params);
 }
 
+// Admin drill-down: same response shape as /analytics/me, for a caller-chosen
+// principal rather than the caller's own identity. Requires
+// platform:analytics:read — enforced by the inference gateway, not here.
+export async function fetchAnalyticsPrincipalByIdFromGateway(
+  accessToken: string,
+  principalId: string,
+  params: AnalyticsParams = {},
+): Promise<AnalyticsResult> {
+  return fetchAnalytics(
+    accessToken,
+    `/analytics/principals/${encodeURIComponent(principalId)}`,
+    params,
+  );
+}
+
 // ── Principals ────────────────────────────────────────────────────────────────
 
 export async function fetchAnalyticsPrincipalsFromGateway(
