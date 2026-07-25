@@ -435,6 +435,7 @@ type mockK8s struct {
 	provisionedAgentTypes   []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
+	rolledOutSlugs          []string
 
 	provisionAgentTypeErr   error
 	deprovisionAgentTypeErr error
@@ -444,6 +445,7 @@ type mockK8s struct {
 	provisionKubeClusters   []kubeconfig.Cluster
 	provisionSandboxErr     error
 	deleteSandboxErr        error
+	rolloutStatefulSetErr   error
 }
 
 func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) error {
@@ -507,6 +509,16 @@ func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) err
 }
 
 func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockK8s) RolloutStatefulSet(_ context.Context, slug, _ string) error {
+	if m.rolloutStatefulSetErr != nil {
+		return m.rolloutStatefulSetErr
+	}
+	m.mu.Lock()
+	m.rolledOutSlugs = append(m.rolledOutSlugs, slug)
+	m.mu.Unlock()
 	return nil
 }
 

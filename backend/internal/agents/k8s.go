@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -17,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
@@ -254,6 +256,49 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 		}
 		return ss.Status.ReadyReplicas >= 1, nil
 	})
+}
+
+// RolloutStatefulSet triggers a rolling restart of the StatefulSet for the
+// given slug by patching the pod template with a restartedAt annotation.
+// This is equivalent to `kubectl rollout restart statefulset/<slug>` and
+// ensures that pods pick up new configuration (e.g. a changed framework or
+// model_id) without requiring a manual recycle.
+func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace string) error {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.RolloutStatefulSet",
+		trace.WithAttributes(
+			attribute.String("slug", slug),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
+	type patchAnnotations struct {
+		Spec struct {
+			Template struct {
+				Metadata struct {
+					Annotations map[string]string `json:"annotations"`
+				} `json:"metadata"`
+			} `json:"template"`
+		} `json:"spec"`
+	}
+	var p2 patchAnnotations
+	p2.Spec.Template.Metadata.Annotations = map[string]string{
+		"kubectl.kubernetes.io/restartedAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	data, err := json.Marshal(p2)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "marshal rollout patch")
+		return fmt.Errorf("marshal rollout patch: %w", err)
+	}
+	if _, err := p.client.AppsV1().StatefulSets(namespace).Patch(
+		ctx, slug, types.StrategicMergePatchType, data, metav1.PatchOptions{},
+	); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "patch statefulset for rollout")
+		return fmt.Errorf("patch statefulset %s/%s for rollout: %w", namespace, slug, err)
+	}
+	return nil
 }
 
 // ── Sandbox provisioning ──────────────────────────────────────────────────────

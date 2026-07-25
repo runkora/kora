@@ -33,6 +33,9 @@ spec:
         # fails due to different certificate roots.
         inject.istio.io/templates: "sidecar,spire"
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Force a rollout when the OPA config changes (e.g. policy-service URL or
+        # bundle polling interval) so pods never run stale config.
+        checksum/config: {{ include (print $.Template.BasePath "/opa-gateway/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: orbit-opa-gateway
       securityContext:
