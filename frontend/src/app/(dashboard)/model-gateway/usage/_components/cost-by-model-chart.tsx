@@ -40,7 +40,9 @@ const MODEL_BAR_COLORS = [
 export function CostByModelChart() {
   // One bar per chart token; models beyond the top bars aggregate into "Other"
   // so no spend is hidden and series colours are never cycled.
-  const sorted = [...MODEL_COSTS].sort((a, b) => b.cost - a.cost);
+  const sorted: Array<{ model: string; cost: number; isOther?: boolean }> = [...MODEL_COSTS].sort(
+    (a, b) => b.cost - a.cost,
+  );
   const data =
     sorted.length <= MODEL_BAR_COLORS.length
       ? sorted
@@ -49,6 +51,7 @@ export function CostByModelChart() {
           {
             model: 'Other',
             cost: sorted.slice(MODEL_BAR_COLORS.length - 1).reduce((s, row) => s + row.cost, 0),
+            isOther: true,
           },
         ];
 
@@ -95,11 +98,7 @@ export function CostByModelChart() {
               {data.map((entry, index) => (
                 <Cell
                   key={`cell-${entry.model}`}
-                  fill={
-                    index >= MODEL_BAR_COLORS.length - 1 && entry.model === 'Other'
-                      ? 'var(--color-subtle)'
-                      : MODEL_BAR_COLORS[index]
-                  }
+                  fill={entry.isOther ? 'var(--color-subtle)' : MODEL_BAR_COLORS[index]}
                 />
               ))}
             </Bar>
