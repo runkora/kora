@@ -376,7 +376,7 @@ function TerminalView({ view }: { view: CanvasView }) {
         style={{
           flex: 1,
           overflow: 'auto',
-          background: 'var(--color-background)',
+          background: 'var(--chat-deep)',
           fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
           fontSize: 12.5,
           lineHeight: 1.65,
