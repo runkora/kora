@@ -130,6 +130,83 @@ func pricingKey(provider ProviderName, modelID string) string {
 	return string(normalisePricingProvider(provider)) + "/" + normalisePricingModelID(provider, modelID)
 }
 
+// pricingBareKey returns a provider-agnostic key for a best-effort,
+// cross-provider pricing fallback: the normalised model ID with its Bedrock
+// vendor namespace ("openai." in "openai.gpt-5.4") and any leading region
+// segment ("us/gpt-5.4") removed, leaving the bare model name ("gpt-5.4").
+//
+// This lets a model served on a provider the pricing catalog does not price
+// borrow the price of the same model on another provider — e.g. gpt-5.x runs on
+// Bedrock (Mantle) but LiteLLM prices it only under Azure. It is deliberately
+// approximate and used ONLY when no exact (provider, model) row exists.
+func pricingBareKey(provider ProviderName, modelID string) string {
+	id := normalisePricingModelID(provider, modelID)
+	// Bedrock IDs are vendor-namespaced ("openai.gpt-5.4", "anthropic.claude-…").
+	// Other providers use the bare name, so only strip the namespace for Bedrock
+	// (stripping the first "." unconditionally would mangle "gpt-5.4" -> "4").
+	if provider.IsBedrockFamily() {
+		if i := strings.IndexByte(id, '.'); i > 0 {
+			id = id[i+1:]
+		}
+	}
+	// Some providers prefix a region segment ("us/gpt-5.4", "eu/gpt-5.4").
+	if i := strings.IndexByte(id, '/'); i >= 0 {
+		id = id[i+1:]
+	}
+	return id
+}
+
+// modelPricingProvider and modelPricingModelID are field accessors for
+// bareFallbackIndex over ModelPricing rows.
+func modelPricingProvider(p ModelPricing) ProviderName { return p.Provider }
+func modelPricingModelID(p ModelPricing) string        { return p.ModelID }
+
+// barePricingRank orders candidates for the same bare model name. Lower wins:
+// the plainest (shortest) model ID first, then (provider, modelID) lexically as
+// a total-order tiebreak so the choice is deterministic regardless of the input
+// (or map) iteration order — identical requests must always resolve the same
+// price.
+func barePricingRank(provider ProviderName, modelID string) (int, string, string) {
+	return len(modelID), string(provider), modelID
+}
+
+func barePricingLess(aLen int, aProv, aID string, bLen int, bProv, bID string) bool {
+	if aLen != bLen {
+		return aLen < bLen
+	}
+	if aProv != bProv {
+		return aProv < bProv
+	}
+	return aID < bID
+}
+
+// bareFallbackIndex indexes pricing rows by pricingBareKey for the cross-provider
+// fallback, keeping the plainest model ID per bare name (barePricingRank) so a
+// bare "gpt-5.4" is preferred over a dated or regional variant. provOf and idOf
+// extract the provider and model ID from each row so it works for any row type.
+func bareFallbackIndex[T any](rows []T, provOf func(T) ProviderName, idOf func(T) string) map[string]T {
+	idx := make(map[string]T, len(rows))
+	type rank struct {
+		length int
+		prov   string
+		id     string
+	}
+	best := make(map[string]rank, len(rows))
+	for _, r := range rows {
+		prov, id := provOf(r), idOf(r)
+		bk := pricingBareKey(prov, id)
+		if bk == "" {
+			continue
+		}
+		l, pv, i := barePricingRank(prov, id)
+		if cur, ok := best[bk]; !ok || barePricingLess(l, pv, i, cur.length, cur.prov, cur.id) {
+			idx[bk] = r
+			best[bk] = rank{l, pv, i}
+		}
+	}
+	return idx
+}
+
 // bedrockLookupSuffix strips version/date suffixes from a **discovered** Bedrock
 // model ID at pricing-lookup time. Intentionally excludes "-instruct" because
 // that suffix is part of the model's identity in the pricing catalog for

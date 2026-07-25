@@ -29,7 +29,8 @@ type PricingCache interface {
 // It is used in tests and in early development before provider price APIs are
 // integrated. The Start and Refresh methods are no-ops.
 type StaticPricingCache struct {
-	entries map[string]ModelPricing // key: "<provider>/<modelID>"
+	entries map[string]ModelPricing // key: pricingKey
+	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
 }
 
 // NewStaticPricingCache constructs a StaticPricingCache from the given entries.
@@ -38,20 +39,26 @@ func NewStaticPricingCache(entries []ModelPricing) *StaticPricingCache {
 	for _, e := range entries {
 		m[pricingKey(e.Provider, e.ModelID)] = e
 	}
-	return &StaticPricingCache{entries: m}
+	return &StaticPricingCache{entries: m, bare: bareFallbackIndex(entries, modelPricingProvider, modelPricingModelID)}
 }
 
 // NewNopPricingCache returns a PricingCache with no pricing data.
 // All Price calls return (ModelPricing{}, false) and EstimatedCostUSD returns 0.
 // Use this until a live pricing source is wired in.
 func NewNopPricingCache() *StaticPricingCache {
-	return &StaticPricingCache{entries: map[string]ModelPricing{}}
+	return &StaticPricingCache{entries: map[string]ModelPricing{}, bare: map[string]ModelPricing{}}
 }
 
 func (c *StaticPricingCache) Start(_ context.Context) {}
 
 func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	p, ok := c.entries[pricingKey(provider, modelID)]
+	if p, ok := c.entries[pricingKey(provider, modelID)]; ok {
+		return p, true
+	}
+	// Best-effort: no same-provider row, so borrow the same model's price from
+	// another provider (e.g. gpt-5.x on Bedrock, priced only under Azure). Keeps
+	// usage cost attribution non-zero for models the catalog prices elsewhere.
+	p, ok := c.bare[pricingBareKey(provider, modelID)]
 	return p, ok
 }
 

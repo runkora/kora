@@ -142,7 +142,7 @@ func TestVmEffectivePricing(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := vmEffectivePricing(tc.vm, tc.pricingIdx, tc.disabledRoutes, tc.connectors)
+			got := vmEffectivePricing(tc.vm, tc.pricingIdx, nil, tc.disabledRoutes, tc.connectors)
 			if tc.wantNil {
 				if got != nil {
 					t.Errorf("expected nil, got %+v", got)

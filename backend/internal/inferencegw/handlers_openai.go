@@ -303,7 +303,7 @@ func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
 //  3. the provider connector is configured in this deployment
 //
 // Returns nil when no available route has a matching entry in the pricing index.
-func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing, disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
+func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPricing, disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
 	var best *ModelPricing
 	bestPriority := 0
 	for _, route := range vm.Routes {
@@ -316,8 +316,12 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing, dis
 		if _, ok := connectors[route.Provider]; !ok {
 			continue
 		}
-		key := pricingKey(route.Provider, route.ModelID)
-		p, ok := pricingIdx[key]
+		p, ok := pricingIdx[pricingKey(route.Provider, route.ModelID)]
+		if !ok {
+			// Best-effort: the same model priced under a different provider
+			// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure).
+			p, ok = bareIdx[pricingBareKey(route.Provider, route.ModelID)]
+		}
 		if !ok {
 			continue
 		}
@@ -358,8 +362,14 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	pmIdx := buildProviderModelIndex(providerModels)
 
-	// Build pricing index from the in-memory cache — no DB round-trip.
-	pricingIdx := buildPricingIndex(c.svc.PricingAll())
+	// Build pricing index from the in-memory cache — no DB round-trip. The bare
+	// index backs a best-effort cross-provider fallback for routes with no
+	// same-provider price (e.g. gpt-5.x on Bedrock).
+	allPricing := c.svc.PricingAll()
+	pricingIdx := buildPricingIndex(allPricing)
+	bareIdx := bareFallbackIndex(allPricing,
+		func(p ModelPricing) ProviderName { return p.Provider },
+		func(p ModelPricing) string { return p.ModelID })
 
 	snap := c.svc.router.virtualCatalog.Load()
 
@@ -393,7 +403,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
-			Pricing:          vmEffectivePricing(vm, pricingIdx, disabledRoutes, c.svc.router.connectors),
+			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectors),
 		})
 	}
 
