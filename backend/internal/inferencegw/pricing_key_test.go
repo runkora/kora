@@ -58,6 +58,29 @@ func TestPricingCacheResolvesAliasedBedrockProvider(t *testing.T) {
 	}
 }
 
+// Cost estimation must also use the cross-provider fallback, or models the
+// catalog prices only under another provider (gpt-5.x on Bedrock → Azure) are
+// costed at zero and burn budget silently.
+func TestPricingCacheCrossProviderFallback(t *testing.T) {
+	cache := NewStaticPricingCache([]ModelPricing{
+		{Provider: "azure", ModelID: "gpt-5.4", InputCostPerMillion: 2.5, OutputCostPerMillion: 15},
+		{Provider: "azure", ModelID: "us/gpt-5.4", InputCostPerMillion: 2.75, OutputCostPerMillion: 16.5},
+	})
+
+	p, ok := cache.Price("bedrock:us", "openai.gpt-5.4")
+	if !ok {
+		t.Fatal("gpt-5.4 on bedrock should fall back to the azure price, got a miss (costed at 0)")
+	}
+	if p.InputCostPerMillion != 2.5 || p.OutputCostPerMillion != 15 {
+		t.Errorf("fallback price = %v/%v, want 2.5/15 (plainest azure row)", p.InputCostPerMillion, p.OutputCostPerMillion)
+	}
+
+	// A genuinely unpriced model must still miss — never borrow an unrelated price.
+	if _, ok := cache.Price("bedrock:aus", "vendor.totally-unknown-model"); ok {
+		t.Error("an unpriced model should miss, not fall back to an unrelated row")
+	}
+}
+
 // Round-trip guard: DatabasePricingCache must WRITE (Refresh) and READ (Price)
 // through the same key builder. The catalog row is stored under the base
 // provider; the read arrives with a per-account alias and a cross-region model

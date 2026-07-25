@@ -11,7 +11,8 @@ import (
 // pricingSnapshot is the immutable in-memory projection of model_pricing.
 // It is rebuilt on every refresh and swapped atomically.
 type pricingSnapshot struct {
-	entries map[string]ModelPricing // key: "<provider>/<modelID>"
+	entries map[string]ModelPricing // key: pricingKey
+	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
 }
 
 // DatabasePricingCache implements PricingCache backed by the model_pricing
@@ -35,7 +36,7 @@ func NewDatabasePricingCache(catalog PricingCatalogRepository, interval time.Dur
 		logger:   logger,
 	}
 	// Seed with an empty snapshot so Price() never panics before Start().
-	c.snap.Store(&pricingSnapshot{entries: map[string]ModelPricing{}})
+	c.snap.Store(&pricingSnapshot{entries: map[string]ModelPricing{}, bare: map[string]ModelPricing{}})
 	return c
 }
 
@@ -74,8 +75,13 @@ func (c *DatabasePricingCache) Start(ctx context.Context) {
 // lookup because the pricing catalog is keyed on the base ID from LiteLLM.
 func (c *DatabasePricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
 	snap := c.snap.Load()
-	key := pricingKey(provider, modelID)
-	p, ok := snap.entries[key]
+	if p, ok := snap.entries[pricingKey(provider, modelID)]; ok {
+		return p, true
+	}
+	// Best-effort: no same-provider row, so borrow the same model's price from
+	// another provider (e.g. gpt-5.x on Bedrock, priced only under Azure). Keeps
+	// usage cost attribution non-zero for models the catalog prices elsewhere.
+	p, ok := snap.bare[pricingBareKey(provider, modelID)]
 	return p, ok
 }
 
@@ -88,9 +94,9 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 	}
 
 	entries := make(map[string]ModelPricing, len(catalog))
+	priced := make([]ModelPricing, 0, len(catalog))
 	for _, e := range catalog {
-		key := pricingKey(e.Provider, e.ModelID)
-		entries[key] = ModelPricing{
+		mp := ModelPricing{
 			Provider:                 e.Provider,
 			ModelID:                  e.ModelID,
 			InputCostPerMillion:      e.EffectiveInput(),
@@ -98,9 +104,12 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 			CacheReadCostPerMillion:  e.EffectiveCacheRead(),
 			CacheWriteCostPerMillion: e.EffectiveCacheWrite(),
 		}
+		entries[pricingKey(e.Provider, e.ModelID)] = mp
+		priced = append(priced, mp)
 	}
 
-	c.snap.Store(&pricingSnapshot{entries: entries})
+	bare := bareFallbackIndex(priced, modelPricingProvider, modelPricingModelID)
+	c.snap.Store(&pricingSnapshot{entries: entries, bare: bare})
 	return nil
 }
 

@@ -156,6 +156,11 @@ func pricingBareKey(provider ProviderName, modelID string) string {
 	return id
 }
 
+// modelPricingProvider and modelPricingModelID are field accessors for
+// bareFallbackIndex over ModelPricing rows.
+func modelPricingProvider(p ModelPricing) ProviderName { return p.Provider }
+func modelPricingModelID(p ModelPricing) string        { return p.ModelID }
+
 // bareFallbackIndex indexes pricing rows by pricingBareKey for the cross-provider
 // fallback, keeping the plainest (shortest) model ID per bare name so a bare
 // "gpt-5.4" is preferred over a dated or regional variant. provOf and idOf
