@@ -1,16 +1,20 @@
-# Extended Trigger Types - Product Requirements Document
+# Extended Trigger Types: Scheduled, Manual, and an Operable Delivery Pipeline - Product Requirements Document
 
-**Status:** Draft
-**Created:** 2026-06-20
-**Last Updated:** 2026-06-20
-**Owner:** Platform Engineering
+**Status:** In Review
+**Created:** 2026-07-27
+**Last Updated:** 2026-07-27
+**Owner:** Justin Wilkin
 **Stakeholders:** Platform Engineering, Agent Control Plane, Identity & Policy, Security
 
 ---
 
 ## Executive Summary
 
-Orbit's Triggers framework (v1) shipped with webhook ingestion as the only trigger kind — external systems push events to Orbit, which starts agent runs in response. This PRD extends the framework to two additional trigger kinds: **scheduled triggers** (cron-based, time-driven run initiation) and **manual triggers** (an agent or API caller explicitly fires a named trigger to start a run, enabling agent-to-agent orchestration and programmatic run composition). Together these three kinds — webhook, scheduled, and manual — cover the core event model: push from outside, time, and pull/compose from inside.
+Triggers ships one kind today: an inbound webhook that starts an agent run under a bounded, attributable identity. That proved the model works. It left two gaps. There is no way to start a run on a schedule or on demand, so anything time-based or human-initiated still runs off a laptop or a cron job outside the platform. And the webhook path itself has none of what makes a trigger *operable*: a durable, honest record of every attempt (including the ones that were rejected or never ran), protection against a trigger firing faster than its agent can keep up, and a console that shows the fleet's health instead of a bare list.
+
+This PRD supersedes the earlier draft on this branch and covers the full scope in one spec: **two new trigger kinds** (scheduled and manual) alongside webhook, **exact delivery outcomes** so every way a run can fail to start is named and recorded, **admission control** so a trigger can't flood its agent, **delivery safety** (timeout, duplicate suppression, auto-pause), and a **console redesign** that shows fleet health rather than a list. It also names six further kinds the product commits to accommodating without building them.
+
+The starting position is that the existing webhook implementation is right. It gets extended, not replaced: no change to how webhooks authenticate, no change to who a triggered run is, no loss of existing triggers or history, and no behavior change for any trigger already in use. Where the design reference disagrees with what's already built, §Alternatives Considered records why the existing decision stands.
 
 ---
 
@@ -18,23 +22,40 @@ Orbit's Triggers framework (v1) shipped with webhook ingestion as the only trigg
 
 ### Current State
 
-- The Triggers framework exists and works well for webhooks. The ADR for v1 (`docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md`) explicitly called out scheduled and other trigger kinds as future work, and noted the planned extraction to `orbit-triggers` when the second trigger kind lands.
-- Every non-webhook run initiation today still requires a human with a valid platform token to call `POST /api/v1/runs`. There is no way to:
-  - Run an agent on a recurring schedule (e.g. nightly report generation, daily health checks).
-  - Have one agent start another agent programmatically — agents cannot compose or delegate to each other.
-  - Let an external system or script fire a named, pre-configured trigger on demand without knowing the full run API surface.
+- Triggers (`internal/triggers/`, hosted in `identity`) supports exactly **one** kind: `webhook`. An inbound signed request from a registered source dispatches a run on the target agent. This works and is in use.
+- **There is no scheduled trigger.** Anything recurring — a nightly report, an hourly sync, a weekly dependency sweep — is run by a cron job on someone's machine or a CI schedule, outside the platform's identity and policy model entirely.
+- **There is no manual trigger.** Kicking off an agent run on demand with a small structured input means either a fake webhook, a `curl` to the run API with a hand-written payload, or asking whoever owns the agent to do it.
+- **Delivery outcomes are coarse.** A delivery is recorded as verified, dispatched, skipped, or failed. There is no way to distinguish "the signature was invalid" from "the agent was unreachable" from "policy denied it" — they all collapse toward `failed`, or aren't recorded as a delivery at all in some rejection paths. An operator debugging "why didn't my trigger fire" cannot tell from the record.
+- **No admission control.** A webhook trigger receiving a burst of events dispatches every matching delivery immediately and concurrently. There is no per-trigger concurrency ceiling and no defined behavior for what happens when one would be exceeded.
+- **No delivery safety net.** A trigger stuck failing every delivery (bad prompt template, agent misconfigured, expired grant) keeps firing indefinitely — there is no auto-pause. There is no dedupe against a resent event. There is no dispatch timeout separate from the run's own execution.
+- **Only an excerpt of each payload is kept.** Enough to identify a delivery, not enough to answer "what exactly did the sender send" — so debugging a bad payload means going back to the sending system.
+- **The console is a bare list.** The Triggers page shows rows with no aggregate view (how many are healthy, how much traffic in the last 24h, which ones need attention), no per-trigger delivery history at a glance (sparkline), and the deliveries feed and per-trigger drawer described in the v1 PRD were never built.
+
+### One thing the current model already gets right
+
+A single inbound delivery can match **several** triggers — one GitHub push legitimately starting three different agents. Triggers already records this as one delivery with a per-trigger outcome for each match, and that fan-out is correct: it's how a source and the automations built on it actually relate. Admission control, auto-pause, and the console's badges and counts are therefore **per trigger within a delivery**. A delivery that started two runs and was rejected by a third trigger's concurrency limit has to be able to say exactly that.
+
+That means outcomes live at **two levels**, and conflating them is the main way this design could go wrong:
+
+- **Delivery level** — what happened to the arrival itself, before any trigger was involved: it wasn't genuine, it was a duplicate, or nothing was listening for it. There is no trigger to attribute these to.
+- **Trigger level** — what happened for each trigger that matched: filtered out, denied by policy, superseded, dropped for exceeding a limit, dispatched, or failed to dispatch.
+
+Both levels have to be visible. An admin looking at one trigger needs its own outcomes; an admin looking at the feed needs to see the arrivals that never reached a trigger at all.
 
 ### User Pain Points
 
-- **No scheduled automation.** Teams running recurring tasks (nightly summaries, periodic data processing, scheduled reviews) must maintain external cron jobs that call Orbit's run API with a human credential — which ties automation to individual accounts and breaks when people leave.
-- **Agents can't delegate to other agents.** Multi-step workflows where Agent A completes and wants to start Agent B require a human in the loop or out-of-band scripting. There is no first-class agent-to-agent handoff.
-- **No simple programmatic trigger surface.** Integrators who want to fire a run in response to an internal event (a CI pipeline step completing, a build finishing) must construct the full `StartRun` API call. A named, pre-configured trigger gives them a stable, scoped surface that does not require knowledge of agent slugs or prompt construction.
+- **Recurring agent work lives outside Orbit.** The one class of automation most teams want first — "run this every night" — is the one the platform can't express, so it stays on infrastructure with none of Orbit's identity, policy, or audit guarantees.
+- **Starting a run on demand is a hack.** There's no first-class "here is the input this agent takes, go" surface, so operators improvise.
+- **"Why didn't my trigger fire?"** is unanswerable today for anything that isn't a clean dispatch — a policy denial, a filtered-out event type, and a genuine failure all look the same or don't show up at all.
+- **A noisy or broken trigger has no circuit breaker.** A webhook source retrying an event, or (once schedules exist) a trigger ticking every minute against a wedged agent, burns budget and clutters run history with no way for Orbit to say "stop, something's wrong here" on its own.
+- **Operators can't see the fleet at a glance.** Answering "which of our 40 triggers are unhealthy right now" means opening each one.
 
 ### Business Impact
 
-- Limits Orbit's value proposition for automation-heavy teams — "set it and forget it" workflows are not possible without scheduled triggers.
-- Blocks multi-agent orchestration patterns that are a key differentiator for a hosted agent control plane.
-- Forces continued reliance on human credentials for automation, undermining the accountability and governance model.
+- Scheduled work running outside Orbit is agent activity the platform cannot see, govern, or attribute — the exact gap Orbit exists to close. Every nightly job on a laptop is an ungoverned agent.
+- Every trigger failure mode without a clear status is a support/debugging cost paid by whoever owns the automation.
+- Without admission control, a burst of webhook traffic can put unbounded concurrent runs on one agent — a cost and reliability risk with no platform guardrail.
+- The console gap makes Triggers feel unfinished relative to the rest of the control plane, undermining confidence in using it for anything business-critical.
 
 ---
 
@@ -42,97 +63,181 @@ Orbit's Triggers framework (v1) shipped with webhook ingestion as the only trigg
 
 ### Primary Goals
 
-1. **Scheduled triggers.** A trigger kind that fires on a cron schedule, starting an agent run with a configured prompt at each tick. No external push required — Orbit drives the schedule internally.
-2. **Manual triggers.** A trigger kind that fires when explicitly invoked via a dedicated API endpoint (`POST /api/v1/triggers/{id}/fire`). The caller may be a human, an external script, or — crucially — a running agent. This is the first-class path for agent-to-agent orchestration.
-3. **Extract `internal/triggers/` to `orbit-triggers`.** The v1 ADR committed to extracting the triggers package to a dedicated binary when the second trigger kind landed. Scheduled triggers are that second kind; this PRD fulfils that commitment.
-4. **Preserve the three pillars.** Every triggered run — webhook, scheduled, or manual — must have a verifiable identity (*Who*), a bounded scope (*What*), and must reuse the existing egress broker for outbound calls (*How*).
+1. **Scheduled triggers.** An agent run can be started on a recurring schedule (cron + timezone), inside the platform, with the same identity and policy guarantees a webhook run gets today.
+2. **Manual triggers.** An agent can publish a typed input form and an API path so an operator (or another system) can start a run on demand, without inventing a fake webhook.
+3. **Exact delivery status semantics.** Every delivery — accepted, rejected, superseded, or dropped — is recorded with a status that unambiguously explains what happened and why, before or instead of any run starting.
+4. **Admission control.** Each trigger gets a ceiling on concurrent runs and a chosen behavior for what happens beyond it: wait, replace, or refuse, so bursty or slow-draining triggers behave predictably.
+5. **Delivery safety.** Dispatch timeout, delivery dedupe, and auto-pause after repeated consecutive failures — a trigger that's broken stops making it worse on its own.
+6. **A console that shows fleet health.** KPI row, per-trigger sparkline and failure indicator, a cross-trigger deliveries feed, and a drawer (Overview / Deliveries / Settings) that surfaces everything above.
+7. **Preserve the three pillars.** Every triggered run — regardless of kind — still has a verifiable identity, a bounded scope, and reuses the existing egress broker. Adding two kinds must not introduce a second, weaker way to start a run.
 
 ### Success Metrics
 
-- A configured scheduled trigger fires automatically at each cron tick and starts the bound agent run without any human action.
-- A running agent can call `POST /api/v1/triggers/{id}/fire` and start a downstream agent run that executes concurrently.
-- 100% of triggered runs carry an attributable identity traceable to the trigger source.
-- The extraction to `orbit-triggers` passes all existing trigger tests with no regressions.
-- Cron schedule accuracy: runs start within 60 seconds of the scheduled tick (best-effort; no strict SLA in v1).
+- A scheduled trigger fires within one minute of its cron expression's due time, in the configured timezone, with a run attributable to that trigger's own principal.
+- A manual trigger's declared input schema is what the console form and the API both validate against — one definition, two surfaces, no drift.
+- A rejected delivery (bad signature, denied by policy, filtered event type, queue full) is always recorded with a status that names the specific reason — never silently dropped, never miscategorized as a generic failure.
+- A trigger set to run one at a time and replace what is waiting, receiving three overlapping fires produces exactly one further run, with the superseded deliveries visibly marked as such.
+- Ten consecutive failed deliveries auto-disables the trigger; the eleventh delivery attempt is rejected with a distinct status, not silently accepted and left to fail again.
+- Every number in the console (KPI values, per-trigger failure badge, 24h delivery count) is computed from the same delivery records a user could query directly — never a separately maintained counter that can drift.
 
 ### Non-Goals
 
-- **Complex workflow/DAG orchestration.** Manual triggers enable agent-to-agent handoff but not dependency graphs, fan-in, or conditional branching across runs.
-- **Dynamic prompt injection from the calling agent.** The prompt template is pre-configured on the trigger; callers may not override it in v1 (prevents arbitrary prompt injection through the trigger surface). Passing contextual data via `variables` (see below) is in scope.
-- **Trigger chaining / loops across many agents.** Best-effort loop detection only; full cycle prevention is future work.
-- **Email or SMS ingestion triggers.** A plausible future trigger kind; not in scope here.
-- **Self-service trigger creation by individual engineers.** v1 remains platform-admin-governed.
-- **GitOps / CRD-based trigger declaration.** REST API + UI is the authoring surface.
-- **Cron sub-minute resolution.** Standard 5-field cron; minute-level granularity.
-- **Missed-tick backfill.** If the scheduler is down during a scheduled window, that tick is skipped — no catch-up.
+- **Control-plane events, chained runs, chat commands, queue/stream ingestion, object-storage watches, monitor/alert triggers.** Surfaced in the "New trigger" picker as Planned so the model accommodates them, not built now. Each is a new adapter onto the existing pipeline, not a new pipeline — see §Proposed Solution.
+- **Retry of a failed/denied delivery.** Out of scope for this PRD; the admin-initiated Redeliver action covers recovery as a deliberate act rather than an automatic one.
+- **Any change to how or where webhooks are received and authenticated.** See §Alternatives Considered, Alternative 3.
+- **Cross-tenant / shared ingest infrastructure changes.** No change to tenancy model.
+- **Self-service trigger creation below platform-admin**, or a GitOps/CRD authoring surface. Unchanged from prior PRDs.
 
 ---
 
 ## User Stories
 
-### Scheduled Triggers
+### New trigger kinds
 
+**US-001**
 **As a** platform admin,
-**I want to** create a trigger that runs an agent on a cron schedule (e.g. every weekday at 09:00),
-**So that** recurring automation runs reliably without human action or external cron infrastructure.
+**I want to** start an agent run on a recurring schedule I define with a cron expression and a timezone,
+**So that** recurring agent work runs inside Orbit's identity and policy model instead of on a laptop or a CI cron.
 
 **Acceptance Criteria:**
-- [ ] Creating a scheduled trigger requires: name, cron expression, timezone, agent type, and prompt template.
-- [ ] The scheduler fires the trigger within 60 seconds of each tick and records a delivery.
-- [ ] Missed ticks (e.g. during downtime) are skipped, not queued for later replay.
-- [ ] The trigger can be enabled/disabled without deleting it or its history.
-- [ ] Delivery log shows each tick: status (dispatched / skipped / failed), run ID, and any error.
+- [ ] A trigger can be created with a cron expression and an IANA timezone; the console shows the next fire time in that timezone before I save.
+- [ ] The schedule fires within one minute of its due time.
+- [ ] DST transitions are handled by the configured timezone, not by UTC offset arithmetic — a 02:30 daily schedule does not skip or double-fire across a transition.
+- [ ] The minimum interval is one minute; a more frequent expression is rejected at creation with a clear message.
+- [ ] A fire missed during downtime is recorded as missed and skipped by default; catching up is a per-trigger opt-in, visible in the creation wizard rather than buried (PD1).
+- [ ] The run is attributed to the trigger's own principal, exactly as a webhook-triggered run is.
 
 ---
 
-**As a** platform admin,
-**I want to** inspect the history of a scheduled trigger's fires and the runs they started,
-**So that** I can verify the schedule is running correctly and debug failures.
+**US-002**
+**As an** agent owner,
+**I want to** publish a small typed input form for my agent and a matching API path,
+**So that** someone can start a run on demand with the right inputs, without me hand-holding them or them faking a webhook.
 
 **Acceptance Criteria:**
-- [ ] The delivery log for a scheduled trigger shows each tick with its outcome.
-- [ ] Run IDs link through to the agent run detail.
-
-### Manual Triggers
-
-**As a** platform admin,
-**I want to** create a manual trigger that can be fired programmatically by calling a dedicated API endpoint,
-**So that** CI pipelines, external scripts, and other agents can start a run without knowing the full run API.
-
-**Acceptance Criteria:**
-- [ ] Creating a manual trigger requires: name, agent type, and prompt template.
-- [ ] Firing the trigger via `POST /api/v1/triggers/{id}/fire` starts a run and returns the run ID.
-- [ ] The caller's identity (SERVICE token from a running agent, or a PAT) is recorded as the fire event's initiator.
-- [ ] Optional `variables` object in the fire request allows callers to pass contextual values that are substituted into the prompt template's `{{ var.key }}` placeholders.
-- [ ] The trigger's own identity (its source principal) is `created_by` on the run — not the caller's identity.
+- [ ] A manual trigger declares typed fields — name, type (text, number, boolean, choice), required, description, default (PD2); the console renders a form from that declaration and the API validates against the same one.
+- [ ] A run can be started from the console ("Run now") or from `POST` to the trigger's run endpoint.
+- [ ] The caller is authenticated and authorized to fire that specific trigger; the resulting run still executes under the trigger's own principal, not the caller's.
+- [ ] Invalid input is rejected with per-field errors before any run starts, and is recorded as a delivery.
 
 ---
 
-**As a** running agent,
-**I want to** call `POST /api/v1/triggers/{id}/fire` with context from my current run,
-**So that** I can hand off work to a downstream specialist agent without requiring a human in the loop.
+### Delivery status & auditability
+
+**US-003**
+**As a** platform admin,
+**I want to** see the exact reason a delivery didn't start a run — it wasn't genuine, policy denied it, the trigger filtered it out, it was superseded, it exceeded a limit, or the dispatch itself failed,
+**So that** I can fix the actual problem instead of guessing from a generic "failed" badge.
 
 **Acceptance Criteria:**
-- [ ] An agent with `triggers:fire:{trigger-id}` scope can fire the trigger and receive back the new run ID.
-- [ ] The downstream run executes under the trigger's own source identity, not the calling agent's identity — scopes do not bleed across agent boundaries.
-- [ ] The fire request may pass a `variables` map; values are substituted into the template's `{{ var.key }}` placeholders alongside the standard pre-configured fields.
+- [ ] Each of those reasons is a distinct, visible outcome — none collapses into a generic failure.
+- [ ] Outcomes that belong to a trigger (filtered, denied, superseded, dropped, dispatched, failed) are recorded per trigger, so a delivery that started two runs and was rejected by a third says exactly that.
+- [ ] Outcomes that belong to the arrival itself (not genuine, duplicate, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
+- [ ] A policy denial keeps the reason policy gave.
+- [ ] Something that arrived but was never going to start a run is still on the record, and "a trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
+- [ ] An outcome that means "no run will ever start for this" is visibly terminal, not left looking pending.
 
 ---
 
-**As a** security reviewer,
-**I want to** verify that firing a manual trigger cannot escalate the caller's scope,
-**So that** an agent cannot use a trigger to gain capabilities it was not granted.
+**US-004**
+**As an** auditor,
+**I want to** answer "what caused this run, who or what authorized it, and what was the payload" for any run started by a trigger,
+**So that** I can account for every automated action the platform took, including ones that were stopped.
 
 **Acceptance Criteria:**
-- [ ] The `fire` endpoint requires the caller to hold `triggers:fire:{trigger-id}` — a specific, per-trigger scope.
-- [ ] The resulting run executes under the *trigger's* source principal, not the caller's; the trigger source's grants bound what the run can do.
-- [ ] A caller cannot override the prompt template, agent type, or source identity on a fire request.
+- [ ] Every delivery is recorded *before* any authorization or dispatch decision, so a denial is still auditable.
+- [ ] Delivery metadata is kept indefinitely; only the payload body is subject to retention (PD4). A purged delivery still answers "did this fire, and what happened".
+- [ ] A run started by a trigger links back to its delivery; the run inspector shows "started by trigger X, delivery Y."
+- [ ] Deleting a trigger retains its delivery history; the console can still show what that trigger did, named, rather than an orphaned ID.
 
-### Secondary User Stories
+### Admission control
 
-- **As a** platform admin, I want to see all triggers (webhook + scheduled + manual) in the platform-wide Triggers section, with kind clearly shown, so I have a unified governance view.
-- **As an** engineer reviewing a run, I want to see "started by scheduled trigger X" or "started by manual trigger Y (fired by agent Z)" in the run detail, so attribution is clear.
-- **As a** platform admin, I want the prompt template for any trigger kind to support `{{ var.key }}` substitution from caller-supplied variables, so templates can be parameterised without being caller-controlled.
+**US-005**
+**As a** platform admin configuring a webhook trigger,
+**I want to** cap how many runs from this trigger can be in flight at once, and choose what happens to the overflow,
+**So that** a burst of events doesn't put unbounded concurrent load on the target agent.
+
+**Acceptance Criteria:**
+- [ ] The concurrency ceiling is configurable per trigger within a sensible range, and defaults to a value that suits most triggers without needing thought.
+- [ ] Overflow behavior is configurable per trigger: **wait** (hold in order, discarding the oldest if the backlog grows too large), **replace** (keep only the most recent waiting fire), or **refuse** (reject immediately and tell the sender).
+- [ ] Each kind gets the default that suits it: webhooks wait, schedules replace, manual fires refuse.
+- [ ] Admission control is scoped per trigger: two triggers targeting the same agent each get their own ceiling, independent of each other.
+- [ ] Disabling a trigger stops it accepting new fires and discards anything still waiting, recorded as dropped rather than vanishing. Runs already started are left alone — stopping a run is the agent's business, not the trigger's.
+- [ ] Deleting a trigger does the same, and its delivery history survives it (US-004).
+- [ ] The drawer shows how many fires are currently waiting, so a backlog is visible before it becomes a surprise.
+
+### Delivery safety
+
+**US-006**
+**As a** platform admin,
+**I want to** a trigger that's failing every delivery to disable itself after a run of consecutive failures and tell me,
+**So that** a broken integration doesn't burn budget indefinitely before anyone notices.
+
+**Acceptance Criteria:**
+- [ ] After 10 consecutive failures, the trigger is disabled and the console says it was auto-paused rather than turned off by a person.
+- [ ] The counter resets to zero as soon as a run starts successfully.
+- [ ] **A policy denial counts as a failure.** A trigger whose grant was revoked would otherwise be denied forever and never pause, which is exactly the case auto-pause exists for.
+- [ ] **Dropped and superseded do not count.** Those are admission control working as configured, not the trigger being broken.
+- [ ] A fire arriving at an auto-paused trigger is recorded with an outcome that says the trigger is paused — not silently unmatched, which would look identical to a trigger that was never listening.
+- [ ] Auto-pause can be turned off per trigger for triggers that are expected to fail intermittently by design.
+
+---
+
+**US-006a**
+**As a** platform admin,
+**I want to** a trigger that never gets a response from its agent to give up rather than hang,
+**So that** a wedged agent shows as a failure I can see instead of a delivery stuck in flight forever.
+
+**Acceptance Criteria:**
+- [ ] A dispatch that doesn't start a run within the trigger's timeout is abandoned and recorded as failed, and counts toward auto-pause.
+- [ ] The timeout covers starting the run, not running it — a long-running agent is not a failure.
+- [ ] The default is sensible without configuration; the setting exists for triggers whose agents are legitimately slow to start.
+
+---
+
+**US-007**
+**As a** platform admin,
+**I want to** duplicate webhook redeliveries recognized and not re-run,
+**So that** a provider's retry doesn't start a second run for the same event.
+
+**Acceptance Criteria:**
+- [ ] When duplicate suppression is on (the default) and the same event has already been handled for this trigger within the retention window, the repeat is acknowledged, linked to the original, and starts no second run.
+
+### Console
+
+**US-008**
+**As a** platform admin,
+**I want to** see active trigger count, 24h delivery volume, success rate, and how many triggers need attention at a glance,
+**So that** I can tell the fleet's health without opening every trigger.
+
+**Acceptance Criteria:**
+- [ ] The KPI row's values are computed from the same delivery/trigger records the table below it shows — never a value that can disagree with the rows.
+- [ ] A trigger row shows a failure badge derived from its own recent outcomes, not a separately stored flag, and distinguishes auto-paused from manually disabled.
+- [ ] A trigger row shows a 24h sparkline of delivery outcomes.
+
+---
+
+**US-009**
+**As a** platform admin,
+**I want to** a cross-trigger feed of every inbound delivery, with a Redeliver action on anything that failed or was denied,
+**So that** I can debug across triggers without navigating into each one, and recover from a transient failure without waiting for the next natural fire.
+
+**Acceptance Criteria:**
+- [ ] The deliveries feed shows delivery ID, what arrived, which trigger, how long it took, and the outcome, across all triggers. Fields that only apply to an HTTP arrival (response code) are absent for a scheduled tick rather than shown empty or faked.
+- [ ] Redeliver is available on any outcome where no run started and the cause might have been fixed since — failed, denied, dropped. It re-runs the delivery against current authorization, not a replay of the original decision.
+- [ ] Redeliver into a disabled or auto-paused trigger is refused with a message saying so, not silently accepted.
+- [ ] A redelivery is a new delivery that references the original, not an edit of it. The original outcome stays on the record.
+
+---
+
+**US-010**
+**As a** platform admin inspecting one trigger,
+**I want to** an Overview (endpoint/schedule/input form + filters + target + 24h stats), a Deliveries tab (expandable payload + the run it started), and a Settings tab (timeout, admission control, safety toggles, delete),
+**So that** everything about one trigger's behavior and history is in one place.
+
+**Acceptance Criteria:**
+- [ ] The Deliveries tab header is honest about sampling — e.g. "Last 4 of 55 deliveries" — never implies it's showing everything when it isn't.
+- [ ] Settings changes take effect on the next delivery, not retroactively on work already in flight.
 
 ---
 
@@ -140,51 +245,54 @@ Orbit's Triggers framework (v1) shipped with webhook ingestion as the only trigg
 
 ### High-Level Approach
 
-Extend the `Trigger` model with a `kind` discriminant (`webhook` | `scheduled` | `manual`) and kind-specific configuration. The dispatch pipeline — template rendering, identity minting, run initiation, delivery logging — is shared across all kinds; only *what fires the pipeline* differs:
+**One way in per kind, one shared path after that.** The webhook path already has the spine: something arrives, it's established as genuine, it's recorded, it's matched against the triggers that care about it, and each match either starts a run or doesn't. That spine is not rebuilt. Two new front doors feed into it — a clock, and a person or system calling an endpoint — and the middle gains the steps that are missing today:
 
-```
-Webhook   ──▶  POST /api/v1/webhooks/{sourceID}   ──▶ ┐
-Scheduled ──▶  internal cron scheduler             ──▶ ├──▶ [shared dispatch pipeline] ──▶ run
-Manual    ──▶  POST /api/v1/triggers/{id}/fire      ──▶ ┘
-```
+| Step | Today | This PRD |
+|---|---|---|
+| Something arrives | Only a webhook can | A webhook, a scheduled tick, or a deliberate fire |
+| It's recorded | Recorded once established as genuine | Recorded on arrival, so a rejection is still on the record |
+| Duplicates | Not detected | A repeat of an event already handled doesn't start a second run |
+| Matched to triggers | Fan-out to every matching trigger | Unchanged |
+| Authorized | Checked per trigger | Unchanged, but a denial is always written down as such |
+| Admitted | Every match dispatches immediately | Subject to the trigger's concurrency limit and overflow behavior |
+| Run starts | Dispatched to the agent | Unchanged |
+| Outcome recorded | Started / didn't start | The specific outcome, per trigger |
 
-The `orbit-triggers` extraction (committed in the v1 ADR) is included in this work — the second trigger kind is the extraction trigger. The package's internal boundaries are unchanged; only the binary wiring moves.
+**Acknowledging fast still matters.** A sender gets its answer immediately; the work of matching, admitting, and dispatching does not hold the response open. This is true today and stays true.
+
+**Adding a kind is adding a front door.** Everything in §Planned Trigger Kinds is a new way for something to arrive, not a new pipeline. That is the test for whether this design is right, and it's why the creation wizard shows the planned kinds rather than hiding them.
 
 ### Key Components
 
-- **`kind` field on `Trigger`** — discriminant `"webhook"` | `"scheduled"` | `"manual"`. Existing triggers migrate to `"webhook"`.
-- **`ScheduleConfig`** — per-trigger config for the scheduled kind: `cron_expression` (5-field), `timezone` (IANA). Stored in a new `schedule_config` JSONB column (null for non-scheduled kinds).
-- **Cron scheduler** — an in-process goroutine (or, later, a distributed leader-elected scheduler) that evaluates active scheduled triggers each minute and fires them. Built on the `robfig/cron` library; starts in `orbit-triggers`.
-- **`POST /api/v1/triggers/{id}/fire` endpoint** — the manual-trigger fire surface. Authenticated; requires `triggers:fire:{trigger-id}`. Accepts optional `variables` map. Returns run ID.
-- **`triggers:fire:{id}` scope** — a per-trigger scope granted to principals that are allowed to fire a specific manual trigger. Issued via the existing policy grant system.
-- **`orbit-triggers` binary** — new `cmd/orbit-triggers/` that wires the existing `internal/triggers/` package. The webhook ingestion endpoint, the scheduler, the management API, and the fire endpoint all live here.
-- **Variable substitution in templates** — `{{ var.key }}` placeholders resolved from the caller-supplied `variables` map on fire and from the scheduler tick's context on scheduled. Standard `{{ field }}` placeholders from the source adapter continue to work for webhook triggers.
+- **A trigger's kind** — `webhook`, `scheduled`, or `manual` — with the configuration each kind needs, and room for the kinds in §Planned Trigger Kinds to be added later without changing what a trigger *is*.
+- **A schedule** — a recurring expression plus a timezone, a preview of the next fire time, and a stated position on what happens to a fire that was due while the platform was down.
+- **A manual trigger's declared input** — the fields it accepts, their types, and whether each is required. One declaration, rendered as a console form and enforced by the API.
+- **Per-trigger delivery outcome** — an outcome for each trigger a delivery matched, drawn from a vocabulary rich enough to name every way a run can fail to start: rejected as inauthentic, denied by policy, filtered out by the trigger's own event selection, superseded by a newer fire, dropped for exceeding a concurrency limit, or failed on dispatch.
+- **Admission control** — a per-trigger ceiling on concurrent runs and a stated behavior when it's reached.
+- **Delivery safety** — a dispatch timeout, duplicate suppression, auto-pause after sustained failure, and a retention policy for stored payloads.
+- **Console redesign** — KPI row, type filter chips, sparkline + failure-badge table rows, cross-trigger deliveries feed, three-tab drawer (Overview / Deliveries / Settings), and a type-picker-first creation wizard that shows Planned kinds so the roadmap is visible in the product.
 
-### User Experience
+### Minimal disruption is a requirement, not a preference
 
-#### Scheduled Trigger Flow
+Triggers is in use. Webhook sources are registered, deliveries have history, and the identity model behind them is settled. This work is an extension of that, and the following are explicitly **not** on the table:
 
-1. Admin creates a scheduled trigger: name, cron `"0 9 * * 1-5"`, timezone `"Australia/Sydney"`, agent type `daily-standup-reporter`, prompt template `"Generate the daily standup report for {{ var.date }}."`.
-2. At 09:00 AEST on each weekday, `orbit-triggers` fires the trigger, substituting today's date from the scheduler context.
-3. A run starts; admin can inspect the delivery in the Triggers > Deliveries view.
+- **No change to how a webhook proves it's genuine.** The verification scheme and endpoint shape stay as they are. Re-pointing existing sources at a new URL or re-issuing their secrets is not an acceptable cost for this feature. The design reference proposes a different scheme; it is not adopted, and §Alternatives Considered records why.
+- **No change to who a triggered run is.** The two new kinds adopt the existing identity model rather than introducing a second way to start a run. Whatever the ADR settles about the details, the invariant is that a scheduled or manual run is attributable and bounded exactly as a webhook run is.
+- **No data loss.** Existing triggers and delivery history carry forward. Existing triggers keep behaving exactly as they do now until someone deliberately changes a setting — every new control ships with a default that preserves today's behavior.
+- **No renaming for its own sake.** Where the existing vocabulary already works, it stays. New outcomes are added to it, not substituted for it.
 
-#### Manual Trigger Flow
-
-1. Admin creates a manual trigger: name `"start-pr-summary"`, agent type `pr-summariser`, prompt template `"Summarise PR #{{ var.pr_number }} in repo {{ var.repo }}: {{ var.title }}."`.
-2. Admin grants a PAT or agent principal `triggers:fire:<trigger-id>`.
-3. An agent (or CI script) calls `POST /api/v1/triggers/{id}/fire` with `{"variables": {"pr_number": "42", "repo": "org/repo", "title": "Fix login bug"}}`.
-4. A new run starts for `pr-summariser` under the trigger's source identity; the caller receives the run ID in the response.
+Where the design reference and the existing implementation disagree, the existing implementation is the default and the burden is on the change.
 
 ### User Interface
 
-Extend the existing two-surface Triggers UI:
+Builds on the existing two-surface model (per-agent tab + platform-wide section); the platform-wide **Triggers** page is where this PRD's redesign lands:
 
-**Platform-wide Triggers section:**
-- **Sources:** unchanged (webhook sources only; scheduled/manual triggers have no inbound source to configure).
-- **All Triggers:** add a `Kind` column. Creating a trigger now shows a kind selector at the top of the form; the form body adapts to the chosen kind (webhook: existing source/event/condition fields; scheduled: cron + timezone; manual: no extra fields beyond name + agent + template).
-- **Deliveries:** unchanged — delivery records look the same regardless of kind.
-
-**Per-agent Triggers tab:** add kind badge alongside each trigger row. Creating a trigger from the agent tab still shows the kind selector.
+1. **KPI row** — active triggers, 24h deliveries, success rate, needs attention, avg dispatch time. Derived, never hand-set.
+2. **Type filter chips + search** — filter by kind, search across name/source/agent.
+3. **Triggers table** — type icon, name + failure badge, source, fires-on, target agent, 24h sparkline, last fired, inline enable/disable. Pagination: 12/25/50 rows; filter or search resets to page 1.
+4. **Recent deliveries feed** — cross-trigger, with Redeliver on failed/denied rows.
+5. **Trigger drawer** — Overview (kind-specific config + filters + target + 24h stat trio) / Deliveries (expandable payload + run link) / Settings (timeout, admission control, safety toggles, delete).
+6. **Creation wizard** — type picker (Available: Webhook/Schedule/Manual; Planned: the deferred kinds, visibly marked) → typed wizard → success screen.
 
 ---
 
@@ -192,34 +300,50 @@ Extend the existing two-surface Triggers UI:
 
 ### In Scope
 
-- `kind` discriminant on the `Trigger` model and database column.
-- Scheduled trigger kind: `schedule_config` (cron + timezone), in-process cron scheduler in `orbit-triggers`, missed-tick skip semantics.
-- Manual trigger kind: `POST /api/v1/triggers/{id}/fire` endpoint, `triggers:fire:{id}` scope, optional `variables` map, delivery log entry per fire.
-- `{{ var.key }}` variable substitution in prompt templates (all trigger kinds).
-- `orbit-triggers` binary extraction from `identity` (the committed v1 follow-up).
-- Per-trigger `fire` scope provisioning via the existing policy grant system.
-- Management UI updates: kind selector, kind column, kind-specific form fields.
-- Delivery log: kind-aware display (scheduled shows tick time; manual shows caller identity).
-- Migration of existing `webhook` triggers to `kind = 'webhook'`.
+- Two new trigger kinds: **scheduled** (recurring expression + timezone, next-fire preview, missed-fire behavior, one-minute minimum interval) and **manual** (declared input, console form, authenticated fire).
+- Per-trigger delivery outcomes covering every way a run can fail to start; every rejection is recorded, not silently discarded.
+- Admission control: a concurrency ceiling per trigger and a chosen overflow behavior.
+- Delivery safety: dispatch timeout, duplicate suppression, auto-pause on sustained failure.
+- Full payload capture, kept 30 days and shortenable per tenant (PD4), replacing today's excerpt-only record.
+- Redeliver: an explicit admin action on a delivery that didn't start a run.
+- Console: KPI row, sparklines, failure badges, deliveries feed, three-tab drawer, creation wizard with the Planned-kinds picker.
+- Carrying existing triggers and delivery history forward unchanged.
 
 ### Out of Scope
 
-- Email / SMS / other ingestion-based trigger kinds.
-- Distributed leader election for the cron scheduler (single-instance best-effort in v1).
-- Caller override of prompt template or agent type on fire request.
-- Dynamic scope provisioning for `triggers:fire` via UI (admin must call the grants API directly in v1).
-- Missed-tick backfill / catch-up semantics.
-- Sub-minute cron resolution.
-- Multi-agent DAG / workflow orchestration.
+- The six kinds in §Planned Trigger Kinds — the model accommodates them and the product acknowledges them; none is built here.
+- Automatic retry of a delivery that failed (distinct from duplicate suppression and from the admin-initiated Redeliver).
+- Changing how webhooks are authenticated or where they're received.
+- Waiting synchronously for a manually fired run to finish before responding.
+- Any change to who may create or manage a trigger.
 
 ### Future Considerations
 
-- Distributed/HA cron scheduler (leader election via Kubernetes lease or DB advisory lock).
-- Allow callers to supply an `initial_message` override on fire (with an admin-configurable gate).
-- Self-service creation of manual triggers by agent owners (below platform-admin).
-- UI for granting `triggers:fire` scope without needing to call the grants API directly.
-- Email ingest trigger kind (receive email → start run).
-- Trigger concurrency limits (max N active runs per trigger at once).
+- The six kinds in §Planned Trigger Kinds.
+- Notification for auto-pause beyond the console (PD5).
+- Retry with backoff, once there's evidence that Redeliver is being used as a manual substitute for it.
+
+---
+
+## Planned Trigger Kinds
+
+Six further kinds are **designed for but not built**. They appear in the creation wizard's type picker, visibly marked as planned and not selectable. This is deliberate: it tells an admin the roadmap without promising a date, and it holds the design honest — if adding one of these would require reworking the delivery model, the model is wrong now.
+
+Each is a new way for something to arrive. None changes what happens afterwards.
+
+| Kind | Fires when | Why it's deferred |
+|---|---|---|
+| **Control-plane event** | Something happens inside Orbit itself — a run finishes, a budget threshold is crossed, a grant is revoked, a policy denies an action | Needs a stable, documented catalogue of platform events before admins can bind to them; publishing that catalogue is a commitment to keep it |
+| **Chained run** | Another agent's run reaches a given outcome | The most requested and the most dangerous: chains can loop. Needs depth limits and cycle detection designed properly, not bolted on |
+| **Chat command** | Someone invokes the agent from Slack or Teams | Depends on a chat integration Orbit doesn't have yet; the trigger is the small part |
+| **Queue or stream message** | A message lands on a subscribed queue or topic | Requires outbound connection management and consumer lifecycle — a different operational shape from everything else here |
+| **Object storage change** | A file appears or changes in a watched bucket or prefix | Practically a webhook from the storage provider; blocked mainly on credential brokering for the watch itself |
+| **Monitor or alert** | An external monitoring system fires an alert | Closest to shipping — Alertmanager is already a recognised webhook provider, so this is largely a presentation and filtering question rather than a new mechanism |
+
+Two consequences for this PRD's scope, both deliberate:
+
+1. **The delivery record must not assume its origin was an HTTP request.** A scheduled tick and a chained run have no sender, no signature, and no response code. The vocabulary for outcomes has to work for all of them, which is why it's expressed in terms of what happened to the run rather than what was returned to a caller.
+2. **The trigger's shape must not assume a source.** Webhook triggers hang off a registered source; scheduled, manual, and most of the planned kinds do not. Anything that treats a source as mandatory will have to be undone later.
 
 ---
 
@@ -228,43 +352,40 @@ Extend the existing two-surface Triggers UI:
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `kind` field on `Trigger`; existing triggers default to `"webhook"` at migration.
-- [ ] Scheduled trigger kind: cron expression + timezone; scheduler fires within 60 s of tick; missed ticks skipped.
-- [ ] Manual trigger kind: `POST /api/v1/triggers/{id}/fire` endpoint; requires `triggers:fire:{id}` scope.
-- [ ] Optional `variables` map on fire; `{{ var.key }}` substitution in all trigger kind templates.
-- [ ] `orbit-triggers` binary extraction; existing webhook ingestion and management API fully functional after extraction.
-- [ ] Every delivery row records trigger kind so delivery log can display it.
-- [ ] Run attribution surfaced in delivery records: `fired_by` identity on manual triggers.
+- [ ] Scheduled triggers: recurring expression + timezone, next-fire preview before saving, one-minute minimum interval, correct across DST transitions, explicit missed-fire behavior.
+- [ ] Manual triggers: a declared input that drives both the console form and API validation; fire from either; the run is attributed to the trigger, not the caller.
+- [ ] Every outcome in §Key Components is recorded distinctly, per trigger, including for deliveries that never started a run.
+- [ ] A trigger's concurrency ceiling and overflow behavior are enforced exactly as US-005 specifies, per trigger only (PD6).
+- [ ] A dispatch that exceeds the trigger's timeout is abandoned and recorded as failed (US-006a).
+- [ ] Auto-pause disables a trigger after sustained consecutive failure, resets on success, and is surfaced in the console (PD5).
+- [ ] Console KPI row, sparkline and failure badge, deliveries feed, and the drawer's three tabs, all backed by the same records an admin could query directly.
 
 **Should Have (P1):**
-- [ ] UI kind selector and kind-specific form fields in both the platform Triggers section and per-agent tab.
-- [ ] Per-trigger `triggers:fire:{id}` scope grant API (admin can grant it to an agent or PAT).
-- [ ] Delivery log shows caller identity for manual fires.
-- [ ] `orbit-triggers` deployment in the standard Helm chart.
+- [ ] Duplicate suppression within the retention window.
+- [ ] Event filters chosen from a curated per-provider list rather than typed (PD7).
+- [ ] Redeliver on a delivery that didn't start a run.
+- [ ] Full payload capture, retained 30 days by default, shortenable per tenant, purged automatically (PD4). Delivery metadata is kept indefinitely.
+- [ ] Creation wizard with the Planned-kinds picker.
 
 **Nice to Have (P2):**
-- [ ] UI for granting `triggers:fire` without the raw grants API.
-- [ ] Trigger test-fire button in the UI for scheduled and manual kinds (immediately dispatches one tick/fire without waiting).
+- [ ] Notification when a trigger auto-pauses, beyond the console — deferred pending evidence that pauses go unnoticed (PD5).
 
 ### Non-Functional Requirements
 
 **Security:**
-- `triggers:fire:{id}` is per-trigger — a caller with access to one manual trigger cannot fire others.
-- Caller identity is recorded on every manual fire; the resulting run executes under the *trigger's* source identity, not the caller's.
-- Variable values passed on fire are treated as untrusted data (substituted verbatim for now; injection hardening follows the same deferred approach as webhook payload fields).
-- The `fire` endpoint requires authentication; unauthenticated callers get 401.
+- No triggered run, of any kind, is attributable to less than it is today. Adding kinds must not create a path to start a run that is checked less rigorously than the webhook path.
+- Redeliver is evaluated against current authorization, never replayed from the original decision — a revoked grant must stop a redelivery.
+- Full payload capture means potentially sensitive sender data at rest. Retention must be enforced automatically, not left to manual cleanup.
 
 **Reliability:**
-- Cron scheduler restarts cleanly after pod restart; no tick double-fire within a single minute window.
-- Manual fire requests are synchronous to delivery record creation; run start is async (same pattern as webhook ingest).
+- A restart must not cause a schedule to double-fire, and must not leave a trigger's concurrency accounting permanently wrong.
+- A trigger's settings taking effect on the next delivery is acceptable; silently applying them to in-flight work is not.
 
 **Performance:**
-- Manual fire endpoint responds (delivery accepted) in < 500 ms p95.
-- Cron scheduler tick evaluation does not block the main request path.
+- The sender-facing acknowledgement stays fast enough that no provider treats it as a timeout, under realistic burst load.
 
 **Observability:**
-- Every scheduled tick and every manual fire emits a structured log entry with trigger ID, kind, and resulting delivery ID.
-- Delivery records are queryable by trigger kind.
+- Every outcome and every admission decision is traceable to a single delivery, so "why didn't this fire" is answerable from logs as well as from the console.
 
 ---
 
@@ -272,15 +393,14 @@ Extend the existing two-surface Triggers UI:
 
 ### Internal Dependencies
 
-- **`internal/triggers/`** — extended with `kind` field, `ScheduleConfig`, fire endpoint handler, and cron scheduler. *Status: exists (webhook only).*
-- **`cmd/identity/`** — the webhook ingestion endpoint and management API migrate out to `cmd/orbit-triggers/`. *Status: exists.*
-- **Policy service** — `triggers:fire:{id}` scope issued and enforced via the existing grant mechanism. *Status: exists.*
-- **Agent control plane (`orbit-agents`)** — unchanged; accepts `SERVICE`-principal run requests as today. *Status: exists.*
-- **Frontend (Terra)** — UI updates for kind selector and kind column. *Status: exists.*
+- **Triggers** — the existing feature, extended. *Status: exists, webhook-only.*
+- **Policy** — unchanged evaluation, but a denial must now always leave a record. *Status: exists.*
+- **Agent control plane** — unchanged dispatch target for all three kinds. *Status: exists.*
+- **Console (Terra)** — the Triggers page, redesigned. *Status: exists, to be extended.*
 
 ### External Dependencies
 
-- `robfig/cron` (Go library) — standard cron parsing and scheduling. MIT licence; widely used.
+- None new. Schedule evaluation needs a cron implementation; the platform already has one available.
 
 ---
 
@@ -288,54 +408,73 @@ Extend the existing two-surface Triggers UI:
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Cron double-fire on pod restart | Medium | Medium | Record each tick in `trigger_deliveries` before starting run; unique index on `(trigger_id, scheduled_at)` prevents duplicates within same tick window |
-| Manual trigger used to compose unbounded agent chains | High | Low | `triggers:fire` is a scoped grant; each link in a chain requires an explicit grant; loop detection added in v1 (ignore fires attributable to Orbit's own service identities) |
-| Prompt injection via `variables` on fire | High | Medium | Same deferred posture as webhook payloads — values substituted verbatim; hardening tracked as follow-up |
-| `orbit-triggers` extraction breaks webhook delivery | High | Low | Extraction is a binary re-wiring; the `internal/triggers/` package is unchanged; full test suite runs against the new binary |
-| Single-instance scheduler misses ticks under load | Medium | Low | Documented best-effort guarantee; HA scheduler tracked as follow-up |
+| Admission control silently drops deliveries that should have waited | High | Medium | Per-mode behavior is specified exactly in US-005 and is the acceptance bar, not left to implementation judgement |
+| Auto-pause disables a trigger failing for a transient reason | Medium | Medium | The counter resets on any success, and auto-pause is a per-trigger opt-out for triggers expected to fail intermittently by design |
+| A schedule double-fires or is missed across a restart or a DST transition | Medium | Medium | Timezone correctness is an explicit acceptance criterion, and missed-fire behavior is a deliberate per-trigger setting rather than an emergent one |
+| The two new kinds end up with weaker authorization than the webhook kind | High | Low | All three kinds share one path by construction; the ADR must state the identity model for each kind explicitly rather than leave it implied |
+| Console numbers drift from the underlying records | Medium | Low | KPIs and badges must be derived from the same records the table shows, never separately maintained counters |
+| Full payload capture becomes an unmanaged store of sensitive third-party data | Medium | Medium | Retention is automatic and tenant-shortenable (PD4), and payload capture replaces the excerpt rather than sitting alongside it. A per-trigger opt-out of storing payloads is the first thing to add if a tenant needs it |
+| The delivery model quietly assumes an HTTP origin, blocking the planned kinds | Medium | Medium | Called out as an explicit design constraint in §Planned Trigger Kinds; the outcome vocabulary is defined in terms of the run, not the response |
+| The curated event-type list goes stale and blocks a legitimate new provider event | Medium | Medium | Accepted cost of PD7. The ADR must make the list updatable without a release, or the risk becomes a support burden rather than a maintenance one |
+| Forty concurrent runs reach one agent because ceilings are per trigger only | Medium | Medium | Accepted gap under PD6. The ADR must verify the agent's own limits bound concurrent runs rather than request rate, and state plainly if they don't |
 
 ---
 
 ## Alternatives Considered
 
-### Alternative 1: External cron (Kubernetes CronJob) for scheduled triggers
+### Alternative 1: Ship the two new kinds only, defer the pipeline and console work
 
-**Description:** Deploy a Kubernetes CronJob that calls `POST /api/v1/runs` on a schedule, using a pre-provisioned SERVICE token.
+**Description:** Add scheduled and manual triggers to the existing pipeline as-is; leave delivery status, admission control, safety, and the console for a later cut.
 
-**Why not chosen:**
-- Externalises scheduling to infrastructure that ops must manage separately; no UI, no delivery log, no enable/disable without kubectl.
-- Uses a generic run endpoint, not a named trigger — no attribution, no per-trigger scope boundary, no delivery history.
-- Undermines the goal of making triggers first-class platform concepts.
+**Why not chosen:** Scheduled triggers are precisely what makes the missing guardrails dangerous. A cron ticking every minute against a wedged agent, with no admission control, no auto-pause, and a console that can't show it's failing, is a worse position than not having schedules at all. The safety work is a precondition for the kinds, not a follow-up to them.
 
-### Alternative 2: Reuse webhook source model for manual triggers (fire = synthetic delivery)
+### Alternative 2: Ship the pipeline and console work, defer the two new kinds
 
-**Description:** A "manual" trigger is just a webhook trigger whose source accepts `POST /fire` calls; the signing secret is the fire credential.
+**Description:** Harden the webhook path only; add schedules and manual fires later.
 
-**Why not chosen:**
-- HMAC signing secret is an awkward credential for agent-to-agent calls; the platform token + scope model is a better fit.
-- Conflates two different trust models (external HMAC vs. internal principal scope).
-- Complicates the UI (every manual trigger requires a "source" with a secret).
+**Why not chosen:** It leaves the headline user need — "run this every night, inside Orbit" — unmet for another cycle, while the hardening work has no new consumer to prove it against. The two land better together.
 
-### Alternative 3: Defer scheduled/manual to a separate service (orbit-scheduler)
+### Alternative 3: Adopt the design reference's model wholesale, including its webhook scheme
 
-**Description:** Build a dedicated scheduler service rather than extending `orbit-triggers`.
+**Description:** Take the design reference literally, including its proposed change to how webhooks are addressed and authenticated.
 
-**Why not chosen:**
-- Premature separation; the cron scheduler is a small component that belongs in `orbit-triggers` alongside the other trigger kinds.
-- The v1 ADR already committed to `orbit-triggers` as the home for all trigger kinds.
+**Why not chosen:** Existing decisions stand unless shown to be wrong, and nothing in the design reference argues that the current scheme is. Changing it would force every registered webhook source to be re-pointed and re-secreted — a real, immediate cost to users of the feature, paid for a change with no demonstrated benefit. Revisit if a concrete problem with the current scheme actually surfaces.
+
+### Alternative 4: Start the data model over
+
+**Description:** Rebuild the trigger and delivery records cleanly against the new model rather than carrying the existing ones forward.
+
+**Why not chosen:** There are registered sources and delivery history in use. Every addition here has a default that preserves current behavior, so a reset buys nothing a carry-forward doesn't, and it destroys exactly the audit trail Triggers exists to produce.
+
+### Alternative 5: Flatten the delivery model to one trigger per delivery
+
+**Description:** Follow the design reference in treating a delivery as belonging to a single trigger, which would make status a single value and simplify the console considerably.
+
+**Why not chosen:** It's not true. One inbound event legitimately matches several triggers, and the current model already handles that correctly. Flattening it would either lose fan-out or duplicate the payload once per matched trigger. The extra complexity in the console is the honest cost of a real behavior.
 
 ---
 
-## Open Questions
+## Product Decisions
 
-1. **HA scheduler.** In a multi-replica `orbit-triggers` deployment, which replica fires scheduled triggers? v1 answer: single-replica, best-effort. Follow-up: leader election via Kubernetes Lease.
-   - **Status:** Resolved for v1 (single-instance); tracked for follow-up.
+Seven questions the design raised, settled here so the ADR doesn't have to guess. Each records the trade-off accepted, not just the choice.
 
-2. **`fired_by` attribution on the run.** The run's `created_by` is the trigger's source principal. Where do we surface the calling agent's identity for manual fires? Options: a run metadata field, a delivery record field, or a separate audit event.
-   - **Status:** Resolved — record `fired_by` in the delivery row; expose it in the delivery API and UI.
+**PD1 — A missed schedule is skipped by default.** A fire due during downtime is recorded as missed and does not run on recovery; catching up is a per-trigger opt-in. An agent doing real work twice is worse than not doing it, and a long outage on a frequent schedule would otherwise dump a burst of runs at once. **Accepted cost:** a schedule that genuinely must not skip work needs its owner to know the setting exists, so the creation wizard has to surface it rather than bury it.
 
-3. **`variables` schema validation.** Should variable keys be validated against the template at fire time, or are extra/missing keys silently ignored (same as unknown `{{ field }}` substitutions today)?
-   - **Status:** Resolved — silently ignore unknown keys; missing keys render empty (consistent with existing template behaviour).
+**PD2 — A manual trigger declares typed fields, nothing richer.** Name, type (text, number, boolean, choice), required, description, default. That covers the intended use and renders as a plain form. **Accepted cost:** no constraints beyond type, so a trigger needing "must match this pattern" validates inside the agent instead. Revisit only if that turns out to be common; the next step up needs an authoring UI and a validation-error experience, which is a different product.
+
+**PD3 — "Filtered" and "unmatched" are distinct outcomes.** Filtered means a trigger was listening to this source but its event selection excluded the event. Unmatched means nothing was listening at all. They have different fixes — one is a filter setting, the other is a missing trigger — so collapsing them puts the admin back to guessing. **Accepted cost:** one more outcome in the vocabulary and one more badge in the feed.
+
+**PD4 — Payloads are kept 30 days, and a tenant can shorten that.** 30 days is a workable debugging window; a tenant handling sensitive data can set it lower. Retention is enforced automatically, never by manual cleanup. Delivery metadata — what fired, what happened, which run started — is **kept indefinitely** and outlives the payload body, so a purged delivery still answers "did this fire, and what happened" for an auditor. **Accepted cost:** a tenant cannot extend payload retention beyond 30 days, and cannot yet exempt a specific trigger from storing payloads at all. If a trigger handling PII needs that, it's the first thing to add.
+
+**PD5 — Auto-pause is surfaced in the console only.** The failure badge and the "needs attention" KPI already put a paused trigger in front of anyone looking at the page. **Accepted cost:** an admin who isn't looking won't know until they look. Deliberate: notification needs a channel decision and new plumbing, and there's no evidence yet that pauses go unnoticed. Add it when there is.
+
+**PD6 — Concurrency is capped per trigger, not per agent.** Ten triggers each capped at four can still put forty runs on one agent, and this PRD accepts that. **Accepted cost:** a genuine gap, mitigated by the agent's own limits — the ADR must verify those actually bound concurrent runs rather than request rate, and say so plainly if they don't. Two interacting ceilings would also mean a delivery could be rejected for a reason invisible on the trigger the admin is looking at, which is worth avoiding until the gap is real.
+
+**PD7 — Event filters are picked from a curated per-provider list.** Typing an event type invites a silent typo that makes a trigger never fire, with no feedback until someone notices nothing happened. **Accepted cost:** Orbit commits to maintaining the list as providers add event types, and a stale list will eventually block a legitimate event. The ADR should account for that — a list that can't be updated without a release is a liability.
+
+### Decisions delegated to the ADR
+
+Technical decisions this PRD deliberately does not make, listed so they aren't lost: how schedules are evaluated safely when more than one instance is running; the concrete outcome vocabulary and its state transitions; how a manual trigger's fire permission is expressed in the platform's scope vocabulary; whether work waiting on a concurrency limit survives a restart; how the two new kinds obtain their identity; how the per-provider event catalogue is kept current; and how existing records carry forward. Where the ADR revisits an earlier decision rather than building on it, it must say so and justify it.
 
 ---
 
@@ -343,31 +482,31 @@ Extend the existing two-surface Triggers UI:
 
 ### Phases
 
-**Phase 1: `orbit-triggers` extraction + scheduled triggers**
-- Extract `internal/triggers/` from `identity` to `orbit-triggers` binary.
-- Add `kind` column; migrate existing triggers to `webhook`.
-- Implement cron scheduler + `ScheduleConfig`; scheduled trigger CRUD.
-- Delivery log records scheduled ticks.
+**Phase 1: Domain model & pipeline invariants**
+- Trigger kinds and their per-kind configuration, carrying existing records forward.
+- The two-level outcome vocabulary; every rejection recorded before the decision that caused it.
+- Duplicate suppression.
 
-**Phase 2: Manual triggers + variable substitution**
-- `POST /api/v1/triggers/{id}/fire` endpoint.
-- `triggers:fire:{id}` scope provisioning.
-- `{{ var.key }}` substitution in all templates.
-- `fired_by` in delivery records.
+**Phase 2: The two new kinds**
+- Schedules: recurring expression, timezone, next-fire preview, missed-fire behavior.
+- Manual trigger: input schema, fire endpoint, authorization.
 
-**Phase 3: UI + hardening**
-- Kind selector + kind column in both UI surfaces.
-- Kind-specific form fields.
-- Deployment in Helm chart.
+**Phase 3: Admission control & delivery safety**
+- Concurrency ceiling and overflow behavior.
+- Timeout, auto-pause, payload retention.
+
+**Phase 4: Console redesign**
+- KPI row, sparklines, failure badges, deliveries feed, three-tab drawer, creation wizard.
 
 ### Key Milestones
 
 - [ ] PRD Approved: TBD
 - [ ] ADR Created: TBD
 - [ ] Implementation Started: TBD
-- [ ] Phase 1 complete (extraction + scheduled): TBD
-- [ ] Phase 2 complete (manual + variables): TBD
-- [ ] Launch: TBD
+- [ ] Phase 1 complete (model + pipeline): TBD
+- [ ] Phase 2 complete (scheduled + manual): TBD
+- [ ] Phase 3 complete (admission control + safety): TBD
+- [ ] Phase 4 complete (console): TBD
 
 ---
 
@@ -375,20 +514,20 @@ Extend the existing two-surface Triggers UI:
 
 ### Related Documents
 
-- [PRD: Agent Webhook Triggers](./agent-webhook-triggers.md) — the v1 PRD this extends
-- [ADR: Agent Triggers and Webhook Ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) — the v1 ADR; committed to `orbit-triggers` extraction when second kind lands
+- [PRD: Agent Webhook Triggers](./agent-webhook-triggers.md) — the v1 PRD; its identity/scope/webhook-auth decisions are preserved by this PRD, not revisited.
+- [ADR: Agent Triggers and Webhook Ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1 ADR.
+- [ADR: Extended Trigger Types: Scheduled and Manual](../adr/2026-06-20-extended-trigger-types.md) — the earlier ADR draft on this branch; this PRD's companion ADR replaces it in place, taking up the decisions above.
 - [ADR: Run and Session Lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
-- [ADR: Agent Identity and Policy Provisioning](../adr/2026-05-11-agent-identity-and-policy-provisioning.md)
 - [ADR: JIT Credential Brokering / Egress Gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md)
+- Design reference: `Triggers.dc.html`, claude.ai/design project `24c98b96-a1bc-4ba2-b744-3e363f9587ca` — the console layout this PRD's UI section describes.
 
 ### Glossary
 
-- **Trigger kind:** The mechanism that fires a trigger — `webhook` (inbound HTTP push), `scheduled` (cron), or `manual` (explicit API call).
-- **Scheduled trigger:** A trigger that fires automatically on a cron schedule.
-- **Manual trigger:** A trigger that fires when explicitly invoked via `POST /api/v1/triggers/{id}/fire`.
-- **Variables:** Caller-supplied key/value pairs that are substituted into `{{ var.key }}` placeholders in a trigger's prompt template.
-- **`triggers:fire:{id}`:** A per-trigger scope that grants a principal the ability to fire a specific manual trigger.
-- **`orbit-triggers`:** The dedicated binary that hosts the triggers package (extracted from `identity` when the second trigger kind ships).
+- **Delivery:** A single arrival — an inbound webhook, a scheduled tick, or a manual fire — and its recorded outcomes. One delivery can produce an outcome per trigger it matched.
+- **Admission control:** The per-trigger ceiling on concurrent runs, and the chosen behavior when it is reached.
+- **Overflow behavior:** wait (hold in order), replace (keep only the most recent waiting fire), or refuse (reject immediately).
+- **Auto-pause:** Automatically disabling a trigger after 10 consecutive failures, where a policy denial counts as a failure and an admission-control rejection does not.
+- **Redeliver:** An explicit admin action that re-runs a past delivery as a new one, re-evaluated against current authorization — distinct from automatic retry, which is out of scope.
 
 ---
 
