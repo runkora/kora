@@ -693,11 +693,13 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 
 // categoryPermissionKeys maps each category to the installation-token permission
 // keys it needs. The level minted is the action's verb class (metadata is always
-// read). The repo catch-all/umbrella derives the union — with workflows
-// deliberately excluded: an agent that can push should not silently also be able
-// to rewrite CI workflow files (the classic secrets-exfiltration escalation); a
-// connection whose agents legitimately edit workflows declares workflows:write
-// in its permission ceiling, which the umbrella mints verbatim.
+// read). The repo catch-all/umbrella derives the union of these, minus
+// umbrellaExcludedPermissions (secrets/dependabot_secrets) and workflows: an
+// agent that can push should not silently also rewrite CI workflow files (the
+// classic secrets-exfiltration escalation) or hold repo secrets access. Those
+// permissions are reached only via their explicit category action, or by
+// declaring them in the connection's permission ceiling, which the umbrella
+// mints verbatim.
 var categoryPermissionKeys = map[string][]string{
 	"metadata": {"metadata"},
 	"contents": {"contents"},
@@ -706,6 +708,24 @@ var categoryPermissionKeys = map[string][]string{
 	"actions":  {"actions"},
 	"checks":   {"checks", "statuses"},
 	"admin":    {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
+}
+
+// umbrellaExcludedPermissions are permission keys the repo:read/repo:write
+// umbrella drops from its DERIVED union (the no-ceiling path in permissionsFor).
+// The umbrella is the catch-all for uncategorized routes (search, GraphQL, and
+// long-tail APIs) — none of which are secrets operations. secrets and
+// dependabot_secrets are credential-adjacent and commonly ungranted (the orbit
+// dev App has no secrets access), so unioning them into the umbrella made every
+// umbrella mint fail with GitHub 422 "permissions not granted to this
+// installation", breaking all GraphQL egress.
+//
+// The exclusion applies ONLY to the derived union. These permissions are still
+// reachable two deliberate ways: an explicit admin:read / admin:write action,
+// and a connection permission ceiling — the umbrella mints a declared ceiling
+// verbatim, so an operator that lists secrets there has opted in.
+var umbrellaExcludedPermissions = map[string]bool{
+	"secrets":            true,
+	"dependabot_secrets": true,
 }
 
 // permissionsFor derives the installation-token permission set for the
@@ -734,6 +754,9 @@ func permissionsFor(action string, ceiling map[string]string) map[string]string 
 				level = verbRead
 			}
 			for _, key := range keys {
+				if umbrellaExcludedPermissions[key] {
+					continue
+				}
 				derived[key] = level
 			}
 		}
