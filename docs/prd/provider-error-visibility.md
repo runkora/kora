@@ -1,6 +1,6 @@
 # Provider Error Visibility
 
-**Status:** In Progress
+**Status:** Implemented
 **Created:** 2026-06-19
 **Owner:** Platform Engineering
 **Stakeholders:** Engineers using Orbit as an API gateway

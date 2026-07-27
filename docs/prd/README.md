@@ -22,6 +22,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Inference Logs](inference-logs.md) | Implemented | [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md) |
 | [Inference Log Details](inference-log-details.md) | Implemented | [inference-log-details](../adr/2026-06-05-inference-log-details.md) |
 | [Inference Analytics](inference-analytics.md) | Implemented | [inference-analytics](../adr/2026-04-27-inference-analytics.md) |
+| [Provider Error Visibility](provider-error-visibility.md) | Implemented | [provider-error-visibility](../adr/2026-06-19-provider-error-visibility.md) |
 | [LLM Cost Tracking](llm-cost-tracking.md) | Approved | [llm-cost-tracking](../adr/2026-06-05-llm-cost-tracking.md), [budget-model-redesign](../adr/2026-06-10-budget-model-redesign.md) |
 | [Budgets Page](budgets-page.md) | Draft | [budget-enforcement-corrections-and-budgets-page](../adr/2026-06-10-budget-enforcement-corrections-and-budgets-page.md) |
 | [Hierarchical Budgets](hierarchical-budgets.md) | Draft | [hierarchical-budget-enforcement](../adr/2026-06-10-hierarchical-budget-enforcement.md) |
