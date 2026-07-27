@@ -533,8 +533,9 @@ export interface UpdateAgentTypeRequest {
 // ── Triggers ───────────────────────────────────────────────────────────────
 //
 // The Triggers feature starts agent runs automatically in response to external
-// events. The webhook trigger is the first kind. Types mirror Go:
-// internal/triggers. See docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
+// events. Three trigger kinds are supported: webhook, scheduled, and manual.
+// Types mirror Go: internal/triggers.
+// See docs/adr/2026-06-20-extended-trigger-types.md.
 
 /**
  * A webhook source is a registered inbound origin of webhook deliveries (e.g. a
@@ -576,18 +577,35 @@ export interface WebhookSourceUpdateRequest {
   rotate_secret?: boolean;
 }
 
-/** A trigger binds a source event to an agent. Mirrors Go: triggers.Trigger. */
+/** Trigger kind discriminant. */
+export type TriggerKind = 'webhook' | 'scheduled' | 'manual';
+
+/** Cron schedule configuration for scheduled triggers. */
+export interface ScheduleConfig {
+  /** Standard 5-field cron expression (e.g. "0 9 * * 1-5"). */
+  cron_expression: string;
+  /** IANA timezone name (e.g. "Australia/Sydney"). */
+  timezone: string;
+}
+
+/** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
 export interface Trigger {
   id: string;
   tenant_id: string;
-  source_id: string;
+  /** "webhook" | "scheduled" | "manual" */
+  kind: TriggerKind;
+  /** Present for webhook triggers only. */
+  source_id?: string;
   name: string;
   agent_type_id: string;
   agent_slug: string;
-  event_type: string;
-  /** field → allowed values; a delivery matches when every clause is satisfied. */
+  /** Present for webhook triggers only. */
+  event_type?: string;
+  /** field → allowed values; a delivery matches when every clause is satisfied. Webhook only. */
   match_condition?: Record<string, string[]>;
   prompt_template: string;
+  /** Present for scheduled triggers only. */
+  schedule_config?: ScheduleConfig;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -595,7 +613,12 @@ export interface Trigger {
 
 /** Request body for POST /api/triggers. */
 export interface TriggerCreateRequest {
-  source_id: string;
+  /**
+   * Trigger kind. Defaults to "webhook" when omitted for backward compatibility.
+   */
+  kind?: TriggerKind;
+  /** Required for webhook triggers. */
+  source_id?: string;
   name: string;
   agent_type_id: string;
   /**
@@ -604,9 +627,12 @@ export interface TriggerCreateRequest {
    * compatibility — do not rely on it being honored.
    */
   agent_slug?: string;
-  event_type: string;
+  /** Required for webhook triggers. */
+  event_type?: string;
   match_condition?: Record<string, string[]>;
   prompt_template: string;
+  /** Required for scheduled triggers. */
+  schedule_config?: ScheduleConfig;
 }
 
 /** Request body for PATCH /api/triggers/:id. */
@@ -616,22 +642,43 @@ export interface TriggerUpdateRequest {
   match_condition?: Record<string, string[]>;
   prompt_template?: string;
   enabled?: boolean;
+  /** For scheduled triggers: update the cron schedule. */
+  schedule_config?: ScheduleConfig;
 }
 
-/** A durable record of an inbound delivery and its outcome. Mirrors Go: triggers.Delivery. */
+/** Request body for POST /api/triggers/:id/fire (manual triggers only). */
+export interface TriggerFireRequest {
+  /** Values substituted into {{ var.key }} placeholders in the prompt template. */
+  variables?: Record<string, string>;
+}
+
+/** Response from POST /api/triggers/:id/fire. */
+export interface TriggerFireResponse {
+  delivery_id: string;
+  run_id: string;
+}
+
+/** A durable record of a trigger delivery and its outcome. Mirrors Go: triggers.Delivery. */
 export interface TriggerDelivery {
   id: string;
   tenant_id: string;
-  source_id: string;
+  /** "webhook" | "scheduled" | "manual" */
+  kind: TriggerKind;
+  /** Present for webhook deliveries. */
+  source_id?: string;
+  /** The matched trigger (all kinds). */
+  trigger_id?: string;
   provider_delivery_id?: string;
   event_type?: string;
   /** verified | dispatched | skipped | failed. */
   status: string;
-  /** Summary of the first dispatched run; see `runs` for the full fan-out. */
-  trigger_id?: string;
   run_id?: string;
   error?: string;
   payload_excerpt?: string;
+  /** Principal ID of the caller who fired a manual trigger. */
+  fired_by?: string;
+  /** Cron tick time for scheduled trigger deliveries. */
+  scheduled_at?: string;
   received_at: string;
   /** One entry per matched trigger — the complete per-trigger dispatch record. */
   runs?: TriggerDeliveryRun[];

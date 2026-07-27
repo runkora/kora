@@ -11,6 +11,7 @@ import {
 function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
   return {
     id: 'd1',
+    kind: 'webhook',
     sourceId: 'src-1',
     eventType: 'push',
     status: 'verified',
@@ -18,6 +19,8 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     runId: null,
     error: null,
     payloadExcerpt: null,
+    firedBy: null,
+    scheduledAt: null,
     receivedAt: '2026-06-26T00:00:00Z',
     runs: [],
     ...overrides,

@@ -388,6 +388,8 @@ export const ApiRoute = {
     create: (): `${typeof API_BASE}/triggers` => `${API_BASE}/triggers`,
     detail: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
+    fire: (id: string): `${typeof API_BASE}/triggers/${string}/fire` =>
+      `${API_BASE}/triggers/${id}/fire`,
   },
 
   triggerDeliveries: {

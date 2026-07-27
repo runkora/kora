@@ -1,12 +1,13 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: webhook trigger authoring (event → agent + prompt).
+/** @tier 2 — Orbit-domain-aware: trigger authoring (webhook / scheduled / manual → agent + prompt).
  * Used by: triggers platform section, agents per-agent Triggers tab. */
 
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
+  Code,
   FormField,
   Icon,
   Input,
@@ -20,7 +21,7 @@ import {
   Textarea,
 } from '@orbit/terra';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { TriggerCreateRequest, TriggerUpdateRequest } from '@orbit/shared/api';
+import type { TriggerCreateRequest, TriggerKind, TriggerUpdateRequest } from '@orbit/shared/api';
 
 export interface TriggerFormSource {
   id: string;
@@ -42,6 +43,7 @@ export interface TriggerFormAgent {
 /** The editable shape of a trigger, decoupled from any feature's row type. */
 export interface TriggerFormValue {
   id: string;
+  kind: TriggerKind;
   name: string;
   sourceId: string;
   agentTypeId: string;
@@ -49,6 +51,7 @@ export interface TriggerFormValue {
   eventType: string;
   matchCondition: Record<string, string[]>;
   promptTemplate: string;
+  scheduleConfig?: { cronExpression: string; timezone: string };
 }
 
 export interface TriggerFormModalProps {
@@ -90,6 +93,12 @@ function rowsToCondition(rows: ConditionRow[]): Record<string, string[]> {
   return out;
 }
 
+const KIND_LABELS: Record<TriggerKind, string> = {
+  webhook: 'Webhook — fires when an inbound HTTP event matches',
+  scheduled: 'Scheduled — fires on a cron schedule',
+  manual: 'Manual — fired by an agent or API call',
+};
+
 export function TriggerFormModal({
   open,
   trigger,
@@ -102,6 +111,7 @@ export function TriggerFormModal({
 }: TriggerFormModalProps) {
   const isEdit = trigger !== null;
 
+  const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? 'webhook');
   const [name, setName] = useState(trigger?.name ?? '');
   const [sourceId, setSourceId] = useState(
     trigger?.sourceId ?? defaultSourceId ?? sources[0]?.id ?? '',
@@ -118,6 +128,10 @@ export function TriggerFormModal({
   const [conditions, setConditions] = useState<ConditionRow[]>(
     trigger ? conditionToRows(trigger.matchCondition) : [],
   );
+  const [cronExpression, setCronExpression] = useState(
+    trigger?.scheduleConfig?.cronExpression ?? '0 9 * * 1-5',
+  );
+  const [timezone, setTimezone] = useState(trigger?.scheduleConfig?.timezone ?? 'UTC');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -136,10 +150,6 @@ export function TriggerFormModal({
       setSubmitError('Name is required.');
       return;
     }
-    if (!isEdit && !sourceId) {
-      setSubmitError('Select a webhook source.');
-      return;
-    }
     if (!isEdit && !resolvedAgent) {
       setSubmitError('Select a target agent.');
       return;
@@ -152,8 +162,16 @@ export function TriggerFormModal({
       );
       return;
     }
-    if (!eventType.trim()) {
+    if (!isEdit && kind === 'webhook' && !sourceId) {
+      setSubmitError('Select a webhook source.');
+      return;
+    }
+    if (kind === 'webhook' && !eventType.trim()) {
       setSubmitError('Event type is required.');
+      return;
+    }
+    if (kind === 'scheduled' && !cronExpression.trim()) {
+      setSubmitError('Cron expression is required.');
       return;
     }
     if (!promptTemplate.trim()) {
@@ -163,16 +181,27 @@ export function TriggerFormModal({
 
     setSubmitting(true);
     setSubmitError(null);
-    const matchCondition = rowsToCondition(conditions);
 
     let res: Response;
     try {
       if (isEdit) {
         const payload: TriggerUpdateRequest = {
           name: trimmedName,
-          event_type: eventType.trim(),
-          match_condition: matchCondition,
           prompt_template: promptTemplate,
+          ...(kind === 'webhook'
+            ? {
+                event_type: eventType.trim(),
+                match_condition: rowsToCondition(conditions),
+              }
+            : {}),
+          ...(kind === 'scheduled'
+            ? {
+                schedule_config: {
+                  cron_expression: cronExpression.trim(),
+                  timezone: timezone.trim() || 'UTC',
+                },
+              }
+            : {}),
         };
         res = await fetch(ApiRoute.triggers.detail(trigger.id), {
           method: 'PATCH',
@@ -181,13 +210,26 @@ export function TriggerFormModal({
         });
       } else if (resolvedAgent) {
         const payload: TriggerCreateRequest = {
-          source_id: sourceId,
+          kind,
           name: trimmedName,
           agent_type_id: resolvedAgent.id,
           agent_slug: resolvedAgent.slug,
-          event_type: eventType.trim(),
-          match_condition: matchCondition,
           prompt_template: promptTemplate,
+          ...(kind === 'webhook'
+            ? {
+                source_id: sourceId,
+                event_type: eventType.trim(),
+                match_condition: rowsToCondition(conditions),
+              }
+            : {}),
+          ...(kind === 'scheduled'
+            ? {
+                schedule_config: {
+                  cron_expression: cronExpression.trim(),
+                  timezone: timezone.trim() || 'UTC',
+                },
+              }
+            : {}),
         };
         res = await fetch(ApiRoute.triggers.create(), {
           method: 'POST',
@@ -215,23 +257,46 @@ export function TriggerFormModal({
   }, [
     name,
     isEdit,
+    kind,
     sourceId,
     resolvedAgent,
     eventType,
     promptTemplate,
     conditions,
+    cronExpression,
+    timezone,
     trigger,
     onSaved,
   ]);
 
+  const modalDescription =
+    kind === 'scheduled'
+      ? 'Run an agent on a repeating cron schedule.'
+      : kind === 'manual'
+        ? 'Run an agent on demand via an API call or from another agent.'
+        : 'Run an agent automatically when a matching event arrives on a webhook source.';
+
   return (
     <Modal open={open} onClose={onClose} size="lg">
-      <ModalHeader
-        title={isEdit ? 'Edit trigger' : 'New trigger'}
-        description="Run an agent automatically when a matching event arrives on a webhook source."
-      />
+      <ModalHeader title={isEdit ? 'Edit trigger' : 'New trigger'} description={modalDescription} />
       <ModalBody flushY>
         <Stack gap="comfortable">
+          {!isEdit && (
+            <FormField id="trigger-kind" label="Trigger type">
+              <NativeSelect
+                id="trigger-kind"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as TriggerKind)}
+              >
+                {(Object.keys(KIND_LABELS) as TriggerKind[]).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FormField>
+          )}
+
           <FormField id="trigger-name" label="Name">
             <Input
               id="trigger-name"
@@ -241,23 +306,6 @@ export function TriggerFormModal({
               maxLength={128}
             />
           </FormField>
-
-          {!isEdit && (
-            <FormField id="trigger-source" label="Webhook source">
-              <NativeSelect
-                id="trigger-source"
-                value={sourceId}
-                onChange={(e) => setSourceId(e.target.value)}
-              >
-                {sources.length === 0 && <option value="">No sources — create one first</option>}
-                {sources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-          )}
 
           {!isEdit && !lockedAgent && (
             <FormField
@@ -299,72 +347,146 @@ export function TriggerFormModal({
             </Alert>
           )}
 
-          <FormField
-            id="trigger-event"
-            label="Event type"
-            hint="e.g. pull_request or push (the provider's event name)."
-          >
-            <Input
-              id="trigger-event"
-              value={eventType}
-              onChange={(e) => setEventType(e.target.value)}
-              placeholder="pull_request"
-            />
-          </FormField>
+          {/* ── Webhook-specific fields ────────────────────────────────── */}
+          {kind === 'webhook' && (
+            <>
+              {!isEdit && (
+                <FormField id="trigger-source" label="Webhook source">
+                  <NativeSelect
+                    id="trigger-source"
+                    value={sourceId}
+                    onChange={(e) => setSourceId(e.target.value)}
+                  >
+                    {sources.length === 0 && (
+                      <option value="">No sources — create one first</option>
+                    )}
+                    {sources.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormField>
+              )}
 
-          <Stack gap="snug">
-            <Text size="caption" weight="emphasis">
-              Match conditions
-            </Text>
-            <Text size="caption" color="muted">
-              Optional. Each row requires a payload field to equal one of the comma-separated values
-              (e.g. action = opened, synchronize · pr.base_ref = main).
-            </Text>
-            {conditions.map((row, idx) => (
-              <Stack key={idx} direction="horizontal" gap="snug" align="center">
-                <Input
-                  value={row.field}
-                  onChange={(e) => updateCondition(idx, { field: e.target.value })}
-                  placeholder="field (e.g. action)"
-                />
-                <Input
-                  value={row.values}
-                  onChange={(e) => updateCondition(idx, { values: e.target.value })}
-                  placeholder="opened, synchronize"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setConditions((prev) => prev.filter((_, i) => i !== idx))}
-                  aria-label="Remove condition"
-                >
-                  <Icon name="trash" size="2xs" />
-                </Button>
-              </Stack>
-            ))}
-            <Stack direction="horizontal">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConditions((prev) => [...prev, { field: '', values: '' }])}
+              <FormField
+                id="trigger-event"
+                label="Event type"
+                hint="e.g. pull_request or push (the provider's event name)."
               >
-                <Icon name="plus" size="xs" />
-                Add condition
-              </Button>
-            </Stack>
-          </Stack>
+                <Input
+                  id="trigger-event"
+                  value={eventType}
+                  onChange={(e) => setEventType(e.target.value)}
+                  placeholder="pull_request"
+                />
+              </FormField>
+
+              <Stack gap="snug">
+                <Text size="caption" weight="emphasis">
+                  Match conditions
+                </Text>
+                <Text size="caption" color="muted">
+                  Optional. Each row requires a payload field to equal one of the comma-separated
+                  values (e.g. action = opened, synchronize · pr.base_ref = main).
+                </Text>
+                {conditions.map((row, idx) => (
+                  <Stack key={idx} direction="horizontal" gap="snug" align="center">
+                    <Input
+                      value={row.field}
+                      onChange={(e) => updateCondition(idx, { field: e.target.value })}
+                      placeholder="field (e.g. action)"
+                    />
+                    <Input
+                      value={row.values}
+                      onChange={(e) => updateCondition(idx, { values: e.target.value })}
+                      placeholder="opened, synchronize"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setConditions((prev) => prev.filter((_, i) => i !== idx))}
+                      aria-label="Remove condition"
+                    >
+                      <Icon name="trash" size="2xs" />
+                    </Button>
+                  </Stack>
+                ))}
+                <Stack direction="horizontal">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConditions((prev) => [...prev, { field: '', values: '' }])}
+                  >
+                    <Icon name="plus" size="xs" />
+                    Add condition
+                  </Button>
+                </Stack>
+              </Stack>
+            </>
+          )}
+
+          {/* ── Scheduled-specific fields ──────────────────────────────── */}
+          {kind === 'scheduled' && (
+            <>
+              <FormField
+                id="trigger-cron"
+                label="Cron expression"
+                hint="Standard 5-field cron (minute hour dom month dow). e.g. 0 9 * * 1-5 = weekdays at 9 AM."
+              >
+                <Input
+                  id="trigger-cron"
+                  value={cronExpression}
+                  onChange={(e) => setCronExpression(e.target.value)}
+                  placeholder="0 9 * * 1-5"
+                  spellCheck={false}
+                />
+              </FormField>
+              <FormField
+                id="trigger-tz"
+                label="Timezone"
+                hint="IANA timezone name (e.g. America/New_York). Defaults to UTC."
+              >
+                <Input
+                  id="trigger-tz"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  placeholder="UTC"
+                />
+              </FormField>
+            </>
+          )}
+
+          {/* ── Manual — informational note ───────────────────────────── */}
+          {kind === 'manual' && !isEdit && (
+            <Text size="caption" color="muted">
+              After creation you will receive a trigger ID. Any principal with the{' '}
+              <Code>triggers:fire:&#123;id&#125;</Code> scope can POST to{' '}
+              <Code>/api/v1/triggers/&#123;id&#125;/fire</Code> to dispatch a run.
+            </Text>
+          )}
 
           <FormField
             id="trigger-prompt"
             label="Prompt template"
-            hint="Sent as the run's initial message. Use {{ field }} placeholders, e.g. {{ pr.title }}."
+            hint={
+              kind === 'scheduled'
+                ? 'Use {{ var.date }}, {{ var.datetime }}, {{ var.trigger_id }} for injected values.'
+                : kind === 'manual'
+                  ? 'Use {{ var.KEY }} for caller-supplied variables.'
+                  : "Sent as the run's initial message. Use {{ field }} placeholders, e.g. {{ pr.title }}."
+            }
           >
             <Textarea
               id="trigger-prompt"
               value={promptTemplate}
               onChange={(e) => setPromptTemplate(e.target.value)}
               placeholder={
-                'Review PR #{{ pr.number }}: {{ pr.title }} on branch {{ pr.head_ref }}.'
+                kind === 'scheduled'
+                  ? 'Run the daily standup digest for {{ var.date }}.'
+                  : kind === 'manual'
+                    ? 'Process the following input: {{ var.input }}'
+                    : 'Review PR #{{ pr.number }}: {{ pr.title }} on branch {{ pr.head_ref }}.'
               }
               rows={4}
             />

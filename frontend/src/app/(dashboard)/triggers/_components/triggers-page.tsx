@@ -243,6 +243,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 setTriggerForm({
                   trigger: {
                     id: row.id,
+                    kind: row.kind,
                     name: row.name,
                     sourceId: row.sourceId,
                     agentTypeId: row.agentTypeId,
@@ -250,6 +251,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                     eventType: row.eventType,
                     matchCondition: row.matchCondition,
                     promptTemplate: row.promptTemplate,
+                    scheduleConfig: row.scheduleConfig,
                   },
                 })
               }

@@ -134,7 +134,7 @@ export function AgentTriggersTab() {
               {row.name}
             </Text>
             <Text size="caption" color="muted">
-              {sourceName(row.source_id)}
+              {row.source_id ? sourceName(row.source_id) : row.kind}
             </Text>
           </Stack>
         ),
@@ -144,7 +144,7 @@ export function AgentTriggersTab() {
         header: 'Event',
         cell: (row) => (
           <Badge variant="elevated" size="sm">
-            {row.event_type}
+            {row.event_type ?? '—'}
           </Badge>
         ),
       },
@@ -172,13 +172,20 @@ export function AgentTriggersTab() {
                 setFormState({
                   trigger: {
                     id: row.id,
+                    kind: row.kind ?? 'webhook',
                     name: row.name,
-                    sourceId: row.source_id,
+                    sourceId: row.source_id ?? '',
                     agentTypeId: row.agent_type_id,
                     agentSlug: row.agent_slug,
-                    eventType: row.event_type,
+                    eventType: row.event_type ?? '',
                     matchCondition: row.match_condition ?? {},
                     promptTemplate: row.prompt_template,
+                    scheduleConfig: row.schedule_config
+                      ? {
+                          cronExpression: row.schedule_config.cron_expression,
+                          timezone: row.schedule_config.timezone,
+                        }
+                      : undefined,
                   },
                 })
               }
@@ -341,7 +348,7 @@ export function AgentTriggersTab() {
             searchPlaceholder="Search triggers…"
             searchFn={(row, q) =>
               row.name.toLowerCase().includes(q.toLowerCase()) ||
-              row.event_type.toLowerCase().includes(q.toLowerCase())
+              (row.event_type ?? '').toLowerCase().includes(q.toLowerCase())
             }
             defaultSortId="name"
             defaultSortDir="asc"

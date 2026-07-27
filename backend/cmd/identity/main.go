@@ -218,7 +218,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // initTriggersController wires the Triggers feature: the Postgres repository, the
 // source-adapter registry, the at-rest secret cipher, the orbit-agents client, and
 // the controller. The identity service doubles as the TokenMinter and the auth
-// middleware provider.
+// middleware provider. Also starts the cron scheduler for scheduled trigger kinds.
 func initTriggersController(
 	ctx context.Context,
 	logger logging.Logger,
@@ -249,6 +249,20 @@ func initTriggersController(
 	// Inbound webhook path prefix: /api/v1 (server base) + /webhooks/.
 	triggerSvc := triggers.NewService(repo, triggers.NewRegistry(), cipher, policyClient, agentsCli, svc, ic.Current.Server.BasePath+"/webhooks/", logger)
 
+	// Start the cron scheduler for scheduled trigger kinds. It runs until ctx
+	// is canceled (SIGTERM/SIGINT). Scheduled triggers have no inbound HTTP
+	// surface — the scheduler fires them internally on each cron tick.
+	scheduler := triggers.NewScheduler(triggerSvc, repo, logger)
+	if err := scheduler.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start trigger scheduler: %w", err)
+	}
+	go func(parentCtx context.Context) {
+		<-parentCtx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 10*time.Second)
+		defer cancel()
+		scheduler.Stop(shutdownCtx)
+	}(ctx)
+
 	return triggers.NewController(triggerSvc, svc.AuthMiddleware(logger), policyEval, triggerRoutes(), ic.Current.Server.BasePath, logger), nil
 }
 
@@ -256,6 +270,14 @@ func initTriggersController(
 // management API, consumed by ScopeEnforcementMiddleware. The public inbound
 // webhook endpoint is intentionally absent — it is HMAC-authenticated and
 // registered with mux.Handle so it never reaches the scope middleware.
+//
+// The fire endpoint (POST /api/v1/triggers/{id}/fire) requires triggers:write
+// at the route level — it shares this table's single POST /api/v1/triggers
+// prefix entry with trigger creation, since RouteScope only supports prefix
+// matching and can't distinguish the two paths. The docs/adr/2026-06-20-
+// extended-trigger-types.md design (Decision C1) calls for a narrower
+// per-trigger triggers:fire:{id} grant instead; that is not implemented (see
+// the KNOWN GAP note on triggers.Service.FireTrigger).
 func triggerRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},
