@@ -28,7 +28,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 	)
 
 	if c.dispatchBackend(params.Model) != backendAnthropic {
-		return nil, inferencegw.ConnectorError{
+		return nil, &inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderBedrock,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,
@@ -89,7 +89,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 	)
 
 	if c.dispatchBackend(params.Model) != backendAnthropic {
-		return nil, inferencegw.ConnectorError{
+		return nil, &inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderBedrock,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,
