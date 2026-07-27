@@ -711,14 +711,18 @@ var categoryPermissionKeys = map[string][]string{
 }
 
 // umbrellaExcludedPermissions are permission keys the repo:read/repo:write
-// umbrella must NOT request, even though an explicit category action still can.
+// umbrella drops from its DERIVED union (the no-ceiling path in permissionsFor).
 // The umbrella is the catch-all for uncategorized routes (search, GraphQL, and
 // long-tail APIs) — none of which are secrets operations. secrets and
 // dependabot_secrets are credential-adjacent and commonly ungranted (the orbit
-// dev App has no secrets access), so requesting them in the umbrella made every
+// dev App has no secrets access), so unioning them into the umbrella made every
 // umbrella mint fail with GitHub 422 "permissions not granted to this
-// installation", breaking all GraphQL egress. They remain reachable via an
-// explicit admin:read / admin:write action, which does grant them.
+// installation", breaking all GraphQL egress.
+//
+// The exclusion applies ONLY to the derived union. These permissions are still
+// reachable two deliberate ways: an explicit admin:read / admin:write action,
+// and a connection permission ceiling — the umbrella mints a declared ceiling
+// verbatim, so an operator that lists secrets there has opted in.
 var umbrellaExcludedPermissions = map[string]bool{
 	"secrets":            true,
 	"dependabot_secrets": true,
