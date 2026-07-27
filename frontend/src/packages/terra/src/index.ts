@@ -318,3 +318,18 @@ export type { SectionLabelProps } from './components/section-label';
 
 export { FieldRow } from './components/field-row';
 export type { FieldRowProps } from './components/field-row';
+
+export {
+  DataGrid,
+  DataGridToolbar,
+  DataGridHeader,
+  DataGridRow,
+  DataGridFooter,
+  DataGridEmpty,
+} from './components/data-grid';
+export type {
+  DataGridProps,
+  DataGridHeaderProps,
+  DataGridHeaderCell,
+  DataGridRowProps,
+} from './components/data-grid';

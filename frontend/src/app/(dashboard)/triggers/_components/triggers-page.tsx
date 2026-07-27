@@ -10,6 +10,7 @@ import {
   Badge,
   Button,
   DataTable,
+  Input,
   SegmentedControl,
   Heading,
   Icon,
@@ -90,48 +91,66 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
+  const [query, setQuery] = useState('');
 
   // Kind filter only: DataTable owns the search box, so it also owns matching.
-  const visibleTriggers = useMemo(
-    () => triggers.filter((t) => kindFilter === 'all' || t.kind === kindFilter),
-    [triggers, kindFilter],
-  );
+  const visibleTriggers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return triggers.filter(
+      (t) =>
+        (kindFilter === 'all' || t.kind === kindFilter) &&
+        (q === '' ||
+          t.name.toLowerCase().includes(q) ||
+          t.agentSlug.toLowerCase().includes(q) ||
+          t.eventType.toLowerCase().includes(q)),
+    );
+  }, [triggers, kindFilter, query]);
 
   // Filter by how a trigger starts. Triggers are the front door for starting
   // work, so the kind is the primary way to slice them, and the counts are part
   // of the answer rather than decoration.
-  const kindFilterControl = (
-    <SegmentedControl
-      aria-label="Filter triggers by kind"
-      value={kindFilter}
-      onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
-      options={[
-        {
-          value: 'all',
-          label: 'All',
-          icon: <Icon name="layers" size="2xs" />,
-          count: triggers.length,
-        },
-        {
-          value: 'webhook',
-          label: 'Webhook',
-          icon: <Icon name="zap" size="2xs" />,
-          count: triggers.filter((t) => t.kind === 'webhook').length,
-        },
-        {
-          value: 'scheduled',
-          label: 'Schedule',
-          icon: <Icon name="clock" size="2xs" />,
-          count: triggers.filter((t) => t.kind === 'scheduled').length,
-        },
-        {
-          value: 'manual',
-          label: 'Manual',
-          icon: <Icon name="play" size="2xs" />,
-          count: triggers.filter((t) => t.kind === 'manual').length,
-        },
-      ]}
-    />
+  const filterRow = (
+    <Stack direction="horizontal" align="center" justify="between" gap="cozy" grow>
+      <SegmentedControl
+        aria-label="Filter triggers by kind"
+        value={kindFilter}
+        onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
+        options={[
+          {
+            value: 'all',
+            label: 'All',
+            icon: <Icon name="layers" size="2xs" />,
+            count: triggers.length,
+          },
+          {
+            value: 'webhook',
+            label: 'Webhook',
+            icon: <Icon name="webhook" size="2xs" />,
+            count: triggers.filter((t) => t.kind === 'webhook').length,
+          },
+          {
+            value: 'scheduled',
+            label: 'Schedule',
+            icon: <Icon name="clock" size="2xs" />,
+            count: triggers.filter((t) => t.kind === 'scheduled').length,
+          },
+          {
+            value: 'manual',
+            label: 'Manual',
+            icon: <Icon name="play" size="2xs" />,
+            count: triggers.filter((t) => t.kind === 'manual').length,
+          },
+        ]}
+      />
+      <Stack grow maxWidth="search-field">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search triggers…"
+          aria-label="Search triggers"
+        />
+      </Stack>
+    </Stack>
   );
 
   const [kindPickerOpen, setKindPickerOpen] = useState(false);
@@ -358,7 +377,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       <Stack gap="tight">
         <Stack direction="horizontal" justify="between" align="start">
           <Stack gap="tight" maxWidth="prose">
-            <Heading variant="title">Triggers</Heading>
+            <Heading variant="section">Triggers</Heading>
             <Text size="supporting" color="muted">
               Everything that starts an agent run: inbound webhooks, schedules and manual runs
               today, with control-plane events, chained runs and chat commands coming. Every
@@ -435,38 +454,21 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         {/* Triggers */}
         <TabsContent value="triggers">
           <Stack gap="comfortable">
-            {/* The table always renders, even when nothing matches. Swapping it
-                for an empty state would take the kind filter with it, since the
-                filter lives in the toolbar, leaving no way back from a filter
-                that matches nothing. DataTable shows its own empty message
-                inside the frame instead. */}
-            {triggers.length === 0 ? (
-              <EmptyState
-                icon="zap"
-                title="No triggers"
-                description="A trigger binds a way of starting work to the agent that does it."
-                action={
-                  <Button size="sm" onClick={() => setKindPickerOpen(true)}>
-                    <Icon name="plus" size="xs" />
-                    New trigger
-                  </Button>
-                }
-              />
-            ) : (
-              <TriggerList
-                triggers={visibleTriggers}
-                deliveries={deliveries}
-                sourceName={sourceName}
-                onOpen={setDrawerTrigger}
-                onToggle={(t) => void toggleTrigger(t)}
-                toolbarActions={kindFilterControl}
-                emptyMessage={
-                  kindFilter === 'all'
-                    ? 'No triggers yet.'
-                    : `No ${kindFilter} triggers. Pick another kind above, or create one.`
-                }
-              />
-            )}
+            <TriggerList
+              toolbar={filterRow}
+              triggers={visibleTriggers}
+              deliveries={deliveries}
+              sourceName={sourceName}
+              onOpen={setDrawerTrigger}
+              onToggle={(t) => void toggleTrigger(t)}
+              emptyMessage={
+                triggers.length === 0
+                  ? 'No triggers yet.'
+                  : query.trim() !== ''
+                    ? 'No triggers match this search.'
+                    : `No ${kindFilter} triggers.`
+              }
+            />
           </Stack>
         </TabsContent>
 

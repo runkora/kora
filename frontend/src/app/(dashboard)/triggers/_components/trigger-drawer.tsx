@@ -136,7 +136,8 @@ export function TriggerDrawer({
   const source = sources.find((s) => s.id === trigger.sourceId);
   const failures = recentFailures(trigger.id, deliveries);
   const succeeded = mine.reduce(
-    (n, d) => n + d.runs.filter((r) => r.triggerId === trigger.id && r.status === 'dispatched').length,
+    (n, d) =>
+      n + d.runs.filter((r) => r.triggerId === trigger.id && r.status === 'dispatched').length,
     0,
   );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
@@ -187,9 +188,7 @@ export function TriggerDrawer({
                   <SectionLabel>Endpoint</SectionLabel>
                   <FieldRow
                     leading={<Icon name="lock" size="2xs" color="status-healthy" />}
-                    actions={
-                      <CopyButton value={endpoint} label="Copy" />
-                    }
+                    actions={<CopyButton value={endpoint} label="Copy" />}
                   >
                     <Text mono size="caption">
                       {endpoint}
@@ -289,12 +288,7 @@ export function TriggerDrawer({
                         </Text>
                       </Stack>
                     ))}
-                    <Stack
-                      direction="horizontal"
-                      justify="between"
-                      align="center"
-                      padding="snug"
-                    >
+                    <Stack direction="horizontal" justify="between" align="center" padding="snug">
                       <Text mono size="micro" color="subtle">
                         POST /api/v1/triggers/{trigger.id}/fire
                       </Text>
@@ -470,7 +464,10 @@ export function TriggerDrawer({
                   }
                 />
                 <DrawerStat label="Start timeout" value={`${trigger.timeoutSeconds}s`} />
-                <DrawerStat label="Duplicates" value={trigger.dedupeEnabled ? 'Suppressed' : 'Allowed'} />
+                <DrawerStat
+                  label="Duplicates"
+                  value={trigger.dedupeEnabled ? 'Suppressed' : 'Allowed'}
+                />
                 <DrawerStat
                   label="Auto-pause"
                   value={trigger.autopauseEnabled ? 'After 10 failures' : 'Off'}
