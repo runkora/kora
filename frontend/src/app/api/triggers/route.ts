@@ -47,7 +47,10 @@ export const POST = withAuth(async (req: NextRequest, session) => {
   const body = (await req.json()) as TriggerCreateRequest;
   const validationError = validateCreateRequest(body);
   if (validationError) {
-    return NextResponse.json({ code: 'validation_error', message: validationError }, { status: 400 });
+    return NextResponse.json(
+      { code: 'validation_error', message: validationError },
+      { status: 400 },
+    );
   }
   try {
     // agent_slug is intentionally omitted: the backend resolves the canonical

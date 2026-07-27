@@ -406,9 +406,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       </Stack>
 
       {error && <Alert variant="error">{error}</Alert>}
-      {fireResult && (
-        <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>
-      )}
+      {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
       <Tabs defaultValue="sources">
         <TabsList>
