@@ -11,7 +11,9 @@
 
 ## Context
 
-The Triggers v1 ADR ([2026-06-17](2026-06-17-agent-triggers-and-webhook-ingestion.md)) shipped webhook ingestion as the only trigger kind: an inbound signed request from a registered `WebhookSource` starts an agent run under a per-source JIT-minted `SERVICE` principal. That design is sound and stays.
+The Triggers v1 ADR ([2026-06-17](2026-06-17-agent-triggers-and-webhook-ingestion.md)) shipped webhook ingestion as the only trigger kind: an inbound signed request from a registered `WebhookSource` starts an agent run under a per-source JIT-minted `SERVICE` principal.
+
+That design holds and nothing here revisits it. Webhook verification stays HMAC-SHA256 over the raw body against a provider header, the ingestion URL is unchanged, and the identity model — a JIT-minted `SERVICE` principal bounded by its own grant — is what the two new kinds adopt rather than replace.
 
 This ADR covers three things:
 
@@ -27,10 +29,6 @@ Four facts about the code as it stands. Each one bears directly on a decision be
 - **The fire endpoint is not properly guarded.** `server.go` carries a `KNOWN GAP` comment: `POST /triggers/{id}/fire` requires only `triggers:write`, so any principal that can manage triggers can fire any trigger. A per-trigger scope was intended but never enforced. Decision 6.
 - **`ScopeEnforcementMiddleware` cannot express a per-trigger scope.** `RouteScope` matches static prefixes; there is no route-param substitution. This is why the gap above went unnoticed — the protection was assumed to be declarative when no such mechanism exists. Decision 6.
 - **The scheduler is already safe across replicas.** `TickScheduled` inserts its delivery under `UNIQUE (trigger_id, scheduled_at)` *before* dispatching, so a second replica's tick loses the insert race and stops. At-most-once holds today without any coordination. Decision 2.
-
-### Where the design reference is not followed
-
-The design reference proposes a `slug`-addressed, token-in-path webhook endpoint (`hooks.orbit.sh/t/{slug}/{token}`) and a flat one-trigger-per-delivery model. Neither is adopted. The PRD records the product reasoning (Alternatives 3 and 5); the technical reasoning is that the current header-based HMAC-over-body scheme is correct and changing it would re-point every registered source, and that the existing `trigger_deliveries` → `trigger_delivery_runs` fan-out **is already the two-level outcome model the PRD asks for**. Flattening it would be a regression.
 
 ### Security and identity
 
@@ -201,7 +199,7 @@ One row per `(source_id, reason, minute)`, no payload, enforced by a partial uni
 
 **Pros:** Rejections appear in the same feed as everything else, so diagnosis needs no separate place to look.
 
-**Cons:** An unauthenticated caller can still cause rows to be created. Bounding the rate makes it survivable rather than making it right, and "we mitigated it with an index" is a weaker position than not doing it. It also mixes unauthenticated input into a table whose other rows are all verified.
+**Cons:** An unauthenticated caller can still cause rows to be created. Bounding the rate makes it survivable rather than correct: mitigating with an index is a weaker position than not writing at all. It also mixes unauthenticated input into a table whose other rows are all verified.
 
 #### 4C: Metrics and logs only
 
@@ -223,7 +221,7 @@ Per-trigger concurrency requires knowing how many runs a trigger has in flight, 
 
 A `trigger_pending_deliveries` table holds fires that are waiting. A worker loop claims rows with `SELECT ... FOR UPDATE SKIP LOCKED`, checks the in-flight count, and dispatches. In-flight count is a query against `trigger_delivery_runs` for runs started and not yet terminal.
 
-**Pros:** Correct across replicas and restarts, so a `202` is a real promise — the PRD calls this the highest-consequence choice. The three overflow behaviours become ordinary row operations: `replace` deletes waiting rows for the trigger before inserting, `wait` trims the oldest past the depth limit, `refuse` skips the insert. Disabling a trigger deletes its waiting rows and records them `dropped`, which the PRD requires and nothing else provides.
+**Pros:** Correct across replicas and restarts, so a `202` is a real promise rather than best-effort. The three overflow behaviours become ordinary row operations: `replace` deletes waiting rows for the trigger before inserting, `wait` trims the oldest past the depth limit, `refuse` skips the insert. Disabling a trigger deletes its waiting rows and records them `dropped`, which the PRD requires and nothing else provides.
 
 **Cons:** A new table and a worker loop.
 
@@ -231,7 +229,7 @@ A `trigger_pending_deliveries` table holds fires that are waiting. A worker loop
 
 **Pros:** Simplest, lowest latency.
 
-**Cons:** Wrong with more than one replica — each enforces its own ceiling, so a limit of 4 becomes 4N. Everything waiting is lost on restart, making the `202` a lie. This is precisely the default the PRD asked not to be taken silently.
+**Cons:** Wrong with more than one replica — each enforces its own ceiling, so a limit of 4 becomes 4N. Everything waiting is lost on restart, making the `202` a lie. This is the failure mode most easily taken by default and least easily noticed.
 
 #### 5C: Redis
 
@@ -340,11 +338,11 @@ Explicitly **not** built here: any deferred-work, step, or orchestration primiti
 
 ### Rationale
 
-Most decisions above take the same form: **the existing structure is closer to right than the design reference assumed, so extend it.** The fan-out table already is the two-level outcome model. The unique index already is the scheduler's concurrency control. The adapter already knows its event types. The three genuinely new mechanisms — the pending queue, the source rejection counter, and the fire scope check — are each the smallest thing that makes a specific PRD requirement true, and each replaces something currently either absent or incorrect.
+Most decisions above take the same form: **the structure needed already exists, so extend it rather than add alongside it.** The fan-out table already is the two-level outcome model. The unique index already is the scheduler's concurrency control. The adapter already knows its event types. The three genuinely new mechanisms — the pending queue, the source rejection counter, and the fire scope check — are each the smallest thing that makes a specific PRD requirement true, and each replaces something currently either absent or incorrect.
 
 Two decisions cost more than the minimum, deliberately.
 
-The **pending-delivery queue** could have been an in-memory counter, which would be far less code and is wrong: it enforces the wrong limit under multiple replicas and loses waiting work on restart, making the acknowledgement the platform sends a lie. The PRD named this the decision not to default silently, and this is the answer.
+The **pending-delivery queue** could have been an in-memory counter, which would be far less code and is wrong: it enforces the wrong limit under multiple replicas and loses waiting work on restart, making the acknowledgement the platform sends a lie. The durability of an acknowledged fire is a property worth paying for explicitly.
 
 The **extraction** is not required by any feature in this ADR, and it is done anyway. Webhook ingestion is the only unauthenticated, internet-reachable surface in the platform, and it currently shares a process with the service that mints every token. That coupling is worth breaking regardless of what else is being built, and the package will never be smaller or cheaper to move than it is now.
 
@@ -701,7 +699,6 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 - [PRD: Extended Trigger Types](../prd/extended-trigger-types.md) — including PD1-PD7, the product decisions this ADR implements.
 - `backend/internal/triggers/` — the implementation this ADR extends.
 - [robfig/cron](https://github.com/robfig/cron) — the cron library the scheduler uses.
-- Design reference: claude.ai/design project `24c98b96-a1bc-4ba2-b744-3e363f9587ca`, `Triggers.dc.html`.
 
 ---
 
