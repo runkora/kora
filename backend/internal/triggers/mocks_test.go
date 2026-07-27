@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,7 @@ type mockRepository struct {
 	triggers     map[string]*Trigger
 	deliveries   []*Delivery
 	deliveryRuns []*DeliveryRun
+	pending      []*pendingRow
 	seenDeliv    map[string]bool // source_id|provider_delivery_id → seen (dedup)
 
 	createSourceErr   error
@@ -673,4 +675,209 @@ func (m *mockRepository) DueScheduledMinutesWithoutDelivery(_ context.Context, t
 		}
 	}
 	return out, nil
+}
+
+// ─── Admission control ───────────────────────────────────────────────────────
+
+// pendingRow is the mock's stand-in for a row in trigger_pending_deliveries,
+// with the claimed flag the real table keeps as a nullable timestamp.
+type pendingRow struct {
+	PendingDelivery
+	claimed bool
+}
+
+func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *p
+	if cp.EnqueuedAt.IsZero() {
+		cp.EnqueuedAt = time.Now()
+	}
+	m.pending = append(m.pending, &pendingRow{PendingDelivery: cp})
+	return nil
+}
+
+// ClaimPending mirrors the SQL: oldest unclaimed first, only for triggers under
+// their ceiling.
+func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDelivery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	inFlight := map[string]int{}
+	for _, r := range m.deliveryRuns {
+		if r.Status == RunStatusDispatched {
+			inFlight[r.TriggerID]++
+		}
+	}
+
+	var out []PendingDelivery
+	for _, p := range m.pending {
+		if len(out) >= limit {
+			break
+		}
+		if p.claimed {
+			continue
+		}
+		t, ok := m.triggers[p.TriggerID]
+		if !ok || !t.Enabled {
+			continue
+		}
+		ceiling := int(t.MaxParallel)
+		if ceiling <= 0 {
+			ceiling = 4
+		}
+		if inFlight[p.TriggerID] >= ceiling {
+			continue
+		}
+		p.claimed = true
+		inFlight[p.TriggerID]++
+		out = append(out, p.PendingDelivery)
+	}
+	return out, nil
+}
+
+func (m *mockRepository) ReleasePending(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = slices.DeleteFunc(m.pending, func(p *pendingRow) bool { return p.ID == id })
+	return nil
+}
+
+func (m *mockRepository) InFlightCount(_ context.Context, triggerID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, r := range m.deliveryRuns {
+		if r.TriggerID == triggerID && r.Status == RunStatusDispatched {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *mockRepository) SupersedePending(_ context.Context, triggerID string) ([]PendingDelivery, error) {
+	return m.removePending(func(p *pendingRow) bool {
+		return p.TriggerID == triggerID && !p.claimed
+	})
+}
+
+func (m *mockRepository) DrainPending(_ context.Context, triggerID string) ([]PendingDelivery, error) {
+	return m.removePending(func(p *pendingRow) bool { return p.TriggerID == triggerID })
+}
+
+// TrimPending evicts the oldest rows beyond depth, matching the SQL's OFFSET on
+// a newest-first ordering.
+func (m *mockRepository) TrimPending(_ context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
+	m.mu.Lock()
+	var waiting []*pendingRow
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID && !p.claimed {
+			waiting = append(waiting, p)
+		}
+	}
+	slices.SortFunc(waiting, func(a, b *pendingRow) int { return b.EnqueuedAt.Compare(a.EnqueuedAt) })
+	evict := map[string]bool{}
+	for i, p := range waiting {
+		if i >= depth {
+			evict[p.ID] = true
+		}
+	}
+	m.mu.Unlock()
+
+	return m.removePending(func(p *pendingRow) bool { return evict[p.ID] })
+}
+
+func (m *mockRepository) removePending(match func(*pendingRow) bool) ([]PendingDelivery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var removed []PendingDelivery
+	kept := m.pending[:0]
+	for _, p := range m.pending {
+		if match(p) {
+			removed = append(removed, p.PendingDelivery)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	m.pending = kept
+	return removed, nil
+}
+
+func (m *mockRepository) pendingFor(triggerID string) []PendingDelivery {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []PendingDelivery
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID {
+			out = append(out, p.PendingDelivery)
+		}
+	}
+	return out
+}
+
+// ─── Delivery safety ─────────────────────────────────────────────────────────
+
+func (m *mockRepository) BumpConsecutiveFailures(_ context.Context, triggerID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.triggers[triggerID]
+	if !ok {
+		return 0, nil
+	}
+	t.ConsecutiveFailures++
+	return t.ConsecutiveFailures, nil
+}
+
+func (m *mockRepository) ResetConsecutiveFailures(_ context.Context, triggerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.triggers[triggerID]; ok {
+		t.ConsecutiveFailures = 0
+	}
+	return nil
+}
+
+func (m *mockRepository) AutoPause(_ context.Context, triggerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.triggers[triggerID]; ok {
+		t.Enabled = false
+		now := time.Now()
+		t.AutoPausedAt = &now
+	}
+	return nil
+}
+
+func (m *mockRepository) PurgePayloads(_ context.Context, defaultDays int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().AddDate(0, 0, -defaultDays)
+	var n int64
+	for _, d := range m.deliveries {
+		if d.Payload != nil && d.ReceivedAt.Before(cutoff) {
+			d.Payload = nil
+			d.PayloadPurged = true
+			n++
+		}
+	}
+	return n, nil
+}
+
+// drainPending runs one worker tick synchronously.
+//
+// Dispatch is asynchronous by design — every fire is queued so it survives a
+// restart — so a test that wants to observe the run must drain the queue. This
+// keeps those tests end-to-end rather than stopping at "it was queued".
+func drainPending(t *testing.T, svc *Service, repo *mockRepository) {
+	t.Helper()
+	claimed, err := repo.ClaimPending(context.Background(), 64)
+	if err != nil {
+		t.Fatalf("claim pending: %v", err)
+	}
+	for _, p := range claimed {
+		svc.DispatchPending(context.Background(), p)
+		if err := repo.ReleasePending(context.Background(), p.ID); err != nil {
+			t.Fatalf("release pending: %v", err)
+		}
+	}
 }

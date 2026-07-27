@@ -362,6 +362,14 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	switch {
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
+	case errors.Is(err, ErrTriggerAtCapacity):
+		// 429 rather than 500: the trigger is healthy, it is just busy, and the
+		// caller should retry rather than treat this as a fault.
+		api.ErrorResponse(ctx, w, c.logger, &api.APIError{
+			Code:       "too_many_requests",
+			Message:    err.Error(),
+			StatusCode: http.StatusTooManyRequests,
+		}, nil)
 	case errors.Is(err, ErrTriggerDisabled):
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):

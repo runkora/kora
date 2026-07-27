@@ -116,6 +116,10 @@ var (
 	// executes under the trigger's principal, not the caller's, so a broad
 	// trigger cannot be borrowed by a narrowly-scoped caller.
 	ErrFireForbidden = errors.New("not authorized to fire this trigger")
+
+	// ErrTriggerAtCapacity is returned when a manual fire is refused because
+	// the trigger is already at its concurrency ceiling.
+	ErrTriggerAtCapacity = errors.New("trigger is at its concurrency limit; try again shortly")
 )
 
 // WebhookSource is a registered inbound origin of webhook deliveries. It owns the
@@ -308,6 +312,26 @@ type Trigger struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	// ─── Admission control ──────────────────────────────────────────────────
+	// MaxParallel caps how many runs from this trigger may be in flight.
+	// Overflow says what happens beyond that: wait, replace, or refuse.
+	MaxParallel   int16 `json:"max_parallel"`
+	Overflow      string `json:"overflow"`
+	MaxQueueDepth int16 `json:"max_queue_depth"`
+
+	// ─── Delivery safety ────────────────────────────────────────────────────
+	// TimeoutSeconds bounds starting the run, not running it: a long-running
+	// agent is not a failure.
+	TimeoutSeconds   int16 `json:"timeout_seconds"`
+	DedupeEnabled    bool  `json:"dedupe_enabled"`
+	AutopauseEnabled bool  `json:"autopause_enabled"`
+	// ConsecutiveFailures counts failures since the last success. A policy
+	// denial counts; an admission rejection does not.
+	ConsecutiveFailures int `json:"consecutive_failures"`
+	// AutoPausedAt is set when the platform disabled this trigger itself, which
+	// the console shows differently from a trigger a person turned off.
+	AutoPausedAt *time.Time `json:"auto_paused_at,omitempty"`
 }
 
 // Delivery is the durable record of a trigger delivery and its outcome.
@@ -428,9 +452,14 @@ type FireTriggerRequest struct {
 }
 
 // FireTriggerResponse is returned from POST /api/v1/triggers/{id}/fire.
+//
+// RunID is empty on acceptance: the fire is durably queued and the run starts
+// moments later, so there is no run to name yet. Follow DeliveryID to see the
+// outcome. Reporting a run id here would mean starting the run before
+// acknowledging, which is the behavior that loses fires on a restart.
 type FireTriggerResponse struct {
 	DeliveryID string `json:"delivery_id"`
-	RunID      string `json:"run_id"`
+	RunID      string `json:"run_id,omitempty"`
 }
 
 // InputValidationError reports which declared inputs a fire request got wrong.
@@ -460,3 +489,15 @@ func (e *InputValidationError) Is(target error) bool { return target == ErrValid
 // ErrValidationFailed lets callers branch on an input-validation failure with
 // errors.Is without reaching for the concrete type.
 var ErrValidationFailed = errors.New("input validation failed")
+
+// dispatchTimeout is how long this trigger gets to start a run.
+//
+// It bounds starting, not running: a long-running agent is not a failure, but
+// an agent that never accepts the start is. Falls back to the package default
+// for triggers created before the setting existed.
+func (t Trigger) dispatchTimeout() time.Duration {
+	if t.TimeoutSeconds <= 0 {
+		return dispatchTimeout
+	}
+	return time.Duration(t.TimeoutSeconds) * time.Second
+}

@@ -64,6 +64,7 @@ type Service struct {
 	policy      *policyclient.Client
 	agents      *agentsclient.Client
 	minter      TokenMinter
+	admission   *Admission
 	logger      logging.Logger
 	webhookBase string // external path prefix for inbound webhooks, incl trailing slash
 }
@@ -87,6 +88,7 @@ func NewService(
 		policy:      policy,
 		agents:      agents,
 		minter:      minter,
+		admission:   NewAdmission(repo, logger),
 		logger:      logger,
 		webhookBase: webhookBase,
 	}
@@ -498,6 +500,7 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 		t.PromptTemplate = *req.PromptTemplate
 	}
 	if req.Enabled != nil {
+		s.applyEnabledChange(ctx, t, *req.Enabled)
 		t.Enabled = *req.Enabled
 	}
 	if req.ScheduleConfig != nil && t.Kind == KindScheduled {
@@ -517,6 +520,12 @@ func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error 
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return err
+	}
+	// Anything still waiting has nowhere to go. Record it as dropped rather
+	// than letting it vanish: deleting a trigger with a backlog should be
+	// visible in the delivery history, not silent.
+	if s.admission != nil {
+		_, _ = s.admission.Drain(ctx, *t, "the trigger was deleted while this fire was waiting")
 	}
 	for _, gid := range []*string{t.GrantID, t.GrantIDSvc} {
 		if gid == nil {
@@ -585,25 +594,25 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		return nil, fmt.Errorf("failed to record delivery")
 	}
 
-	runID, err := s.startRunForTriggerWithFields(ctx, *t, fields)
-	if err != nil {
-		msg := err.Error()
-		_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, &triggerID, nil, &msg)
-		return nil, fmt.Errorf("start run: %w", err)
+	// Manual fires go through the queue like every other kind, so an accepted
+	// fire survives a restart. The caller gets the delivery id immediately and
+	// can follow it; the run id is not known until the worker starts it.
+	//
+	// Manual triggers default to refusing rather than waiting: a person is
+	// standing there, and an immediate "not now" is more use than silent
+	// queueing behind work they cannot see.
+	if !s.admit(ctx, *t, deliveryID, fields) {
+		s.deriveDeliveryStatus(ctx, deliveryID)
+		return nil, ErrTriggerAtCapacity
 	}
 
-	rID := runID
-	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &triggerID, &rID, nil)
-	s.recordDeliveryRun(ctx, tenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
-
-	s.logger.Info(ctx, "manual trigger fired",
+	s.logger.Info(ctx, "manual trigger queued for dispatch",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "delivery_id", Value: deliveryID},
-		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "fired_by", Value: callerPrincipalID},
 	)
 
-	return &FireTriggerResponse{DeliveryID: deliveryID, RunID: runID}, nil
+	return &FireTriggerResponse{DeliveryID: deliveryID}, nil
 }
 
 // TickScheduled is called by the Scheduler for each enabled scheduled trigger at
@@ -653,24 +662,15 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		"var.tenant_id":  t.TenantID,
 	}
 
-	runID, err := s.startRunForTriggerWithFields(ctx, t, fields)
-	if err != nil {
-		msg := err.Error()
-		_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, &triggerID, nil, &msg)
-		s.logger.Error(ctx, "scheduled trigger dispatch failed",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
+	// Scheduled triggers default to replacing what is waiting: if the previous
+	// tick has not run yet, the newest one is the state worth acting on.
+	if !s.admit(ctx, t, deliveryID, fields) {
+		s.deriveDeliveryStatus(ctx, deliveryID)
 		return
 	}
 
-	rID := runID
-	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &triggerID, &rID, nil)
-	s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
-
-	s.logger.Info(ctx, "scheduled trigger fired",
+	s.logger.Info(ctx, "scheduled trigger queued for dispatch",
 		logging.Field{Key: "trigger_id", Value: t.ID},
-		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "scheduled_at", Value: scheduledAt},
 	)
 }
@@ -824,48 +824,19 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 	// summary once. The summary is never written inside this loop: doing so
 	// takes the first success as the whole answer, which cannot express
 	// "started two runs, denied by a third" (ADR Decision 3).
-	var firstRunID, firstTriggerID string
-	var lastErr error
+	// Each match goes through admission rather than starting here. The run
+	// begins when the worker claims it, so a fire the platform acknowledged
+	// survives a restart instead of vanishing between the two.
+	var queued int
 	for _, t := range matched {
-		runID, err := s.startRunForWebhookTrigger(ctx, src, t, fields)
-		if err != nil {
-			lastErr = err
-			s.logger.Error(ctx, "trigger dispatch failed",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "delivery_id", Value: deliveryID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, runStatusForDispatchError(err), nil, new(err.Error()))
-			continue
-		}
-		s.logger.Info(ctx, "trigger started run",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-		)
-		rID := runID
-		s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
-		if firstRunID == "" {
-			firstRunID, firstTriggerID = runID, t.ID
+		if s.admit(ctx, t, deliveryID, fields) {
+			queued++
 		}
 	}
-
-	// The delivery-level trigger_id/run_id summarize the first dispatched run,
-	// for the console's single-line view. The complete picture is the fan-out.
-	switch {
-	case firstRunID != "":
-		if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &firstTriggerID, &firstRunID, nil); err != nil {
-			s.logger.Error(ctx, "failed to record dispatched delivery",
-				logging.Field{Key: "delivery_id", Value: deliveryID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	case lastErr != nil:
-		// Nothing started. Carry one reason up to the delivery so the feed can
-		// say why in a single line; the per-trigger detail is the fan-out.
-		s.recordFailure(ctx, deliveryID, lastErr.Error())
+	if queued == 0 {
+		// Nothing will start, so the outcome is already final.
+		s.deriveDeliveryStatus(ctx, deliveryID)
 	}
-	s.deriveDeliveryStatus(ctx, deliveryID)
 }
 
 // deriveDeliveryStatus recomputes the delivery summary from its per-trigger
@@ -891,29 +862,40 @@ func runStatusForDispatchError(err error) string {
 	return RunStatusFailed
 }
 
-// startRunForWebhookTrigger renders the prompt and starts a run under the
-// source's mapped SERVICE identity.
-func (s *Service) startRunForWebhookTrigger(ctx context.Context, src WebhookSource, t Trigger, fields map[string]string) (string, error) {
-	prompt := renderTemplate(t.PromptTemplate, fields)
-	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
-	if err != nil {
-		return "", fmt.Errorf("mint source token: %w", err)
+// runPrincipal resolves whose identity a trigger's run executes under.
+//
+// Webhook triggers inherit their source's principal: a source owns the grant,
+// and every trigger hanging off it acts as that source. Scheduled and manual
+// triggers own a principal each, because there is no source to inherit from.
+//
+// Getting this wrong is not a small bug — it would start a run under the wrong
+// identity, which is the one thing the trigger model exists to make verifiable.
+func (s *Service) runPrincipal(ctx context.Context, t Trigger) (principalID, displayName string, err error) {
+	if t.Kind != KindWebhook {
+		if t.PrincipalID == "" {
+			return "", "", fmt.Errorf("trigger %s has no principal", t.ID)
+		}
+		return t.PrincipalID, "trigger:" + t.ID, nil
 	}
-	run, err := s.agents.StartRun(ctx, tok, agentsclient.StartRunRequest{
-		AgentTypeID:    t.AgentTypeID,
-		InitialMessage: prompt,
-	})
-	if err != nil {
-		return "", fmt.Errorf("start run: %w", err)
+	if t.SourceID == "" {
+		return "", "", fmt.Errorf("webhook trigger %s has no source to inherit identity from", t.ID)
 	}
-	return run.ID, nil
+	src, err := s.repo.GetSourceByID(ctx, t.SourceID)
+	if err != nil {
+		return "", "", fmt.Errorf("load source for trigger identity: %w", err)
+	}
+	return src.PrincipalID, "trigger-source:" + src.Name, nil
 }
 
-// startRunForTriggerWithFields starts a run under the trigger's own SERVICE
-// principal. Used by scheduled and manual triggers.
+// startRunForTriggerWithFields renders the prompt and starts a run under the
+// trigger's resolved identity.
 func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, fields map[string]string) (string, error) {
+	principalID, displayName, err := s.runPrincipal(ctx, t)
+	if err != nil {
+		return "", err
+	}
 	prompt := renderTemplate(t.PromptTemplate, fields)
-	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, t.PrincipalID, "trigger:"+t.ID, sourceTokenTTL)
+	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
 	if err != nil {
 		return "", fmt.Errorf("mint trigger token: %w", err)
 	}
@@ -1150,5 +1132,181 @@ func (s *Service) RecordMissedTick(ctx context.Context, t Trigger, scheduledAt t
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "scheduled_at", Value: minute},
 		)
+	}
+}
+
+// ─── Admission-controlled dispatch ───────────────────────────────────────────
+
+// admit routes a matched trigger's fire through admission rather than starting
+// it directly, recording the outcome when it is not admitted.
+//
+// Returns true when the fire was queued and will dispatch. Everything goes
+// through the queue, so a fire the platform acknowledged survives a restart.
+func (s *Service) admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) bool {
+	if s.admission == nil {
+		return false
+	}
+	result, err := s.admission.Admit(ctx, t, deliveryID, fields)
+	if err != nil {
+		s.logger.Error(ctx, "admission failed",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, RunStatusDropped, nil, new(err.Error()))
+		return false
+	}
+	if result == AdmitEnqueued {
+		return true
+	}
+	s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, result.RunStatus(), nil,
+		new(admissionReason(result)))
+	return false
+}
+
+// admissionReason explains a non-admitted outcome in the terms an admin needs.
+func admissionReason(r AdmissionResult) string {
+	switch r {
+	case AdmitSuperseded:
+		return "replaced by a newer fire before this one ran"
+	case AdmitPaused:
+		return "the trigger was auto-paused after repeated failures"
+	case AdmitDropped:
+		return "the trigger is at its concurrency limit"
+	default:
+		return ""
+	}
+}
+
+// DispatchPending starts the run for a fire the worker has claimed.
+//
+// The trigger is re-read rather than carried on the queue row: it may have been
+// disabled, retargeted or auto-paused while this fire waited, and acting on
+// stale configuration is exactly what an admin turning something off is trying
+// to prevent.
+func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
+	t, err := s.repo.GetTrigger(ctx, p.TenantID, p.TriggerID)
+	if err != nil {
+		s.logger.Error(ctx, "pending dispatch: trigger no longer readable",
+			logging.Field{Key: "trigger_id", Value: p.TriggerID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, RunStatusDropped, nil,
+			new("trigger no longer available"))
+		s.deriveDeliveryStatus(ctx, p.DeliveryID)
+		return
+	}
+	if !t.Enabled {
+		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, RunStatusDropped, nil,
+			new("trigger was disabled while this fire was waiting"))
+		s.deriveDeliveryStatus(ctx, p.DeliveryID)
+		return
+	}
+
+	// The timeout bounds starting the run, not running it: a long-running agent
+	// is not a failure, but an agent that never accepts the start is.
+	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
+	defer cancel()
+
+	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.Fields)
+	if err != nil {
+		s.logger.Error(ctx, "pending dispatch failed",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: p.DeliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, runStatusForDispatchError(err), nil, new(err.Error()))
+		// Carry one reason up to the delivery so the feed can say why in a
+		// single line; the per-trigger detail is the fan-out.
+		s.recordFailure(ctx, p.DeliveryID, err.Error())
+		s.noteFailure(ctx, *t)
+		s.deriveDeliveryStatus(ctx, p.DeliveryID)
+		return
+	}
+
+	rID := runID
+	s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, RunStatusDispatched, &rID, nil)
+	_ = s.repo.UpdateDeliveryOutcome(ctx, p.DeliveryID, StatusDispatched, &t.ID, &rID, nil)
+	s.noteSuccess(ctx, *t)
+	s.deriveDeliveryStatus(ctx, p.DeliveryID)
+
+	s.logger.Info(ctx, "trigger started run",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "delivery_id", Value: p.DeliveryID},
+	)
+}
+
+// noteFailure counts a failure toward auto-pause and disables the trigger once
+// it has failed enough times in a row.
+//
+// A policy denial counts as a failure: a trigger whose grant was revoked would
+// otherwise be denied forever and never pause, which is precisely the case
+// auto-pause exists for. Admission rejections do not reach here — dropping a
+// fire at the ceiling is the configuration working, not the trigger breaking.
+func (s *Service) noteFailure(ctx context.Context, t Trigger) {
+	if !t.AutopauseEnabled {
+		return
+	}
+	n, err := s.repo.BumpConsecutiveFailures(ctx, t.ID)
+	if err != nil {
+		s.logger.Error(ctx, "failed to count trigger failure",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if n < autoPauseThreshold {
+		return
+	}
+	if err := s.repo.AutoPause(ctx, t.ID); err != nil {
+		s.logger.Error(ctx, "failed to auto-pause trigger",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.logger.Warn(ctx, "auto-paused trigger after consecutive failures",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "consecutive_failures", Value: n},
+	)
+	// Anything still waiting would fail the same way. Drop it visibly rather
+	// than leaving it to drain against a trigger the platform just disabled.
+	if s.admission != nil {
+		_, _ = s.admission.Drain(ctx, t, "the trigger was auto-paused after repeated failures")
+	}
+}
+
+// noteSuccess clears the failure counter. Consecutive means consecutive: one
+// success is enough to say the trigger is working again.
+func (s *Service) noteSuccess(ctx context.Context, t Trigger) {
+	if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
+		s.logger.Error(ctx, "failed to reset trigger failure counter",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// applyEnabledChange handles the side effects of toggling a trigger.
+//
+// Re-enabling clears the auto-pause marker and its failure count: an admin
+// turning a trigger back on has decided the cause is fixed, and leaving the
+// counter at the threshold would pause it again on the next failure.
+//
+// Disabling drops the backlog, visibly. Those fires would otherwise drain into
+// a trigger the admin just turned off.
+func (s *Service) applyEnabledChange(ctx context.Context, t *Trigger, enabled bool) {
+	switch {
+	case enabled && !t.Enabled:
+		t.AutoPausedAt = nil
+		if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
+			s.logger.Error(ctx, "failed to clear failure count on re-enable",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	case !enabled && t.Enabled && s.admission != nil:
+		_, _ = s.admission.Drain(ctx, *t, "the trigger was disabled while this fire was waiting")
 	}
 }

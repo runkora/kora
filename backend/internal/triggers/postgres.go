@@ -144,7 +144,9 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 // kind, kind_config, principal_id, and grant_id_svc are the new columns added
 // in migration 20260620100000_extend_trigger_kinds.sql.
 const triggerColumns = `id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
-	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at`
+	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at,
+	max_parallel, overflow, max_queue_depth, timeout_seconds, dedupe_enabled, autopause_enabled,
+	consecutive_failures, auto_paused_at`
 
 func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var t Trigger
@@ -154,6 +156,8 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 		&t.ID, &t.TenantID, &t.Kind, &t.TargetKind, &sourceID, &t.Name, &t.AgentTypeID, &t.AgentSlug,
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
 		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
+		&t.MaxParallel, &t.Overflow, &t.MaxQueueDepth, &t.TimeoutSeconds, &t.DedupeEnabled,
+		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -210,11 +214,13 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO triggers
 			(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
-			 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled)
+			 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled,
+			 overflow, max_parallel, max_queue_depth, timeout_seconds)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
-		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled)
+		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
+		defaultOverflow(t), defaultInt16(t.MaxParallel, 4), defaultInt16(t.MaxQueueDepth, 32), defaultInt16(t.TimeoutSeconds, 30))
 	if err != nil {
 		return fmt.Errorf("create trigger: %w", err)
 	}
@@ -534,6 +540,25 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 	return []byte("{}"), nil
 }
 
+// defaultOverflow gives each kind the overflow behavior that suits it when the
+// caller did not choose one. A webhook waits (the sender was acknowledged and
+// dropping its event loses work), a schedule replaces (the newest tick is the
+// state worth acting on), a manual fire refuses (a person is waiting).
+func defaultOverflow(t *Trigger) string {
+	if t.Overflow != "" {
+		return t.Overflow
+	}
+	return DefaultOverflowForKind(t.Kind)
+}
+
+// defaultInt16 returns v, or fallback when v is unset.
+func defaultInt16(v, fallback int16) int16 {
+	if v <= 0 {
+		return fallback
+	}
+	return v
+}
+
 // nullableInt maps a zero size to SQL NULL, so "no payload captured" is
 // distinguishable from "an empty payload".
 // defaultTargetKind fills in the only target kind that exists today. Triggers
@@ -662,4 +687,221 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 		return nil, fmt.Errorf("iterate missed minutes: %w", err)
 	}
 	return out, nil
+}
+
+// ─── Admission control ───────────────────────────────────────────────────────
+
+func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {
+	fieldsJSON, err := json.Marshal(p.Fields)
+	if err != nil {
+		return fmt.Errorf("marshal pending fields: %w", err)
+	}
+	_, err = r.pool.Exec(ctx, `
+		INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
+		VALUES ($1, $2, $3, $4, $5)
+	`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON)
+	if err != nil {
+		return fmt.Errorf("enqueue pending delivery: %w", err)
+	}
+	return nil
+}
+
+// ClaimPending takes work for triggers that are under their ceiling.
+//
+// SKIP LOCKED is what makes this safe to run on every replica: each worker takes
+// rows nobody else holds rather than blocking on them, so adding replicas adds
+// throughput instead of contention.
+//
+// The in-flight count is computed inside the same statement as the claim.
+// Reading it separately would leave a window where two workers each see a free
+// slot and both take it, which is exactly the over-admission the ceiling exists
+// to prevent.
+func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH in_flight AS (
+		    SELECT dr.trigger_id, count(*) AS n
+		    FROM   trigger_delivery_runs dr
+		    WHERE  dr.status = 'dispatched'
+		      AND  dr.created_at > now() - interval '1 hour'
+		    GROUP BY dr.trigger_id
+		),
+		claimable AS (
+		    SELECT p.id
+		    FROM   trigger_pending_deliveries p
+		    JOIN   triggers t ON t.id = p.trigger_id
+		    LEFT   JOIN in_flight f ON f.trigger_id = p.trigger_id
+		    WHERE  p.claimed_at IS NULL
+		      AND  t.enabled
+		      AND  COALESCE(f.n, 0) < t.max_parallel
+		    ORDER  BY p.enqueued_at
+		    LIMIT  $1
+		    FOR UPDATE OF p SKIP LOCKED
+		)
+		UPDATE trigger_pending_deliveries p
+		SET    claimed_at = now()
+		FROM   claimable c
+		WHERE  p.id = c.id
+		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("claim pending deliveries: %w", err)
+	}
+	defer rows.Close()
+	return scanPending(rows)
+}
+
+func (r *postgresRepository) ReleasePending(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM trigger_pending_deliveries WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("release pending delivery: %w", err)
+	}
+	return nil
+}
+
+// InFlightCount counts runs this trigger started that have not settled.
+//
+// Bounded by an hour so a run whose terminal outcome was never recorded (a lost
+// pod, a dropped callback) cannot hold a slot forever. A stuck slot would
+// silently throttle a healthy trigger to nothing, which is worse than briefly
+// over-admitting.
+func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM   trigger_delivery_runs
+		WHERE  trigger_id = $1
+		  AND  status = 'dispatched'
+		  AND  created_at > now() - interval '1 hour'
+	`, triggerID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count in-flight runs: %w", err)
+	}
+	return n, nil
+}
+
+func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
+	rows, err := r.pool.Query(ctx, `
+		DELETE FROM trigger_pending_deliveries
+		WHERE  trigger_id = $1 AND claimed_at IS NULL
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+	`, triggerID)
+	if err != nil {
+		return nil, fmt.Errorf("supersede pending deliveries: %w", err)
+	}
+	defer rows.Close()
+	return scanPending(rows)
+}
+
+// TrimPending evicts the oldest waiting rows beyond depth.
+//
+// Oldest rather than newest: when a trigger is behind, the freshest events are
+// the ones still worth acting on.
+func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
+	rows, err := r.pool.Query(ctx, `
+		DELETE FROM trigger_pending_deliveries
+		WHERE  id IN (
+		    SELECT id FROM trigger_pending_deliveries
+		    WHERE  trigger_id = $1 AND claimed_at IS NULL
+		    ORDER  BY enqueued_at DESC
+		    OFFSET $2
+		)
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+	`, triggerID, depth)
+	if err != nil {
+		return nil, fmt.Errorf("trim pending deliveries: %w", err)
+	}
+	defer rows.Close()
+	return scanPending(rows)
+}
+
+func (r *postgresRepository) DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
+	rows, err := r.pool.Query(ctx, `
+		DELETE FROM trigger_pending_deliveries
+		WHERE  trigger_id = $1
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+	`, triggerID)
+	if err != nil {
+		return nil, fmt.Errorf("drain pending deliveries: %w", err)
+	}
+	defer rows.Close()
+	return scanPending(rows)
+}
+
+func scanPending(rows pgx.Rows) ([]PendingDelivery, error) {
+	var out []PendingDelivery
+	for rows.Next() {
+		var p PendingDelivery
+		var fieldsJSON []byte
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.TriggerID, &p.DeliveryID, &fieldsJSON, &p.EnqueuedAt); err != nil {
+			return nil, fmt.Errorf("scan pending delivery: %w", err)
+		}
+		if len(fieldsJSON) > 0 {
+			if err := json.Unmarshal(fieldsJSON, &p.Fields); err != nil {
+				return nil, fmt.Errorf("unmarshal pending fields: %w", err)
+			}
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending deliveries: %w", err)
+	}
+	return out, nil
+}
+
+// ─── Delivery safety ─────────────────────────────────────────────────────────
+
+func (r *postgresRepository) BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		UPDATE triggers
+		SET    consecutive_failures = consecutive_failures + 1
+		WHERE  id = $1
+		RETURNING consecutive_failures
+	`, triggerID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("bump consecutive failures: %w", err)
+	}
+	return n, nil
+}
+
+func (r *postgresRepository) ResetConsecutiveFailures(ctx context.Context, triggerID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE triggers SET consecutive_failures = 0 WHERE id = $1 AND consecutive_failures <> 0
+	`, triggerID)
+	if err != nil {
+		return fmt.Errorf("reset consecutive failures: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepository) AutoPause(ctx context.Context, triggerID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE triggers SET enabled = false, auto_paused_at = now() WHERE id = $1
+	`, triggerID)
+	if err != nil {
+		return fmt.Errorf("auto-pause trigger: %w", err)
+	}
+	return nil
+}
+
+// PurgePayloads nulls payload bodies past each tenant's retention window.
+//
+// Only the body goes. Every other column survives, so a purged delivery still
+// answers "did this fire, and what happened" for an auditor — the retention
+// promise is about third-party payload data, not about erasing history.
+func (r *postgresRepository) PurgePayloads(ctx context.Context, defaultDays int) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE trigger_deliveries d
+		SET    payload = NULL, payload_purged = TRUE
+		FROM  (SELECT $1::int AS days) def
+		LEFT   JOIN trigger_retention_settings s ON TRUE
+		WHERE  d.payload IS NOT NULL
+		  AND  d.received_at < now() - make_interval(days => COALESCE(
+		           (SELECT payload_days FROM trigger_retention_settings WHERE tenant_id = d.tenant_id),
+		           def.days))
+	`, defaultDays)
+	if err != nil {
+		return 0, fmt.Errorf("purge payloads: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

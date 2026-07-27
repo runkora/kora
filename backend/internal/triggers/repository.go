@@ -69,6 +69,39 @@ type Repository interface {
 	// regardless of volume (ADR Decision 4).
 	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
 
+	// ─── Admission control ──────────────────────────────────────────────────
+	// EnqueuePending durably records a fire waiting for a slot. Every fire goes
+	// through here, so an acknowledged fire always starts.
+	EnqueuePending(ctx context.Context, p *PendingDelivery) error
+	// ClaimPending takes up to limit unclaimed fires for triggers under their
+	// ceiling, using FOR UPDATE SKIP LOCKED so replicas do not contend.
+	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
+	// ReleasePending removes a claimed row once its dispatch has settled.
+	ReleasePending(ctx context.Context, id string) error
+	// InFlightCount is how many runs this trigger has started that have not yet
+	// reached a terminal state.
+	InFlightCount(ctx context.Context, triggerID string) (int, error)
+	// SupersedePending removes everything waiting for a trigger, returning the
+	// displaced rows so the caller can record them.
+	SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
+	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
+	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
+	// DrainPending removes everything waiting for a trigger, returning it.
+	DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
+
+	// ─── Delivery safety ────────────────────────────────────────────────────
+	// BumpConsecutiveFailures increments the failure counter and returns the
+	// new value, so the caller can auto-pause on the threshold.
+	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
+	// ResetConsecutiveFailures clears the counter after a successful start.
+	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+	// AutoPause disables a trigger and records that the platform did it, which
+	// the console distinguishes from a person turning it off.
+	AutoPause(ctx context.Context, triggerID string) error
+	// PurgePayloads nulls payload bodies past each tenant's retention, leaving
+	// every other column intact so history survives the payload.
+	PurgePayloads(ctx context.Context, defaultDays int) (int64, error)
+
 	// InsertDeliveryRun records one per-trigger outcome for a delivery.
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
 	// ListDeliveryRunsForDeliveries returns the per-trigger dispatch records for

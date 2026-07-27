@@ -47,6 +47,12 @@ import (
 	"github.com/clear-route/orbit/internal/triggers"
 )
 
+// defaultPayloadRetentionDays is how long a delivery payload is kept when a
+// tenant has not shortened it. A tenant may lower this but not raise it, so the
+// platform's exposure to stored third-party payload data has a ceiling no
+// tenant can lift.
+const defaultPayloadRetentionDays = 30
+
 func main() {
 	if err := realMain(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -143,6 +149,18 @@ func initController(
 		logger,
 	)
 
+	// The delivery worker is what actually starts runs. Every fire is durably
+	// queued first, so one the platform acknowledged survives a restart and
+	// starts when the process returns, rather than disappearing in between.
+	// Safe on every replica: claims use FOR UPDATE SKIP LOCKED.
+	worker := triggers.NewWorker(svc, repo, logger)
+	worker.Start(ctx)
+
+	// Payload retention. On a timer rather than on write, because the promise
+	// is about data at rest: it has to hold for payloads already stored when a
+	// tenant shortens their window, not only for new ones.
+	triggers.NewRetentionJob(repo, logger, defaultPayloadRetentionDays).Start(ctx)
+
 	// The cron scheduler fires time-driven triggers. It is safe to run on every
 	// replica: each tick inserts its delivery under a unique (trigger_id,
 	// scheduled_at) key before dispatching, so a losing replica simply stops.
@@ -156,6 +174,8 @@ func initController(
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 10*time.Second)
 		defer cancel()
 		scheduler.Stop(shutdownCtx)
+		// Let an in-flight dispatch finish rather than cutting it in half.
+		worker.Wait(shutdownCtx)
 	}(ctx)
 
 	// Revocation-aware authentication: a revoked token is rejected immediately

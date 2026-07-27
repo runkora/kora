@@ -477,6 +477,7 @@ func TestDispatch_Match_StartsRun(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 1 {
 		t.Fatalf("expected exactly one run start, got %d", deps.agents.callCount())
@@ -519,6 +520,7 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 2 {
 		t.Fatalf("expected 2 runs started, got %d", deps.agents.callCount())
@@ -576,6 +578,7 @@ func TestDispatch_ConditionMismatch_Skipped(t *testing.T) {
 
 	// base_ref is "release", condition requires "main".
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 0 {
 		t.Error("condition mismatch should not start a run")
@@ -591,6 +594,7 @@ func TestDispatch_StartRunError_Failed(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	d := deps.repo.deliveryByID(delID)
 	if d.Status != StatusFailed {
@@ -613,6 +617,7 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	d := deps.repo.deliveryByID(delID)
 	if d.Status != StatusFailed {
@@ -639,6 +644,7 @@ func TestDispatch_MintError_Failed(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 0 {
 		t.Error("run must not start if token minting fails")
@@ -676,6 +682,7 @@ func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	runs := deps.repo.deliveryRunsFor(delID)
 	if len(runs) != 2 {
@@ -707,6 +714,7 @@ func TestDispatch_OnlyFiltered_IsSkippedNotFailed(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+	drainPending(t, svc, deps.repo)
 
 	runs := deps.repo.deliveryRunsFor(delID)
 	if len(runs) != 1 || runs[0].Status != RunStatusFiltered {
@@ -725,6 +733,7 @@ func TestDispatch_UnmatchedEventType_RecordsNoTriggerOutcomes(t *testing.T) {
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, delID, "issues", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
 
 	if runs := deps.repo.deliveryRunsFor(delID); len(runs) != 0 {
 		t.Errorf("want no per-trigger outcomes for an unlistened event, got %+v", runs)
@@ -955,5 +964,229 @@ func TestRecordMissedTick_DoesNotOverwriteARealFire(t *testing.T) {
 	}
 	if all[0].Status != StatusDispatched {
 		t.Errorf("status = %q, want the real fire preserved", all[0].Status)
+	}
+}
+
+// ─── Phase 3: admission control ──────────────────────────────────────────────
+
+// newAdmissionTrigger stores a trigger with the given admission settings and
+// returns it, so admission tests do not depend on the creation path.
+func newAdmissionTrigger(t *testing.T, deps *testDeps, overflow string, maxParallel, depth int16) Trigger {
+	t.Helper()
+	trig := &Trigger{
+		ID: "adm-" + overflow, TenantID: testTenant, Kind: KindManual,
+		PrincipalID: "trigger:adm", AgentTypeID: "at-1", Enabled: true,
+		Overflow: overflow, MaxParallel: maxParallel, MaxQueueDepth: depth,
+		AutopauseEnabled: true,
+	}
+	if err := deps.repo.CreateTrigger(context.Background(), trig); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	return *trig
+}
+
+// enqueue records a delivery and admits it, returning the delivery id.
+func enqueue(t *testing.T, svc *Service, deps *testDeps, trig Trigger, n int) []string {
+	t.Helper()
+	var ids []string
+	for i := range n {
+		id := fmt.Sprintf("d-%s-%d", trig.ID, i)
+		tid := trig.ID
+		if _, err := deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: id, TenantID: testTenant, TriggerID: &tid, Kind: trig.Kind, Status: StatusVerified,
+		}); err != nil {
+			t.Fatalf("insert delivery: %v", err)
+		}
+		svc.admit(context.Background(), trig, id, nil)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// The ADR's headline example: one at a time, replace what is waiting, three
+// overlapping fires. Exactly one further run, and the displaced fires are
+// visibly superseded rather than silently gone.
+func TestAdmission_Replace_SupersedesWaitingFires(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowReplace, 1, 32)
+
+	ids := enqueue(t, svc, deps, trig, 3)
+
+	// Only the newest fire is still waiting.
+	if pending := deps.repo.pendingFor(trig.ID); len(pending) != 1 {
+		t.Fatalf("want 1 waiting fire, got %d", len(pending))
+	}
+	if pending := deps.repo.pendingFor(trig.ID); pending[0].DeliveryID != ids[2] {
+		t.Errorf("waiting fire = %s, want the newest (%s)", pending[0].DeliveryID, ids[2])
+	}
+
+	// The two it displaced are recorded, not lost.
+	for _, id := range ids[:2] {
+		runs := deps.repo.deliveryRunsFor(id)
+		if len(runs) != 1 || runs[0].Status != RunStatusSuperseded {
+			t.Errorf("delivery %s outcomes = %+v, want one superseded", id, runs)
+		}
+	}
+}
+
+// Refuse rejects at the ceiling rather than queueing, so a caller waiting on the
+// answer gets one immediately.
+func TestAdmission_Refuse_DropsAtCeiling(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
+
+	// Occupy the only slot with a dispatched run.
+	deps.repo.deliveryRuns = append(deps.repo.deliveryRuns, &DeliveryRun{
+		ID: "r1", TenantID: testTenant, DeliveryID: "prior", TriggerID: trig.ID, Status: RunStatusDispatched,
+	})
+
+	ids := enqueue(t, svc, deps, trig, 1)
+
+	if pending := deps.repo.pendingFor(trig.ID); len(pending) != 0 {
+		t.Errorf("refuse must not queue, got %d waiting", len(pending))
+	}
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusDropped {
+		t.Fatalf("outcomes = %+v, want one dropped", runs)
+	}
+}
+
+// Wait bounds its backlog, and evicts the oldest: when a trigger is behind, the
+// freshest events are the ones still worth acting on.
+func TestAdmission_Wait_EvictsOldestBeyondDepth(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 2)
+
+	ids := enqueue(t, svc, deps, trig, 4)
+
+	pending := deps.repo.pendingFor(trig.ID)
+	if len(pending) > 3 {
+		t.Fatalf("backlog = %d, want it bounded near max_queue_depth", len(pending))
+	}
+
+	// The oldest were evicted and recorded as dropped.
+	dropped := 0
+	for _, id := range ids {
+		for _, r := range deps.repo.deliveryRunsFor(id) {
+			if r.Status == RunStatusDropped {
+				dropped++
+			}
+		}
+	}
+	if dropped == 0 {
+		t.Error("an over-depth backlog should record evictions rather than silently discard them")
+	}
+}
+
+// A fire that arrives at an auto-paused trigger is recorded as paused, so it is
+// distinguishable from a trigger that was never listening.
+func TestAdmission_PausedTrigger_RecordsPaused(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	now := time.Now()
+	trig.AutoPausedAt = &now
+
+	ids := enqueue(t, svc, deps, trig, 1)
+
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusPaused {
+		t.Fatalf("outcomes = %+v, want one paused", runs)
+	}
+	if len(deps.repo.pendingFor(trig.ID)) != 0 {
+		t.Error("a paused trigger must not accumulate a backlog")
+	}
+}
+
+// Disabling a trigger drops what is waiting, visibly. Those fires would
+// otherwise drain into a trigger the admin just turned off.
+func TestAdmission_Drain_RecordsDroppedOnDisable(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ids := enqueue(t, svc, deps, trig, 2)
+
+	n, err := svc.admission.Drain(context.Background(), trig, "the trigger was disabled")
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("drained %d, want 2", n)
+	}
+	for _, id := range ids {
+		runs := deps.repo.deliveryRunsFor(id)
+		if len(runs) != 1 || runs[0].Status != RunStatusDropped {
+			t.Errorf("delivery %s outcomes = %+v, want one dropped", id, runs)
+		}
+	}
+}
+
+// ─── Phase 3: auto-pause ─────────────────────────────────────────────────────
+
+// A trigger failing repeatedly disables itself. A policy denial counts: a
+// trigger whose grant was revoked would otherwise be denied forever and never
+// pause, which is exactly the case auto-pause exists for.
+func TestAutoPause_DisablesAfterConsecutiveFailures(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+
+	for range autoPauseThreshold {
+		svc.noteFailure(context.Background(), trig)
+	}
+
+	stored, err := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+	if err != nil {
+		t.Fatalf("get trigger: %v", err)
+	}
+	if stored.Enabled {
+		t.Error("trigger should be disabled after sustained failure")
+	}
+	if stored.AutoPausedAt == nil {
+		t.Error("auto_paused_at should record that the platform paused it, not a person")
+	}
+}
+
+// Consecutive means consecutive: one success is enough to say it is working.
+func TestAutoPause_SuccessResetsTheCount(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+
+	for range autoPauseThreshold - 1 {
+		svc.noteFailure(context.Background(), trig)
+	}
+	svc.noteSuccess(context.Background(), trig)
+	svc.noteFailure(context.Background(), trig)
+
+	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+	if !stored.Enabled {
+		t.Error("a success should reset the counter, leaving the trigger enabled")
+	}
+}
+
+// Opting out means opting out.
+func TestAutoPause_RespectsOptOut(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	trig.AutopauseEnabled = false
+
+	for range autoPauseThreshold * 2 {
+		svc.noteFailure(context.Background(), trig)
+	}
+
+	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+	if !stored.Enabled {
+		t.Error("a trigger with auto-pause off must stay enabled")
+	}
+}
+
+// Each kind gets the overflow behavior that suits it.
+func TestDefaultOverflowForKind(t *testing.T) {
+	t.Parallel()
+	for kind, want := range map[string]string{
+		KindWebhook:   OverflowWait,
+		KindScheduled: OverflowReplace,
+		KindManual:    OverflowRefuse,
+	} {
+		if got := DefaultOverflowForKind(kind); got != want {
+			t.Errorf("%s default overflow = %q, want %q", kind, got, want)
+		}
 	}
 }
