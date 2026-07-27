@@ -1424,6 +1424,22 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 // into a single reload call.
 //
 // The goroutine exits cleanly when ctx is canceled (SIGTERM).
+// resetDebounceTimer stops and drains an in-flight debounce timer (if any),
+// then arms a fresh one. Shared by watchTenantRegistry and
+// watchClientSecrets so the drain-and-restart branch isn't duplicated (and
+// doesn't count twice against gocyclo) in each watcher's event loop.
+func resetDebounceTimer(debounce *time.Timer, delay time.Duration) (*time.Timer, <-chan time.Time) {
+	if debounce != nil && !debounce.Stop() {
+		// Drain the channel so the stale tick is not delivered.
+		select {
+		case <-debounce.C:
+		default:
+		}
+	}
+	next := time.NewTimer(delay)
+	return next, next.C
+}
+
 func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) {
 	if registryPath == "" {
 		return
@@ -1484,17 +1500,7 @@ func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) 
 			if !isRelevantRegistryEvent(event, base) {
 				continue
 			}
-			if debounce != nil {
-				if !debounce.Stop() {
-					// Drain the channel so the stale tick is not delivered.
-					select {
-					case <-debounce.C:
-					default:
-					}
-				}
-			}
-			debounce = time.NewTimer(debounceDelay)
-			debounceC = debounce.C
+			debounce, debounceC = resetDebounceTimer(debounce, debounceDelay)
 
 		case <-debounceC:
 			debounce = nil

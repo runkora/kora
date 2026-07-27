@@ -178,16 +178,7 @@ func (s *Service) watchClientSecrets(ctx context.Context, secretsPath string) {
 			if !isRelevantRegistryEvent(event, base) {
 				continue
 			}
-			if debounce != nil {
-				if !debounce.Stop() {
-					select {
-					case <-debounce.C:
-					default:
-					}
-				}
-			}
-			debounce = time.NewTimer(debounceDelay)
-			debounceC = debounce.C
+			debounce, debounceC = resetDebounceTimer(debounce, debounceDelay)
 
 		case <-debounceC:
 			debounce = nil
