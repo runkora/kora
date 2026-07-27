@@ -510,42 +510,52 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 
-	// Re-reconcile the policy-service grant when grant scopes, the model (which
-	// drives inference scopes), budget, the connectivity posture, the connectors,
-	// or the governed MCP tool grants change (all compiled into the grant via
-	// EffectiveGrantScopes). Run in background so the update response is not
-	// delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.EnvironmentID != nil {
-		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
-		go func() {
-			if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
-				s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
-					logging.Field{Key: "agent_type_id", Value: at.ID},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
-		}()
-	}
-
-	// framework and model_id are consumed per-run at session-create time, so a
-	// running pod may still be dispatching sessions with the old values. Roll the
-	// StatefulSet so pods restart and drain before accepting new runs.
-	frameworkChanged := req.Framework != nil && at.Framework != oldFramework
-	modelChanged := req.ModelID != nil && !modelIDsEqual(at.ModelID, oldModelID)
-	if frameworkChanged || modelChanged {
-		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
-		go func() {
-			if err := s.k8s.RolloutStatefulSet(detachedCtx, at.Slug, namespace); err != nil {
-				s.logger.Warn(detachedCtx, "failed to roll StatefulSet after framework/model update",
-					logging.Field{Key: "agent_type_id", Value: at.ID},
-					logging.Field{Key: "slug", Value: at.Slug},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
-		}()
-	}
+	s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	s.rolloutIfPodBakedFieldsChanged(ctx, at, req, namespace, oldFramework, oldModelID)
 
 	return at, nil
+}
+
+// reconcileGrantIfNeeded re-reconciles the policy-service grant when grant
+// scopes, the model (which drives inference scopes), budget, the connectivity
+// posture, the connectors, or the governed MCP tool grants change (all
+// compiled into the grant via EffectiveGrantScopes). Runs in background so
+// the update response is not delayed by a policy-service round-trip.
+func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string) {
+	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.EnvironmentID == nil {
+		return
+	}
+	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+	go func() {
+		if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
+			s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+}
+
+// rolloutIfPodBakedFieldsChanged rolls the agent StatefulSet when framework or
+// model_id changed. Both are consumed per-run at session-create time, so a
+// running pod may still be dispatching sessions with the old values; rolling
+// the StatefulSet makes pods restart and drain before accepting new runs.
+func (s *AgentTypeService) rolloutIfPodBakedFieldsChanged(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string, oldFramework AgentFramework, oldModelID *string) {
+	frameworkChanged := req.Framework != nil && at.Framework != oldFramework
+	modelChanged := req.ModelID != nil && !modelIDsEqual(at.ModelID, oldModelID)
+	if !frameworkChanged && !modelChanged {
+		return
+	}
+	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+	go func() {
+		if err := s.k8s.RolloutStatefulSet(detachedCtx, at.Slug, namespace); err != nil {
+			s.logger.Warn(detachedCtx, "failed to roll StatefulSet after framework/model update",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "slug", Value: at.Slug},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
 }
 
 // loadAgentTypeForWrite loads an agent type by ID and enforces tenant scoping
