@@ -388,6 +388,32 @@ func TestPermissionsFor(t *testing.T) {
 	if got := permissionsFor("repo:write", nil); got["workflows"] != "" {
 		t.Errorf("umbrella derived union must not include workflows, got %q", got["workflows"])
 	}
+
+	// secrets and dependabot_secrets are also excluded from the umbrella union:
+	// requesting them broke every repo:read/repo:write (GraphQL) mint with a
+	// GitHub 422 when the installation lacked them. They remain available via an
+	// explicit admin action.
+	for _, action := range []string{"repo:read", "repo:write"} {
+		got := permissionsFor(action, nil)
+		for _, excluded := range []string{"secrets", "dependabot_secrets"} {
+			if _, present := got[excluded]; present {
+				t.Errorf("umbrella %q must not request %q, got %v", action, excluded, got)
+			}
+		}
+		// But it must still carry the category permissions the App does hold — the
+		// exclusion is surgical, not a blanket drop of the admin category.
+		for _, want := range []string{"administration", "repository_hooks", "contents", "pull_requests", "issues", "actions", "checks"} {
+			if _, present := got[want]; !present {
+				t.Errorf("umbrella %q should still request %q, got %v", action, want, got)
+			}
+		}
+	}
+
+	// The explicit admin action is unchanged — it still mints secrets access,
+	// so nothing that legitimately needs secrets loses it.
+	if got := permissionsFor("admin:read", nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" {
+		t.Errorf("admin:read must still grant secrets/dependabot_secrets, got %v", got)
+	}
 }
 
 func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
