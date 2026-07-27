@@ -34,8 +34,8 @@ describe('deliveryDetail priority chain', () => {
   it('shows fan-out run count when there is more than one run (highest priority)', () => {
     const r = row({
       runs: [
-        { triggerId: 't1', runId: 'r1', status: 'completed', error: null },
-        { triggerId: 't2', runId: 'r2', status: 'failed', error: 'boom' },
+        { triggerId: 't1', runId: 'r1', status: 'completed', error: null, createdAt: null },
+        { triggerId: 't2', runId: 'r2', status: 'failed', error: 'boom', createdAt: null },
       ],
       error: 'should-be-ignored',
       runId: 'r1',
@@ -65,7 +65,7 @@ describe('deliveryDetail priority chain', () => {
 
   it('does not treat a single run as a fan-out (single run falls through to excerpt)', () => {
     const r = row({
-      runs: [{ triggerId: 't1', runId: 'r1', status: 'completed', error: null }],
+      runs: [{ triggerId: 't1', runId: 'r1', status: 'completed', error: null, createdAt: null }],
       payloadExcerpt: 'just-the-excerpt',
     });
     expect(deliveryDetail(r)).toEqual({ kind: 'excerpt', text: 'just-the-excerpt' });

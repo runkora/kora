@@ -48,7 +48,14 @@ function delivery(ageHours: number, runs: Array<Partial<DeliveryRunRow>>): Deliv
     payloadBytes: null,
     payloadPurged: false,
     receivedAt: new Date(NOW - ageHours * HOUR).toISOString(),
-    runs: runs.map((r) => ({ triggerId: 't1', runId: null, status: 'dispatched', error: null, ...r })),
+    runs: runs.map((r) => ({
+      triggerId: 't1',
+      runId: null,
+      status: 'dispatched',
+      error: null,
+      createdAt: null,
+      ...r,
+    })),
   };
 }
 
@@ -88,7 +95,9 @@ describe('fleetStats', () => {
   // 0% would read as total failure where in fact nothing happened.
   it('reports no success rate rather than zero when nothing arrived', () => {
     expect(fleetStats([trigger()], [], NOW).successRate).toBeNull();
-    expect(fleetStats([trigger()], [delivery(1, [{ status: 'filtered' }])], NOW).successRate).toBeNull();
+    expect(
+      fleetStats([trigger()], [delivery(1, [{ status: 'filtered' }])], NOW).successRate,
+    ).toBeNull();
   });
 
   it('counts active triggers separately from the total', () => {
@@ -100,7 +109,9 @@ describe('fleetStats', () => {
 
 describe('needsAttention', () => {
   it('flags an auto-paused trigger', () => {
-    expect(needsAttention(trigger({ enabled: false, autoPausedAt: '2026-07-28T00:00:00Z' }))).toBe(true);
+    expect(needsAttention(trigger({ enabled: false, autoPausedAt: '2026-07-28T00:00:00Z' }))).toBe(
+      true,
+    );
   });
 
   // Warn before the pause, not after.

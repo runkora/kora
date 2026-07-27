@@ -36,6 +36,9 @@ interface TriggerDrawerProps {
   onClose: () => void;
   onToggleEnabled: (t: TriggerRow, enabled: boolean) => void;
   onDelete: (t: TriggerRow) => void;
+  /** Fire a manual trigger now. Absent for kinds that fire on their own. */
+  onFire?: (t: TriggerRow) => void;
+  firing?: boolean;
 }
 
 /** How many deliveries the tab shows before it stops. */
@@ -73,6 +76,8 @@ export function TriggerDrawer({
   onClose,
   onToggleEnabled,
   onDelete,
+  onFire,
+  firing = false,
 }: TriggerDrawerProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -143,6 +148,20 @@ export function TriggerDrawer({
                       </Text>
                     </Detail>
                   </>
+                )}
+                {trigger.kind === 'manual' && onFire !== undefined && (
+                  <Detail label="Run now">
+                    <Stack direction="horizontal">
+                      <Button
+                        size="sm"
+                        disabled={!trigger.enabled || firing}
+                        onClick={() => onFire(trigger)}
+                      >
+                        <Icon name="play" size="xs" />
+                        {firing ? 'Queueing…' : 'Run now'}
+                      </Button>
+                    </Stack>
+                  </Detail>
                 )}
                 {trigger.kind === 'manual' && (
                   <Detail label="API path">

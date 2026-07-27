@@ -94,6 +94,12 @@ export interface DeliveryRunRow {
   runId: string | null;
   status: string;
   error: string | null;
+  /**
+   * When this outcome was recorded. Against the delivery's receivedAt this is
+   * how long the platform took to start the run, which is the only dispatch
+   * latency signal available without instrumenting the agent API.
+   */
+  createdAt: string | null;
 }
 
 /** Minimal agent identity used by the trigger create/edit form's agent picker. */
@@ -177,6 +183,7 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
       runId: r.run_id ?? null,
       status: r.status,
       error: r.error ?? null,
+      createdAt: r.created_at ?? null,
     })),
   };
 }

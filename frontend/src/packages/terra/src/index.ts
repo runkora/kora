@@ -300,3 +300,15 @@ export { useDialog } from './hooks/use-dialog';
 // ─── Organisms ────────────────────────────────────────────────────────────────
 export { PageLayout } from './components/page-layout';
 export type { PageLayoutProps } from './components/page-layout';
+
+export { Sparkline, sparklineBarVariants } from './components/sparkline';
+export type { SparklineProps } from './components/sparkline';
+
+export { StatCard } from './components/stat-card';
+export type { StatCardProps } from './components/stat-card';
+
+export { SegmentedControl } from './components/segmented-control';
+export type { SegmentedControlProps, SegmentedControlOption } from './components/segmented-control';
+
+export { IconTile, iconTileVariants } from './components/icon-tile';
+export type { IconTileProps } from './components/icon-tile';

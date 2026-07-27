@@ -36,6 +36,18 @@ export interface FleetStats {
   successRate: number | null;
   /** Triggers that are auto-paused or failing, and want a human. */
   needsAttention: number;
+  /** Deliveries in the window that started a run. */
+  started24h: number;
+  /** Deliveries in the window that failed to start one. */
+  failed24h: number;
+  /**
+   * Median time from a delivery arriving to its run being recorded, in ms.
+   * Null when nothing dispatched. Median rather than mean: one pathological
+   * dispatch should not move the number an operator uses as "normal".
+   */
+  dispatchMs: number | null;
+  /** 95th percentile of the same measure, which is where trouble shows first. */
+  dispatchP95Ms: number | null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -81,13 +93,40 @@ export function fleetStats(
     }
   }
 
+  // Dispatch latency: arrival to the run outcome being recorded. This is the
+  // only latency signal available without instrumenting the agent API, and it
+  // is the one an operator actually feels.
+  const latencies: number[] = [];
+  for (const d of recent) {
+    const arrived = Date.parse(d.receivedAt);
+    for (const r of d.runs) {
+      if (r.status !== DISPATCHED || r.createdAt === null) continue;
+      const done = Date.parse(r.createdAt);
+      if (Number.isFinite(arrived) && Number.isFinite(done) && done >= arrived) {
+        latencies.push(done - arrived);
+      }
+    }
+  }
+  latencies.sort((a, b) => a - b);
+
   return {
     activeTriggers: triggers.filter((t) => t.enabled).length,
     totalTriggers: triggers.length,
     deliveries24h: recent.length,
     successRate: decided === 0 ? null : Math.round((started / decided) * 100),
     needsAttention: triggers.filter(needsAttention).length,
+    started24h: started,
+    failed24h: decided - started,
+    dispatchMs: percentile(latencies, 0.5),
+    dispatchP95Ms: percentile(latencies, 0.95),
   };
+}
+
+/** Nearest-rank percentile. Returns null for an empty series. */
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[i];
 }
 
 /** One bucket of a trigger's recent delivery history. */

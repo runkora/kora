@@ -52,6 +52,8 @@ import {
   PlayCircle,
   SearchX,
   Layers,
+  Webhook,
+  Gauge,
   LayoutDashboard,
   LayoutGrid,
   LayoutList,
@@ -160,6 +162,8 @@ export type IconName =
   | 'info'
   | 'key'
   | 'layers'
+  | 'webhook'
+  | 'gauge'
   | 'layout-dashboard'
   | 'layout-grid'
   | 'layout-list'
@@ -260,6 +264,8 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   info: Info,
   key: KeyRound,
   layers: Layers,
+  webhook: Webhook,
+  gauge: Gauge,
   'layout-dashboard': LayoutDashboard,
   'layout-grid': LayoutGrid,
   'layout-list': LayoutList,
