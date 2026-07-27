@@ -144,16 +144,19 @@ const triggerColumns = `id, tenant_id, kind, source_id, name, agent_type_id, age
 func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var t Trigger
 	var condJSON, kindConfigJSON []byte
-	var sourceID *string
+	var sourceID, principalID *string
 	if err := row.Scan(
 		&t.ID, &t.TenantID, &t.Kind, &sourceID, &t.Name, &t.AgentTypeID, &t.AgentSlug,
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
-		&t.PrincipalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
+		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
 	if sourceID != nil {
 		t.SourceID = *sourceID
+	}
+	if principalID != nil {
+		t.PrincipalID = *principalID
 	}
 	if len(condJSON) > 0 {
 		if err := json.Unmarshal(condJSON, &t.MatchCondition); err != nil {

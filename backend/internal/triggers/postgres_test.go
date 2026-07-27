@@ -112,6 +112,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	tr := &Trigger{
 		ID:             uuid.NewString(),
 		TenantID:       tenant,
+		Kind:           KindWebhook,
 		SourceID:       s.ID,
 		Name:           "review",
 		AgentTypeID:    "at-1",
@@ -160,6 +161,86 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	}
 	if _, err := r.GetTrigger(ctx, tenant, tr.ID); err != ErrTriggerNotFound {
 		t.Errorf("trigger should be cascade-deleted, got %v", err)
+	}
+}
+
+// TestPostgres_ScheduledAndManualTriggerCRUD exercises the scheduled/manual
+// creation path directly against Postgres: no webhook_sources row (source_id
+// is NULL), a trigger-owned principal_id, and — for scheduled — kind_config
+// carrying the cron schedule. This is the path createScheduledTrigger and
+// createManualTrigger exercise in service.go; it has no source to FK-cascade
+// from, so cleanup is explicit.
+func TestPostgres_ScheduledAndManualTriggerCRUD(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM triggers WHERE tenant_id=$1`, tenant)
+	})
+
+	scheduled := &Trigger{
+		ID:             uuid.NewString(),
+		TenantID:       tenant,
+		Kind:           KindScheduled,
+		Name:           "daily-digest",
+		AgentTypeID:    "at-1",
+		AgentSlug:      "digest-bot",
+		PromptTemplate: "Summarize {{ var.date }}",
+		ScheduleConfig: &ScheduleConfig{CronExpression: "0 9 * * *", Timezone: "UTC"},
+		PrincipalID:    "trigger:" + uuid.NewString(),
+		Enabled:        true,
+	}
+	if err := r.CreateTrigger(ctx, scheduled); err != nil {
+		t.Fatalf("CreateTrigger (scheduled): %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, scheduled.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger (scheduled): %v", err)
+	}
+	if got.SourceID != "" {
+		t.Errorf("scheduled trigger SourceID = %q, want empty", got.SourceID)
+	}
+	if got.PrincipalID != scheduled.PrincipalID {
+		t.Errorf("PrincipalID = %q, want %q", got.PrincipalID, scheduled.PrincipalID)
+	}
+	if got.ScheduleConfig == nil || got.ScheduleConfig.CronExpression != "0 9 * * *" {
+		t.Errorf("ScheduleConfig round-trip failed: %+v", got.ScheduleConfig)
+	}
+
+	manual := &Trigger{
+		ID:             uuid.NewString(),
+		TenantID:       tenant,
+		Kind:           KindManual,
+		Name:           "on-demand",
+		AgentTypeID:    "at-1",
+		AgentSlug:      "digest-bot",
+		PromptTemplate: "Process {{ var.input }}",
+		PrincipalID:    "trigger:" + uuid.NewString(),
+		Enabled:        true,
+	}
+	if err := r.CreateTrigger(ctx, manual); err != nil {
+		t.Fatalf("CreateTrigger (manual): %v", err)
+	}
+	if _, err := r.GetTrigger(ctx, tenant, manual.ID); err != nil {
+		t.Fatalf("GetTrigger (manual): %v", err)
+	}
+
+	// A manual fire's delivery has no source_id and no scheduled_at, only
+	// trigger_id + fired_by.
+	triggerID := manual.ID
+	d := &Delivery{
+		ID:        uuid.NewString(),
+		TenantID:  tenant,
+		TriggerID: &triggerID,
+		Kind:      KindManual,
+		Status:    StatusVerified,
+		FiredBy:   "human:someone",
+	}
+	inserted, err := r.InsertDelivery(ctx, d)
+	if err != nil {
+		t.Fatalf("InsertDelivery (manual): %v", err)
+	}
+	if !inserted {
+		t.Error("manual delivery should insert (no dedup key)")
 	}
 }
 

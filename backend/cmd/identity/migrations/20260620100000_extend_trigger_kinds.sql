@@ -24,14 +24,21 @@ ALTER TABLE triggers
 CREATE INDEX idx_triggers_kind ON triggers (kind) WHERE enabled = true;
 
 -- ─── Extend trigger_deliveries for new kinds ─────────────────────────────────
--- fired_by records the calling principal ID for manual trigger fires.
--- scheduled_at records the cron tick timestamp for scheduled trigger fires.
--- A partial unique index on (trigger_id, scheduled_at) prevents double-fire
--- when the scheduler restarts within the same minute window.
+-- kind is denormalised from the trigger at insert time so delivery history
+-- survives trigger deletion. fired_by records the calling principal ID for
+-- manual trigger fires. scheduled_at records the cron tick timestamp for
+-- scheduled trigger fires. A partial unique index on (trigger_id,
+-- scheduled_at) prevents double-fire when the scheduler restarts within the
+-- same minute window. source_id becomes nullable: scheduled and manual
+-- deliveries have no webhook source, only a trigger_id.
 
 ALTER TABLE trigger_deliveries
-    ADD COLUMN fired_by      TEXT,
-    ADD COLUMN scheduled_at  TIMESTAMPTZ;
+    ADD COLUMN kind         TEXT NOT NULL DEFAULT 'webhook',
+    ADD COLUMN fired_by     TEXT,
+    ADD COLUMN scheduled_at TIMESTAMPTZ;
+
+ALTER TABLE trigger_deliveries
+    ALTER COLUMN source_id DROP NOT NULL;
 
 CREATE UNIQUE INDEX idx_trigger_deliveries_scheduled_dedup
     ON trigger_deliveries (trigger_id, scheduled_at)
@@ -45,8 +52,12 @@ CREATE UNIQUE INDEX idx_trigger_deliveries_scheduled_dedup
 DROP INDEX IF EXISTS idx_trigger_deliveries_scheduled_dedup;
 
 ALTER TABLE trigger_deliveries
+    ALTER COLUMN source_id SET NOT NULL;
+
+ALTER TABLE trigger_deliveries
     DROP COLUMN IF EXISTS scheduled_at,
-    DROP COLUMN IF EXISTS fired_by;
+    DROP COLUMN IF EXISTS fired_by,
+    DROP COLUMN IF EXISTS kind;
 
 DROP INDEX IF EXISTS idx_triggers_kind;
 
