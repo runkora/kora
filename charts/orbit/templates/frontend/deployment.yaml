@@ -28,6 +28,12 @@ spec:
         # Hold the application container until the Envoy proxy is ready.
         # Prevents the frontend from accepting traffic before mTLS is established.
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Force a rollout when the ConfigMap or Secret changes so pods never run
+        # with stale environment variables (e.g. TOOL_GATEWAY_URL).
+        checksum/config: {{ include (print $.Template.BasePath "/frontend/configmap.yaml") . | sha256sum }}
+        {{- if .Values.frontend.existingSecret }}
+        checksum/secret: {{ .Values.frontend.existingSecret | sha256sum }}
+        {{- end }}
     spec:
       serviceAccountName: orbit-frontend
       securityContext:
