@@ -39,16 +39,21 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	return nil
 }
 
-const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at`
+const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason`
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
 	var configJSON []byte
+	var lastRejectionReason *string
 	if err := row.Scan(
 		&s.ID, &s.TenantID, &s.Name, &s.Provider, &s.PrincipalID, &s.GrantID,
 		&s.SecretCiphertext, &configJSON, &s.Enabled, &s.CreatedAt, &s.UpdatedAt,
+		&s.RejectionCount, &s.LastRejectionAt, &lastRejectionReason,
 	); err != nil {
 		return nil, err
+	}
+	if lastRejectionReason != nil {
+		s.LastRejectionReason = *lastRejectionReason
 	}
 	if len(configJSON) > 0 {
 		if err := json.Unmarshal(configJSON, &s.Config); err != nil {
@@ -138,7 +143,7 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 // triggerColumns lists all columns for a trigger row.
 // kind, kind_config, principal_id, and grant_id_svc are the new columns added
 // in migration 20260620100000_extend_trigger_kinds.sql.
-const triggerColumns = `id, tenant_id, kind, source_id, name, agent_type_id, agent_slug, event_type,
+const triggerColumns = `id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at`
 
 func scanTrigger(row pgx.Row) (*Trigger, error) {
@@ -146,7 +151,7 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var condJSON, kindConfigJSON []byte
 	var sourceID, principalID *string
 	if err := row.Scan(
-		&t.ID, &t.TenantID, &t.Kind, &sourceID, &t.Name, &t.AgentTypeID, &t.AgentSlug,
+		&t.ID, &t.TenantID, &t.Kind, &t.TargetKind, &sourceID, &t.Name, &t.AgentTypeID, &t.AgentSlug,
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
 		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
@@ -192,11 +197,11 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO triggers
-			(id, tenant_id, kind, source_id, name, agent_type_id, agent_slug, event_type,
+			(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 			 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-	`, t.ID, t.TenantID, t.Kind, sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+	`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
 		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled)
 	if err != nil {
 		return fmt.Errorf("create trigger: %w", err)
@@ -336,12 +341,14 @@ func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (b
 	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_deliveries
 			(id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
-			 status, run_id, error, payload_excerpt, fired_by, scheduled_at)
+			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
+			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (source_id, provider_delivery_id) WHERE provider_delivery_id <> '' DO NOTHING
 	`, d.ID, d.TenantID, sourceID, d.TriggerID, d.Kind, d.ProviderDeliveryID, d.EventType,
-		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt)
+		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
+		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
 		return false, fmt.Errorf("insert delivery: %w", err)
 	}
@@ -358,12 +365,14 @@ func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Del
 	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_deliveries
 			(id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
-			 status, run_id, error, payload_excerpt, fired_by, scheduled_at)
+			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
+			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (trigger_id, scheduled_at) WHERE scheduled_at IS NOT NULL DO NOTHING
 	`, d.ID, d.TenantID, sourceID, d.TriggerID, d.Kind, d.ProviderDeliveryID, d.EventType,
-		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt)
+		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
+		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
 		return false, fmt.Errorf("insert scheduled delivery: %w", err)
 	}
@@ -385,7 +394,8 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
 	query := `
 		SELECT id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
-		       status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at
+		       status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
+		       payload, payload_bytes, payload_purged, reason, redelivery_of
 		FROM   trigger_deliveries
 		WHERE  tenant_id = $1`
 	args := []any{tenantID}
@@ -422,9 +432,11 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		var d Delivery
 		var sourceID *string
 		var firedBy *string
+		var payloadBytes *int
 		if err := rows.Scan(
 			&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
 			&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
+			&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
 		); err != nil {
 			return nil, fmt.Errorf("scan delivery: %w", err)
 		}
@@ -433,6 +445,9 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		}
 		if firedBy != nil {
 			d.FiredBy = *firedBy
+		}
+		if payloadBytes != nil {
+			d.PayloadBytes = *payloadBytes
 		}
 		out = append(out, d)
 	}
@@ -500,6 +515,25 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 	return []byte("{}"), nil
 }
 
+// nullableInt maps a zero size to SQL NULL, so "no payload captured" is
+// distinguishable from "an empty payload".
+// defaultTargetKind fills in the only target kind that exists today. Triggers
+// are the front door for starting work; when the workflow engine lands, a
+// trigger can name it here without changing anything else.
+func defaultTargetKind(k string) string {
+	if k == "" {
+		return TargetKindAgent
+	}
+	return k
+}
+
+func nullableInt(n int) *int {
+	if n == 0 {
+		return nil
+	}
+	return &n
+}
+
 func nullableStr(s string) *string {
 	if s == "" {
 		return nil
@@ -510,4 +544,63 @@ func nullableStr(s string) *string {
 // scheduledAtMinute truncates t to minute precision for the cron dedup index.
 func scheduledAtMinute(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Minute)
+}
+
+// DeriveDeliveryStatus recomputes a delivery's status from its per-trigger
+// outcomes rather than writing it inline during the fan-out.
+//
+// Writing the summary from the first successful dispatch, as the original
+// implementation did, cannot express "started two runs, denied by a third": the
+// first success wins and the denial disappears from the delivery's own view.
+// Recomputing after the fan-out completes keeps the summary honest and leaves
+// the detail on trigger_delivery_runs (ADR Decision 3).
+//
+// Deliveries that never reached matching (duplicate, missed) have no runs and
+// are left untouched: their status describes the arrival, not a fan-out.
+func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID string) error {
+	// 'filtered' is deliberately not a failure. A trigger that declined an event
+	// via its own match_condition worked exactly as configured, so a delivery
+	// whose only outcomes are filtered is 'skipped' — nothing was ever going to
+	// run — not 'failed'.
+	_, err := r.pool.Exec(ctx, `
+		UPDATE trigger_deliveries d
+		SET status = CASE
+				WHEN EXISTS (
+					SELECT 1 FROM trigger_delivery_runs
+					WHERE delivery_id = d.id AND status = 'dispatched'
+				) THEN 'dispatched'
+				WHEN EXISTS (
+					SELECT 1 FROM trigger_delivery_runs
+					WHERE delivery_id = d.id
+					  AND status IN ('failed', 'denied', 'dropped')
+				) THEN 'failed'
+				ELSE 'skipped'
+			END
+		WHERE d.id = $1
+		  AND d.status NOT IN ('duplicate', 'missed')
+	`, deliveryID)
+	if err != nil {
+		return fmt.Errorf("derive delivery status: %w", err)
+	}
+	return nil
+}
+
+// RecordSourceRejection counts a request that failed authentication against its
+// source, keeping the most recent reason.
+//
+// No delivery row is created. The request is unauthenticated, so one row per
+// request would be an attacker-controlled write; one UPDATE to a row the tenant
+// already owns is bounded no matter what arrives (ADR Decision 4).
+func (r *postgresRepository) RecordSourceRejection(ctx context.Context, sourceID, reason string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE webhook_sources
+		SET rejection_count       = rejection_count + 1,
+		    last_rejection_at     = now(),
+		    last_rejection_reason = $2
+		WHERE id = $1
+	`, sourceID, reason)
+	if err != nil {
+		return fmt.Errorf("record source rejection: %w", err)
+	}
+	return nil
 }

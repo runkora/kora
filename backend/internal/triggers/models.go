@@ -29,18 +29,57 @@ const (
 	ProviderAlertmanager = "alertmanager"
 )
 
-// Delivery processing statuses recorded in trigger_deliveries.
+// Delivery statuses recorded in trigger_deliveries — what happened to the
+// arrival itself, before any individual trigger was involved.
+//
+// This is a summary DERIVED from the per-trigger outcomes below once the fan-out
+// completes; it is never authored independently. A delivery that started two
+// runs and was denied by a third trigger is StatusDispatched at this level and
+// carries all three outcomes at the trigger level.
+//
+// Every row here is an arrival that authenticated successfully. A webhook that
+// fails signature verification is an unauthenticated request, so it updates a
+// counter on its source rather than creating a row (ADR Decision 4).
 const (
-	StatusVerified   = "verified"   // signature verified; matching pending
-	StatusDispatched = "dispatched" // matched a trigger and started a run
-	StatusSkipped    = "skipped"    // verified but matched no trigger
-	StatusFailed     = "failed"     // matched but dispatch failed
+	StatusVerified   = "verified"   // established as genuine; matching pending
+	StatusDispatched = "dispatched" // at least one trigger started a run
+	StatusSkipped    = "skipped"    // genuine, but no trigger was listening
+	StatusFailed     = "failed"     // matched, but no trigger started a run
+	StatusDuplicate  = "duplicate"  // already handled; references the original
+	StatusMissed     = "missed"     // a scheduled fire that was due but not run
 )
 
-// Per-trigger dispatch statuses recorded in trigger_delivery_runs.
+// Per-trigger outcomes recorded in trigger_delivery_runs — what happened for
+// each trigger a delivery matched. This is the level admission control,
+// auto-pause and the console's per-trigger badges act on.
 const (
-	RunStatusDispatched = "dispatched" // the matched trigger started a run
-	RunStatusFailed     = "failed"     // the matched trigger failed to start a run
+	RunStatusDispatched = "dispatched" // this trigger started a run
+	RunStatusFailed     = "failed"     // tried and failed, including dispatch timeout
+	RunStatusFiltered   = "filtered"   // listening, but match_condition excluded this event
+	RunStatusDenied     = "denied"     // policy refused this trigger's run
+	RunStatusSuperseded = "superseded" // replaced by a newer fire under 'replace' overflow
+	RunStatusDropped    = "dropped"    // refused at the ceiling, or evicted from the backlog
+	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
+)
+
+// TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
+// start for this trigger and delivery. The console must show them as settled
+// rather than pending.
+var TerminalRunStatuses = map[string]bool{
+	RunStatusFailed:     true,
+	RunStatusFiltered:   true,
+	RunStatusDenied:     true,
+	RunStatusSuperseded: true,
+	RunStatusDropped:    true,
+	RunStatusPaused:     true,
+}
+
+// Target kinds: what a trigger starts. Triggers are the platform's front door
+// for starting work; what gets started is a separate concern. 'agent' is the
+// only kind today, and 'workflow' becomes legal when that pillar lands
+// (ADR Decision 8).
+const (
+	TargetKindAgent = "agent"
 )
 
 // Sentinel errors. Callers branch on these with errors.Is.
@@ -72,6 +111,12 @@ var (
 // WebhookSource is a registered inbound origin of webhook deliveries. It owns the
 // HMAC signing secret (stored encrypted) and a mapped SERVICE principal under
 // which the runs its triggers start execute.
+// RejectionCount / LastRejectionAt / LastRejectionReason record inbound requests
+// that failed authentication. These never become deliveries: a bad signature is
+// an unauthenticated request, so recording one as a row would let anyone on the
+// internet grow the table. Updating a counter on the source the tenant already
+// owns bounds the write no matter what an attacker sends, while still telling an
+// admin their signing secret is wrong (ADR Decision 4).
 type WebhookSource struct {
 	ID          string         `json:"id"`
 	TenantID    string         `json:"tenant_id"`
@@ -87,6 +132,13 @@ type WebhookSource struct {
 	// SecretCiphertext is the AES-GCM encrypted HMAC signing secret. It is never
 	// serialized; only the ingest path reads it (to verify deliveries).
 	SecretCiphertext string `json:"-"`
+
+	// Inbound requests that failed authentication. Surfaced so an admin with a
+	// wrong signing secret can see it, without an unauthenticated caller ever
+	// creating a row.
+	RejectionCount      int64      `json:"rejection_count"`
+	LastRejectionAt     *time.Time `json:"last_rejection_at,omitempty"`
+	LastRejectionReason string     `json:"last_rejection_reason,omitempty"`
 }
 
 // ScheduleConfig holds the cron schedule for a KindScheduled trigger.
@@ -101,9 +153,13 @@ type ScheduleConfig struct {
 // For KindManual: firing is driven by POST /triggers/{id}/fire; source_id is empty.
 // Scheduled and manual triggers have their own principal_id (not inherited from a source).
 type Trigger struct {
-	ID             string              `json:"id"`
-	TenantID       string              `json:"tenant_id"`
-	Kind           string              `json:"kind"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Kind     string `json:"kind"`
+	// TargetKind is what this trigger starts. "agent" is the only kind today;
+	// "workflow" becomes legal when that pillar lands. Triggers are the front
+	// door for starting work, so nothing here assumes the target is an agent.
+	TargetKind     string              `json:"target_kind"`
 	SourceID       string              `json:"source_id,omitempty"`
 	Name           string              `json:"name"`
 	AgentTypeID    string              `json:"agent_type_id"`
@@ -137,6 +193,18 @@ type Delivery struct {
 	RunID              *string `json:"run_id,omitempty"`
 	Error              *string `json:"error,omitempty"`
 	PayloadExcerpt     string  `json:"payload_excerpt,omitempty"`
+	// Payload is the full captured body. Superseded PayloadExcerpt; retention
+	// nulls it after the tenant's window while every other column survives, so
+	// a purged delivery still answers "did this fire, and what happened".
+	Payload       []byte `json:"payload,omitempty"`
+	PayloadBytes  int    `json:"payload_bytes,omitempty"`
+	PayloadPurged bool   `json:"payload_purged,omitempty"`
+	// Reason explains a non-dispatch outcome in the arrival's own terms
+	// (duplicate, missed). Per-trigger reasons live on DeliveryRun.Error.
+	Reason *string `json:"reason,omitempty"`
+	// RedeliveryOf points at the delivery this one re-runs. A redelivery is a
+	// new delivery referencing the original, never an edit of it.
+	RedeliveryOf *string `json:"redelivery_of,omitempty"`
 	// FiredBy is the principal ID of the caller who fired a manual trigger.
 	FiredBy string `json:"fired_by,omitempty"`
 	// ScheduledAt is the cron tick time for scheduled trigger deliveries.

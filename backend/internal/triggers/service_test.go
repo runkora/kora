@@ -621,9 +621,12 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	if d.Error == nil || !strings.Contains(*d.Error, "delegated identity model") {
 		t.Errorf("delivery error = %v, want the delegated-identity reason recorded verbatim", d.Error)
 	}
+	// A 403 from the run-start gate is a policy refusal, not a malfunction: the
+	// trigger works, its grant does not. It records as denied so an admin
+	// reaches for the grant rather than the agent.
 	runs := deps.repo.deliveryRunsFor(delID)
-	if len(runs) != 1 || runs[0].Status != RunStatusFailed {
-		t.Fatalf("delivery runs = %+v, want one failed row", runs)
+	if len(runs) != 1 || runs[0].Status != RunStatusDenied {
+		t.Fatalf("delivery runs = %+v, want one denied row", runs)
 	}
 	if runs[0].Error == nil || !strings.Contains(*runs[0].Error, "delegated identity model") {
 		t.Errorf("delivery run error = %v, want the delegated-identity reason recorded verbatim", runs[0].Error)
@@ -642,5 +645,150 @@ func TestDispatch_MintError_Failed(t *testing.T) {
 	}
 	if d := deps.repo.deliveryByID(delID); d.Status != StatusFailed {
 		t.Errorf("status = %q, want failed", d.Status)
+	}
+}
+
+// ─── Phase 1: the two-level outcome model ────────────────────────────────────
+//
+// Outcomes live at two levels: what happened to the arrival, and what happened
+// for each trigger it matched. Conflating them is the main way this design goes
+// wrong, so these tests pin the distinction.
+
+// The case the old model could not express. A delivery matching three triggers
+// where one dispatches, one is denied and one is filtered must record all three
+// per-trigger outcomes, and summarise as dispatched — not lose the denial to the
+// first success.
+func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+
+	// Two triggers on the same event; one has a condition this event fails.
+	mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "dispatches")
+	mustTrigger(t, svc, src.ID, map[string][]string{"pr.base_ref": {"never-matches"}}, "filtered")
+
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	delID := "deliv-fanout"
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: delID, TenantID: testTenant, SourceID: src.ID,
+		EventType: "pull_request", Status: StatusVerified,
+	})
+	deps.minter.reset()
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	runs := deps.repo.deliveryRunsFor(delID)
+	if len(runs) != 2 {
+		t.Fatalf("want an outcome per matched trigger, got %d: %+v", len(runs), runs)
+	}
+
+	got := map[string]int{}
+	for _, r := range runs {
+		got[r.Status]++
+	}
+	if got[RunStatusDispatched] != 1 {
+		t.Errorf("want 1 dispatched outcome, got %d (%v)", got[RunStatusDispatched], got)
+	}
+	if got[RunStatusFiltered] != 1 {
+		t.Errorf("want 1 filtered outcome, got %d (%v)", got[RunStatusFiltered], got)
+	}
+
+	// The summary reflects that something ran, without erasing the filtered row.
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusDispatched {
+		t.Errorf("delivery status = %q, want dispatched", d.Status)
+	}
+}
+
+// A trigger that declined an event via its own match_condition worked exactly as
+// configured. That is not a failure, and an admin must be able to tell it apart
+// from "nothing was listening".
+func TestDispatch_OnlyFiltered_IsSkippedNotFailed(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"pr.base_ref": {"main"}}, "p")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+
+	runs := deps.repo.deliveryRunsFor(delID)
+	if len(runs) != 1 || runs[0].Status != RunStatusFiltered {
+		t.Fatalf("want one filtered outcome, got %+v", runs)
+	}
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
+		t.Errorf("delivery status = %q, want skipped — filtering is not a failure", d.Status)
+	}
+}
+
+// An event no trigger is listening for produces no per-trigger rows at all.
+// Recording one per uninterested trigger would turn a noisy source into a write
+// multiplier, and "nobody wanted this" is not a filter decision.
+func TestDispatch_UnmatchedEventType_RecordsNoTriggerOutcomes(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "issues", prBody("opened", "main"))
+
+	if runs := deps.repo.deliveryRunsFor(delID); len(runs) != 0 {
+		t.Errorf("want no per-trigger outcomes for an unlistened event, got %+v", runs)
+	}
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
+		t.Errorf("delivery status = %q, want skipped", d.Status)
+	}
+}
+
+// ─── Phase 1: failed authentication never becomes a delivery ─────────────────
+
+// A bad signature is an unauthenticated request. Recording one as a delivery
+// would let anyone on the internet grow the table, so it counts against the
+// source instead — which still tells an admin their signing secret is wrong.
+func TestIngest_InvalidSignature_CountsOnSourceWithoutCreatingDelivery(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+
+	before := len(deps.repo.allDeliveries())
+
+	_, err := svc.Ingest(context.Background(), src.ID, http.Header{
+		"X-Github-Event":      []string{"pull_request"},
+		"X-Github-Delivery":   []string{"d-1"},
+		"X-Hub-Signature-256": []string{"sha256=deadbeef"},
+	}, prBody("opened", "main"))
+
+	if !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("err = %v, want ErrSignatureInvalid", err)
+	}
+	if after := len(deps.repo.allDeliveries()); after != before {
+		t.Errorf("an unauthenticated request created %d delivery rows; it must create none", after-before)
+	}
+
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	if stored.RejectionCount != 1 {
+		t.Errorf("source rejection_count = %d, want 1", stored.RejectionCount)
+	}
+	if stored.LastRejectionReason != "invalid signature" {
+		t.Errorf("last_rejection_reason = %q, want the specific cause", stored.LastRejectionReason)
+	}
+	if stored.LastRejectionAt == nil {
+		t.Error("last_rejection_at should be set so an admin can see how recent the failures are")
+	}
+}
+
+// Repeated rejections are bounded by construction: they update one existing row
+// rather than inserting, so volume is fixed no matter what an attacker sends.
+func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+
+	for range 25 {
+		_, _ = svc.Ingest(context.Background(), src.ID, http.Header{
+			"X-Github-Event":      []string{"pull_request"},
+			"X-Github-Delivery":   []string{"d-x"},
+			"X-Hub-Signature-256": []string{"sha256=bad"},
+		}, prBody("opened", "main"))
+	}
+
+	if n := len(deps.repo.allDeliveries()); n != 0 {
+		t.Errorf("25 unauthenticated requests created %d rows; they must create none", n)
+	}
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	if stored.RejectionCount != 25 {
+		t.Errorf("rejection_count = %d, want 25", stored.RejectionCount)
 	}
 }

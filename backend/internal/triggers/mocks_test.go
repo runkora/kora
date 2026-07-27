@@ -527,3 +527,91 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, "/api/v1/webhooks/", silentLogger())
 	return svc, &testDeps{repo: repo, policy: ps, agents: as, minter: minter}
 }
+
+// InsertScheduledDelivery mirrors the Postgres unique (trigger_id, scheduled_at)
+// index, which is the scheduler's concurrency control. It is on the Repository
+// interface precisely so this can be faked: the service used to reach the
+// concrete Postgres type for it, which made the behaviour untestable.
+func (m *mockRepository) InsertScheduledDelivery(_ context.Context, d *Delivery) (bool, error) {
+	if m.insertDeliveryErr != nil {
+		return false, m.insertDeliveryErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d.TriggerID != nil && d.ScheduledAt != nil {
+		key := "sched|" + *d.TriggerID + "|" + d.ScheduledAt.UTC().Format(time.RFC3339)
+		if m.seenDeliv[key] {
+			return false, nil
+		}
+		m.seenDeliv[key] = true
+	}
+	cp := *d
+	if cp.ReceivedAt.IsZero() {
+		cp.ReceivedAt = time.Now()
+	}
+	m.deliveries = append(m.deliveries, &cp)
+	return true, nil
+}
+
+// DeriveDeliveryStatus mirrors the SQL: dispatched if any run dispatched,
+// failed if runs exist and none did, otherwise skipped. Arrival-level outcomes
+// (duplicate, missed) describe the arrival rather than a fan-out and are left
+// alone.
+func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Mirrors the SQL: 'filtered' is not a failure, so it does not make a
+	// delivery 'failed' — a trigger declining an event worked as configured.
+	var anyFailure, anyDispatched bool
+	for _, r := range m.deliveryRuns {
+		if r.DeliveryID != deliveryID {
+			continue
+		}
+		switch r.Status {
+		case RunStatusDispatched:
+			anyDispatched = true
+		case RunStatusFailed, RunStatusDenied, RunStatusDropped:
+			anyFailure = true
+		}
+	}
+	for _, d := range m.deliveries {
+		if d.ID != deliveryID {
+			continue
+		}
+		if d.Status == StatusDuplicate || d.Status == StatusMissed {
+			return nil
+		}
+		switch {
+		case anyDispatched:
+			d.Status = StatusDispatched
+		case anyFailure:
+			d.Status = StatusFailed
+		default:
+			d.Status = StatusSkipped
+		}
+	}
+	return nil
+}
+
+func (m *mockRepository) RecordSourceRejection(_ context.Context, sourceID, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if src, ok := m.sources[sourceID]; ok {
+		src.RejectionCount++
+		now := time.Now()
+		src.LastRejectionAt = &now
+		src.LastRejectionReason = reason
+	}
+	return nil
+}
+
+// allDeliveries returns every persisted delivery. Used to assert that an
+// unauthenticated request creates no rows at all.
+func (m *mockRepository) allDeliveries() []*Delivery {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Delivery, len(m.deliveries))
+	copy(out, m.deliveries)
+	return out
+}

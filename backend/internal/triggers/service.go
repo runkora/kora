@@ -625,13 +625,11 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		ScheduledAt: &scheduledAt,
 	}
 
-	// Use the scheduled dedup path to prevent double-fire on pod restart.
-	pgRepo, ok := s.repo.(*postgresRepository)
-	if !ok {
-		s.logger.Error(ctx, "repo does not support scheduled dedup", logging.Field{Key: "trigger_id", Value: t.ID})
-		return
-	}
-	inserted, err := pgRepo.InsertScheduledDelivery(ctx, delivery)
+	// Record the delivery before dispatching. The unique (trigger_id,
+	// scheduled_at) key makes this the scheduler's concurrency control: whoever
+	// wins the insert dispatches, and the rest stop. That holds across replicas
+	// and across a restart within the same minute (ADR Decision 2).
+	inserted, err := s.repo.InsertScheduledDelivery(ctx, delivery)
 	if err != nil {
 		s.logger.Error(ctx, "failed to record scheduled delivery",
 			logging.Field{Key: "trigger_id", Value: t.ID},
@@ -640,7 +638,9 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		return
 	}
 	if !inserted {
-		s.logger.Info(ctx, "duplicate scheduled tick ignored",
+		// Normal whenever more than one replica is running: another one claimed
+		// this tick. Debug, not info — it is not an incident.
+		s.logger.Debug(ctx, "scheduled tick already claimed by another replica",
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "scheduled_at", Value: scheduledAt},
 		)
@@ -714,6 +714,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return 0, err
 	}
 	if !src.Enabled {
+		s.recordSourceRejection(ctx, src.ID, "source is disabled")
 		return 0, ErrSourceDisabled
 	}
 	adapter, ok := s.registry.Get(src.Provider)
@@ -727,6 +728,11 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	}
 
 	if verifyErr := adapter.Verify(secret, headers, body); verifyErr != nil {
+		// The most common real cause is a mismatched signing secret, and until
+		// now it presented as silence. Counted on the source rather than
+		// recorded as a delivery: this request is unauthenticated, so a row per
+		// request would be an attacker-controlled write (ADR Decision 4).
+		s.recordSourceRejection(ctx, src.ID, "invalid signature")
 		return 0, ErrSignatureInvalid
 	}
 
@@ -738,6 +744,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// unsigned header; Alertmanager derives it from body content), so a
 		// captured-and-replayed delivery whose id was stripped or unparseable
 		// would otherwise re-dispatch unbounded. Reject fail-closed.
+		s.recordSourceRejection(ctx, src.ID, "missing provider delivery id")
 		return 0, ErrMissingDeliveryID
 	}
 	eventType := adapter.EventType(headers, body)
@@ -751,15 +758,19 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		EventType:          eventType,
 		Status:             StatusVerified,
 		PayloadExcerpt:     truncate(body, payloadExcerptBytes),
+		Payload:            capturePayload(body),
+		PayloadBytes:       len(body),
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
 		return 0, err
 	}
 	if !inserted {
-		s.logger.Info(ctx, "duplicate webhook delivery ignored",
+		// The sender retried something already handled. Acknowledged, not
+		// re-run: the original delivery already holds the outcome.
+		s.logger.Info(ctx, "duplicate webhook delivery acknowledged",
 			logging.Field{Key: "source_id", Value: src.ID},
-			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "provider_delivery_id", Value: deliveryID},
 		)
 		return IngestDuplicate, nil
 	}
@@ -783,23 +794,39 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 		return
 	}
 
+	// Two reasons a listening trigger does not fire, and an admin needs to tell
+	// them apart because the fixes differ:
+	//
+	//   filtered  — this trigger wanted this event type, but its own
+	//               match_condition excluded this particular event. Recorded
+	//               per trigger: the fix is a filter setting.
+	//   unmatched — no trigger wanted this event type at all. Not recorded per
+	//               trigger (there is nobody to attribute it to) and not a
+	//               filter decision, so it does not multiply rows on a noisy
+	//               source. The fix is a missing trigger.
 	var matched []Trigger
 	for _, t := range triggers {
-		if t.EventType == eventType && matchesCondition(t.MatchCondition, fields) {
-			matched = append(matched, t)
+		if t.EventType != eventType {
+			continue
 		}
+		if !matchesCondition(t.MatchCondition, fields) {
+			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusFiltered, nil,
+				new("event excluded by the trigger's match condition"))
+			continue
+		}
+		matched = append(matched, t)
 	}
 	if len(matched) == 0 {
-		if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusSkipped, nil, nil, nil); err != nil {
-			s.logger.Error(ctx, "failed to record skipped delivery",
-				logging.Field{Key: "delivery_id", Value: deliveryID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
+		// May still have filtered rows; the derived summary accounts for them.
+		s.deriveDeliveryStatus(ctx, deliveryID)
 		return
 	}
 
-	var dispatched bool
+	// Record an outcome for every matched trigger, then derive the delivery's
+	// summary once. The summary is never written inside this loop: doing so
+	// takes the first success as the whole answer, which cannot express
+	// "started two runs, denied by a third" (ADR Decision 3).
+	var firstRunID, firstTriggerID string
 	var lastErr error
 	for _, t := range matched {
 		runID, err := s.startRunForWebhookTrigger(ctx, src, t, fields)
@@ -810,8 +837,7 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 				logging.Field{Key: "delivery_id", Value: deliveryID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			msg := err.Error()
-			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusFailed, nil, &msg)
+			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, runStatusForDispatchError(err), nil, new(err.Error()))
 			continue
 		}
 		s.logger.Info(ctx, "trigger started run",
@@ -821,24 +847,50 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 		)
 		rID := runID
 		s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
-		if !dispatched {
-			dispatched = true
-			tID := t.ID
-			if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &tID, &rID, nil); err != nil {
-				s.logger.Error(ctx, "failed to record dispatched delivery",
-					logging.Field{Key: "delivery_id", Value: deliveryID},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
+		if firstRunID == "" {
+			firstRunID, firstTriggerID = runID, t.ID
 		}
 	}
-	if !dispatched {
-		msg := "no run started"
-		if lastErr != nil {
-			msg = lastErr.Error()
+
+	// The delivery-level trigger_id/run_id summarize the first dispatched run,
+	// for the console's single-line view. The complete picture is the fan-out.
+	switch {
+	case firstRunID != "":
+		if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &firstTriggerID, &firstRunID, nil); err != nil {
+			s.logger.Error(ctx, "failed to record dispatched delivery",
+				logging.Field{Key: "delivery_id", Value: deliveryID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 		}
-		s.recordFailure(ctx, deliveryID, msg)
+	case lastErr != nil:
+		// Nothing started. Carry one reason up to the delivery so the feed can
+		// say why in a single line; the per-trigger detail is the fan-out.
+		s.recordFailure(ctx, deliveryID, lastErr.Error())
 	}
+	s.deriveDeliveryStatus(ctx, deliveryID)
+}
+
+// deriveDeliveryStatus recomputes the delivery summary from its per-trigger
+// outcomes. Failures are logged rather than surfaced: the authoritative record
+// is the fan-out, which is already written by this point.
+func (s *Service) deriveDeliveryStatus(ctx context.Context, deliveryID string) {
+	if err := s.repo.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+		s.logger.Error(ctx, "failed to derive delivery status",
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// runStatusForDispatchError maps a dispatch failure to the per-trigger outcome
+// that names its cause. A policy denial is not a failure — the trigger is
+// working, its grant is not — and an admin fixing "denied" reaches for the grant
+// rather than the agent.
+func runStatusForDispatchError(err error) string {
+	if errors.Is(err, agentsclient.ErrForbidden) {
+		return RunStatusDenied
+	}
+	return RunStatusFailed
 }
 
 // startRunForWebhookTrigger renders the prompt and starts a run under the
@@ -1021,4 +1073,31 @@ func truncate(b []byte, n int) string {
 		return string(b)
 	}
 	return strings.ToValidUTF8(string(b[:n]), "")
+}
+
+// maxPayloadBytes caps what is stored per delivery. An oversized payload is
+// truncated and flagged, never rejected: the trigger should still fire, and a
+// sender must not be able to break its own automation by sending a large body.
+const maxPayloadBytes = 1 << 20 // 1 MiB
+
+// capturePayload returns the body to persist, bounded by maxPayloadBytes.
+func capturePayload(body []byte) []byte {
+	if len(body) > maxPayloadBytes {
+		return body[:maxPayloadBytes]
+	}
+	return body
+}
+
+// recordSourceRejection counts an inbound request that failed authentication.
+//
+// Best-effort by design: the caller is already being refused, and failing to
+// increment a counter must not change that outcome or slow the refusal down.
+func (s *Service) recordSourceRejection(ctx context.Context, sourceID, reason string) {
+	if err := s.repo.RecordSourceRejection(ctx, sourceID, reason); err != nil {
+		s.logger.Error(ctx, "failed to record source rejection",
+			logging.Field{Key: "source_id", Value: sourceID},
+			logging.Field{Key: "reason", Value: reason},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
