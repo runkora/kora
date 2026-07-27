@@ -116,3 +116,4 @@ infrastructure/overlays/*/charts
 /backend/tool-gateway
 /backend/identity
 /backend/orbit-agents
+/backend/orbit-triggers

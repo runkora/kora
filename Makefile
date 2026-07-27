@@ -460,7 +460,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway operator \
+	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers operator \
 	session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
@@ -470,7 +470,7 @@ REDEPLOY_TENANT_SERVICES := example
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
-	agents frontend orbit-mcp tool-gateway
+	agents frontend orbit-mcp tool-gateway orbit-triggers
 
 # orbit-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
@@ -584,8 +584,8 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
-	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-operator \
-	orbit-session-manager orbit-sandbox-exec
+	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers \
+	orbit-operator orbit-session-manager orbit-sandbox-exec
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -854,6 +854,10 @@ redeploy-frontend: ## Redeploy the frontend
 .PHONY: redeploy-tool-gateway
 redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher — same image)
 	@bash scripts/cluster/redeploy.sh tool-gateway $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-triggers
+redeploy-triggers: ## Redeploy orbit-triggers (webhook ingestion, management API, scheduler)
+	@bash scripts/cluster/redeploy.sh orbit-triggers $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
 redeploy-operator: ## Redeploy the orbit-operator (charts are baked into the image)

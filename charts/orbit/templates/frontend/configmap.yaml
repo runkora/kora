@@ -10,6 +10,7 @@ data:
   # Used by the Next.js BFF server-side routes to call the identity API.
   # Never sent to the browser.
   ORBIT_API_URL: {{ required "frontend.config.orbitApiUrl must be set" .Values.frontend.config.orbitApiUrl | quote }}
+  ORBIT_TRIGGERS_URL: {{ required "frontend.config.orbitTriggersUrl must be set" .Values.frontend.config.orbitTriggersUrl | quote }}
 
   # URL of the inference gateway service as seen from inside the cluster.
   # Used by the Next.js BFF server-side routes to proxy model/usage requests.

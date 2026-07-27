@@ -336,3 +336,26 @@ app: orbit-agents
 {{- define "orbit.agents.imagePullPolicy" -}}
 {{- .Values.agents.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
 {{- end }}
+
+{{/*
+orbit-triggers: the platform's front door for starting work (webhook ingestion,
+the trigger management API, the manual fire endpoint, and the cron scheduler).
+See docs/adr/2026-06-20-extended-trigger-types.md.
+*/}}
+{{- define "orbit.triggers.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-triggers
+app.kubernetes.io/component: triggers
+{{- end }}
+
+{{- define "orbit.triggers.selectorLabels" -}}
+app: orbit-triggers
+{{- end }}
+
+{{- define "orbit.triggers.imageTag" -}}
+{{- .Values.triggers.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "orbit.triggers.imagePullPolicy" -}}
+{{- .Values.triggers.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}

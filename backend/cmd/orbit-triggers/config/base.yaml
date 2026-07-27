@@ -1,0 +1,29 @@
+app:
+  version: "0.1.0"
+
+server:
+  # Webhook ingestion, the trigger management API, and health.
+  port: 8097
+  # Must stay /api/v1: the inbound webhook path is basePath + /webhooks/, and
+  # every registered source posts to that address. The api VirtualService
+  # routes /api/v1/webhooks/ here; changing this breaks existing senders.
+  basePath: /api/v1
+  shutdownTimeoutSecs: 30
+
+identity:
+  # Token minting. Authenticated by the mesh's mTLS peer identity (SPIRE SVID
+  # presented as XFCC), so no credential is configured here.
+  internalURL: "http://orbit-identity.orbit-system.svc"
+
+agents:
+  internalURL: "http://orbit-agents.orbit-system.svc"
+
+policy:
+  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  # Short: a trigger's run grant is created moments before its first delivery,
+  # so a long poll interval shows up as a spurious first-fire denial.
+  bundlePollIntervalSecs: 3
+
+observability:
+  serviceName: orbit-triggers

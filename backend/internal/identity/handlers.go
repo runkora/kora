@@ -74,6 +74,13 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
+	// Internal: mints a SERVICE token for a platform component that starts work
+	// on behalf of a tenant principal (orbit-triggers). Authenticated by the
+	// caller's mesh-attested SPIFFE identity, like /exchange — never a bearer
+	// token. Not exposed at the edge: the api VirtualService routes only
+	// /api/v1/identity/ and this sits under /api/v1/identity/internal/, so it
+	// is reachable in-mesh only by the NetworkPolicy allowlist.
+	mux.Handle("POST /internal/service-token", c.handleMintServiceToken)
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
 	mux.Handle("GET /.well-known/oauth-authorization-server", c.handleAuthorizationServerMetadata)

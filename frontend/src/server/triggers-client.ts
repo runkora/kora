@@ -21,10 +21,12 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * The Triggers feature is hosted by the identity service (the main control-plane
- * API, config.orbitApiUrl) — the only externally-reachable binary and the token
- * authority that mints each webhook source's identity. We forward the session
- * token; results are tenant-scoped from the token.
+ * The Triggers feature is served by orbit-triggers, the platform's front door for
+ * starting work. It is separate from identity so that unauthenticated,
+ * internet-reachable webhook ingestion does not share a process with the token
+ * authority; identity still mints each trigger's SERVICE token over the mesh.
+ * We forward the session token; results are tenant-scoped from the token.
+ * See docs/adr/2026-06-20-extended-trigger-types.md.
  */
 async function request<T>(
   path: string,
@@ -32,7 +34,7 @@ async function request<T>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T | undefined> {
   const { method = 'GET', body } = options;
-  const url = `${config.orbitApiUrl}/${path.replace(/^\//, '')}`;
+  const url = `${config.orbitTriggersUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
     method,

@@ -170,6 +170,17 @@ workload=deployment/orbit-mcp
 restart=true
 EOF
       ;;
+    orbit-triggers)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=orbit-triggers
+image=orbit-triggers
+namespace=orbit-system
+workload=deployment/orbit-triggers
+restart=true
+EOF
+      ;;
     tool-gateway)
       # The publisher runs the same orbit-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
@@ -251,6 +262,7 @@ agents              (deployment, orbit-system)
 frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
+  orbit-triggers      (deployment, orbit-system)
 operator            (deployment, orbit-operator)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)

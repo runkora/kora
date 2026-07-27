@@ -14,6 +14,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -344,4 +345,82 @@ func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*Delega
 		return nil, c.RecordError(span, ErrMissingToken)
 	}
 	return &out, nil
+}
+
+// ── Service-token minting (docs/adr/2026-06-20-extended-trigger-types.md) ────
+
+// ErrMintForbidden is returned when identity refuses to mint a service token
+// for this caller. It means the caller's mesh-attested SPIFFE identity is not
+// on identity's mint allowlist, which is a deployment fault (wrong service
+// account, missing sidecar) rather than a transient error — retrying will not
+// help.
+var ErrMintForbidden = errors.New("identity refused to mint a service token for this caller")
+
+type mintServiceTokenRequest struct {
+	TenantID    string `json:"tenant_id"`
+	PrincipalID string `json:"principal_id"`
+	DisplayName string `json:"display_name"`
+	TTLSeconds  int    `json:"ttl_seconds"`
+}
+
+type mintServiceTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// MintServiceToken obtains a short-lived platform token for the named SERVICE
+// principal by calling identity, the platform's sole token authority.
+//
+// The caller is authenticated by its mesh identity: Istio's sidecar presents
+// this pod's SVID on the outbound connection and identity reads it from the
+// XFCC header. No credential material passes through this process, and nothing
+// here can be leaked or replayed.
+//
+// This satisfies the triggers package's TokenMinter interface, which
+// orbit-triggers uses in place of the in-process identity service.
+func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, displayName string, ttl time.Duration) (string, error) {
+	endpoint := c.baseURL + "/api/v1/identity/internal/service-token"
+
+	body, err := json.Marshal(mintServiceTokenRequest{
+		TenantID:    tenantID,
+		PrincipalID: principalID,
+		DisplayName: displayName,
+		TTLSeconds:  int(ttl.Seconds()),
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal mint request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build mint request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	_, span, resp, err := c.Do(ctx, "identity.Client.MintServiceToken", req)
+	defer span.End()
+	if err != nil {
+		return "", fmt.Errorf("mint call: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusForbidden, http.StatusUnauthorized:
+		return "", c.HandleErrorResponse(span, resp, ErrMintForbidden)
+	default:
+		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var parsed mintServiceTokenResponse
+	if err = c.DecodeJSON(span, resp, &parsed); err != nil {
+		return "", err
+	}
+	if parsed.AccessToken == "" {
+		return "", c.RecordError(span, ErrMissingToken)
+	}
+
+	span.SetAttributes(attribute.Int("token.expires_in", parsed.ExpiresIn))
+
+	return parsed.AccessToken, nil
 }

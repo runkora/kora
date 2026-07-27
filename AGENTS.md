@@ -67,6 +67,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
 | Inference Gateway | `8081` |
 | Policy Service | `8083` |
 | Policy Gateway | `8084` |
+| Triggers | `8097` |
 | Session Manager | `8090` |
 
 (`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
@@ -169,6 +170,7 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 | `policy-service` | `cmd/policy-service/` | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083) |
 | `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
 | `orbit-agents` | `cmd/orbit-agents/` | Agent control plane: runs, sessions, event streaming, k8s orchestration |
+| `orbit-triggers` | `cmd/orbit-triggers/` | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097) |
 | `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
 | `operator` | `cmd/operator/` | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars |
 | `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls |
