@@ -37,10 +37,12 @@ A single inbound delivery can match **several** triggers — one GitHub push leg
 
 That means outcomes live at **two levels**, and conflating them is the main way this design could go wrong:
 
-- **Delivery level** — what happened to the arrival itself, before any trigger was involved: it wasn't genuine, it was a duplicate, or nothing was listening for it. There is no trigger to attribute these to.
+- **Delivery level** — what happened to the arrival itself, before any trigger was involved: it was a duplicate, a scheduled fire was missed, or nothing was listening for it. There is no trigger to attribute these to. An arrival that fails authentication is a separate case, surfaced on the source rather than as a delivery (see below).
 - **Trigger level** — what happened for each trigger that matched: filtered out, denied by policy, superseded, dropped for exceeding a limit, dispatched, or failed to dispatch.
 
 Both levels have to be visible. An admin looking at one trigger needs its own outcomes; an admin looking at the feed needs to see the arrivals that never reached a trigger at all.
+
+**Failed authentication is deliberately not a delivery.** A webhook with a bad signature is an unauthenticated request, so recording it as a delivery would let anyone on the internet create records. Instead the source itself carries a rejection count and the most recent reason, which is what an admin with a wrong signing secret needs to see, without an unauthenticated caller ever creating a row. Everything in the delivery history is therefore an arrival that authenticated.
 
 ### User Pain Points
 
@@ -126,15 +128,16 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 
 **US-003**
 **As a** platform admin,
-**I want to** see the exact reason a delivery didn't start a run — it wasn't genuine, policy denied it, the trigger filtered it out, it was superseded, it exceeded a limit, or the dispatch itself failed,
+**I want to** see the exact reason a delivery did not start a run — policy denied it, the trigger filtered it out, it was superseded, it exceeded a limit, the trigger was paused, or the dispatch itself failed — and to see separately when a sender is failing authentication entirely,
 **So that** I can fix the actual problem instead of guessing from a generic "failed" badge.
 
 **Acceptance Criteria:**
 - [ ] Each of those reasons is a distinct, visible outcome — none collapses into a generic failure.
 - [ ] Outcomes that belong to a trigger (filtered, denied, superseded, dropped, dispatched, failed) are recorded per trigger, so a delivery that started two runs and was rejected by a third says exactly that.
-- [ ] Outcomes that belong to the arrival itself (not genuine, duplicate, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
+- [ ] Outcomes that belong to the arrival itself (duplicate, missed, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
+- [ ] A sender failing authentication is visible on the source it is posting to, with a count and the most recent reason, without creating delivery records.
 - [ ] A policy denial keeps the reason policy gave.
-- [ ] Something that arrived but was never going to start a run is still on the record, and "a trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
+- [ ] "A trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
 - [ ] An outcome that means "no run will ever start for this" is visibly terminal, not left looking pending.
 
 ---
@@ -320,6 +323,7 @@ Builds on the existing two-surface model (per-agent tab + platform-wide section)
 ### Future Considerations
 
 - The six kinds in §Planned Trigger Kinds.
+- A multi-agent workflow engine as a separate pillar, with triggers able to start a workflow rather than only an agent.
 - Notification for auto-pause beyond the console (PD5).
 - Retry with backoff, once there's evidence that Redeliver is being used as a manual substitute for it.
 
@@ -340,10 +344,19 @@ Each is a new way for something to arrive. None changes what happens afterwards.
 | **Object storage change** | A file appears or changes in a watched bucket or prefix | Practically a webhook from the storage provider; blocked mainly on credential brokering for the watch itself |
 | **Monitor or alert** | An external monitoring system fires an alert | Closest to shipping — Alertmanager is already a recognised webhook provider, so this is largely a presentation and filtering question rather than a new mechanism |
 
-Two consequences for this PRD's scope, both deliberate:
+### Triggers are a front door, not an orchestrator
 
-1. **The delivery record must not assume its origin was an HTTP request.** A scheduled tick and a chained run have no sender, no signature, and no response code. The vocabulary for outcomes has to work for all of them, which is why it's expressed in terms of what happened to the run rather than what was returned to a caller.
-2. **The trigger's shape must not assume a source.** Webhook triggers hang off a registered source; scheduled, manual, and most of the planned kinds do not. Anything that treats a source as mandatory will have to be undone later.
+The unifying idea is that Triggers owns **the ways something can start** in Orbit. It does not own what happens next.
+
+Today the only thing a trigger can start is an agent run. A multi-agent workflow engine is a separate future pillar, and when it exists a trigger should be able to start a workflow the same way it starts an agent now — same kinds, same delivery record, same authorization, different target. Nothing in this work should make that a rewrite.
+
+That boundary is what keeps this feature from sprawling. Sequencing, branching, retries between steps, and passing state from one agent to the next are workflow concerns. A trigger fires once and records what happened.
+
+Three consequences for this PRD's scope, all deliberate:
+
+1. **A trigger's target is "something the platform can start", not "an agent".** Nothing in the model, the API, or the console should assume otherwise, even while an agent is the only available answer.
+2. **The delivery record must not assume its origin was an HTTP request.** A scheduled tick and a chained run have no sender, no signature, and no response code. The vocabulary for outcomes has to work for all of them, which is why it's expressed in terms of what happened to the run rather than what was returned to a caller.
+3. **The trigger's shape must not assume a source.** Webhook triggers hang off a registered source; scheduled, manual, and most of the planned kinds do not. Anything that treats a source as mandatory will have to be undone later.
 
 ---
 

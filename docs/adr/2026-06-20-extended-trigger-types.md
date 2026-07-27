@@ -1,255 +1,542 @@
-# Extended Trigger Types: Scheduled and Manual
+# Extended Trigger Types and an Operable Delivery Pipeline
 
 <!-- Filename: 2026-06-20-extended-trigger-types.md -->
 
 **Status:** Proposed
-**Date:** 2026-06-20
-**Deciders:** Platform Engineering
-**Technical Story:** [PRD: Extended Trigger Types](../prd/extended-trigger-types.md) — extend the Triggers framework beyond webhook ingestion to include scheduled (cron) and manual (API-fired) trigger kinds, and extract `internal/triggers/` to the committed `orbit-triggers` binary.
+**Date:** 2026-07-27
+**Deciders:** Justin Wilkin, Platform Engineering
+**Technical Story:** [PRD: Extended Trigger Types](../prd/extended-trigger-types.md)
 
 ---
 
 ## Context
 
-The Triggers v1 ADR (`2026-06-17-agent-triggers-and-webhook-ingestion.md`) shipped webhook ingestion as the only trigger kind and made two explicit commitments for when a second kind lands:
+The Triggers v1 ADR ([2026-06-17](2026-06-17-agent-triggers-and-webhook-ingestion.md)) shipped webhook ingestion as the only trigger kind: an inbound signed request from a registered `WebhookSource` starts an agent run under a per-source JIT-minted `SERVICE` principal. That design is sound and stays.
 
-1. **Extract `internal/triggers/` to a dedicated `orbit-triggers` binary.** The v1 hosting inside `identity` was explicitly called a *"v1-only choice"* and the extraction was described in detail in the Notes section of that ADR.
-2. **Add scheduled and other trigger kinds.** Scheduled/cron triggers were listed as a non-goal for v1 and as the first follow-on kind.
+This ADR replaces the earlier draft at this filename. It covers two things the PRD asks for together:
 
-This ADR fulfils both commitments. It records the decisions for:
-- A `kind` discriminant on the `Trigger` model.
-- The **scheduled trigger** kind: cron-based firing via an in-process scheduler in `orbit-triggers`.
-- The **manual trigger** kind: an explicit API call (`POST /api/v1/triggers/{id}/fire`) that fires a trigger programmatically — enabling agent-to-agent orchestration.
-- `{{ var.key }}` variable substitution in prompt templates (used by both new kinds).
-- The `orbit-triggers` binary extraction mechanics.
+1. **Two new trigger kinds** — scheduled (cron) and manual (API-fired).
+2. **An operable delivery pipeline** — exact outcomes for every way a run can fail to start, per-trigger admission control, and the delivery-safety machinery (timeout, duplicate suppression, auto-pause, payload retention) that the console redesign needs in order to have anything real to show.
 
-### Background
+### What the earlier draft got wrong
 
-The `internal/triggers/` package was deliberately structured with no imports of other feature packages (`internal/identity`, `internal/agents`). It reaches the policy service and `orbit-agents` exclusively via typed HTTP clients. The v1 ADR documented the extraction cost as bounded to:
-1. A new `cmd/orbit-triggers/` binary wiring the existing package.
-2. Replacing the in-process `TokenMinter` with an HTTP call to a new internal mint endpoint on `identity`.
-3. Moving trigger migrations to the new binary.
-4. Moving the ingress routing rules.
+The draft at this filename recorded decisions that were never implemented, and two that were incorrect. Recording them plainly, because the document and the code disagree and the code is what runs:
 
-This ADR confirms those mechanics and adds the new-kind decisions on top.
+| Earlier claim | Reality |
+|---|---|
+| Triggers is hosted in a new `orbit-triggers` binary (sub-decision 5) | Never built. `internal/triggers/` runs inside `identity`, as v1 decided. The v1 ADR's Notes committed to extracting it "when the second trigger surface lands"; that commitment has now been deferred twice while both ADRs described the extracted state as fact. **Decision 1** settles it. |
+| The fire endpoint is guarded by a `triggers:fire:{id}` scope (sub-decision 2) | Not enforced. `server.go` carries a `KNOWN GAP` comment: the route requires only `triggers:write`, so any principal that can manage triggers can fire any trigger. **Decision 6** closes it. |
+| `ScopeEnforcementMiddleware` "already does" per-request dynamic scopes via route-param substitution (sub-decision 2) | It does not. `RouteScope` matches static prefixes only; there is no substitution mechanism. This claim is why the gap above shipped unnoticed. |
+| The scheduler is single-instance and "multiple replicas would double-fire" (option B1) | Already mitigated. `TickScheduled` inserts the delivery under `UNIQUE (trigger_id, scheduled_at)` *before* dispatching, so a second replica's tick loses the insert race and stops. At-most-once already holds. **Decision 2** builds on this instead of adding leader election. |
 
-### Problem Statement
+### Where the design reference is not followed
 
-1. There is no way to start a run on a time schedule without external cron infrastructure and human credentials.
-2. There is no way for an agent to start another agent — agent-to-agent composition requires a human or out-of-band scripting.
-3. The triggers package is still hosted in `identity`, which the v1 ADR committed to unwinding.
+The design reference proposes a `slug`-addressed, token-in-path webhook endpoint (`hooks.orbit.sh/t/{slug}/{token}`) and a flat one-trigger-per-delivery model. Neither is adopted. The PRD records the product reasoning (Alternatives 3 and 5); the technical reasoning is that the current header-based HMAC-over-body scheme is correct and changing it would re-point every registered source, and that the existing `trigger_deliveries` → `trigger_delivery_runs` fan-out **is already the two-level outcome model the PRD asks for**. Flattening it would be a regression.
 
-### Goals
+### Security and identity
 
-- Add `scheduled` and `manual` trigger kinds to the existing framework.
-- The shared dispatch pipeline (template render → identity mint → run start → delivery log) is reused unchanged across all kinds.
-- Extract `internal/triggers/` to `orbit-triggers`.
-- Preserve the *Who / What / How* pillars for all new kinds.
-- Introduce `{{ var.key }}` variable substitution so manual and scheduled triggers can be parameterised.
+This feature creates agent identity and gates access, so the three questions apply. One of them applies differently here than elsewhere in the platform, and it is worth being exact about why.
 
-### Non-Goals
+**Who is this agent? A trigger's principal is autonomous, not delegated.** Orbit's usual identity story is delegation: a person hands scope to an agent, the agent is accountable to that person, and it can never access more than the delegator. **Triggers are the case where that model does not apply.** A GitHub push at 3am and a cron tick have no human initiator. There is no delegator, and therefore **no delegator ceiling to intersect with**.
 
-- HA/distributed cron scheduler (single-instance best-effort in v1).
-- Email or other ingest-based trigger kinds.
-- Caller override of prompt template or agent type at fire time.
-- DAG/workflow orchestration across agents.
-- Sub-minute cron resolution.
+What holds instead is attribution to *configuration* rather than to *initiation*: an admin created the source or trigger and attached a grant, and that grant is the **sole** bound on what the resulting run can do. Nothing clips it from above.
+
+Three consequences follow, and they raise the stakes on the rest of this ADR rather than lowering them:
+
+1. **Creating a trigger creates a standing autonomous capability.** Its grant is not a request for permission that something else will narrow; it is the whole permission. Trigger creation therefore deserves the same scrutiny as granting a long-lived credential, because that is what it is.
+2. **A manual trigger's caller does not narrow it either.** The run executes under the trigger's principal, so a caller with narrow permissions firing a broadly-scoped trigger gets the trigger's scope, not their own. This is deliberate — a manual trigger is a published capability with a fixed blast radius — and it is exactly why firing needs its own per-trigger authorization check rather than inheriting from trigger-management permission (Decision 6).
+3. **The audit question is "who configured this and what policy authorised it", not "who asked for it".** Delivery history answers the first; the policy decision answers the second. Neither can be replaced by a delegation chain, because there isn't one.
+
+**What can it access?** Exactly what its grant allows, and nothing narrows that at request time. The new access-control surface is the fire endpoint, currently under-enforced (Decision 6). Firing is an authorization decision checked before the run starts, per trigger, default-deny.
+
+**How does it connect?** Unchanged. Triggers start runs; a run's egress goes through the existing broker. Nothing here touches credentials.
+
+One further consideration: the PRD wants a failed signature to be visible to an admin, but a failed signature is an unauthenticated request, so anything written in response to it has attacker-controlled volume. Decision 4 settles this without writing to the delivery table at all.
 
 ---
 
 ## Decision Drivers
 
-* **Extraction commitment** — the v1 ADR binds us to extracting when the second kind lands; deferring further would accrete more webhook-specific coupling inside `identity`.
-* **Shared dispatch pipeline** — all three kinds must funnel into the same render/mint/start/log path; the `kind` discriminant must not fork that logic.
-* **Identity integrity** — scheduled and manual triggers need the same per-source principal and JIT-mint model as webhooks, with no weakening.
-* **Minimal caller surface for manual triggers** — firing a trigger must be a scoped, per-trigger capability; callers must not be able to shape the run's agent, template, or source identity.
-* **Convention fit** — typed clients, feature packages don't import each other, controller-based routing, route/scope registration.
+- **Minimal disruption is a hard requirement**, not a preference. Registered sources and delivery history exist. No re-pointing endpoints, no re-issuing secrets, no destructive migration.
+- **The delivery record must not assume an HTTP origin.** A scheduled tick has no sender, signature, or response code, and four of the six planned kinds have none either.
+- **Prefer extending existing structures to adding new ones.** The fan-out table, the dedup indexes, and the kind discriminant already exist and are right.
+- **Fail closed on authorization.** An unenforced scope is worse than an absent one, because the documentation claims protection that is not there.
+- **Do not build HA machinery that a unique index already provides.**
+- **Triggers are a front door, not an orchestrator.** They are the set of ways something can start in the platform. What gets started is a separate concern, and the multi-agent workflow engine is a separate pillar. Nothing here may grow into it.
 
 ---
 
 ## Considered Options
 
-### A — Kind discriminant placement
+### Decision 1 — Where does the triggers service run?
 
-#### A1: `kind` column on the `triggers` table; `schedule_config` JSONB for kind-specific config
+#### 1A: Keep `internal/triggers/` in `identity` (**chosen**)
 
-A single `kind TEXT NOT NULL` column (values: `'webhook'` | `'scheduled'` | `'manual'`). Kind-specific configuration lives in a `config JSONB` column (null for kinds with no extra config; `{"cron":"0 9 * * 1-5","timezone":"Australia/Sydney"}` for scheduled). The existing `source_id` FK becomes nullable — scheduled and manual triggers have no webhook source.
+**Pros:** Zero migration. Token minting stays in-process (`identity` is the token authority), so no internal mint endpoint and no signing-key distribution. The webhook ingress route stays where it is, which matters because moving it changes the URL every registered source posts to. Nothing in this ADR's scope needs a separate binary.
 
-**Pros:** Single `triggers` table; no table-per-kind proliferation; aligns with the existing `config JSONB` pattern on `webhook_sources`; simple migration.
+**Cons:** `identity` keeps growing. A trigger burst shares a process with the control-plane API.
 
-**Cons:** `source_id` nullable FK is mildly denormalized; JSONB config is schema-less (mitigated by Go struct validation before insert).
+#### 1B: Extract `orbit-triggers` now
 
-#### A2: Separate tables per kind (`scheduled_triggers`, `manual_triggers`)
+**Pros:** Honours a commitment made twice. Isolates trigger load.
 
-**Pros:** Strongly typed per-kind columns; nullable FK avoided.
+**Cons:** Requires an internal mint endpoint on `identity`, a new chart deployment, a client-mTLS DestinationRule and a netpol entry, and — decisively — **moving the webhook ingestion path**, which breaks every registered source. That directly contradicts the PRD's "no change to where webhooks are received". Doing it safely means serving both paths through a transition, which is strictly more work than this feature needs.
 
-**Cons:** Fragments what is conceptually one entity; query joining across tables for the "all triggers" list; more migration surface; complicates the shared dispatch path.
-
-**Chosen: A1.** A single table with a `kind` discriminant and a JSONB config column is consistent with the codebase's existing patterns and keeps the shared dispatch pipeline trivial to query.
+**Chosen: 1A, and the extraction commitment is formally retired.** It has been deferred twice by ADRs that then described the extracted state as fact, which is how the docs drifted from the code. Rather than defer a third time, this ADR closes it: triggers stay in `identity` until there is a *load* reason to move them, and the trigger condition is written down in [Future Work](#future-work). Any later extraction must preserve the ingestion URL, which is a migration design in its own right and belongs in its own ADR.
 
 ---
 
-### B — Scheduled trigger: where does the scheduler run?
+### Decision 2 — Scheduler concurrency safety
 
-#### B1: In-process goroutine in `orbit-triggers` using `robfig/cron`
+#### 2A: Rely on the existing insert-then-dispatch dedup (**chosen**)
 
-A scheduler goroutine starts when `orbit-triggers` boots, loads all enabled scheduled triggers from the DB, and fires them at each cron tick. The `robfig/cron` library handles standard 5-field cron parsing and tick evaluation. On fire, it follows the same dispatch path as webhook ingest (render template → mint JIT token → start run → record delivery).
+`TickScheduled` already inserts a delivery keyed `UNIQUE (trigger_id, scheduled_at)` before starting a run. Any replica losing that race stops. Ticks are minute-granular, so the key is naturally idempotent per minute.
 
-**Pros:** Zero additional infrastructure; simple to operate and test; consistent with the single-instance v1 posture; `robfig/cron` is a mature, well-tested library.
+**Pros:** Already implemented and exercised. No lease, no lock, no new infrastructure. Correct under N replicas *and* under restart-within-the-minute, which is the case leader election handles worst.
 
-**Cons:** Single-instance: if `orbit-triggers` is unavailable at a tick, that tick is missed (documented). Multiple replicas would double-fire without coordination.
+**Cons:** Every replica runs the full `ListEnabledScheduledTriggers` scan each minute — wasted work proportional to replica count.
 
-#### B2: External Kubernetes CronJob per scheduled trigger
+#### 2B: Kubernetes Lease leader election
 
-**Pros:** Native k8s primitive; no in-process scheduler to operate.
+**Pros:** Only one replica scans.
 
-**Cons:** One CronJob object per trigger is impractical at scale; requires kubectl or operator reconciliation to manage; no unified delivery log; breaks the "trigger is a platform concept with a UI and history" goal entirely.
+**Cons:** A new dependency in a binary that is not a controller, and a lease handover window can *miss* a tick, which is worse than the duplicate scanning 2A wastes. Solves a problem the unique index already solved.
 
-#### B3: Distributed leader-election scheduler (DB advisory lock or k8s Lease)
+#### 2C: Postgres advisory lock per tick
 
-**Pros:** Multi-replica safe from day one.
+**Pros:** No new infrastructure.
 
-**Cons:** Significantly more complexity; premature for v1 volume; the extraction ADR notes say "add when needed."
+**Cons:** Introduces a locking primitive the codebase does not otherwise use, for a guarantee the unique index already gives declaratively.
 
-**Chosen: B1.** Single-instance in-process scheduler is the right v1 call. The HA path (B3) is tracked as follow-up and architecturally cheap to add: replace `scheduler.Start()` with a lock-guarded `scheduler.Start()` once there is evidence of multi-replica load.
+**Chosen: 2A.** The existing design is correct; the earlier ADR understated it. Two changes: the losing insert logs at `debug` rather than `info` (it is normal under multiple replicas and today reads as though it were noteworthy), and the scan gains the bound described in [Implementation](#implementation).
 
-**Dedup guard for B1:** To prevent double-fire on pod restart within the same minute window, the scheduler inserts the delivery row with a unique index on `(trigger_id, scheduled_at_minute)` before starting the run. A duplicate insert fails silently (same dedup pattern as webhook `provider_delivery_id`).
-
----
-
-### C — Manual trigger: fire endpoint identity model
-
-#### C1: Caller holds `triggers:fire:{trigger-id}`; run executes under trigger's source principal (same as webhook)
-
-The fire endpoint requires the calling principal to hold a `triggers:fire:{id}` scope (a per-trigger, explicit grant). The resulting run executes under the trigger's source principal — not the caller's identity. The caller's principal ID is recorded in the delivery row as `fired_by` for audit.
-
-**Pros:**
-- Caller scope is minimal and per-trigger — a caller with one fire grant cannot fire other triggers.
-- The run's identity and scope are fully determined by the trigger's source configuration, not by the caller. This closes the "caller shapes the run's capabilities" attack surface completely.
-- Consistent with the webhook model (run always executes under the source principal).
-- Attribution is preserved: `created_by` = source principal, `fired_by` = calling principal.
-
-**Cons:**
-- Granting `triggers:fire` requires an admin action via the grants API (no self-service UI in v1).
-
-#### C2: Run executes under the *caller's* identity
-
-**Pros:** No additional principal provisioning needed.
-
-**Cons:** The caller's scope bleeds into the run — an agent that can fire a trigger would start a run with its own (possibly broader) access, breaking the "run is bounded by the trigger's source" invariant. Also breaks attribution: two different callers firing the same trigger would produce runs under different identities, making the trigger semantics inconsistent.
-
-#### C3: Fire endpoint is unauthenticated (HMAC secret per trigger, like webhooks)
-
-**Pros:** No platform token required from the caller.
-
-**Cons:** HMAC secrets are an awkward mechanism for agent-to-agent calls; the platform token + scope model is the right fit for internal callers. This would make manual triggers look like webhooks without the webhook UX.
-
-**Chosen: C1.** Per-trigger `triggers:fire:{id}` scope on the caller, run under the trigger's source principal. This is the cleanest model: minimal caller surface, consistent run identity, full attribution.
+**Missed ticks.** PD1 says a fire missed during downtime is *recorded as missed and skipped*. Today it is silently not fired, with no record at all. The scheduler gains a bounded backfill: on each tick, for each enabled scheduled trigger, any due minute in the last hour with no delivery row is inserted with outcome `missed` and no run started. One hour bounds the write burst after a long outage. With `catch_up` set, that insert becomes a normal fire instead.
 
 ---
 
-### D — `orbit-triggers` extraction: `TokenMinter` replacement
+### Decision 3 — The outcome model
 
-The in-process `TokenMinter` is the only coupling between `internal/triggers/` and `identity`. The v1 ADR documented two options for replacing it:
+#### 3A: Extend both existing status columns; add no tables (**chosen**)
 
-#### D1: New internal HTTP endpoint on `identity` — `POST /internal/v1/triggers/mint-token`
+The schema already has exactly the two levels the PRD requires:
 
-`orbit-triggers` calls this endpoint (over the internal service mesh, mTLS-authenticated via SPIFFE) to mint a short-lived SERVICE JWT for a given source principal. `identity` validates that the source principal exists and belongs to the tenant before minting.
+- `trigger_deliveries.status` — the arrival: `verified`, `dispatched`, `skipped`, `failed`
+- `trigger_delivery_runs.status` — per matched trigger: `dispatched`, `failed`
 
-**Pros:** Clean separation; `orbit-triggers` is not the token authority; mirrors how other services get tokens minted (e.g. the session manager).
+Both vocabularies are extended. Nothing is renamed, so existing rows keep their meaning.
 
-**Cons:** One additional internal RPC per dispatch; increases coupling between `orbit-triggers` and `identity` at the network level (mitigated: the mesh already enforces this boundary, and the call is on the hot path anyway to start the run).
+| Level | Value | New | Meaning |
+|---|---|---|---|
+| Delivery | `verified` | | Arrived and established as genuine |
+| Delivery | `duplicate` | ● | Already handled; references the original |
+| Delivery | `skipped` | | Genuine, but no trigger was listening |
+| Delivery | `missed` | ● | A scheduled fire that was due but not run |
+| Delivery | `dispatched` | | At least one trigger started a run |
+| Delivery | `failed` | | Matched, but no trigger started a run |
+| Trigger | `dispatched` | | This trigger started a run |
+| Trigger | `failed` | | This trigger tried and failed, including dispatch timeout |
+| Trigger | `filtered` | ● | Listening, but its `match_condition` excluded this event |
+| Trigger | `denied` | ● | Policy refused this trigger's run |
+| Trigger | `superseded` | ● | Replaced by a newer fire under `replace` overflow |
+| Trigger | `dropped` | ● | Refused at the ceiling, or evicted from the backlog |
+| Trigger | `paused` | ● | The trigger was auto-paused when this fire arrived |
 
-#### D2: `orbit-triggers` holds a shared signing key and mints tokens in-process
+**Pros:** Additive. `trigger_delivery_runs` already carries `error TEXT`, so denial reasons need no new column. The console's per-trigger badges read the level they belong to.
 
-**Pros:** No extra RPC.
+**Cons:** Two enums to keep coherent.
 
-**Cons:** Distributes token-signing key material outside the authority; undermines the "identity is the token authority" principle; audit trail for minted tokens becomes harder to centralize.
+#### 3B: One flat status on the delivery
 
-**Chosen: D1.** `orbit-triggers` calls `identity`'s new internal mint endpoint. The internal route is unauthenticated at the HTTP layer but lives on the internal mesh (not exposed externally); SPIFFE peer identity validates the caller is `orbit-triggers`.
+Rejected: cannot express "started two runs, denied by a third", which is the PRD's central requirement.
+
+#### 3C: A new `delivery_outcomes` table
+
+Rejected: `trigger_delivery_runs` *is* that table. A second one would leave two overlapping records of the same thing.
+
+**Chosen: 3A**, with an invariant the implementation must uphold:
+
+> A delivery's status is a **summary derived from its runs**, never independently authored. `dispatched` if any run dispatched; `failed` if runs exist and none dispatched; `skipped` if no trigger matched; `duplicate` or `missed` if it never reached matching. Today `dispatch()` sets delivery status inline from the first success, which is exactly what makes "started two, denied one" unrepresentable. The summary must be computed once the fan-out completes.
+
+Every row in `trigger_deliveries` is an arrival that authenticated successfully (Decision 4). Failed authentication never reaches this table.
+
+`filtered` needs a bound. Recording a row for every trigger that did *not* want an event turns a noisy source into a write multiplier. It is therefore recorded **only for triggers that matched the source and event type but were excluded by `match_condition`** — a filter the admin authored and can debug. A trigger listening for a different event type entirely is not a filter decision and produces no row.
+
+---
+
+### Decision 4 — Surfacing failed authentication without writing on an unauthenticated request
+
+Two distinct things get conflated here, so state them separately.
+
+**Recording before authorization is settled and safe.** The pipeline order is *authenticate → record → match → authorize → admit → run*. The PRD's "record before you decide" requirement concerns the gap between record and authorize: today a policy denial often leaves no delivery row, so "why didn't my trigger fire" is unanswerable. The delivery is recorded before the policy check. That request is already authenticated. No decision needed.
+
+**This decision is only about requests that fail authentication** — a webhook with a bad signature, a missing delivery id, or a disabled source. Today `Ingest` returns before inserting anything, so nothing is recorded. The PRD wants an admin to be able to diagnose a wrong signing secret, which is the most common cause and currently presents as silence.
+
+The constraint is that anything written here is written **in response to an unauthenticated request**, so its volume is attacker-controlled.
+
+#### 4A: A rejection counter on the source; no delivery row (**chosen**)
+
+`webhook_sources` gains `rejection_count`, `last_rejection_at`, and `last_rejection_reason`. A failed verification is an `UPDATE` to the single row the tenant already owns.
+
+**Pros:** Volume is fixed no matter what an attacker sends — no rows are created, only one existing row is touched. `trigger_deliveries` stays exclusively a record of authenticated arrivals, which keeps the delivery vocabulary honest and means every payload in the table came from a verified sender. The source drawer can still show "142 rejections, last 30 seconds ago: invalid signature", so a wrong secret is diagnosable.
+
+**Cons:** Rejections are not in the deliveries feed, so an admin looking at the cross-trigger feed won't see them; they have to open the source. Only the most recent reason is kept, not a history.
+
+#### 4B: Bounded `rejected` delivery rows
+
+One row per `(source_id, reason, minute)`, no payload, enforced by a partial unique index.
+
+**Pros:** Rejections appear in the same feed as everything else, so diagnosis needs no separate place to look.
+
+**Cons:** An unauthenticated caller can still cause rows to be created. Bounding the rate makes it survivable rather than making it right, and "we mitigated it with an index" is a weaker position than not doing it. It also mixes unauthenticated input into a table whose other rows are all verified.
+
+#### 4C: Metrics and logs only
+
+**Pros:** Strictest posture; an unauthenticated request causes no database write at all.
+
+**Cons:** An admin with a wrong signing secret sees silence in the console and must find someone with log access. That is the PRD's headline complaint, unaddressed.
+
+**Chosen: 4A.** It gives the diagnosis 4C loses without the unauthenticated `INSERT` 4B needs. Requests carrying an *unknown* source id are handled by 4C's rule and touch nothing — there is no tenant to attribute them to and no row that legitimately exists to update.
+
+**Consequence for the delivery vocabulary:** `rejected` is therefore **not** a delivery status. The vocabulary in Decision 3 drops it, and `trigger_deliveries` carries only arrivals that authenticated successfully. `duplicate` and `missed` remain, since both describe authenticated or platform-originated arrivals.
+
+---
+
+### Decision 5 — Admission control and the waiting backlog
+
+Per-trigger concurrency requires knowing how many runs a trigger has in flight, across replicas.
+
+#### 5A: A durable pending-delivery queue, claimed with `FOR UPDATE SKIP LOCKED` (**chosen**)
+
+A `trigger_pending_deliveries` table holds fires that are waiting. A worker loop claims rows with `SELECT ... FOR UPDATE SKIP LOCKED`, checks the in-flight count, and dispatches. In-flight count is a query against `trigger_delivery_runs` for runs started and not yet terminal.
+
+**Pros:** Correct across replicas and restarts, so a `202` is a real promise — the PRD calls this the highest-consequence choice. The three overflow behaviours become ordinary row operations: `replace` deletes waiting rows for the trigger before inserting, `wait` trims the oldest past the depth limit, `refuse` skips the insert. Disabling a trigger deletes its waiting rows and records them `dropped`, which the PRD requires and nothing else provides.
+
+**Cons:** A new table and a worker loop.
+
+#### 5B: In-memory counter and channel per trigger
+
+**Pros:** Simplest, lowest latency.
+
+**Cons:** Wrong with more than one replica — each enforces its own ceiling, so a limit of 4 becomes 4N. Everything waiting is lost on restart, making the `202` a lie. This is precisely the default the PRD asked not to be taken silently.
+
+#### 5C: Redis
+
+Rejected: Redis is available, but a second durability story for data that must agree with the Postgres delivery record is worse than one table.
+
+#### 5D: A durable execution engine (Temporal or similar)
+
+Considered seriously, because Orbit intends to build a multi-agent workflow engine later (see Decision 8) and a durable execution engine is a plausible foundation for one.
+
+**Pros:** Durability, retries, backoff, timeouts and long-running state machines all come as primitives rather than as code. If a workflow pillar arrives, much of it is already built.
+
+**Cons, in the order they matter:**
+
+- **It does not solve the hard part.** Durability is commodity — `SKIP LOCKED`, River, Temporal and SQS all provide it. What no engine provides is Orbit's actual differentiator: carrying *which principal this runs as* and *what authorised it* through deferred execution. That layer gets built either way. Adopting an engine means building it **and** operating the engine.
+- **Sequencing.** The workload that would justify it does not exist yet. Designing a durable-execution foundation against one consumer — a per-trigger concurrency limit — bakes in that consumer's assumptions. The workflow engine is the consumer with real requirements, and it should be designed against those.
+- **Operational cost.** Self-hosted Temporal's weight is not its process count (the four server roles can run as one binary); it is history shard management, retention configuration and datastore growth, on a platform already operating SPIRE, Istio, OPA, Postgres, Redis and Dex.
+- **Retry is not currently a benefit.** The PRD excludes automatic retry deliberately: webhook providers already retry, so platform-side retry compounds someone else's backoff. The headline feature is one this feature does not want.
+
+**Rejected for now, revisit when the workflow engine is designed.** That is the decision point, not this one. `Admission` is an interface, so a durable-execution-backed implementation can replace the Postgres one without touching the pipeline — the door stays open without being walked through early.
+
+**Chosen: 5A**, with a fast path: when the trigger is under its ceiling and nothing is waiting, dispatch directly without touching the queue. The queue is only involved once a trigger is at its limit, so the common case pays nothing.
+
+`Admission` stays deliberately narrow — concurrency and overflow, nothing more. It is not an attempt at a general deferred-work primitive, because that primitive belongs with the workflow engine (Decision 8) and would be under-designed if invented here.
+
+**Timeout.** `dispatchTimeout` is currently a package constant covering the whole fan-out. It becomes per-trigger and covers **starting** the run, not running it. A timeout records the trigger-level outcome as `failed` and counts toward auto-pause.
+
+---
+
+### Decision 6 — Fire authorization (closing the KNOWN GAP)
+
+The fire endpoint requires `triggers:write` today, so trigger-management permission implies permission to fire anything. `ScopeEnforcementMiddleware` cannot express a per-trigger scope: `RouteScope` matches static prefixes.
+
+#### 6A: Explicit in-handler policy evaluation against a qualified scope (**chosen**)
+
+The route keeps its static registration for authentication; the handler evaluates a per-trigger scope through the policy evaluator it already holds, before the service is called.
+
+The scope literal follows the platform's qualified-scope convention (`type:path...:action`, hierarchy by prefix `covers`, unbounded dimension deepest):
+
+```
+trigger:<trigger-id>:fire
+```
+
+Not `triggers:fire:{id}` as the earlier draft had it. That form puts the action before the identifier, so `triggers:fire` would not `covers` a specific trigger and the hierarchy inverts. A grant on the prefix `trigger` covers all triggers by the normal prefix rule; no `*` literal is introduced.
+
+**Pros:** Correct hierarchy, default-deny, fails closed. Uses the evaluator already wired into the controller. No middleware change.
+
+**Cons:** Authorization lives in a handler rather than declared on a route, which is easier to forget on a future endpoint. Mitigated by a test asserting that a principal with `triggers:write` and no trigger grant is refused.
+
+#### 6B: Extend `ScopeEnforcementMiddleware` to substitute route params
+
+**Pros:** Declarative, and benefits every future per-resource endpoint.
+
+**Cons:** A change to the enforcement path used by every protected route in the platform, made to fix one endpoint. Worth doing, but as its own ADR with its own review, not as a side effect of a triggers feature.
+
+**Chosen: 6A**, with 6B recorded as the better long-term shape in [Future Work](#future-work).
+
+**The caller's identity does not become the run's identity.** The run continues to execute under the trigger's own `SERVICE` principal; the caller is recorded in `fired_by`. This is deliberate: a manual trigger is a published capability with a fixed blast radius, not a way to run something as yourself.
+
+---
+
+### Decision 7 — Payload storage and the event catalogue
+
+**Payload.** `payload_excerpt` is superseded by a full `payload` column plus `payload_bytes`, with a size ceiling: oversized payloads are truncated and flagged, never rejected, because a trigger should still fire. A purge job nulls `payload` past the tenant's retention (default 30 days, tenant-shortenable per PD4) and leaves every other column, so delivery metadata is kept indefinitely as the PRD requires.
+
+**Event catalogue (PD7).** Adapters already know their provider's event types, so `SourceAdapter` gains `EventTypes() []string`. Because a compiled list goes stale between releases — the liability the PRD names — the list offered in the console is the **union of the adapter's declared types and the event types actually observed for that source**, which delivery history already records. A provider's new event type becomes selectable as soon as one arrives, without a release.
+
+---
+
+### Decision 8 — A trigger targets *something the platform can start*, not an agent
+
+Orbit intends to build a multi-agent workflow engine as a separate pillar. Triggers are not that engine and must not grow into it. Triggers are the **front door**: the set of ways something can *start* in the platform. What gets started is a separate concern, and today there is exactly one answer.
+
+That framing has one concrete consequence, and it is cheap now and a migration later.
+
+#### 8A: Polymorphic target (**chosen**)
+
+`triggers` gains `target_kind TEXT NOT NULL DEFAULT 'agent'` alongside the existing `agent_type_id`. Today the only valid value is `agent`. When the workflow engine lands, `workflow` becomes valid and a trigger can start one without changing what a trigger *is*, how it is authorized, or how its deliveries are recorded.
+
+**Pros:** One column and a check constraint. Every trigger kind already produces the same thing — a request to start something under a bounded identity — so nothing downstream has to know which. Keeps triggers a front door rather than an agent-launching mechanism that later needs prising apart.
+
+**Cons:** A column with one legal value until a pillar that does not exist yet arrives. If the workflow engine is never built, it is dead weight — small, but real.
+
+#### 8B: Leave the target as `agent_type_id`
+
+**Pros:** Nothing speculative.
+
+**Cons:** Every trigger kind, every API surface and every console view would encode "a trigger starts an agent". Adding a second target type later means a migration plus changes across all of them, when the alternative is one nullable-defaulted column now.
+
+**Chosen: 8A.** This is the only place this ADR builds for a future pillar, and it is deliberately the smallest possible accommodation: a discriminator, not an abstraction. No target-dispatch interface, no plugin registry, no indirection. When the workflow engine exists it will bring its own requirements, and a discriminator is enough to let it attach without the trigger model fighting it.
+
+Explicitly **not** built here: any deferred-work, step, or orchestration primitive. Those belong to the workflow engine and would be under-designed with triggers as their only consumer.
 
 ---
 
 ## Decision
 
-**Chosen options:** A1 + B1 + C1 + D1.
+**Chosen: 1A + 2A + 3A + 4A + 5A + 6A + 7 + 8A.**
 
-### Summary
-
-1. **`kind` TEXT column on `triggers`**; existing rows migrate to `'webhook'`; `source_id` becomes nullable (null for scheduled/manual). A new `kind_config JSONB` column carries kind-specific fields (`cron_expression`, `timezone` for scheduled; empty for manual and webhook).
-
-2. **Scheduled triggers: in-process `robfig/cron` scheduler in `orbit-triggers`.** Fires the shared dispatch pipeline at each tick. Dedup via `(trigger_id, scheduled_at_minute)` unique index. Missed ticks skipped (no backfill).
-
-3. **Manual triggers: `POST /api/v1/triggers/{id}/fire`**, guarded by `triggers:fire:{id}` scope. Run executes under the trigger's source principal. Optional `variables` map in request body feeds `{{ var.key }}` substitution. `fired_by` principal ID recorded in the delivery row.
-
-4. **`{{ var.key }}` substitution in `renderTemplate`**: variables passed at fire time (or injected from scheduler context) are merged into the field map under the `var.` namespace, then resolved by the existing `renderTemplate` function. No API change to the templating engine — just an additional field source.
-
-5. **`orbit-triggers` binary**: new `cmd/orbit-triggers/` wrapping `internal/triggers/` unchanged. Webhook ingestion endpoint, management API, scheduler, and fire endpoint all live here. A new internal endpoint `POST /internal/v1/triggers/mint-token` on `identity` replaces the in-process `TokenMinter`.
-
-6. **Delivery records** gain a `kind` column (denormalised from the trigger at insert time, so history survives trigger deletion) and a `fired_by` column (null for webhook and scheduled; caller principal ID for manual).
+Triggers stays in `identity` and the extraction commitment is retired. Triggers are the platform's front door for starting things, so a trigger's target carries a kind discriminator (`agent` today, `workflow` when that pillar lands) rather than being an agent binding. The scheduler's existing insert-then-dispatch dedup is the concurrency-safety mechanism; missed ticks gain a bounded backfill that records rather than silently drops. Both existing status vocabularies are extended rather than replaced, with delivery status derived from the run fan-out. Rejected arrivals are recorded, bounded per source per reason per minute. Admission control is a durable pending-delivery queue claimed with `SKIP LOCKED`, with a fast path when nothing is waiting. The fire endpoint's unenforced scope is closed with an explicit per-trigger policy check under a corrected scope literal. Payloads are stored in full with automatic retention, and the event catalogue is adapter-declared plus observed. No workflow, orchestration or general deferred-work primitive is built here.
 
 ### Rationale
 
-All four sub-decisions flow from the same principle: extend the framework with minimal deviation from the established patterns. The `kind` column on one table keeps the shared pipeline simple. The in-process scheduler keeps the operational footprint small. The per-trigger fire scope keeps the caller surface minimal and consistent with how the webhook model bounds scope (run always executes under the source principal). The internal mint endpoint is the cleanest way to preserve token-authority locality without distributing signing keys.
+Every decision above takes the same form: **the existing structure is closer to right than the design reference assumed, so extend it.** The fan-out table already is the two-level outcome model. The unique index already is the scheduler's concurrency control. The adapter already knows its event types. The three genuinely new mechanisms — the pending queue, the source rejection counter, and the fire scope check — are each the smallest thing that makes a specific PRD requirement true, and each replaces something currently either absent or incorrect.
+
+The one place this ADR spends more than the minimum is the pending-delivery queue. An in-memory counter would be far less code, and it is wrong: it enforces the wrong limit under multiple replicas and loses waiting work on restart, which makes the acknowledgement the platform sends a lie. The PRD named this the decision not to default silently, and this is the answer.
 
 ---
 
-## Sub-decisions
+## Architecture
 
-### 1. `ScheduleConfig` struct and cron dedup
+### Delivery lifecycle
+
+```
+                  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+   webhook ──────▶│              │   │              │   │              │
+   POST /webhooks │              │   │              │   │              │
+                  │   ADAPTER    │   │   RECORD     │   │   MATCH      │
+   schedule ─────▶│  verify /    │──▶│  delivery    │──▶│  triggers    │
+   cron tick      │  tick / bind │   │  (always,    │   │  for source  │
+                  │              │   │   first)     │   │  + event     │
+   manual ───────▶│              │   │              │   │              │
+   POST /fire     └──────┬───────┘   └──────────────┘   └──────┬───────┘
+                         │                                     │
+     auth fails: counter │      delivery status is derived     │ per matched
+     on source, no row ──┘      after the fan-out completes    │ trigger
+                                (duplicate / missed / skipped  │
+                                 / dispatched / failed)        ▼
+                                                        ┌──────────────┐
+                                                        │  AUTHORIZE   │──▶ denied
+                                                        └──────┬───────┘
+                                                               ▼
+                                                        ┌──────────────┐
+                             under ceiling ◀────────────│    ADMIT     │──▶ dropped
+                                    │                   │  ceiling +   │    superseded
+                                    │      at ceiling ─▶│  overflow    │    paused
+                                    │                   └──────┬───────┘
+                                    │                          │ wait
+                                    ▼                          ▼
+                             ┌──────────────┐          ┌──────────────┐
+                             │  START RUN   │◀─────────│   PENDING    │
+                             │  mint token  │  claimed │  (durable)   │
+                             │  → agents    │  SKIP    └──────────────┘
+                             └──────┬───────┘  LOCKED
+                                    ▼
+                             ┌──────────────┐
+                             │   RECORD     │  per-trigger outcome, then
+                             │   OUTCOME    │  derive the delivery summary
+                             └──────────────┘
+```
+
+The response to the sender is sent at **RECORD**. Everything to the right of it is asynchronous.
+
+### Schema
+
+All changes are additive. No column is dropped or renamed; no existing row changes meaning.
+
+```sql
+-- Trigger target: what gets started (Decision 8). 'agent' is the only legal
+-- value today; 'workflow' becomes legal when that pillar lands, without
+-- changing what a trigger is or how it is authorised.
+ALTER TABLE triggers
+    ADD COLUMN target_kind TEXT NOT NULL DEFAULT 'agent';
+
+ALTER TABLE triggers
+    ADD CONSTRAINT triggers_target_kind_check
+    CHECK (target_kind IN ('agent'));
+
+-- Trigger: admission control and delivery safety.
+ALTER TABLE triggers
+    ADD COLUMN max_parallel         SMALLINT    NOT NULL DEFAULT 4,
+    ADD COLUMN overflow             TEXT        NOT NULL DEFAULT 'wait',
+    ADD COLUMN max_queue_depth      SMALLINT    NOT NULL DEFAULT 32,
+    ADD COLUMN timeout_seconds      SMALLINT    NOT NULL DEFAULT 30,
+    ADD COLUMN dedupe_enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+    ADD COLUMN autopause_enabled    BOOLEAN     NOT NULL DEFAULT TRUE,
+    ADD COLUMN consecutive_failures INT         NOT NULL DEFAULT 0,
+    ADD COLUMN auto_paused_at       TIMESTAMPTZ;
+
+ALTER TABLE triggers
+    ADD CONSTRAINT triggers_overflow_check
+    CHECK (overflow IN ('wait', 'replace', 'refuse'));
+
+-- Per-kind defaults are applied at creation, not by the column default:
+-- webhook -> 'wait', scheduled -> 'replace', manual -> 'refuse'.
+
+-- Delivery: full payload and the widened outcome vocabulary.
+ALTER TABLE trigger_deliveries
+    ADD COLUMN payload        BYTEA,
+    ADD COLUMN payload_bytes  INT,
+    ADD COLUMN payload_purged BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN reason         TEXT,
+    ADD COLUMN redelivery_of  UUID REFERENCES trigger_deliveries(id);
+
+ALTER TABLE trigger_deliveries DROP CONSTRAINT IF EXISTS trigger_deliveries_status_check;
+ALTER TABLE trigger_deliveries
+    ADD CONSTRAINT trigger_deliveries_status_check
+    CHECK (status IN ('verified','dispatched','skipped','failed',
+                      'duplicate','missed'));
+
+-- Failed authentication never creates a row (Decision 4A). It updates the
+-- source the tenant already owns, so an unauthenticated request cannot grow
+-- any table. Only the most recent reason is kept.
+ALTER TABLE webhook_sources
+    ADD COLUMN rejection_count       BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN last_rejection_at     TIMESTAMPTZ,
+    ADD COLUMN last_rejection_reason TEXT;
+
+-- Per-trigger outcome: the level admission control and auto-pause act on.
+ALTER TABLE trigger_delivery_runs DROP CONSTRAINT IF EXISTS trigger_delivery_runs_status_check;
+ALTER TABLE trigger_delivery_runs
+    ADD CONSTRAINT trigger_delivery_runs_status_check
+    CHECK (status IN ('dispatched','failed',
+                      'filtered','denied','superseded','dropped','paused'));
+
+-- The waiting backlog. Rows are transient; they do not replace delivery history.
+CREATE TABLE trigger_pending_deliveries (
+    id          UUID        PRIMARY KEY,
+    tenant_id   TEXT        NOT NULL,
+    trigger_id  UUID        NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+    delivery_id UUID        NOT NULL REFERENCES trigger_deliveries(id) ON DELETE CASCADE,
+    fields      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claimed_at  TIMESTAMPTZ
+);
+
+CREATE INDEX idx_pending_claim
+    ON trigger_pending_deliveries (trigger_id, enqueued_at)
+    WHERE claimed_at IS NULL;
+
+-- Tenant payload retention (PD4). An absent row means the 30-day default.
+CREATE TABLE trigger_retention_settings (
+    tenant_id    TEXT     PRIMARY KEY,
+    payload_days SMALLINT NOT NULL DEFAULT 30
+                 CHECK (payload_days BETWEEN 1 AND 30)
+);
+```
+
+### Contracts
 
 ```go
-type ScheduleConfig struct {
-    CronExpression string `json:"cron_expression"` // 5-field standard cron
-    Timezone       string `json:"timezone"`         // IANA timezone name
+// Admission decides whether a matched trigger may start a run now.
+// Implementations must be correct across replicas.
+type Admission interface {
+    // Admit returns AdmitDispatch when the trigger is under its ceiling, or
+    // the terminal outcome to record when it is not. AdmitEnqueue means the
+    // fire is durably waiting and will be claimed by a worker.
+    Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (AdmissionResult, error)
+
+    // Release frees a slot when a run reaches a terminal state.
+    Release(ctx context.Context, triggerID, runID string) error
+
+    // Drain removes everything waiting for a trigger, recording each as
+    // dropped. Called when a trigger is disabled, auto-paused, or deleted.
+    Drain(ctx context.Context, triggerID string) (int, error)
+}
+
+type AdmissionResult int
+
+const (
+    AdmitDispatch   AdmissionResult = iota // start now
+    AdmitEnqueue                           // durably waiting
+    AdmitSuperseded                        // replaced a waiting fire, or was replaced
+    AdmitDropped                           // refused at the ceiling, or evicted
+    AdmitPaused                            // the trigger is auto-paused
+)
+
+// SourceAdapter gains one method; the existing ones are unchanged.
+type SourceAdapter interface {
+    // Verify, DeliveryID, EventType, Fields — unchanged.
+
+    // EventTypes returns the provider's known event types. The console offers
+    // the union of these and the types observed for the source, so a new
+    // provider event becomes selectable without a release (Decision 7).
+    EventTypes() []string
+}
+
+// Repository additions. InsertScheduledDelivery is promoted onto the interface:
+// TickScheduled currently type-asserts to *postgresRepository to reach it,
+// which defeats the interface and blocks testing against a fake.
+type Repository interface {
+    // existing methods unchanged
+
+    InsertScheduledDelivery(ctx context.Context, d *Delivery) (bool, error)
+    RecordSourceRejection(ctx context.Context, sourceID, reason string) error
+    DueScheduledMinutesWithoutDelivery(ctx context.Context, triggerID string, since time.Time) ([]time.Time, error)
+
+    ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
+    InFlightCount(ctx context.Context, triggerID string) (int, error)
+
+    BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
+    ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+    AutoPause(ctx context.Context, triggerID string) error
+
+    DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
+    PurgePayloads(ctx context.Context, before time.Time) (int64, error)
 }
 ```
 
-Stored in `kind_config` JSONB. The scheduler ticks at the top of each minute; before dispatch it inserts a delivery row with `scheduled_at` = the tick's truncated minute. A `UNIQUE (trigger_id, scheduled_at) WHERE kind = 'scheduled'` partial index prevents double-fire if the scheduler fires twice within the same minute (e.g. on restart).
+### Fire authorization
 
-### 2. `triggers:fire:{id}` scope provisioning
-
-The fire scope follows the same `CreateGrant` pattern as webhook trigger run scopes. When an admin wants to grant a principal the ability to fire a specific manual trigger:
-
+```go
+// handleFireTrigger, before the service is called.
+scope := "trigger:" + triggerID + ":fire"
+if err := c.eval.Require(ctx, scope); err != nil {
+    api.ErrorResponse(ctx, w, c.logger, http.StatusForbidden, "forbidden",
+        "not authorised to fire this trigger")
+    return
+}
 ```
+
+Granting it uses the existing grant path with no new vocabulary shape:
+
+```json
 POST /api/v1/policy/grants
-{
-  "principal_type": "service" | "pat",
-  "principal_id": "<id>",
-  "scopes": ["triggers:fire:<trigger-id>"]
-}
+{ "principal_type": "service", "principal_id": "<id>",
+  "scopes": ["trigger:<trigger-id>:fire"] }
 ```
 
-The fire endpoint's scope enforcement uses the same `ScopeEnforcementMiddleware` as all other protected routes, but with a dynamic scope derived from the trigger ID extracted from the URL. This requires the middleware to support per-request dynamic scopes — which it already does via the route-scope registration pattern (the scope is registered as `triggers:fire:*` with a route param substitution).
-
-### 3. Variable substitution merge
-
-`renderTemplate` currently receives a `fields map[string]string`. For manual and scheduled triggers, the caller- or scheduler-supplied variables are injected under the `var.` namespace before the call:
-
-```go
-for k, v := range req.Variables {
-    fields["var."+k] = v
-}
-```
-
-Webhook triggers that supply no variables simply have no `var.*` keys — any `{{ var.key }}` placeholders in their templates render empty, consistent with the existing unknown-key behaviour.
-
-### 4. Source identity for scheduled/manual triggers
-
-Scheduled and manual triggers have no webhook source (no inbound HTTP delivery to authenticate). They do, however, need a principal under which the run executes. **Each scheduled/manual trigger provisions its own `SERVICE` principal** at creation — the same model as webhook sources, but one level down: it is the *trigger*, not the source, that owns the principal. This means:
-
-- `source_id` FK on `triggers` is nullable.
-- A new `principal_id` column on `triggers` holds the trigger's own SERVICE principal (set at create time for scheduled/manual; null for webhook, which inherits from its source).
-- The dispatch path selects `source.principal_id` for webhook triggers and `trigger.principal_id` for scheduled/manual.
-
-This gives each scheduled/manual trigger its own attributable identity and its own bounded scope, consistent with the webhook model.
-
-### 5. `orbit-triggers` deployment
-
-`orbit-triggers` is added to the Helm chart as a new `Deployment` alongside `orbit-identity`, `orbit-agents`, etc. It needs:
-- Database access (same credentials as identity, same schema).
-- Internal network access to `orbit-identity` (for the new mint endpoint) and `orbit-agents`.
-- The webhook ingestion path (`/api/v1/webhooks/`) moves from identity's ingress route to orbit-triggers' ingress route. A brief migration note is needed in the upgrade guide.
+A grant on `trigger` covers every trigger by the normal prefix rule. There is no `trigger:*:fire` literal and none should be introduced.
 
 ---
 
@@ -257,61 +544,67 @@ This gives each scheduled/manual trigger its own attributable identity and its o
 
 ### Positive
 
-- Fulfils the v1 ADR's extraction commitment, preventing `identity` from accreting trigger logic.
-- Scheduled triggers eliminate the need for external cron infrastructure with human credentials.
-- Manual triggers enable agent-to-agent composition as a first-class platform primitive.
-- The shared dispatch pipeline means delivery logging, attribution, and run initiation work identically across all three kinds — consistent operational model.
-- The `{{ var.key }}` mechanism is general enough to parameterise any trigger without caller-controlled template injection.
+- The fire endpoint stops being an unenforced gap that the documentation claimed was closed.
+- A `202` becomes a real promise: waiting work survives a restart, so the platform does not acknowledge fires it will silently lose.
+- With respect to triggers, `identity` is safe at more than one replica for the first time, without leader election.
+- The docs stop describing a binary that does not exist.
+- A wrong signing secret becomes diagnosable in the console, without an unauthenticated request ever creating a row. `trigger_deliveries` stays exclusively a record of arrivals that authenticated.
+- Adding any of the six planned kinds is an adapter plus a front door; nothing downstream changes.
 
 ### Negative
 
-- `orbit-triggers` is a new binary to deploy and operate (Helm chart, ingress, health checks).
-- Webhook ingress route changes from identity to orbit-triggers — operators must update ingress config or the Helm chart handles it.
-- Per-trigger principal provisioning for scheduled/manual adds a small amount of policy state per trigger (mitigated: same grant lifecycle pattern as webhook sources).
-- Single-instance cron scheduler has a reliability gap for multi-replica deployments (documented; tracked for follow-up).
+- A new table and a worker loop to operate. The fast path keeps them out of the common case, but this is more moving parts than today.
+- Fire authorization lives in a handler rather than on a route, which is easier to forget on a future endpoint. A test guards it; the durable fix is Decision 6B.
+- Full payload storage grows the delivery table substantially and creates a retention obligation that must actually run. A purge job that silently stops is a compliance problem, so it needs monitoring rather than trust.
+- Two status vocabularies must stay coherent. The derived-summary invariant is the mitigation and is the thing most likely to be got wrong under time pressure.
+- Every replica scans all scheduled triggers each minute. Cheap now, and a known thing to revisit.
 
 ### Neutral
 
-- The internal mint endpoint on `identity` is a new HTTP surface, but it lives on the internal mesh only and is SPIFFE-attested.
-- `{{ var.key }}` variables are passed by the caller verbatim — same injection-deferred posture as webhook payload fields.
+- `payload_excerpt` remains until the console reads `payload` everywhere, then is dropped in a later migration. Two representations exist briefly.
+- Overflow defaults differ per kind, so two triggers showing identical settings may have arrived there differently. The drawer shows the effective value, not the default.
 
 ---
 
 ## Implementation
 
-### High-level steps
+### Phase 1 — Outcome model and pipeline invariants
 
-1. **DB migration** (identity binary, then migrated to orbit-triggers):
-   - Add `kind TEXT NOT NULL DEFAULT 'webhook'` to `triggers`.
-   - Add `kind_config JSONB NOT NULL DEFAULT '{}'` to `triggers`.
-   - Add `principal_id TEXT` to `triggers` (nullable; set for scheduled/manual).
-   - Add `grant_id TEXT` to `triggers` for the trigger's own principal grant (scheduled/manual).
-   - Make `source_id` nullable on `triggers`.
-   - Add `fired_by TEXT` to `trigger_deliveries`.
-   - Add `scheduled_at TIMESTAMPTZ` to `trigger_deliveries` (set for scheduled kind).
-   - Add partial unique index `UNIQUE (trigger_id, scheduled_at) WHERE scheduled_at IS NOT NULL`.
+1. Migration: widen both status constraints; add `reason`, `payload`, `payload_bytes`, `payload_purged`, `redelivery_of` to deliveries; add `target_kind` to triggers (Decision 8); add the rejection counters to `webhook_sources`.
+2. Move delivery-status assignment out of the fan-out loop. `dispatch()` records per-trigger outcomes only; the delivery summary is derived once the fan-out completes (`DeriveDeliveryStatus`).
+3. Record failed authentication on the source, not as a delivery (Decision 4A): `RecordSourceRejection` on signature failure, missing delivery id, and disabled source. An unknown source id touches nothing.
+4. Record `duplicate` rather than logging and returning; link `redelivery_of`.
+5. Record `filtered` only for triggers excluded by `match_condition`.
+6. Promote `InsertScheduledDelivery` onto `Repository`; delete the `*postgresRepository` type assertion in `TickScheduled`.
+7. Store full payloads; keep writing `payload_excerpt` until Phase 4.
 
-2. **`internal/triggers/models.go`**: add `Kind`, `KindConfig` (`ScheduleConfig`), `PrincipalID` to `Trigger`. Add `FiredBy`, `ScheduledAt` to `Delivery`. Add new request/response DTOs for fire endpoint and scheduled config.
+### Phase 2 — The two new kinds, completed
 
-3. **`internal/triggers/service.go`**: extend `CreateTrigger` to branch on kind; add `FireTrigger(ctx, tenantID, triggerID, callerID, vars)` for manual kind; add `TickScheduled(ctx, trigger)` called by the scheduler.
+The kinds exist; this phase brings them to the PRD's bar.
 
-4. **`internal/triggers/scheduler.go`** (new file): cron scheduler using `robfig/cron`. Loads enabled scheduled triggers at start; fires `TickScheduled` at each tick. Graceful shutdown.
+1. Fire authorization per Decision 6A, with the `triggers:write`-only refusal test. Remove the `KNOWN GAP` comments.
+2. Manual input declaration (PD2): typed fields on `kind_config`, validated server-side; rejected input recorded as a delivery with per-field errors.
+3. Scheduler backfill: `DueScheduledMinutesWithoutDelivery`, bounded to one hour; insert `missed`, or fire when `catch_up`.
+4. Next-fire-time preview endpoint for the creation wizard.
+5. Reject sub-minute cron expressions at creation with a clear message.
+6. Demote the losing-insert log to `debug`.
 
-5. **`internal/triggers/server.go`**: add `POST /api/v1/triggers/{id}/fire` handler. Register `triggers:fire:*` scope pattern.
+### Phase 3 — Admission control and delivery safety
 
-6. **`cmd/orbit-triggers/`** (new binary): wire `internal/triggers/` with a `TokenMinterClient` (HTTP to identity's internal mint endpoint) instead of the in-process minter.
+1. Migration: `trigger_pending_deliveries`, `trigger_retention_settings`, and the trigger columns.
+2. `Admission` implementation with the under-ceiling fast path; the `SKIP LOCKED` worker loop.
+3. Per-trigger `timeout_seconds` replacing the package constant; a timeout counts toward auto-pause.
+4. Auto-pause: denials count, admission rejections do not (PRD, US-006); `Drain` on pause, disable, and delete.
+5. Payload purge job honouring `trigger_retention_settings`, with a rows-purged metric and an alert when it has not run.
+6. `EventTypes()` on the adapters; catalogue endpoint returning declared ∪ observed.
 
-7. **`cmd/identity/`**: add `POST /internal/v1/triggers/mint-token` handler (internal-only, SPIFFE-attested); remove the triggers package wiring (it moves to orbit-triggers).
+### Phase 4 — Console
 
-8. **Frontend**: add `kind` field to `TriggerRow` and `CreateTriggerRequest`. Update form modal with kind selector and kind-specific fields. Add `FiredBy` to delivery row display.
+Per the PRD's UI section. Drop `payload_excerpt` once nothing reads it.
 
-9. **Helm**: add `orbit-triggers` deployment; update ingress to route `/api/v1/webhooks/` to orbit-triggers.
+### Migration path
 
-### Migration Path
-
-- Existing `webhook` triggers: `kind = 'webhook'`; `kind_config = '{}'`; `principal_id = NULL` (source-owned principal is unchanged).
-- No data loss; no behavioral change for existing triggers.
-- The ingress route change for `/api/v1/webhooks/` is the only breaking operational change; documented in the upgrade notes.
+Every migration is an additive `ALTER TABLE` with defaults, so it applies to the existing database without downtime and without touching existing rows. Existing webhook triggers become `max_parallel = 4, overflow = 'wait'`, which is the behaviour they have today since nothing has ever been at a ceiling. Existing deliveries keep their current status values, which remain valid members of the widened vocabulary. No re-pointing, no re-secreting, no reset.
 
 ---
 
@@ -319,40 +612,54 @@ This gives each scheduled/manual trigger its own attributable identity and its o
 
 ### Success Metrics
 
-- A scheduled trigger fires within 60 s of each cron tick; delivery log shows each tick.
-- A manual trigger fired by an agent with `triggers:fire:{id}` starts a run and returns the run ID.
-- A caller without `triggers:fire:{id}` receives 403.
-- Existing webhook triggers continue to function identically after extraction.
-- Double-fire is not observed on scheduler restart within the same minute window.
+- A principal holding `triggers:write` and no trigger grant receives `403` from the fire endpoint.
+- Killing the pod with fires waiting loses none of them; they dispatch on restart.
+- A trigger at `max_parallel = 1, overflow = 'replace'` receiving three overlapping fires produces one further run and two `superseded` rows.
+- Ten consecutive denials auto-pause a trigger; ten `dropped` rows do not.
+- A delivery matching three triggers, where one dispatches, one is denied and one is dropped, records all three per-trigger outcomes and a delivery summary of `dispatched`.
+- Two `identity` replicas produce exactly one run per scheduled tick.
+- Payloads past the tenant's retention have `payload IS NULL` with every other column intact.
 
 ### Monitoring
 
-- `trigger_deliveries` is the queryable audit surface for all kinds.
-- Structured log entries for each scheduler tick and each manual fire, correlated by trigger ID and delivery ID.
+- Pending-queue depth and oldest-unclaimed age per trigger. A growing backlog is the earliest signal that a target agent is unhealthy.
+- Auto-pause events, with the trigger and the failure reason.
+- Purge job last-success timestamp, alerting when stale. A retention promise that silently stops running is worse than not making it.
+- Scheduler tick duration and triggers-scanned count, to catch Decision 2A's known scaling limit before it bites.
+
+---
+
+## Future Work
+
+- **`orbit-triggers` extraction.** Retired as a standing commitment, not forbidden. Revisit when trigger load measurably affects control-plane API latency, or when ingestion needs to scale independently. Any extraction must preserve the existing webhook URL, which is a migration design in its own right and needs its own ADR.
+- **Route-declared per-resource scopes (Decision 6B).** The right long-term shape for every per-resource endpoint, not just this one. Its own ADR.
+- **Per-trigger payload opt-out.** The first thing to add if a tenant handling PII needs to record that a delivery happened without storing its body (PRD, PD4).
+- **Automatic retry with backoff.** Deliberately out of scope; revisit if Redeliver is observed being used as a manual substitute.
+- **Agent-level concurrency ceilings.** Accepted gap under PD6. If the agent control plane's rate limiting bounds request rate rather than concurrent runs, this becomes real work rather than a duplicate guardrail.
+- **The six planned trigger kinds.** Each is an adapter and a front door.
+- **Multi-agent workflow engine.** A separate pillar with its own PRD and ADR. When it lands, `target_kind = 'workflow'` becomes legal (Decision 8) and a trigger can start a workflow exactly as it starts an agent today. Any general deferred-work or step primitive belongs there, designed against that engine's requirements rather than invented here with triggers as the only consumer. A durable execution engine (Decision 5D) is a live option at that point and should be evaluated then, not now.
 
 ---
 
 ## Related Decisions
 
-- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1 ADR; this ADR fulfils its extraction commitment and adds two new trigger kinds.
-- [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md)
-- [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md)
-- [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md)
-- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md)
-- [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)
-- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md)
+- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1. Its identity model, webhook verification and dispatch path are preserved unchanged. Its Notes committed to the `orbit-triggers` extraction; Decision 1 retires that commitment.
+- [Trigger Deliveries Filter](2026-06-20-trigger-deliveries-filter.md) — the deliveries feed this ADR's widened vocabulary feeds.
+- [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — the run a trigger starts.
+- [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — the principal and grant provisioning each trigger kind reuses.
+- [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — the middleware Decision 6 works around and 6B would extend.
+- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — the `RouteScope` mechanism whose limits Decision 6 documents.
+- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — unchanged; triggered runs use it as any run does.
 
 ---
 
 ## References
 
-- [PRD: Extended Trigger Types](../prd/extended-trigger-types.md)
-- [robfig/cron](https://github.com/robfig/cron) — Go cron library used for the scheduler.
+- [PRD: Extended Trigger Types](../prd/extended-trigger-types.md) — including PD1-PD7, the product decisions this ADR implements.
+- `backend/internal/triggers/` — the implementation this ADR extends.
+- [robfig/cron](https://github.com/robfig/cron) — the cron library the scheduler uses.
+- Design reference: claude.ai/design project `24c98b96-a1bc-4ba2-b744-3e363f9587ca`, `Triggers.dc.html`.
 
 ---
 
-## Notes
-
-The single-instance scheduler is a deliberate v1 constraint. When `orbit-triggers` runs with >1 replica, a distributed lock (Kubernetes `Lease` or DB advisory lock) must be acquired before the scheduler starts. The scheduler is structured to make this cheap: it is a single `scheduler.Start()` / `scheduler.Stop()` call, and wrapping it with lock acquisition/release is a contained change.
-
-**Last Updated:** 2026-06-20
+**Last Updated:** 2026-07-27
