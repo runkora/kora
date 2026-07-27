@@ -3,9 +3,16 @@
 // *Row types are the shapes consumed by the UI. The raw API shapes
 // (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
 
-import type { Trigger, TriggerDelivery, TriggerKind, WebhookSource } from '@orbit/shared/api';
+import type {
+  InputField,
+  Trigger,
+  TriggerDelivery,
+  TriggerKind,
+  TriggerOverflow,
+  WebhookSource,
+} from '@orbit/shared/api';
 
-export type { TriggerKind };
+export type { InputField, TriggerKind, TriggerOverflow };
 
 export interface SourceRow {
   id: string;
@@ -13,6 +20,14 @@ export interface SourceRow {
   provider: string;
   enabled: boolean;
   createdAt: string;
+  /**
+   * Requests that failed authentication. Never deliveries, since those are
+   * unauthenticated requests; surfaced here so a wrong signing secret is
+   * diagnosable rather than silent.
+   */
+  rejectionCount: number;
+  lastRejectionAt: string | null;
+  lastRejectionReason: string | null;
 }
 
 export interface TriggerRow {
@@ -27,9 +42,28 @@ export interface TriggerRow {
   matchCondition: Record<string, string[]>;
   promptTemplate: string;
   /** Scheduled triggers only. */
-  scheduleConfig?: { cronExpression: string; timezone: string };
+  scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
+  /** Manual triggers only: the inputs this trigger declares. */
+  manualInputs?: InputField[];
   enabled: boolean;
   createdAt: string;
+
+  /** Admission control. */
+  maxParallel: number;
+  overflow: TriggerOverflow;
+  maxQueueDepth: number;
+
+  /** Delivery safety. */
+  timeoutSeconds: number;
+  dedupeEnabled: boolean;
+  autopauseEnabled: boolean;
+  consecutiveFailures: number;
+  /**
+   * Set when the platform paused this trigger itself after sustained failure.
+   * Shown differently from a trigger a person turned off: one needs
+   * investigating, the other was deliberate.
+   */
+  autoPausedAt: string | null;
 }
 
 export interface DeliveryRow {
@@ -46,6 +80,10 @@ export interface DeliveryRow {
   firedBy: string | null;
   /** Cron tick time for scheduled deliveries. */
   scheduledAt: string | null;
+  /** Why a non-dispatch arrival ended as it did (duplicate, missed). */
+  reason: string | null;
+  payloadBytes: number | null;
+  payloadPurged: boolean;
   receivedAt: string;
   /** Full per-trigger dispatch fan-out for this delivery. */
   runs: DeliveryRunRow[];
@@ -79,6 +117,9 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     provider: s.provider,
     enabled: s.enabled,
     createdAt: s.created_at,
+    rejectionCount: s.rejection_count ?? 0,
+    lastRejectionAt: s.last_rejection_at ?? null,
+    lastRejectionReason: s.last_rejection_reason ?? null,
   };
 }
 
@@ -94,10 +135,23 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     matchCondition: t.match_condition ?? {},
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
-      ? { cronExpression: t.schedule_config.cron_expression, timezone: t.schedule_config.timezone }
+      ? {
+          cronExpression: t.schedule_config.cron_expression,
+          timezone: t.schedule_config.timezone,
+          catchUp: t.schedule_config.catch_up ?? false,
+        }
       : undefined,
+    manualInputs: t.manual_config?.inputs,
     enabled: t.enabled,
     createdAt: t.created_at,
+    maxParallel: t.max_parallel ?? 4,
+    overflow: t.overflow ?? 'wait',
+    maxQueueDepth: t.max_queue_depth ?? 32,
+    timeoutSeconds: t.timeout_seconds ?? 30,
+    dedupeEnabled: t.dedupe_enabled ?? true,
+    autopauseEnabled: t.autopause_enabled ?? true,
+    consecutiveFailures: t.consecutive_failures ?? 0,
+    autoPausedAt: t.auto_paused_at ?? null,
   };
 }
 
@@ -114,6 +168,9 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     payloadExcerpt: d.payload_excerpt ?? null,
     firedBy: d.fired_by ?? null,
     scheduledAt: d.scheduled_at ?? null,
+    reason: d.reason ?? null,
+    payloadBytes: d.payload_bytes ?? null,
+    payloadPurged: d.payload_purged ?? false,
     receivedAt: d.received_at,
     runs: (d.runs ?? []).map((r) => ({
       triggerId: r.trigger_id,

@@ -551,6 +551,15 @@ export interface WebhookSource {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  /**
+   * Inbound requests that failed authentication. These never become
+   * deliveries: a bad signature is an unauthenticated request, so recording
+   * one as a row would let anyone on the internet grow the table. Surfaced
+   * here so an admin with a wrong signing secret can still see it.
+   */
+  rejection_count?: number;
+  last_rejection_at?: string;
+  last_rejection_reason?: string;
 }
 
 /**
@@ -586,6 +595,50 @@ export interface ScheduleConfig {
   cron_expression: string;
   /** IANA timezone name (e.g. "Australia/Sydney"). */
   timezone: string;
+  /**
+   * Whether a fire missed while the platform was down runs on recovery.
+   * Off by default: an agent doing real work twice is worse than not doing it,
+   * and a long outage on a frequent schedule would dump a burst of runs.
+   */
+  catch_up?: boolean;
+}
+
+/** Field types a manual trigger may declare. */
+export type InputFieldType = 'text' | 'number' | 'boolean' | 'choice';
+
+/**
+ * One input a manual trigger accepts. The same declaration renders the console
+ * form and validates the API call, so the two cannot drift.
+ */
+export interface InputField {
+  name: string;
+  type: InputFieldType;
+  label?: string;
+  description?: string;
+  required?: boolean;
+  default?: string;
+  /** Permitted values when type is "choice". */
+  choices?: string[];
+}
+
+/** Input declaration for a manual trigger. */
+export interface ManualConfig {
+  inputs?: InputField[];
+}
+
+/** Overflow behavior when a trigger is at its concurrency ceiling. */
+export type TriggerOverflow = 'wait' | 'replace' | 'refuse';
+
+/** Upcoming fire returned by the schedule preview. */
+export interface SchedulePreviewFire {
+  at: string;
+  label: string;
+}
+
+/** Response to POST /api/v1/triggers/schedule-preview. */
+export interface SchedulePreviewResponse {
+  next_fires: SchedulePreviewFire[];
+  timezone: string;
 }
 
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
@@ -606,9 +659,32 @@ export interface Trigger {
   prompt_template: string;
   /** Present for scheduled triggers only. */
   schedule_config?: ScheduleConfig;
+  /** Present for manual triggers only: the inputs this trigger accepts. */
+  manual_config?: ManualConfig;
+  /**
+   * What this trigger starts. "agent" is the only kind today; triggers are the
+   * front door for starting work, and what gets started is a separate concern.
+   */
+  target_kind?: string;
   enabled: boolean;
   created_at: string;
   updated_at: string;
+
+  /** Admission control: concurrency ceiling and what happens beyond it. */
+  max_parallel?: number;
+  overflow?: TriggerOverflow;
+  max_queue_depth?: number;
+
+  /** Delivery safety. Timeout bounds starting the run, not running it. */
+  timeout_seconds?: number;
+  dedupe_enabled?: boolean;
+  autopause_enabled?: boolean;
+  consecutive_failures?: number;
+  /**
+   * Set when the platform disabled this trigger itself after sustained
+   * failure, which the console shows differently from one a person turned off.
+   */
+  auto_paused_at?: string;
 }
 
 /** Request body for POST /api/triggers. */
@@ -670,11 +746,28 @@ export interface TriggerDelivery {
   trigger_id?: string;
   provider_delivery_id?: string;
   event_type?: string;
-  /** verified | dispatched | skipped | failed. */
+  /**
+   * What happened to the arrival itself. Derived from the per-trigger outcomes
+   * in `runs` once the fan-out completes, never authored independently.
+   *
+   * verified | dispatched | skipped | failed | duplicate | missed.
+   *
+   * Deliberately absent: failed authentication. A bad signature is an
+   * unauthenticated request, counted on the source rather than recorded here,
+   * so every delivery is an arrival that authenticated.
+   */
   status: string;
   run_id?: string;
   error?: string;
   payload_excerpt?: string;
+  /** Full captured body, nulled once past the tenant's retention window. */
+  payload?: string;
+  payload_bytes?: number;
+  payload_purged?: boolean;
+  /** Why a non-dispatch arrival ended as it did (duplicate, missed). */
+  reason?: string;
+  /** The delivery this one re-runs; a redelivery references, never edits. */
+  redelivery_of?: string;
   /** Principal ID of the caller who fired a manual trigger. */
   fired_by?: string;
   /** Cron tick time for scheduled trigger deliveries. */
@@ -691,7 +784,13 @@ export interface TriggerDeliveryRun {
   trigger_id: string;
   /** Present when the run started; absent when the dispatch failed. */
   run_id?: string;
-  /** dispatched | failed. */
+  /**
+   * What happened for this trigger:
+   * dispatched | failed | filtered | denied | superseded | dropped | paused.
+   *
+   * This is the level admission control, auto-pause and the console's
+   * per-trigger badges act on.
+   */
   status: string;
   error?: string;
   created_at: string;

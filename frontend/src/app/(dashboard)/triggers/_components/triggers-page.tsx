@@ -13,6 +13,9 @@ import {
   Heading,
   Icon,
   Stack,
+  SidePanel,
+  SidePanelBody,
+  SidePanelHeader,
   Tabs,
   TabsContent,
   TabsList,
@@ -30,8 +33,13 @@ import {
   updateTrigger,
 } from '../_services/triggers-api';
 import { SourceFormModal } from './source-form-modal';
+import { FleetKpis } from './fleet-kpis';
+import { TriggerDrawer } from './trigger-drawer';
+import { TriggerKindPicker } from './trigger-kind-picker';
+import { TriggerSparkline } from './trigger-sparkline';
+import { lastFired, needsAttention, recentFailures, sparkline } from '../_types/fleet';
 import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
-import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
 interface TriggersPageProps {
   sources: SourceRow[];
@@ -73,6 +81,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [deleteTrg, setDeleteTrg] = useState<TriggerRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
+  const [kindPickerOpen, setKindPickerOpen] = useState(false);
   const [firingId, setFiringId] = useState<string | null>(null);
   const [fireResult, setFireResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -81,11 +92,14 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     setFireResult(null);
     const result = await fireTrigger(row.id);
     setFiringId(null);
-    if (!('runId' in result)) {
+    if ('error' in result && result.error) {
       setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
       return;
     }
-    setFireResult({ ok: true, message: `${row.name}: run ${result.runId} started.` });
+    // The fire is durably queued and the run starts moments later, so there is
+    // no run to name yet. Reporting one here would mean starting the run before
+    // acknowledging, which is what loses fires on a restart.
+    setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
   }, []);
 
   const toggleSource = useCallback(
@@ -161,10 +175,20 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         id: 'status',
         header: 'Status',
         cell: (row) => (
-          <StatusBadge
-            status={row.enabled ? 'healthy' : 'unknown'}
-            label={row.enabled ? 'Enabled' : 'Disabled'}
-          />
+          <Stack gap="none">
+            <StatusBadge
+              status={row.enabled ? 'healthy' : 'unknown'}
+              label={row.enabled ? 'Enabled' : 'Disabled'}
+            />
+            {/* Requests that failed authentication never become deliveries, so
+                this counter is the only place a wrong signing secret shows up. */}
+            {row.rejectionCount > 0 && (
+              <Text size="caption" color="muted">
+                {row.rejectionCount} rejected
+                {row.lastRejectionReason !== null ? `: ${row.lastRejectionReason}` : ''}
+              </Text>
+            )}
+          </Stack>
         ),
       },
       {
@@ -205,16 +229,54 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
+        cell: (row) => {
+          const failures = recentFailures(row.id, deliveries);
+          return (
+            <Stack gap="none" align="start">
+              <Stack direction="horizontal" gap="snug" align="center">
+                {/* The name opens the drawer: everything about one trigger is
+                    in one place, rather than spread across three tabs. */}
+                <Button variant="ghost" size="sm" onClick={() => setDrawerTrigger(row)}>
+                  {row.name}
+                </Button>
+                {/* Derived from this trigger's own recent outcomes, never a
+                    stored flag that could drift from the deliveries below. */}
+                {failures > 0 && (
+                  <Badge variant="outline" size="sm">
+                    {failures} failed
+                  </Badge>
+                )}
+              </Stack>
+              <Text size="caption" color="muted">
+                {row.kind === 'webhook'
+                  ? sourceName(row.sourceId)
+                  : row.kind === 'scheduled'
+                    ? (row.scheduleConfig?.cronExpression ?? 'schedule')
+                    : 'manual'}
+              </Text>
+            </Stack>
+          );
+        },
+      },
+      {
+        id: 'activity',
+        header: '24h',
+        width: '7rem',
         cell: (row) => (
-          <Stack gap="none">
-            <Text size="supporting" weight="emphasis">
-              {row.name}
-            </Text>
-            <Text size="caption" color="muted">
-              {sourceName(row.sourceId)}
-            </Text>
-          </Stack>
+          <TriggerSparkline buckets={sparkline(row.id, deliveries)} label={row.name} />
         ),
+      },
+      {
+        id: 'lastFired',
+        header: 'Last fired',
+        cell: (row) => {
+          const at = lastFired(row.id, deliveries);
+          return (
+            <Text size="caption" color="muted">
+              {at === null ? 'Never' : new Date(at).toLocaleString()}
+            </Text>
+          );
+        },
       },
       {
         id: 'agent',
@@ -310,7 +372,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         ),
       },
     ],
-    [sourceName, toggleTrigger, fireManualTrigger, firingId],
+    [sourceName, toggleTrigger, fireManualTrigger, firingId, deliveries],
   );
 
   const deliveryColumns = useMemo<DataTableColumn<DeliveryRow>[]>(
@@ -408,7 +470,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {error && <Alert variant="error">{error}</Alert>}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
-      <Tabs defaultValue="sources">
+      <FleetKpis triggers={triggers} deliveries={deliveries} />
+
+      {/* Triggers first: the page is about what starts work. Sources are the
+          configuration behind one kind of trigger, not the headline. */}
+      <Tabs defaultValue="triggers">
         <TabsList>
           <TabsTrigger value="sources">Sources</TabsTrigger>
           <TabsTrigger value="triggers">Triggers</TabsTrigger>
@@ -456,12 +522,23 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         {/* Triggers */}
         <TabsContent value="triggers">
           <Stack gap="comfortable">
-            <Stack direction="horizontal" justify="end">
-              <Button
-                size="sm"
-                onClick={() => setTriggerForm({ trigger: null })}
-                disabled={sources.length === 0}
-              >
+            <Stack direction="horizontal" justify="between" align="center">
+              {/* Filter by how a trigger starts. Triggers are the front door for
+                  starting work, so the kind is the primary way to slice them. */}
+              <Stack direction="horizontal" gap="tight">
+                {(['all', 'webhook', 'scheduled', 'manual'] as const).map((k) => (
+                  <Button
+                    key={k}
+                    size="sm"
+                    variant={kindFilter === k ? 'secondary' : 'ghost'}
+                    onClick={() => setKindFilter(k)}
+                  >
+                    {k === 'all' ? 'All' : k}
+                    {k !== 'all' && ` (${triggers.filter((t) => t.kind === k).length})`}
+                  </Button>
+                ))}
+              </Stack>
+              <Button size="sm" onClick={() => setKindPickerOpen(true)}>
                 <Icon name="plus" size="xs" />
                 New trigger
               </Button>
@@ -484,7 +561,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               />
             ) : (
               <DataTable
-                data={triggers}
+                data={
+                  kindFilter === 'all' ? triggers : triggers.filter((t) => t.kind === kindFilter)
+                }
                 columns={triggerColumns}
                 getRowKey={(row) => row.id}
                 noun="triggers"
@@ -532,6 +611,41 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       </Tabs>
 
       {/* Modals */}
+      {/* Choosing how a trigger starts is the first decision, so it gets its own
+          step rather than a dropdown buried in the form. It also shows the kinds
+          the model accommodates but that are not built yet. */}
+      {kindPickerOpen && (
+        <SidePanel open onClose={() => setKindPickerOpen(false)} size="lg">
+          <SidePanelHeader
+            title="New trigger"
+            description="Choose how this trigger starts. What it starts is chosen next."
+          />
+          <SidePanelBody>
+            <TriggerKindPicker
+              onSelect={(kind) => {
+                setKindPickerOpen(false);
+                setTriggerForm({ trigger: { kind } as TriggerFormValue });
+              }}
+            />
+          </SidePanelBody>
+        </SidePanel>
+      )}
+
+      <TriggerDrawer
+        trigger={drawerTrigger}
+        sources={sources}
+        deliveries={deliveries}
+        onClose={() => setDrawerTrigger(null)}
+        onToggleEnabled={(t) => {
+          setDrawerTrigger(null);
+          void toggleTrigger(t);
+        }}
+        onDelete={(t) => {
+          setDrawerTrigger(null);
+          setDeleteTrg(t);
+        }}
+      />
+
       <SourceFormModal
         open={sourceModalOpen}
         onClose={() => setSourceModalOpen(false)}

@@ -316,9 +316,9 @@ type Trigger struct {
 	// ─── Admission control ──────────────────────────────────────────────────
 	// MaxParallel caps how many runs from this trigger may be in flight.
 	// Overflow says what happens beyond that: wait, replace, or refuse.
-	MaxParallel   int16 `json:"max_parallel"`
+	MaxParallel   int16  `json:"max_parallel"`
 	Overflow      string `json:"overflow"`
-	MaxQueueDepth int16 `json:"max_queue_depth"`
+	MaxQueueDepth int16  `json:"max_queue_depth"`
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
 	// TimeoutSeconds bounds starting the run, not running it: a long-running
