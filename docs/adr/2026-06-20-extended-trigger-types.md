@@ -13,21 +13,20 @@
 
 The Triggers v1 ADR ([2026-06-17](2026-06-17-agent-triggers-and-webhook-ingestion.md)) shipped webhook ingestion as the only trigger kind: an inbound signed request from a registered `WebhookSource` starts an agent run under a per-source JIT-minted `SERVICE` principal. That design is sound and stays.
 
-This ADR replaces the earlier draft at this filename. It covers two things the PRD asks for together:
+This ADR covers three things:
 
-1. **Two new trigger kinds** — scheduled (cron) and manual (API-fired).
-2. **An operable delivery pipeline** — exact outcomes for every way a run can fail to start, per-trigger admission control, and the delivery-safety machinery (timeout, duplicate suppression, auto-pause, payload retention) that the console redesign needs in order to have anything real to show.
+1. **Extracting `orbit-triggers`** — the separate binary the v1 ADR committed to when a second trigger kind landed.
+2. **Two new trigger kinds** — scheduled (cron) and manual (API-fired).
+3. **An operable delivery pipeline** — exact outcomes for every way a run can fail to start, per-trigger admission control, and the delivery-safety machinery (timeout, duplicate suppression, auto-pause, payload retention) that the console redesign needs in order to have anything real to show.
 
-### What the earlier draft got wrong
+### The state these decisions start from
 
-The draft at this filename recorded decisions that were never implemented, and two that were incorrect. Recording them plainly, because the document and the code disagree and the code is what runs:
+Four facts about the code as it stands. Each one bears directly on a decision below, and two of them are defects.
 
-| Earlier claim | Reality |
-|---|---|
-| Triggers is hosted in a new `orbit-triggers` binary (sub-decision 5) | Never built. `internal/triggers/` runs inside `identity`, as v1 decided. The v1 ADR's Notes committed to extracting it "when the second trigger surface lands"; that commitment has now been deferred twice while both ADRs described the extracted state as fact. **Decision 1** settles it. |
-| The fire endpoint is guarded by a `triggers:fire:{id}` scope (sub-decision 2) | Not enforced. `server.go` carries a `KNOWN GAP` comment: the route requires only `triggers:write`, so any principal that can manage triggers can fire any trigger. **Decision 6** closes it. |
-| `ScopeEnforcementMiddleware` "already does" per-request dynamic scopes via route-param substitution (sub-decision 2) | It does not. `RouteScope` matches static prefixes only; there is no substitution mechanism. This claim is why the gap above shipped unnoticed. |
-| The scheduler is single-instance and "multiple replicas would double-fire" (option B1) | Already mitigated. `TickScheduled` inserts the delivery under `UNIQUE (trigger_id, scheduled_at)` *before* dispatching, so a second replica's tick loses the insert race and stops. At-most-once already holds. **Decision 2** builds on this instead of adding leader election. |
+- **`internal/triggers/` runs inside `identity`.** The v1 ADR called that a v1-only choice and committed to extracting it "when the second trigger surface lands". Two trigger surfaces now land at once. Decision 1.
+- **The fire endpoint is not properly guarded.** `server.go` carries a `KNOWN GAP` comment: `POST /triggers/{id}/fire` requires only `triggers:write`, so any principal that can manage triggers can fire any trigger. A per-trigger scope was intended but never enforced. Decision 6.
+- **`ScopeEnforcementMiddleware` cannot express a per-trigger scope.** `RouteScope` matches static prefixes; there is no route-param substitution. This is why the gap above went unnoticed — the protection was assumed to be declarative when no such mechanism exists. Decision 6.
+- **The scheduler is already safe across replicas.** `TickScheduled` inserts its delivery under `UNIQUE (trigger_id, scheduled_at)` *before* dispatching, so a second replica's tick loses the insert race and stops. At-most-once holds today without any coordination. Decision 2.
 
 ### Where the design reference is not followed
 
@@ -62,6 +61,7 @@ One further consideration: the PRD wants a failed signature to be visible to an 
 - **Prefer extending existing structures to adding new ones.** The fan-out table, the dedup indexes, and the kind discriminant already exist and are right.
 - **Fail closed on authorization.** An unenforced scope is worse than an absent one, because the documentation claims protection that is not there.
 - **Do not build HA machinery that a unique index already provides.**
+- **Keep internet-reachable ingestion away from the token authority.** Webhook ingestion is the one surface a hostile party can drive directly. It should not share a process with the service that mints every token in the platform.
 - **Triggers are a front door, not an orchestrator.** They are the set of ways something can start in the platform. What gets started is a separate concern, and the multi-agent workflow engine is a separate pillar. Nothing here may grow into it.
 
 ---
@@ -70,19 +70,33 @@ One further consideration: the PRD wants a failed signature to be visible to an 
 
 ### Decision 1 — Where does the triggers service run?
 
-#### 1A: Keep `internal/triggers/` in `identity` (**chosen**)
+Triggers went into `identity` in v1 because it was small. It is no longer small, and size is the weakest reason to move it. Two better ones decide this.
 
-**Pros:** Zero migration. Token minting stays in-process (`identity` is the token authority), so no internal mint endpoint and no signing-key distribution. The webhook ingress route stays where it is, which matters because moving it changes the URL every registered source posts to. Nothing in this ADR's scope needs a separate binary.
+**Webhook ingestion is unauthenticated, internet-reachable traffic. `identity` is the platform's token authority.** It serves OAuth, the device grant, session exchange and JWKS — the auth path every other service depends on. Co-locating the one endpoint a hostile party can drive directly with the service that mints every token in the platform is a coupling worth breaking on its own merits. A webhook flood should not be able to degrade authentication.
 
-**Cons:** `identity` keeps growing. A trigger burst shares a process with the control-plane API.
+**Triggers is about to become three background loops** — the cron scheduler, the pending-delivery worker, and the retention purge job. Long-running background work inside a latency-sensitive request-serving auth API is the actual structural problem, more than the line count is.
 
-#### 1B: Extract `orbit-triggers` now
+#### 1A: Keep `internal/triggers/` in `identity`
 
-**Pros:** Honours a commitment made twice. Isolates trigger load.
+**Pros:** No deployment work. Token minting stays in-process.
 
-**Cons:** Requires an internal mint endpoint on `identity`, a new chart deployment, a client-mTLS DestinationRule and a netpol entry, and — decisively — **moving the webhook ingestion path**, which breaks every registered source. That directly contradicts the PRD's "no change to where webhooks are received". Doing it safely means serving both paths through a transition, which is strictly more work than this feature needs.
+**Cons:** Both couplings above persist and get worse with every phase of this ADR. `identity` is pinned at one replica, so triggers cannot scale independently even though Decision 2 establishes that it safely could.
 
-**Chosen: 1A, and the extraction commitment is formally retired.** It has been deferred twice by ADRs that then described the extracted state as fact, which is how the docs drifted from the code. Rather than defer a third time, this ADR closes it: triggers stay in `identity` until there is a *load* reason to move them, and the trigger condition is written down in [Future Work](#future-work). Any later extraction must preserve the ingestion URL, which is a migration design in its own right and belongs in its own ADR.
+#### 1B: Extract `orbit-triggers` (**chosen**)
+
+**Pros:** Separates internet-facing ingestion from the token authority. Moves three background loops out of the auth API. Lets triggers scale independently. Executes the commitment the v1 ADR made, closing the gap between the documented and actual architecture.
+
+**Cons:** A new deployment to operate. Token minting becomes a network call.
+
+**Chosen: 1B.** The obvious objection to extraction is that it would move the webhook ingestion URL and break every registered source, which the PRD forbids outright. It does not, and the three costs that look largest are the three that are already paid:
+
+- **The URL does not move.** `/api/v1/webhooks/` is a path-prefix match in the api VirtualService. Extraction changes one `destination.host`. The address every registered source posts to is unchanged, so no source is re-pointed and no secret re-issued. The edge is path-routed precisely so services can move behind it.
+- **Token minting was already designed for this.** `TokenMinter` is a one-method interface injected from main, and `internal/triggers/` never imports the identity feature package. Swapping the in-process implementation for a typed client is the platform-clients pattern used throughout the codebase, and `internal/triggers/` itself does not change.
+- **Migrations are a file move.** `make migrate-up` collects every `backend/cmd/*/migrations/*.sql` into one directory against a single `goose_db_version` table, ordered by timestamp prefix. Moving the trigger migrations to a new binary preserves filenames and ordering, so goose sees no change at all.
+
+What remains is mechanical and follows documented patterns: a `cmd/orbit-triggers/` main and config, an internal mint endpoint on `identity` with a typed client satisfying `TokenMinter`, a chart deployment and service, a client-mTLS DestinationRule and the app port in the mesh netpol, a Chart.yaml version bump and operator rebuild, and repointing in-mesh callers of the management API (the frontend BFF's `ORBIT_API_URL`, which gains a triggers base URL, and the MCP trigger tools).
+
+**Sequencing: extraction lands first, before any feature phase.** The package is the smallest it will ever be right now. Extracting after admission control, the worker loop and retention have been built means moving substantially more code. It ships as its own PR so the deployment and mesh changes are reviewable separately from the feature work.
 
 ---
 
@@ -108,7 +122,7 @@ One further consideration: the PRD wants a failed signature to be visible to an 
 
 **Cons:** Introduces a locking primitive the codebase does not otherwise use, for a guarantee the unique index already gives declaratively.
 
-**Chosen: 2A.** The existing design is correct; the earlier ADR understated it. Two changes: the losing insert logs at `debug` rather than `info` (it is normal under multiple replicas and today reads as though it were noteworthy), and the scan gains the bound described in [Implementation](#implementation).
+**Chosen: 2A.** The mechanism already in place is the right one. Two changes: the losing insert logs at `debug` rather than `info` (it is normal under multiple replicas and today reads as though it were noteworthy), and the scan gains the bound described in [Implementation](#implementation).
 
 **Missed ticks.** PD1 says a fire missed during downtime is *recorded as missed and skipped*. Today it is silently not fired, with no record at all. The scheduler gains a bounded backfill: on each tick, for each enabled scheduled trigger, any due minute in the last hour with no delivery row is inserted with outcome `missed` and no run started. One hour bounds the write burst after a long outage. With `catch_up` set, that insert becomes a normal fire instead.
 
@@ -238,7 +252,13 @@ Considered seriously, because Orbit intends to build a multi-agent workflow engi
 
 **Rejected for now, revisit when the workflow engine is designed.** That is the decision point, not this one. `Admission` is an interface, so a durable-execution-backed implementation can replace the Postgres one without touching the pipeline — the door stays open without being walked through early.
 
-**Chosen: 5A**, with a fast path: when the trigger is under its ceiling and nothing is waiting, dispatch directly without touching the queue. The queue is only involved once a trigger is at its limit, so the common case pays nothing.
+**Chosen: 5A, with every fire routed through the queue.**
+
+The tempting optimisation is a fast path: when a trigger is under its ceiling and nothing is waiting, dispatch directly and leave the queue for the contended case. That covers almost every fire, so the queue would rarely be touched. It is rejected, because it means a process dying between recording the delivery and starting the run loses that fire silently — the delivery sits at `verified` forever with no run and nothing to retry it. That is a durable *record* of a start that never happened, which is worse than either a durable start or an honest failure.
+
+Triggers is the platform's front door for starting things (Decision 8), so **an acknowledged fire always starts** is a property worth being able to state without qualification. Routing everything through the queue makes it true, and leaves one dispatch path instead of two — two paths being the same class of coherence risk as two status vocabularies, and worth avoiding for the same reason.
+
+The cost is claim latency on every fire. That is acceptable because the sender has already been acknowledged by then: everything after **RECORD** is asynchronous, so the latency is on no caller's path. `LISTEN`/`NOTIFY` on insert reduces it to a wake-up rather than a poll interval.
 
 `Admission` stays deliberately narrow — concurrency and overflow, nothing more. It is not an attempt at a general deferred-work primitive, because that primitive belongs with the workflow engine (Decision 8) and would be under-designed if invented here.
 
@@ -260,7 +280,7 @@ The scope literal follows the platform's qualified-scope convention (`type:path.
 trigger:<trigger-id>:fire
 ```
 
-Not `triggers:fire:{id}` as the earlier draft had it. That form puts the action before the identifier, so `triggers:fire` would not `covers` a specific trigger and the hierarchy inverts. A grant on the prefix `trigger` covers all triggers by the normal prefix rule; no `*` literal is introduced.
+The obvious alternative form, `triggers:fire:<trigger-id>`, is wrong: it puts the action before the identifier, so `triggers:fire` would not `covers` a specific trigger and the hierarchy inverts. A grant on the prefix `trigger` covers all triggers by the normal prefix rule; no `*` literal is introduced.
 
 **Pros:** Correct hierarchy, default-deny, fails closed. Uses the evaluator already wired into the controller. No middleware change.
 
@@ -314,15 +334,19 @@ Explicitly **not** built here: any deferred-work, step, or orchestration primiti
 
 ## Decision
 
-**Chosen: 1A + 2A + 3A + 4A + 5A + 6A + 7 + 8A.**
+**Chosen: 1B + 2A + 3A + 4A + 5A + 6A + 7 + 8A.**
 
-Triggers stays in `identity` and the extraction commitment is retired. Triggers are the platform's front door for starting things, so a trigger's target carries a kind discriminator (`agent` today, `workflow` when that pillar lands) rather than being an agent binding. The scheduler's existing insert-then-dispatch dedup is the concurrency-safety mechanism; missed ticks gain a bounded backfill that records rather than silently drops. Both existing status vocabularies are extended rather than replaced, with delivery status derived from the run fan-out. Rejected arrivals are recorded, bounded per source per reason per minute. Admission control is a durable pending-delivery queue claimed with `SKIP LOCKED`, with a fast path when nothing is waiting. The fire endpoint's unenforced scope is closed with an explicit per-trigger policy check under a corrected scope literal. Payloads are stored in full with automatic retention, and the event catalogue is adapter-declared plus observed. No workflow, orchestration or general deferred-work primitive is built here.
+`internal/triggers/` is extracted into an `orbit-triggers` binary, executing the commitment made in v1, with the public webhook URL preserved by the existing path routing. Triggers are the platform's front door for starting things, so a trigger's target carries a kind discriminator (`agent` today, `workflow` when that pillar lands) rather than being an agent binding. The scheduler's existing insert-then-dispatch dedup is the concurrency-safety mechanism; missed ticks gain a bounded backfill that records rather than silently drops. Both existing status vocabularies are extended rather than replaced, with delivery status derived from the run fan-out. A webhook that fails authentication updates a rejection counter on its source rather than creating a delivery record, so an unauthenticated request can never grow a table. Admission control is a durable pending-delivery queue claimed with `SKIP LOCKED`, with every fire routed through it so an acknowledged fire always starts. The fire endpoint's unenforced scope is closed with an explicit per-trigger policy check under a corrected scope literal. Payloads are stored in full with automatic retention, and the event catalogue is adapter-declared plus observed. No workflow, orchestration or general deferred-work primitive is built here.
 
 ### Rationale
 
-Every decision above takes the same form: **the existing structure is closer to right than the design reference assumed, so extend it.** The fan-out table already is the two-level outcome model. The unique index already is the scheduler's concurrency control. The adapter already knows its event types. The three genuinely new mechanisms — the pending queue, the source rejection counter, and the fire scope check — are each the smallest thing that makes a specific PRD requirement true, and each replaces something currently either absent or incorrect.
+Most decisions above take the same form: **the existing structure is closer to right than the design reference assumed, so extend it.** The fan-out table already is the two-level outcome model. The unique index already is the scheduler's concurrency control. The adapter already knows its event types. The three genuinely new mechanisms — the pending queue, the source rejection counter, and the fire scope check — are each the smallest thing that makes a specific PRD requirement true, and each replaces something currently either absent or incorrect.
 
-The one place this ADR spends more than the minimum is the pending-delivery queue. An in-memory counter would be far less code, and it is wrong: it enforces the wrong limit under multiple replicas and loses waiting work on restart, which makes the acknowledgement the platform sends a lie. The PRD named this the decision not to default silently, and this is the answer.
+Two decisions cost more than the minimum, deliberately.
+
+The **pending-delivery queue** could have been an in-memory counter, which would be far less code and is wrong: it enforces the wrong limit under multiple replicas and loses waiting work on restart, making the acknowledgement the platform sends a lie. The PRD named this the decision not to default silently, and this is the answer.
+
+The **extraction** is not required by any feature in this ADR, and it is done anyway. Webhook ingestion is the only unauthenticated, internet-reachable surface in the platform, and it currently shares a process with the service that mints every token. That coupling is worth breaking regardless of what else is being built, and the package will never be smaller or cheaper to move than it is now.
 
 ---
 
@@ -546,14 +570,17 @@ A grant on `trigger` covers every trigger by the normal prefix rule. There is no
 
 - The fire endpoint stops being an unenforced gap that the documentation claimed was closed.
 - A `202` becomes a real promise: waiting work survives a restart, so the platform does not acknowledge fires it will silently lose.
-- With respect to triggers, `identity` is safe at more than one replica for the first time, without leader election.
-- The docs stop describing a binary that does not exist.
+- `orbit-triggers` can scale independently of `identity`, and Decision 2 establishes it is already safe to do so without leader election.
+- The docs stop describing a binary that does not exist, because it now exists.
+- Internet-facing ingestion no longer shares a process with the token authority, so a webhook flood cannot degrade OAuth, the device grant or JWKS.
+- Three background loops move out of a latency-sensitive request-serving auth API.
+- An acknowledged fire always starts: every fire is durably queued before dispatch, so a restart cannot lose one silently.
 - A wrong signing secret becomes diagnosable in the console, without an unauthenticated request ever creating a row. `trigger_deliveries` stays exclusively a record of arrivals that authenticated.
 - Adding any of the six planned kinds is an adapter plus a front door; nothing downstream changes.
 
 ### Negative
 
-- A new table and a worker loop to operate. The fast path keeps them out of the common case, but this is more moving parts than today.
+- A new table and a worker loop on the path of every fire, plus a new binary, deployment and mesh entry to operate. This is materially more moving parts than today, and the operator image must be rebuilt for the new chart.
 - Fire authorization lives in a handler rather than on a route, which is easier to forget on a future endpoint. A test guards it; the durable fix is Decision 6B.
 - Full payload storage grows the delivery table substantially and creates a retention obligation that must actually run. A purge job that silently stops is a compliance problem, so it needs monitoring rather than trust.
 - Two status vocabularies must stay coherent. The derived-summary invariant is the mitigation and is the thing most likely to be got wrong under time pressure.
@@ -567,6 +594,19 @@ A grant on `trigger` covers every trigger by the normal prefix rule. There is no
 ---
 
 ## Implementation
+
+### Phase 0 — Extract `orbit-triggers`
+
+Lands first, as its own PR, before any feature work. No behaviour changes.
+
+1. `cmd/orbit-triggers/` with `main.go` and `config/`, wrapping `internal/triggers/` unchanged.
+2. `git mv backend/cmd/identity/migrations/*trigger*.sql backend/cmd/orbit-triggers/migrations/`. Filenames and timestamps preserved, so the pooled collection and `goose_db_version` see no change.
+3. Internal mint endpoint on `identity`; typed client in `internal/platform/clients/identity/` satisfying `TokenMinter`. The interface already exists and is injected from main, so nothing in `internal/triggers/` changes.
+4. Chart: deployment, service, client-mTLS DestinationRule, app port in the mesh netpol, Chart.yaml version bump, operator image rebuild.
+5. api VirtualService: repoint `/api/v1/webhooks/` to `orbit-triggers`. **The external URL is unchanged**; no source is re-pointed and no secret is re-issued.
+6. Repoint in-mesh callers of the management API: the frontend BFF gains a triggers base URL alongside `ORBIT_API_URL`, and the MCP trigger tools follow.
+7. Update the binary tables in `AGENTS.md` and `docs/code-organization.md`, plus the in-cluster port map. `docs-check` validates the table against `backend/cmd/` in both directions and will fail the build without it.
+8. Verify before merging: an existing webhook source fires end to end against its unchanged URL, `make auth` still works, and the scheduler fires from the new binary.
 
 ### Phase 1 — Outcome model and pipeline invariants
 
@@ -592,7 +632,7 @@ The kinds exist; this phase brings them to the PRD's bar.
 ### Phase 3 — Admission control and delivery safety
 
 1. Migration: `trigger_pending_deliveries`, `trigger_retention_settings`, and the trigger columns.
-2. `Admission` implementation with the under-ceiling fast path; the `SKIP LOCKED` worker loop.
+2. `Admission` implementation; the `SKIP LOCKED` worker loop with `LISTEN`/`NOTIFY` wake-up. Every fire routes through the queue.
 3. Per-trigger `timeout_seconds` replacing the package constant; a timeout counts toward auto-pause.
 4. Auto-pause: denials count, admission rejections do not (PRD, US-006); `Drain` on pause, disable, and delete.
 5. Payload purge job honouring `trigger_retention_settings`, with a rows-purged metric and an alert when it has not run.
@@ -604,7 +644,9 @@ Per the PRD's UI section. Drop `payload_excerpt` once nothing reads it.
 
 ### Migration path
 
-Every migration is an additive `ALTER TABLE` with defaults, so it applies to the existing database without downtime and without touching existing rows. Existing webhook triggers become `max_parallel = 4, overflow = 'wait'`, which is the behaviour they have today since nothing has ever been at a ceiling. Existing deliveries keep their current status values, which remain valid members of the widened vocabulary. No re-pointing, no re-secreting, no reset.
+The extraction (Phase 0) carries no schema change and no URL change: migration files move between binaries with their filenames intact, and the webhook path is repointed at the edge. Existing sources keep posting to the same address with the same secrets.
+
+Every subsequent migration is an additive `ALTER TABLE` with defaults, so it applies to the existing database without downtime and without touching existing rows. Existing webhook triggers become `max_parallel = 4, overflow = 'wait'`, which is the behaviour they have today since nothing has ever been at a ceiling. Existing deliveries keep their current status values, which remain valid members of the widened vocabulary. No re-pointing, no re-secreting, no reset.
 
 ---
 
@@ -617,7 +659,9 @@ Every migration is an additive `ALTER TABLE` with defaults, so it applies to the
 - A trigger at `max_parallel = 1, overflow = 'replace'` receiving three overlapping fires produces one further run and two `superseded` rows.
 - Ten consecutive denials auto-pause a trigger; ten `dropped` rows do not.
 - A delivery matching three triggers, where one dispatches, one is denied and one is dropped, records all three per-trigger outcomes and a delivery summary of `dispatched`.
-- Two `identity` replicas produce exactly one run per scheduled tick.
+- Two `orbit-triggers` replicas produce exactly one run per scheduled tick.
+- After extraction, an existing webhook source fires end to end against its unchanged URL, with no reconfiguration on the sender's side.
+- Killing the pod between acknowledgement and dispatch loses no fire: it starts when the pod returns.
 - Payloads past the tenant's retention have `payload IS NULL` with every other column intact.
 
 ### Monitoring
@@ -631,7 +675,6 @@ Every migration is an additive `ALTER TABLE` with defaults, so it applies to the
 
 ## Future Work
 
-- **`orbit-triggers` extraction.** Retired as a standing commitment, not forbidden. Revisit when trigger load measurably affects control-plane API latency, or when ingestion needs to scale independently. Any extraction must preserve the existing webhook URL, which is a migration design in its own right and needs its own ADR.
 - **Route-declared per-resource scopes (Decision 6B).** The right long-term shape for every per-resource endpoint, not just this one. Its own ADR.
 - **Per-trigger payload opt-out.** The first thing to add if a tenant handling PII needs to record that a delivery happened without storing its body (PRD, PD4).
 - **Automatic retry with backoff.** Deliberately out of scope; revisit if Redeliver is observed being used as a manual substitute.
@@ -643,7 +686,7 @@ Every migration is an additive `ALTER TABLE` with defaults, so it applies to the
 
 ## Related Decisions
 
-- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1. Its identity model, webhook verification and dispatch path are preserved unchanged. Its Notes committed to the `orbit-triggers` extraction; Decision 1 retires that commitment.
+- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1. Its identity model, webhook verification and dispatch path are preserved unchanged. Its Notes committed to the `orbit-triggers` extraction; Decision 1 executes it.
 - [Trigger Deliveries Filter](2026-06-20-trigger-deliveries-filter.md) — the deliveries feed this ADR's widened vocabulary feeds.
 - [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — the run a trigger starts.
 - [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — the principal and grant provisioning each trigger kind reuses.
