@@ -25,6 +25,7 @@ import type { TriggerFormValue } from '@orbit/components';
 import {
   deleteSource,
   deleteTrigger,
+  fireTrigger,
   updateSource,
   updateTrigger,
 } from '../_services/triggers-api';
@@ -72,6 +73,20 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [deleteTrg, setDeleteTrg] = useState<TriggerRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [firingId, setFiringId] = useState<string | null>(null);
+  const [fireResult, setFireResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const fireManualTrigger = useCallback(async (row: TriggerRow) => {
+    setFiringId(row.id);
+    setFireResult(null);
+    const result = await fireTrigger(row.id);
+    setFiringId(null);
+    if (!('runId' in result)) {
+      setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
+      return;
+    }
+    setFireResult({ ok: true, message: `${row.name}: run ${result.runId} started.` });
+  }, []);
 
   const toggleSource = useCallback(
     async (row: SourceRow) => {
@@ -213,11 +228,16 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'event',
         header: 'Event',
-        cell: (row) => (
-          <Badge variant="elevated" size="sm">
-            {row.eventType}
-          </Badge>
-        ),
+        cell: (row) =>
+          row.eventType ? (
+            <Badge variant="elevated" size="sm">
+              {row.eventType}
+            </Badge>
+          ) : (
+            <Text size="caption" color="muted">
+              —
+            </Text>
+          ),
       },
       {
         id: 'status',
@@ -259,6 +279,17 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
             >
               <Icon name="edit" size="2xs" />
             </Button>
+            {row.kind === 'manual' && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!row.enabled || firingId === row.id}
+                onClick={() => void fireManualTrigger(row)}
+                aria-label={`Fire ${row.name}`}
+              >
+                <Icon name="play" size="2xs" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -279,7 +310,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         ),
       },
     ],
-    [sourceName, toggleTrigger],
+    [sourceName, toggleTrigger, fireManualTrigger, firingId],
   );
 
   const deliveryColumns = useMemo<DataTableColumn<DeliveryRow>[]>(
@@ -375,6 +406,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       </Stack>
 
       {error && <Alert variant="error">{error}</Alert>}
+      {fireResult && (
+        <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>
+      )}
 
       <Tabs defaultValue="sources">
         <TabsList>

@@ -5,6 +5,8 @@ import type {
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerFireRequest,
+  TriggerFireResponse,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -121,6 +123,19 @@ export async function updateTrigger(
 
 export async function deleteTrigger(accessToken: string, id: string): Promise<void> {
   await request<void>(`/triggers/${id}`, accessToken, { method: 'DELETE' });
+}
+
+// POST /api/v1/triggers/:id/fire — fire a manual trigger. The run executes
+// under the trigger's own SERVICE principal, not the caller's identity.
+export async function fireTrigger(
+  accessToken: string,
+  id: string,
+  payload: TriggerFireRequest,
+): Promise<TriggerFireResponse | undefined> {
+  return request<TriggerFireResponse>(`/triggers/${id}/fire`, accessToken, {
+    method: 'POST',
+    body: payload,
+  });
 }
 
 // ---------------------------------------------------------------------------

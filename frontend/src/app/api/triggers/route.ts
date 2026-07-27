@@ -5,6 +5,27 @@ import { listTriggers, createTrigger } from '@orbit/server/triggers-client';
 import { ApiError } from '@orbit/server/client';
 import type { TriggerCreateRequest } from '@orbit/shared/api';
 
+function validateCreateRequest(body: TriggerCreateRequest): string | null {
+  if (!body.name?.trim()) return 'name is required';
+  if (!body.agent_type_id) return 'agent_type_id is required';
+  if (!body.prompt_template?.trim()) return 'prompt_template is required';
+  const kind = body.kind ?? 'webhook';
+  switch (kind) {
+    case 'webhook':
+      if (!body.source_id || !body.event_type) {
+        return 'source_id and event_type are required for webhook triggers';
+      }
+      return null;
+    case 'scheduled':
+      if (!body.schedule_config?.cron_expression) {
+        return 'schedule_config.cron_expression is required for scheduled triggers';
+      }
+      return null;
+    case 'manual':
+      return null;
+  }
+}
+
 // GET /api/triggers?agent_type_id= — triggers for the tenant, optionally filtered.
 export const GET = withAuth(async (req: NextRequest, session) => {
   const agentTypeId = req.nextUrl.searchParams.get('agent_type_id') ?? undefined;
@@ -19,34 +40,27 @@ export const GET = withAuth(async (req: NextRequest, session) => {
   }
 });
 
-// POST /api/triggers — create a trigger (201).
+// POST /api/triggers — create a trigger (201). Required fields depend on
+// kind: webhook needs source_id + event_type, scheduled needs
+// schedule_config.cron_expression, manual needs neither.
 export const POST = withAuth(async (req: NextRequest, session) => {
   const body = (await req.json()) as TriggerCreateRequest;
-  if (!body.name?.trim()) {
-    return NextResponse.json(
-      { code: 'validation_error', message: 'name is required' },
-      { status: 400 },
-    );
-  }
-  // agent_slug is intentionally not required: the backend resolves the canonical
-  // slug from agent_type_id and ignores any client-supplied value.
-  if (!body.source_id || !body.agent_type_id || !body.event_type || !body.prompt_template?.trim()) {
-    return NextResponse.json(
-      {
-        code: 'validation_error',
-        message: 'source_id, agent_type_id, event_type, and prompt_template are required',
-      },
-      { status: 400 },
-    );
+  const validationError = validateCreateRequest(body);
+  if (validationError) {
+    return NextResponse.json({ code: 'validation_error', message: validationError }, { status: 400 });
   }
   try {
+    // agent_slug is intentionally omitted: the backend resolves the canonical
+    // slug from agent_type_id and ignores any client-supplied value.
     const created = await createTrigger(session.accessToken, {
+      kind: body.kind,
       source_id: body.source_id,
       name: body.name,
       agent_type_id: body.agent_type_id,
       event_type: body.event_type,
       match_condition: body.match_condition ?? {},
       prompt_template: body.prompt_template,
+      schedule_config: body.schedule_config,
     });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {
