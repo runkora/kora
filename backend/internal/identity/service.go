@@ -1424,6 +1424,22 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 // into a single reload call.
 //
 // The goroutine exits cleanly when ctx is canceled (SIGTERM).
+// resetDebounceTimer stops and drains an in-flight debounce timer (if any),
+// then arms a fresh one. Shared by watchTenantRegistry and
+// watchClientSecrets so the drain-and-restart branch isn't duplicated (and
+// doesn't count twice against gocyclo) in each watcher's event loop.
+func resetDebounceTimer(debounce *time.Timer, delay time.Duration) (*time.Timer, <-chan time.Time) {
+	if debounce != nil && !debounce.Stop() {
+		// Drain the channel so the stale tick is not delivered.
+		select {
+		case <-debounce.C:
+		default:
+		}
+	}
+	next := time.NewTimer(delay)
+	return next, next.C
+}
+
 func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) {
 	if registryPath == "" {
 		return
@@ -1459,7 +1475,14 @@ func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) 
 		logging.Field{Key: "path", Value: registryPath},
 	)
 
+	// Use a channel-based timer so the debounce fires in this goroutine via
+	// select, not in a separate goroutine via AfterFunc.  This eliminates the
+	// two race conditions described in GitHub issue #93:
+	//   1. concurrent reloads when rapid events arrive after the timer fires, and
+	//   2. post-cancellation execution when ctx is done but AfterFunc already queued.
+	// A nil channel blocks forever, so debounceC == nil means "no timer armed".
 	var debounce *time.Timer
+	var debounceC <-chan time.Time
 	const debounceDelay = 200 * time.Millisecond
 
 	for {
@@ -1477,12 +1500,12 @@ func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) 
 			if !isRelevantRegistryEvent(event, base) {
 				continue
 			}
-			if debounce != nil {
-				debounce.Stop()
-			}
-			debounce = time.AfterFunc(debounceDelay, func() {
-				s.reloadTenantOIDCProviders(ctx)
-			})
+			debounce, debounceC = resetDebounceTimer(debounce, debounceDelay)
+
+		case <-debounceC:
+			debounce = nil
+			debounceC = nil
+			s.reloadTenantOIDCProviders(ctx)
 
 		case watchErr, ok := <-watcher.Errors:
 			if !ok {
