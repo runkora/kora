@@ -441,10 +441,12 @@ func (s *Service) createManualTrigger(ctx context.Context, tenantID string, req 
 		ID:             id,
 		TenantID:       tenantID,
 		Kind:           KindManual,
+		TargetKind:     TargetKindAgent,
 		Name:           strings.TrimSpace(req.Name),
 		AgentTypeID:    at.ID,
 		AgentSlug:      at.Slug,
 		PromptTemplate: req.PromptTemplate,
+		ManualConfig:   req.ManualConfig,
 		PrincipalID:    principalID,
 		GrantID:        &runGrantID,
 		GrantIDSvc:     &svcGrantID,
@@ -535,22 +537,10 @@ func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error 
 // The resulting run executes under the trigger's own SERVICE principal, not
 // the caller's identity.
 //
-// KNOWN GAP: the docs/adr/2026-06-20-extended-trigger-types.md design (Decision
-// C1) calls for a per-trigger triggers:fire:{id} scope so a caller can be
-// granted the ability to fire one specific trigger without full trigger
-// management access. That scope is not implemented — ScopeEnforcementMiddleware
-// only has a single RouteScope entry for POST /api/v1/triggers*, which requires
-// the same triggers:write scope as creating/deleting triggers, and this method
-// performs no additional per-trigger check. Today any triggers:write holder can
-// fire any manual trigger in the tenant; there is no narrower grant available.
-// Closing this gap needs its own follow-up: the qualified-scope literal
-// "triggers:fire:{id}" also doesn't fit the platform's established qualified-scope
-// convention (unbounded id segment immediately before the action, e.g.
-// qualifiedConnectionScopeBase in policyservice/api/service.go expects
-// "type:...:<id>:<action>", not "type:<action>:<id>"), so making it grantable
-// would need either a reshaped scope literal or a new policy-service special
-// case, plus a route-scope mechanism that can distinguish this path from the
-// other POST /api/v1/triggers* routes.
+// Firing is authorized per trigger by the controller, against
+// trigger:<id>:fire, before this method is reached (ADR Decision 6). The run
+// still executes under the trigger's own principal, so the caller's own
+// permissions neither widen nor narrow what it can do.
 func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipalID string, req FireTriggerRequest) (*FireTriggerResponse, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
@@ -563,8 +553,16 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		return nil, ErrTriggerDisabled
 	}
 
+	// Validate against the trigger's own input declaration before anything is
+	// recorded or started. The console renders its form from the same
+	// declaration, so what it shows and what the API accepts cannot drift.
+	values := t.ManualConfig.ApplyDefaults(req.Variables)
+	if problems := t.ManualConfig.ValidateInputs(values); problems != nil {
+		return nil, &InputValidationError{Problems: problems}
+	}
+
 	fields := make(map[string]string)
-	for k, v := range req.Variables {
+	for k, v := range values {
 		fields["var."+k] = v
 	}
 
@@ -1042,6 +1040,20 @@ func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
 	}
+	// A declaration that could never be satisfied is caught here rather than at
+	// fire time, when the caller has no way to fix it.
+	if req.ManualConfig != nil {
+		seen := map[string]bool{}
+		for _, f := range req.ManualConfig.Inputs {
+			if err := f.Validate(); err != nil {
+				return err
+			}
+			if seen[f.Name] {
+				return fmt.Errorf("%w: input %q is declared more than once", ErrValidation, f.Name)
+			}
+			seen[f.Name] = true
+		}
+	}
 	return nil
 }
 
@@ -1055,9 +1067,11 @@ func validateScheduleConfig(sc *ScheduleConfig) error {
 	if strings.TrimSpace(sc.Timezone) == "" {
 		return fmt.Errorf("%w: schedule_config.timezone is required", ErrValidation)
 	}
-	// Validate timezone by loading it.
-	if _, err := time.LoadLocation(sc.Timezone); err != nil {
-		return fmt.Errorf("%w: schedule_config.timezone %q is not a valid IANA timezone: %w", ErrValidation, sc.Timezone, err)
+	// Parse the expression in its timezone. An unparseable cron previously
+	// stored fine and then silently never fired, which is the worst failure
+	// mode available: the trigger looks healthy and does nothing.
+	if _, _, err := ParseSchedule(sc); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1098,6 +1112,43 @@ func (s *Service) recordSourceRejection(ctx context.Context, sourceID, reason st
 			logging.Field{Key: "source_id", Value: sourceID},
 			logging.Field{Key: "reason", Value: reason},
 			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// RecordMissedTick records a scheduled fire that was due while the platform was
+// down, without running it.
+//
+// The record is the point: previously a missed fire left nothing at all, so
+// "did my nightly job run?" was unanswerable after an outage. The same unique
+// (trigger_id, scheduled_at) key that stops replicas double-firing also stops
+// this from racing a real fire for the same minute.
+func (s *Service) RecordMissedTick(ctx context.Context, t Trigger, scheduledAt time.Time) {
+	minute := scheduledAtMinute(scheduledAt)
+	triggerID := t.ID
+	reason := "platform was not running when this fire was due; catch-up is off for this trigger"
+
+	inserted, err := s.repo.InsertScheduledDelivery(ctx, &Delivery{
+		ID:          uuid.NewString(),
+		TenantID:    t.TenantID,
+		TriggerID:   &triggerID,
+		Kind:        KindScheduled,
+		Status:      StatusMissed,
+		ScheduledAt: &minute,
+		Reason:      &reason,
+	})
+	if err != nil {
+		s.logger.Error(ctx, "failed to record missed scheduled fire",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "scheduled_at", Value: minute},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if inserted {
+		s.logger.Info(ctx, "recorded missed scheduled fire",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "scheduled_at", Value: minute},
 		)
 	}
 }

@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -79,13 +80,52 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if t.ScheduleConfig == nil {
 			continue
 		}
-		if !matchesCron(t.ScheduleConfig, now) {
+		if matchesCron(t.ScheduleConfig, now) {
+			tick := ScheduledTick{Trigger: t, ScheduledAt: now}
+			// Dispatch each trigger in its own goroutine so one slow trigger
+			// does not delay others. The service's dispatchTimeout bounds each.
+			go s.svc.TickScheduled(context.WithoutCancel(ctx), tick)
 			continue
 		}
-		tick := ScheduledTick{Trigger: t, ScheduledAt: now}
-		// Dispatch each trigger in its own goroutine so one slow trigger does
-		// not delay others. The service's own dispatchTimeout bounds each call.
-		go s.svc.TickScheduled(context.WithoutCancel(ctx), tick)
+		// Not due now, but a fire may have been missed while the platform was
+		// down. Reconcile the recent past so a missed fire leaves a record
+		// instead of vanishing.
+		go s.reconcileMissed(context.WithoutCancel(ctx), t, now)
+	}
+}
+
+// backfillWindow bounds how far back a tick looks for fires it missed.
+//
+// One hour is a deliberate ceiling on the write burst after an outage: a
+// minutely schedule that was down for a day would otherwise produce 1440 rows
+// the moment it recovers, which is noise rather than information.
+const backfillWindow = time.Hour
+
+// reconcileMissed records fires that were due while the platform was down.
+//
+// Default behavior is to record and skip (PD1): an agent doing real work twice
+// is worse than not doing it at all, and a long outage on a frequent schedule
+// would otherwise dump a burst of runs at once. A trigger whose work genuinely
+// must not be skipped opts in with catch_up, and then the missed minutes fire
+// for real.
+func (s *Scheduler) reconcileMissed(ctx context.Context, t Trigger, now time.Time) {
+	due, err := s.repo.DueScheduledMinutesWithoutDelivery(ctx, t.ID, now.Add(-backfillWindow))
+	if err != nil {
+		s.logger.Error(ctx, "scheduler: failed to look for missed fires",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	for _, minute := range due {
+		if !matchesCron(t.ScheduleConfig, minute) {
+			continue
+		}
+		if t.ScheduleConfig.CatchUp {
+			s.svc.TickScheduled(ctx, ScheduledTick{Trigger: t, ScheduledAt: minute})
+			continue
+		}
+		s.svc.RecordMissedTick(ctx, t, minute)
 	}
 }
 
@@ -107,4 +147,45 @@ func matchesCron(sc *ScheduleConfig, now time.Time) bool {
 	prevMinute := now.In(loc).Truncate(time.Minute).Add(-time.Second)
 	next := sched.Next(prevMinute)
 	return next.Truncate(time.Minute).Equal(now.In(loc).Truncate(time.Minute))
+}
+
+// ParseSchedule parses a schedule's cron expression in its own timezone.
+//
+// Standard 5-field cron is the deliberate limit: its finest granularity is one
+// minute, so the "no faster than a minute" rule is enforced by the grammar
+// rather than by a check that could be forgotten.
+func ParseSchedule(sc *ScheduleConfig) (cron.Schedule, *time.Location, error) {
+	loc, err := time.LoadLocation(sc.Timezone)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: timezone %q is not a valid IANA timezone", ErrValidation, sc.Timezone)
+	}
+	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	sched, err := p.Parse(sc.CronExpression)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: cron expression %q is not valid 5-field cron: %w",
+			ErrValidation, sc.CronExpression, err)
+	}
+	return sched, loc, nil
+}
+
+// NextFires returns the next n fire times for a schedule, in its own timezone.
+//
+// The creation wizard shows these before saving: a cron expression is easy to
+// get subtly wrong, and seeing "next: Sunday 02:00" catches a mistake that would
+// otherwise surface as a job that quietly never runs.
+func NextFires(sc *ScheduleConfig, from time.Time, n int) ([]time.Time, error) {
+	sched, loc, err := ParseSchedule(sc)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]time.Time, 0, n)
+	t := from.In(loc)
+	for range n {
+		t = sched.Next(t)
+		if t.IsZero() {
+			break
+		}
+		out = append(out, t)
+	}
+	return out, nil
 }

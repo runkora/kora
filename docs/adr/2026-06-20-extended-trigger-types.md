@@ -278,7 +278,7 @@ The scope literal follows the platform's qualified-scope convention (`type:path.
 trigger:<trigger-id>:fire
 ```
 
-The obvious alternative form, `triggers:fire:<trigger-id>`, is wrong: it puts the action before the identifier, so `triggers:fire` would not `covers` a specific trigger and the hierarchy inverts. A grant on the prefix `trigger` covers all triggers by the normal prefix rule; no `*` literal is introduced.
+The obvious alternative form, `triggers:fire:<trigger-id>`, is wrong: it puts the action last-but-one, and the coverage rule requires the action to be the final segment. Placing the identifier in the path means a covering scope is formed by dropping path segments while keeping the action, so **`trigger:fire` covers every `trigger:<id>:fire`** — which is what makes the per-trigger scope grantable at all, since a caller may only grant scopes they themselves hold. No `*` literal is introduced. The built-in admin roles therefore carry `trigger:fire`.
 
 **Pros:** Correct hierarchy, default-deny, fails closed. Uses the evaluator already wired into the controller. No middleware change.
 
@@ -558,7 +558,7 @@ POST /api/v1/policy/grants
   "scopes": ["trigger:<trigger-id>:fire"] }
 ```
 
-A grant on `trigger` covers every trigger by the normal prefix rule. There is no `trigger:*:fire` literal and none should be introduced.
+`trigger:fire` covers every trigger by the coverage rule (same resource type, same action, shorter path). There is no `trigger:*:fire` literal and none should be introduced.
 
 ---
 

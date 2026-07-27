@@ -169,12 +169,24 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 		}
 	}
 	if len(kindConfigJSON) > 0 && string(kindConfigJSON) != "{}" {
-		var sc ScheduleConfig
-		if err := json.Unmarshal(kindConfigJSON, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshal kind_config: %w", err)
-		}
-		if sc.CronExpression != "" {
-			t.ScheduleConfig = &sc
+		// kind_config is polymorphic: its shape follows the trigger's kind.
+		switch t.Kind {
+		case KindScheduled:
+			var sc ScheduleConfig
+			if err := json.Unmarshal(kindConfigJSON, &sc); err != nil {
+				return nil, fmt.Errorf("unmarshal schedule config: %w", err)
+			}
+			if sc.CronExpression != "" {
+				t.ScheduleConfig = &sc
+			}
+		case KindManual:
+			var mc ManualConfig
+			if err := json.Unmarshal(kindConfigJSON, &mc); err != nil {
+				return nil, fmt.Errorf("unmarshal manual config: %w", err)
+			}
+			if len(mc.Inputs) > 0 {
+				t.ManualConfig = &mc
+			}
 		}
 	}
 	return &t, nil
@@ -505,10 +517,17 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func marshalKindConfig(t *Trigger) ([]byte, error) {
-	if t.Kind == KindScheduled && t.ScheduleConfig != nil {
+	switch {
+	case t.Kind == KindScheduled && t.ScheduleConfig != nil:
 		b, err := json.Marshal(t.ScheduleConfig)
 		if err != nil {
 			return nil, fmt.Errorf("marshal schedule config: %w", err)
+		}
+		return b, nil
+	case t.Kind == KindManual && t.ManualConfig != nil:
+		b, err := json.Marshal(t.ManualConfig)
+		if err != nil {
+			return nil, fmt.Errorf("marshal manual config: %w", err)
 		}
 		return b, nil
 	}
@@ -603,4 +622,44 @@ func (r *postgresRepository) RecordSourceRejection(ctx context.Context, sourceID
 		return fmt.Errorf("record source rejection: %w", err)
 	}
 	return nil
+}
+
+// DueScheduledMinutesWithoutDelivery lists the minutes in [since, now) that have
+// no delivery for this trigger.
+//
+// It generates the candidate minutes rather than reading them, because the
+// interesting rows are the ones that do not exist: a fire missed during an
+// outage left nothing behind to query. The caller filters these against the
+// trigger's cron expression, so this only has to bound the search.
+func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Context, triggerID string, since time.Time) ([]time.Time, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT m
+		FROM   generate_series(
+		           date_trunc('minute', $2::timestamptz),
+		           date_trunc('minute', now()) - interval '1 minute',
+		           interval '1 minute'
+		       ) AS m
+		WHERE NOT EXISTS (
+		    SELECT 1 FROM trigger_deliveries d
+		    WHERE d.trigger_id = $1 AND d.scheduled_at = m
+		)
+		ORDER BY m
+	`, triggerID, since)
+	if err != nil {
+		return nil, fmt.Errorf("find missed scheduled minutes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []time.Time
+	for rows.Next() {
+		var m time.Time
+		if err := rows.Scan(&m); err != nil {
+			return nil, fmt.Errorf("scan missed minute: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate missed minutes: %w", err)
+	}
+	return out, nil
 }

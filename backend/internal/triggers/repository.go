@@ -47,6 +47,12 @@ type Repository interface {
 	// once per minute no matter how many replicas are running.
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 
+	// DueScheduledMinutesWithoutDelivery returns the minutes since `since` for
+	// which this trigger has no delivery row — the candidates for a fire that
+	// was missed while the platform was down. The caller filters them against
+	// the trigger's own cron expression.
+	DueScheduledMinutesWithoutDelivery(ctx context.Context, triggerID string, since time.Time) ([]time.Time, error)
+
 	// DeriveDeliveryStatus recomputes a delivery's status from its per-trigger
 	// outcomes: dispatched if any run dispatched, failed if runs exist and none
 	// did, skipped if no trigger matched. The summary is never authored

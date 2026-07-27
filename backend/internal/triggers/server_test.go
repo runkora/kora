@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -287,4 +288,108 @@ func TestController_BootAndMeta(t *testing.T) {
 	mux.SetBasePath("")
 	mux.SetMiddleware(nil)
 	c.Boot(mux)
+}
+
+// ─── Phase 2: per-trigger fire authorization ─────────────────────────────────
+//
+// Firing was previously gated only by triggers:write, the same scope that
+// creates and deletes triggers, so anyone who could manage triggers could fire
+// any of them. These tests pin the narrower check closed.
+
+// newFireController builds a controller whose evaluator answers as configured,
+// so a fire test exercises the real authorization path.
+func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *mockEvaluator, *testDeps, *Service) {
+	t.Helper()
+	svc, deps := newTestService(t)
+	eval := &mockEvaluator{allow: allow, err: evalErr}
+	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+	return NewController(svc, passthrough, eval, nil, "", silentLogger()), eval, deps, svc
+}
+
+// The regression this closes: holding triggers:write must not imply the ability
+// to fire. Route-level enforcement cannot make that distinction, so if this
+// handler check is ever removed the gap silently returns.
+func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
+	c, eval, _, _ := newFireController(t, false, nil)
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
+	req.SetPathValue("id", "trig-1")
+	w := httptest.NewRecorder()
+
+	c.handleFireTrigger(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 — triggers:write must not imply fire", w.Code)
+	}
+	if got := eval.scopeAsked(); got != "trigger:trig-1:fire" {
+		t.Errorf("checked scope %q, want trigger:trig-1:fire — the identifier precedes the action so prefix grants nest correctly", got)
+	}
+}
+
+// An evaluator failure is not a permission decision. It must refuse rather than
+// fall through to an allow.
+func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
+	c, _, _, _ := newFireController(t, true, errors.New("bundle unavailable"))
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
+	req.SetPathValue("id", "trig-1")
+	w := httptest.NewRecorder()
+
+	c.handleFireTrigger(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 — an evaluator error must never become an allow", w.Code)
+	}
+}
+
+// A misconfigured controller (no evaluator wired) must refuse too.
+func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
+	c, _, _ := newTestController(t) // built with a nil evaluator
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
+	req.SetPathValue("id", "trig-1")
+	w := httptest.NewRecorder()
+
+	c.handleFireTrigger(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 when no evaluator is configured", w.Code)
+	}
+}
+
+// An unauthenticated caller never reaches the evaluator.
+func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
+	c, _, _, _ := newFireController(t, true, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`)))
+	req.SetPathValue("id", "trig-1")
+	w := httptest.NewRecorder()
+
+	c.handleFireTrigger(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 without claims", w.Code)
+	}
+}
+
+// With the scope held, the fire proceeds to the service. A non-manual trigger is
+// rejected there, which is enough to show authorization passed.
+func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
+	c, eval, deps, svc := newFireController(t, true, nil)
+	src := mustSource(t, svc)
+	trig := mustTrigger(t, svc, src.ID, nil, "p")
+	deps.minter.reset()
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/"+trig.ID+"/fire", bytes.NewReader([]byte(`{}`))))
+	req.SetPathValue("id", trig.ID)
+	w := httptest.NewRecorder()
+
+	c.handleFireTrigger(w, req)
+
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("authorization should have passed, got 403")
+	}
+	if got := eval.scopeAsked(); got != "trigger:"+trig.ID+":fire" {
+		t.Errorf("checked scope %q, want the specific trigger's fire scope", got)
+	}
 }

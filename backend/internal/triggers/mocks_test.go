@@ -15,6 +15,7 @@ import (
 	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // Compile-time interface checks.
@@ -614,4 +615,62 @@ func (m *mockRepository) allDeliveries() []*Delivery {
 	out := make([]*Delivery, len(m.deliveries))
 	copy(out, m.deliveries)
 	return out
+}
+
+// mockEvaluator stands in for the policy evaluator in controller tests.
+//
+// It embeds the interface so only Check is implemented: anything else the
+// triggers package starts calling will panic here rather than silently return a
+// zero value, which for an authorization component is the safer failure.
+//
+// It records the scope it was asked about, because the exact literal is the part
+// most likely to be got wrong.
+type mockEvaluator struct {
+	policy.Evaluator
+
+	allow bool
+	err   error
+
+	mu       sync.Mutex
+	lastArgs policy.CheckInput
+}
+
+func (m *mockEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	m.mu.Lock()
+	m.lastArgs = in
+	m.mu.Unlock()
+	if m.err != nil {
+		return policy.Result{}, m.err
+	}
+	return policy.Result{Allow: m.allow}, nil
+}
+
+// scopeAsked rebuilds the scope literal from the structured check input.
+func (m *mockEvaluator) scopeAsked() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	parts := append([]string{m.lastArgs.ResourceType}, m.lastArgs.PathSegments...)
+	return strings.Join(append(parts, m.lastArgs.Action), ":")
+}
+
+// DueScheduledMinutesWithoutDelivery mirrors the SQL: every minute in the window
+// that has no delivery for this trigger.
+func (m *mockRepository) DueScheduledMinutesWithoutDelivery(_ context.Context, triggerID string, since time.Time) ([]time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	seen := map[time.Time]bool{}
+	for _, d := range m.deliveries {
+		if d.TriggerID != nil && *d.TriggerID == triggerID && d.ScheduledAt != nil {
+			seen[d.ScheduledAt.UTC().Truncate(time.Minute)] = true
+		}
+	}
+
+	var out []time.Time
+	for t := since.UTC().Truncate(time.Minute); t.Before(time.Now().UTC().Truncate(time.Minute)); t = t.Add(time.Minute) {
+		if !seen[t] {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }

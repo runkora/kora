@@ -13,6 +13,10 @@ package triggers
 
 import (
 	"errors"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -106,6 +110,12 @@ var (
 	ErrTriggerDisabled = errors.New("trigger is disabled")
 	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
 	ErrWrongKind = errors.New("operation not valid for trigger kind")
+
+	// ErrFireForbidden is returned when a caller lacks the per-trigger
+	// trigger:<id>:fire scope. Firing is authorized per trigger because the run
+	// executes under the trigger's principal, not the caller's, so a broad
+	// trigger cannot be borrowed by a narrowly-scoped caller.
+	ErrFireForbidden = errors.New("not authorized to fire this trigger")
 )
 
 // WebhookSource is a registered inbound origin of webhook deliveries. It owns the
@@ -145,6 +155,125 @@ type WebhookSource struct {
 type ScheduleConfig struct {
 	CronExpression string `json:"cron_expression"` // standard 5-field cron
 	Timezone       string `json:"timezone"`        // IANA timezone name, e.g. "Australia/Sydney"
+	// CatchUp controls what happens to a fire that was due while the platform
+	// was down. Off by default: an agent doing real work twice is worse than not
+	// doing it, and a long outage on a frequent schedule would otherwise dump a
+	// burst of runs at once. Missed fires are still recorded (PD1).
+	CatchUp bool `json:"catch_up"`
+}
+
+// Input field types a manual trigger may declare. Deliberately a short list:
+// this is enough to render a plain form and validate an API call, and anything
+// richer starts becoming a form builder, which is a different product (PD2).
+const (
+	InputTypeText    = "text"
+	InputTypeNumber  = "number"
+	InputTypeBoolean = "boolean"
+	InputTypeChoice  = "choice"
+)
+
+// InputField is one field a manual trigger accepts.
+//
+// The declaration is the single source of truth: the console renders a form
+// from it and the API validates against the same definition, so the two cannot
+// drift.
+type InputField struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Default     string `json:"default,omitempty"`
+	// Choices are the permitted values when Type is "choice".
+	Choices []string `json:"choices,omitempty"`
+}
+
+// ManualConfig is the kind_config for a manual trigger.
+type ManualConfig struct {
+	Inputs []InputField `json:"inputs,omitempty"`
+}
+
+// Validate checks a field declaration is usable before it is stored. Catching a
+// bad declaration at creation is far better than at fire time, when the caller
+// has no way to fix it.
+func (f InputField) Validate() error {
+	if f.Name == "" {
+		return fmt.Errorf("%w: input field needs a name", ErrValidation)
+	}
+	switch f.Type {
+	case InputTypeText, InputTypeNumber, InputTypeBoolean:
+	case InputTypeChoice:
+		if len(f.Choices) == 0 {
+			return fmt.Errorf("%w: input %q is a choice but declares no choices", ErrValidation, f.Name)
+		}
+	default:
+		return fmt.Errorf("%w: input %q has unsupported type %q", ErrValidation, f.Name, f.Type)
+	}
+	return nil
+}
+
+// ValidateInputs checks a caller's values against the declaration, returning a
+// per-field error map so the console can mark the offending inputs rather than
+// showing one opaque message.
+func (m *ManualConfig) ValidateInputs(values map[string]string) map[string]string {
+	if m == nil || len(m.Inputs) == 0 {
+		return nil
+	}
+	problems := map[string]string{}
+	for _, f := range m.Inputs {
+		if problem := f.check(values); problem != "" {
+			problems[f.Name] = problem
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return problems
+}
+
+// check returns the problem with this field's supplied value, or "" if it is
+// acceptable. An omitted optional field, and an omitted required field that has
+// a default, are both fine.
+func (f InputField) check(values map[string]string) string {
+	v, present := values[f.Name]
+	if !present || v == "" {
+		if f.Required && f.Default == "" {
+			return "required"
+		}
+		return ""
+	}
+	switch f.Type {
+	case InputTypeNumber:
+		if _, err := strconv.ParseFloat(v, 64); err != nil {
+			return "must be a number"
+		}
+	case InputTypeBoolean:
+		if v != "true" && v != "false" {
+			return "must be true or false"
+		}
+	case InputTypeChoice:
+		if !slices.Contains(f.Choices, v) {
+			return "must be one of: " + strings.Join(f.Choices, ", ")
+		}
+	}
+	return ""
+}
+
+// ApplyDefaults fills in declared defaults for values the caller omitted, so a
+// trigger with sensible defaults can be fired with an empty body.
+func (m *ManualConfig) ApplyDefaults(values map[string]string) map[string]string {
+	if m == nil {
+		return values
+	}
+	if values == nil {
+		values = map[string]string{}
+	}
+	for _, f := range m.Inputs {
+		if _, ok := values[f.Name]; !ok && f.Default != "" {
+			values[f.Name] = f.Default
+		}
+	}
+	return values
 }
 
 // Trigger binds a firing condition to (agent, prompt template).
@@ -168,6 +297,9 @@ type Trigger struct {
 	MatchCondition map[string][]string `json:"match_condition,omitempty"`
 	PromptTemplate string              `json:"prompt_template"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
+	// ManualConfig declares the inputs a manual trigger accepts. One
+	// declaration drives both the console form and API validation.
+	ManualConfig *ManualConfig `json:"manual_config,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -274,6 +406,7 @@ type CreateTriggerRequest struct {
 	MatchCondition map[string][]string `json:"match_condition,omitempty"`
 	PromptTemplate string              `json:"prompt_template"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
+	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
 }
 
 // UpdateTriggerRequest is the body for PATCH /api/v1/triggers/{id}. The agent
@@ -285,6 +418,7 @@ type UpdateTriggerRequest struct {
 	PromptTemplate *string             `json:"prompt_template,omitempty"`
 	Enabled        *bool               `json:"enabled,omitempty"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
+	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
 }
 
 // FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.
@@ -298,3 +432,31 @@ type FireTriggerResponse struct {
 	DeliveryID string `json:"delivery_id"`
 	RunID      string `json:"run_id"`
 }
+
+// InputValidationError reports which declared inputs a fire request got wrong.
+//
+// Per-field rather than a single message: the console marks the offending
+// inputs, and a caller fixing three mistakes should not have to discover them
+// one round-trip at a time.
+type InputValidationError struct {
+	Problems map[string]string
+}
+
+func (e *InputValidationError) Error() string {
+	names := make([]string, 0, len(e.Problems))
+	for k := range e.Problems {
+		names = append(names, k)
+	}
+	slices.Sort(names)
+	parts := make([]string, 0, len(names))
+	for _, n := range names {
+		parts = append(parts, n+": "+e.Problems[n])
+	}
+	return "invalid input — " + strings.Join(parts, "; ")
+}
+
+func (e *InputValidationError) Is(target error) bool { return target == ErrValidationFailed }
+
+// ErrValidationFailed lets callers branch on an input-validation failure with
+// errors.Is without reaching for the concrete type.
+var ErrValidationFailed = errors.New("input validation failed")

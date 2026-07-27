@@ -792,3 +792,168 @@ func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
 		t.Errorf("rejection_count = %d, want 25", stored.RejectionCount)
 	}
 }
+
+// ─── Phase 2: manual trigger input declaration ───────────────────────────────
+//
+// One declaration drives the console form and the API, so what a user is shown
+// and what the API accepts cannot drift.
+
+func TestManualConfig_ValidateInputs(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ManualConfig{Inputs: []InputField{
+		{Name: "env", Type: InputTypeChoice, Required: true, Choices: []string{"dev", "prod"}},
+		{Name: "count", Type: InputTypeNumber},
+		{Name: "dry_run", Type: InputTypeBoolean},
+		{Name: "note", Type: InputTypeText},
+	}}
+
+	tests := []struct {
+		name     string
+		values   map[string]string
+		wantBad  []string
+		wantNone bool
+	}{
+		{name: "all valid", values: map[string]string{"env": "prod", "count": "3", "dry_run": "true", "note": "hi"}, wantNone: true},
+		{name: "optional fields omitted", values: map[string]string{"env": "dev"}, wantNone: true},
+		{name: "required missing", values: map[string]string{}, wantBad: []string{"env"}},
+		{name: "choice not in list", values: map[string]string{"env": "staging"}, wantBad: []string{"env"}},
+		{name: "number not numeric", values: map[string]string{"env": "dev", "count": "many"}, wantBad: []string{"count"}},
+		{name: "boolean not boolean", values: map[string]string{"env": "dev", "dry_run": "yes"}, wantBad: []string{"dry_run"}},
+		{
+			// Every problem at once: a caller fixing three mistakes should not
+			// discover them one round-trip at a time.
+			name:    "reports every problem together",
+			values:  map[string]string{"count": "many", "dry_run": "yes"},
+			wantBad: []string{"env", "count", "dry_run"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := cfg.ValidateInputs(tc.values)
+			if tc.wantNone {
+				if got != nil {
+					t.Fatalf("want no problems, got %v", got)
+				}
+				return
+			}
+			if len(got) != len(tc.wantBad) {
+				t.Fatalf("problems = %v, want exactly %v", got, tc.wantBad)
+			}
+			for _, f := range tc.wantBad {
+				if _, ok := got[f]; !ok {
+					t.Errorf("expected a problem for %q, got %v", f, got)
+				}
+			}
+		})
+	}
+}
+
+// A trigger with defaults can be fired with an empty body.
+func TestManualConfig_ApplyDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ManualConfig{Inputs: []InputField{
+		{Name: "env", Type: InputTypeText, Required: true, Default: "dev"},
+		{Name: "note", Type: InputTypeText},
+	}}
+
+	got := cfg.ApplyDefaults(nil)
+	if got["env"] != "dev" {
+		t.Errorf("env = %q, want the declared default", got["env"])
+	}
+	if cfg.ValidateInputs(got) != nil {
+		t.Error("a required field with a default should satisfy validation when omitted")
+	}
+
+	// An explicit value always wins over the default.
+	got = cfg.ApplyDefaults(map[string]string{"env": "prod"})
+	if got["env"] != "prod" {
+		t.Errorf("env = %q, want the caller's value to win", got["env"])
+	}
+}
+
+// A declaration that could never be satisfied is rejected at creation, not at
+// fire time when the caller has no way to fix it.
+func TestInputField_Validate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		field InputField
+		ok    bool
+	}{
+		{name: "text", field: InputField{Name: "a", Type: InputTypeText}, ok: true},
+		{name: "choice with choices", field: InputField{Name: "a", Type: InputTypeChoice, Choices: []string{"x"}}, ok: true},
+		{name: "choice without choices", field: InputField{Name: "a", Type: InputTypeChoice}},
+		{name: "unknown type", field: InputField{Name: "a", Type: "json"}},
+		{name: "no name", field: InputField{Type: InputTypeText}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.field.Validate()
+			if tc.ok && err != nil {
+				t.Fatalf("want valid, got %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("want invalid, got nil")
+			}
+		})
+	}
+}
+
+// ─── Phase 2: missed scheduled fires ─────────────────────────────────────────
+
+// A fire that was due while the platform was down previously left nothing at
+// all, so "did my nightly job run?" was unanswerable after an outage. It is now
+// recorded as missed, without running.
+func TestRecordMissedTick_RecordsWithoutRunning(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := Trigger{ID: "trig-sched", TenantID: testTenant, Kind: KindScheduled}
+	due := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Minute)
+
+	svc.RecordMissedTick(context.Background(), trig, due)
+
+	all := deps.repo.allDeliveries()
+	if len(all) != 1 {
+		t.Fatalf("want one delivery recorded, got %d", len(all))
+	}
+	d := all[0]
+	if d.Status != StatusMissed {
+		t.Errorf("status = %q, want missed", d.Status)
+	}
+	if d.Reason == nil || *d.Reason == "" {
+		t.Error("a missed fire should say why it was skipped")
+	}
+	if deps.agents.callCount() != 0 {
+		t.Error("recording a missed fire must not start a run")
+	}
+}
+
+// The same unique key that stops replicas double-firing stops a missed record
+// from racing a real fire for the same minute.
+func TestRecordMissedTick_DoesNotOverwriteARealFire(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := Trigger{ID: "trig-sched", TenantID: testTenant, Kind: KindScheduled}
+	minute := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Minute)
+
+	// A real fire claimed this minute first.
+	triggerID := trig.ID
+	_, _ = deps.repo.InsertScheduledDelivery(context.Background(), &Delivery{
+		ID: "real", TenantID: testTenant, TriggerID: &triggerID,
+		Kind: KindScheduled, Status: StatusDispatched, ScheduledAt: &minute,
+	})
+
+	svc.RecordMissedTick(context.Background(), trig, minute)
+
+	all := deps.repo.allDeliveries()
+	if len(all) != 1 {
+		t.Fatalf("want the claimed minute to stay a single delivery, got %d", len(all))
+	}
+	if all[0].Status != StatusDispatched {
+		t.Errorf("status = %q, want the real fire preserved", all[0].Status)
+	}
+}

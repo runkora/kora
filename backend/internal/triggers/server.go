@@ -3,9 +3,11 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -66,9 +68,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
 //	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
 //
-// Fire (currently requires triggers:write — see the KNOWN GAP note on
-// Service.FireTrigger; the per-trigger triggers:fire:{id} scope this endpoint
-// was designed around is not enforced):
+// Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
+// handler because RouteScope cannot express a path-dependent scope):
 //
 //	POST   /api/v1/triggers/{id}/fire         Fire a manual trigger.
 func (c *Controller) Boot(mux *api.Mux) {
@@ -94,11 +95,16 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
 
-	// The fire endpoint uses the same auth chain as management routes and today
-	// requires the same triggers:write scope (see the KNOWN GAP note on
-	// Service.FireTrigger — there is no per-trigger triggers:fire:{id} route
-	// scope registered in triggerRoutes(), cmd/identity/main.go).
+	// The fire endpoint shares the management auth chain for authentication,
+	// then checks trigger:{id}:fire in the handler. Route-level enforcement
+	// cannot do it: RouteScope matches static prefixes, so this path is
+	// indistinguishable from POST /api/v1/triggers (creation).
 	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
+
+	// Schedule preview for the creation wizard. Read-only and computed from the
+	// request alone — it touches no stored trigger, so it needs no more than
+	// triggers:read (applied by the /triggers prefix in the route table).
+	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 }
@@ -256,22 +262,79 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 }
 
 // handleFireTrigger handles POST /api/v1/triggers/{id}/fire.
-// The caller currently only needs triggers:write, enforced by
-// ScopeEnforcementMiddleware before this handler is reached — see the KNOWN
-// GAP note on Service.FireTrigger.
+//
+// Firing is authorized per trigger, here rather than on the route.
+// ScopeEnforcementMiddleware matches static path prefixes, so it cannot express
+// a scope containing the trigger id; the route-level check it does apply
+// (triggers:write, shared with trigger creation) would mean anyone who can
+// manage triggers can fire any trigger.
+//
+// The caller's permission does not narrow what the run can do. The run executes
+// under the trigger's own principal, so a caller with narrow permissions firing
+// a broadly-scoped trigger gets the trigger's scope. That is deliberate — a
+// manual trigger is a published capability with a fixed blast radius — and it is
+// exactly why firing needs its own check (ADR Decision 6).
 func (c *Controller) handleFireTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	triggerID := r.PathValue("id")
+
+	if err := c.authorizeFire(ctx, triggerID); err != nil {
+		c.logger.Warn(ctx, "fire refused: caller lacks the per-trigger fire scope",
+			logging.Field{Key: "trigger_id", Value: triggerID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "not authorized to fire this trigger", nil), err)
+		return
+	}
+
 	var req FireTriggerRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 	callerID := principalFromCtx(ctx)
-	resp, err := c.svc.FireTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), callerID, req)
+	resp, err := c.svc.FireTrigger(ctx, tenantFromCtx(ctx), triggerID, callerID, req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusAccepted, resp)
+}
+
+// authorizeFire checks the caller holds trigger:<id>:fire, failing closed.
+//
+// The scope puts the identifier before the action, following the platform's
+// qualified-scope convention: hierarchy is by prefix, so a grant on "trigger"
+// covers every trigger and "trigger:<id>" covers every action on one. The
+// inverted form (triggers:fire:<id>) would make "triggers:fire" fail to cover a
+// specific trigger, turning the hierarchy upside down. No wildcard literal is
+// introduced.
+func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return ErrFireForbidden
+	}
+	if c.eval == nil {
+		// Misconfiguration, not a permission decision. Refuse rather than
+		// treat an absent evaluator as an allow.
+		return fmt.Errorf("%w: no policy evaluator configured", ErrFireForbidden)
+	}
+
+	result, err := c.eval.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "trigger",
+		PathSegments: []string{triggerID},
+		Action:       "fire",
+	})
+	if err != nil {
+		// Fail closed: an evaluator error must not become an allow.
+		return fmt.Errorf("evaluate fire scope: %w", err)
+	}
+	if !result.Allow {
+		return fmt.Errorf("%w: trigger:%s:fire", ErrFireForbidden, triggerID)
+	}
+	return nil
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -303,6 +366,17 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
+	case errors.As(err, new(*InputValidationError)):
+		// Per-field detail so the console can mark the offending inputs rather
+		// than showing one opaque message.
+		var ive *InputValidationError
+		_ = errors.As(err, &ive)
+		details := make(map[string]any, len(ive.Problems))
+		for k, v := range ive.Problems {
+			details[k] = v
+		}
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeValidationFailed, "one or more inputs are invalid", details), nil)
 	case errors.Is(err, ErrValidation), errors.Is(err, ErrUnknownProvider):
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
 	default:
@@ -324,4 +398,65 @@ func principalFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return claims.Subject
+}
+
+// SchedulePreviewRequest asks what a cron expression would actually do.
+type SchedulePreviewRequest struct {
+	ScheduleConfig *ScheduleConfig `json:"schedule_config"`
+}
+
+// SchedulePreviewResponse returns the upcoming fire times in the schedule's own
+// timezone, plus a human-readable rendering of each.
+type SchedulePreviewResponse struct {
+	NextFires []SchedulePreviewFire `json:"next_fires"`
+	Timezone  string                `json:"timezone"`
+}
+
+// SchedulePreviewFire is one upcoming fire.
+type SchedulePreviewFire struct {
+	At    time.Time `json:"at"`
+	Label string    `json:"label"`
+}
+
+// schedulePreviewCount is how many upcoming fires to show. Three is enough to
+// reveal the shape of a schedule (daily, weekdays, monthly) without becoming a
+// wall of timestamps.
+const schedulePreviewCount = 3
+
+// handleSchedulePreview answers "what will this actually do?" before a schedule
+// is saved.
+//
+// A cron expression is easy to get subtly wrong, and the failure mode is a
+// trigger that looks healthy and quietly never runs. Showing the next few fires
+// in the schedule's own timezone turns that into something an admin can catch
+// while creating it.
+func (c *Controller) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req SchedulePreviewRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	if req.ScheduleConfig == nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeValidationFailed, "schedule_config is required", nil), nil)
+		return
+	}
+
+	fires, err := NextFires(req.ScheduleConfig, time.Now(), schedulePreviewCount)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
+		return
+	}
+
+	out := make([]SchedulePreviewFire, 0, len(fires))
+	for _, f := range fires {
+		out = append(out, SchedulePreviewFire{At: f, Label: f.Format("Mon 2 Jan 2006, 15:04")})
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, SchedulePreviewResponse{
+		NextFires: out,
+		Timezone:  req.ScheduleConfig.Timezone,
+	})
 }

@@ -224,6 +224,12 @@ func scopeDeclarations() []routescopes.ScopeDeclaration {
 	return []routescopes.ScopeDeclaration{
 		{Scope: "triggers:read", ResourceType: "triggers", PathSegments: []string{}, Action: "read", Description: "View trigger sources, triggers, and delivery history"},
 		{Scope: "triggers:write", ResourceType: "triggers", PathSegments: []string{}, Action: "write", Description: "Create, edit, and delete trigger sources and triggers"},
+		// Per-trigger fire permission, granted as trigger:<trigger-id>:fire.
+		// The identifier sits between the resource type and the action because
+		// a covering scope keeps the action and drops the path: trigger:fire
+		// covers every trigger:<id>:fire. Enforced in the handler, since
+		// RouteScope cannot express a path-dependent scope (ADR Decision 6).
+		{Scope: "trigger:fire", ResourceType: "trigger", PathSegments: []string{}, Action: "fire", Description: "Fire any manual trigger; grant trigger:<trigger-id>:fire for one"},
 	}
 }
 
