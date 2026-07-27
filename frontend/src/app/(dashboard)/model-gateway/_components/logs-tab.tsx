@@ -155,9 +155,16 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         filterFn: (row, selected) => selected.has(row.status),
       },
       cell: (row) => (
-        <Badge variant={getInferenceStatusVariant(row.status)} size="sm">
-          {fmtInferenceStatus(row.status)}
-        </Badge>
+        <Stack gap="tight">
+          <Badge variant={getInferenceStatusVariant(row.status)} size="sm">
+            {fmtInferenceStatus(row.status)}
+          </Badge>
+          {row.error_code && (
+            <Text size="caption" color="muted" mono>
+              {row.error_code}
+            </Text>
+          )}
+        </Stack>
       ),
     },
 
@@ -327,7 +334,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         searchFn={(row, q) =>
           row.id.toLowerCase().includes(q) ||
           row.model_id.toLowerCase().includes(q) ||
-          (row.virtual_model_id?.toLowerCase().includes(q) ?? false)
+          (row.virtual_model_id?.toLowerCase().includes(q) ?? false) ||
+          (row.error_code?.toLowerCase().includes(q) ?? false)
         }
         defaultSortId="date"
         defaultSortDir="desc"

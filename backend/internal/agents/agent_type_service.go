@@ -485,6 +485,12 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if vErr := s.validateAgentTypeUpdate(ctx, at, req); vErr != nil {
 		return nil, vErr
 	}
+
+	// Capture pod-baked fields before the update to detect changes that require
+	// recycling the StatefulSet pod.
+	oldFramework := at.Framework
+	oldModelID := at.ModelID
+
 	applyAgentTypeUpdates(at, req)
 
 	// Keep the inference grant aligned with the model: when the model changes and
@@ -502,25 +508,54 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes, the model (which
-	// drives inference scopes), budget, the connectivity posture, the connectors,
-	// or the governed MCP tool grants change (all compiled into the grant via
-	// EffectiveGrantScopes). Run in background so the update response is not
-	// delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.EnvironmentID != nil {
-		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
-		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-		go func() {
-			if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
-				s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
-					logging.Field{Key: "agent_type_id", Value: at.ID},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
-		}()
-	}
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+
+	s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	s.rolloutIfPodBakedFieldsChanged(ctx, at, req, namespace, oldFramework, oldModelID)
 
 	return at, nil
+}
+
+// reconcileGrantIfNeeded re-reconciles the policy-service grant when grant
+// scopes, the model (which drives inference scopes), budget, the connectivity
+// posture, the connectors, or the governed MCP tool grants change (all
+// compiled into the grant via EffectiveGrantScopes). Runs in background so
+// the update response is not delayed by a policy-service round-trip.
+func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string) {
+	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.EnvironmentID == nil {
+		return
+	}
+	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+	go func() {
+		if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
+			s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+}
+
+// rolloutIfPodBakedFieldsChanged rolls the agent StatefulSet when framework or
+// model_id changed. Both are consumed per-run at session-create time, so a
+// running pod may still be dispatching sessions with the old values; rolling
+// the StatefulSet makes pods restart and drain before accepting new runs.
+func (s *AgentTypeService) rolloutIfPodBakedFieldsChanged(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string, oldFramework AgentFramework, oldModelID *string) {
+	frameworkChanged := req.Framework != nil && at.Framework != oldFramework
+	modelChanged := req.ModelID != nil && !modelIDsEqual(at.ModelID, oldModelID)
+	if !frameworkChanged && !modelChanged {
+		return
+	}
+	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+	go func() {
+		if err := s.k8s.RolloutStatefulSet(detachedCtx, at.Slug, namespace); err != nil {
+			s.logger.Warn(detachedCtx, "failed to roll StatefulSet after framework/model update",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "slug", Value: at.Slug},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
 }
 
 // loadAgentTypeForWrite loads an agent type by ID and enforces tenant scoping
@@ -688,4 +723,16 @@ func (s *AgentTypeService) cleanupForceDeletedRun(ctx context.Context, deleted D
 // WaitForStatefulSetReady blocks until the StatefulSet for the agent type is ready.
 func (s *AgentTypeService) WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error {
 	return s.k8s.WaitForStatefulSetReady(ctx, slug, namespace)
+}
+
+// modelIDsEqual returns true when both pointers hold equal values (both nil, or
+// both non-nil with the same string content).
+func modelIDsEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

@@ -28,7 +28,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 	)
 
 	if !isClaudeModel(params.Model) {
-		return nil, inferencegw.ConnectorError{
+		return nil, &inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderVertexAI,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,
@@ -86,7 +86,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 	)
 
 	if !isClaudeModel(params.Model) {
-		return nil, inferencegw.ConnectorError{
+		return nil, &inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderVertexAI,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,

@@ -839,6 +839,86 @@ func TestUpdateAgentType_NotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateAgentType_FrameworkChange_RollsStatefulSet(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework: AgentFrameworkClaudeCode,
+	})
+
+	newFramework := AgentFrameworkCodex
+	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
+		ID:        "at-1",
+		Framework: &newFramework,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	waitFor(t, 500*time.Millisecond, func() bool {
+		k8s.mu.Lock()
+		defer k8s.mu.Unlock()
+		return len(k8s.rolledOutSlugs) > 0
+	})
+	k8s.mu.Lock()
+	defer k8s.mu.Unlock()
+	if len(k8s.rolledOutSlugs) != 1 || k8s.rolledOutSlugs[0] != "bot" {
+		t.Errorf("StatefulSet rollout not triggered: rolledOutSlugs = %v", k8s.rolledOutSlugs)
+	}
+}
+
+func TestUpdateAgentType_ModelIDChange_RollsStatefulSet(t *testing.T) {
+	oldModel := "claude-sonnet-4-5"
+	svc, repo, k8s, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework: AgentFrameworkClaudeCode,
+		ModelID:   &oldModel,
+	})
+
+	newModel := "claude-opus-4-8"
+	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
+		ID:      "at-1",
+		ModelID: &newModel,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	waitFor(t, 500*time.Millisecond, func() bool {
+		k8s.mu.Lock()
+		defer k8s.mu.Unlock()
+		return len(k8s.rolledOutSlugs) > 0
+	})
+	k8s.mu.Lock()
+	defer k8s.mu.Unlock()
+	if len(k8s.rolledOutSlugs) != 1 || k8s.rolledOutSlugs[0] != "bot" {
+		t.Errorf("StatefulSet rollout not triggered: rolledOutSlugs = %v", k8s.rolledOutSlugs)
+	}
+}
+
+func TestUpdateAgentType_NameChange_DoesNotRollStatefulSet(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework: AgentFrameworkClaudeCode,
+	})
+
+	newName := "New Name"
+	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
+		ID:   "at-1",
+		Name: &newName,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// A brief wait ensures a spurious goroutine would have had time to fire.
+	time.Sleep(50 * time.Millisecond)
+	k8s.mu.Lock()
+	defer k8s.mu.Unlock()
+	if len(k8s.rolledOutSlugs) != 0 {
+		t.Errorf("name-only update must not roll StatefulSet, got: %v", k8s.rolledOutSlugs)
+	}
+}
+
 // ── SendMessage (idle state) ──────────────────────────────────────────────────
 
 func TestSendMessage_IdleRun(t *testing.T) {
