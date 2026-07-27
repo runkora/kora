@@ -228,6 +228,7 @@ func (s *Service) ChatCompletion(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
@@ -384,6 +385,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
+		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
@@ -417,6 +419,7 @@ func (s *Service) ChatCompletionStream(
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
+			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
@@ -1546,6 +1549,29 @@ func extractFailureDetails(err error) *FailureDetails {
 	return fd
 }
 
+// logProviderError emits a structured error log for upstream provider failures.
+// Called on every code path where a ConnectorError reaches the service layer,
+// including streaming goroutines that otherwise only record an OTel span.
+func (s *Service) logProviderError(ctx context.Context, model string, err error) {
+	fields := []logging.Field{
+		{Key: "model", Value: model},
+	}
+	var connErr *ConnectorError
+	if errors.As(err, &connErr) {
+		fields = append(fields,
+			logging.Field{Key: "provider", Value: string(connErr.Provider)},
+			logging.Field{Key: "error_code", Value: connErr.Code},
+		)
+		if connErr.HTTPStatus != 0 {
+			fields = append(fields, logging.Field{Key: "provider_http_status", Value: connErr.HTTPStatus})
+		}
+		if connErr.ProviderMessage != "" {
+			fields = append(fields, logging.Field{Key: "provider_message", Value: connErr.ProviderMessage})
+		}
+	}
+	s.logger.Error(ctx, "provider error", fields...)
+}
+
 func extractErrorCode(err error) string {
 	if err == nil {
 		return ""
@@ -1702,6 +1728,7 @@ func (s *Service) Embeddings(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
@@ -1817,6 +1844,7 @@ func (s *Service) Responses(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
@@ -1942,6 +1970,7 @@ func (s *Service) ResponsesStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
+		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
@@ -1967,6 +1996,7 @@ func (s *Service) ResponsesStream(
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
+			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
@@ -2168,6 +2198,7 @@ func (s *Service) AnthropicMessages(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
@@ -2304,6 +2335,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
+		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
@@ -2329,6 +2361,7 @@ func (s *Service) AnthropicMessagesStream(
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
+			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}

@@ -168,6 +168,11 @@ func inferenceErrorResponse(err error) *api.APIError {
 	case errors.Is(err, ErrRoutingFailed):
 		return api.ServiceUnavailableError("routing_failed", "unable to route request to any provider", nil)
 	case errors.Is(err, ErrProviderError):
+		var connErr *ConnectorError
+		if errors.As(err, &connErr) && connErr.ProviderMessage != "" {
+			details := map[string]any{"error_code": connErr.Code}
+			return api.ServiceUnavailableError("provider_error", connErr.ProviderMessage, details)
+		}
 		return api.ServiceUnavailableError("provider_error", "upstream provider returned an error", nil)
 	case errors.Is(err, ErrInvalidRequest):
 		return api.BadRequestError("invalid_request", "request validation failed", nil)
