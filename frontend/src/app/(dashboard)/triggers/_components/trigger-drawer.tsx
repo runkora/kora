@@ -151,7 +151,7 @@ export function TriggerDrawer({
         : 'Manual · run on demand';
 
   return (
-    <SidePanel open onClose={onClose} size="lg">
+    <SidePanel open onClose={onClose} size="md">
       <SidePanelHeader
         title={trigger.name}
         description={subtitle}
