@@ -17,6 +17,12 @@ interface TriggerListProps {
   onToggle: (t: TriggerRow) => void;
   /** Rendered in the table toolbar, left of the search box. */
   toolbarActions?: React.ReactNode;
+  /**
+   * Shown when the list is empty. Filter-aware, because "no triggers yet" is a
+   * different situation from "none of this kind" and sends the reader somewhere
+   * different.
+   */
+  emptyMessage?: string;
 }
 
 /** Icon per kind: what wakes this trigger up. */
@@ -58,6 +64,7 @@ export function TriggerList({
   onOpen,
   onToggle,
   toolbarActions,
+  emptyMessage = 'No triggers yet.',
 }: TriggerListProps) {
   const columns = useMemo<DataTableColumn<TriggerRow>[]>(
     () => [
@@ -206,8 +213,8 @@ export function TriggerList({
       onRowClick={onOpen}
       onRowClickLabel="Open trigger"
       toolbarActions={toolbarActions}
-      emptyMessage="No triggers yet."
-      filteredEmptyMessage="No triggers match this filter."
+      emptyMessage={emptyMessage}
+      filteredEmptyMessage="No triggers match this search."
     />
   );
 }

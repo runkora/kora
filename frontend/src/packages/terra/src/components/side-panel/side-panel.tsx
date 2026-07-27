@@ -133,9 +133,21 @@ export interface SidePanelHeaderProps {
   description?: string;
   /** When `false`, the built-in close (×) button is hidden. Default: `true`. */
   showClose?: boolean;
+  /**
+   * Controls placed beside the close button: a state toggle, a primary action.
+   *
+   * For the one control that defines whether the panel's subject is live at
+   * all. Anything a reader would have to scroll to find does not belong here.
+   */
+  actions?: React.ReactNode;
 }
 
-const SidePanelHeader = ({ title, description, showClose = true }: SidePanelHeaderProps) => (
+const SidePanelHeader = ({
+  title,
+  description,
+  showClose = true,
+  actions,
+}: SidePanelHeaderProps) => (
   <div
     data-slot="side-panel-header"
     className="flex items-start justify-between border-b border-border px-5 py-4 shrink-0"
@@ -152,22 +164,25 @@ const SidePanelHeader = ({ title, description, showClose = true }: SidePanelHead
         </DialogPrimitive.Description>
       )}
     </div>
-    {showClose && (
-      <DialogPrimitive.Close asChild>
-        <button
-          type="button"
-          aria-label="Close"
-          className={cn(
-            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
-            'border-transparent bg-transparent text-muted',
-            'transition-colors hover:bg-surface-overlay hover:text-foreground',
-            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-          )}
-        >
-          <Icon name="close" size="xs" />
-        </button>
-      </DialogPrimitive.Close>
-    )}
+    <div className="flex shrink-0 items-center gap-2">
+      {actions}
+      {showClose && (
+        <DialogPrimitive.Close asChild>
+          <button
+            type="button"
+            aria-label="Close"
+            className={cn(
+              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+              'border-transparent bg-transparent text-muted',
+              'transition-colors hover:bg-surface-overlay hover:text-foreground',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+            )}
+          >
+            <Icon name="close" size="xs" />
+          </button>
+        </DialogPrimitive.Close>
+      )}
+    </div>
   </div>
 );
 SidePanelHeader.displayName = 'SidePanelHeader';

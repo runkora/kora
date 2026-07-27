@@ -105,6 +105,17 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
 
   /**
+   * When true, renders the card recessed into its container: the background
+   * step below the surface it sits on, with a subtle border.
+   *
+   * Use for read-only detail inside an already-elevated container — a panel's
+   * field rows, a stat tile, a configuration summary. Signals "this is content
+   * within the thing you opened", where a normal card would read as a peer of
+   * it. Overrides `subtle`.
+   */
+  inset?: boolean;
+
+  /**
    * When `true`, renders the card in its selected state: an accent border
    * (`border-border-accent`) over a translucent accent fill (`bg-accent/10`).
    *
@@ -203,6 +214,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       className,
       column = false,
       interactive = false,
+      inset = false,
       selected = false,
       selectedVariant = 'tint',
       overflowY,
@@ -227,7 +239,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         className={cn(
           'rounded-lg border text-foreground overflow-hidden',
           border === 'default' ? 'border-border' : 'border-border-subtle',
-          subtle ? 'bg-surface-elevated' : 'bg-surface',
+          inset ? 'bg-background' : subtle ? 'bg-surface-elevated' : 'bg-surface',
           selected &&
             (selectedVariant === 'outline'
               ? 'border-border-accent bg-surface-elevated'

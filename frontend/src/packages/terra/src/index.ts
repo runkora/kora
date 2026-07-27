@@ -312,3 +312,9 @@ export type { SegmentedControlProps, SegmentedControlOption } from './components
 
 export { IconTile, iconTileVariants } from './components/icon-tile';
 export type { IconTileProps } from './components/icon-tile';
+
+export { SectionLabel } from './components/section-label';
+export type { SectionLabelProps } from './components/section-label';
+
+export { FieldRow } from './components/field-row';
+export type { FieldRowProps } from './components/field-row';

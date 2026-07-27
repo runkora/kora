@@ -9,9 +9,11 @@ import {
   Button,
   Card,
   CardContent,
-  Code,
+  FieldRow,
   Grid,
   Icon,
+  IconTile,
+  SectionLabel,
   Separator,
   SidePanel,
   SidePanelBody,
@@ -22,17 +24,19 @@ import {
   TabsList,
   TabsTrigger,
   Text,
+  Toggle,
 } from '@orbit/terra';
-import { StatusBadge } from '@orbit/components';
+import { CopyButton, StatusBadge } from '@orbit/components';
 import { deliveryStatusTone } from '../_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
-import { recentFailures, sparkline } from '../_types/fleet';
-import { TriggerSparkline } from './trigger-sparkline';
+import { recentFailures } from '../_types/fleet';
 
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
   sources: SourceRow[];
   deliveries: DeliveryRow[];
+  /** Public base URL webhook senders post to. */
+  ingestHost: string;
   onClose: () => void;
   onToggleEnabled: (t: TriggerRow, enabled: boolean) => void;
   onDelete: (t: TriggerRow) => void;
@@ -45,20 +49,53 @@ interface TriggerDrawerProps {
 const DELIVERY_SAMPLE = 8;
 
 function formatTime(iso: string | null): string {
-  if (!iso) return 'Never';
+  if (iso === null) return 'Never';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-/** A labelled value in the overview grid. */
-function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+/** Renders a cron expression as something a person can check at a glance. */
+function describeCron(expr: string): string {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return 'Custom schedule';
+  const [min, hour, dom, mon, dow] = parts;
+  if (min === '0' && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return 'Every hour, on the hour';
+  }
+  if (dom === '*' && mon === '*' && dow === '*' && /^\d+$/.test(hour) && /^\d+$/.test(min)) {
+    return `Every day at ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+  }
+  if (min.startsWith('*/')) return `Every ${min.slice(2)} minutes`;
+  return 'Custom schedule';
+}
+
+/** A small figure in the drawer's stat trio. */
+function DrawerStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'healthy' | 'error';
+}) {
   return (
-    <Stack gap="tight">
-      <Text size="supporting" color="muted">
-        {label}
-      </Text>
-      {children}
-    </Stack>
+    <Card inset border="subtle">
+      <CardContent>
+        <Stack gap="tight">
+          <SectionLabel>{label}</SectionLabel>
+          <Text
+            mono
+            weight="heavy"
+            color={
+              tone === 'error' ? 'status-error' : tone === 'healthy' ? 'status-healthy' : undefined
+            }
+          >
+            {value}
+          </Text>
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -66,13 +103,15 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
  * TriggerDrawer shows one trigger's configuration, history and settings.
  *
  * Split three ways because those are three different questions: what is this,
- * what has it done, and how should it behave. Mixing them is what made the old
- * single list unusable for debugging.
+ * what has it done, and how should it behave. The Overview leads with the thing
+ * an operator most often came for — the endpoint to paste into a provider, the
+ * schedule to sanity-check, the form to run.
  */
 export function TriggerDrawer({
   trigger,
   sources,
   deliveries,
+  ingestHost,
   onClose,
   onToggleEnabled,
   onDelete,
@@ -80,6 +119,7 @@ export function TriggerDrawer({
   firing = false,
 }: TriggerDrawerProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [secretShown, setSecretShown] = useState(false);
 
   const mine = useMemo(
     () =>
@@ -95,13 +135,32 @@ export function TriggerDrawer({
 
   const source = sources.find((s) => s.id === trigger.sourceId);
   const failures = recentFailures(trigger.id, deliveries);
+  const succeeded = mine.reduce(
+    (n, d) => n + d.runs.filter((r) => r.triggerId === trigger.id && r.status === 'dispatched').length,
+    0,
+  );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
+  const endpoint = `https://${ingestHost}/api/v1/webhooks/${trigger.sourceId}`;
+
+  const subtitle =
+    trigger.kind === 'webhook'
+      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'any event'}`
+      : trigger.kind === 'scheduled'
+        ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
+        : 'Manual · run on demand';
 
   return (
     <SidePanel open onClose={onClose} size="lg">
       <SidePanelHeader
         title={trigger.name}
-        description={`${trigger.kind} trigger · starts ${trigger.agentSlug}`}
+        description={subtitle}
+        actions={
+          <Toggle
+            checked={trigger.enabled}
+            onChange={(next) => onToggleEnabled(trigger, next)}
+            aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
+          />
+        }
       />
       <SidePanelBody>
         <Tabs defaultValue="overview">
@@ -117,104 +176,195 @@ export function TriggerDrawer({
               {trigger.autoPausedAt !== null && (
                 <Alert variant="error">
                   The platform disabled this trigger after {trigger.consecutiveFailures} consecutive
-                  failures. Fix the cause, then re-enable it in Settings.
+                  failures. Fix the cause, then re-enable it above.
                 </Alert>
               )}
 
-              <Grid cols={2} gap="comfortable">
-                {trigger.kind === 'webhook' && (
-                  <>
-                    <Detail label="Source">
-                      <Text>{source?.name ?? trigger.sourceId}</Text>
-                    </Detail>
-                    <Detail label="Fires on">
-                      <Code>{trigger.eventType || 'any event'}</Code>
-                    </Detail>
-                  </>
-                )}
-                {trigger.kind === 'scheduled' && trigger.scheduleConfig && (
-                  <>
-                    <Detail label="Schedule">
-                      <Code>{trigger.scheduleConfig.cronExpression}</Code>
-                    </Detail>
-                    <Detail label="Timezone">
-                      <Text>{trigger.scheduleConfig.timezone}</Text>
-                    </Detail>
-                    <Detail label="Missed fires">
-                      <Text>
-                        {trigger.scheduleConfig.catchUp
-                          ? 'Run on recovery'
-                          : 'Recorded and skipped'}
-                      </Text>
-                    </Detail>
-                  </>
-                )}
-                {trigger.kind === 'manual' && onFire !== undefined && (
-                  <Detail label="Run now">
-                    <Stack direction="horizontal">
-                      <Button
-                        size="sm"
-                        disabled={!trigger.enabled || firing}
-                        onClick={() => onFire(trigger)}
-                      >
-                        <Icon name="play" size="xs" />
-                        {firing ? 'Queueing…' : 'Run now'}
-                      </Button>
-                    </Stack>
-                  </Detail>
-                )}
-                {trigger.kind === 'manual' && (
-                  <Detail label="API path">
-                    <Code>POST /api/v1/triggers/{trigger.id}/fire</Code>
-                  </Detail>
-                )}
-
-                <Detail label="Target agent">
-                  <Text>{trigger.agentSlug}</Text>
-                </Detail>
-                <Detail label="Last 24 hours">
-                  <TriggerSparkline
-                    buckets={sparkline(trigger.id, deliveries)}
-                    label={trigger.name}
-                  />
-                </Detail>
-              </Grid>
-
-              {trigger.kind === 'manual' && (trigger.manualInputs?.length ?? 0) > 0 && (
+              {/* Webhook: the address to paste into a provider, and the secret
+                  that proves deliveries came from it. */}
+              {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
-                  <Text weight="heavy">Inputs</Text>
-                  <Text size="supporting" color="muted">
-                    One declaration drives this form and the API, so the two cannot drift.
+                  <SectionLabel>Endpoint</SectionLabel>
+                  <FieldRow
+                    leading={<Icon name="lock" size="2xs" color="status-healthy" />}
+                    actions={
+                      <CopyButton value={endpoint} label="Copy" />
+                    }
+                  >
+                    <Text mono size="caption">
+                      {endpoint}
+                    </Text>
+                  </FieldRow>
+
+                  <FieldRow
+                    leading={
+                      <Text mono size="micro" color="subtle">
+                        secret
+                      </Text>
+                    }
+                    actions={
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => setSecretShown((v) => !v)}
+                          // The secret is write-once at creation and never
+                          // returned on reads, so there is nothing to reveal.
+                          // Saying so beats a button that appears to do nothing.
+                          disabled
+                        >
+                          {secretShown ? 'Hide' : 'Reveal'}
+                        </Button>
+                        <Button variant="ghost" size="xs" disabled>
+                          Rotate
+                        </Button>
+                      </>
+                    }
+                  >
+                    <Text mono size="caption" color="muted">
+                      shown once at creation
+                    </Text>
+                  </FieldRow>
+
+                  <Text size="caption" color="subtle">
+                    Deliveries are verified with an HMAC signature over the raw body. Unsigned or
+                    stale requests are rejected before any run starts, and are counted on the source
+                    rather than recorded as deliveries.
                   </Text>
-                  <Stack gap="tight">
-                    {trigger.manualInputs?.map((f) => (
-                      <Stack key={f.name} direction="horizontal" gap="snug" align="center">
-                        <Code>{f.name}</Code>
-                        <Badge variant="outline">{f.type}</Badge>
-                        {f.required === true && <Badge variant="outline">required</Badge>}
-                        {f.choices !== undefined && (
-                          <Text size="supporting" color="muted">
-                            {f.choices.join(', ')}
+                </Stack>
+              )}
+
+              {/* Schedule: the expression, in words, with its timezone. */}
+              {trigger.kind === 'scheduled' && trigger.scheduleConfig && (
+                <Stack gap="snug">
+                  <SectionLabel>Schedule</SectionLabel>
+                  <FieldRow leading={<Icon name="clock" size="2xs" color="accent" />}>
+                    <Stack gap="none">
+                      <Text mono size="supporting" weight="emphasis">
+                        {trigger.scheduleConfig.cronExpression}
+                      </Text>
+                      <Text size="caption" color="muted">
+                        {describeCron(trigger.scheduleConfig.cronExpression)} ·{' '}
+                        {trigger.scheduleConfig.timezone}
+                      </Text>
+                    </Stack>
+                  </FieldRow>
+                  <Grid cols={2} gap="snug">
+                    <DrawerStat
+                      label="Missed runs"
+                      value={
+                        trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Recorded and skipped'
+                      }
+                    />
+                    <DrawerStat label="Timezone" value={trigger.scheduleConfig.timezone} />
+                  </Grid>
+                </Stack>
+              )}
+
+              {/* Manual: the form this trigger publishes, and the way to run it. */}
+              {trigger.kind === 'manual' && (
+                <Stack gap="snug">
+                  <SectionLabel>Run this agent</SectionLabel>
+                  <Card inset border="subtle" divide column>
+                    {(trigger.manualInputs ?? []).map((f) => (
+                      <Stack
+                        key={f.name}
+                        direction="horizontal"
+                        align="center"
+                        justify="between"
+                        gap="snug"
+                        padding="snug"
+                      >
+                        <Stack gap="none">
+                          <Text size="supporting" weight="emphasis">
+                            {f.label ?? f.name}
                           </Text>
-                        )}
+                          <Text mono size="micro" color="subtle">
+                            {f.name}
+                            {f.required === true ? ' · required' : ''}
+                          </Text>
+                        </Stack>
+                        <Text size="caption" color="muted">
+                          {f.type === 'choice' ? (f.choices ?? []).join(' · ') : f.type}
+                        </Text>
                       </Stack>
+                    ))}
+                    <Stack
+                      direction="horizontal"
+                      justify="between"
+                      align="center"
+                      padding="snug"
+                    >
+                      <Text mono size="micro" color="subtle">
+                        POST /api/v1/triggers/{trigger.id}/fire
+                      </Text>
+                      {onFire !== undefined && (
+                        <Button
+                          size="sm"
+                          disabled={!trigger.enabled || firing}
+                          onClick={() => onFire(trigger)}
+                        >
+                          {firing ? 'Queueing…' : 'Run now'}
+                        </Button>
+                      )}
+                    </Stack>
+                  </Card>
+                </Stack>
+              )}
+
+              {/* Event filters: what this trigger accepts of what arrives. */}
+              {trigger.kind === 'webhook' && (
+                <Stack gap="snug">
+                  <SectionLabel>Event filters</SectionLabel>
+                  <Stack direction="horizontal" gap="tight" wrap>
+                    <Badge variant="default" mono>
+                      {trigger.eventType || 'any event'}
+                    </Badge>
+                    {Object.entries(trigger.matchCondition).map(([k, vals]) => (
+                      <Badge key={k} variant="elevated" mono>
+                        {k}={vals.join('|')}
+                      </Badge>
                     ))}
                   </Stack>
                 </Stack>
               )}
 
-              <Separator />
+              {/* Target: what gets started, and how many at once. */}
+              <Stack gap="snug">
+                <SectionLabel>Target</SectionLabel>
+                <FieldRow
+                  leading={
+                    <IconTile tone="accent">
+                      <Text mono size="supporting" weight="heavy">
+                        {trigger.agentSlug.charAt(0).toUpperCase()}
+                      </Text>
+                    </IconTile>
+                  }
+                  actions={
+                    <Text size="caption" color="subtle">
+                      {trigger.maxParallel} parallel · {trigger.overflow}
+                    </Text>
+                  }
+                >
+                  <Stack gap="none">
+                    <Text size="supporting" weight="emphasis">
+                      {trigger.agentSlug}
+                    </Text>
+                    <Text mono size="micro" color="subtle">
+                      agt/{trigger.agentSlug}
+                    </Text>
+                  </Stack>
+                </FieldRow>
+              </Stack>
 
-              <Grid cols={3} gap="comfortable">
-                <Detail label="Deliveries (24h)">
-                  <Text size="lead">{mine.length}</Text>
-                </Detail>
-                <Detail label="Failures (24h)">
-                  <Text size="lead">{failures}</Text>
-                </Detail>
-                <Detail label="Last fired">
-                  <Text>{formatTime(mine[0]?.receivedAt ?? null)}</Text>
-                </Detail>
+              <Grid cols={3} gap="snug">
+                <DrawerStat label="Deliveries 24h" value={String(mine.length)} />
+                <DrawerStat label="Succeeded" value={String(succeeded)} tone="healthy" />
+                <DrawerStat
+                  label="Failed"
+                  value={String(failures)}
+                  tone={failures > 0 ? 'error' : undefined}
+                />
               </Grid>
             </Stack>
           </TabsContent>
@@ -223,11 +373,18 @@ export function TriggerDrawer({
           <TabsContent value="deliveries">
             <Stack gap="comfortable">
               {/* Honest about sampling: never imply this is everything. */}
-              <Text size="supporting" color="muted">
-                {mine.length === 0
-                  ? 'No deliveries yet'
-                  : `Showing ${shown.length} of ${mine.length} deliveries`}
-              </Text>
+              <Stack direction="horizontal" justify="between" align="center">
+                <Text size="supporting" color="muted">
+                  {mine.length === 0
+                    ? 'No deliveries yet'
+                    : `Last ${shown.length} of ${mine.length}`}
+                </Text>
+                {mine.length > 0 && (
+                  <Text size="caption" color="subtle">
+                    Click a row for the payload
+                  </Text>
+                )}
+              </Stack>
               <Stack gap="tight">
                 {shown.map((d) => {
                   const outcome = d.runs.find((r) => r.triggerId === trigger.id);
@@ -245,7 +402,7 @@ export function TriggerDrawer({
                               <Text size="supporting">{d.eventType || d.kind}</Text>
                             </Stack>
                             <Stack direction="horizontal" gap="snug" align="center">
-                              <Text size="supporting" color="muted">
+                              <Text size="caption" color="muted">
                                 {formatTime(d.receivedAt)}
                               </Text>
                               <Button
@@ -261,22 +418,26 @@ export function TriggerDrawer({
                           {open && (
                             <Stack gap="tight">
                               {outcome?.error != null && (
-                                <Text size="supporting" color="muted">
+                                <Text size="caption" color="muted">
                                   {outcome.error}
                                 </Text>
                               )}
                               {outcome?.runId != null && (
-                                <Text size="supporting">
-                                  Run <Code>{outcome.runId}</Code>
+                                <Text mono size="caption">
+                                  run {outcome.runId}
                                 </Text>
                               )}
                               {d.payloadPurged ? (
-                                <Text size="supporting" color="muted">
+                                <Text size="caption" color="subtle">
                                   Payload purged past this tenant&apos;s retention window. What
                                   happened is still recorded.
                                 </Text>
                               ) : (
-                                d.payloadExcerpt != null && <Code>{d.payloadExcerpt}</Code>
+                                d.payloadExcerpt != null && (
+                                  <Text mono size="caption" color="muted">
+                                    {d.payloadExcerpt}
+                                  </Text>
+                                )
                               )}
                             </Stack>
                           )}
@@ -292,56 +453,44 @@ export function TriggerDrawer({
           {/* ── Settings: how it should behave ──────────────────────────── */}
           <TabsContent value="settings">
             <Stack gap="relaxed">
-              <Text size="supporting" color="muted">
+              <Text size="caption" color="subtle">
                 Changes take effect on the next delivery, not on work already in flight.
               </Text>
 
-              <Grid cols={2} gap="comfortable">
-                <Detail label="Runs at once">
-                  <Text>{trigger.maxParallel}</Text>
-                </Detail>
-                <Detail label="When at the limit">
-                  <Text>
-                    {trigger.overflow === 'wait'
-                      ? `Wait (up to ${trigger.maxQueueDepth} queued)`
+              <Grid cols={2} gap="snug">
+                <DrawerStat label="Runs at once" value={String(trigger.maxParallel)} />
+                <DrawerStat
+                  label="At the limit"
+                  value={
+                    trigger.overflow === 'wait'
+                      ? `Wait (${trigger.maxQueueDepth} max)`
                       : trigger.overflow === 'replace'
-                        ? 'Replace what is waiting'
-                        : 'Refuse immediately'}
-                  </Text>
-                </Detail>
-                <Detail label="Start timeout">
-                  <Text>{trigger.timeoutSeconds}s</Text>
-                </Detail>
-                <Detail label="Duplicate suppression">
-                  <Text>{trigger.dedupeEnabled ? 'On' : 'Off'}</Text>
-                </Detail>
-                <Detail label="Auto-pause">
-                  <Text>
-                    {trigger.autopauseEnabled
-                      ? 'After 10 consecutive failures'
-                      : 'Off for this trigger'}
-                  </Text>
-                </Detail>
-                <Detail label="Consecutive failures">
-                  <Text>{trigger.consecutiveFailures}</Text>
-                </Detail>
+                        ? 'Replace waiting'
+                        : 'Refuse'
+                  }
+                />
+                <DrawerStat label="Start timeout" value={`${trigger.timeoutSeconds}s`} />
+                <DrawerStat label="Duplicates" value={trigger.dedupeEnabled ? 'Suppressed' : 'Allowed'} />
+                <DrawerStat
+                  label="Auto-pause"
+                  value={trigger.autopauseEnabled ? 'After 10 failures' : 'Off'}
+                />
+                <DrawerStat
+                  label="Consecutive failures"
+                  value={String(trigger.consecutiveFailures)}
+                  tone={trigger.consecutiveFailures > 0 ? 'error' : undefined}
+                />
               </Grid>
 
               <Separator />
 
               <Stack direction="horizontal" gap="snug">
-                <Button
-                  variant="secondary"
-                  onClick={() => onToggleEnabled(trigger, !trigger.enabled)}
-                >
-                  {trigger.enabled ? 'Disable' : 'Enable'}
-                </Button>
                 <Button variant="destructive" onClick={() => onDelete(trigger)}>
                   Delete trigger
                 </Button>
               </Stack>
-              <Text size="supporting" color="muted">
-                Disabling drops anything still waiting, recorded as dropped rather than silently
+              <Text size="caption" color="subtle">
+                Deleting drops anything still waiting, recorded as dropped rather than silently
                 discarded. Delivery history is kept either way.
               </Text>
             </Stack>

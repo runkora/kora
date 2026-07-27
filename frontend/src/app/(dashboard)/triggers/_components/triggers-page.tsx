@@ -435,22 +435,21 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         {/* Triggers */}
         <TabsContent value="triggers">
           <Stack gap="comfortable">
-            {visibleTriggers.length === 0 ? (
+            {/* The table always renders, even when nothing matches. Swapping it
+                for an empty state would take the kind filter with it, since the
+                filter lives in the toolbar, leaving no way back from a filter
+                that matches nothing. DataTable shows its own empty message
+                inside the frame instead. */}
+            {triggers.length === 0 ? (
               <EmptyState
                 icon="zap"
-                title={triggers.length === 0 ? 'No triggers' : 'No triggers match this filter'}
-                description={
-                  triggers.length === 0
-                    ? 'A trigger binds a way of starting work to the agent that does it.'
-                    : 'Try a different kind, or clear the search.'
-                }
+                title="No triggers"
+                description="A trigger binds a way of starting work to the agent that does it."
                 action={
-                  triggers.length === 0 ? (
-                    <Button size="sm" onClick={() => setKindPickerOpen(true)}>
-                      <Icon name="plus" size="xs" />
-                      New trigger
-                    </Button>
-                  ) : undefined
+                  <Button size="sm" onClick={() => setKindPickerOpen(true)}>
+                    <Icon name="plus" size="xs" />
+                    New trigger
+                  </Button>
                 }
               />
             ) : (
@@ -461,6 +460,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 onOpen={setDrawerTrigger}
                 onToggle={(t) => void toggleTrigger(t)}
                 toolbarActions={kindFilterControl}
+                emptyMessage={
+                  kindFilter === 'all'
+                    ? 'No triggers yet.'
+                    : `No ${kindFilter} triggers. Pick another kind above, or create one.`
+                }
               />
             )}
           </Stack>
@@ -519,6 +523,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         trigger={drawerTrigger}
         sources={sources}
         deliveries={deliveries}
+        ingestHost={ingestHost}
         onClose={() => setDrawerTrigger(null)}
         onToggleEnabled={(t) => {
           setDrawerTrigger(null);
