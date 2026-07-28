@@ -14,6 +14,9 @@ import {
   SegmentedControl,
   Heading,
   Icon,
+  SidePanel,
+  SidePanelBody,
+  SidePanelHeader,
   Stack,
   Tabs,
   TabsContent,
@@ -24,13 +27,14 @@ import {
 import type { DataTableColumn, TableColumnFilterOption } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import {
-  createSource,
-  createTrigger,
   deleteTrigger,
   fireTrigger,
+  redeliverDelivery,
   updateSource,
   updateTrigger,
 } from '../_services/triggers-api';
+import { createFromWizardDraft } from '../_services/create-from-wizard';
+import { DeliveryDetail } from './delivery-detail';
 import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
@@ -91,6 +95,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  // The platform Deliveries tab is not scoped to one trigger, so a row opens
+  // its own panel rather than the owning trigger's drawer: the question being
+  // asked is "what did this delivery do", not "how is that trigger set up".
+  const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
   const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
   const [query, setQuery] = useState('');
 
@@ -209,74 +217,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
    */
   const createFromWizard = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
-      let sourceId: string | undefined;
-      let secret: string | undefined;
-
-      if (draft.kind === 'webhook') {
-        if (draft.source === undefined) return { ok: false, error: 'Choose a source.' };
-        if ('existingId' in draft.source) {
-          sourceId = draft.source.existingId;
-        } else {
-          const made = await createSource({
-            name: draft.source.newName,
-            provider: draft.source.provider,
-          });
-          if (made.error !== null || made.source === null) {
-            return { ok: false, error: made.error ?? 'Failed to create the source.' };
-          }
-          sourceId = made.source.id;
-          secret = made.source.secret;
-        }
-      }
-
-      const made = await createTrigger({
-        kind: draft.kind,
-        name: draft.name,
-        agent_type_id: draft.agentTypeId,
-        prompt_template: draft.promptTemplate,
-        ...(sourceId !== undefined && { source_id: sourceId }),
-        ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
-        ...(draft.matchCondition !== undefined && { match_condition: draft.matchCondition }),
-        ...(draft.schedule !== undefined && {
-          schedule_config: {
-            cron_expression: draft.schedule.cronExpression,
-            timezone: draft.schedule.timezone,
-            catch_up: draft.schedule.catchUp,
-          },
-        }),
-        ...(draft.manualInputs !== undefined && {
-          manual_config: {
-            inputs: draft.manualInputs.map((f) => ({
-              name: f.name,
-              label: f.label,
-              type: f.type,
-              required: f.required,
-              ...(f.choices !== undefined && { choices: f.choices }),
-            })),
-          },
-        }),
-        max_parallel: draft.maxParallel,
-        overflow: draft.overflow,
-        max_queue_depth: draft.maxQueueDepth,
-        timeout_seconds: draft.timeoutSeconds,
-        dedupe_enabled: draft.dedupeEnabled,
-        autopause_enabled: draft.autopauseEnabled,
-      });
-      if (made.error !== null || made.trigger === null) {
-        // A just-created source outlives the failure on purpose: it is real,
-        // and the retry can pick it from the existing-sources list.
-        return { ok: false, error: made.error ?? 'Failed to create the trigger.' };
-      }
-
-      router.refresh();
-      return {
-        ok: true,
-        triggerId: made.trigger.id,
-        ...(sourceId !== undefined && {
-          endpoint: `https://${ingestHost}/api/v1/webhooks/${sourceId}`,
-        }),
-        ...(secret !== undefined && { secret }),
-      };
+      const result = await createFromWizardDraft(draft, { ingestHost });
+      if (result.ok) router.refresh();
+      return result;
     },
     [router, ingestHost],
   );
@@ -357,6 +300,22 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       if (result.error) return result.error;
       router.refresh();
       return null;
+    },
+    [router],
+  );
+
+  /**
+   * Replays a delivery.
+   *
+   * The refresh follows the call so the new arrival shows up in the list; the
+   * result is handed back to the caller, which reports it beside the delivery
+   * rather than as a page-level notice.
+   */
+  const redeliver = useCallback(
+    async (row: DeliveryRow): Promise<{ deliveryId: string | null; error: string | null }> => {
+      const result = await redeliverDelivery(row.id);
+      if (result.error === null) router.refresh();
+      return result;
     },
     [router],
   );
@@ -539,10 +498,54 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               defaultSortDir="desc"
               emptyMessage="No deliveries."
               filteredEmptyMessage="No deliveries match your search or filter."
+              onRowClick={setDetailDelivery}
+              onRowClickLabel="View payload and outcome"
             />
           )}
         </TabsContent>
       </Tabs>
+
+      {/* One delivery's payload and outcome, drawer-free: the row was clicked
+          to ask what this arrival did, not to configure anything. */}
+      {detailDelivery !== null && (
+        <SidePanel open onClose={() => setDetailDelivery(null)} size="md">
+          <SidePanelHeader
+            density="compact"
+            title={detailDelivery.eventType || detailDelivery.kind}
+            description={`Delivery ${detailDelivery.id}`}
+          />
+          <SidePanelBody padding="compact">
+            <Stack gap="comfortable">
+              <Stack direction="horizontal" align="center" gap="cozy">
+                <StatusBadge
+                  status={deliveryStatusTone(detailDelivery.status)}
+                  label={detailDelivery.status}
+                />
+                <Text size="caption" color="muted">
+                  {formatTimestamp(detailDelivery.receivedAt)}
+                </Text>
+              </Stack>
+              <DeliveryDetail delivery={detailDelivery} onRedeliver={redeliver} />
+              {detailDelivery.triggerId !== null && (
+                <Stack direction="horizontal" justify="end">
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      const owner = triggers.find((t) => t.id === detailDelivery.triggerId);
+                      setDetailDelivery(null);
+                      if (owner !== undefined) setDrawerTrigger(owner);
+                    }}
+                  >
+                    Open trigger
+                    <Icon name="arrow-right" size="2xs" />
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
+          </SidePanelBody>
+        </SidePanel>
+      )}
 
       {/* Modals */}
       <TriggerDrawer
@@ -561,6 +564,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onEdit={saveTriggerEdit}
+        onRedeliver={redeliver}
         onRotateSecret={rotateSecret}
         onFire={startManualRun}
         firing={firingId !== null}

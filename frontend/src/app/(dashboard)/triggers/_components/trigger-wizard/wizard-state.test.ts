@@ -8,7 +8,6 @@ import {
   parallelWord,
   previewBody,
   resolvedFields,
-  sharedReviewRows,
   splitFilterValues,
   stepsFor,
   toDraft,
@@ -147,14 +146,6 @@ describe('shared step validation', () => {
   it('never blocks the review step', () => {
     const review = SHARED_STEPS.find((s) => s.id === 'review')!;
     expect(review.validate(state({ name: '' }), CONTEXT).valid).toBe(true);
-  });
-});
-
-describe('sharedReviewRows', () => {
-  it('names the agent and reads the concurrency as one sentence', () => {
-    const rows = sharedReviewRows(state({ maxParallel: 4, overflow: 'wait' }), CONTEXT);
-    expect(rows.find((r) => r.key === 'Agent')?.value).toBe('Coder');
-    expect(rows.find((r) => r.key === 'Concurrency')?.value).toBe('4 parallel · wait');
   });
 });
 

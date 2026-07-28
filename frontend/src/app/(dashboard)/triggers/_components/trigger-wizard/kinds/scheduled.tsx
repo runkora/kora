@@ -37,6 +37,7 @@ import {
 } from '../cron';
 import type { Frequency } from '../cron';
 import { VALID } from '../wizard-state';
+import { useSchedulePreview } from '../use-schedule-preview';
 import { scheduledCatalog, toTemplateCatalog } from '../field-catalog';
 import type {
   DoneContentProps,
@@ -55,6 +56,9 @@ const ZONE_CITY: Record<string, string> = {
 function StepSchedule({ state, patch }: StepComponentProps) {
   const derivedCron = cronFor(state);
   const human = humanFor(state);
+  // The exact times come from the scheduler, not from this builder: two cron
+  // interpretations that could disagree is exactly the bug worth avoiding.
+  const preview = useSchedulePreview(derivedCron, state.timezone);
   const zones = timezoneOptions(resolveBrowserZone());
   const showTime = state.freq === 'daily' || state.freq === 'weekly' || state.freq === 'monthly';
 
@@ -203,15 +207,41 @@ function StepSchedule({ state, patch }: StepComponentProps) {
       )}
 
       <Callout variant="info">
-        <Stack direction="horizontal" gap="cozy" align="center">
-          <Icon name="clock" size="sm" color="accent" label="" />
-          <Stack gap="tight">
-            <Text size="supporting" weight="heavy">
-              {human}
-            </Text>
-            <Text size="caption" color="muted">
-              {state.timezone}
-            </Text>
+        <Stack direction="horizontal" gap="cozy" align="start">
+          <Icon name="clock" size="sm" color="accent" label="" shrink />
+          <Stack gap="tight" minWidth="none">
+            {/* The scheduler's own answer leads when there is one. The builder's
+                sentence describes what was configured; only the platform can say
+                when it will actually fire, so it never gets the headline. */}
+            {preview.fires.length > 0 ? (
+              <>
+                <Text size="supporting" weight="heavy">
+                  Next: {preview.fires[0]?.label}
+                </Text>
+                <Text size="caption" color="muted">
+                  {human} · {state.timezone}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text size="supporting" weight="heavy">
+                  {human}
+                </Text>
+                <Text size="caption" color="muted">
+                  {state.timezone}
+                </Text>
+              </>
+            )}
+
+            {preview.fires.length > 1 && (
+              <Stack gap="none" paddingTop="tight">
+                {preview.fires.slice(1, 4).map((fire) => (
+                  <Text key={fire.at} size="micro" color="subtle">
+                    then {fire.label}
+                  </Text>
+                ))}
+              </Stack>
+            )}
           </Stack>
         </Stack>
       </Callout>

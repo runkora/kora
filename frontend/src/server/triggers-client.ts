@@ -2,6 +2,7 @@ import 'server-only';
 import { config } from '@orbit/server/config';
 import { ApiError } from './client';
 import type {
+  SchedulePreviewResponse,
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
@@ -143,6 +144,43 @@ export async function fireTrigger(
 // ---------------------------------------------------------------------------
 // Deliveries
 // ---------------------------------------------------------------------------
+
+/**
+ * Response to POST /api/v1/trigger-deliveries/:id/redeliver.
+ *
+ * A replay is a new arrival that names the one it replays, so the caller gets a
+ * new id to follow. The original is never touched.
+ */
+export interface RedeliverResponse {
+  delivery_id: string;
+  redelivery_of: string;
+}
+
+// POST /api/v1/trigger-deliveries/:id/redeliver — replay a delivery (202).
+export async function redeliverDelivery(
+  accessToken: string,
+  id: string,
+): Promise<RedeliverResponse | undefined> {
+  return request<RedeliverResponse>(`/trigger-deliveries/${id}/redeliver`, accessToken, {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Schedule preview
+// ---------------------------------------------------------------------------
+
+// POST /api/v1/triggers/schedule-preview — the next few fires for a cron
+// expression, resolved by the same scheduler that will run it.
+export async function schedulePreview(
+  accessToken: string,
+  payload: { cron_expression: string; timezone: string },
+): Promise<SchedulePreviewResponse | undefined> {
+  return request<SchedulePreviewResponse>('/triggers/schedule-preview', accessToken, {
+    method: 'POST',
+    body: payload,
+  });
+}
 
 export async function listDeliveries(
   accessToken: string,

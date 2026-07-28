@@ -7,8 +7,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
-import type { TriggerFormValue } from '@orbit/components';
+import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
+import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
+import type {
+  TriggerCreateResult,
+  TriggerDraft,
+} from '../../../triggers/_components/trigger-wizard';
+import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { Trigger, TriggerDelivery, WebhookSource } from '@orbit/shared/api';
@@ -44,7 +49,10 @@ export function AgentTriggersTab() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [formState, setFormState] = useState<{ trigger: TriggerFormValue | null } | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  // Webhooks arrive on the API ingress (api.<host>), not the console's own
+  // host, which redirects to login.
+  const ingestHost = typeof window === 'undefined' ? 'this cluster' : `api.${window.location.host}`;
   const [deleteCandidate, setDeleteCandidate] = useState<Trigger | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -106,6 +114,21 @@ export function AgentTriggersTab() {
     [load],
   );
 
+  /**
+   * Creates from the wizard's draft, then reloads this page's lists.
+   *
+   * The orchestration is the Triggers page's, shared rather than reimplemented:
+   * a trigger created here is created exactly as one created there.
+   */
+  const createTriggerForAgent = useCallback(
+    async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
+      const result = await createFromWizardDraft(draft, { ingestHost });
+      if (result.ok) void load();
+      return result;
+    },
+    [ingestHost, load],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (!deleteCandidate) return;
     setDeleting(true);
@@ -165,33 +188,13 @@ export function AgentTriggersTab() {
         width: '10rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" justify="end">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() =>
-                setFormState({
-                  trigger: {
-                    id: row.id,
-                    kind: row.kind ?? 'webhook',
-                    name: row.name,
-                    sourceId: row.source_id ?? '',
-                    agentTypeId: row.agent_type_id,
-                    agentSlug: row.agent_slug,
-                    eventType: row.event_type ?? '',
-                    matchCondition: row.match_condition ?? {},
-                    promptTemplate: row.prompt_template,
-                    scheduleConfig: row.schedule_config
-                      ? {
-                          cronExpression: row.schedule_config.cron_expression,
-                          timezone: row.schedule_config.timezone,
-                        }
-                      : undefined,
-                  },
-                })
-              }
-              aria-label={`Edit ${row.name}`}
-            >
-              <Icon name="edit" size="2xs" />
+            {/* Editing a trigger lives in the Triggers page drawer, which owns
+                every field. This page creates and lists; it does not fork a
+                second editor that would drift from it. */}
+            <Button variant="ghost" size="icon-sm" asChild>
+              <Link href={APP_ROUTES.triggers} aria-label={`Edit ${row.name} in Triggers`}>
+                <Icon name="edit" size="2xs" />
+              </Link>
             </Button>
             <Button
               variant="ghost"
@@ -303,11 +306,7 @@ export function AgentTriggersTab() {
             by platform admins.
           </Text>
         </Stack>
-        <Button
-          size="sm"
-          onClick={() => setFormState({ trigger: null })}
-          disabled={sources.length === 0}
-        >
+        <Button size="sm" onClick={() => setWizardOpen(true)} disabled={sources.length === 0}>
           <Icon name="plus" size="xs" />
           New trigger
         </Button>
@@ -328,11 +327,7 @@ export function AgentTriggersTab() {
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event."
           action={
-            <Button
-              size="sm"
-              onClick={() => setFormState({ trigger: null })}
-              disabled={sources.length === 0}
-            >
+            <Button size="sm" onClick={() => setWizardOpen(true)} disabled={sources.length === 0}>
               <Icon name="plus" size="xs" />
               New trigger
             </Button>
@@ -371,17 +366,18 @@ export function AgentTriggersTab() {
         </Stack>
       )}
 
-      {formState && (
-        <TriggerFormModal
-          key={formState.trigger?.id ?? 'create'}
-          open
-          trigger={formState.trigger}
-          sources={sources.map((s) => ({ id: s.id, name: s.name }))}
-          agents={[agentOption]}
-          lockedAgent={agentOption}
-          onClose={() => setFormState(null)}
-          onSaved={() => {
-            setFormState(null);
+      {wizardOpen && (
+        <TriggerWizard
+          agents={[{ id: agentOption.id, slug: agentOption.slug, name: agentOption.name }]}
+          sources={sources.map((src) => ({
+            id: src.id,
+            name: src.name,
+            provider: src.provider,
+          }))}
+          ingestHost={ingestHost}
+          onCreate={createTriggerForAgent}
+          onClose={() => {
+            setWizardOpen(false);
             void load();
           }}
         />

@@ -101,6 +101,13 @@ interface TriggerDrawerProps {
    */
   onEdit?: (t: TriggerRow, patch: TriggerEditPatch) => Promise<string | null>;
   /**
+   * Replays a delivery, resolving with the new delivery's id or an error.
+   * Absent for read-only callers, where no Redeliver is offered.
+   */
+  onRedeliver?: (
+    delivery: DeliveryRow,
+  ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /**
    * Rotates the webhook source's signing secret and resolves with the new one,
    * which is shown once here and never again. Absent for read-only callers.
    */
@@ -288,6 +295,7 @@ export function TriggerDrawer({
   onDelete,
   onUpdateSafety,
   onEdit,
+  onRedeliver,
   onRotateSecret,
   onFire,
   firing = false,
@@ -891,6 +899,7 @@ export function TriggerDrawer({
                     triggerId={trigger.id}
                     expandedId={expanded}
                     onToggleExpanded={setExpanded}
+                    onRedeliver={onRedeliver}
                   />
                 </>
               )}

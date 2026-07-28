@@ -390,6 +390,9 @@ export const ApiRoute = {
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     fire: (id: string): `${typeof API_BASE}/triggers/${string}/fire` =>
       `${API_BASE}/triggers/${id}/fire`,
+    /** Next fires for a cron expression, resolved by the scheduler itself. */
+    schedulePreview: (): `${typeof API_BASE}/triggers/schedule-preview` =>
+      `${API_BASE}/triggers/schedule-preview`,
   },
 
   triggerDeliveries: {
@@ -397,6 +400,9 @@ export const ApiRoute = {
       sourceId
         ? `${API_BASE}/trigger-deliveries?source_id=${encodeURIComponent(sourceId)}`
         : `${API_BASE}/trigger-deliveries`,
+    /** Replay a delivery. Answers with the NEW delivery's id. */
+    redeliver: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}/redeliver` =>
+      `${API_BASE}/trigger-deliveries/${id}/redeliver`,
   },
 
   runs: {

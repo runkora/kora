@@ -6,6 +6,7 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  SchedulePreviewResponse,
   Trigger,
   TriggerCreateRequest,
   TriggerUpdateRequest,
@@ -56,17 +57,6 @@ export async function updateSource(
   if (!res.ok) return { source: null, error: await errorMessage(res) };
   const body = (await res.json()) as { data: WebhookSourceResponse };
   return { source: body.data, error: null };
-}
-
-export async function deleteSource(id: string): Promise<{ error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(ApiRoute.triggerSources.delete(id), { method: 'DELETE' });
-  } catch {
-    return { error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) return { error: await errorMessage(res) };
-  return { error: null };
 }
 
 // ── Triggers ──────────────────────────────────────────────────────────────────
@@ -146,4 +136,56 @@ export async function fireTrigger(
     runId: body?.data?.run_id ?? '',
     error: null,
   };
+}
+
+// ── Deliveries ────────────────────────────────────────────────────────────────
+
+/**
+ * Replays a delivery. Resolves with the NEW delivery's id: a replay is a fresh
+ * arrival that names the one it replays, so the original is left alone and the
+ * caller follows the new one to see what it did.
+ */
+export async function redeliverDelivery(
+  id: string,
+): Promise<{ deliveryId: string; error: null } | { deliveryId: null; error: string }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.triggerDeliveries.redeliver(id), { method: 'POST' });
+  } catch {
+    return { deliveryId: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) return { deliveryId: null, error: await errorMessage(res) };
+  const body = (await res.json().catch(() => null)) as {
+    data?: { delivery_id?: string };
+  } | null;
+  return { deliveryId: body?.data?.delivery_id ?? '', error: null };
+}
+
+// ── Schedule preview ──────────────────────────────────────────────────────────
+
+/**
+ * Asks the scheduler what a cron expression will actually do next.
+ *
+ * Errors resolve to an empty list rather than a message: the preview is a
+ * supplement to the schedule builder, and a failed lookup should show nothing
+ * rather than push an error at someone who is still typing.
+ */
+export async function fetchSchedulePreview(
+  cronExpression: string,
+  timezone: string,
+  signal?: AbortSignal,
+): Promise<SchedulePreviewResponse | null> {
+  try {
+    const res = await fetch(ApiRoute.triggers.schedulePreview(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cron_expression: cronExpression, timezone }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: SchedulePreviewResponse };
+    return body.data ?? null;
+  } catch {
+    return null;
+  }
 }

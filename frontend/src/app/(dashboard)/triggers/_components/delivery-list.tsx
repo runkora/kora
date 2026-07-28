@@ -2,20 +2,10 @@
 
 'use client';
 
-import {
-  Button,
-  Card,
-  CodeBlock,
-  Icon,
-  SectionLabel,
-  Separator,
-  Stack,
-  StatusDot,
-  Text,
-  Callout,
-} from '@orbit/terra';
-import { deliveryStatusTone, failureSummary } from '../_types';
+import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
+import { deliveryStatusTone } from '../_types';
 import type { DeliveryRow } from '../_types';
+import { DeliveryDetail } from './delivery-detail';
 
 /**
  * StatusDot has no "unknown" tone. An outcome the console does not recognise is
@@ -35,6 +25,10 @@ interface DeliveryListProps {
   /** Which delivery's payload is open, if any. */
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
+  /** Replays a delivery. Absent for read-only callers. */
+  onRedeliver?: (
+    delivery: DeliveryRow,
+  ) => Promise<{ deliveryId: string | null; error: string | null }>;
 }
 
 /**
@@ -62,31 +56,12 @@ function shortAgo(iso: string): string {
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
-/**
- * Pretty-prints a payload excerpt when it is complete JSON.
- *
- * Excerpts are truncated at capture, so parsing can fail on an honest excerpt;
- * in that case the raw text is shown rather than nothing.
- */
-function formatPayload(excerpt: string): string {
-  try {
-    return JSON.stringify(JSON.parse(excerpt), null, 2);
-  } catch {
-    return excerpt;
-  }
-}
-
-/** Byte counts read better as the size they are than as a raw integer. */
-function formatBytes(bytes: number | null): string {
-  if (bytes === null) return '';
-  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-}
-
 export function DeliveryList({
   deliveries,
   triggerId,
   expandedId,
   onToggleExpanded,
+  onRedeliver,
 }: DeliveryListProps) {
   return (
     <Stack gap="snug">
@@ -153,72 +128,8 @@ export function DeliveryList({
             {open && (
               <>
                 <Separator />
-                <Stack gap="snug" padding="cozy">
-                  {/* Failure first: on a failed delivery the error is what the
-                      person opened the row for. The summary is the actionable
-                      message; the full chain stays underneath for tracing. */}
-                  {outcome?.error != null && (
-                    <Callout variant="error">
-                      <Stack gap="tight" minWidth="none">
-                        <Text size="caption" weight="emphasis" color="status-error">
-                          {failureSummary(outcome.error)}
-                        </Text>
-                        {failureSummary(outcome.error) !== outcome.error && (
-                          <Text mono size="micro" color="subtle" preserveWhitespace>
-                            {outcome.error}
-                          </Text>
-                        )}
-                      </Stack>
-                    </Callout>
-                  )}
-
-                  {/* Only when there is something to say about a payload; a
-                      header over "there is none" was noise on every failed
-                      manual fire. */}
-                  {(d.payloadPurged || d.payloadExcerpt !== null) && (
-                    <Stack gap="snug">
-                      <Stack direction="horizontal" align="center" justify="between">
-                        <SectionLabel>Request payload</SectionLabel>
-                        <Text mono size="micro" color="subtle">
-                          {formatBytes(d.payloadBytes)}
-                        </Text>
-                      </Stack>
-                      {d.payloadPurged ? (
-                        <Text size="caption" color="subtle">
-                          Payload purged past this tenant&apos;s retention window. What happened is
-                          still recorded.
-                        </Text>
-                      ) : (
-                        <CodeBlock
-                          text={formatPayload(d.payloadExcerpt ?? '')}
-                          density="compact"
-                          language="json"
-                          wrap
-                        />
-                      )}
-                    </Stack>
-                  )}
-
-                  {/* The run link and Redeliver only exist once a run does. */}
-                  {outcome?.runId != null && (
-                    <Stack direction="horizontal" align="center" justify="between" gap="snug">
-                      <Stack direction="horizontal" align="center" gap="tight">
-                        <Text mono size="micro" color="subtle">
-                          run
-                        </Text>
-                        <Text mono size="caption" color="accent">
-                          {outcome.runId}
-                        </Text>
-                      </Stack>
-                      {/* Redeliver is specified but not yet built: replaying a
-                          delivery has to re-run admission and dedup, which is
-                          still an open decision. Shown disabled rather than
-                          hidden so the affordance is discoverable. */}
-                      <Button variant="ghost" size="xs" disabled>
-                        Redeliver
-                      </Button>
-                    </Stack>
-                  )}
+                <Stack padding="cozy">
+                  <DeliveryDetail delivery={d} triggerId={triggerId} onRedeliver={onRedeliver} />
                 </Stack>
               </>
             )}

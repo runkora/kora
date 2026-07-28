@@ -7,11 +7,9 @@
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import type {
   KindStep,
-  ReviewRow,
   StepValidation,
   TriggerDraft,
   TriggerKindDefinition,
-  WizardContext,
   WizardField,
   WizardFilter,
   WizardState,
@@ -90,14 +88,6 @@ export function baseState(sources: { id: string }[]): WizardState {
 /** Initial state for a kind: the shared defaults with the kind's own on top. */
 export function initialState(def: TriggerKindDefinition, sources: { id: string }[]): WizardState {
   return { ...baseState(sources), ...def.defaults };
-}
-
-/** Trigger name and prompt are asked for on every kind's first step. */
-export function validateIdentity(state: WizardState): StepValidation {
-  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
-  if (!state.promptTemplate.trim())
-    return { valid: false, hint: 'Write the prompt the run starts with.' };
-  return VALID;
 }
 
 /** Splits a filter row's values on `|`, dropping blanks. */
@@ -231,18 +221,6 @@ export function toDraft(def: TriggerKindDefinition, state: WizardState): Trigger
     autopauseEnabled: state.autopauseEnabled,
     ...def.draftPatch(state),
   };
-}
-
-/** The review rows every kind shows, after its own. */
-export function sharedReviewRows(state: WizardState, context: WizardContext): ReviewRow[] {
-  const agent = context.agents.find((a) => a.id === state.agentTypeId);
-  return [
-    { key: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' },
-    { key: 'Concurrency', value: `${state.maxParallel} parallel · ${state.overflow}` },
-    { key: 'Timeout', value: `${state.timeoutSeconds}s`, mono: true },
-    { key: 'Suppress duplicates', value: state.dedupeEnabled ? 'On' : 'Off' },
-    { key: 'Auto-pause', value: state.autopauseEnabled ? 'On' : 'Off' },
-  ];
 }
 
 /** The word beside the parallel-runs stepper. */
