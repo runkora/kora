@@ -383,6 +383,15 @@ export interface Run {
   tool_calls?: number;
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
   summary?: string | null;
+  /**
+   * Present when a trigger started this run. trigger_name and delivery_id are
+   * omitted when unknown; absent entirely for human-started runs.
+   */
+  started_by?: {
+    trigger_id: string;
+    trigger_name?: string;
+    delivery_id?: string;
+  };
 }
 
 /**

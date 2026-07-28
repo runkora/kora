@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
@@ -130,9 +130,18 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         locked: true,
         cell: (row) => (
           <Stack direction="horizontal" align="center" gap="tight">
-            <Text size="supporting" color="muted">
-              {row.createdByName ?? row.createdBy}
-            </Text>
+            {row.startedByTrigger ? (
+              <>
+                <Icon name="zap" size="2xs" color="accent" label="" />
+                <Text size="supporting" color="muted">
+                  {row.startedByTrigger.triggerName ?? row.startedByTrigger.triggerId}
+                </Text>
+              </>
+            ) : (
+              <Text size="supporting" color="muted">
+                {row.createdByName ?? row.createdBy}
+              </Text>
+            )}
             {row.delegated && (
               <Badge variant="default" size="sm">
                 Delegated
