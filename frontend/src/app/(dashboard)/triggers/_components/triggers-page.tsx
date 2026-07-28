@@ -31,6 +31,7 @@ import {
   updateSource,
   updateTrigger,
 } from '../_services/triggers-api';
+import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
 import { FleetKpis } from './fleet-kpis';
@@ -159,22 +160,44 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   );
 
   const [firingId, setFiringId] = useState<string | null>(null);
+  /** Manual trigger whose input form is open. */
+  const [runFormTrigger, setRunFormTrigger] = useState<TriggerRow | null>(null);
   const [fireResult, setFireResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const fireManualTrigger = useCallback(async (row: TriggerRow) => {
-    setFiringId(row.id);
-    setFireResult(null);
-    const result = await fireTrigger(row.id);
-    setFiringId(null);
-    if ('error' in result && result.error) {
-      setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
-      return;
-    }
-    // The fire is durably queued and the run starts moments later, so there is
-    // no run to name yet. Reporting one here would mean starting the run before
-    // acknowledging, which is what loses fires on a restart.
-    setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
-  }, []);
+  const fireManualTrigger = useCallback(
+    async (row: TriggerRow, variables?: Record<string, string>): Promise<string | null> => {
+      setFiringId(row.id);
+      setFireResult(null);
+      const result = await fireTrigger(row.id, variables);
+      setFiringId(null);
+      if ('error' in result && result.error) {
+        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
+        return result.error;
+      }
+      // The fire is durably queued and the run starts moments later, so there
+      // is no run to name yet. Reporting one here would mean starting the run
+      // before acknowledging, which is what loses fires on a restart.
+      setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
+      return null;
+    },
+    [],
+  );
+
+  /**
+   * Running a manual trigger goes through its declared form when it has one;
+   * a trigger with no inputs fires directly. The same declaration validates
+   * the API call, so the form cannot drift from what /fire accepts.
+   */
+  const startManualRun = useCallback(
+    (row: TriggerRow) => {
+      if ((row.manualInputs ?? []).length > 0) {
+        setRunFormTrigger(row);
+        return;
+      }
+      void fireManualTrigger(row);
+    },
+    [fireManualTrigger],
+  );
 
   /**
    * Executes the wizard's draft: the source first when one was asked for, then
@@ -491,7 +514,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onRotateSecret={rotateSecret}
-        onFire={(t) => void fireManualTrigger(t)}
+        onFire={startManualRun}
         firing={firingId !== null}
       />
 
@@ -507,6 +530,14 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           ingestHost={ingestHost}
           onCreate={createFromWizard}
           onClose={() => setWizardOpen(false)}
+        />
+      )}
+
+      {runFormTrigger !== null && (
+        <RunTriggerModal
+          trigger={runFormTrigger}
+          onClose={() => setRunFormTrigger(null)}
+          onFire={(variables) => fireManualTrigger(runFormTrigger, variables)}
         />
       )}
 
