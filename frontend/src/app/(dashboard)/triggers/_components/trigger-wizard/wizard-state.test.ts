@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  describeMatchCondition,
   deriveFieldKey,
   initialState,
+  matchConditionFrom,
   parallelWord,
   previewBody,
   resolvedFields,
   sharedReviewRows,
+  splitFilterValues,
   stepsFor,
   toDraft,
   validateDelivery,
+  validateFilters,
   validateTarget,
 } from './wizard-state';
 import { SHARED_STEPS } from './shared-steps';
@@ -195,6 +199,103 @@ describe('toDraft', () => {
     expect(draft.manualInputs).toEqual([
       { name: 'question', label: 'Question', type: 'text', required: true },
     ]);
+  });
+
+  it('folds the filter rows into matchCondition', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.webhook,
+      state({
+        filters: [
+          { field: 'action', values: 'opened | synchronize' },
+          { field: 'pr.base_ref', values: 'main' },
+        ],
+      }),
+    );
+    expect(draft.matchCondition).toEqual({
+      action: ['opened', 'synchronize'],
+      'pr.base_ref': ['main'],
+    });
+  });
+
+  it('omits matchCondition entirely when no filter is set', () => {
+    const draft = toDraft(TRIGGER_KINDS.webhook, state({ filters: [] }));
+    expect(draft.matchCondition).toBeUndefined();
+    expect('matchCondition' in draft).toBe(false);
+  });
+});
+
+describe('splitFilterValues', () => {
+  it('splits on the pipe and trims', () => {
+    expect(splitFilterValues('opened | synchronize')).toEqual(['opened', 'synchronize']);
+  });
+
+  it('drops empties, so a trailing pipe mid-typing is not a value', () => {
+    expect(splitFilterValues('opened |')).toEqual(['opened']);
+    expect(splitFilterValues('  ')).toEqual([]);
+  });
+});
+
+describe('matchConditionFrom', () => {
+  it('folds rows into the backend shape', () => {
+    expect(
+      matchConditionFrom([
+        { field: 'action', values: 'opened | synchronize' },
+        { field: 'pr.base_ref', values: 'main' },
+      ]),
+    ).toEqual({ action: ['opened', 'synchronize'], 'pr.base_ref': ['main'] });
+  });
+
+  it('is undefined when nothing is set, not an empty condition', () => {
+    expect(matchConditionFrom([])).toBeUndefined();
+    expect(matchConditionFrom([{ field: '', values: '' }])).toBeUndefined();
+  });
+
+  it('ignores a half-written row rather than sending a broken clause', () => {
+    expect(matchConditionFrom([{ field: 'action', values: '' }])).toBeUndefined();
+    expect(matchConditionFrom([{ field: '', values: 'opened' }])).toBeUndefined();
+  });
+
+  it('merges repeated fields, since a clause is a set of alternatives', () => {
+    expect(
+      matchConditionFrom([
+        { field: 'action', values: 'opened' },
+        { field: 'action', values: 'closed' },
+      ]),
+    ).toEqual({ action: ['opened', 'closed'] });
+  });
+});
+
+describe('validateFilters', () => {
+  it('passes on no filters and on complete ones', () => {
+    expect(validateFilters(state({ filters: [] })).valid).toBe(true);
+    expect(validateFilters(state({ filters: [{ field: 'action', values: 'opened' }] })).valid).toBe(
+      true,
+    );
+  });
+
+  it('blocks a half-written filter, which would silently do nothing', () => {
+    const noValues = validateFilters(state({ filters: [{ field: 'action', values: '' }] }));
+    expect(noValues.valid).toBe(false);
+    expect(noValues.hint).toBe('Finish or remove the empty filter');
+
+    expect(validateFilters(state({ filters: [{ field: '', values: 'opened' }] })).valid).toBe(
+      false,
+    );
+  });
+});
+
+describe('describeMatchCondition', () => {
+  it('reads as the condition it composes', () => {
+    expect(
+      describeMatchCondition([
+        { field: 'action', values: 'opened | synchronize' },
+        { field: 'pr.base_ref', values: 'main' },
+      ]),
+    ).toBe('action=opened|synchronize · pr.base_ref=main');
+  });
+
+  it('is null when there is nothing to say', () => {
+    expect(describeMatchCondition([])).toBeNull();
   });
 });
 

@@ -77,6 +77,66 @@ describe('TriggerWizard step phase', () => {
   });
 });
 
+describe('filters and prompt fields', () => {
+  it('offers the source provider fields as insertable prompt tokens', () => {
+    renderWizard('webhook');
+    // src-1 is a github source, so github fields, unnarrowed on "any event".
+    expect(screen.getByText('repo.full_name')).toBeTruthy();
+    expect(screen.getByText('pr.base_ref')).toBeTruthy();
+  });
+
+  it('inserts a placeholder into the prompt when a field is clicked', () => {
+    renderWizard('webhook');
+    fireEvent.click(screen.getByText('repo.full_name'));
+    const prompt = screen.getByLabelText(/Prompt/) as HTMLTextAreaElement;
+    expect(prompt.value).toBe('{{ repo.full_name }}');
+  });
+
+  it('adds and removes a filter row', () => {
+    renderWizard('webhook');
+    expect(screen.queryByLabelText('Filter 1 field')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    expect(screen.getByLabelText('Filter 1 field')).toBeTruthy();
+    expect(screen.getByLabelText('Filter 1 values')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter 1' }));
+    expect(screen.queryByLabelText('Filter 1 field')).toBeNull();
+  });
+
+  it('blocks Continue on a half-written filter', () => {
+    renderWizard('webhook');
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'gh' } });
+    fireEvent.change(screen.getByLabelText(/Prompt/), { target: { value: 'go' } });
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    fireEvent.change(screen.getByLabelText('Filter 1 field'), { target: { value: 'action' } });
+
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Finish or remove the empty filter')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'opened' } });
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('lists the Alertmanager label patterns as hints, not chips', () => {
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('group.labels.<name>')).toBeTruthy();
+    // A pattern is not a button: its name is not knowable, so it cannot insert.
+    expect(screen.queryByRole('button', { name: /group\.labels/ })).toBeNull();
+  });
+});
+
 describe('shared steps', () => {
   const state = {
     ...initialState(TRIGGER_KINDS.webhook, CONTEXT.sources),

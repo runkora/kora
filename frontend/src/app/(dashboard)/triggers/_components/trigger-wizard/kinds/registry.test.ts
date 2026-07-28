@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './index';
 import { SHARED_STEPS } from '../shared-steps';
 import { initialState, stepsFor } from '../wizard-state';
+import { NEW_SOURCE } from '../types';
 import type { TriggerKind, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
@@ -64,6 +65,82 @@ describe('TRIGGER_KINDS', () => {
       const patchFields = Object.keys(def.draftPatch(initialState(def, CONTEXT.sources)));
       expect(patchFields.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('fieldCatalog', () => {
+  function tokens(def: (typeof KINDS)[number], state = initialState(def, CONTEXT.sources)) {
+    return (def.fieldCatalog?.(state, CONTEXT) ?? []).map((e) => e.token);
+  }
+
+  it('is offered by every kind built so far', () => {
+    for (const def of KINDS) {
+      expect(def.fieldCatalog).toBeTypeOf('function');
+    }
+  });
+
+  it('describes every token it offers', () => {
+    for (const def of KINDS) {
+      for (const entry of def.fieldCatalog?.(initialState(def, CONTEXT.sources), CONTEXT) ?? []) {
+        expect(entry.token.length).toBeGreaterThan(0);
+        expect(entry.description.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('reads the webhook catalog from the chosen source provider', () => {
+    const def = TRIGGER_KINDS.webhook;
+    // src-1 is a github source, so github fields.
+    expect(tokens(def)).toEqual(expect.arrayContaining(['repo.full_name', 'sender.login']));
+
+    const alertmanagerContext: WizardContext = {
+      ...CONTEXT,
+      sources: [{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }],
+    };
+    const state = { ...initialState(def, alertmanagerContext.sources), sourceChoice: 'src-2' };
+    const alertmanagerTokens = (def.fieldCatalog?.(state, alertmanagerContext) ?? []).map(
+      (e) => e.token,
+    );
+    expect(alertmanagerTokens).toEqual(expect.arrayContaining(['receiver', 'alerts.count']));
+    expect(alertmanagerTokens).not.toContain('repo.full_name');
+  });
+
+  it('reads the provider being created when the source is new', () => {
+    const def = TRIGGER_KINDS.webhook;
+    const state = {
+      ...initialState(def, CONTEXT.sources),
+      sourceChoice: NEW_SOURCE,
+      newSourceProvider: 'alertmanager',
+    };
+    expect((def.fieldCatalog?.(state, CONTEXT) ?? []).map((e) => e.token)).toEqual(
+      expect.arrayContaining(['group_key', 'first_alert.status']),
+    );
+  });
+
+  it('narrows the webhook catalog to the selected event', () => {
+    const def = TRIGGER_KINDS.webhook;
+    const base = initialState(def, CONTEXT.sources);
+    expect(tokens(def, { ...base, eventType: 'push' })).toContain('push.branch');
+    expect(tokens(def, { ...base, eventType: 'push' })).not.toContain('pr.title');
+    expect(tokens(def, { ...base, eventType: 'pull_request' })).toContain('pr.title');
+  });
+
+  it('offers the scheduler vars for a schedule', () => {
+    expect(tokens(TRIGGER_KINDS.scheduled)).toEqual([
+      'var.date',
+      'var.datetime',
+      'var.trigger_id',
+      'var.tenant_id',
+    ]);
+  });
+
+  it('derives the manual catalog from the declared fields', () => {
+    const def = TRIGGER_KINDS.manual;
+    const state = {
+      ...initialState(def, CONTEXT.sources),
+      fields: [{ id: 'a', label: 'Row limit', type: 'number' as const, required: false }],
+    };
+    expect(tokens(def, state)).toEqual(['var.row_limit']);
   });
 });
 

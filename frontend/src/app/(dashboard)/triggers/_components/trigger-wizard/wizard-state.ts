@@ -13,6 +13,7 @@ import type {
   TriggerKindDefinition,
   WizardContext,
   WizardField,
+  WizardFilter,
   WizardState,
 } from './types';
 
@@ -60,6 +61,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     newSourceName: '',
     newSourceProvider: 'github',
     eventType: '',
+    filters: [],
 
     freq: 'daily',
     interval: '15',
@@ -96,6 +98,56 @@ export function validateIdentity(state: WizardState): StepValidation {
   if (!state.promptTemplate.trim())
     return { valid: false, hint: 'Write the prompt the run starts with.' };
   return VALID;
+}
+
+/** Splits a filter row's values on `|`, dropping blanks. */
+export function splitFilterValues(values: string): string[] {
+  return values
+    .split('|')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Folds the filter rows into the backend's `match_condition` shape.
+ *
+ * Returns undefined when nothing is set: an empty object would read as a
+ * condition that happens to be satisfied, where the trigger genuinely has none.
+ * Repeating a field merges its values, since a clause is a set of alternatives.
+ */
+export function matchConditionFrom(filters: WizardFilter[]): Record<string, string[]> | undefined {
+  const condition: Record<string, string[]> = {};
+  for (const row of filters) {
+    const field = row.field.trim();
+    const values = splitFilterValues(row.values);
+    if (!field || values.length === 0) continue;
+    condition[field] = [...(condition[field] ?? []), ...values];
+  }
+  return Object.keys(condition).length > 0 ? condition : undefined;
+}
+
+/**
+ * A half-written filter is the one case worth blocking on: it looks configured
+ * but silently does nothing, so the trigger would fire on deliveries the person
+ * believes it excludes.
+ */
+export function validateFilters(state: WizardState): StepValidation {
+  const halfWritten = state.filters.some((row) => {
+    const hasField = Boolean(row.field.trim());
+    const hasValues = splitFilterValues(row.values).length > 0;
+    return hasField !== hasValues;
+  });
+  if (halfWritten) return { valid: false, hint: 'Finish or remove the empty filter' };
+  return VALID;
+}
+
+/** Renders the composed condition for the review step. */
+export function describeMatchCondition(filters: WizardFilter[]): string | null {
+  const condition = matchConditionFrom(filters);
+  if (!condition) return null;
+  return Object.entries(condition)
+    .map(([field, values]) => `${field}=${values.join('|')}`)
+    .join(' · ');
 }
 
 /** The Target step: an agent, and limits the platform will accept. */
@@ -164,7 +216,9 @@ export function previewBody(fields: WizardField[]): string {
 
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
+  const matchCondition = matchConditionFrom(state.filters);
   return {
+    ...(matchCondition ? { matchCondition } : {}),
     kind: def.id,
     name: state.name.trim(),
     promptTemplate: state.promptTemplate,

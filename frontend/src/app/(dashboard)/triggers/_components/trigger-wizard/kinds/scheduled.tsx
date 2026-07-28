@@ -3,6 +3,7 @@
 /** @tier 3 — triggers-scoped. The scheduled kind: a cron builder that always
  * shows the expression it derives, plus timezone and catch-up. */
 
+import { useRef } from 'react';
 import {
   Button,
   Callout,
@@ -37,6 +38,8 @@ import {
 } from '../cron';
 import type { Frequency } from '../cron';
 import { VALID } from '../wizard-state';
+import { scheduledCatalog } from '../field-catalog';
+import { PromptFields } from '../prompt-fields';
 import type {
   DoneContentProps,
   StepComponentProps,
@@ -52,6 +55,7 @@ const ZONE_CITY: Record<string, string> = {
 };
 
 function StepSchedule({ state, patch }: StepComponentProps) {
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const derivedCron = cronFor(state);
   const human = humanFor(state);
   const zones = timezoneOptions(resolveBrowserZone());
@@ -297,12 +301,20 @@ function StepSchedule({ state, patch }: StepComponentProps) {
       >
         <Textarea
           id="wizard-prompt"
+          ref={promptRef}
           value={state.promptTemplate}
           onChange={(e) => patch({ promptTemplate: e.target.value })}
           placeholder="Summarise yesterday's failed deliveries and open an issue for anything unresolved."
           rows={4}
         />
       </FormField>
+
+      <PromptFields
+        entries={scheduledCatalog()}
+        value={state.promptTemplate}
+        onChange={(next) => patch({ promptTemplate: next })}
+        textareaRef={promptRef}
+      />
     </Stack>
   );
 }
@@ -371,5 +383,6 @@ export const scheduledKind: TriggerKindDefinition = {
       catchUp: state.catchUp,
     },
   }),
+  fieldCatalog: () => scheduledCatalog(),
   doneContent: DoneContent,
 };

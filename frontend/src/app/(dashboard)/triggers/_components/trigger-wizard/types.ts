@@ -41,6 +41,12 @@ export interface TriggerDraft {
   source?: { existingId: string } | { newName: string; provider: string };
   /** Webhook only. Empty string means any event type. */
   eventType?: string;
+  /**
+   * Webhook only. field → allowed values; a delivery matches when every clause
+   * is satisfied and any one value in a clause matches. Omitted when no filter
+   * is set, which matches every delivery of the chosen event.
+   */
+  matchCondition?: Record<string, string[]>;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -81,6 +87,17 @@ export interface TriggerWizardProps {
   onClose: () => void;
 }
 
+/**
+ * One row of the webhook match-condition builder.
+ *
+ * `values` stays a raw string while being edited, split on `|` only when the
+ * draft is built: splitting on every keystroke would fight the person typing.
+ */
+export interface WizardFilter {
+  field: string;
+  values: string;
+}
+
 /** One row of the manual trigger's field builder. */
 export interface WizardField {
   /** Stable local id — the key is derived from the label and may collide mid-edit. */
@@ -102,6 +119,8 @@ export interface WizardState {
   newSourceProvider: string;
   /** Empty string means any event type. */
   eventType: string;
+  /** Match-condition rows. Empty means every delivery of the event qualifies. */
+  filters: WizardFilter[];
 
   // ── Schedule ──
   freq: Frequency;
@@ -187,6 +206,22 @@ export interface DoneContentProps {
 }
 
 /**
+ * One field a delivery of this kind carries.
+ *
+ * The backend matches `match_condition` and renders `{{ dotted.field }}`
+ * placeholders over the same per-adapter map, so one catalog serves the filter
+ * picker and the prompt builder alike.
+ */
+export interface FieldCatalogEntry {
+  /** Dotted token, e.g. `pr.base_ref`. */
+  token: string;
+  /** One line, in the words a person would use. */
+  description: string;
+  /** Webhook event types this field exists for. Omitted means every event. */
+  events?: string[];
+}
+
+/**
  * Everything the wizard needs to know about one kind of trigger. The core
  * wizard reads only this; it never branches on `id`.
  */
@@ -205,6 +240,12 @@ export interface TriggerKindDefinition {
   summarize: (state: WizardState, context: WizardContext) => ReviewRow[];
   /** The kind's own fields on the draft sent to the parent. */
   draftPatch: (state: WizardState) => Partial<TriggerDraft>;
+  /**
+   * The delivery fields this kind's runs can read, for the prompt builder and
+   * (where the kind supports it) the filter picker. Omitted when a kind carries
+   * no fields at all.
+   */
+  fieldCatalog?: (state: WizardState, context: WizardContext) => FieldCatalogEntry[];
   /** The kind-specific block on the success screen. */
   doneContent: React.ComponentType<DoneContentProps>;
 }

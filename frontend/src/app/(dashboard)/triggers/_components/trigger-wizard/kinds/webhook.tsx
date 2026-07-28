@@ -3,12 +3,14 @@
 /** @tier 3 — triggers-scoped. The webhook kind: an external system posts a
  * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
 
+import { useRef } from 'react';
 import {
   Button,
   FormField,
   Grid,
   Icon,
   Input,
+  NativeSelect,
   RadioCard,
   RadioGroup,
   SectionLabel,
@@ -19,7 +21,9 @@ import {
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
-import { VALID } from '../wizard-state';
+import { VALID, describeMatchCondition, validateFilters } from '../wizard-state';
+import { catalogPatterns, webhookCatalog } from '../field-catalog';
+import { PromptFields } from '../prompt-fields';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
@@ -61,6 +65,11 @@ function StepSource({ state, patch, context }: StepComponentProps) {
   const provider =
     state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (selected?.provider ?? '');
   const events = EVENTS[provider] ?? [];
+  const catalog = webhookCatalog(provider, state.eventType);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+
+  const setFilter = (index: number, next: Partial<{ field: string; values: string }>) =>
+    patch({ filters: state.filters.map((f, i) => (i === index ? { ...f, ...next } : f)) });
 
   return (
     <Stack gap="relaxed">
@@ -194,6 +203,63 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         </Stack>
       </Stack>
 
+      <Stack gap="snug">
+        <Stack gap="tight">
+          <SectionLabel>Filters</SectionLabel>
+          <Text size="caption" color="subtle">
+            Only deliveries matching every filter start a run. Values are alternatives.
+          </Text>
+        </Stack>
+
+        {state.filters.map((filter, i) => (
+          <Stack key={i} direction="horizontal" gap="snug" align="center">
+            <Stack minWidth="form-field-sm">
+              <NativeSelect
+                aria-label={`Filter ${i + 1} field`}
+                mono
+                value={filter.field}
+                onChange={(e) => setFilter(i, { field: e.target.value })}
+              >
+                <option value="">Choose a field</option>
+                {catalog.map((entry) => (
+                  <option key={entry.token} value={entry.token}>
+                    {entry.token}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Stack>
+            <Stack grow minWidth="none">
+              <Input
+                aria-label={`Filter ${i + 1} values`}
+                mono
+                value={filter.values}
+                onChange={(e) => setFilter(i, { values: e.target.value })}
+                placeholder="opened | synchronize"
+              />
+            </Stack>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={`Remove filter ${i + 1}`}
+              onClick={() => patch({ filters: state.filters.filter((_, x) => x !== i) })}
+            >
+              <Icon name="close" size="xs" />
+            </Button>
+          </Stack>
+        ))}
+
+        <Stack direction="horizontal">
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => patch({ filters: [...state.filters, { field: '', values: '' }] })}
+          >
+            <Icon name="plus" size="xs" />
+            Add filter
+          </Button>
+        </Stack>
+      </Stack>
+
       <FormField
         label="Prompt"
         id="wizard-prompt"
@@ -202,12 +268,21 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       >
         <Textarea
           id="wizard-prompt"
+          ref={promptRef}
           value={state.promptTemplate}
           onChange={(e) => patch({ promptTemplate: e.target.value })}
-          placeholder="Review the changes in {{ event.repository }} on {{ event.ref }} and comment on anything risky."
+          placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
           rows={4}
         />
       </FormField>
+
+      <PromptFields
+        entries={catalog}
+        patterns={catalogPatterns(provider)}
+        value={state.promptTemplate}
+        onChange={(next) => patch({ promptTemplate: next })}
+        textareaRef={promptRef}
+      />
     </Stack>
   );
 }
@@ -221,6 +296,8 @@ function validateSource(state: WizardState) {
   } else if (!state.sourceChoice) {
     return { valid: false, hint: 'Choose where deliveries come from.' };
   }
+  const filters = validateFilters(state);
+  if (!filters.valid) return filters;
   if (!state.promptTemplate.trim())
     return { valid: false, hint: 'Write the prompt the run starts with.' };
   return VALID;
@@ -286,7 +363,7 @@ export const webhookKind: TriggerKindDefinition = {
   ],
   summarize: (state, context) => {
     const source = context.sources.find((s) => s.id === state.sourceChoice);
-    return [
+    const rows = [
       {
         key: 'Source',
         value:
@@ -296,6 +373,15 @@ export const webhookKind: TriggerKindDefinition = {
       },
       { key: 'Event', value: state.eventType || 'any event', mono: true },
     ];
+    const filters = describeMatchCondition(state.filters);
+    if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
+    return rows;
+  },
+  fieldCatalog: (state, context) => {
+    const source = context.sources.find((s) => s.id === state.sourceChoice);
+    const provider =
+      state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (source?.provider ?? '');
+    return webhookCatalog(provider, state.eventType);
   },
   draftPatch: (state) => ({
     source:

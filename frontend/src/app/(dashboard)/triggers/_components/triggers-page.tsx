@@ -200,6 +200,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         prompt_template: draft.promptTemplate,
         ...(sourceId !== undefined && { source_id: sourceId }),
         ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
+        ...(draft.matchCondition !== undefined && { match_condition: draft.matchCondition }),
         ...(draft.schedule !== undefined && {
           schedule_config: {
             cron_expression: draft.schedule.cronExpression,
