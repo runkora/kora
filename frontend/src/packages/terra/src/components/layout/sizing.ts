@@ -98,8 +98,9 @@ export const OVERFLOW_Y: Record<OverflowValue, string> = {
  *
  * - `'scroll-sm'` — `max-h-56` (224 px / 14 rem) — short dropdown or picker.
  * - `'scroll-md'` — `max-h-60` (240 px / 15 rem) — standard scrollable list.
+ * - `'scroll-lg'` — `max-h-96` (384 px / 24 rem) — a tall picker list inside a form.
  */
-export type MaxHeight = ContainerHeight | 'scroll-sm' | 'scroll-md';
+export type MaxHeight = ContainerHeight | 'scroll-sm' | 'scroll-md' | 'scroll-lg';
 
 /**
  * Text alignment for the `textAlign` prop on `Stack`.
@@ -257,30 +258,35 @@ export const MAX_H: Record<Breakpoint, Record<MaxHeight, string>> = {
     full: 'max-h-full',
     'scroll-sm': 'max-h-56',
     'scroll-md': 'max-h-60',
+    'scroll-lg': 'max-h-96',
   },
   sm: {
     screen: 'sm:max-h-dvh',
     full: 'sm:max-h-full',
     'scroll-sm': 'sm:max-h-56',
     'scroll-md': 'sm:max-h-60',
+    'scroll-lg': 'sm:max-h-96',
   },
   md: {
     screen: 'md:max-h-dvh',
     full: 'md:max-h-full',
     'scroll-sm': 'md:max-h-56',
     'scroll-md': 'md:max-h-60',
+    'scroll-lg': 'md:max-h-96',
   },
   lg: {
     screen: 'lg:max-h-dvh',
     full: 'lg:max-h-full',
     'scroll-sm': 'lg:max-h-56',
     'scroll-md': 'lg:max-h-60',
+    'scroll-lg': 'lg:max-h-96',
   },
   xl: {
     screen: 'xl:max-h-dvh',
     full: 'xl:max-h-full',
     'scroll-sm': 'xl:max-h-56',
     'scroll-md': 'xl:max-h-60',
+    'scroll-lg': 'xl:max-h-96',
   },
 };
 

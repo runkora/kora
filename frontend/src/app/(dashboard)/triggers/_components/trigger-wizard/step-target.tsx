@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 /** @tier 3 — triggers-scoped. Shared Target step: the agent this trigger runs,
  * the concurrency ceiling, and what happens to the overlap beyond it. */
 
@@ -62,8 +64,21 @@ function initial(agent: TriggerWizardAgent): string {
   return (source.charAt(0) || '?').toUpperCase();
 }
 
+/** Above this many agents the list gains a search box and scrolls. */
+const AGENT_SEARCH_THRESHOLD = 6;
+
 export function StepTarget({ state, patch, context, definition }: StepComponentProps) {
   const { agents } = context;
+  const [agentQuery, setAgentQuery] = useState('');
+  const query = agentQuery.trim().toLowerCase();
+  const visibleAgents =
+    query === ''
+      ? agents
+      : agents.filter(
+          (a) =>
+            a.slug.toLowerCase().includes(query) ||
+            (a.name ?? '').toLowerCase().includes(query),
+        );
   const overflowDetail =
     state.overflow === 'wait'
       ? `Further deliveries wait in order, up to ${state.maxQueueDepth} of them.`
@@ -80,39 +95,72 @@ export function StepTarget({ state, patch, context, definition }: StepComponentP
             No agents are available to bind. Create an autonomous agent first.
           </Callout>
         )}
+        {agents.length > AGENT_SEARCH_THRESHOLD && (
+          <Stack direction="horizontal" align="center" gap="cozy">
+            <Stack grow maxWidth="search-field">
+              <Input
+                compact
+                value={agentQuery}
+                onChange={(e) => setAgentQuery(e.target.value)}
+                placeholder="Search agents…"
+                aria-label="Search agents"
+              />
+            </Stack>
+            <Text as="span" size="caption" color="subtle">
+              {visibleAgents.length} of {agents.length}
+            </Text>
+          </Stack>
+        )}
         <RadioGroup
           value={state.agentTypeId}
           onValueChange={(v) => patch({ agentTypeId: v })}
           aria-label="Agent"
         >
-          <Stack gap="snug">
-            {agents.map((a) => (
-              <Card
-                key={a.id}
-                interactive
-                selected={state.agentTypeId === a.id}
-                onClick={() => patch({ agentTypeId: a.id })}
-              >
-                <CardContent padded compact>
-                  <Stack direction="horizontal" align="center" gap="cozy">
-                    <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
-                      <Text as="span" size="caption" mono weight="heavy">
-                        {initial(a)}
-                      </Text>
-                    </IconTile>
-                    <Stack gap="tight" grow minWidth="none">
-                      <Text as="span" size="supporting" weight="heavy">
-                        {a.name?.trim() || a.slug}
-                      </Text>
-                      <Text as="span" size="micro" mono color="subtle">
-                        {a.slug}
-                      </Text>
+          {/* Bounded height: past ~5 rows the list scrolls rather than pushing
+              the concurrency controls off screen. */}
+          <Stack gap="snug" maxHeight="scroll-lg" overflowY="auto">
+            {visibleAgents.length === 0 && (
+              <Text size="caption" color="subtle">
+                No agents match this search.
+              </Text>
+            )}
+            {visibleAgents.map((a) => {
+              const delegated = a.identityMode === 'delegated';
+              return (
+                <Card
+                  key={a.id}
+                  interactive={!delegated}
+                  subtle={delegated}
+                  selected={state.agentTypeId === a.id}
+                  onClick={delegated ? undefined : () => patch({ agentTypeId: a.id })}
+                >
+                  <CardContent padded compact>
+                    <Stack direction="horizontal" align="center" gap="cozy">
+                      <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
+                        <Text as="span" size="caption" mono weight="heavy">
+                          {initial(a)}
+                        </Text>
+                      </IconTile>
+                      <Stack gap="tight" grow minWidth="none">
+                        <Text as="span" size="supporting" weight="heavy">
+                          {a.name?.trim() || a.slug}
+                        </Text>
+                        <Text as="span" size="micro" mono color="subtle">
+                          {a.slug}
+                        </Text>
+                      </Stack>
+                      {delegated ? (
+                        <Text as="span" size="micro" color="subtle">
+                          delegated · started by people
+                        </Text>
+                      ) : (
+                        <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
+                      )}
                     </Stack>
-                    <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </Stack>
         </RadioGroup>
       </Stack>

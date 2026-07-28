@@ -25,6 +25,12 @@ export interface TriggerWizardAgent {
   id: string;
   slug: string;
   name?: string;
+  /**
+   * Delegated agents run on behalf of a person, so an automated trigger can
+   * never bind one; the picker shows them disabled with the reason rather
+   * than hiding them, so the list matches the agents page.
+   */
+  identityMode?: 'autonomous' | 'delegated';
 }
 
 export interface TriggerWizardSource {
