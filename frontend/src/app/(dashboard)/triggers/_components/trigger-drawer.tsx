@@ -27,6 +27,7 @@ import {
   Text,
   Toggle,
   ToggleRow,
+  SegmentedControl,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton, EmptyState } from '@orbit/components';
@@ -51,8 +52,9 @@ interface TriggerDrawerProps {
   onToggleEnabled: (t: TriggerRow, enabled: boolean) => void;
   onDelete: (t: TriggerRow) => void;
   /**
-   * Persists a safety setting. Absent when the caller cannot write, in which
-   * case the toggles render disabled rather than pretending to save.
+   * Persists a settings change (safety flags and admission tuning). Absent
+   * when the caller cannot write, in which case the controls render disabled
+   * rather than pretending to save.
    */
   onUpdateSafety?: (t: TriggerRow, patch: Partial<TriggerRow>) => void;
   /**
@@ -89,6 +91,57 @@ function describeCron(expr: string): string {
   }
   if (min.startsWith('*/')) return `Every ${min.slice(2)} minutes`;
   return 'Custom schedule';
+}
+
+/**
+ * A compact − n + control for a bounded numeric setting, saving on each step.
+ * Matches the wizard's stepper so the two surfaces feel like one product.
+ */
+function StepperControl({
+  value,
+  min,
+  max,
+  step = 1,
+  suffix = '',
+  label,
+  disabled,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  suffix?: string;
+  label: string;
+  disabled: boolean;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <Stack direction="horizontal" align="center" gap="tight">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled={disabled || value <= min}
+        aria-label={`Decrease ${label}`}
+        onClick={() => onChange(Math.max(min, value - step))}
+      >
+        <Icon name="minus" size="2xs" />
+      </Button>
+      <Text as="span" mono size="supporting" weight="heavy">
+        {value}
+        {suffix}
+      </Text>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled={disabled || value >= max}
+        aria-label={`Increase ${label}`}
+        onClick={() => onChange(Math.min(max, value + step))}
+      >
+        <Icon name="plus" size="2xs" />
+      </Button>
+    </Stack>
+  );
 }
 
 /** A small figure in the drawer's stat trio. */
@@ -484,23 +537,67 @@ export function TriggerDrawer({
                   <SettingRow
                     label="Runs at once"
                     description="How many runs this trigger may have in flight together."
-                    value={String(trigger.maxParallel)}
+                    value={
+                      <StepperControl
+                        value={trigger.maxParallel}
+                        min={1}
+                        max={16}
+                        label="runs at once"
+                        disabled={onUpdateSafety === undefined}
+                        onChange={(next) => onUpdateSafety?.(trigger, { maxParallel: next })}
+                      />
+                    }
                   />
                   <SettingRow
                     label="At the limit"
                     description="What happens to an arrival that cannot start yet."
                     value={
-                      trigger.overflow === 'wait'
-                        ? `Wait · ${trigger.maxQueueDepth} max`
-                        : trigger.overflow === 'replace'
-                          ? 'Replace waiting'
-                          : 'Refuse'
+                      <SegmentedControl
+                        aria-label="Overflow behaviour"
+                        value={trigger.overflow}
+                        onChange={(v) =>
+                          onUpdateSafety?.(trigger, { overflow: v as TriggerRow['overflow'] })
+                        }
+                        options={[
+                          { value: 'wait', label: 'Wait' },
+                          { value: 'replace', label: 'Replace' },
+                          { value: 'refuse', label: 'Refuse' },
+                        ]}
+                      />
                     }
                   />
+                  {trigger.overflow === 'wait' && (
+                    <SettingRow
+                      label="Queue depth"
+                      description="How many deliveries may wait before new ones are refused."
+                      value={
+                        <StepperControl
+                          value={trigger.maxQueueDepth}
+                          min={1}
+                          max={500}
+                          step={trigger.maxQueueDepth >= 50 ? 25 : 1}
+                          label="queue depth"
+                          disabled={onUpdateSafety === undefined}
+                          onChange={(next) => onUpdateSafety?.(trigger, { maxQueueDepth: next })}
+                        />
+                      }
+                    />
+                  )}
                   <SettingRow
                     label="Start timeout"
                     description="How long a queued delivery may wait before it is dropped."
-                    value={`${trigger.timeoutSeconds}s`}
+                    value={
+                      <StepperControl
+                        value={trigger.timeoutSeconds}
+                        min={5}
+                        max={600}
+                        step={5}
+                        suffix="s"
+                        label="start timeout"
+                        disabled={onUpdateSafety === undefined}
+                        onChange={(next) => onUpdateSafety?.(trigger, { timeoutSeconds: next })}
+                      />
+                    }
                   />
                   <SettingRow
                     label="Consecutive failures"

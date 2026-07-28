@@ -529,6 +529,9 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	if req.AutopauseEnabled != nil {
 		t.AutopauseEnabled = *req.AutopauseEnabled
 	}
+	if err := applyAdmissionUpdate(t, req); err != nil {
+		return nil, err
+	}
 	if req.ScheduleConfig != nil && t.Kind == KindScheduled {
 		if err := validateScheduleConfig(req.ScheduleConfig); err != nil {
 			return nil, err
@@ -1046,6 +1049,40 @@ func validateAdmissionCreate(req CreateTriggerRequest) error {
 		return err
 	}
 	return inRange("timeout_seconds", req.TimeoutSeconds, minTimeoutSeconds, maxTimeoutSeconds)
+}
+
+// applyAdmissionUpdate validates and applies a PATCH's admission tuning, with
+// exactly the create-time bounds. Omitted fields leave the stored value alone.
+func applyAdmissionUpdate(t *Trigger, req UpdateTriggerRequest) error {
+	if req.Overflow != nil {
+		switch *req.Overflow {
+		case OverflowWait, OverflowReplace, OverflowRefuse:
+		default:
+			return fmt.Errorf("%w: overflow must be one of %q, %q or %q", ErrValidation, OverflowWait, OverflowReplace, OverflowRefuse)
+		}
+	}
+	if err := inRange("max_parallel", req.MaxParallel, minParallel, maxParallelCeiling); err != nil {
+		return err
+	}
+	if err := inRange("max_queue_depth", req.MaxQueueDepth, minQueueDepth, maxQueueDepth); err != nil {
+		return err
+	}
+	if err := inRange("timeout_seconds", req.TimeoutSeconds, minTimeoutSeconds, maxTimeoutSeconds); err != nil {
+		return err
+	}
+	if req.MaxParallel != nil {
+		t.MaxParallel = *req.MaxParallel
+	}
+	if req.Overflow != nil {
+		t.Overflow = *req.Overflow
+	}
+	if req.MaxQueueDepth != nil {
+		t.MaxQueueDepth = *req.MaxQueueDepth
+	}
+	if req.TimeoutSeconds != nil {
+		t.TimeoutSeconds = *req.TimeoutSeconds
+	}
+	return nil
 }
 
 func inRange(field string, v *int16, lo, hi int16) error {

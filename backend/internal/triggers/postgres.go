@@ -325,10 +325,13 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) erro
 		UPDATE triggers
 		SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
 		       kind_config = $5, enabled = $6, dedupe_enabled = $7, autopause_enabled = $8,
+		       max_parallel = $9, overflow = $10, max_queue_depth = $11, timeout_seconds = $12,
 		       updated_at = now()
-		WHERE  id = $9 AND tenant_id = $10
+		WHERE  id = $13 AND tenant_id = $14
 	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
-		t.DedupeEnabled, t.AutopauseEnabled, t.ID, t.TenantID)
+		t.DedupeEnabled, t.AutopauseEnabled,
+		defaultInt16(t.MaxParallel, 4), defaultOverflow(t), defaultInt16(t.MaxQueueDepth, 32),
+		defaultInt16(t.TimeoutSeconds, 30), t.ID, t.TenantID)
 	if err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}

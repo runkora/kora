@@ -738,6 +738,11 @@ export interface TriggerUpdateRequest {
   dedupe_enabled?: boolean;
   /** Disable the trigger automatically after repeated consecutive failures. */
   autopause_enabled?: boolean;
+  // ── Admission tuning (same bounds as create; applies to the next delivery) ──
+  max_parallel?: number;
+  overflow?: 'wait' | 'replace' | 'refuse';
+  max_queue_depth?: number;
+  timeout_seconds?: number;
 }
 
 /** Request body for POST /api/triggers/:id/fire (manual triggers only). */

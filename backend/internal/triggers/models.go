@@ -461,6 +461,12 @@ type UpdateTriggerRequest struct {
 	// only renames a trigger must not quietly re-arm its auto-pause.
 	DedupeEnabled    *bool `json:"dedupe_enabled,omitempty"`
 	AutopauseEnabled *bool `json:"autopause_enabled,omitempty"`
+	// Admission tuning, editable after creation with the same bounds as
+	// create. Changes apply to the next delivery, not work in flight.
+	MaxParallel    *int16  `json:"max_parallel,omitempty"`
+	Overflow       *string `json:"overflow,omitempty"`
+	MaxQueueDepth  *int16  `json:"max_queue_depth,omitempty"`
+	TimeoutSeconds *int16  `json:"timeout_seconds,omitempty"`
 }
 
 // FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.

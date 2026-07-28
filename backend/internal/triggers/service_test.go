@@ -319,6 +319,44 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 //go:fix inline
 func admissionPtr[T any](v T) *T { return new(v) }
 
+func TestUpdateTrigger_Admission(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+	tr := mustTrigger(t, svc, src.ID, nil, "p")
+
+	// Applied when set, with create-time bounds.
+	upd, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+		MaxParallel:    admissionPtr[int16](2),
+		Overflow:       new(OverflowRefuse),
+		MaxQueueDepth:  admissionPtr[int16](10),
+		TimeoutSeconds: admissionPtr[int16](60),
+	})
+	if err != nil {
+		t.Fatalf("UpdateTrigger admission: %v", err)
+	}
+	if upd.MaxParallel != 2 || upd.Overflow != OverflowRefuse || upd.MaxQueueDepth != 10 || upd.TimeoutSeconds != 60 {
+		t.Errorf("admission not applied: %+v", upd)
+	}
+
+	// Omitted fields stay put on an unrelated PATCH.
+	renamed, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+		Name: admissionPtr("renamed"),
+	})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if renamed.MaxParallel != 2 || renamed.Overflow != OverflowRefuse {
+		t.Errorf("rename disturbed admission: %+v", renamed)
+	}
+
+	// Out-of-range rejected.
+	if _, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+		MaxParallel: admissionPtr[int16](99),
+	}); err == nil {
+		t.Fatal("expected max_parallel out of range to be rejected")
+	}
+}
+
 func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 	// Omitting every admission field must produce exactly the trigger this path
 	// produced before the fields existed: the four tuning knobs left zero for

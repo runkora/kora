@@ -277,6 +277,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       await updateTrigger(row.id, {
         ...(patch.dedupeEnabled !== undefined && { dedupe_enabled: patch.dedupeEnabled }),
         ...(patch.autopauseEnabled !== undefined && { autopause_enabled: patch.autopauseEnabled }),
+        ...(patch.maxParallel !== undefined && { max_parallel: patch.maxParallel }),
+        ...(patch.overflow !== undefined && { overflow: patch.overflow }),
+        ...(patch.maxQueueDepth !== undefined && { max_queue_depth: patch.maxQueueDepth }),
+        ...(patch.timeoutSeconds !== undefined && { timeout_seconds: patch.timeoutSeconds }),
       });
       router.refresh();
     },
