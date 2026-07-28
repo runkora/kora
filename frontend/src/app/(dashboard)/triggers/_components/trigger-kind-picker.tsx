@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Badge, Grid, RadioCard, Stack, Text } from '@orbit/terra';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import type { TriggerKind } from '../_types';
 
@@ -99,19 +99,24 @@ export function TriggerKindPicker({ onSelect }: TriggerKindPickerProps) {
     <Stack gap="relaxed">
       <Stack gap="snug">
         <Text weight="heavy">Available now</Text>
-        <Grid cols={3} gap="comfortable">
-          {AVAILABLE.map((k) => (
-            <RadioCard
-              key={k.kind}
-              value={k.kind}
-              selected={false}
-              onSelect={(v) => onSelect(v as TriggerKind)}
-              icon={k.icon}
-              title={k.title}
-              description={k.description}
-            />
-          ))}
-        </Grid>
+        {/* RadioCard requires the Radix group context even for a pick-and-go
+            grid; value stays empty because choosing advances the flow rather
+            than persisting a selection. */}
+        <RadioGroup value="" aria-label="Trigger kind">
+          <Grid cols={3} gap="comfortable">
+            {AVAILABLE.map((k) => (
+              <RadioCard
+                key={k.kind}
+                value={k.kind}
+                selected={false}
+                onSelect={(v) => onSelect(v as TriggerKind)}
+                icon={k.icon}
+                title={k.title}
+                description={k.description}
+              />
+            ))}
+          </Grid>
+        </RadioGroup>
       </Stack>
 
       <Stack gap="snug">
@@ -123,20 +128,22 @@ export function TriggerKindPicker({ onSelect }: TriggerKindPickerProps) {
           Each is another way for something to start. Nothing downstream changes, which is the test
           of whether this design is right.
         </Text>
-        <Grid cols={3} gap="comfortable">
-          {PLANNED.map((k) => (
-            <RadioCard
-              key={k.title}
-              value={k.title}
-              selected={false}
-              disabled
-              onSelect={() => undefined}
-              icon={k.icon}
-              title={k.title}
-              description={k.description}
-            />
-          ))}
-        </Grid>
+        <RadioGroup value="" aria-label="Planned trigger kinds">
+          <Grid cols={3} gap="comfortable">
+            {PLANNED.map((k) => (
+              <RadioCard
+                key={k.title}
+                value={k.title}
+                selected={false}
+                disabled
+                onSelect={() => undefined}
+                icon={k.icon}
+                title={k.title}
+                description={k.description}
+              />
+            ))}
+          </Grid>
+        </RadioGroup>
       </Stack>
     </Stack>
   );
