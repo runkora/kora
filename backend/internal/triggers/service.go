@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -589,7 +590,12 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	if t.Kind != KindManual {
 		return nil, fmt.Errorf("%w: only manual triggers can be fired directly", ErrWrongKind)
 	}
-	if !t.Enabled {
+	// A trigger a person turned off is refused here, with nothing recorded: they
+	// asked for silence. A trigger the PLATFORM paused is carried through to
+	// admission instead, which records 'paused' against the fire — otherwise an
+	// auto-paused trigger and a deleted one look identical in the history, which
+	// is the whole point of distinguishing them.
+	if !t.Enabled && t.AutoPausedAt == nil {
 		return nil, ErrTriggerDisabled
 	}
 
@@ -601,20 +607,24 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		return nil, &InputValidationError{Problems: problems}
 	}
 
-	fields := make(map[string]string)
-	for k, v := range values {
-		fields["var."+k] = v
-	}
+	fields := varFields(values)
+
+	// The values a person supplied are the manual kind's payload. Storing them is
+	// what makes a manual fire answerable after the fact ("what was it run
+	// with?") and what makes it replayable at all.
+	captured := s.captureVariables(ctx, values)
 
 	deliveryID := uuid.NewString()
 	triggerID := t.ID
 	delivery := &Delivery{
-		ID:        deliveryID,
-		TenantID:  tenantID,
-		TriggerID: &triggerID,
-		Kind:      KindManual,
-		Status:    StatusVerified,
-		FiredBy:   callerPrincipalID,
+		ID:           deliveryID,
+		TenantID:     tenantID,
+		TriggerID:    &triggerID,
+		Kind:         KindManual,
+		Status:       StatusVerified,
+		FiredBy:      callerPrincipalID,
+		Payload:      captured,
+		PayloadBytes: len(captured),
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
@@ -634,6 +644,12 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	// queueing behind work they cannot see.
 	if !s.admit(ctx, *t, deliveryID, fields) {
 		s.deriveDeliveryStatus(ctx, deliveryID)
+		// The fire is recorded either way; the error says which refusal it was,
+		// because the fixes differ — wait a moment, versus deal with the
+		// failures that paused the trigger.
+		if t.AutoPausedAt != nil {
+			return nil, ErrTriggerAutoPaused
+		}
 		return nil, ErrTriggerAtCapacity
 	}
 
@@ -730,6 +746,200 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	return deliveries, nil
 }
 
+// Redeliver replays a delivery: it records a NEW delivery naming the original
+// and routes it through the normal fan-out.
+//
+// A replay is never an edit of the original. The original's outcome is the
+// record of what happened the first time, and an operator re-running an event
+// after fixing its cause must not overwrite the evidence of the failure they
+// fixed.
+//
+// The response is 202 whenever the new delivery was recorded, including when
+// admission then refuses it. The recording is the guarantee; whether a trigger
+// ran is the new delivery's own fan-out, exactly as for a fresh arrival.
+func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPrincipalID string) (*RedeliverResponse, error) {
+	original, err := s.repo.GetDelivery(ctx, tenantID, deliveryID)
+	if err != nil {
+		return nil, err
+	}
+
+	switch original.Kind {
+	case KindWebhook:
+		return s.redeliverWebhook(ctx, tenantID, original, callerPrincipalID)
+	case KindManual:
+		return s.redeliverManual(ctx, tenantID, original, callerPrincipalID)
+	default:
+		// A scheduled tick is defined by the minute it was due. Replaying one
+		// would either collide with that minute's row or invent a fire that was
+		// never due, and neither is a thing an operator can reason about. Fire
+		// the schedule's trigger manually if the work needs redoing.
+		return nil, fmt.Errorf("%w: a scheduled tick cannot be redelivered; it is defined by the minute it was due", ErrNotRedeliverable)
+	}
+}
+
+// redeliverWebhook replays an inbound webhook against the source's triggers as
+// they are configured NOW, not as they were when the original arrived.
+//
+// That is the point of the endpoint: the usual reason to replay is that the
+// cause was fixed, and replaying against the old configuration would replay the
+// failure with it.
+func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, original *Delivery, callerPrincipalID string) (*RedeliverResponse, error) {
+	if original.PayloadPurged || len(original.Payload) == 0 {
+		return nil, fmt.Errorf("%w: this delivery's payload is no longer stored, so there is nothing to replay", ErrNotRedeliverable)
+	}
+	src, err := s.repo.GetSource(ctx, tenantID, original.SourceID)
+	if err != nil {
+		if errors.Is(err, ErrSourceNotFound) {
+			return nil, fmt.Errorf("%w: the source this delivery arrived on no longer exists", ErrNotRedeliverable)
+		}
+		return nil, err
+	}
+	if !src.Enabled {
+		return nil, fmt.Errorf("%w: the source this delivery arrived on is disabled", ErrNotRedeliverable)
+	}
+	adapter, ok := s.registry.Get(src.Provider)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	}
+
+	// No signature check. The body was verified when it first arrived and has
+	// been stored under the platform's control since; re-verifying would fail
+	// for any source whose secret has been rotated, which is exactly the kind of
+	// fix that precedes a replay.
+	dup := &Delivery{
+		ID:                 uuid.NewString(),
+		TenantID:           tenantID,
+		SourceID:           src.ID,
+		Kind:               KindWebhook,
+		ProviderDeliveryID: original.ProviderDeliveryID,
+		EventType:          original.EventType,
+		Status:             StatusVerified,
+		PayloadExcerpt:     original.PayloadExcerpt,
+		Payload:            original.Payload,
+		PayloadBytes:       original.PayloadBytes,
+		FiredBy:            callerPrincipalID,
+		RedeliveryOf:       &original.ID,
+	}
+	if _, err := s.repo.InsertDelivery(ctx, dup); err != nil {
+		return nil, fmt.Errorf("record redelivery: %w", err)
+	}
+
+	s.logger.Info(ctx, "webhook delivery replayed",
+		logging.Field{Key: "delivery_id", Value: dup.ID},
+		logging.Field{Key: "redelivery_of", Value: original.ID},
+		logging.Field{Key: "requested_by", Value: callerPrincipalID},
+	)
+
+	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, dup.ID, dup.EventType, dup.Payload)
+
+	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: original.ID}, nil
+}
+
+// redeliverManual replays a manual fire with the values it was given, validated
+// against the trigger's CURRENT input declaration.
+//
+// Revalidating is deliberate: a declaration that changed since the original fire
+// is the current contract, and quietly starting a run with values it no longer
+// accepts would be the same drift the declaration exists to prevent.
+func (s *Service) redeliverManual(ctx context.Context, tenantID string, original *Delivery, callerPrincipalID string) (*RedeliverResponse, error) {
+	if original.TriggerID == nil {
+		return nil, fmt.Errorf("%w: this delivery records no trigger to re-run", ErrNotRedeliverable)
+	}
+	t, err := s.repo.GetTrigger(ctx, tenantID, *original.TriggerID)
+	if err != nil {
+		if errors.Is(err, ErrTriggerNotFound) {
+			return nil, fmt.Errorf("%w: the trigger this delivery fired no longer exists", ErrNotRedeliverable)
+		}
+		return nil, err
+	}
+	// Auto-paused is allowed through: replaying after fixing the cause is the
+	// common case, and admission records whatever it then decides. A trigger a
+	// person turned off is not: that is a decision to respect, not to work
+	// around with a replay.
+	if !t.Enabled && t.AutoPausedAt == nil {
+		return nil, fmt.Errorf("%w: the trigger this delivery fired is disabled", ErrNotRedeliverable)
+	}
+
+	values := t.ManualConfig.ApplyDefaults(storedVariables(ctx, s.logger, original.Payload))
+	if problems := t.ManualConfig.ValidateInputs(values); problems != nil {
+		return nil, &InputValidationError{Problems: problems}
+	}
+
+	captured := s.captureVariables(ctx, values)
+	triggerID := t.ID
+	dup := &Delivery{
+		ID:           uuid.NewString(),
+		TenantID:     tenantID,
+		TriggerID:    &triggerID,
+		Kind:         KindManual,
+		Status:       StatusVerified,
+		FiredBy:      callerPrincipalID,
+		Payload:      captured,
+		PayloadBytes: len(captured),
+		RedeliveryOf: &original.ID,
+	}
+	if _, err := s.repo.InsertDelivery(ctx, dup); err != nil {
+		return nil, fmt.Errorf("record redelivery: %w", err)
+	}
+
+	if !s.admit(ctx, *t, dup.ID, varFields(values)) {
+		s.deriveDeliveryStatus(ctx, dup.ID)
+	}
+
+	s.logger.Info(ctx, "manual fire replayed",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: dup.ID},
+		logging.Field{Key: "redelivery_of", Value: original.ID},
+		logging.Field{Key: "requested_by", Value: callerPrincipalID},
+	)
+
+	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: original.ID}, nil
+}
+
+// varFields maps a manual trigger's input values into the {{ var.key }}
+// namespace the prompt template renders against.
+func varFields(values map[string]string) map[string]string {
+	fields := make(map[string]string, len(values))
+	for k, v := range values {
+		fields["var."+k] = v
+	}
+	return fields
+}
+
+// captureVariables serializes a manual fire's inputs for storage.
+//
+// Best-effort: a fire must not be refused because its own audit record could not
+// be encoded, and every value is a string, so there is no realistic failure here
+// beyond a bug worth logging.
+func (s *Service) captureVariables(ctx context.Context, values map[string]string) []byte {
+	if len(values) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(values)
+	if err != nil {
+		s.logger.Error(ctx, "failed to capture manual fire inputs",
+			logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	return b
+}
+
+// storedVariables reads back what captureVariables wrote. A delivery recorded
+// before inputs were stored simply replays with none, which the declaration's
+// defaults and validation then judge on their current terms.
+func storedVariables(ctx context.Context, logger logging.Logger, payload []byte) map[string]string {
+	if len(payload) == 0 {
+		return nil
+	}
+	var values map[string]string
+	if err := json.Unmarshal(payload, &values); err != nil {
+		logger.Warn(ctx, "stored manual fire inputs could not be read; replaying with none",
+			logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	return values
+}
+
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
@@ -795,12 +1005,11 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return 0, err
 	}
 	if !inserted {
-		// The sender retried something already handled. Acknowledged, not
-		// re-run: the original delivery already holds the outcome.
-		s.logger.Info(ctx, "duplicate webhook delivery acknowledged",
-			logging.Field{Key: "source_id", Value: src.ID},
-			logging.Field{Key: "provider_delivery_id", Value: deliveryID},
-		)
+		// The sender retried something already handled. The retry is recorded
+		// rather than dropped: "GitHub sent this five times" is a question the
+		// delivery history has to be able to answer, and until now the repeats
+		// left nothing behind at all.
+		s.recordDuplicate(ctx, *src, adapter, delivery, body)
 		return IngestDuplicate, nil
 	}
 
@@ -809,15 +1018,97 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	return IngestAccepted, nil
 }
 
-// dispatch matches the delivery against the source's enabled triggers and starts
-// a run for each match under the source's mapped identity, recording the outcome.
+// recordDuplicate writes the row for a repeat arrival and, for the triggers that
+// asked not to dedupe, runs it as if it were fresh.
+//
+// The repeat becomes its own delivery pointing at the original rather than an
+// edit of it: the original's outcome is history and must not be rewritten by a
+// retry that arrived days later. No payload is captured — the body is by
+// definition the one already stored on the original, and storing it again would
+// multiply retention cost by however many times a provider retries.
+func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapter SourceAdapter, attempted *Delivery, body []byte) {
+	original, err := s.repo.GetDeliveryByProviderID(ctx, src.ID, attempted.ProviderDeliveryID)
+	if err != nil {
+		// The insert lost to the dedup index, so an original exists; failing to
+		// read it is an infrastructure problem, not a duplicate that isn't one.
+		// The sender is still acknowledged: it did its part.
+		s.logger.Error(ctx, "duplicate delivery: could not resolve the original",
+			logging.Field{Key: "source_id", Value: src.ID},
+			logging.Field{Key: "provider_delivery_id", Value: attempted.ProviderDeliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	reason := "the sender redelivered an event this source has already handled"
+	dup := &Delivery{
+		ID:                 uuid.NewString(),
+		TenantID:           src.TenantID,
+		SourceID:           src.ID,
+		Kind:               KindWebhook,
+		ProviderDeliveryID: attempted.ProviderDeliveryID,
+		EventType:          attempted.EventType,
+		Status:             StatusDuplicate,
+		Reason:             &reason,
+		RedeliveryOf:       &original.ID,
+	}
+	if _, err := s.repo.InsertDelivery(ctx, dup); err != nil {
+		s.logger.Error(ctx, "failed to record duplicate delivery",
+			logging.Field{Key: "source_id", Value: src.ID},
+			logging.Field{Key: "provider_delivery_id", Value: attempted.ProviderDeliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	s.logger.Info(ctx, "duplicate webhook delivery recorded",
+		logging.Field{Key: "source_id", Value: src.ID},
+		logging.Field{Key: "delivery_id", Value: dup.ID},
+		logging.Field{Key: "redelivery_of", Value: original.ID},
+	)
+
+	// Whether a repeat is suppressed or re-run is a per-trigger decision, and
+	// dedupe_enabled is where a tenant makes it. The unique index stays as the
+	// storage-level guarantee (one original per provider delivery id); it cannot
+	// express a per-trigger choice, and this is the level that can.
+	go s.dispatchDuplicate(context.WithoutCancel(ctx), src, adapter, dup.ID, dup.EventType, body)
+}
+
+// dispatch matches the delivery against the source's triggers and starts a run
+// for each match under the source's mapped identity, recording the outcome.
 func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter SourceAdapter, deliveryID, eventType string, body []byte) {
+	s.fanOut(ctx, src, adapter, deliveryID, eventType, body, nil)
+}
+
+// dispatchDuplicate fans a repeat arrival out to the triggers that turned dedupe
+// off, and only those.
+//
+// A trigger with dedupe on records nothing here: the duplicate delivery row is
+// the acknowledgement, and adding a per-trigger row saying "did nothing" to
+// every trigger on a noisy source is noise, not audit.
+func (s *Service) dispatchDuplicate(ctx context.Context, src WebhookSource, adapter SourceAdapter, deliveryID, eventType string, body []byte) {
+	s.fanOut(ctx, src, adapter, deliveryID, eventType, body, func(t Trigger) bool { return !t.DedupeEnabled })
+}
+
+// fanOut matches a delivery against the source's triggers and admits each match.
+//
+// considers narrows which triggers this delivery is even offered to (nil means
+// all of them). It is applied before matching so that a trigger excluded here
+// records nothing at all, rather than a 'filtered' row it never had a say in.
+func (s *Service) fanOut(
+	ctx context.Context,
+	src WebhookSource,
+	adapter SourceAdapter,
+	deliveryID, eventType string,
+	body []byte,
+	considers func(Trigger) bool,
+) {
 	ctx, cancel := context.WithTimeout(ctx, dispatchTimeout)
 	defer cancel()
 
 	fields := adapter.Fields(eventType, body)
 
-	triggers, err := s.repo.ListEnabledTriggersForSource(ctx, src.ID)
+	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
 		s.recordFailure(ctx, deliveryID, fmt.Sprintf("list triggers: %v", err))
 		return
@@ -835,6 +1126,9 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 	//               source. The fix is a missing trigger.
 	var matched []Trigger
 	for _, t := range triggers {
+		if considers != nil && !considers(t) {
+			continue
+		}
 		// An empty event_type subscribes to every event the source emits; a
 		// non-empty one is an exact match. The console renders '' as "any
 		// event", and this is the line that makes that label true.
@@ -1451,10 +1745,15 @@ func (s *Service) noteSuccess(ctx context.Context, t Trigger) {
 // counter at the threshold would pause it again on the next failure.
 //
 // Disabling drops the backlog, visibly. Those fires would otherwise drain into
-// a trigger the admin just turned off.
+// a trigger the admin just turned off. It also clears the auto-pause marker: an
+// explicit "off" is a person's decision, and it must not keep presenting as the
+// platform's, which is now the difference between recording a refused fire and
+// recording nothing at all.
 func (s *Service) applyEnabledChange(ctx context.Context, t *Trigger, enabled bool) {
-	switch {
-	case enabled && !t.Enabled:
+	if enabled {
+		if t.Enabled {
+			return
+		}
 		t.AutoPausedAt = nil
 		if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
 			s.logger.Error(ctx, "failed to clear failure count on re-enable",
@@ -1462,7 +1761,10 @@ func (s *Service) applyEnabledChange(ctx context.Context, t *Trigger, enabled bo
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
-	case !enabled && t.Enabled && s.admission != nil:
+		return
+	}
+	if t.Enabled && s.admission != nil {
 		_, _ = s.admission.Drain(ctx, *t, "the trigger was disabled while this fire was waiting")
 	}
+	t.AutoPausedAt = nil
 }

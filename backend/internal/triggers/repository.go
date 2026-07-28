@@ -23,12 +23,21 @@ type Repository interface {
 	// ListTriggers returns triggers for a tenant, optionally filtered by
 	// agentTypeID (empty = all) — the agentTypeID filter backs the per-agent tab.
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	// ListEnabledTriggersForSource returns the enabled webhook triggers for a
-	// source, used by the ingest path to match a delivery.
-	ListEnabledTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
-	// ListEnabledScheduledTriggers returns all enabled scheduled triggers across
-	// all tenants, used by the cron scheduler.
-	ListEnabledScheduledTriggers(ctx context.Context) ([]Trigger, error)
+	// ListMatchableTriggersForSource returns the webhook triggers a delivery for
+	// this source is matched against: the enabled ones, plus the ones the
+	// platform auto-paused.
+	//
+	// Auto-paused triggers are included deliberately. They are filtered out of
+	// dispatch by admission, which records 'paused' against the delivery — so an
+	// admin can see that their trigger was listening and the platform refused,
+	// which is the distinction an auto-paused trigger otherwise loses: with
+	// enabled = false alone it is indistinguishable from a deleted one. A trigger
+	// a PERSON turned off stays invisible; that silence was asked for.
+	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
+	// ListMatchableScheduledTriggers returns the scheduled triggers the cron
+	// scheduler evaluates, across all tenants: enabled plus auto-paused, on the
+	// same reasoning as ListMatchableTriggersForSource.
+	ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error)
 	UpdateTrigger(ctx context.Context, t *Trigger) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 
@@ -37,9 +46,20 @@ type Repository interface {
 	// when a row with the same dedup key already exists:
 	//   - webhook: same (source_id, provider_delivery_id)
 	//   - scheduled: same (trigger_id, scheduled_at)
+	//
+	// A row that names the delivery it descends from (RedeliveryOf) is lineage
+	// rather than an original arrival, and is never deduped against: recording
+	// the repeat is the entire point of writing it.
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	// GetDelivery returns one delivery, scoped to the tenant that owns it.
+	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
+	// GetDeliveryByProviderID returns the original delivery for a provider's
+	// delivery id on a source — the row a repeat arrival is a repeat OF. It
+	// ignores lineage rows, so a source that has already been replayed still
+	// resolves to the one original.
+	GetDeliveryByProviderID(ctx context.Context, sourceID, providerDeliveryID string) (*Delivery, error)
 
 	// InsertScheduledDelivery persists a scheduled tick's delivery, deduped on
 	// (trigger_id, scheduled_at). This is the scheduler's concurrency control:

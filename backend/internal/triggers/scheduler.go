@@ -68,7 +68,10 @@ func (s *Scheduler) Stop(ctx context.Context) {
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
-	triggers, err := s.repo.ListEnabledScheduledTriggers(ctx)
+	// Auto-paused schedules are evaluated too. Their tick reaches admission,
+	// which records 'paused' rather than starting a run, so a paused schedule
+	// shows the fires it refused instead of going silent.
+	triggers, err := s.repo.ListMatchableScheduledTriggers(ctx)
 	if err != nil {
 		s.logger.Error(ctx, "scheduler: failed to list scheduled triggers",
 			logging.Field{Key: "error", Value: err.Error()},

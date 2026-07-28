@@ -270,8 +270,21 @@ func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTy
 	return out, nil
 }
 
-func (r *postgresRepository) ListEnabledTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+triggerColumns+` FROM triggers WHERE source_id = $1 AND kind = 'webhook' AND enabled = true`, sourceID)
+// ListMatchableTriggersForSource returns the triggers a delivery is matched
+// against: enabled, plus auto-paused.
+//
+// An auto-paused trigger is carried through matching so admission can record
+// 'paused' against the delivery. Filtering it out here — as the enabled-only
+// query did — leaves an auto-paused trigger looking exactly like a deleted one
+// in the delivery history, which is the failure this listing exists to avoid. A
+// trigger a person disabled is still excluded: that silence was asked for.
+func (r *postgresRepository) ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+triggerColumns+`
+		FROM   triggers
+		WHERE  source_id = $1 AND kind = 'webhook'
+		  AND  (enabled = true OR auto_paused_at IS NOT NULL)
+	`, sourceID)
 	if err != nil {
 		return nil, fmt.Errorf("list triggers for source: %w", err)
 	}
@@ -291,8 +304,17 @@ func (r *postgresRepository) ListEnabledTriggersForSource(ctx context.Context, s
 	return out, nil
 }
 
-func (r *postgresRepository) ListEnabledScheduledTriggers(ctx context.Context) ([]Trigger, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+triggerColumns+` FROM triggers WHERE kind = 'scheduled' AND enabled = true`)
+// ListMatchableScheduledTriggers returns the scheduled triggers the cron loop
+// evaluates: enabled, plus auto-paused, on the same reasoning as
+// ListMatchableTriggersForSource. A paused schedule records that its fire was
+// due and refused rather than going quiet.
+func (r *postgresRepository) ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+triggerColumns+`
+		FROM   triggers
+		WHERE  kind = 'scheduled'
+		  AND  (enabled = true OR auto_paused_at IS NOT NULL)
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("list scheduled triggers: %w", err)
 	}
@@ -321,17 +343,21 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) erro
 	if err != nil {
 		return err
 	}
+	// auto_paused_at is written here, not only by AutoPause. Re-enabling a
+	// trigger clears the marker in the service, and leaving that unpersisted
+	// meant a re-enabled trigger stayed paused as far as admission was
+	// concerned — enabled in the console, refusing every fire.
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE triggers
 		SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
 		       kind_config = $5, enabled = $6, dedupe_enabled = $7, autopause_enabled = $8,
 		       max_parallel = $9, overflow = $10, max_queue_depth = $11, timeout_seconds = $12,
-		       updated_at = now()
-		WHERE  id = $13 AND tenant_id = $14
+		       auto_paused_at = $13, updated_at = now()
+		WHERE  id = $14 AND tenant_id = $15
 	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
 		t.DedupeEnabled, t.AutopauseEnabled,
 		defaultInt16(t.MaxParallel, 4), defaultOverflow(t), defaultInt16(t.MaxQueueDepth, 32),
-		defaultInt16(t.TimeoutSeconds, 30), t.ID, t.TenantID)
+		defaultInt16(t.TimeoutSeconds, 30), t.AutoPausedAt, t.ID, t.TenantID)
 	if err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}
@@ -356,9 +382,14 @@ func (r *postgresRepository) DeleteTrigger(ctx context.Context, tenantID, id str
 
 func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (bool, error) {
 	// Two dedup strategies depending on kind:
-	//   webhook:   ON CONFLICT (source_id, provider_delivery_id) WHERE provider_delivery_id <> ''
+	//   webhook:   ON CONFLICT (source_id, provider_delivery_id) WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
 	//   scheduled: ON CONFLICT (trigger_id, scheduled_at)        WHERE scheduled_at IS NOT NULL
 	// Both partial unique indexes use DO NOTHING; RowsAffected == 0 signals duplicate.
+	//
+	// The arbiter predicate matches the index exactly, which is also what makes a
+	// lineage row insertable: a row naming the delivery it descends from is not
+	// an original arrival, so it is outside the uniqueness guarantee rather than
+	// blocked by it.
 	var sourceID *string
 	if d.SourceID != "" {
 		sourceID = &d.SourceID
@@ -370,7 +401,9 @@ func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (b
 			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-		ON CONFLICT (source_id, provider_delivery_id) WHERE provider_delivery_id <> '' DO NOTHING
+		ON CONFLICT (source_id, provider_delivery_id)
+			WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
+			DO NOTHING
 	`, d.ID, d.TenantID, sourceID, d.TriggerID, d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
 		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
@@ -404,11 +437,19 @@ func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Del
 	return tag.RowsAffected() > 0, nil
 }
 
+// UpdateDeliveryOutcome records the run a delivery produced.
+//
+// The arrival-level statuses are preserved, matching DeriveDeliveryStatus: what
+// a duplicate or a missed fire IS does not change because a trigger later acted
+// on it. A duplicate that re-ran (a trigger with dedupe off) stays 'duplicate'
+// at the arrival level and carries 'dispatched' on its fan-out, which is the
+// only shape that answers both "was this a repeat?" and "did anything run?".
 func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE trigger_deliveries
-		SET    status = $1, trigger_id = COALESCE($2, trigger_id), run_id = $3, error = $4
-		WHERE  id = $5
+		UPDATE trigger_deliveries d
+		SET    status = CASE WHEN d.status IN ('duplicate', 'missed') THEN d.status ELSE $1 END,
+		       trigger_id = COALESCE($2, d.trigger_id), run_id = $3, error = $4
+		WHERE  d.id = $5
 	`, status, triggerID, runID, errMsg, id)
 	if err != nil {
 		return fmt.Errorf("update delivery outcome: %w", err)
@@ -416,11 +457,68 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 	return nil
 }
 
+// deliveryColumns is the full read projection for a delivery row.
+const deliveryColumns = `id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
+	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
+	payload, payload_bytes, payload_purged, reason, redelivery_of`
+
+func scanDelivery(row pgx.Row) (*Delivery, error) {
+	var d Delivery
+	var sourceID, firedBy *string
+	var payloadBytes *int
+	if err := row.Scan(
+		&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
+		&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
+		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
+	); err != nil {
+		return nil, err
+	}
+	if sourceID != nil {
+		d.SourceID = *sourceID
+	}
+	if firedBy != nil {
+		d.FiredBy = *firedBy
+	}
+	if payloadBytes != nil {
+		d.PayloadBytes = *payloadBytes
+	}
+	return &d, nil
+}
+
+func (r *postgresRepository) GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+deliveryColumns+` FROM trigger_deliveries WHERE id = $1 AND tenant_id = $2`, id, tenantID)
+	d, err := scanDelivery(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrDeliveryNotFound
+		}
+		return nil, fmt.Errorf("get delivery: %w", err)
+	}
+	return d, nil
+}
+
+// GetDeliveryByProviderID resolves the ORIGINAL delivery behind a provider
+// delivery id. Lineage rows are excluded so a source that has already been
+// replayed still resolves to the one arrival everything else descends from.
+func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, sourceID, providerDeliveryID string) (*Delivery, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT `+deliveryColumns+`
+		FROM   trigger_deliveries
+		WHERE  source_id = $1 AND provider_delivery_id = $2 AND redelivery_of IS NULL
+	`, sourceID, providerDeliveryID)
+	d, err := scanDelivery(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrDeliveryNotFound
+		}
+		return nil, fmt.Errorf("get delivery by provider id: %w", err)
+	}
+	return d, nil
+}
+
 func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
 	query := `
-		SELECT id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
-		       status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
-		       payload, payload_bytes, payload_purged, reason, redelivery_of
+		SELECT ` + deliveryColumns + `
 		FROM   trigger_deliveries
 		WHERE  tenant_id = $1`
 	args := []any{tenantID}
@@ -454,27 +552,11 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 
 	var out []Delivery
 	for rows.Next() {
-		var d Delivery
-		var sourceID *string
-		var firedBy *string
-		var payloadBytes *int
-		if err := rows.Scan(
-			&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
-			&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
-			&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
-		); err != nil {
+		d, err := scanDelivery(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan delivery: %w", err)
 		}
-		if sourceID != nil {
-			d.SourceID = *sourceID
-		}
-		if firedBy != nil {
-			d.FiredBy = *firedBy
-		}
-		if payloadBytes != nil {
-			d.PayloadBytes = *payloadBytes
-		}
-		out = append(out, d)
+		out = append(out, *d)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate deliveries: %w", err)

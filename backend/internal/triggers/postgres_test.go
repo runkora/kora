@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -142,17 +143,44 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 		t.Errorf("ListTriggers other agent = %d, want 0", len(none))
 	}
 
-	enabled, _ := r.ListEnabledTriggersForSource(ctx, s.ID)
-	if len(enabled) != 1 {
-		t.Errorf("ListEnabledTriggersForSource = %d, want 1", len(enabled))
+	matchable, _ := r.ListMatchableTriggersForSource(ctx, s.ID)
+	if len(matchable) != 1 {
+		t.Errorf("ListMatchableTriggersForSource = %d, want 1", len(matchable))
 	}
 
 	tr.Enabled = false
 	if err := r.UpdateTrigger(ctx, tr); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
-	if enabled, _ := r.ListEnabledTriggersForSource(ctx, s.ID); len(enabled) != 0 {
-		t.Errorf("disabled trigger should not be listed as enabled")
+	if got, _ := r.ListMatchableTriggersForSource(ctx, s.ID); len(got) != 0 {
+		t.Errorf("a manually disabled trigger must not be matchable")
+	}
+
+	// An auto-paused trigger IS matchable: it reaches admission, which records
+	// 'paused' against the delivery. Without it, an auto-paused trigger looks
+	// exactly like a deleted one in the history.
+	if err := r.AutoPause(ctx, tr.ID); err != nil {
+		t.Fatalf("AutoPause: %v", err)
+	}
+	if got, _ := r.ListMatchableTriggersForSource(ctx, s.ID); len(got) != 1 {
+		t.Errorf("an auto-paused trigger must stay matchable, got %d", len(got))
+	}
+
+	// Re-enabling clears the marker through UpdateTrigger, not only through
+	// AutoPause: a re-enabled trigger that kept auto_paused_at would be refused
+	// by admission forever while showing as enabled.
+	tr.Enabled = true
+	tr.AutoPausedAt = nil
+	if err := r.UpdateTrigger(ctx, tr); err != nil {
+		t.Fatalf("UpdateTrigger(re-enable): %v", err)
+	}
+	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); got.AutoPausedAt != nil {
+		t.Errorf("re-enable must clear auto_paused_at, got %v", got.AutoPausedAt)
+	}
+
+	tr.Enabled = false
+	if err := r.UpdateTrigger(ctx, tr); err != nil {
+		t.Fatalf("UpdateTrigger(disable): %v", err)
 	}
 
 	// FK cascade: deleting the source removes its triggers.
@@ -292,6 +320,94 @@ func TestPostgres_DeliveryDedupAndOutcome(t *testing.T) {
 	}
 	if !found {
 		t.Error("dispatched delivery missing from list")
+	}
+}
+
+// A row naming the delivery it descends from is lineage, not an original
+// arrival: the unique index must let it in, and the original must still resolve
+// to one row afterwards.
+func TestPostgres_DeliveryLineage(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	original := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-lineage-1", EventType: "pull_request",
+		Status: StatusVerified, Payload: []byte(`{"a":1}`), PayloadBytes: 7,
+	}
+	if inserted, err := r.InsertDelivery(ctx, original); err != nil || !inserted {
+		t.Fatalf("insert original: inserted=%v err=%v", inserted, err)
+	}
+
+	// Two lineage rows carrying the same provider delivery id: a recorded
+	// duplicate and an operator-requested replay. Both must insert.
+	for _, status := range []string{StatusDuplicate, StatusVerified} {
+		lineage := &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: original.ProviderDeliveryID, Status: status,
+			RedeliveryOf: &original.ID,
+		}
+		inserted, err := r.InsertDelivery(ctx, lineage)
+		if err != nil || !inserted {
+			t.Fatalf("insert lineage (%s): inserted=%v err=%v", status, inserted, err)
+		}
+	}
+
+	// A second ORIGINAL is still refused: that guarantee is unchanged.
+	repeat := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID,
+		ProviderDeliveryID: original.ProviderDeliveryID, Status: StatusVerified,
+	}
+	if inserted, _ := r.InsertDelivery(ctx, repeat); inserted {
+		t.Error("a second original for the same provider delivery id must be deduped")
+	}
+
+	// The provider id resolves to the one original, not to a lineage row.
+	got, err := r.GetDeliveryByProviderID(ctx, s.ID, original.ProviderDeliveryID)
+	if err != nil {
+		t.Fatalf("GetDeliveryByProviderID: %v", err)
+	}
+	if got.ID != original.ID {
+		t.Errorf("resolved %s, want the original %s", got.ID, original.ID)
+	}
+
+	byID, err := r.GetDelivery(ctx, tenant, original.ID)
+	if err != nil || byID.PayloadBytes != 7 || string(byID.Payload) != `{"a":1}` {
+		t.Errorf("GetDelivery = %+v, err = %v", byID, err)
+	}
+	if _, err := r.GetDelivery(ctx, "someone-else", original.ID); !errors.Is(err, ErrDeliveryNotFound) {
+		t.Errorf("cross-tenant GetDelivery = %v, want ErrDeliveryNotFound", err)
+	}
+}
+
+// An arrival-level status survives a later run outcome: what a duplicate IS does
+// not change because a trigger with dedupe off acted on it.
+func TestPostgres_UpdateDeliveryOutcome_PreservesArrivalStatus(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	d := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-dup-status", Status: StatusDuplicate,
+	}
+	if _, err := r.InsertDelivery(ctx, d); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+	run := "run-9"
+	if err := r.UpdateDeliveryOutcome(ctx, d.ID, StatusDispatched, nil, &run, nil); err != nil {
+		t.Fatalf("UpdateDeliveryOutcome: %v", err)
+	}
+	got, err := r.GetDelivery(ctx, tenant, d.ID)
+	if err != nil {
+		t.Fatalf("GetDelivery: %v", err)
+	}
+	if got.Status != StatusDuplicate {
+		t.Errorf("status = %q, want it to stay %q", got.Status, StatusDuplicate)
+	}
+	if got.RunID == nil || *got.RunID != run {
+		t.Errorf("run id = %v, want it recorded alongside the arrival status", got.RunID)
 	}
 }
 

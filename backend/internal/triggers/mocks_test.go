@@ -159,29 +159,34 @@ func (m *mockRepository) ListTriggers(_ context.Context, tenantID, agentTypeID s
 	return out, nil
 }
 
-func (m *mockRepository) ListEnabledTriggersForSource(_ context.Context, sourceID string) ([]Trigger, error) {
+// ListMatchableTriggersForSource mirrors the SQL: enabled, plus auto-paused, so
+// a paused trigger reaches admission and records 'paused' instead of vanishing.
+func (m *mockRepository) ListMatchableTriggersForSource(_ context.Context, sourceID string) ([]Trigger, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Trigger
 	for _, t := range m.triggers {
-		if t.SourceID == sourceID && t.Enabled {
+		if t.SourceID == sourceID && matchable(t) {
 			out = append(out, *t)
 		}
 	}
 	return out, nil
 }
 
-func (m *mockRepository) ListEnabledScheduledTriggers(_ context.Context) ([]Trigger, error) {
+func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Trigger, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Trigger
 	for _, t := range m.triggers {
-		if t.Kind == KindScheduled && t.Enabled {
+		if t.Kind == KindScheduled && matchable(t) {
 			out = append(out, *t)
 		}
 	}
 	return out, nil
 }
+
+// matchable mirrors the SQL predicate `enabled = true OR auto_paused_at IS NOT NULL`.
+func matchable(t *Trigger) bool { return t.Enabled || t.AutoPausedAt != nil }
 
 func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger) error {
 	m.mu.Lock()
@@ -211,7 +216,10 @@ func (m *mockRepository) InsertDelivery(_ context.Context, d *Delivery) (bool, e
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if d.ProviderDeliveryID != "" {
+	// Mirrors the partial unique index: only ORIGINAL arrivals are deduped. A row
+	// naming the delivery it descends from is lineage, and recording it is the
+	// entire point of writing it.
+	if d.ProviderDeliveryID != "" && d.RedeliveryOf == nil {
 		key := d.SourceID + "|" + d.ProviderDeliveryID
 		if m.seenDeliv[key] {
 			return false, nil
@@ -231,7 +239,12 @@ func (m *mockRepository) UpdateDeliveryOutcome(_ context.Context, id, status str
 	defer m.mu.Unlock()
 	for _, d := range m.deliveries {
 		if d.ID == id {
-			d.Status = status
+			// Mirrors the SQL: arrival-level statuses survive a later run
+			// outcome. What a duplicate IS does not change because a trigger
+			// with dedupe off acted on it.
+			if d.Status != StatusDuplicate && d.Status != StatusMissed {
+				d.Status = status
+			}
 			d.TriggerID = triggerID
 			d.RunID = runID
 			d.Error = errMsg
@@ -251,6 +264,32 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		}
 	}
 	return out, nil
+}
+
+func (m *mockRepository) GetDelivery(_ context.Context, tenantID, id string) (*Delivery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.deliveries {
+		if d.ID == id && d.TenantID == tenantID {
+			cp := *d
+			return &cp, nil
+		}
+	}
+	return nil, ErrDeliveryNotFound
+}
+
+// GetDeliveryByProviderID mirrors the SQL: lineage rows are excluded, so a
+// source that has already been replayed still resolves to the one original.
+func (m *mockRepository) GetDeliveryByProviderID(_ context.Context, sourceID, providerDeliveryID string) (*Delivery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.deliveries {
+		if d.SourceID == sourceID && d.ProviderDeliveryID == providerDeliveryID && d.RedeliveryOf == nil {
+			cp := *d
+			return &cp, nil
+		}
+	}
+	return nil, ErrDeliveryNotFound
 }
 
 func (m *mockRepository) InsertDeliveryRun(_ context.Context, r *DeliveryRun) error {

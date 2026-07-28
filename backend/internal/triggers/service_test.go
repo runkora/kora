@@ -633,7 +633,10 @@ func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	}
 }
 
-func TestIngest_Duplicate(t *testing.T) {
+// A repeat arrival is recorded as its own delivery pointing at the original.
+// "The provider sent this five times" is a question the history has to answer,
+// and the repeats used to leave nothing at all.
+func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, svc)
 	body := prBody("opened", "main")
@@ -642,6 +645,8 @@ func TestIngest_Duplicate(t *testing.T) {
 	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out != IngestAccepted {
 		t.Fatalf("first delivery should be accepted")
 	}
+	original := deps.repo.lastDelivery()
+
 	out, err := svc.Ingest(context.Background(), src.ID, h, body)
 	if err != nil {
 		t.Fatalf("Ingest(dup): %v", err)
@@ -649,8 +654,75 @@ func TestIngest_Duplicate(t *testing.T) {
 	if out != IngestDuplicate {
 		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out)
 	}
-	if len(deps.repo.deliveries) != 1 {
-		t.Errorf("redelivery must not insert a second row, got %d", len(deps.repo.deliveries))
+
+	all := deps.repo.allDeliveries()
+	if len(all) != 2 {
+		t.Fatalf("want the repeat recorded as its own row, got %d deliveries", len(all))
+	}
+	dup := all[1]
+	if dup.Status != StatusDuplicate {
+		t.Errorf("duplicate status = %q, want %q", dup.Status, StatusDuplicate)
+	}
+	if dup.RedeliveryOf == nil || *dup.RedeliveryOf != original.ID {
+		t.Errorf("duplicate redelivery_of = %v, want the original (%s)", dup.RedeliveryOf, original.ID)
+	}
+	if dup.Reason == nil || *dup.Reason == "" {
+		t.Error("a duplicate should say why it was not re-run")
+	}
+	if len(dup.Payload) != 0 {
+		t.Error("a duplicate must not capture the payload again; the original holds it")
+	}
+
+	// The original is history: a retry days later must not rewrite it.
+	if got := deps.repo.deliveryByID(original.ID); got.Status != original.Status || got.RedeliveryOf != nil {
+		t.Errorf("original was modified by the repeat: %+v", got)
+	}
+	if len(deps.repo.deliveryRunsFor(dup.ID)) != 0 {
+		t.Error("a duplicate must not start a run for a trigger that dedupes")
+	}
+}
+
+// dedupe_enabled is stored per trigger, so whether a repeat is suppressed or
+// re-run is a per-trigger decision. The unique index cannot express that; this
+// is the level that can.
+func TestIngest_Duplicate_HonoursPerTriggerDedupe(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	dedupes := mustWebhookTrigger(t, svc, src.ID, "dedupes", true)
+	reruns := mustWebhookTrigger(t, svc, src.ID, "re-runs", false)
+
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+
+	if _, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	waitFor(t, func() bool { return len(deps.repo.pendingFor(dedupes.ID))+len(deps.repo.pendingFor(reruns.ID)) == 2 })
+	drainPending(t, svc, deps.repo)
+	if deps.agents.callCount() != 2 {
+		t.Fatalf("first arrival should start both runs, got %d", deps.agents.callCount())
+	}
+
+	if _, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil {
+		t.Fatalf("Ingest(dup): %v", err)
+	}
+	dup := deps.repo.lastDelivery()
+	waitFor(t, func() bool { return len(deps.repo.pendingFor(reruns.ID)) == 1 })
+	drainPending(t, svc, deps.repo)
+
+	if deps.agents.callCount() != 3 {
+		t.Errorf("run starts = %d, want 3 (only the dedupe-off trigger re-runs)", deps.agents.callCount())
+	}
+	runs := deps.repo.deliveryRunsFor(dup.ID)
+	if len(runs) != 1 {
+		t.Fatalf("duplicate fan-out = %+v, want exactly one outcome", runs)
+	}
+	if runs[0].TriggerID != reruns.ID || runs[0].Status != RunStatusDispatched {
+		t.Errorf("duplicate outcome = %+v, want dispatched for the dedupe-off trigger", runs[0])
+	}
+	// The arrival is still a duplicate, whatever a trigger then did with it.
+	if got := deps.repo.deliveryByID(dup.ID); got.Status != StatusDuplicate {
+		t.Errorf("duplicate status = %q after re-run, want it preserved", got.Status)
 	}
 }
 
@@ -1406,6 +1478,361 @@ func TestAutoPause_RespectsOptOut(t *testing.T) {
 	if !stored.Enabled {
 		t.Error("a trigger with auto-pause off must stay enabled")
 	}
+}
+
+// ─── Auto-pause is visible, manual disable is not ────────────────────────────
+
+// mustWebhookTrigger stores a webhook trigger with dedupe on or off, which is
+// the setting that decides whether a repeat arrival is suppressed or re-run.
+func mustWebhookTrigger(t *testing.T, svc *Service, sourceID, name string, dedupe bool) *Trigger {
+	t.Helper()
+	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID:       sourceID,
+		Name:           name,
+		AgentTypeID:    "at-1",
+		EventType:      "pull_request",
+		PromptTemplate: "review {{ pr.number }}",
+		DedupeEnabled:  &dedupe,
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger(%s): %v", name, err)
+	}
+	return tr
+}
+
+// mustManualTrigger stores a manual trigger with one declared input.
+func mustManualTrigger(t *testing.T, svc *Service) *Trigger {
+	t.Helper()
+	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		Kind:           KindManual,
+		Name:           "deploy",
+		AgentTypeID:    "at-1",
+		PromptTemplate: "deploy {{ var.env }}",
+		ManualConfig:   &ManualConfig{Inputs: []InputField{{Name: "env", Type: InputTypeText, Required: true}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger(manual): %v", err)
+	}
+	return tr
+}
+
+// An auto-paused webhook trigger stays visible in the delivery history: its
+// fires are recorded as paused. With enabled = false alone it was
+// indistinguishable from a trigger that had been deleted.
+func TestDispatch_AutoPausedTrigger_RecordsPaused(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	paused := mustWebhookTrigger(t, svc, src.ID, "paused", true)
+	if err := deps.repo.AutoPause(context.Background(), paused.ID); err != nil {
+		t.Fatalf("AutoPause: %v", err)
+	}
+
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	var runs []DeliveryRun
+	waitFor(t, func() bool {
+		d := deps.repo.lastDelivery()
+		runs = deps.repo.deliveryRunsFor(d.ID)
+		return len(runs) == 1
+	})
+	if runs[0].TriggerID != paused.ID || runs[0].Status != RunStatusPaused {
+		t.Errorf("outcome = %+v, want paused for the auto-paused trigger", runs[0])
+	}
+	if deps.agents.callCount() != 0 {
+		t.Error("an auto-paused trigger must not start a run")
+	}
+}
+
+// A trigger a person turned off records nothing. That silence was asked for.
+func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	off := mustWebhookTrigger(t, svc, src.ID, "off", true)
+	enabled := false
+	if _, err := svc.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	waitFor(t, func() bool { return deps.repo.lastDelivery().Status == StatusSkipped })
+
+	if runs := deps.repo.deliveryRunsFor(deps.repo.lastDelivery().ID); len(runs) != 0 {
+		t.Errorf("a manually disabled trigger recorded %+v, want nothing", runs)
+	}
+}
+
+// A scheduled tick against an auto-paused schedule is recorded as paused rather
+// than going silent, which is how "why did my nightly job stop?" gets an answer.
+func TestTickScheduled_AutoPaused_RecordsPaused(t *testing.T) {
+	svc, deps := newTestService(t)
+	now := time.Now().UTC().Truncate(time.Minute)
+	trig := &Trigger{
+		ID: "sched-paused", TenantID: testTenant, Kind: KindScheduled,
+		PrincipalID: "trigger:sched-paused", AgentTypeID: "at-1",
+		Overflow: OverflowReplace, MaxParallel: 1, MaxQueueDepth: 8,
+		AutoPausedAt: &now,
+	}
+	if err := deps.repo.CreateTrigger(context.Background(), trig); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+
+	svc.TickScheduled(context.Background(), ScheduledTick{Trigger: *trig, ScheduledAt: now})
+
+	d := deps.repo.lastDelivery()
+	runs := deps.repo.deliveryRunsFor(d.ID)
+	if len(runs) != 1 || runs[0].Status != RunStatusPaused {
+		t.Fatalf("outcomes = %+v, want one paused", runs)
+	}
+	if deps.agents.callCount() != 0 {
+		t.Error("a paused schedule must not start a run")
+	}
+}
+
+// Firing an auto-paused trigger is refused, and the refusal is recorded against
+// the trigger — the fire happened, and an admin needs to see it did.
+func TestFireTrigger_AutoPaused_RecordsPausedAndRefuses(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	if err := deps.repo.AutoPause(context.Background(), trig.ID); err != nil {
+		t.Fatalf("AutoPause: %v", err)
+	}
+
+	_, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if !errors.Is(err, ErrTriggerAutoPaused) {
+		t.Fatalf("err = %v, want ErrTriggerAutoPaused", err)
+	}
+
+	d := deps.repo.lastDelivery()
+	if d == nil {
+		t.Fatal("an auto-paused fire must still be recorded")
+	}
+	runs := deps.repo.deliveryRunsFor(d.ID)
+	if len(runs) != 1 || runs[0].Status != RunStatusPaused {
+		t.Errorf("outcomes = %+v, want one paused", runs)
+	}
+}
+
+// A manually disabled trigger is refused with nothing recorded, and keeps its
+// own error: the fix is a person turning it back on, not fixing failures.
+func TestFireTrigger_ManuallyDisabled_RecordsNothing(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	enabled := false
+	if _, err := svc.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+
+	_, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if !errors.Is(err, ErrTriggerDisabled) {
+		t.Fatalf("err = %v, want ErrTriggerDisabled", err)
+	}
+	if len(deps.repo.allDeliveries()) != 0 {
+		t.Error("a manually disabled trigger must record nothing")
+	}
+}
+
+// ─── Redelivery ──────────────────────────────────────────────────────────────
+
+// A webhook replay is a new delivery naming the original, matched against the
+// triggers as they are configured now.
+func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	waitFor(t, func() bool { return deps.repo.lastDelivery().Status == StatusSkipped })
+	original := deps.repo.lastDelivery()
+
+	// The trigger that was missing when the event first arrived now exists —
+	// the usual reason someone replays a delivery.
+	trig := mustWebhookTrigger(t, svc, src.ID, "added-later", true)
+
+	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1")
+	if err != nil {
+		t.Fatalf("Redeliver: %v", err)
+	}
+	if resp.RedeliveryOf != original.ID {
+		t.Errorf("redelivery_of = %q, want %q", resp.RedeliveryOf, original.ID)
+	}
+
+	waitFor(t, func() bool { return len(deps.repo.pendingFor(trig.ID)) == 1 })
+	drainPending(t, svc, deps.repo)
+
+	if deps.agents.callCount() != 1 {
+		t.Fatalf("replay should have started the newly added trigger, got %d runs", deps.agents.callCount())
+	}
+	replay := deps.repo.deliveryByID(resp.DeliveryID)
+	if replay.RedeliveryOf == nil || *replay.RedeliveryOf != original.ID {
+		t.Errorf("replay redelivery_of = %v, want %q", replay.RedeliveryOf, original.ID)
+	}
+	if replay.ProviderDeliveryID != original.ProviderDeliveryID {
+		t.Error("a replay carries the original's provider delivery id")
+	}
+	if got := deps.repo.deliveryByID(original.ID); got.Status != StatusSkipped {
+		t.Errorf("original status = %q, want it untouched by the replay", got.Status)
+	}
+}
+
+// A manual replay re-runs with the values the original was given, validated
+// against the declaration as it stands now.
+func TestRedeliver_Manual_ReusesOriginalVariables(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+
+	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+	drainPending(t, svc, deps.repo)
+
+	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	if err != nil {
+		t.Fatalf("Redeliver: %v", err)
+	}
+	drainPending(t, svc, deps.repo)
+
+	if deps.agents.callCount() != 2 {
+		t.Fatalf("run starts = %d, want the replay to have started one", deps.agents.callCount())
+	}
+	call, _ := deps.agents.lastCall()
+	if !strings.Contains(call.initialMessage, "deploy prod") {
+		t.Errorf("replay prompt = %q, want the original variables", call.initialMessage)
+	}
+	replay := deps.repo.deliveryByID(resp.DeliveryID)
+	if replay.RedeliveryOf == nil || *replay.RedeliveryOf != fired.DeliveryID {
+		t.Errorf("replay redelivery_of = %v, want %q", replay.RedeliveryOf, fired.DeliveryID)
+	}
+	if replay.FiredBy != "user:2" {
+		t.Errorf("fired_by = %q, want the caller who asked for the replay", replay.FiredBy)
+	}
+}
+
+// A declaration that changed since the original fire is the current contract.
+func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+
+	// A new required input the original fire could not have supplied. Written
+	// through the repository: UpdateTrigger does not yet apply manual_config
+	// (a separate gap), and this test is about the replay path, not that one.
+	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+	stored.ManualConfig = &ManualConfig{Inputs: []InputField{
+		{Name: "env", Type: InputTypeText, Required: true},
+		{Name: "ticket", Type: InputTypeText, Required: true},
+	}}
+	if err := deps.repo.UpdateTrigger(context.Background(), stored); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+
+	_, err = svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	if !errors.Is(err, ErrValidationFailed) {
+		t.Fatalf("err = %v, want an input validation failure", err)
+	}
+	if n := len(deps.repo.allDeliveries()); n != 1 {
+		t.Errorf("a refused replay must record nothing, got %d deliveries", n)
+	}
+}
+
+// An auto-paused trigger is replayable — fixing the cause and replaying is the
+// point — and admission records whatever it then decides.
+func TestRedeliver_Manual_AutoPausedRecordsPaused(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+	if err := deps.repo.AutoPause(context.Background(), trig.ID); err != nil {
+		t.Fatalf("AutoPause: %v", err)
+	}
+
+	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	if err != nil {
+		t.Fatalf("Redeliver: %v", err)
+	}
+	runs := deps.repo.deliveryRunsFor(resp.DeliveryID)
+	if len(runs) != 1 || runs[0].Status != RunStatusPaused {
+		t.Errorf("replay outcomes = %+v, want one paused", runs)
+	}
+}
+
+func TestRedeliver_Refusals(t *testing.T) {
+	t.Run("unknown delivery", func(t *testing.T) {
+		svc, _ := newTestService(t)
+		if _, err := svc.Redeliver(context.Background(), testTenant, "nope", "user:1"); !errors.Is(err, ErrDeliveryNotFound) {
+			t.Errorf("err = %v, want ErrDeliveryNotFound", err)
+		}
+	})
+
+	t.Run("another tenant's delivery", func(t *testing.T) {
+		svc, deps := newTestService(t)
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: "other", TenantID: "t-2", Kind: KindManual, Status: StatusDispatched,
+		})
+		if _, err := svc.Redeliver(context.Background(), testTenant, "other", "user:1"); !errors.Is(err, ErrDeliveryNotFound) {
+			t.Errorf("err = %v, want ErrDeliveryNotFound", err)
+		}
+	})
+
+	t.Run("scheduled tick", func(t *testing.T) {
+		svc, deps := newTestService(t)
+		at := time.Now().UTC().Truncate(time.Minute)
+		tid := "sched-1"
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: "tick", TenantID: testTenant, TriggerID: &tid, Kind: KindScheduled,
+			Status: StatusDispatched, ScheduledAt: &at,
+		})
+		if _, err := svc.Redeliver(context.Background(), testTenant, "tick", "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+			t.Errorf("err = %v, want ErrNotRedeliverable", err)
+		}
+	})
+
+	t.Run("manually disabled trigger", func(t *testing.T) {
+		svc, deps := newTestService(t)
+		trig := mustManualTrigger(t, svc)
+		fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+			FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+		if err != nil {
+			t.Fatalf("FireTrigger: %v", err)
+		}
+		enabled := false
+		if _, err := svc.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2"); !errors.Is(err, ErrNotRedeliverable) {
+			t.Errorf("err = %v, want ErrNotRedeliverable", err)
+		}
+		_ = deps
+	})
+
+	t.Run("purged payload", func(t *testing.T) {
+		svc, deps := newTestService(t)
+		src := mustSource(t, svc)
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: "purged", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+			ProviderDeliveryID: "gh-1", Status: StatusDispatched, PayloadPurged: true,
+		})
+		if _, err := svc.Redeliver(context.Background(), testTenant, "purged", "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+			t.Errorf("err = %v, want ErrNotRedeliverable", err)
+		}
+	})
 }
 
 // Each kind gets the overflow behavior that suits it.

@@ -67,6 +67,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PATCH  /api/v1/triggers/{id}              Edit a trigger.
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
 //	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
+//	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //
 // Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
 // handler because RouteScope cannot express a path-dependent scope):
@@ -107,6 +108,12 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
+
+	// Replaying a delivery starts real work, so it takes triggers:write like
+	// every other route that changes something. It is not per-trigger authorized
+	// the way firing is: a webhook replay has no single trigger to name, and it
+	// starts exactly what the original arrival would start today.
+	mux.HandleWithMiddleware("POST /trigger-deliveries/{id}/redeliver", auth, c.handleRedeliver)
 }
 
 // ─── Inbound webhook ──────────────────────────────────────────────────────────
@@ -355,12 +362,27 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"deliveries": deliveries})
 }
 
+// handleRedeliver handles POST /api/v1/trigger-deliveries/{id}/redeliver.
+//
+// 202 with the NEW delivery id: a replay is a new arrival that names the one it
+// replays, and the caller follows the new id to see what it did. The original is
+// never touched.
+func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.svc.Redeliver(ctx, tenantFromCtx(ctx), r.PathValue("id"), principalFromCtx(ctx))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusAccepted, resp)
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	switch {
-	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound):
+	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
 	case errors.Is(err, ErrTriggerAtCapacity):
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the
@@ -370,8 +392,15 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 			Message:    err.Error(),
 			StatusCode: http.StatusTooManyRequests,
 		}, nil)
-	case errors.Is(err, ErrTriggerDisabled):
+	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
+		// 409 for both: the trigger is not accepting fires until someone acts.
+		// Which one it is decides what that action is, so the two keep separate
+		// messages rather than one "disabled".
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
+	case errors.Is(err, ErrNotRedeliverable):
+		// 400: the delivery exists and the caller may see it, but replaying this
+		// one is not a thing that can be done. The message says which reason.
+		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 	case errors.As(err, new(*InputValidationError)):

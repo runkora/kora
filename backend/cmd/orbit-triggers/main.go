@@ -234,6 +234,9 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
+		// Replaying a delivery starts real work, so it sits with the write
+		// scope rather than with reading history.
+		{PathPrefix: "/api/v1/trigger-deliveries", Method: "POST", RequiredScope: "triggers:write"},
 	}
 }
 

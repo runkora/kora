@@ -107,7 +107,20 @@ var (
 	// ErrValidation indicates a malformed create/update request.
 	ErrValidation = errors.New("validation failed")
 	// ErrTriggerDisabled is returned when trying to fire a disabled trigger.
+	// Reserved for the manual case: a person turned this trigger off, and the
+	// fix is a person turning it back on.
 	ErrTriggerDisabled = errors.New("trigger is disabled")
+	// ErrTriggerAutoPaused is returned when a fire reaches a trigger the platform
+	// paused itself. Distinct from ErrTriggerDisabled because the causes and the
+	// fixes differ: the failures that paused it have to be dealt with before
+	// re-enabling helps. The fire is still recorded against the trigger.
+	ErrTriggerAutoPaused = errors.New("trigger was auto-paused after repeated failures")
+	// ErrDeliveryNotFound is returned when a delivery does not exist, or is not
+	// visible to the caller's tenant.
+	ErrDeliveryNotFound = errors.New("delivery not found")
+	// ErrNotRedeliverable is returned when a delivery exists but cannot be
+	// replayed. The message names which of the reasons applies.
+	ErrNotRedeliverable = errors.New("delivery cannot be redelivered")
 	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
 	ErrWrongKind = errors.New("operation not valid for trigger kind")
 
@@ -484,6 +497,17 @@ type FireTriggerRequest struct {
 type FireTriggerResponse struct {
 	DeliveryID string `json:"delivery_id"`
 	RunID      string `json:"run_id,omitempty"`
+}
+
+// RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.
+//
+// A redelivery is a new delivery that names the one it replays, never an edit of
+// the original, so the caller gets a new id to follow. Whether any trigger
+// actually ran is the new delivery's own fan-out, exactly as for a fresh
+// arrival.
+type RedeliverResponse struct {
+	DeliveryID   string `json:"delivery_id"`
+	RedeliveryOf string `json:"redelivery_of"`
 }
 
 // InputValidationError reports which declared inputs a fire request got wrong.

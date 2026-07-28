@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -272,6 +273,56 @@ func TestHandleListDeliveries(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if len(body.Deliveries) != 1 {
 		t.Errorf("expected 1 delivery, got %d", len(body.Deliveries))
+	}
+}
+
+// A replay answers 202 with the NEW delivery id: the original is never touched,
+// and the caller follows the new one to see what it did.
+func TestHandleRedeliver(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	trig := mustManualTrigger(t, svc)
+	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+	drainPending(t, svc, deps.repo)
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-deliveries/"+fired.DeliveryID+"/redeliver", nil))
+	req.SetPathValue("id", fired.DeliveryID)
+	w := httptest.NewRecorder()
+	c.handleRedeliver(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d (%s), want 202", w.Code, w.Body.String())
+	}
+	var body RedeliverResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.RedeliveryOf != fired.DeliveryID {
+		t.Errorf("redelivery_of = %q, want %q", body.RedeliveryOf, fired.DeliveryID)
+	}
+	if body.DeliveryID == "" || body.DeliveryID == fired.DeliveryID {
+		t.Errorf("delivery_id = %q, want a new delivery", body.DeliveryID)
+	}
+}
+
+// A delivery that cannot be replayed is a 400 that says why, not a 500.
+func TestHandleRedeliver_NotRedeliverable(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	at := time.Now().UTC().Truncate(time.Minute)
+	tid := "sched-1"
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: "tick", TenantID: testTenant, TriggerID: &tid, Kind: KindScheduled,
+		Status: StatusDispatched, ScheduledAt: &at,
+	})
+
+	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-deliveries/tick/redeliver", nil))
+	req.SetPathValue("id", "tick")
+	w := httptest.NewRecorder()
+	c.handleRedeliver(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d (%s), want 400", w.Code, w.Body.String())
 	}
 }
 
