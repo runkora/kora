@@ -1,8 +1,8 @@
 # Agent Triggers - Product Requirements Document
 
-**Status:** Draft
+**Status:** In Progress
 **Created:** 2026-06-16
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-07-28
 **Owner:** Justin Wilkin
 **Stakeholders:** Platform Engineering, Agent Control Plane, Identity & Policy, Security
 
@@ -212,6 +212,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 - Scheduled triggers sharing the same run-initiation path.
 - Conditional templating / richer expression language.
 - Routing trigger activity through the platform event spine once it exists.
+- Queue-hold coalescing: park a suppressed delivery and dispatch it when the active run completes (deliver-once semantics).
 
 ---
 
@@ -237,9 +238,15 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 - [ ] Enable/disable a trigger without deleting it.
 - [ ] Run list surfaces "started by trigger" attribution.
 
+**Should Have (P1) — Phase 2 (loop-prevention & concurrency):**
+- [ ] Bot-self-event filter: deliveries attributable to Orbit's own bot identity are recorded and do not start a run.
+- [ ] Per-key coalescing: burst deliveries on the same logical work unit (e.g. one PR) start at most one active run.
+- [ ] Debounce window per trigger (hold dispatch until a quiet period elapses).
+- [ ] Per-source and per-trigger rate limiting.
+
 **Nice to Have (P2):**
 - [ ] Replay a logged delivery for debugging.
-- [ ] Per-trigger concurrency/debounce controls (e.g. one active run per PR).
+- [ ] Queue-hold coalescing (park + dispatch on run completion), beyond Phase 2's drop-based coalescing.
 
 ### Non-Functional Requirements
 
@@ -248,7 +255,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 - Signing secrets stored as Kubernetes secrets, referenced indirectly; never in YAML, DB plaintext, or logs.
 - A triggered run is bounded by its source's mapped identity — it can do only what that identity is permitted to do on the target agent (read/write); it cannot escalate beyond that identity.
 - Templating-injection safety (untrusted payload fields such as PR title/body) is **deferred to a later iteration** — see Open Questions.
-- Loop-prevention is a known consideration (an agent's own PR activity could re-fire a trigger); v1 uses a best-effort guard and revisits in implementation.
+- Loop-prevention: Phase 1 relies on a best-effort guard; **Phase 2 adds first-class controls** — a bot-self-event filter, per-key coalescing, debounce, and per-source/per-trigger rate limiting (see Phase 2).
 
 **Reliability:**
 - Tolerate provider redelivery/retries idempotently.
@@ -288,7 +295,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 |------|--------|-------------|------------|
 | Triggered-run identity weakens the human-accountability chain | High | Low | Resolved: each webhook source maps to a dedicated platform identity at registration; every run traces to that identity and its source, and is bounded by that identity's access to the target agent |
 | Prompt-injection via attacker-controlled payload fields (PR title, body) | High | High | **Deferred** — payload fields are attacker-controllable, but templating-injection safety is explicitly out of scope for v1 and will be addressed in a later iteration |
-| Trigger loops (agent acts on PR → fires webhook → new run → …) | High | Medium | Loop-prevention guardrails: ignore events from Orbit's own bot identity, per-trigger concurrency/debounce, delivery dedup |
+| Trigger loops (agent acts on PR → fires webhook → new run → …) | High | Medium | Addressed in Phase 2: bot-self-event filter, per-key coalescing, debounce |
 | Public inbound endpoint becomes an attack/DoS surface | Medium | Medium | Mandatory signature verification before side effects; rate limiting; async run initiation; isolate ingestion from control-plane internals |
 | Coupling inbound webhooks to the egress GitHub App by accident | Medium | Low | Explicit architectural separation (this PRD); separate secrets and code paths |
 | Secret sprawl across many sources | Medium | Low | Standardize on Kubernetes secret references; rotate-able signing secrets |
@@ -339,8 +346,8 @@ Reasonable defaults so the ADR/implementation can proceed; revisit only if they 
 
 - **Async initiation.** The inbound endpoint verifies and returns a fast 2xx, then initiates the run asynchronously. Delivery states: `received → verified → matched → dispatched` (or `skipped` / `failed`).
 - **Dedup.** Redeliveries are de-duplicated on the provider's delivery ID (idempotency).
-- **Concurrency.** One run per matched trigger per delivery; concurrent runs allowed. No debounce / one-run-per-PR coalescing in v1.
-- **Loop-prevention.** Best-effort only in v1 (e.g. ignoring deliveries attributable to Orbit's own bot identity); fuller guarding revisited if loops appear.
+- **Concurrency.** *(Phase 1)* One run per matched trigger per delivery; concurrent runs allowed. No debounce / one-run-per-PR coalescing in Phase 1 — added in Phase 2.
+- **Loop-prevention.** *(Phase 1)* Best-effort only (e.g. ignoring deliveries attributable to Orbit's own bot identity); first-class controls land in Phase 2.
 - **Binary / ingress placement.** The Triggers package is hosted so its inbound endpoint is publicly reachable while the rest of the control plane stays internal; exact binary/ingress wiring confirmed in implementation.
 
 ## Open Questions
@@ -357,15 +364,34 @@ Reasonable defaults so the ADR/implementation can proceed; revisit only if they 
 
 ### Phases
 
-**Phase 1: Framework + GitHub PR (Target: TBD)**
+**Phase 1: Framework + GitHub PR — ✅ Implemented**
 - Generic ingestion + verification + source-adapter interface
-- GitHub adapter (`pull_request`, `push`)
+- GitHub adapter (`pull_request`, `push`, `issues`)
+- Alertmanager adapter (bearer auth, content-hash dedup)
 - Trigger registry + matcher + templated-prompt run initiation
 - Delivery log + REST API + platform-admin authz
+- Management UI (per-agent Triggers tab + platform-wide Sources / Triggers / Deliveries)
 
-**Phase 2: UI + hardening (Target: TBD)**
-- Management UI (sources, triggers, delivery log)
-- Idempotency, loop-prevention, enable/disable, run attribution
+**Phase 2: Loop-prevention and concurrency controls (Target: TBD)**
+
+**Goal:** No trigger can loop unboundedly on its own output, burst deliveries on the same logical work unit start at most one run, and noisy sources cannot flood the run queue.
+
+- `bot_actor` field on `WebhookSource`; adapter-level filter records `bot_filtered` deliveries and suppresses run dispatch
+- `coalesce_key_expr` field on `Trigger`; Redis-backed active-run check records `coalesced` deliveries and suppresses dispatch while a run for the same key is active; fail-open on Redis unavailability
+- `debounce_seconds` field on `Trigger`; Redis TTL key holds dispatch until window expires quiet; subsequent arrivals reset timer; `debounced` delivery status
+- `rpm_limit` on `WebhookSource`; enforced at ingest before DB write; HTTP 429 on breach
+- `rpm_limit` on `Trigger`; enforced at dispatch; `rate_limited` delivery status
+- New delivery statuses (`bot_filtered`, `coalesced`, `debounced`, `rate_limited`) in API responses and deliveries table
+- DB migrations: nullable `bot_actor`, `rpm_limit` on `webhook_sources`; nullable `coalesce_key_expr`, `debounce_seconds`, `rpm_limit` on `triggers`
+- Admin UI: new fields on source form modal and trigger create/edit modal
+
+**Exit Criteria:** An agent that comments on a GitHub PR does not re-trigger itself (bot filter verified end-to-end). Five rapid deliveries on the same PR coalesce key start exactly one run; four `coalesced` rows are written. A source with `rpm_limit: 10` under 20 RPM load returns 429s for the excess 10 and writes no delivery rows for them.
+
+**Open questions for the ADR:**
+- `coalesce_key_expr` syntax: field-path (existing `match_condition` convention) or Go template (consistent with prompt template)?
+- Coalesce lock TTL: what maximum run duration governs expiry so a crashed run doesn't lock indefinitely?
+- Debounce dispatch mechanism: Redis TTL key + polling worker (consistent with `RunService.StartReaper`) vs. delayed-job queue (no existing infrastructure)?
+- Per-source 429 persistence: lightweight counter table or HTTP response alone?
 
 ### Key Milestones
 
@@ -373,6 +399,8 @@ Reasonable defaults so the ADR/implementation can proceed; revisit only if they 
 - [ ] ADR Created: TBD
 - [ ] Implementation Started: TBD
 - [ ] Alpha (GitHub PR end-to-end in k3d): TBD
+- [ ] Phase 2 ADR Created: TBD
+- [ ] Phase 2 Implementation Started: TBD
 - [ ] Launch: TBD
 
 ---

@@ -10,7 +10,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
 | [Codex and OpenCode Agent Runners](codex-opencode-agent-runners.md) | Draft | [codex-agent-runner](../adr/2026-06-04-codex-agent-runner.md), [opencode-agent-runner](../adr/2026-06-04-opencode-agent-runner.md) |
 | [Run Task Summarization](run-task-summarization.md) | Approved | [run-task-summarization](../adr/2026-06-19-run-task-summarization.md) |
-| [Agent Triggers](agent-webhook-triggers.md) | Draft | [agent-triggers-and-webhook-ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) |
+| [Agent Triggers](agent-webhook-triggers.md) | In Progress | [agent-triggers-and-webhook-ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) |
 | [Trigger Deliveries Filter and Event Detail](trigger-deliveries-filter.md) | Approved | [trigger-deliveries-filter](../adr/2026-06-20-trigger-deliveries-filter.md) |
 | [Agent Token Breakdown and Spend Card](agent-token-breakdown-and-spend-card.md) | Approved | [agent-token-breakdown-and-spend-card](../adr/2026-06-23-agent-token-breakdown-and-spend-card.md) |
 | [Credential Broker & Outbound Connections](credential-broker-and-outbound-connections.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
