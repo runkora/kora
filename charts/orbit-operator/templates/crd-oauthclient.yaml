@@ -1,0 +1,84 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: oauthclients.orbit.io
+  labels:
+    {{- include "orbit-operator.labels" . | nindent 4 }}
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: orbit.io
+  names:
+    kind: OAuthClient
+    listKind: OAuthClientList
+    plural: oauthclients
+    singular: oauthclient
+    shortNames:
+      - oauthc
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: ClientID
+          type: string
+          jsonPath: .spec.clientId
+        - name: Name
+          type: string
+          jsonPath: .spec.clientName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            OAuthClient pre-registers a public OAuth client (a hosted web
+            application, e.g. a CRM that logs users in through Orbit) with the
+            Orbit identity authorization server, via GitOps. It carries the
+            client_id, an optional display name, and the exact list of permitted
+            redirect URIs. Unlike dynamically-registered clients (RFC 7591 DCR,
+            which are restricted to loopback redirect URIs per RFC 8252), an
+            OAuthClient is admin-reviewed and may declare non-loopback HTTPS
+            redirect URIs. All clients are public (PKCE only; no secret). The
+            operator aggregates these CRs into the orbit-system ConfigMap the
+            identity service mounts.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - clientId
+                - redirectUris
+              properties:
+                clientId:
+                  description: >
+                    Stable, human-readable client identifier the app presents at
+                    the authorize and token endpoints (e.g. "example-app"). MUST
+                    be unique across the whole authorization server — the identity
+                    service resolves clients by client_id alone, not scoped by
+                    tenant.
+                  type: string
+                  minLength: 1
+                clientName:
+                  description: >
+                    Display name shown on the consent screen. Optional.
+                  type: string
+                redirectUris:
+                  description: >
+                    Exact list of permitted redirect URIs. The authorize endpoint
+                    requires an exact string match against this list (no prefix or
+                    wildcard matching), which is the security gate that makes
+                    non-loopback redirect URIs safe.
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string

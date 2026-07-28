@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPKCES256_RFC7636Vector(t *testing.T) {
@@ -244,5 +245,64 @@ func TestOAuth_DCRDisabled(t *testing.T) {
 	svc.cfg.OAuth.RequirePreRegistration = true
 	if _, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{RedirectURIs: []string{testRedirect}}); !errors.Is(err, ErrDCRDisabled) {
 		t.Errorf("disabled DCR should return ErrDCRDisabled, got %v", err)
+	}
+}
+
+// ── Pre-registered (static) client redirect handling ──────────────────────────
+
+const testHostedRedirect = "https://app.example.com/api/auth/callback/orbit"
+
+// seedStaticClient stores a client with a non-loopback redirect URI directly in
+// the service's client repository, bypassing RegisterClient's DCR validation.
+// This exercises the CreateAuthCode authorize gate for a client whose redirect
+// URI DCR would refuse; it is not a substitute for the mounted-source path,
+// which is covered by the StaticClientSource tests in oauth_static_clients_test.go.
+func seedStaticClient(t *testing.T, svc *Service, clientID string, redirectURIs ...string) {
+	t.Helper()
+	if err := svc.clients.Store(context.Background(), RegisteredClient{
+		ClientID: clientID, ClientName: "Hosted App", RedirectURIs: redirectURIs,
+	}, time.Hour); err != nil {
+		t.Fatalf("seed static client: %v", err)
+	}
+}
+
+func TestOAuth_StaticClient_NonLoopbackRedirectAllowed(t *testing.T) {
+	svc := newOAuthTestService(t)
+	seedStaticClient(t, svc, "example-app", testHostedRedirect)
+
+	p := AuthorizeParams{
+		ClientID: "example-app", RedirectURI: testHostedRedirect,
+		CodeChallenge: pkceS256(testVerifier), CodeChallengeMethod: "S256",
+	}
+	code, err := svc.CreateAuthCode(context.Background(), AuthCode{Subject: "u", TenantID: "acme"}, p)
+	if err != nil {
+		t.Fatalf("non-loopback redirect for a registered client should be allowed: %v", err)
+	}
+	if code == "" {
+		t.Fatal("expected a non-empty auth code")
+	}
+}
+
+func TestOAuth_StaticClient_UnregisteredRedirectDenied(t *testing.T) {
+	svc := newOAuthTestService(t)
+	seedStaticClient(t, svc, "example-app", testHostedRedirect)
+
+	p := AuthorizeParams{
+		ClientID: "example-app", RedirectURI: "https://evil.example.com/callback",
+		CodeChallenge: pkceS256(testVerifier), CodeChallengeMethod: "S256",
+	}
+	if _, err := svc.CreateAuthCode(context.Background(), AuthCode{Subject: "u"}, p); !errors.Is(err, ErrInvalidOAuthRequest) {
+		t.Errorf("a redirect_uri not registered for the client must be rejected, got %v", err)
+	}
+}
+
+func TestOAuth_DCR_NonLoopbackStillRejected(t *testing.T) {
+	svc := newOAuthTestService(t)
+	// Dynamic client registration must still reject non-loopback URIs (RFC 8252);
+	// only admin-reviewed OAuthClient CRs may declare hosted HTTPS redirects.
+	if _, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{
+		RedirectURIs: []string{testHostedRedirect}, TokenEndpointAuthMethod: "none",
+	}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("DCR with a non-loopback redirect must be ErrInvalidClientMetadata, got %v", err)
 	}
 }

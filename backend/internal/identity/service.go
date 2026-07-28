@@ -176,6 +176,18 @@ func NewService(
 		clientSecrets: make(map[string]string),
 	}
 
+	// Load pre-registered (static) OAuth clients from the mounted
+	// orbit-tenant-oauth-clients ConfigMap (rendered by the operator from
+	// OAuthClient CRs) and layer them ahead of the dynamic DCR store. Admin-
+	// declared via GitOps; hot-reloaded on change, so applying/removing an
+	// OAuthClient CR takes effect without a pod restart.
+	staticClients, staticErr := LoadStaticClientSource(ctx, oauthClientsPath(), logger)
+	if staticErr != nil {
+		return nil, fmt.Errorf("identity service: load static oauth clients: %w", staticErr)
+	}
+	svc.clients = newLayeredClientRepository(staticClients, clients)
+	go staticClients.Watch(ctx)
+
 	// Load the aggregated client secrets before OIDC discovery so that
 	// confidential tenants have their client_secret available on first startup.
 	if err := svc.initClientSecrets(ctx); err != nil {

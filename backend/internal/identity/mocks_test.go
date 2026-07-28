@@ -497,6 +497,9 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 	// Clear tenant registry so the service starts with no OIDC providers —
 	// tests that need OIDC use newTestServiceWithOIDC instead.
 	t.Setenv("ORBIT_TENANTS_CONFIG", "")
+	// No static OAuth clients mounted by default — OAuth tests seed the client
+	// repo directly. Keeps the static-client source empty and hermetic.
+	t.Setenv("ORBIT_OAUTH_CLIENTS_CONFIG", "")
 	cfg := &Config{
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,

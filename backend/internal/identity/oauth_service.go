@@ -46,9 +46,13 @@ func pkceS256(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// isLoopbackRedirect reports whether a redirect URI targets a loopback address —
-// the only redirect targets allowed for public native MCP clients until DCR
-// registers explicit URIs (RFC 8252). Prevents code exfiltration to a remote host.
+// isLoopbackRedirect reports whether a redirect URI targets a loopback address.
+// Used by RegisterClient (DCR) to enforce the RFC 8252 loopback-only restriction
+// for dynamically-registered public clients, which are native/desktop MCP apps.
+// Pre-registered OAuthClient CRs (hosted web apps) bypass this check — their
+// redirect URIs are admin-reviewed GitOps config, so non-loopback HTTPS URLs
+// are permitted. The authorize-time gate for every client is the exact-match
+// AllowsRedirect check in CreateAuthCode, not this loopback test.
 func isLoopbackRedirect(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -90,11 +94,12 @@ func (s *Service) CreateAuthCode(ctx context.Context, human AuthCode, p Authoriz
 	if p.ClientID == "" {
 		return "", fmt.Errorf("%w: client_id is required", ErrInvalidOAuthRequest)
 	}
-	if !isLoopbackRedirect(p.RedirectURI) {
-		return "", fmt.Errorf("%w: redirect_uri must be a loopback address", ErrInvalidOAuthRequest)
-	}
-	// The client_id must be registered (via DCR or pre-registration), and the
-	// redirect_uri must be one it registered — not merely any loopback address.
+	// The client_id must be registered (via DCR or a pre-registered OAuthClient
+	// CR), and the redirect_uri must be one it registered. AllowsRedirect (exact
+	// string match) is the security gate: it covers both loopback and non-loopback
+	// URIs for registered clients, so there is no open-redirect exposure. The
+	// loopback restriction is enforced at DCR registration time only (RegisterClient)
+	// — pre-registered hosted-app clients may declare non-loopback redirect URIs.
 	client, err := s.clients.Get(ctx, p.ClientID)
 	if errors.Is(err, ErrClientNotFound) {
 		return "", fmt.Errorf("%w: unknown client_id", ErrInvalidOAuthRequest)
