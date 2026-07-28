@@ -694,9 +694,9 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 // categoryPermissionKeys maps each category to the installation-token permission
 // keys it needs. The level minted is the action's verb class (metadata is always
 // read). The repo catch-all/umbrella derives the union of these, minus
-// umbrellaExcludedPermissions (secrets/dependabot_secrets) and workflows: an
-// agent that can push should not silently also rewrite CI workflow files (the
-// classic secrets-exfiltration escalation) or hold repo secrets access. Those
+// umbrellaExcludedPermissions (secrets/dependabot_secrets and
+// administration/repository_hooks): an agent that can push should not silently
+// also hold repo-admin or secrets access via the GraphQL catch-all. Those
 // permissions are reached only via their explicit category action, or by
 // declaring them in the connection's permission ceiling, which the umbrella
 // mints verbatim.
@@ -713,19 +713,30 @@ var categoryPermissionKeys = map[string][]string{
 // umbrellaExcludedPermissions are permission keys the repo:read/repo:write
 // umbrella drops from its DERIVED union (the no-ceiling path in permissionsFor).
 // The umbrella is the catch-all for uncategorized routes (search, GraphQL, and
-// long-tail APIs) — none of which are secrets operations. secrets and
-// dependabot_secrets are credential-adjacent and commonly ungranted (the orbit
-// dev App has no secrets access), so unioning them into the umbrella made every
-// umbrella mint fail with GitHub 422 "permissions not granted to this
-// installation", breaking all GraphQL egress.
+// long-tail APIs); none of them is a secrets or repo-administration operation.
+// Two classes are excluded:
 //
-// The exclusion applies ONLY to the derived union. These permissions are still
+//   - secrets, dependabot_secrets: credential-adjacent and commonly ungranted
+//     (the orbit dev App has no secrets access).
+//   - administration, repository_hooks: repo-management escalation. An agent
+//     that opens a PR over GraphQL should not silently also hold token scope to
+//     rewrite branch protection, manage collaborators, delete the repo, or
+//     reconfigure webhooks.
+//
+// Unioning any of these into the umbrella is wrong in both directions: when the
+// App lacks the permission every umbrella mint fails with GitHub 422
+// "permissions not granted to this installation" (breaking all GraphQL egress),
+// and when the App holds it every GraphQL token is silently widened to admin.
+//
+// The exclusion applies ONLY to the derived union. These permissions remain
 // reachable two deliberate ways: an explicit admin:read / admin:write action,
 // and a connection permission ceiling — the umbrella mints a declared ceiling
-// verbatim, so an operator that lists secrets there has opted in.
+// verbatim, so an operator that lists them there has opted in.
 var umbrellaExcludedPermissions = map[string]bool{
 	"secrets":            true,
 	"dependabot_secrets": true,
+	"administration":     true,
+	"repository_hooks":   true,
 }
 
 // permissionsFor derives the installation-token permission set for the
