@@ -131,7 +131,12 @@ export function DeliveryList({
               </Stack>
 
               <Stack direction="horizontal" align="center" gap="cozy">
-                <Text mono size="caption" weight="emphasis" color="muted">
+                <Text
+                  mono
+                  size="caption"
+                  weight="emphasis"
+                  color={dotStatus(status) === 'error' ? 'status-error' : 'muted'}
+                >
                   {status}
                 </Text>
                 <Text mono size="micro" color="muted">
