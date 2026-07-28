@@ -389,30 +389,33 @@ func TestPermissionsFor(t *testing.T) {
 		t.Errorf("umbrella derived union must not include workflows, got %q", got["workflows"])
 	}
 
-	// secrets and dependabot_secrets are also excluded from the umbrella union:
-	// requesting them broke every repo:read/repo:write (GraphQL) mint with a
-	// GitHub 422 when the installation lacked them. They remain available via an
-	// explicit admin action.
+	// secrets/dependabot_secrets and administration/repository_hooks are excluded
+	// from the umbrella union: requesting a permission the installation lacks
+	// broke every repo:read/repo:write (GraphQL) mint with a GitHub 422, and
+	// requesting admin when the App does hold it silently widened every GraphQL
+	// token to repo-admin. All stay reachable via an explicit admin action.
 	for _, action := range []string{"repo:read", "repo:write"} {
 		got := permissionsFor(action, nil)
-		for _, excluded := range []string{"secrets", "dependabot_secrets"} {
+		for _, excluded := range []string{"secrets", "dependabot_secrets", "administration", "repository_hooks"} {
 			if _, present := got[excluded]; present {
 				t.Errorf("umbrella %q must not request %q, got %v", action, excluded, got)
 			}
 		}
-		// But it must still carry the category permissions the App does hold — the
-		// exclusion is surgical, not a blanket drop of the admin category.
-		for _, want := range []string{"administration", "repository_hooks", "contents", "pull_requests", "issues", "actions", "checks"} {
+		// But it must still carry the category permissions a normal push/PR flow
+		// needs — the exclusion is surgical, not a blanket drop.
+		for _, want := range []string{"contents", "pull_requests", "issues", "actions", "checks", "statuses"} {
 			if _, present := got[want]; !present {
 				t.Errorf("umbrella %q should still request %q, got %v", action, want, got)
 			}
 		}
 	}
 
-	// The explicit admin action is unchanged — it still mints secrets access,
-	// so nothing that legitimately needs secrets loses it.
-	if got := permissionsFor("admin:read", nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" {
-		t.Errorf("admin:read must still grant secrets/dependabot_secrets, got %v", got)
+	// The explicit admin action is unchanged — it still mints the full admin
+	// category (administration, repository_hooks, secrets, dependabot_secrets),
+	// so nothing that legitimately needs repo-admin or secrets loses it.
+	if got := permissionsFor("admin:read", nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" ||
+		got["administration"] != "read" || got["repository_hooks"] != "read" {
+		t.Errorf("admin:read must still grant the full admin category, got %v", got)
 	}
 }
 
