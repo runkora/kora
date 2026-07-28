@@ -20,6 +20,8 @@ func AddToScheme(s *runtime.Scheme) error {
 		&ConnectionList{},
 		&MCPServer{},
 		&MCPServerList{},
+		&OAuthClient{},
+		&OAuthClientList{},
 	)
 
 	// Wire up metav1 types (ListOptions, WatchEvent, etc.) to our group version.

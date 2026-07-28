@@ -7,6 +7,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Agent Control Plane](agent-control-plane.md) | Implemented | [orbit-agents-service-architecture](../adr/2026-05-11-orbit-agents-service-architecture.md), [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md), [agent-registry-and-definition-model](../adr/2026-05-11-agent-registry-and-definition-model.md) |
 | [Agent Builder](agent-builder.md) | Implemented | [agent-builder](../adr/2026-07-17-agent-builder.md) |
 | [Delegated Agent Identity](delegated-agent-identity.md) | Draft | TBD |
+| [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
 | [Codex and OpenCode Agent Runners](codex-opencode-agent-runners.md) | Draft | [codex-agent-runner](../adr/2026-06-04-codex-agent-runner.md), [opencode-agent-runner](../adr/2026-06-04-opencode-agent-runner.md) |
 | [Run Task Summarization](run-task-summarization.md) | Approved | [run-task-summarization](../adr/2026-06-19-run-task-summarization.md) |
 | [Agent Triggers](agent-webhook-triggers.md) | Draft | [agent-triggers-and-webhook-ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) |

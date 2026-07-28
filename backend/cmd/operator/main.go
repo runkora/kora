@@ -200,6 +200,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 	caAggregator := operator.NewTenantCAAggregator(mgr.GetClient(), logger)
 	connAggregator := operator.NewConnectionAggregator(mgr.GetClient(), logger)
 	mcpAggregator := operator.NewMCPServerAggregator(mgr.GetClient(), logger)
+	oauthAggregator := operator.NewOAuthClientAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
 		Client:      mgr.GetClient(),
@@ -223,6 +224,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		CAAggregator:          caAggregator,
 		ConnAggregator:        connAggregator,
 		MCPAggregator:         mcpAggregator,
+		OAuthAggregator:       oauthAggregator,
 		Logger:                logger,
 		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
 		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,

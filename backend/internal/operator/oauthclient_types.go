@@ -1,0 +1,141 @@
+// OAuthClient CRD Go types for the identity service's OAuth authorization
+// server (GitOps hosted-app registration).
+//
+// An OAuthClient is a tenant-namespaced custom resource that pre-registers one
+// public OAuth client (a hosted web application, e.g. a CRM that logs users in
+// through Orbit) with the identity service. It carries the client_id, an
+// optional display name, and the exact set of permitted redirect URIs. Unlike
+// dynamically-registered clients (RFC 7591 DCR, which are restricted to
+// loopback redirect URIs per RFC 8252), an OAuthClient is admin-reviewed and
+// may declare non-loopback HTTPS redirect URIs.
+//
+// All OAuth clients are public — PKCE is the proof of possession — so, unlike
+// Connection, an OAuthClient carries NO secret reference.
+//
+// The operator's OAuthClientAggregator reads these CRs and renders the
+// orbit-system ConfigMap the identity service mounts (oauth-clients.json),
+// mirroring the ConnectionAggregator. The identity service, a feature package,
+// never imports this CRD type; it reads the mounted ConfigMap instead.
+//
+// See docs/adr/2026-07-28-oauth2-web-redirect-clients.md.
+package operator
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+// -----------------------------------------------------------------------------
+// OAuthClient — namespaced, one per pre-registered hosted-app client per tenant
+// -----------------------------------------------------------------------------
+
+// OAuthClient pre-registers a public OAuth client (a hosted web app) with the
+// identity authorization server. It lives in the tenant namespace.
+//
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:shortName=oauthc
+// +kubebuilder:printcolumn:name="ClientID",type=string,JSONPath=`.spec.clientId`
+// +kubebuilder:printcolumn:name="Name",type=string,JSONPath=`.spec.clientName`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+type OAuthClient struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec OAuthClientSpec `json:"spec,omitempty"`
+}
+
+// OAuthClientSpec declares the public-client identity the authorization server
+// enforces at the authorize endpoint. There is no secret and no grant/scope
+// vocabulary here: authorization of the resulting human token is owned by the
+// policy service, exactly as with Connection under Amendment 3.
+type OAuthClientSpec struct {
+	// ClientID is the stable, human-readable client identifier the app presents
+	// at the authorize and token endpoints (e.g. "example-app"). It MUST be
+	// unique across the whole authorization server — the identity service looks
+	// clients up by client_id alone, not scoped by tenant.
+	// +kubebuilder:validation:MinLength=1
+	ClientID string `json:"clientId"`
+
+	// ClientName is the display name shown on the consent screen. Optional.
+	// +optional
+	ClientName string `json:"clientName,omitempty"`
+
+	// RedirectURIs is the exact list of permitted redirect URIs for this client.
+	// The authorize endpoint requires an exact string match against this list
+	// (no prefix or wildcard matching), which is the security gate that makes
+	// non-loopback redirect URIs safe. At least one is required.
+	// +kubebuilder:validation:MinItems=1
+	RedirectURIs []string `json:"redirectUris"`
+}
+
+// OAuthClientList is a list of OAuthClient resources.
+// +kubebuilder:object:root=true
+type OAuthClientList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []OAuthClient `json:"items"`
+}
+
+// -----------------------------------------------------------------------------
+// DeepCopy (hand-written, mirroring Connection)
+// -----------------------------------------------------------------------------
+
+// DeepCopyObject implements runtime.Object.
+func (c *OAuthClient) DeepCopyObject() runtime.Object {
+	if c == nil {
+		return nil
+	}
+	out := new(OAuthClient)
+	c.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all fields into out.
+func (c *OAuthClient) DeepCopyInto(out *OAuthClient) {
+	*out = *c
+	out.TypeMeta = c.TypeMeta
+	c.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	c.Spec.DeepCopyInto(&out.Spec)
+}
+
+// DeepCopy returns a deep copy.
+func (c *OAuthClient) DeepCopy() *OAuthClient {
+	if c == nil {
+		return nil
+	}
+	out := new(OAuthClient)
+	c.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto for OAuthClientSpec deep-copies the RedirectURIs slice.
+func (s *OAuthClientSpec) DeepCopyInto(out *OAuthClientSpec) {
+	*out = *s
+	if s.RedirectURIs != nil {
+		out.RedirectURIs = make([]string, len(s.RedirectURIs))
+		copy(out.RedirectURIs, s.RedirectURIs)
+	}
+}
+
+// DeepCopyObject implements runtime.Object for OAuthClientList.
+func (l *OAuthClientList) DeepCopyObject() runtime.Object {
+	if l == nil {
+		return nil
+	}
+	out := new(OAuthClientList)
+	l.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all fields into out.
+func (l *OAuthClientList) DeepCopyInto(out *OAuthClientList) {
+	*out = *l
+	out.TypeMeta = l.TypeMeta
+	l.ListMeta.DeepCopyInto(&out.ListMeta)
+	if l.Items != nil {
+		out.Items = make([]OAuthClient, len(l.Items))
+		for i := range l.Items {
+			l.Items[i].DeepCopyInto(&out.Items[i])
+		}
+	}
+}
