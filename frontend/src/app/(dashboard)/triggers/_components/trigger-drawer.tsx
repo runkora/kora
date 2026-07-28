@@ -66,7 +66,9 @@ const DELIVERY_SAMPLE = 8;
 function formatTime(iso: string | null): string {
   if (iso === null) return 'Never';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  if (Number.isNaN(d.getTime())) return iso;
+  // "28 Jul 2026, 08:30" reads at a glance; seconds are noise at this grain.
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}`;
 }
 
 /** Renders a cron expression as something a person can check at a glance. */
@@ -89,10 +91,16 @@ function DrawerStat({
   label,
   value,
   tone,
+  prose = false,
 }: {
   label: string;
   value: string;
   tone?: 'healthy' | 'error';
+  /**
+   * Set for values that are words rather than figures. A phrase set in the
+   * numeric style reads as a shout; prose values step down to supporting sans.
+   */
+  prose?: boolean;
 }) {
   return (
     <Card inset border="subtle">
@@ -100,8 +108,9 @@ function DrawerStat({
         <Stack gap="tight">
           <SectionLabel>{label}</SectionLabel>
           <Text
-            mono
-            weight="heavy"
+            mono={!prose}
+            size={prose ? 'supporting' : undefined}
+            weight={prose ? 'emphasis' : 'heavy'}
             color={
               tone === 'error' ? 'status-error' : tone === 'healthy' ? 'status-healthy' : undefined
             }
@@ -278,8 +287,9 @@ export function TriggerDrawer({
                       value={
                         trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Skip missed runs'
                       }
+                      prose
                     />
-                    <DrawerStat label="Created" value={formatTime(trigger.createdAt)} />
+                    <DrawerStat label="Created" value={formatTime(trigger.createdAt)} prose />
                   </Grid>
                 </Stack>
               )}
@@ -376,7 +386,11 @@ export function TriggerDrawer({
 
               <Grid cols={3} gap="snug">
                 <DrawerStat label="Deliveries 24h" value={String(mine.length)} />
-                <DrawerStat label="Succeeded" value={String(succeeded)} tone="healthy" />
+                <DrawerStat
+                  label="Succeeded"
+                  value={String(succeeded)}
+                  tone={succeeded > 0 ? 'healthy' : undefined}
+                />
                 <DrawerStat
                   label="Failed"
                   value={String(failures)}
