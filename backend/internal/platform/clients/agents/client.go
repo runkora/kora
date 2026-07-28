@@ -111,6 +111,20 @@ type StartRunRequest struct {
 	AgentTypeID      string `json:"agent_type_id"`
 	InitialMessage   string `json:"initial_message,omitempty"`
 	ProvisionSandbox bool   `json:"provision_sandbox,omitempty"`
+
+	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
+	// that started it, so a run detail can say "started by trigger X, delivery
+	// Y" rather than showing the trigger's SERVICE principal id and nothing
+	// else. Omitted for any other caller.
+	//
+	// orbit-agents accepts them only from a SERVICE principal: a run's record of
+	// why it exists is an audit claim, and one any caller could author about
+	// itself would be worth nothing. TriggerName is stored as given, a snapshot
+	// at start time, so a renamed or deleted trigger still reads as something a
+	// person recognizes.
+	TriggerID   string `json:"trigger_id,omitempty"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.

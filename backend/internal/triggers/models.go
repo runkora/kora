@@ -351,10 +351,17 @@ type Trigger struct {
 // TriggerID/RunID summarize the first dispatched run; Runs carries the complete
 // per-trigger fan-out (one entry per matched trigger) and is populated on reads.
 type Delivery struct {
-	ID                 string  `json:"id"`
-	TenantID           string  `json:"tenant_id"`
-	SourceID           string  `json:"source_id,omitempty"`
-	TriggerID          *string `json:"trigger_id,omitempty"`
+	ID        string  `json:"id"`
+	TenantID  string  `json:"tenant_id"`
+	SourceID  string  `json:"source_id,omitempty"`
+	TriggerID *string `json:"trigger_id,omitempty"`
+	// TriggerName is the trigger's name as it was when this delivery arrived.
+	//
+	// Captured rather than joined: deliveries have no foreign key to triggers so
+	// history survives a deletion, and a join would return nothing for exactly
+	// the deleted trigger someone is trying to read about. A rename after the
+	// fact must not rewrite what this row says happened either.
+	TriggerName        string  `json:"trigger_name,omitempty"`
 	Kind               string  `json:"kind"`
 	ProviderDeliveryID string  `json:"provider_delivery_id,omitempty"`
 	EventType          string  `json:"event_type,omitempty"`
@@ -386,14 +393,21 @@ type Delivery struct {
 // authoritative one-to-many audit detail behind a delivery. RunID is nil when
 // the dispatch failed (Status == RunStatusFailed), in which case Error explains.
 type DeliveryRun struct {
-	ID         string    `json:"id"`
-	TenantID   string    `json:"tenant_id"`
-	DeliveryID string    `json:"delivery_id"`
-	TriggerID  string    `json:"trigger_id"`
-	RunID      *string   `json:"run_id,omitempty"`
-	Status     string    `json:"status"`
-	Error      *string   `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string `json:"id"`
+	TenantID   string `json:"tenant_id"`
+	DeliveryID string `json:"delivery_id"`
+	TriggerID  string `json:"trigger_id"`
+	// TriggerName is the trigger's name when this outcome was recorded. It is
+	// what the console shows per trigger in a delivery's fan-out; without it a
+	// deleted trigger leaves a row identified only by an id nobody recognizes,
+	// which is the state US-004 exists to fix. Empty on rows written before this
+	// was captured, and on the rare outcome recorded when the trigger could no
+	// longer be read at all.
+	TriggerName string    `json:"trigger_name,omitempty"`
+	RunID       *string   `json:"run_id,omitempty"`
+	Status      string    `json:"status"`
+	Error       *string   `json:"error,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ─── API request/response DTOs ────────────────────────────────────────────────

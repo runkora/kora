@@ -659,6 +659,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		ID:           deliveryID,
 		TenantID:     tenantID,
 		TriggerID:    &triggerID,
+		TriggerName:  t.Name,
 		Kind:         KindManual,
 		Status:       StatusVerified,
 		FiredBy:      callerPrincipalID,
@@ -713,6 +714,7 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		ID:          deliveryID,
 		TenantID:    t.TenantID,
 		TriggerID:   &triggerID,
+		TriggerName: t.Name,
 		Kind:        KindScheduled,
 		Status:      StatusVerified,
 		ScheduledAt: &scheduledAt,
@@ -910,6 +912,7 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 		ID:           uuid.NewString(),
 		TenantID:     tenantID,
 		TriggerID:    &triggerID,
+		TriggerName:  t.Name,
 		Kind:         KindManual,
 		Status:       StatusVerified,
 		FiredBy:      callerPrincipalID,
@@ -1243,7 +1246,7 @@ func (s *Service) fanOut(
 			continue
 		}
 		if !matchesCondition(t.MatchCondition, fields) {
-			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusFiltered, nil,
+			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, t.Name, RunStatusFiltered, nil,
 				new("event excluded by the trigger's match condition"))
 			continue
 		}
@@ -1323,8 +1326,14 @@ func (s *Service) runPrincipal(ctx context.Context, t Trigger) (principalID, dis
 }
 
 // startRunForTriggerWithFields renders the prompt and starts a run under the
-// trigger's resolved identity.
-func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, fields map[string]string) (string, error) {
+// trigger's resolved identity, telling orbit-agents which trigger and delivery
+// the run came from.
+//
+// The backlink is set here, at the only place a run is started from a trigger.
+// Without it the run's created_by is the trigger's SERVICE principal and nothing
+// more, so a person opening the run cannot tell what caused it — the forward
+// link (delivery → run) existed, and the reverse did not.
+func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (string, error) {
 	principalID, displayName, err := s.runPrincipal(ctx, t)
 	if err != nil {
 		return "", err
@@ -1337,6 +1346,12 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, f
 	run, err := s.agents.StartRun(ctx, tok, agentsclient.StartRunRequest{
 		AgentTypeID:    t.AgentTypeID,
 		InitialMessage: prompt,
+		// The name travels with the ids: orbit-agents does not read the triggers
+		// database, and a run that outlives its trigger still has to render as
+		// something a person recognizes.
+		TriggerID:   t.ID,
+		TriggerName: t.Name,
+		DeliveryID:  deliveryID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("start run: %w", err)
@@ -1397,15 +1412,23 @@ func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
 	}
 }
 
-func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, triggerID, status string, runID, errMsg *string) {
+// recordDeliveryRun writes one per-trigger outcome.
+//
+// triggerName is captured onto the row rather than joined at read time: a
+// delivery outlives the trigger it names, and the console showing a bare id for
+// a deleted trigger is exactly the gap US-004 closes. It is empty only where the
+// name is genuinely unknown — an outcome recorded because the trigger could not
+// be read at all.
+func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, triggerID, triggerName, status string, runID, errMsg *string) {
 	dr := &DeliveryRun{
-		ID:         uuid.NewString(),
-		TenantID:   tenantID,
-		DeliveryID: deliveryID,
-		TriggerID:  triggerID,
-		RunID:      runID,
-		Status:     status,
-		Error:      errMsg,
+		ID:          uuid.NewString(),
+		TenantID:    tenantID,
+		DeliveryID:  deliveryID,
+		TriggerID:   triggerID,
+		TriggerName: triggerName,
+		RunID:       runID,
+		Status:      status,
+		Error:       errMsg,
 	}
 	if err := s.repo.InsertDeliveryRun(ctx, dr); err != nil {
 		s.logger.Error(ctx, "failed to record delivery run",
@@ -1678,6 +1701,7 @@ func (s *Service) RecordMissedTick(ctx context.Context, t Trigger, scheduledAt t
 		ID:          uuid.NewString(),
 		TenantID:    t.TenantID,
 		TriggerID:   &triggerID,
+		TriggerName: t.Name,
 		Kind:        KindScheduled,
 		Status:      StatusMissed,
 		ScheduledAt: &minute,
@@ -1717,13 +1741,13 @@ func (s *Service) admit(ctx context.Context, t Trigger, deliveryID string, field
 			logging.Field{Key: "delivery_id", Value: deliveryID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, RunStatusDropped, nil, new(err.Error()))
+		s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, t.Name, RunStatusDropped, nil, new(err.Error()))
 		return false
 	}
 	if result == AdmitEnqueued {
 		return true
 	}
-	s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, result.RunStatus(), nil,
+	s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, t.Name, result.RunStatus(), nil,
 		new(admissionReason(result)))
 	return false
 }
@@ -1755,13 +1779,15 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 			logging.Field{Key: "trigger_id", Value: p.TriggerID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, RunStatusDropped, nil,
+		// No name to record: the trigger could not be read at all, which is the
+		// one case where the id is genuinely all there is.
+		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, "", RunStatusDropped, nil,
 			new("trigger no longer available"))
 		s.deriveDeliveryStatus(ctx, p.DeliveryID)
 		return
 	}
 	if !t.Enabled {
-		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, RunStatusDropped, nil,
+		s.recordDeliveryRun(ctx, p.TenantID, p.DeliveryID, p.TriggerID, t.Name, RunStatusDropped, nil,
 			new("trigger was disabled while this fire was waiting"))
 		s.deriveDeliveryStatus(ctx, p.DeliveryID)
 		return
@@ -1772,14 +1798,14 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
 	defer cancel()
 
-	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.Fields)
+	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
 	if err != nil {
 		s.logger.Error(ctx, "pending dispatch failed",
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "delivery_id", Value: p.DeliveryID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, runStatusForDispatchError(err), nil, new(err.Error()))
+		s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, t.Name, runStatusForDispatchError(err), nil, new(err.Error()))
 		// Carry one reason up to the delivery so the feed can say why in a
 		// single line; the per-trigger detail is the fan-out.
 		s.recordFailure(ctx, p.DeliveryID, err.Error())
@@ -1789,7 +1815,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	}
 
 	rID := runID
-	s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, RunStatusDispatched, &rID, nil)
+	s.recordDeliveryRun(ctx, t.TenantID, p.DeliveryID, t.ID, t.Name, RunStatusDispatched, &rID, nil)
 	_ = s.repo.UpdateDeliveryOutcome(ctx, p.DeliveryID, StatusDispatched, &t.ID, &rID, nil)
 	s.noteSuccess(ctx, *t)
 	s.deriveDeliveryStatus(ctx, p.DeliveryID)

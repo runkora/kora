@@ -194,11 +194,21 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 		run.ID = uuid.NewString()
 	}
 	now := time.Now().UTC()
+	// Trigger attribution is written at insert and never updated: it records why
+	// the run exists, which cannot change after it starts.
+	var triggerID, triggerName, deliveryID *string
+	if run.StartedBy != nil {
+		triggerID = nullableRunStr(run.StartedBy.TriggerID)
+		triggerName = nullableRunStr(run.StartedBy.TriggerName)
+		deliveryID = nullableRunStr(run.StartedBy.DeliveryID)
+	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
-			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
+			 trigger_id, trigger_name, delivery_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
+		triggerID, triggerName, deliveryID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -210,7 +220,8 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // identity_mode (runs always reference an existing agent type — DeleteAgentType
 // force-deletes its runs first, so the inner join never drops rows).
 const selectRun = `
-	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode
+	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
+	       r.trigger_id, r.trigger_name, r.delivery_id
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -537,10 +548,12 @@ func scanAgentType(s scanner) (*AgentType, error) {
 func scanRun(s scanner) (*Run, error) {
 	var r Run
 	var state, identityMode string
+	var triggerID, triggerName, deliveryID *string
 	err := s.Scan(
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
+		&triggerID, &triggerName, &deliveryID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -550,7 +563,33 @@ func scanRun(s scanner) (*Run, error) {
 	}
 	r.State = RunState(state)
 	r.IdentityMode = IdentityMode(identityMode).OrDefault()
+	// The trigger id is what makes the attribution real; a name or delivery
+	// without one would be a run claiming automation without naming what
+	// automated it, so the whole block hangs off the id being present.
+	if triggerID != nil && *triggerID != "" {
+		r.StartedBy = &StartedByTrigger{
+			TriggerID:   *triggerID,
+			TriggerName: derefRunStr(triggerName),
+			DeliveryID:  derefRunStr(deliveryID),
+		}
+	}
 	return &r, nil
+}
+
+// nullableRunStr maps an empty string to SQL NULL, so "not recorded" is
+// distinguishable from "recorded as empty".
+func nullableRunStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func derefRunStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func isUniqueViolation(err error) bool {

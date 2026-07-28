@@ -526,6 +526,90 @@ func TestPostgres_PendingStats(t *testing.T) {
 	}
 }
 
+// The captured trigger name round-trips on both the delivery and its fan-out,
+// and survives the trigger being deleted — which a join could not do, and is the
+// entire reason it is stored rather than looked up.
+func TestPostgres_TriggerNameSurvivesDeletion(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "PR reviewer", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
+	}
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+
+	d := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-name-1", TriggerID: &tr.ID, TriggerName: tr.Name,
+		EventType: "pull_request", Status: StatusDispatched,
+	}
+	if _, err := r.InsertDelivery(ctx, d); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+	if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: uuid.NewString(), TenantID: tenant, DeliveryID: d.ID,
+		TriggerID: tr.ID, TriggerName: tr.Name, Status: RunStatusDispatched,
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	// Delete the trigger. The delivery has no FK to it precisely so history
+	// survives; the name has to survive with it.
+	if err := r.DeleteTrigger(ctx, tenant, tr.ID); err != nil {
+		t.Fatalf("DeleteTrigger: %v", err)
+	}
+
+	got, err := r.GetDelivery(ctx, tenant, d.ID)
+	if err != nil {
+		t.Fatalf("GetDelivery: %v", err)
+	}
+	if got.TriggerName != "PR reviewer" {
+		t.Errorf("delivery trigger_name = %q, want it to survive the deletion", got.TriggerName)
+	}
+
+	runs, err := r.ListDeliveryRunsForDeliveries(ctx, tenant, []string{d.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveryRunsForDeliveries: %v", err)
+	}
+	if len(runs[d.ID]) != 1 || runs[d.ID][0].TriggerName != "PR reviewer" {
+		t.Errorf("fan-out = %+v, want the captured name", runs[d.ID])
+	}
+}
+
+// A row written without a name (the trigger could not be read) stores NULL and
+// reads back empty, rather than an empty string masquerading as a name.
+func TestPostgres_DeliveryRunWithoutTriggerName(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	d := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-noname-1", Status: StatusFailed,
+	}
+	if _, err := r.InsertDelivery(ctx, d); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+	if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: uuid.NewString(), TenantID: tenant, DeliveryID: d.ID,
+		TriggerID: "gone", Status: RunStatusDropped,
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	runs, err := r.ListDeliveryRunsForDeliveries(ctx, tenant, []string{d.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveryRunsForDeliveries: %v", err)
+	}
+	if len(runs[d.ID]) != 1 || runs[d.ID][0].TriggerName != "" {
+		t.Errorf("fan-out = %+v, want an empty name", runs[d.ID])
+	}
+}
+
 func TestPostgres_DeliveryRuns(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()

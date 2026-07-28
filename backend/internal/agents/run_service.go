@@ -106,6 +106,46 @@ func NewRunService(
 // derived from the verified platform claims in ctx; request-body values are
 // ignored. Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
 // scope; the handler maps this to 404 to avoid leaking existence.
+// authorizeStart resolves the target agent type and settles everything the
+// caller must be entitled to before any resource is created: that the type is
+// theirs to run, that the identity model permits this principal to start it, and
+// that any trigger attribution on the request is a claim this caller may make.
+//
+// All of it happens before the first write, so a refused start leaves nothing
+// behind.
+func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, *StartedByTrigger, error) {
+	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return nil, nil, fmt.Errorf("get agent type: %w", err)
+	}
+	if at.TenantID != tenantID {
+		return nil, nil, ErrNotFound
+	}
+	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
+		return nil, nil, err
+	}
+
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
+	// of a delegated agent, because the run executes with THEIR authority.
+	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
+	if err = s.authorizeDelegatedStart(ctx, span, delegated); err != nil {
+		return nil, nil, err
+	}
+
+	// Trigger attribution is an audit claim about why the run exists, so it is
+	// checked rather than trusted because it arrived in a request body.
+	startedBy, err := authorizeTriggerAttribution(ctx, req)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTriggerAttributionRefused.Error())
+		return nil, nil, err
+	}
+	return at, startedBy, nil
+}
+
 func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started *Run, retErr error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",
@@ -134,26 +174,11 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
+	at, startedBy, err := s.authorizeStart(ctx, span, req, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return nil, fmt.Errorf("get agent type: %w", err)
-	}
-	if at.TenantID != tenantID {
-		return nil, ErrNotFound
-	}
-	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
 		return nil, err
 	}
-
-	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
-	// of a delegated agent, because the run executes with THEIR authority.
 	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
-	if err = s.authorizeDelegatedStart(ctx, span, delegated); err != nil {
-		return nil, err
-	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	podOrdinal, err := s.providePod(ctx, span, at, namespace)
@@ -170,8 +195,14 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// Derived from the agent type (reads join it); carried on the response
 		// so run surfaces know the governance posture without a second lookup.
 		IdentityMode: at.IdentityMode.OrDefault(),
+		// Nil unless a trigger started this run, which is what its absence means
+		// everywhere downstream.
+		StartedBy: startedBy,
 	}
 	span.SetAttributes(attribute.String("run_id", run.ID))
+	if startedBy != nil {
+		span.SetAttributes(attribute.String("trigger_id", startedBy.TriggerID))
+	}
 
 	if err := s.repo.CreateRun(ctx, run); err != nil {
 		span.RecordError(err)

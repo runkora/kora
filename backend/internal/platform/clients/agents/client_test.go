@@ -59,6 +59,45 @@ func TestStartRun_Success(t *testing.T) {
 	}
 }
 
+// The trigger backlink has to reach orbit-agents on the wire, under the field
+// names the server decodes.
+func TestStartRun_SendsTriggerAttribution(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"active"}`)
+
+	if _, err := c.StartRun(context.Background(), "tok-123", StartRunRequest{
+		AgentTypeID: "at-1",
+		TriggerID:   "trig-1",
+		TriggerName: "Nightly review",
+		DeliveryID:  "deliv-1",
+	}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	for _, want := range []string{
+		`"trigger_id":"trig-1"`,
+		`"trigger_name":"Nightly review"`,
+		`"delivery_id":"deliv-1"`,
+	} {
+		if !strings.Contains(cap.body, want) {
+			t.Errorf("body missing %s: %s", want, cap.body)
+		}
+	}
+}
+
+// A run nobody attributed sends no attribution at all, rather than empty
+// strings the server would have to interpret.
+func TestStartRun_OmitsAbsentAttribution(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"active"}`)
+
+	if _, err := c.StartRun(context.Background(), "tok-123", StartRunRequest{AgentTypeID: "at-1"}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	for _, unwanted := range []string{"trigger_id", "trigger_name", "delivery_id"} {
+		if strings.Contains(cap.body, unwanted) {
+			t.Errorf("body should omit %s: %s", unwanted, cap.body)
+		}
+	}
+}
+
 func TestGetAgentType_Success(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusOK, `{"id":"at-1","tenant_id":"t-1","slug":"code-reviewer"}`)
 

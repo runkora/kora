@@ -2027,6 +2027,162 @@ func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
 	}
 }
 
+// ─── Trigger ↔ run backlink (US-004) ─────────────────────────────────────────
+
+// The run start carries the trigger and delivery it came from. The forward link
+// (delivery → run) already existed; without this one a person opening the run
+// sees only the trigger's SERVICE principal and cannot tell what caused it.
+func TestDispatch_StartRunCarriesTheBacklink(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pr.number }}")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
+
+	call, ok := deps.agents.lastCall()
+	if !ok {
+		t.Fatal("no run was started")
+	}
+	triggers, _ := deps.repo.ListTriggers(context.Background(), testTenant, "")
+	if len(triggers) != 1 {
+		t.Fatalf("expected one trigger, got %d", len(triggers))
+	}
+	if call.triggerID != triggers[0].ID {
+		t.Errorf("trigger_id = %q, want %q", call.triggerID, triggers[0].ID)
+	}
+	if call.triggerName != triggers[0].Name {
+		t.Errorf("trigger_name = %q, want %q", call.triggerName, triggers[0].Name)
+	}
+	if call.deliveryID != delID {
+		t.Errorf("delivery_id = %q, want %q", call.deliveryID, delID)
+	}
+}
+
+// A manual fire is a trigger start too, and carries the same link.
+func TestFireTrigger_StartRunCarriesTheBacklink(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+
+	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+	drainPending(t, svc, deps.repo)
+
+	call, ok := deps.agents.lastCall()
+	if !ok {
+		t.Fatal("no run was started")
+	}
+	if call.triggerID != trig.ID || call.triggerName != trig.Name || call.deliveryID != fired.DeliveryID {
+		t.Errorf("backlink = (%q, %q, %q), want (%q, %q, %q)",
+			call.triggerID, call.triggerName, call.deliveryID, trig.ID, trig.Name, fired.DeliveryID)
+	}
+}
+
+// ─── Trigger names on delivery history (US-004 AC4) ──────────────────────────
+
+// The per-trigger fan-out records the trigger's name alongside its id, so a
+// delivery stays readable after the trigger is deleted. The complaint this fixes
+// is a console showing an orphaned id.
+func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	trig := mustWebhookTrigger(t, svc, src.ID, "PR reviewer", true)
+	ctx := context.Background()
+
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(ctx, src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	waitFor(t, func() bool { return len(deps.repo.pendingFor(trig.ID)) == 1 })
+	drainPending(t, svc, deps.repo)
+
+	delivery := deps.repo.lastDelivery()
+	runs := deps.repo.deliveryRunsFor(delivery.ID)
+	if len(runs) != 1 {
+		t.Fatalf("fan-out = %+v, want one outcome", runs)
+	}
+	if runs[0].TriggerName != "PR reviewer" {
+		t.Errorf("trigger_name = %q, want it captured at write time", runs[0].TriggerName)
+	}
+
+	// Delete the trigger: the history must still name it. A join would return
+	// nothing here, which is the whole reason the name is captured.
+	if err := svc.DeleteTrigger(ctx, testTenant, trig.ID); err != nil {
+		t.Fatalf("DeleteTrigger: %v", err)
+	}
+	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	var found bool
+	for _, d := range listed {
+		for _, r := range d.Runs {
+			if r.TriggerID == trig.ID {
+				found = true
+				if r.TriggerName != "PR reviewer" {
+					t.Errorf("after deletion trigger_name = %q, want the captured name", r.TriggerName)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("the deleted trigger's outcome vanished from delivery history")
+	}
+}
+
+// Deliveries that name a single trigger (manual, scheduled) carry the name too:
+// the delivery list shows it without a per-row lookup that would fail anyway
+// once the trigger is gone.
+func TestDelivery_CapturesTriggerName(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+
+	if _, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}}); err != nil {
+		t.Fatalf("FireTrigger: %v", err)
+	}
+
+	d := deps.repo.lastDelivery()
+	if d.TriggerName != trig.Name {
+		t.Errorf("delivery trigger_name = %q, want %q", d.TriggerName, trig.Name)
+	}
+}
+
+// A scheduled fire that was due during an outage names its trigger too: "which
+// job missed its run?" is unanswerable from an id alone.
+func TestRecordMissedTick_CapturesTriggerName(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := Trigger{ID: "trig-sched", TenantID: testTenant, Kind: KindScheduled, Name: "Nightly report"}
+
+	svc.RecordMissedTick(context.Background(), trig, time.Now().UTC().Add(-30*time.Minute))
+
+	d := deps.repo.lastDelivery()
+	if d == nil || d.TriggerName != "Nightly report" {
+		t.Errorf("missed delivery = %+v, want the trigger's name captured", d)
+	}
+}
+
+// The one case where the name is genuinely unknown stays honest: a fire whose
+// trigger could not be read records the id and no name, rather than inventing
+// one.
+func TestDispatchPending_UnreadableTrigger_RecordsNoName(t *testing.T) {
+	svc, deps := newTestService(t)
+
+	svc.DispatchPending(context.Background(), PendingDelivery{
+		ID: "p-1", TenantID: testTenant, TriggerID: "gone", DeliveryID: "d-1",
+	})
+
+	runs := deps.repo.deliveryRunsFor("d-1")
+	if len(runs) != 1 || runs[0].Status != RunStatusDropped {
+		t.Fatalf("outcomes = %+v, want one dropped", runs)
+	}
+	if runs[0].TriggerName != "" {
+		t.Errorf("trigger_name = %q, want it left empty when the trigger cannot be read", runs[0].TriggerName)
+	}
+}
+
 // Each kind gets the overflow behavior that suits it.
 func TestDefaultOverflowForKind(t *testing.T) {
 	t.Parallel()

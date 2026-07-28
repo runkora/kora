@@ -200,8 +200,11 @@ func (a *Admission) recordOutcome(ctx context.Context, t Trigger, deliveryID, st
 		TenantID:   t.TenantID,
 		DeliveryID: deliveryID,
 		TriggerID:  t.ID,
-		Status:     status,
-		Error:      &detail,
+		// Captured with the outcome: a trigger deleted or renamed later must not
+		// leave this row identified by an id alone.
+		TriggerName: t.Name,
+		Status:      status,
+		Error:       &detail,
 	})
 	if err != nil {
 		a.logger.Error(ctx, "failed to record admission outcome",

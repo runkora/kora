@@ -459,6 +459,11 @@ type startCall struct {
 	bearer         string
 	agentTypeID    string
 	initialMessage string
+	// The trigger→run backlink as it went over the wire, so tests assert what
+	// orbit-agents actually receives rather than what the caller intended.
+	triggerID   string
+	triggerName string
+	deliveryID  string
 }
 
 type agentsStub struct {
@@ -503,6 +508,9 @@ func newAgentsStub() *agentsStub {
 		var req struct {
 			AgentTypeID    string `json:"agent_type_id"`
 			InitialMessage string `json:"initial_message"`
+			TriggerID      string `json:"trigger_id"`
+			TriggerName    string `json:"trigger_name"`
+			DeliveryID     string `json:"delivery_id"`
 		}
 		_ = json.Unmarshal(body, &req)
 		as.mu.Lock()
@@ -510,6 +518,9 @@ func newAgentsStub() *agentsStub {
 			bearer:         r.Header.Get("Authorization"),
 			agentTypeID:    req.AgentTypeID,
 			initialMessage: req.InitialMessage,
+			triggerID:      req.TriggerID,
+			triggerName:    req.TriggerName,
+			deliveryID:     req.DeliveryID,
 		})
 		status, errBody := as.status, as.runErrBody
 		as.mu.Unlock()

@@ -396,15 +396,15 @@ func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (b
 	}
 	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_deliveries
-			(id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
+			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
 			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		ON CONFLICT (source_id, provider_delivery_id)
 			WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
 			DO NOTHING
-	`, d.ID, d.TenantID, sourceID, d.TriggerID, d.Kind, d.ProviderDeliveryID, d.EventType,
+	`, d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
 		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
@@ -422,13 +422,13 @@ func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Del
 	}
 	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_deliveries
-			(id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
+			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
 			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		ON CONFLICT (trigger_id, scheduled_at) WHERE scheduled_at IS NOT NULL DO NOTHING
-	`, d.ID, d.TenantID, sourceID, d.TriggerID, d.Kind, d.ProviderDeliveryID, d.EventType,
+	`, d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
 		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
@@ -458,16 +458,16 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 }
 
 // deliveryColumns is the full read projection for a delivery row.
-const deliveryColumns = `id, tenant_id, source_id, trigger_id, kind, provider_delivery_id, event_type,
+const deliveryColumns = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
 	payload, payload_bytes, payload_purged, reason, redelivery_of`
 
 func scanDelivery(row pgx.Row) (*Delivery, error) {
 	var d Delivery
-	var sourceID, firedBy *string
+	var sourceID, firedBy, triggerName *string
 	var payloadBytes *int
 	if err := row.Scan(
-		&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
+		&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &triggerName, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
 		&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
 		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
 	); err != nil {
@@ -478,6 +478,9 @@ func scanDelivery(row pgx.Row) (*Delivery, error) {
 	}
 	if firedBy != nil {
 		d.FiredBy = *firedBy
+	}
+	if triggerName != nil {
+		d.TriggerName = *triggerName
 	}
 	if payloadBytes != nil {
 		d.PayloadBytes = *payloadBytes
@@ -567,10 +570,10 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_delivery_runs
-			(id, tenant_id, delivery_id, trigger_id, run_id, status, error)
+			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7)
-	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, dr.RunID, dr.Status, dr.Error)
+			($1, $2, $3, $4, $5, $6, $7, $8)
+	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, nullableStr(dr.TriggerName), dr.RunID, dr.Status, dr.Error)
 	if err != nil {
 		return fmt.Errorf("insert delivery run: %w", err)
 	}
@@ -583,7 +586,7 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 		return out, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, delivery_id, trigger_id, run_id, status, error, created_at
+		SELECT id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, created_at
 		FROM   trigger_delivery_runs
 		WHERE  tenant_id = $1 AND delivery_id = ANY($2)
 		ORDER BY created_at ASC
@@ -595,11 +598,15 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 
 	for rows.Next() {
 		var dr DeliveryRun
+		var triggerName *string
 		if err := rows.Scan(
-			&dr.ID, &dr.TenantID, &dr.DeliveryID, &dr.TriggerID,
+			&dr.ID, &dr.TenantID, &dr.DeliveryID, &dr.TriggerID, &triggerName,
 			&dr.RunID, &dr.Status, &dr.Error, &dr.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan delivery run: %w", err)
+		}
+		if triggerName != nil {
+			dr.TriggerName = *triggerName
 		}
 		out[dr.DeliveryID] = append(out[dr.DeliveryID], dr)
 	}
