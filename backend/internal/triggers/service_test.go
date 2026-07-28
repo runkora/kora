@@ -316,7 +316,8 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 
 // ── Admission settings at create ────────────────────────────────────────────
 
-func admissionPtr[T any](v T) *T { return &v }
+//go:fix inline
+func admissionPtr[T any](v T) *T { return new(v) }
 
 func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 	// Omitting every admission field must produce exactly the trigger this path
@@ -366,11 +367,11 @@ func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
 	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
 		MaxParallel:      admissionPtr[int16](2),
-		Overflow:         admissionPtr(OverflowRefuse),
+		Overflow:         new(OverflowRefuse),
 		MaxQueueDepth:    admissionPtr[int16](7),
 		TimeoutSeconds:   admissionPtr[int16](45),
-		DedupeEnabled:    admissionPtr(false),
-		AutopauseEnabled: admissionPtr(false),
+		DedupeEnabled:    new(false),
+		AutopauseEnabled: new(false),
 	})
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
@@ -406,7 +407,7 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 		{"max_queue_depth above ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](501) }},
 		{"timeout below floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](4) }},
 		{"timeout above ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](601) }},
-		{"unknown overflow", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr("drop") }},
+		{"unknown overflow", func(r *CreateTriggerRequest) { r.Overflow = new("drop") }},
 	}
 	kinds := []struct {
 		name string
@@ -456,9 +457,9 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 		{"max_queue_depth ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](500) }},
 		{"timeout floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](5) }},
 		{"timeout ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](600) }},
-		{"overflow wait", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowWait) }},
-		{"overflow replace", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowReplace) }},
-		{"overflow refuse", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowRefuse) }},
+		{"overflow wait", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowWait) }},
+		{"overflow replace", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowReplace) }},
+		{"overflow refuse", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowRefuse) }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
