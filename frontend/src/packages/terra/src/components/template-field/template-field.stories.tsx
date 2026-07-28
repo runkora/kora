@@ -22,7 +22,7 @@ const GITHUB_CATALOG: TemplateCatalogEntry[] = [
   {
     token: 'pr.author',
     description: 'Login of the author',
-    example: 'jwilkin',
+    example: 'some-user',
     group: 'Pull request',
   },
   {
@@ -63,7 +63,7 @@ const LONG_CATALOG: TemplateCatalogEntry[] = [
   {
     token: 'actor.login',
     description: 'Who triggered the event',
-    example: 'jwilkin',
+    example: 'some-user',
     group: 'Actor',
   },
   {

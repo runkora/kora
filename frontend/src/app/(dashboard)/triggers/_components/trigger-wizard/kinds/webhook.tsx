@@ -269,6 +269,11 @@ function StepSource({ state, patch, context }: StepComponentProps) {
           value={state.promptTemplate}
           onChange={(next) => patch({ promptTemplate: next })}
           catalog={toTemplateCatalog(catalog, catalogPatterns(provider))}
+          catalogLabel={
+            state.eventType
+              ? `Fields on ${state.eventType} deliveries from this source.`
+              : 'Fields across every event this source sends; per-event fields are empty on other events.'
+          }
           placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
         />
       </FormField>

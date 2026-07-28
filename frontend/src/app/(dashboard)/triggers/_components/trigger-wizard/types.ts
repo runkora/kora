@@ -221,6 +221,8 @@ export interface FieldCatalogEntry {
   description: string;
   /** A plausible sample value, rendered by the prompt preview. */
   example?: string;
+  /** Picker group heading, e.g. "Pull request". Defaults from the token prefix. */
+  group?: string;
   /** Webhook event types this field exists for. Omitted means every event. */
   events?: string[];
 }

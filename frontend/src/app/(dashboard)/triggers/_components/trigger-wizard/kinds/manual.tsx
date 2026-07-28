@@ -200,6 +200,7 @@ function StepInputs({ state, patch }: StepComponentProps) {
           value={state.promptTemplate}
           onChange={(next) => patch({ promptTemplate: next })}
           catalog={toTemplateCatalog(manualCatalog(state.fields))}
+          catalogLabel={'Your declared inputs; add fields above to extend this list.'}
           placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
         />
       </FormField>

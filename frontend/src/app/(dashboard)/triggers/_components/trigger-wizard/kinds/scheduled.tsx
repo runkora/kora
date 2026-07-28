@@ -302,6 +302,7 @@ function StepSchedule({ state, patch }: StepComponentProps) {
           value={state.promptTemplate}
           onChange={(next) => patch({ promptTemplate: next })}
           catalog={toTemplateCatalog(scheduledCatalog())}
+          catalogLabel={'Filled by the scheduler at each fire.'}
           placeholder="Summarise yesterday's failed deliveries and open an issue for anything unresolved."
         />
       </FormField>

@@ -46,6 +46,11 @@ export interface TemplateFieldProps {
   disabled?: boolean;
   /** Rows-worth of minimum editor height. Defaults to 4. */
   minRows?: number;
+  /**
+   * One line naming what the catalog is scoped to, shown in the picker, e.g.
+   * "Fields for push deliveries". Makes a narrowed catalog say why.
+   */
+  catalogLabel?: string;
   /** @internal Used for internal Terra composition via cn(). */
   className?: string;
 }
@@ -179,6 +184,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
       value,
       onChange,
       catalog,
+      catalogLabel,
       placeholder,
       id,
       'aria-label': ariaLabel,
@@ -419,7 +425,11 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="p-1.5">
-              <TemplateCatalogList catalog={catalog} onSelect={insertToken} />
+              <TemplateCatalogList
+                catalog={catalog}
+                contextLabel={catalogLabel}
+                onSelect={insertToken}
+              />
             </PopoverContent>
           </Popover>
 

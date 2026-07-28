@@ -10,6 +10,12 @@ import { filterCatalog, groupCatalog, type TemplateCatalogEntry } from './templa
 export interface TemplateCatalogListProps {
   /** Every field the template may reference. */
   catalog: readonly TemplateCatalogEntry[];
+  /**
+   * One line naming what the catalog is scoped to, e.g. "Fields for push
+   * deliveries". Shown above the results so a narrowed catalog visibly says
+   * why it narrowed.
+   */
+  contextLabel?: string;
   /** Called with the bare token when a row is chosen. */
   onSelect: (token: string) => void;
   /** Focus the search box on mount. Defaults to true. */
@@ -30,7 +36,7 @@ export interface TemplateCatalogListProps {
  * description of a family, not a field that resolves to anything.
  */
 export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCatalogListProps>(
-  ({ catalog, onSelect, autoFocusSearch = true, className }, ref) => {
+  ({ catalog, contextLabel, onSelect, autoFocusSearch = true, className }, ref) => {
     const [query, setQuery] = React.useState('');
     const [active, setActive] = React.useState(0);
 
@@ -82,7 +88,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
       <div
         ref={ref}
         data-slot="template-catalog"
-        className={cn('flex w-72 flex-col gap-1', className)}
+        className={cn('flex w-96 flex-col gap-1', className)}
         onKeyDown={handleKeyDown}
       >
         <Input
@@ -94,6 +100,12 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
           aria-label="Search fields"
           data-slot="template-catalog-search"
         />
+
+        {contextLabel && (
+          <Text size="micro" color="subtle" className="px-2 pt-1">
+            {contextLabel}
+          </Text>
+        )}
 
         <div className="max-h-64 overflow-y-auto" data-slot="template-catalog-results">
           {groups.length === 0 ? (
@@ -111,13 +123,13 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                     <div
                       key={entry.token}
                       data-slot="template-catalog-pattern"
-                      className="flex flex-col gap-0.5 rounded-sm px-2 py-1.5 opacity-55"
+                      className="flex items-baseline gap-2 rounded-sm px-2 py-1 opacity-55"
                       aria-disabled="true"
                     >
-                      <span className="font-mono text-[11.5px] text-muted">{entry.token}</span>
-                      <span className="text-[11px] leading-tight text-subtle">
-                        {entry.description}
+                      <span className="shrink-0 font-mono text-[11.5px] text-muted">
+                        {entry.token}
                       </span>
+                      <span className="truncate text-[11px] text-subtle">{entry.description}</span>
                     </div>
                   ) : (
                     <button
@@ -129,15 +141,15 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                       onMouseEnter={() => setActive(index)}
                       onClick={() => onSelect(entry.token)}
                       className={cn(
-                        'flex w-full flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left transition-colors',
+                        'flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left transition-colors',
                         'hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent',
                         isActive && 'bg-surface-overlay',
                       )}
                     >
-                      <span className="font-mono text-[11.5px] text-foreground">{entry.token}</span>
-                      <span className="text-[11px] leading-tight text-subtle">
-                        {entry.description}
+                      <span className="shrink-0 font-mono text-[11.5px] text-foreground">
+                        {entry.token}
                       </span>
+                      <span className="truncate text-[11px] text-subtle">{entry.description}</span>
                     </button>
                   );
                 })}

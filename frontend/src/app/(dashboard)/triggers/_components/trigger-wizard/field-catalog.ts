@@ -17,59 +17,67 @@ import type { FieldCatalogEntry, WizardField } from './types';
 
 /** GitHub fields present on every event. */
 const GITHUB_COMMON: FieldCatalogEntry[] = [
-  { token: 'event', description: 'The event type, e.g. pull_request', example: 'pull_request' },
-  { token: 'action', description: "The event's action, e.g. opened", example: 'opened' },
+  { token: 'event', description: 'The event type, e.g. pull_request', example: 'pull_request', group: 'Common' },
+  { token: 'action', description: "The event's action, e.g. opened", example: 'opened', group: 'Common' },
   {
     token: 'repo.full_name',
-    description: 'Owner and repository, e.g. acme/widgets',
-    example: 'acme/widgets',
+    description: 'Owner and repository, e.g. my-org/my-repo',
+    example: 'my-org/my-repo',
+    group: 'Common',
   },
-  { token: 'repo.default_branch', description: "The repository's default branch", example: 'main' },
+  { token: 'repo.default_branch', description: "The repository's default branch", example: 'main', group: 'Common' },
   {
     token: 'sender.login',
     description: 'The GitHub user who caused the event',
-    example: 'jwilkin',
+    example: 'some-user',
+    group: 'Common',
   },
 ];
 
 /** GitHub fields that exist only on particular events. */
 const GITHUB_PER_EVENT: FieldCatalogEntry[] = [
-  { token: 'pr.number', description: 'The PR number', events: ['pull_request'], example: '108' },
+  { token: 'pr.number', description: 'The PR number', events: ['pull_request'], example: '108', group: 'Pull request' },
   {
     token: 'pr.title',
     description: "The PR's title",
     events: ['pull_request'],
     example: 'Fix login retry',
+    group: 'Pull request',
   },
   {
     token: 'pr.url',
     description: 'Link to the PR',
     events: ['pull_request'],
-    example: 'https://github.com/acme/widgets/pull/108',
+    example: 'https://github.com/my-org/my-repo/pull/108',
+    group: 'Pull request',
   },
   {
     token: 'pr.head_ref',
     description: 'Branch the PR is from',
     events: ['pull_request'],
     example: 'fix/login-retry',
+    group: 'Pull request',
   },
   {
     token: 'pr.head_sha',
     description: 'Commit at the head of the PR',
     events: ['pull_request'],
     example: '4a6565c',
+    group: 'Pull request',
   },
   {
     token: 'pr.base_ref',
     description: 'Branch the PR targets',
     events: ['pull_request'],
     example: 'main',
+    group: 'Pull request',
   },
   {
     token: 'pr.author',
     description: 'Who opened the PR',
     events: ['pull_request'],
-    example: 'jwilkin',
+    example: 'some-user',
+    group: 'Pull request',
   },
 
   {
@@ -77,67 +85,75 @@ const GITHUB_PER_EVENT: FieldCatalogEntry[] = [
     description: 'Full ref pushed, e.g. refs/heads/main',
     events: ['push'],
     example: 'refs/heads/main',
+    group: 'Push',
   },
-  { token: 'push.branch', description: 'Branch pushed to', events: ['push'], example: 'main' },
+  { token: 'push.branch', description: 'Branch pushed to', events: ['push'], example: 'main', group: 'Push' },
   {
     token: 'push.before',
     description: 'Commit before the push',
     events: ['push'],
     example: '81ff7b1',
+    group: 'Push',
   },
   {
     token: 'push.after',
     description: 'Commit after the push',
     events: ['push'],
     example: '30f1bd0',
+    group: 'Push',
   },
   {
     token: 'push.commit_message',
     description: 'Message of the head commit',
     events: ['push'],
     example: 'fix: retry logins',
+    group: 'Push',
   },
 
-  { token: 'issue.number', description: 'The issue number', events: ['issues'], example: '42' },
+  { token: 'issue.number', description: 'The issue number', events: ['issues'], example: '42', group: 'Issues' },
   {
     token: 'issue.title',
     description: "The issue's title",
     events: ['issues'],
     example: 'Login retries fail',
+    group: 'Issues',
   },
-  { token: 'issue.body', description: "The issue's body", events: ['issues'] },
+  { token: 'issue.body', description: "The issue's body", events: ['issues'], group: 'Issues' },
   {
     token: 'issue.url',
     description: 'Link to the issue',
     events: ['issues'],
-    example: 'https://github.com/acme/widgets/issues/42',
+    example: 'https://github.com/my-org/my-repo/issues/42',
+    group: 'Issues',
   },
   {
     token: 'issue.author',
     description: 'Who opened the issue',
     events: ['issues'],
-    example: 'jwilkin',
+    example: 'some-user',
+    group: 'Issues',
   },
   {
     token: 'label.name',
     description: 'The label added or removed, on labeled and unlabeled',
     events: ['issues'],
+    group: 'Issues',
   },
 ];
 
 /** Alertmanager fields, all present on every delivery. */
 const ALERTMANAGER: FieldCatalogEntry[] = [
-  { token: 'event', description: 'firing or resolved' },
-  { token: 'status', description: "The group's status" },
-  { token: 'receiver', description: 'Alertmanager receiver that routed it' },
-  { token: 'group_key', description: 'Identifies the alert group' },
-  { token: 'external_url', description: 'Link back to Alertmanager' },
-  { token: 'alerts.count', description: 'How many alerts are in the group' },
-  { token: 'first_alert.status', description: "The first alert's status" },
-  { token: 'first_alert.starts_at', description: 'When the first alert started' },
-  { token: 'first_alert.ends_at', description: 'When the first alert ended' },
-  { token: 'first_alert.generator_url', description: 'Link to the rule that fired' },
-  { token: 'first_alert.fingerprint', description: "The first alert's fingerprint" },
+  { token: 'event', description: 'firing or resolved', group: 'Alert group' },
+  { token: 'status', description: "The group's status", group: 'Alert group' },
+  { token: 'receiver', description: 'Alertmanager receiver that routed it', group: 'Alert group' },
+  { token: 'group_key', description: 'Identifies the alert group', group: 'Alert group' },
+  { token: 'external_url', description: 'Link back to Alertmanager', group: 'Alert group' },
+  { token: 'alerts.count', description: 'How many alerts are in the group', group: 'Alert group' },
+  { token: 'first_alert.status', description: "The first alert's status", group: 'First alert' },
+  { token: 'first_alert.starts_at', description: 'When the first alert started', group: 'First alert' },
+  { token: 'first_alert.ends_at', description: 'When the first alert ended', group: 'First alert' },
+  { token: 'first_alert.generator_url', description: 'Link to the rule that fired', group: 'First alert' },
+  { token: 'first_alert.fingerprint', description: "The first alert's fingerprint", group: 'First alert' },
 ];
 
 /**
@@ -155,14 +171,15 @@ export const ALERTMANAGER_PATTERNS: string[] = [
 
 /** The scheduler injects these on every fire. */
 const SCHEDULED: FieldCatalogEntry[] = [
-  { token: 'var.date', description: 'Fire date, e.g. 2026-07-28', example: '2026-07-28' },
+  { token: 'var.date', description: 'Fire date, e.g. 2026-07-28', example: '2026-07-28', group: 'Schedule' },
   {
     token: 'var.datetime',
     description: 'Fire time, RFC 3339',
     example: '2026-07-28T02:00:00+10:00',
+    group: 'Schedule',
   },
-  { token: 'var.trigger_id', description: "This trigger's id" },
-  { token: 'var.tenant_id', description: 'The tenant the run belongs to' },
+  { token: 'var.trigger_id', description: "This trigger's id", group: 'Schedule' },
+  { token: 'var.tenant_id', description: 'The tenant the run belongs to', group: 'Schedule' },
 ];
 
 /**
@@ -193,6 +210,7 @@ export function manualCatalog(fields: WizardField[]): FieldCatalogEntry[] {
     .map((f, i) => ({
       token: `var.${deriveFieldKey(f.label, i)}`,
       description: `The "${f.label.trim()}" input`,
+      group: 'Inputs',
       // A sample in the field's own type, so the preview reads plausibly.
       example:
         f.type === 'number'
@@ -217,11 +235,17 @@ export function toTemplateCatalog(
   patterns: string[] = [],
 ): TemplateCatalogEntry[] {
   return [
-    ...entries.map((e) => ({ token: e.token, description: e.description, example: e.example })),
+    ...entries.map((e) => ({
+      token: e.token,
+      description: e.description,
+      example: e.example,
+      group: e.group,
+    })),
     ...patterns.map((token) => ({
       token,
       description: 'Named by your Prometheus rules',
       pattern: true,
+      group: 'Dynamic labels',
     })),
   ];
 }
