@@ -133,9 +133,17 @@ export async function fireTrigger(
       body: JSON.stringify({ variables }),
     });
   } catch {
-    return { error: 'Network error — could not reach the server.' };
+    return { error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { error: await errorMessage(res) };
-  const body = (await res.json()) as { data: { delivery_id: string; run_id: string } };
-  return { deliveryId: body.data.delivery_id, runId: body.data.run_id, error: null };
+  // A 202 may arrive with no body; treat a missing envelope as accepted with
+  // nothing to name rather than throwing on an undefined read.
+  const body = (await res.json().catch(() => null)) as {
+    data?: { delivery_id?: string; run_id?: string };
+  } | null;
+  return {
+    deliveryId: body?.data?.delivery_id ?? '',
+    runId: body?.data?.run_id ?? '',
+    error: null,
+  };
 }

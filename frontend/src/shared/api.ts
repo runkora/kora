@@ -709,6 +709,8 @@ export interface TriggerCreateRequest {
   prompt_template: string;
   /** Required for scheduled triggers. */
   schedule_config?: ScheduleConfig;
+  /** For manual triggers: the inputs the console form and the API validate. */
+  manual_config?: ManualConfig;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;

@@ -17,15 +17,30 @@ import type { FieldCatalogEntry, WizardField } from './types';
 
 /** GitHub fields present on every event. */
 const GITHUB_COMMON: FieldCatalogEntry[] = [
-  { token: 'event', description: 'The event type, e.g. pull_request', example: 'pull_request', group: 'Common' },
-  { token: 'action', description: "The event's action, e.g. opened", example: 'opened', group: 'Common' },
+  {
+    token: 'event',
+    description: 'The event type, e.g. pull_request',
+    example: 'pull_request',
+    group: 'Common',
+  },
+  {
+    token: 'action',
+    description: "The event's action, e.g. opened",
+    example: 'opened',
+    group: 'Common',
+  },
   {
     token: 'repo.full_name',
     description: 'Owner and repository, e.g. my-org/my-repo',
     example: 'my-org/my-repo',
     group: 'Common',
   },
-  { token: 'repo.default_branch', description: "The repository's default branch", example: 'main', group: 'Common' },
+  {
+    token: 'repo.default_branch',
+    description: "The repository's default branch",
+    example: 'main',
+    group: 'Common',
+  },
   {
     token: 'sender.login',
     description: 'The GitHub user who caused the event',
@@ -36,7 +51,13 @@ const GITHUB_COMMON: FieldCatalogEntry[] = [
 
 /** GitHub fields that exist only on particular events. */
 const GITHUB_PER_EVENT: FieldCatalogEntry[] = [
-  { token: 'pr.number', description: 'The PR number', events: ['pull_request'], example: '108', group: 'Pull request' },
+  {
+    token: 'pr.number',
+    description: 'The PR number',
+    events: ['pull_request'],
+    example: '108',
+    group: 'Pull request',
+  },
   {
     token: 'pr.title',
     description: "The PR's title",
@@ -87,7 +108,13 @@ const GITHUB_PER_EVENT: FieldCatalogEntry[] = [
     example: 'refs/heads/main',
     group: 'Push',
   },
-  { token: 'push.branch', description: 'Branch pushed to', events: ['push'], example: 'main', group: 'Push' },
+  {
+    token: 'push.branch',
+    description: 'Branch pushed to',
+    events: ['push'],
+    example: 'main',
+    group: 'Push',
+  },
   {
     token: 'push.before',
     description: 'Commit before the push',
@@ -110,7 +137,13 @@ const GITHUB_PER_EVENT: FieldCatalogEntry[] = [
     group: 'Push',
   },
 
-  { token: 'issue.number', description: 'The issue number', events: ['issues'], example: '42', group: 'Issues' },
+  {
+    token: 'issue.number',
+    description: 'The issue number',
+    events: ['issues'],
+    example: '42',
+    group: 'Issues',
+  },
   {
     token: 'issue.title',
     description: "The issue's title",
@@ -150,10 +183,22 @@ const ALERTMANAGER: FieldCatalogEntry[] = [
   { token: 'external_url', description: 'Link back to Alertmanager', group: 'Alert group' },
   { token: 'alerts.count', description: 'How many alerts are in the group', group: 'Alert group' },
   { token: 'first_alert.status', description: "The first alert's status", group: 'First alert' },
-  { token: 'first_alert.starts_at', description: 'When the first alert started', group: 'First alert' },
+  {
+    token: 'first_alert.starts_at',
+    description: 'When the first alert started',
+    group: 'First alert',
+  },
   { token: 'first_alert.ends_at', description: 'When the first alert ended', group: 'First alert' },
-  { token: 'first_alert.generator_url', description: 'Link to the rule that fired', group: 'First alert' },
-  { token: 'first_alert.fingerprint', description: "The first alert's fingerprint", group: 'First alert' },
+  {
+    token: 'first_alert.generator_url',
+    description: 'Link to the rule that fired',
+    group: 'First alert',
+  },
+  {
+    token: 'first_alert.fingerprint',
+    description: "The first alert's fingerprint",
+    group: 'First alert',
+  },
 ];
 
 /**
@@ -171,7 +216,12 @@ export const ALERTMANAGER_PATTERNS: string[] = [
 
 /** The scheduler injects these on every fire. */
 const SCHEDULED: FieldCatalogEntry[] = [
-  { token: 'var.date', description: 'Fire date, e.g. 2026-07-28', example: '2026-07-28', group: 'Schedule' },
+  {
+    token: 'var.date',
+    description: 'Fire date, e.g. 2026-07-28',
+    example: '2026-07-28',
+    group: 'Schedule',
+  },
   {
     token: 'var.datetime',
     description: 'Fire time, RFC 3339',

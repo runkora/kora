@@ -178,9 +178,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       // is no run to name yet. Reporting one here would mean starting the run
       // before acknowledging, which is what loses fires on a restart.
       setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
+      // The delivery exists now; refresh so the drawer's Deliveries tab shows it.
+      router.refresh();
       return null;
     },
-    [],
+    [router],
   );
 
   /**
@@ -281,12 +283,23 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   /** Rotates a webhook trigger's source secret; the drawer shows it once. */
   const rotateSecret = useCallback(async (row: TriggerRow): Promise<string | null> => {
     const result = await updateSource(row.sourceId, { rotate_secret: true });
-    return result.source?.secret ?? null;
+    if (result.error || !result.source?.secret) {
+      setFireResult({
+        ok: false,
+        message: `${row.name}: ${result.error ?? 'rotation returned no secret'}`,
+      });
+      return null;
+    }
+    return result.source.secret;
   }, []);
 
   const toggleTrigger = useCallback(
     async (row: TriggerRow) => {
-      await updateTrigger(row.id, { enabled: !row.enabled });
+      const result = await updateTrigger(row.id, { enabled: !row.enabled });
+      if (result.error) {
+        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
+        return;
+      }
       router.refresh();
     },
     [router],
@@ -301,7 +314,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
    */
   const updateSafety = useCallback(
     async (row: TriggerRow, patch: Partial<TriggerRow>) => {
-      await updateTrigger(row.id, {
+      const result = await updateTrigger(row.id, {
         ...(patch.dedupeEnabled !== undefined && { dedupe_enabled: patch.dedupeEnabled }),
         ...(patch.autopauseEnabled !== undefined && { autopause_enabled: patch.autopauseEnabled }),
         ...(patch.maxParallel !== undefined && { max_parallel: patch.maxParallel }),
@@ -309,6 +322,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         ...(patch.maxQueueDepth !== undefined && { max_queue_depth: patch.maxQueueDepth }),
         ...(patch.timeoutSeconds !== undefined && { timeout_seconds: patch.timeoutSeconds }),
       });
+      if (result.error) {
+        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
+        return;
+      }
       router.refresh();
     },
     [router],

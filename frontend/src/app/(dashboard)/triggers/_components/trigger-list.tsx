@@ -185,7 +185,14 @@ export function TriggerList({
                 {relativeTime(lastFired(t.id, deliveries))}
               </Text>
 
-              <Stack direction="horizontal" justify="end">
+              {/* The row opens the drawer; flipping the toggle must not.
+                  Stopping propagation here keeps the two gestures separate. */}
+              <Stack
+                direction="horizontal"
+                justify="end"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
                 <Toggle
                   checked={t.enabled}
                   onChange={() => onToggle(t)}

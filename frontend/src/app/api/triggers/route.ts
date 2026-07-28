@@ -12,8 +12,9 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
   const kind = body.kind ?? 'webhook';
   switch (kind) {
     case 'webhook':
-      if (!body.source_id || !body.event_type) {
-        return 'source_id and event_type are required for webhook triggers';
+      // event_type is legal empty: it means every event the source emits.
+      if (!body.source_id) {
+        return 'source_id is required for webhook triggers';
       }
       return null;
     case 'scheduled':
@@ -64,6 +65,13 @@ export const POST = withAuth(async (req: NextRequest, session) => {
       match_condition: body.match_condition ?? {},
       prompt_template: body.prompt_template,
       schedule_config: body.schedule_config,
+      manual_config: body.manual_config,
+      max_parallel: body.max_parallel,
+      overflow: body.overflow,
+      max_queue_depth: body.max_queue_depth,
+      timeout_seconds: body.timeout_seconds,
+      dedupe_enabled: body.dedupe_enabled,
+      autopause_enabled: body.autopause_enabled,
     });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {

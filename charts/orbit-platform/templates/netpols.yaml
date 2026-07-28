@@ -299,6 +299,9 @@ spec:
           protocol: TCP
         - port: 8096
           protocol: TCP
+        # 8097: orbit-triggers — public webhook ingestion (/api/v1/webhooks on the api. host)
+        - port: 8097
+          protocol: TCP
         - port: 9090
           protocol: TCP
         # Envoy inbound redirect port — in case any mesh-internal traffic arrives
