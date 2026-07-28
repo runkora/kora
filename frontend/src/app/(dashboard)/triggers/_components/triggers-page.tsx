@@ -137,13 +137,19 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           },
         ]}
       />
-      <Stack grow maxWidth="search-field">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search triggers…"
-          aria-label="Search triggers"
-        />
+      <Stack direction="horizontal" gap="snug" align="center" grow justify="end">
+        <Stack grow maxWidth="search-field">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search triggers…"
+            aria-label="Search triggers"
+          />
+        </Stack>
+        <Button size="sm" onClick={() => setWizardOpen(true)}>
+          <Icon name="plus" size="xs" />
+          New trigger
+        </Button>
       </Stack>
     </Stack>
   );
@@ -394,18 +400,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               today, with control-plane events, chained runs and chat commands coming. Every
               delivery is recorded.
             </Text>
-          </Stack>
-          <Stack direction="horizontal" gap="snug" align="center">
-            <Text size="caption" color="muted">
-              Ingest
-            </Text>
-            <Text mono size="caption" color="muted">
-              {ingestHost}
-            </Text>
-            <Button size="sm" onClick={() => setWizardOpen(true)}>
-              <Icon name="plus" size="xs" />
-              New trigger
-            </Button>
           </Stack>
         </Stack>
       </Stack>
