@@ -213,6 +213,10 @@ export function TriggerWizard({
                     context={context}
                     definition={definition}
                     error={error}
+                    onGoTo={(stepId) => {
+                      const target = steps.findIndex((s) => s.id === stepId);
+                      if (target >= 0 && target <= maxVisited) setStep(target);
+                    }}
                   />
                 )}
               </Stack>

@@ -3,7 +3,6 @@
 /** @tier 3 — triggers-scoped. The manual kind: one input declaration that both
  * renders the console form and validates the API call. */
 
-import { useRef } from 'react';
 import {
   Button,
   Card,
@@ -18,13 +17,12 @@ import {
   SegmentedControl,
   Stack,
   Text,
-  Textarea,
   ToggleRow,
+  TemplateField,
 } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
 import { VALID, deriveFieldKey, newField, previewBody, resolvedFields } from '../wizard-state';
-import { manualCatalog } from '../field-catalog';
-import { PromptFields } from '../prompt-fields';
+import { manualCatalog, toTemplateCatalog } from '../field-catalog';
 import type {
   DoneContentProps,
   ReviewRow,
@@ -55,7 +53,6 @@ function firePath(triggerId: string): string {
 }
 
 function StepInputs({ state, patch }: StepComponentProps) {
-  const promptRef = useRef<HTMLTextAreaElement>(null);
   const setField = (id: string, next: Partial<WizardField>) =>
     patch({ fields: state.fields.map((f) => (f.id === id ? { ...f, ...next } : f)) });
 
@@ -194,25 +191,18 @@ function StepInputs({ state, patch }: StepComponentProps) {
       <FormField
         label="Prompt"
         id="wizard-prompt"
-        hint="What the run starts with. Reference the inputs with {{ var.<key> }} placeholders."
+        hint="What the run starts with. The declared inputs fill the fields."
         required
       >
-        <Textarea
+        <TemplateField
           id="wizard-prompt"
-          ref={promptRef}
+          aria-label="Prompt"
           value={state.promptTemplate}
-          onChange={(e) => patch({ promptTemplate: e.target.value })}
+          onChange={(next) => patch({ promptTemplate: next })}
+          catalog={toTemplateCatalog(manualCatalog(state.fields))}
           placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
-          rows={4}
         />
       </FormField>
-
-      <PromptFields
-        entries={manualCatalog(state.fields)}
-        value={state.promptTemplate}
-        onChange={(next) => patch({ promptTemplate: next })}
-        textareaRef={promptRef}
-      />
     </Stack>
   );
 }

@@ -78,18 +78,22 @@ describe('TriggerWizard step phase', () => {
 });
 
 describe('filters and prompt fields', () => {
-  it('offers the source provider fields as insertable prompt tokens', () => {
+  it('offers the source provider fields behind the Insert field picker', () => {
     renderWizard('webhook');
     // src-1 is a github source, so github fields, unnarrowed on "any event".
+    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
     expect(screen.getByText('repo.full_name')).toBeTruthy();
     expect(screen.getByText('pr.base_ref')).toBeTruthy();
   });
 
-  it('inserts a placeholder into the prompt when a field is clicked', () => {
+  it('inserts a placeholder into the prompt when a field is picked', () => {
     renderWizard('webhook');
+    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
     fireEvent.click(screen.getByText('repo.full_name'));
-    const prompt = screen.getByLabelText(/Prompt/) as HTMLTextAreaElement;
-    expect(prompt.value).toBe('{{ repo.full_name }}');
+    // The editor serialises tokens back to braces; the pill shows the bare token.
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    expect(prompt.textContent).toContain('repo.full_name');
+    expect(prompt.querySelector('[data-slot=template-token]')).toBeTruthy();
   });
 
   it('adds and removes a filter row', () => {
@@ -107,7 +111,9 @@ describe('filters and prompt fields', () => {
   it('blocks Continue on a half-written filter', () => {
     renderWizard('webhook');
     fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'gh' } });
-    fireEvent.change(screen.getByLabelText(/Prompt/), { target: { value: 'go' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = 'go';
+    fireEvent.input(prompt);
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
@@ -131,9 +137,10 @@ describe('filters and prompt fields', () => {
         onClose={vi.fn()}
       />,
     );
+    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
     expect(screen.getByText('group.labels.<name>')).toBeTruthy();
-    // A pattern is not a button: its name is not knowable, so it cannot insert.
-    expect(screen.queryByRole('button', { name: /group\.labels/ })).toBeNull();
+    // A pattern is not insertable: its literal token is not a real field.
+    expect(screen.queryByRole('option', { name: /group\.labels/ })).toBeNull();
   });
 });
 
@@ -165,6 +172,6 @@ describe('shared steps', () => {
   it('renders the review step, including a create error', () => {
     render(<StepReview {...shared} error="source already exists" />);
     expect(screen.getByText('source already exists')).toBeTruthy();
-    expect(screen.getByText('4 parallel · wait')).toBeTruthy();
+    expect(screen.getByText('Up to 4 at once, then wait')).toBeTruthy();
   });
 });

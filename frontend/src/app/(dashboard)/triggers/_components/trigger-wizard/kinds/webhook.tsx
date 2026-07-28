@@ -3,7 +3,6 @@
 /** @tier 3 — triggers-scoped. The webhook kind: an external system posts a
  * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
 
-import { useRef } from 'react';
 import {
   Button,
   FormField,
@@ -16,14 +15,13 @@ import {
   SectionLabel,
   Stack,
   Text,
-  Textarea,
   FieldRow,
+  TemplateField,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
 import { VALID, describeMatchCondition, validateFilters } from '../wizard-state';
-import { catalogPatterns, webhookCatalog } from '../field-catalog';
-import { PromptFields } from '../prompt-fields';
+import { catalogPatterns, webhookCatalog, toTemplateCatalog } from '../field-catalog';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
@@ -66,7 +64,6 @@ function StepSource({ state, patch, context }: StepComponentProps) {
     state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (selected?.provider ?? '');
   const events = EVENTS[provider] ?? [];
   const catalog = webhookCatalog(provider, state.eventType);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   const setFilter = (index: number, next: Partial<{ field: string; values: string }>) =>
     patch({ filters: state.filters.map((f, i) => (i === index ? { ...f, ...next } : f)) });
@@ -263,26 +260,18 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       <FormField
         label="Prompt"
         id="wizard-prompt"
-        hint="What the run starts with. Reference the delivery with {{ event.<field> }} placeholders."
+        hint="What the run starts with. Fields are filled from the delivery that fires it."
         required
       >
-        <Textarea
+        <TemplateField
           id="wizard-prompt"
-          ref={promptRef}
+          aria-label="Prompt"
           value={state.promptTemplate}
-          onChange={(e) => patch({ promptTemplate: e.target.value })}
+          onChange={(next) => patch({ promptTemplate: next })}
+          catalog={toTemplateCatalog(catalog, catalogPatterns(provider))}
           placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
-          rows={4}
         />
       </FormField>
-
-      <PromptFields
-        entries={catalog}
-        patterns={catalogPatterns(provider)}
-        value={state.promptTemplate}
-        onChange={(next) => patch({ promptTemplate: next })}
-        textareaRef={promptRef}
-      />
     </Stack>
   );
 }

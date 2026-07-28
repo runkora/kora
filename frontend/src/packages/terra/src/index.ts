@@ -151,6 +151,26 @@ export type { CodeBlockProps } from './components/code-block';
 export { Textarea } from './components/textarea';
 export type { TextareaProps } from './components/textarea';
 
+export { TemplateField } from './components/template-field';
+export type { TemplateFieldProps, TemplateCatalogEntry } from './components/template-field';
+export {
+  parseTemplate,
+  serialize,
+  serializeToken,
+  retokenize,
+  normalizeTemplate,
+  renderPreview,
+  groupCatalog,
+  filterCatalog,
+  exampleMap,
+} from './components/template-field';
+export type {
+  TemplatePart,
+  TemplateTextPart,
+  TemplateTokenPart,
+  TemplateCatalogGroup,
+} from './components/template-field';
+
 export { NavItem, navItemVariants } from './components/nav-item';
 export type { NavItemProps } from './components/nav-item';
 

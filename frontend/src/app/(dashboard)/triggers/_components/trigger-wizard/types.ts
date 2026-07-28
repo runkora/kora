@@ -174,6 +174,8 @@ export interface StepComponentProps {
   definition: TriggerKindDefinition;
   /** The last failed create, kept on screen without losing any state. */
   error: string | null;
+  /** Jumps to another step by id; the review step's Edit buttons use it. */
+  onGoTo?: (stepId: string) => void;
 }
 
 /** One step in the wizard: a rail entry and the pane it shows. */
@@ -217,6 +219,8 @@ export interface FieldCatalogEntry {
   token: string;
   /** One line, in the words a person would use. */
   description: string;
+  /** A plausible sample value, rendered by the prompt preview. */
+  example?: string;
   /** Webhook event types this field exists for. Omitted means every event. */
   events?: string[];
 }
