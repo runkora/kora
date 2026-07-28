@@ -36,11 +36,10 @@ import {
   toggleWeekday,
 } from '../cron';
 import type { Frequency } from '../cron';
-import { FIELD_IDS, VALID, firstBlocker, validateName, validatePrompt } from '../wizard-state';
+import { VALID } from '../wizard-state';
 import type {
   DoneContentProps,
   StepComponentProps,
-  StepValidation,
   TriggerKindDefinition,
   WizardState,
 } from '../types';
@@ -52,7 +51,7 @@ const ZONE_CITY: Record<string, string> = {
   'Australia/Sydney': 'Sydney · AEST/AEDT',
 };
 
-function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponentProps) {
+function StepSchedule({ state, patch }: StepComponentProps) {
   const derivedCron = cronFor(state);
   const human = humanFor(state);
   const zones = timezoneOptions(resolveBrowserZone());
@@ -62,14 +61,12 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
     <Stack gap="relaxed">
       <FormField
         label="Trigger name"
-        id={FIELD_IDS.name}
-        hint="Shown in the triggers list and on every run it starts."
-        error={fieldError(FIELD_IDS.name)}
+        id="wizard-name"
+        hint="Shown in the triggers list and on every fire."
         required
       >
         <Input
-          id={FIELD_IDS.name}
-          ref={firstFieldRef}
+          id="wizard-name"
           mono
           value={state.name}
           onChange={(e) => patch({ name: e.target.value })}
@@ -78,24 +75,19 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
         />
       </FormField>
 
-      <FormField
-        label="How often"
-        id="wizard-freq"
-        hint="The builder writes the cron expression; you can edit it below."
-      >
-        <Stack direction="horizontal">
-          <SegmentedControl
-            aria-label="How often"
-            value={state.freq}
-            onChange={(v) => patch({ freq: v as Frequency })}
-            options={FREQS.map((f) => ({ value: f.id, label: f.label }))}
-          />
-        </Stack>
-      </FormField>
+      <Stack gap="snug">
+        <SectionLabel>How often</SectionLabel>
+        <SegmentedControl
+          aria-label="Frequency"
+          value={state.freq}
+          onChange={(v) => patch({ freq: v as Frequency })}
+          options={FREQS.map((f) => ({ value: f.id, label: f.label }))}
+        />
+      </Stack>
 
       {state.freq === 'minutes' && (
         <Stack direction="horizontal" gap="comfortable" align="end">
-          <Stack maxWidth="search-field" grow>
+          <Stack grow minWidth="form-field">
             <FormField label="Run every" id="wizard-interval" hint="Minutes between fires.">
               <Input
                 id="wizard-interval"
@@ -129,12 +121,8 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
 
       {state.freq === 'hourly' && (
         <Stack direction="horizontal" gap="comfortable" align="end">
-          <Stack maxWidth="search-field" grow>
-            <FormField
-              label="Minutes past the hour"
-              id="wizard-at-minute"
-              hint="0 runs at the top of every hour."
-            >
+          <Stack grow minWidth="form-field">
+            <FormField label="Minutes past the hour" id="wizard-at-minute">
               <Input
                 id="wizard-at-minute"
                 mono
@@ -179,17 +167,14 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
               );
             })}
           </Stack>
-          <Text size="caption" color="subtle">
-            At least one day stays selected.
-          </Text>
         </Stack>
       )}
 
       {(state.freq === 'monthly' || showTime) && (
         <Stack direction="horizontal" gap="comfortable">
           {state.freq === 'monthly' && (
-            <Stack maxWidth="search-field" grow>
-              <FormField label="Day of month" id="wizard-dom" hint="1 to 31.">
+            <Stack grow minWidth="form-field-sm">
+              <FormField label="Day of month" id="wizard-dom">
                 <Input
                   id="wizard-dom"
                   mono
@@ -201,8 +186,8 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
             </Stack>
           )}
           {showTime && (
-            <Stack maxWidth="search-field" grow>
-              <FormField label="At" id="wizard-time" hint="In the timezone chosen below.">
+            <Stack grow minWidth="form-field-sm">
+              <FormField label="At" id="wizard-time">
                 <Input
                   id="wizard-time"
                   mono
@@ -218,7 +203,7 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
 
       <Callout variant="info">
         <Stack direction="horizontal" gap="cozy" align="center">
-          <Icon name="clock" size="sm" color="accent" label="" shrink />
+          <Icon name="clock" size="sm" color="accent" label="" />
           <Stack gap="tight">
             <Text size="supporting" weight="heavy">
               {human}
@@ -274,13 +259,9 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
         </CollapsibleContent>
       </Collapsible>
 
-      <FormField
-        label="Timezone"
-        id="wizard-timezone"
-        hint="Daylight saving is applied for you; the platform stores the zone, not an offset."
-      >
+      <Stack gap="snug">
+        <SectionLabel>Timezone</SectionLabel>
         <RadioGroup
-          id="wizard-timezone"
           value={state.timezone}
           onValueChange={(v) => patch({ timezone: v })}
           aria-label="Timezone"
@@ -299,7 +280,7 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
             ))}
           </Grid>
         </RadioGroup>
-      </FormField>
+      </Stack>
 
       <ToggleRow
         label="Catch up on missed runs"
@@ -310,13 +291,12 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
 
       <FormField
         label="Prompt"
-        id={FIELD_IDS.prompt}
+        id="wizard-prompt"
         hint="What the run starts with. Every fire uses this prompt."
-        error={fieldError(FIELD_IDS.prompt)}
         required
       >
         <Textarea
-          id={FIELD_IDS.prompt}
+          id="wizard-prompt"
           value={state.promptTemplate}
           onChange={(e) => patch({ promptTemplate: e.target.value })}
           placeholder="Summarise yesterday's failed deliveries and open an issue for anything unresolved."
@@ -327,29 +307,34 @@ function StepSchedule({ state, patch, fieldError, firstFieldRef }: StepComponent
   );
 }
 
-function validateCron(state: WizardState): StepValidation {
+function validateSchedule(state: WizardState) {
+  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
   if (!cronFor(state).trim())
-    return { valid: false, blocker: 'Needs a cron expression', fieldId: 'wizard-freq' };
+    return { valid: false, hint: 'The schedule does not resolve to a cron expression.' };
+  if (!state.promptTemplate.trim())
+    return { valid: false, hint: 'Write the prompt the run starts with.' };
   return VALID;
 }
 
 function DoneContent({ state }: DoneContentProps) {
   return (
-    <Card inset>
-      <CardContent padded compact>
-        <Stack direction="horizontal" align="center" gap="cozy">
-          <Icon name="clock" size="sm" color="accent" label="" shrink />
-          <Stack gap="tight" minWidth="none">
-            <Text as="span" size="supporting" weight="heavy">
-              {humanFor(state)}
-            </Text>
-            <Text as="span" size="caption" mono color="muted">
-              {`${cronFor(state)} · ${state.timezone}`}
-            </Text>
+    <Stack minWidth="prose" maxWidth="prose">
+      <Card inset>
+        <CardContent padded compact>
+          <Stack direction="horizontal" align="center" gap="cozy">
+            <Icon name="clock" size="sm" color="accent" label="" shrink />
+            <Stack gap="tight" minWidth="none">
+              <Text as="span" size="supporting" weight="heavy">
+                {humanFor(state)}
+              </Text>
+              <Text as="span" size="caption" mono color="muted">
+                {`${cronFor(state)} · ${state.timezone}`}
+              </Text>
+            </Stack>
           </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 }
 
@@ -366,28 +351,18 @@ export const scheduledKind: TriggerKindDefinition = {
     {
       id: 'schedule',
       railTitle: 'Schedule',
-      description: 'Pick how often the agent should run, and in which timezone.',
+      railSub: 'When it fires',
+      description:
+        'Pick how often the agent should run and in which timezone. Nothing fires until you create the trigger.',
       Component: StepSchedule,
-      validate: (state) =>
-        firstBlocker(
-          () => validateName(state),
-          () => validateCron(state),
-          () => validatePrompt(state),
-        ),
+      validate: validateSchedule,
     },
   ],
   summarize: (state) => [
-    {
-      key: 'How often',
-      value: humanFor(state),
-      description: `Cron ${cronFor(state)} in ${state.timezone}.`,
-    },
-    { key: 'Timezone', value: state.timezone, mono: true, description: 'Daylight saving applied.' },
-    {
-      key: 'Catch up on missed runs',
-      value: state.catchUp ? 'On' : 'Off',
-      description: 'Replay ticks skipped while the platform was unavailable.',
-    },
+    { key: 'Runs', value: humanFor(state) },
+    { key: 'Cron', value: cronFor(state), mono: true },
+    { key: 'Timezone', value: state.timezone, mono: true },
+    { key: 'Catch-up', value: state.catchUp ? 'On' : 'Off' },
   ],
   draftPatch: (state) => ({
     schedule: {

@@ -21,7 +21,7 @@ import {
   Text,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { FIELD_IDS, LIMITS, overflowSentence, parallelWord } from './wizard-state';
+import { LIMITS, parallelWord } from './wizard-state';
 import type { StepComponentProps, TriggerKind, TriggerOverflow, TriggerWizardAgent } from './types';
 
 interface OverflowOption {
@@ -62,66 +62,67 @@ function initial(agent: TriggerWizardAgent): string {
   return (source.charAt(0) || '?').toUpperCase();
 }
 
-export function StepTarget({ state, patch, context, definition, fieldError }: StepComponentProps) {
+export function StepTarget({ state, patch, context, definition }: StepComponentProps) {
   const { agents } = context;
+  const overflowDetail =
+    state.overflow === 'wait'
+      ? `Further deliveries wait in order, up to ${state.maxQueueDepth} of them.`
+      : state.overflow === 'replace'
+        ? 'While one runs, a newer delivery replaces the one waiting: only the latest is kept.'
+        : 'Beyond that, deliveries are refused with 429 and the caller decides what to do.';
 
   return (
     <Stack gap="relaxed">
-      <FormField
-        label="Agent to run"
-        id={FIELD_IDS.agent}
-        hint="Runs start as this agent. Every run is checked against its grants before anything executes."
-        error={fieldError(FIELD_IDS.agent)}
-        required
-      >
-        <Stack gap="snug">
-          {agents.length === 0 && (
-            <Callout variant="warning">
-              No agents are available to bind. Create an autonomous agent first.
-            </Callout>
-          )}
-          <RadioGroup
-            id={FIELD_IDS.agent}
-            value={state.agentTypeId}
-            onValueChange={(v) => patch({ agentTypeId: v })}
-            aria-label="Agent to run"
-          >
-            <Stack gap="snug">
-              {agents.map((a) => (
-                <Card
-                  key={a.id}
-                  interactive
-                  selected={state.agentTypeId === a.id}
-                  onClick={() => patch({ agentTypeId: a.id })}
-                >
-                  <CardContent padded compact>
-                    <Stack direction="horizontal" align="center" gap="cozy">
-                      <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
-                        <Text as="span" size="caption" mono weight="heavy">
-                          {initial(a)}
-                        </Text>
-                      </IconTile>
-                      <Stack gap="tight" grow minWidth="none">
-                        <Text as="span" size="supporting" weight="heavy">
-                          {a.name?.trim() || a.slug}
-                        </Text>
-                        <Text as="span" size="micro" mono color="subtle">
-                          {a.slug}
-                        </Text>
-                      </Stack>
-                      <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          </RadioGroup>
-        </Stack>
-      </FormField>
-
       <Stack gap="cozy">
-        <SectionLabel>Overlapping runs</SectionLabel>
+        <SectionLabel>Agent to run</SectionLabel>
+        {agents.length === 0 && (
+          <Callout variant="warning">
+            No agents are available to bind. Create an autonomous agent first.
+          </Callout>
+        )}
+        <RadioGroup
+          value={state.agentTypeId}
+          onValueChange={(v) => patch({ agentTypeId: v })}
+          aria-label="Agent"
+        >
+          <Stack gap="snug">
+            {agents.map((a) => (
+              <Card
+                key={a.id}
+                interactive
+                selected={state.agentTypeId === a.id}
+                onClick={() => patch({ agentTypeId: a.id })}
+              >
+                <CardContent padded compact>
+                  <Stack direction="horizontal" align="center" gap="cozy">
+                    <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
+                      <Text as="span" size="caption" mono weight="heavy">
+                        {initial(a)}
+                      </Text>
+                    </IconTile>
+                    <Stack gap="tight" grow minWidth="none">
+                      <Text as="span" size="supporting" weight="heavy">
+                        {a.name?.trim() || a.slug}
+                      </Text>
+                      <Text as="span" size="micro" mono color="subtle">
+                        {a.slug}
+                      </Text>
+                    </Stack>
+                    <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </RadioGroup>
+      </Stack>
 
+      <Stack gap="snug">
+        <SectionLabel>Overlapping runs</SectionLabel>
+        <Text size="caption" color="subtle">
+          A trigger can fire faster than the agent finishes. This decides what happens to the
+          overlap; the limits apply per trigger.
+        </Text>
         <Card inset>
           <CardContent padded compact>
             <Stack direction="horizontal" align="center" gap="comfortable">
@@ -145,14 +146,7 @@ export function StepTarget({ state, patch, context, definition, fieldError }: St
                 >
                   <Icon name="minus" size="xs" />
                 </Button>
-                <Text
-                  as="span"
-                  size="supporting"
-                  mono
-                  weight="heavy"
-                  tabular
-                  id={FIELD_IDS.parallel}
-                >
+                <Text as="span" size="supporting" mono weight="heavy" tabular>
                   {state.maxParallel}
                 </Text>
                 <Button
@@ -170,11 +164,14 @@ export function StepTarget({ state, patch, context, definition, fieldError }: St
             </Stack>
           </CardContent>
         </Card>
+      </Stack>
 
+      <Stack gap="snug">
+        <SectionLabel>When that limit is reached</SectionLabel>
         <RadioGroup
           value={state.overflow}
           onValueChange={(v) => patch({ overflow: v as TriggerOverflow })}
-          aria-label="When that limit is reached"
+          aria-label="Overflow behaviour"
         >
           <Grid cols={3} gap="cozy">
             {OVERFLOW_OPTIONS.map((o) => (
@@ -194,22 +191,17 @@ export function StepTarget({ state, patch, context, definition, fieldError }: St
             ))}
           </Grid>
         </RadioGroup>
-
-        <Text size="caption" color="subtle">
-          A trigger can fire faster than the agent finishes. {overflowSentence(state)}.
-        </Text>
       </Stack>
 
       {state.overflow === 'wait' && (
-        <Stack maxWidth="search-field">
+        <Stack maxWidth="form-field">
           <FormField
             label="Max queued deliveries"
-            id={FIELD_IDS.queueDepth}
+            id="wizard-queue-depth"
             hint="Beyond this the oldest waiting delivery is dropped."
-            error={fieldError(FIELD_IDS.queueDepth)}
           >
             <Input
-              id={FIELD_IDS.queueDepth}
+              id="wizard-queue-depth"
               mono
               inputMode="numeric"
               value={String(state.maxQueueDepth)}
@@ -223,6 +215,18 @@ export function StepTarget({ state, patch, context, definition, fieldError }: St
           </FormField>
         </Stack>
       )}
+
+      <Callout variant="info">
+        <Stack direction="horizontal" gap="cozy">
+          <Icon name="route" size="sm" color="accent" label="" shrink />
+          <Text size="caption" color="muted">
+            <Text as="span" size="caption" weight="heavy">
+              {`${parallelWord(state.maxParallel)}. `}
+            </Text>
+            {overflowDetail}
+          </Text>
+        </Stack>
+      </Callout>
     </Stack>
   );
 }

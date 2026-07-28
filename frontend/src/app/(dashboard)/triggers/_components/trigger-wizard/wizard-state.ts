@@ -90,50 +90,21 @@ export function initialState(def: TriggerKindDefinition, sources: { id: string }
   return { ...baseState(sources), ...def.defaults };
 }
 
-/** Field ids, shared so validation can point at the control that fixes it. */
-export const FIELD_IDS = {
-  name: 'wizard-name',
-  prompt: 'wizard-prompt',
-  source: 'wizard-source',
-  sourceName: 'wizard-source-name',
-  fields: 'wizard-fields',
-  agent: 'wizard-agent',
-  parallel: 'wizard-parallel',
-  queueDepth: 'wizard-queue-depth',
-  timeout: 'wizard-timeout',
-};
-
-/** The name every kind asks for on its first step. */
-export function validateName(state: WizardState): StepValidation {
-  if (!state.name.trim()) return { valid: false, blocker: 'Needs a name', fieldId: FIELD_IDS.name };
-  return VALID;
-}
-
-/** The prompt every kind asks for on its first step. */
-export function validatePrompt(state: WizardState): StepValidation {
+/** Trigger name and prompt are asked for on every kind's first step. */
+export function validateIdentity(state: WizardState): StepValidation {
+  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
   if (!state.promptTemplate.trim())
-    return { valid: false, blocker: 'Needs a prompt', fieldId: FIELD_IDS.prompt };
-  return VALID;
-}
-
-/** Returns the first failing check, so the blocker names one thing at a time. */
-export function firstBlocker(...checks: (() => StepValidation)[]): StepValidation {
-  for (const check of checks) {
-    const result = check();
-    if (!result.valid) return result;
-  }
+    return { valid: false, hint: 'Write the prompt the run starts with.' };
   return VALID;
 }
 
 /** The Target step: an agent, and limits the platform will accept. */
 export function validateTarget(state: WizardState): StepValidation {
-  if (!state.agentTypeId)
-    return { valid: false, blocker: 'Needs an agent', fieldId: FIELD_IDS.agent };
+  if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
   if (state.maxParallel < LIMITS.parallel.min || state.maxParallel > LIMITS.parallel.max)
     return {
       valid: false,
-      blocker: `Needs 1 to ${LIMITS.parallel.max} parallel runs`,
-      fieldId: FIELD_IDS.parallel,
+      hint: `Max parallel runs must be between ${LIMITS.parallel.min} and ${LIMITS.parallel.max}.`,
     };
   if (
     state.overflow === 'wait' &&
@@ -141,8 +112,7 @@ export function validateTarget(state: WizardState): StepValidation {
   )
     return {
       valid: false,
-      blocker: `Needs a queue of ${LIMITS.queueDepth.min} to ${LIMITS.queueDepth.max}`,
-      fieldId: FIELD_IDS.queueDepth,
+      hint: `Max queued deliveries must be between ${LIMITS.queueDepth.min} and ${LIMITS.queueDepth.max}.`,
     };
   return VALID;
 }
@@ -152,8 +122,7 @@ export function validateDelivery(state: WizardState): StepValidation {
   if (state.timeoutSeconds < LIMITS.timeout.min || state.timeoutSeconds > LIMITS.timeout.max)
     return {
       valid: false,
-      blocker: `Needs a timeout of ${LIMITS.timeout.min} to ${LIMITS.timeout.max} seconds`,
-      fieldId: FIELD_IDS.timeout,
+      hint: `Timeout must be between ${LIMITS.timeout.min} and ${LIMITS.timeout.max} seconds.`,
     };
   return VALID;
 }
@@ -210,50 +179,19 @@ export function toDraft(def: TriggerKindDefinition, state: WizardState): Trigger
   };
 }
 
-/** The review rows every kind shows, after its own. Labels match the controls. */
+/** The review rows every kind shows, after its own. */
 export function sharedReviewRows(state: WizardState, context: WizardContext): ReviewRow[] {
   const agent = context.agents.find((a) => a.id === state.agentTypeId);
   return [
-    {
-      key: 'Agent to run',
-      value: agent?.name?.trim() || agent?.slug || '—',
-      description: 'Runs start as this agent and are checked against its grants.',
-    },
-    {
-      key: 'Overlapping runs',
-      value: overflowSentence(state),
-      description:
-        state.overflow === 'wait'
-          ? `Deliveries beyond the limit wait in order, up to ${state.maxQueueDepth}.`
-          : state.overflow === 'replace'
-            ? 'Only the newest waiting delivery is kept.'
-            : 'Deliveries beyond the limit are refused with 429.',
-    },
-    {
-      key: 'Timeout',
-      value: `${state.timeoutSeconds}s`,
-      mono: true,
-      description: 'Bounds starting the run, not running it.',
-    },
-    {
-      key: 'Suppress duplicates',
-      value: state.dedupeEnabled ? 'On' : 'Off',
-      description: 'Ignore a replay of a delivery already processed.',
-    },
-    {
-      key: 'Auto-pause on failure',
-      value: state.autopauseEnabled ? 'On' : 'Off',
-      description: 'Disable the trigger after ten consecutive failed deliveries.',
-    },
+    { key: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' },
+    { key: 'Concurrency', value: `${state.maxParallel} parallel · ${state.overflow}` },
+    { key: 'Timeout', value: `${state.timeoutSeconds}s`, mono: true },
+    { key: 'Suppress duplicates', value: state.dedupeEnabled ? 'On' : 'Off' },
+    { key: 'Auto-pause', value: state.autopauseEnabled ? 'On' : 'Off' },
   ];
 }
 
 /** The word beside the parallel-runs stepper. */
 export function parallelWord(n: number): string {
   return n === 1 ? 'One at a time' : `Up to ${n} at once`;
-}
-
-/** Concurrency and overflow read as one sentence, the way they behave. */
-export function overflowSentence(state: WizardState): string {
-  return `${parallelWord(state.maxParallel)}, then ${state.overflow}`;
 }

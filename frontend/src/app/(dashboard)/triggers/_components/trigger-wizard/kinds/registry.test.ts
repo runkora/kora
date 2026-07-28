@@ -38,11 +38,12 @@ describe('TRIGGER_KINDS', () => {
     }
   });
 
-  it('gives every step a rail title, and no subtitle to compete with it', () => {
+  it('gives every step a rail entry and a description', () => {
     for (const def of KINDS) {
       for (const step of stepsFor(def, SHARED_STEPS)) {
         expect(step.railTitle.length).toBeGreaterThan(0);
-        expect(step).not.toHaveProperty('railSub');
+        expect(step.railSub.length).toBeGreaterThan(0);
+        expect(step.description.length).toBeGreaterThan(0);
       }
     }
   });
@@ -54,19 +55,6 @@ describe('TRIGGER_KINDS', () => {
       for (const row of rows) {
         expect(row.key.length).toBeGreaterThan(0);
         expect(typeof row.value).toBe('string');
-      }
-    }
-  });
-
-  it('names a blocker and the control that fixes it, for every step', () => {
-    for (const def of KINDS) {
-      for (const step of stepsFor(def, SHARED_STEPS)) {
-        // A pristine state fails every step but Review, and each failure must
-        // be actionable: a fragment to show, and a field to focus.
-        const result = step.validate(initialState(def, []), CONTEXT);
-        if (result.valid) continue;
-        expect(result.blocker).toMatch(/^(Needs|Pick) /);
-        expect(result.fieldId).toBeTruthy();
       }
     }
   });

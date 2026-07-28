@@ -1,10 +1,10 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. Shown in the content column once the trigger
- * exists: the shared confirmation, then whatever the kind needs the operator to
- * take away before closing. Its actions live in the persistent footer. */
+/** @tier 3 — triggers-scoped. Shown in place of the wizard body once the
+ * trigger exists: the shared confirmation, then whatever the kind needs the
+ * operator to take away before closing. */
 
-import { Heading, Icon, Stack, Text } from '@orbit/terra';
+import { Button, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DoneContentProps, TriggerKindDefinition, WizardContext, WizardState } from './types';
 
 export interface SuccessPanelProps {
@@ -14,6 +14,8 @@ export interface SuccessPanelProps {
   triggerId: string;
   endpoint?: string;
   secret?: string;
+  onClose: () => void;
+  onCreateAnother: () => void;
 }
 
 export function SuccessPanel({
@@ -23,32 +25,32 @@ export function SuccessPanel({
   triggerId,
   endpoint,
   secret,
+  onClose,
+  onCreateAnother,
 }: SuccessPanelProps) {
   const agent = context.agents.find((a) => a.id === state.agentTypeId);
   const agentLabel = agent?.name?.trim() || agent?.slug || 'the agent';
   const KindDone: React.ComponentType<DoneContentProps> = definition.doneContent;
 
   return (
-    <Stack gap="comfortable">
-      <Stack direction="horizontal" align="center" gap="cozy">
+    <Stack grow align="center" justify="center" gap="comfortable" padding="loose" overflowY="auto">
+      <Stack align="center" gap="snug">
         <Icon
           name="check-circle"
-          size="md"
+          size="xl"
           color="accent"
           container
           containerVariant="accent"
           circle
           label=""
         />
-        <Stack gap="tight">
-          <Heading variant="subsection">Trigger created</Heading>
-          <Text size="supporting" color="muted">
-            <Text as="span" size="supporting" mono weight="heavy">
-              {state.name}
-            </Text>{' '}
-            is live and will run {agentLabel}.
-          </Text>
-        </Stack>
+        <Heading variant="subsection">Trigger created</Heading>
+        <Text size="supporting" color="muted" align="center">
+          <Text as="span" size="supporting" mono weight="heavy">
+            {state.name}
+          </Text>{' '}
+          is live and will run {agentLabel}.
+        </Text>
       </Stack>
 
       <KindDone
@@ -58,6 +60,16 @@ export function SuccessPanel({
         endpoint={endpoint}
         secret={secret}
       />
+
+      <Stack direction="horizontal" gap="cozy">
+        <Button variant="secondary" onClick={onClose}>
+          Done
+        </Button>
+        <Button onClick={onCreateAnother}>
+          Create another
+          <Icon name="plus" />
+        </Button>
+      </Stack>
     </Stack>
   );
 }

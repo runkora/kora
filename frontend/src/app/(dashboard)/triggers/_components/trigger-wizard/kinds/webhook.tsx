@@ -4,7 +4,7 @@
  * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
 
 import {
-  FieldRow,
+  Button,
   FormField,
   Grid,
   Icon,
@@ -12,19 +12,18 @@ import {
   RadioCard,
   RadioGroup,
   SectionLabel,
-  SegmentedControl,
   Stack,
   Text,
   Textarea,
+  FieldRow,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
-import { FIELD_IDS, VALID, firstBlocker, validateName, validatePrompt } from '../wizard-state';
+import { VALID } from '../wizard-state';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
   StepComponentProps,
-  StepValidation,
   TriggerKindDefinition,
   WizardState,
 } from '../types';
@@ -56,25 +55,23 @@ function endpointFor(ingestHost: string, sourceId: string): string {
   return `https://${ingestHost}/api/v1/webhooks/${sourceId}`;
 }
 
-function StepSource({ state, patch, context, fieldError, firstFieldRef }: StepComponentProps) {
+function StepSource({ state, patch, context }: StepComponentProps) {
   const { sources, ingestHost } = context;
   const selected = sources.find((s) => s.id === state.sourceChoice);
-  const isNew = state.sourceChoice === NEW_SOURCE;
-  const provider = isNew ? state.newSourceProvider : (selected?.provider ?? '');
+  const provider =
+    state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (selected?.provider ?? '');
   const events = EVENTS[provider] ?? [];
 
   return (
     <Stack gap="relaxed">
       <FormField
         label="Trigger name"
-        id={FIELD_IDS.name}
-        hint="Shown in the triggers list and on every run it starts."
-        error={fieldError(FIELD_IDS.name)}
+        id="wizard-name"
+        hint="Shown in the triggers list and on every delivery."
         required
       >
         <Input
-          id={FIELD_IDS.name}
-          ref={firstFieldRef}
+          id="wizard-name"
           mono
           value={state.name}
           onChange={(e) => patch({ name: e.target.value })}
@@ -83,12 +80,12 @@ function StepSource({ state, patch, context, fieldError, firstFieldRef }: StepCo
         />
       </FormField>
 
-      <Stack gap="cozy" id={FIELD_IDS.source}>
-        <SectionLabel>Source</SectionLabel>
+      <Stack gap="cozy">
+        <SectionLabel>Deliver to</SectionLabel>
         <RadioGroup
           value={state.sourceChoice}
           onValueChange={(v) => patch({ sourceChoice: v })}
-          aria-label="Source"
+          aria-label="Webhook source"
         >
           <Grid cols={2} gap="cozy">
             {sources.map((s) => (
@@ -104,7 +101,7 @@ function StepSource({ state, patch, context, fieldError, firstFieldRef }: StepCo
             ))}
             <RadioCard
               value={NEW_SOURCE}
-              selected={isNew}
+              selected={state.sourceChoice === NEW_SOURCE}
               onSelect={(v) => patch({ sourceChoice: v })}
               icon="plus"
               title="New source"
@@ -112,95 +109,93 @@ function StepSource({ state, patch, context, fieldError, firstFieldRef }: StepCo
             />
           </Grid>
         </RadioGroup>
+        <Text size="micro" mono color="subtle" truncate>
+          {state.sourceChoice === NEW_SOURCE || !state.sourceChoice
+            ? `https://${ingestHost}/api/v1/webhooks/<issued on create>`
+            : endpointFor(ingestHost, state.sourceChoice)}
+        </Text>
+      </Stack>
 
-        <FieldRow
-          leading={
-            <Text as="span" size="caption" color="subtle">
-              Endpoint
-            </Text>
-          }
-        >
-          <Text as="span" size="caption" mono color="muted" truncate>
-            {isNew || !state.sourceChoice
-              ? `https://${ingestHost}/api/v1/webhooks/<issued on create>`
-              : endpointFor(ingestHost, state.sourceChoice)}
-          </Text>
-        </FieldRow>
+      {state.sourceChoice === NEW_SOURCE && (
+        <Stack gap="cozy">
+          <FormField
+            label="Source name"
+            id="wizard-source-name"
+            hint="How this origin appears in the sources list, e.g. acme/widgets."
+            required
+          >
+            <Input
+              id="wizard-source-name"
+              value={state.newSourceName}
+              onChange={(e) => patch({ newSourceName: e.target.value })}
+              placeholder="acme/widgets"
+              maxLength={128}
+            />
+          </FormField>
+          <Stack gap="snug">
+            <SectionLabel>Provider</SectionLabel>
+            <RadioGroup
+              value={state.newSourceProvider}
+              onValueChange={(v) => patch({ newSourceProvider: v, eventType: '' })}
+              aria-label="Provider"
+            >
+              <Grid cols={2} gap="cozy">
+                {PROVIDERS.map((p) => (
+                  <RadioCard
+                    key={p.id}
+                    value={p.id}
+                    selected={state.newSourceProvider === p.id}
+                    onSelect={(v) => patch({ newSourceProvider: v, eventType: '' })}
+                    icon={p.icon}
+                    title={p.name}
+                    description={p.description}
+                  />
+                ))}
+              </Grid>
+            </RadioGroup>
+          </Stack>
+        </Stack>
+      )}
 
-        {isNew && (
-          <>
-            <FormField
-              label="Source name"
-              id={FIELD_IDS.sourceName}
-              hint="How this origin appears in the sources list, e.g. acme/widgets."
-              error={fieldError(FIELD_IDS.sourceName)}
-              required
+      <Stack gap="snug">
+        <SectionLabel>Event</SectionLabel>
+        <Text size="caption" color="subtle">
+          A trigger matches one event type. Leave it on any event to fire on everything the source
+          sends.
+        </Text>
+        <Stack direction="horizontal" gap="snug" wrap>
+          <Button
+            size="xs"
+            shape="pill"
+            variant={state.eventType === '' ? 'accent-outline' : 'outline-muted'}
+            aria-pressed={state.eventType === ''}
+            onClick={() => patch({ eventType: '' })}
+          >
+            any event
+          </Button>
+          {events.map((ev) => (
+            <Button
+              key={ev}
+              size="xs"
+              shape="pill"
+              variant={state.eventType === ev ? 'accent-outline' : 'outline-muted'}
+              aria-pressed={state.eventType === ev}
+              onClick={() => patch({ eventType: ev })}
             >
-              <Input
-                id={FIELD_IDS.sourceName}
-                value={state.newSourceName}
-                onChange={(e) => patch({ newSourceName: e.target.value })}
-                placeholder="acme/widgets"
-                maxLength={128}
-              />
-            </FormField>
-            <FormField
-              label="Provider"
-              id="wizard-provider"
-              hint="Determines how Orbit verifies that a delivery really came from the source."
-            >
-              <RadioGroup
-                id="wizard-provider"
-                value={state.newSourceProvider}
-                onValueChange={(v) => patch({ newSourceProvider: v, eventType: '' })}
-                aria-label="Provider"
-              >
-                <Grid cols={2} gap="cozy">
-                  {PROVIDERS.map((p) => (
-                    <RadioCard
-                      key={p.id}
-                      value={p.id}
-                      selected={state.newSourceProvider === p.id}
-                      onSelect={(v) => patch({ newSourceProvider: v, eventType: '' })}
-                      icon={p.icon}
-                      title={p.name}
-                      description={p.description}
-                    />
-                  ))}
-                </Grid>
-              </RadioGroup>
-            </FormField>
-          </>
-        )}
+              {ev}
+            </Button>
+          ))}
+        </Stack>
       </Stack>
 
       <FormField
-        label="Event"
-        id="wizard-event"
-        hint="A trigger matches one event type. Any event fires on everything the source sends."
-      >
-        <Stack direction="horizontal">
-          <SegmentedControl
-            aria-label="Event"
-            value={state.eventType}
-            onChange={(v) => patch({ eventType: v })}
-            options={[
-              { value: '', label: 'Any event' },
-              ...events.map((ev) => ({ value: ev, label: ev })),
-            ]}
-          />
-        </Stack>
-      </FormField>
-
-      <FormField
         label="Prompt"
-        id={FIELD_IDS.prompt}
+        id="wizard-prompt"
         hint="What the run starts with. Reference the delivery with {{ event.<field> }} placeholders."
-        error={fieldError(FIELD_IDS.prompt)}
         required
       >
         <Textarea
-          id={FIELD_IDS.prompt}
+          id="wizard-prompt"
           value={state.promptTemplate}
           onChange={(e) => patch({ promptTemplate: e.target.value })}
           placeholder="Review the changes in {{ event.repository }} on {{ event.ref }} and comment on anything risky."
@@ -211,21 +206,24 @@ function StepSource({ state, patch, context, fieldError, firstFieldRef }: StepCo
   );
 }
 
-function validateSourceChoice(state: WizardState): StepValidation {
+function validateSource(state: WizardState) {
+  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
   if (state.sourceChoice === NEW_SOURCE) {
     if (!state.newSourceName.trim())
-      return { valid: false, blocker: 'Needs a source name', fieldId: FIELD_IDS.sourceName };
-    return VALID;
+      return { valid: false, hint: 'Name the source you are creating.' };
+    if (!state.newSourceProvider) return { valid: false, hint: 'Choose a provider.' };
+  } else if (!state.sourceChoice) {
+    return { valid: false, hint: 'Choose where deliveries come from.' };
   }
-  if (!state.sourceChoice)
-    return { valid: false, blocker: 'Needs a source', fieldId: FIELD_IDS.source };
+  if (!state.promptTemplate.trim())
+    return { valid: false, hint: 'Write the prompt the run starts with.' };
   return VALID;
 }
 
-function DoneContent({ endpoint, secret }: DoneContentProps) {
+function DoneContent({ context, endpoint, secret }: DoneContentProps) {
   if (!endpoint) return null;
   return (
-    <Stack gap="snug">
+    <Stack gap="snug" minWidth="prose" maxWidth="prose">
       <FieldRow
         leading={<Icon name="lock" size="2xs" color="status-healthy" label="" />}
         actions={<CopyButton value={endpoint} label="Copy webhook URL" />}
@@ -248,15 +246,15 @@ function DoneContent({ endpoint, secret }: DoneContentProps) {
               {secret}
             </Text>
           </FieldRow>
-          <Text size="caption" color="subtle">
+          <Text size="caption" color="subtle" align="center">
             Add this URL and secret to your provider&apos;s webhook settings. The secret is shown
             once.
           </Text>
         </>
       ) : (
-        <Text size="caption" color="subtle">
-          Add this URL to your provider&apos;s webhook settings. The signing secret is shown once,
-          at source creation.
+        <Text size="caption" color="subtle" align="center">
+          Add this URL to your provider&apos;s webhook settings on {context.ingestHost}. The signing
+          secret was shown when the source was created.
         </Text>
       )}
     </Stack>
@@ -273,14 +271,11 @@ export const webhookKind: TriggerKindDefinition = {
     {
       id: 'source',
       railTitle: 'Source',
-      description: 'Where deliveries come from, which event starts a run, and what it asks for.',
+      railSub: 'Where it comes from',
+      description:
+        'Choose the source that posts to Orbit, which of its events starts a run, and what the agent is asked to do.',
       Component: StepSource,
-      validate: (state) =>
-        firstBlocker(
-          () => validateName(state),
-          () => validateSourceChoice(state),
-          () => validatePrompt(state),
-        ),
+      validate: validateSource,
     },
   ],
   summarize: (state, context) => {
@@ -292,14 +287,8 @@ export const webhookKind: TriggerKindDefinition = {
           state.sourceChoice === NEW_SOURCE
             ? `${state.newSourceName || '—'} (new, ${state.newSourceProvider})`
             : (source?.name ?? '—'),
-        description: 'Deliveries are accepted only from this source, and only when signed.',
       },
-      {
-        key: 'Event',
-        value: state.eventType || 'Any event',
-        mono: Boolean(state.eventType),
-        description: 'The event type that starts a run.',
-      },
+      { key: 'Event', value: state.eventType || 'any event', mono: true },
     ];
   },
   draftPatch: (state) => ({

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
 import { StepReview } from './step-review';
 import { StepTarget } from './step-target';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
-import { FIELD_IDS, initialState } from './wizard-state';
+import { initialState } from './wizard-state';
 import type { TriggerKind, WizardContext } from './types';
 
 const CONTEXT: WizardContext = {
@@ -28,36 +28,13 @@ function renderWizard(initialKind?: TriggerKind) {
   );
 }
 
-function pickKind(kind: TriggerKind) {
-  fireEvent.click(screen.getByText(TRIGGER_KINDS[kind].description));
-}
-
-describe('the frame', () => {
-  it('keeps the rail mounted on the picker phase, kind first', () => {
+describe('TriggerWizard picker phase', () => {
+  it('opens on the picker when no kind is given', () => {
     renderWizard();
-    // Every phase shows the same rail shape: Kind, then the flow.
-    expect(screen.getByText('Kind')).toBeTruthy();
-    expect(screen.getByText('Configure')).toBeTruthy();
-    expect(screen.getByText('Target')).toBeTruthy();
-    expect(screen.getByText('Delivery')).toBeTruthy();
-    expect(screen.getByText('Review')).toBeTruthy();
+    expect(screen.getByText('Choose what starts the run.', { exact: false })).toBeTruthy();
   });
 
-  it('keeps the footer band on the picker phase, with no Back', () => {
-    renderWizard();
-    expect(screen.getByText('Pick a kind')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Back/ })).toBeNull();
-  });
-
-  it('shows one progress display: the rail, not a bar or a counter', () => {
-    renderWizard('webhook');
-    expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(screen.queryByText(/Step \d of \d/)).toBeNull();
-  });
-});
-
-describe('picker phase', () => {
-  it('lists every registry entry with its example, and every planned kind', () => {
+  it('lists every registry entry, and every planned kind', () => {
     renderWizard();
     for (const id of KIND_ORDER) {
       const def = TRIGGER_KINDS[id];
@@ -69,39 +46,17 @@ describe('picker phase', () => {
     }
   });
 
-  it('enters the chosen kind and names it in the rail', () => {
+  it('enters the chosen kind and can come back to the picker', () => {
     renderWizard();
-    pickKind('scheduled');
+    fireEvent.click(screen.getByText(TRIGGER_KINDS.scheduled.description));
     expect(screen.getByText('How often')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Change' })).toBeTruthy();
-  });
 
-  it('keeps what was typed when the same kind is re-picked', () => {
-    renderWizard('webhook');
-    fireEvent.change(screen.getByLabelText(/Trigger name/), {
-      target: { value: 'github-push' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-    pickKind('webhook');
-
-    expect((screen.getByLabelText(/Trigger name/) as HTMLInputElement).value).toBe('github-push');
-  });
-
-  it('starts clean when the kind actually changes', () => {
-    renderWizard('webhook');
-    fireEvent.change(screen.getByLabelText(/Trigger name/), {
-      target: { value: 'github-push' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-    pickKind('manual');
-
-    expect((screen.getByLabelText(/Trigger name/) as HTMLInputElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /Choose kind/ }));
+    expect(screen.getByText('Choose what starts the run.', { exact: false })).toBeTruthy();
   });
 });
 
-describe('step phase', () => {
+describe('TriggerWizard step phase', () => {
   const FIRST_STEP: Record<TriggerKind, string> = {
     webhook: 'Source',
     scheduled: 'Schedule',
@@ -111,31 +66,14 @@ describe('step phase', () => {
   it.each(KIND_ORDER)('opens %s on the step that defines the kind', (kind) => {
     const view = renderWizard(kind);
     expect(screen.getAllByText(FIRST_STEP[kind]).length).toBeGreaterThan(0);
+    expect(screen.getByText(`Step 1 of 4`)).toBeTruthy();
     view.unmount();
   });
 
-  it('focuses the step first control on arrival', async () => {
+  it('holds Continue closed until the step validates', () => {
     renderWizard('webhook');
-    await waitFor(() => expect(document.activeElement?.id).toBe(FIELD_IDS.name));
-  });
-
-  it('leaves Continue enabled and answers with the blocker when pressed', () => {
-    renderWizard('webhook');
-    const cont = screen.getByRole('button', { name: /Continue/ });
-    expect(cont.hasAttribute('disabled')).toBe(false);
-    expect(screen.queryByText('Needs a name')).toBeNull();
-
-    fireEvent.click(cont);
-
-    // Once in the footer, and again on the field it points at.
-    expect(screen.getAllByText('Needs a name').length).toBeGreaterThan(0);
-    expect(document.activeElement?.id).toBe(FIELD_IDS.name);
-  });
-
-  it('labels Back plainly, on every step', () => {
-    renderWizard('webhook');
-    expect(screen.getByRole('button', { name: /Back/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Choose kind/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Give the trigger a name.')).toBeTruthy();
   });
 });
 
@@ -151,26 +89,22 @@ describe('shared steps', () => {
     context: CONTEXT,
     definition: TRIGGER_KINDS.webhook,
     error: null,
-    fieldError: () => undefined,
-    firstFieldRef: null,
   };
 
-  it('renders the target step with the policy note under the agent list', () => {
+  it('renders the target step', () => {
     render(<StepTarget {...shared} />);
-    expect(screen.getByText(/Runs start as this agent/)).toBeTruthy();
+    expect(screen.getByText('Max parallel runs')).toBeTruthy();
     expect(screen.getByText('Up to 4 at once')).toBeTruthy();
   });
 
   it('renders the delivery step', () => {
     render(<StepDelivery {...shared} />);
     expect(screen.getByText('Suppress duplicates')).toBeTruthy();
-    expect(screen.getByText(/Orbit gives up after this window/)).toBeTruthy();
   });
 
   it('renders the review step, including a create error', () => {
     render(<StepReview {...shared} error="source already exists" />);
     expect(screen.getByText('source already exists')).toBeTruthy();
-    expect(screen.getByText('Up to 4 at once, then wait')).toBeTruthy();
-    expect(screen.getByText('Nothing fires until you create it.')).toBeTruthy();
+    expect(screen.getByText('4 parallel · wait')).toBeTruthy();
   });
 });

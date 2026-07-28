@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  FIELD_IDS,
   deriveFieldKey,
-  firstBlocker,
   initialState,
-  overflowSentence,
   parallelWord,
   previewBody,
   resolvedFields,
@@ -13,8 +10,6 @@ import {
   stepsFor,
   toDraft,
   validateDelivery,
-  validateName,
-  validatePrompt,
   validateTarget,
 } from './wizard-state';
 import { SHARED_STEPS } from './shared-steps';
@@ -141,13 +136,8 @@ describe('shared step validation', () => {
     expect(validateDelivery(state({ timeoutSeconds: 30 })).valid).toBe(true);
   });
 
-  it('names the blocker as a fragment and points at the control', () => {
-    const missingAgent = validateTarget(state({ agentTypeId: '' }));
-    expect(missingAgent.blocker).toBe('Needs an agent');
-    expect(missingAgent.fieldId).toBe(FIELD_IDS.agent);
-
-    const badTimeout = validateDelivery(state({ timeoutSeconds: 4 }));
-    expect(badTimeout.fieldId).toBe(FIELD_IDS.timeout);
+  it('explains what is missing', () => {
+    expect(validateTarget(state({ agentTypeId: '' })).hint).toBeTruthy();
   });
 
   it('never blocks the review step', () => {
@@ -156,88 +146,11 @@ describe('shared step validation', () => {
   });
 });
 
-describe('firstBlocker', () => {
-  it('reports one thing at a time, in the order the step reads', () => {
-    const blank = state({ name: '', promptTemplate: '' });
-    expect(
-      firstBlocker(
-        () => validateName(blank),
-        () => validatePrompt(blank),
-      ).blocker,
-    ).toBe('Needs a name');
-
-    const named = state({ promptTemplate: '' });
-    expect(
-      firstBlocker(
-        () => validateName(named),
-        () => validatePrompt(named),
-      ).blocker,
-    ).toBe('Needs a prompt');
-  });
-
-  it('passes when every check passes', () => {
-    const good = state();
-    expect(
-      firstBlocker(
-        () => validateName(good),
-        () => validatePrompt(good),
-      ).valid,
-    ).toBe(true);
-  });
-});
-
-describe('kind step blockers', () => {
-  it('asks the webhook step for a source name only when creating one', () => {
-    const step = TRIGGER_KINDS.webhook.steps[0]!;
-    const creating = state({ sourceChoice: NEW_SOURCE, newSourceName: '' });
-    expect(step.validate(creating, CONTEXT).blocker).toBe('Needs a source name');
-
-    const none = state({ sourceChoice: '' });
-    expect(step.validate(none, CONTEXT).blocker).toBe('Needs a source');
-  });
-
-  it('asks the manual step for one labelled field', () => {
-    const step = TRIGGER_KINDS.manual.steps[0]!;
-    expect(step.validate(state({ fields: [] }), CONTEXT).blocker).toBe('Needs one labelled field');
-    expect(step.validate(state({ fields: [field()] }), CONTEXT).valid).toBe(true);
-  });
-});
-
 describe('sharedReviewRows', () => {
-  it('labels every row with the exact string on the control that sets it', () => {
-    const rows = sharedReviewRows(state(), CONTEXT);
-    expect(rows.map((r) => r.key)).toEqual([
-      'Agent to run',
-      'Overlapping runs',
-      'Timeout',
-      'Suppress duplicates',
-      'Auto-pause on failure',
-    ]);
-  });
-
-  it('gives every row a description', () => {
-    for (const row of sharedReviewRows(state(), CONTEXT)) {
-      expect(row.description?.length).toBeGreaterThan(0);
-    }
-  });
-
   it('names the agent and reads the concurrency as one sentence', () => {
     const rows = sharedReviewRows(state({ maxParallel: 4, overflow: 'wait' }), CONTEXT);
-    expect(rows.find((r) => r.key === 'Agent to run')?.value).toBe('Coder');
-    expect(rows.find((r) => r.key === 'Overlapping runs')?.value).toBe(
-      'Up to 4 at once, then wait',
-    );
-  });
-});
-
-describe('overflowSentence', () => {
-  it('joins the ceiling and what happens past it', () => {
-    expect(overflowSentence(state({ maxParallel: 1, overflow: 'replace' }))).toBe(
-      'One at a time, then replace',
-    );
-    expect(overflowSentence(state({ maxParallel: 8, overflow: 'refuse' }))).toBe(
-      'Up to 8 at once, then refuse',
-    );
+    expect(rows.find((r) => r.key === 'Agent')?.value).toBe('Coder');
+    expect(rows.find((r) => r.key === 'Concurrency')?.value).toBe('4 parallel · wait');
   });
 });
 
