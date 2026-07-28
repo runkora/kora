@@ -258,8 +258,8 @@ func newOAuthTestServiceWithStaticClient(t *testing.T) (*Service, string) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
 	client := RegisteredClient{
-		ClientID:     "spaceforce-twenty",
-		ClientName:   "Spaceforce / Twenty CRM",
+		ClientID:     "hosted-app-client",
+		ClientName:   "Example Hosted App",
 		RedirectURIs: []string{testHostedRedirect},
 	}
 	if err := svc.clients.Store(ctx, client, staticClientTTL); err != nil {
