@@ -217,7 +217,7 @@ export function StepTarget({ state, patch, context, definition }: StepComponentP
       )}
 
       <Callout variant="info">
-        <Stack direction="horizontal" gap="cozy">
+        <Stack direction="horizontal" gap="cozy" align="center">
           <Icon name="route" size="sm" color="accent" label="" shrink />
           <Text size="caption" color="muted">
             <Text as="span" size="caption" weight="heavy">

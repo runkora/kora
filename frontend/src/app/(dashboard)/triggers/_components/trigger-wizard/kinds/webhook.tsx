@@ -81,7 +81,13 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       </FormField>
 
       <Stack gap="cozy">
-        <SectionLabel>Deliver to</SectionLabel>
+        <Stack gap="tight">
+          <SectionLabel>Deliver to</SectionLabel>
+          <Text size="caption" color="subtle">
+            The Orbit endpoint your provider posts events to. Triggers listen on a source; several
+            triggers can share one.
+          </Text>
+        </Stack>
         <RadioGroup
           value={state.sourceChoice}
           onValueChange={(v) => patch({ sourceChoice: v })}

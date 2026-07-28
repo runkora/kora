@@ -59,7 +59,9 @@ export function WizardRail({ steps, current, maxVisited, onGoTo }: WizardRailPro
                   </StepDot>
                   {i < steps.length - 1 && <StepConnector complete={done} />}
                 </Stack>
-                <Stack gap="tight" paddingBottom="relaxed" paddingTop="tight">
+                {/* textAlign start: a button's UA default is centered text,
+                    which centres short titles while wide subtitles fill. */}
+                <Stack gap="tight" paddingBottom="relaxed" paddingTop="tight" textAlign="start">
                   <Text
                     as="span"
                     size="supporting"
