@@ -125,8 +125,8 @@ export function TriggerList({
                 <IconTile tone={t.autoPausedAt !== null ? 'accent' : 'muted'}>
                   <Icon name={KIND_ICON[t.kind]} size="xs" />
                 </IconTile>
-                <Stack gap="none" minWidth="none">
-                  <Stack direction="horizontal" gap="tight" align="center">
+                <Stack gap="tight" minWidth="none">
+                  <Stack direction="horizontal" gap="snug" align="center">
                     <Text mono size="supporting" weight="emphasis">
                       {t.name}
                     </Text>
