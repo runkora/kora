@@ -403,7 +403,7 @@ func TestPermissionsFor(t *testing.T) {
 		}
 		// But it must still carry the category permissions a normal push/PR flow
 		// needs — the exclusion is surgical, not a blanket drop.
-		for _, want := range []string{"contents", "pull_requests", "issues", "actions", "checks"} {
+		for _, want := range []string{"contents", "pull_requests", "issues", "actions", "checks", "statuses"} {
 			if _, present := got[want]; !present {
 				t.Errorf("umbrella %q should still request %q, got %v", action, want, got)
 			}
