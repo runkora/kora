@@ -246,3 +246,124 @@ func TestOAuth_DCRDisabled(t *testing.T) {
 		t.Errorf("disabled DCR should return ErrDCRDisabled, got %v", err)
 	}
 }
+
+// ── Static pre-registered client tests ────────────────────────────────────────
+
+const testHostedRedirect = "https://twenty.constellation.example.com/api/auth/callback/orbit"
+
+// newOAuthTestServiceWithStaticClient constructs a test Service with a single
+// static client pre-seeded, mirroring what NewService does at startup.
+func newOAuthTestServiceWithStaticClient(t *testing.T) (*Service, string) {
+	t.Helper()
+	svc := newOAuthTestService(t)
+	ctx := context.Background()
+	client := RegisteredClient{
+		ClientID:     "spaceforce-twenty",
+		ClientName:   "Spaceforce / Twenty CRM",
+		RedirectURIs: []string{testHostedRedirect},
+	}
+	if err := svc.clients.Store(ctx, client, staticClientTTL); err != nil {
+		t.Fatalf("seed static client: %v", err)
+	}
+	return svc, client.ClientID
+}
+
+func TestOAuth_StaticClient_NonLoopbackRedirect_Allowed(t *testing.T) {
+	svc, clientID := newOAuthTestServiceWithStaticClient(t)
+	ctx := context.Background()
+
+	p := AuthorizeParams{
+		ClientID:            clientID,
+		RedirectURI:         testHostedRedirect,
+		CodeChallenge:       pkceS256(testVerifier),
+		CodeChallengeMethod: "S256",
+	}
+	code, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "user-1", TenantID: "acme"}, p)
+	if err != nil {
+		t.Fatalf("CreateAuthCode with non-loopback redirect should succeed: %v", err)
+	}
+	if code == "" {
+		t.Fatal("expected non-empty code")
+	}
+}
+
+func TestOAuth_StaticClient_RoundTrip(t *testing.T) {
+	svc, clientID := newOAuthTestServiceWithStaticClient(t)
+	ctx := context.Background()
+
+	p := AuthorizeParams{
+		ClientID:            clientID,
+		RedirectURI:         testHostedRedirect,
+		CodeChallenge:       pkceS256(testVerifier),
+		CodeChallengeMethod: "S256",
+	}
+	code, err := svc.CreateAuthCode(ctx, AuthCode{
+		Subject:     "user-1",
+		TenantID:    "acme",
+		DisplayName: "jane@acme.com",
+		Claims:      map[string]string{"roles": "developer"},
+	}, p)
+	if err != nil {
+		t.Fatalf("CreateAuthCode: %v", err)
+	}
+
+	resp, err := svc.ExchangeAuthCode(ctx, TokenRequest{
+		GrantType:    "authorization_code",
+		Code:         code,
+		CodeVerifier: testVerifier,
+		RedirectURI:  testHostedRedirect,
+		ClientID:     clientID,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeAuthCode: %v", err)
+	}
+	if resp.AccessToken == "" || resp.TokenType != "Bearer" {
+		t.Fatalf("unexpected token response: %+v", resp)
+	}
+	// Refresh token must be issued so the app can maintain sessions.
+	if resp.RefreshToken == "" {
+		t.Error("expected a refresh token for a hosted-app client")
+	}
+}
+
+func TestOAuth_StaticClient_UnregisteredHostedURI_Denied(t *testing.T) {
+	svc, clientID := newOAuthTestServiceWithStaticClient(t)
+	ctx := context.Background()
+
+	p := AuthorizeParams{
+		ClientID:            clientID,
+		RedirectURI:         "https://evil.example.com/callback",
+		CodeChallenge:       pkceS256(testVerifier),
+		CodeChallengeMethod: "S256",
+	}
+	if _, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "u"}, p); !errors.Is(err, ErrInvalidOAuthRequest) {
+		t.Errorf("unregistered hosted URI should be invalid_request, got %v", err)
+	}
+}
+
+func TestOAuth_DCR_NonLoopbackRedirect_StillRejected(t *testing.T) {
+	svc := newOAuthTestService(t)
+	ctx := context.Background()
+	// Dynamic client registration must still reject non-loopback URIs.
+	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{
+		RedirectURIs: []string{"https://app.example.com/callback"},
+	}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("DCR with non-loopback URI should be invalid_client_metadata, got %v", err)
+	}
+}
+
+func TestOAuth_initStaticOAuthClients_EmptyClientID_Errors(t *testing.T) {
+	svc := newOAuthTestService(t)
+	svc.cfg.OAuth.StaticClients = []StaticOAuthClient{{ClientID: "", RedirectURIs: []string{"https://app.example.com/cb"}}}
+	if err := svc.initStaticOAuthClients(context.Background()); err == nil {
+		t.Error("expected error for empty clientId")
+	}
+}
+
+func TestOAuth_initStaticOAuthClients_EmptyRedirectURIs_Errors(t *testing.T) {
+	svc := newOAuthTestService(t)
+	svc.cfg.OAuth.StaticClients = []StaticOAuthClient{{ClientID: "test-client", RedirectURIs: nil}}
+	if err := svc.initStaticOAuthClients(context.Background()); err == nil {
+		t.Error("expected error for empty redirectUris")
+	}
+}

@@ -207,6 +207,13 @@ func NewService(
 	}
 	svc.jwksJSON = jwks
 
+	// Seed config-declared static OAuth clients. These are pre-registered by an
+	// operator for hosted web apps (non-loopback redirect URIs permitted).
+	// They are seeded on every startup so their long TTL is effectively permanent.
+	if err := svc.initStaticOAuthClients(ctx); err != nil {
+		return nil, fmt.Errorf("identity service: init static oauth clients: %w", err)
+	}
+
 	return svc, nil
 }
 

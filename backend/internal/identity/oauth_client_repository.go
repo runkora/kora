@@ -18,6 +18,11 @@ const oauthClientKeyPrefix = "orbit:oauth:client:"
 // (DCR abuse) self-expire rather than accumulate forever.
 const registeredClientTTL = 30 * 24 * time.Hour
 
+// staticClientTTL is the Redis TTL used for config-seeded static clients. A
+// very large value effectively makes them permanent; they are re-seeded on every
+// service restart from config so the expiry is a non-issue operationally.
+const staticClientTTL = 100 * 365 * 24 * time.Hour
+
 // ErrClientNotFound is returned when a client_id is unknown (unregistered or expired).
 var ErrClientNotFound = errors.New("client not registered")
 

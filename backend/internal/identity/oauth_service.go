@@ -46,9 +46,10 @@ func pkceS256(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// isLoopbackRedirect reports whether a redirect URI targets a loopback address —
-// the only redirect targets allowed for public native MCP clients until DCR
-// registers explicit URIs (RFC 8252). Prevents code exfiltration to a remote host.
+// isLoopbackRedirect reports whether a redirect URI targets a loopback address.
+// Used by RegisterClient (DCR) to enforce the RFC 8252 loopback-only restriction
+// for dynamically-registered clients. Static pre-registered clients bypass this
+// check — their redirect URIs are admin-reviewed config entries.
 func isLoopbackRedirect(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -90,11 +91,11 @@ func (s *Service) CreateAuthCode(ctx context.Context, human AuthCode, p Authoriz
 	if p.ClientID == "" {
 		return "", fmt.Errorf("%w: client_id is required", ErrInvalidOAuthRequest)
 	}
-	if !isLoopbackRedirect(p.RedirectURI) {
-		return "", fmt.Errorf("%w: redirect_uri must be a loopback address", ErrInvalidOAuthRequest)
-	}
 	// The client_id must be registered (via DCR or pre-registration), and the
-	// redirect_uri must be one it registered — not merely any loopback address.
+	// redirect_uri must be one it registered. AllowsRedirect (exact match) is the
+	// security gate: it covers both loopback and non-loopback URIs for registered
+	// clients. The loopback restriction is enforced at DCR time only, not here —
+	// static pre-registered clients may have non-loopback redirect URIs.
 	client, err := s.clients.Get(ctx, p.ClientID)
 	if errors.Is(err, ErrClientNotFound) {
 		return "", fmt.Errorf("%w: unknown client_id", ErrInvalidOAuthRequest)
@@ -277,4 +278,29 @@ func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequ
 		return RegisteredClient{}, err
 	}
 	return client, nil
+}
+
+// initStaticOAuthClients seeds the config-declared static OAuth clients into the
+// client repository. Static clients are re-seeded on every service startup and
+// use staticClientTTL (effectively permanent) so they are always present.
+// This is called from NewService after the signing key is initialised.
+func (s *Service) initStaticOAuthClients(ctx context.Context) error {
+	for _, sc := range s.cfg.OAuth.StaticClients {
+		if sc.ClientID == "" {
+			return fmt.Errorf("static oauth client has empty clientId")
+		}
+		if len(sc.RedirectURIs) == 0 {
+			return fmt.Errorf("static oauth client %q has no redirectUris", sc.ClientID)
+		}
+		client := RegisteredClient{
+			ClientID:     sc.ClientID,
+			ClientName:   sc.ClientName,
+			RedirectURIs: sc.RedirectURIs,
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := s.clients.Store(ctx, client, staticClientTTL); err != nil {
+			return fmt.Errorf("seed static oauth client %q: %w", sc.ClientID, err)
+		}
+	}
+	return nil
 }

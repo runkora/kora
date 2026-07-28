@@ -28,6 +28,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Hierarchical Budgets](hierarchical-budgets.md) | Draft | [hierarchical-budget-enforcement](../adr/2026-06-10-hierarchical-budget-enforcement.md) |
 | [Model Cost Visibility](model-cost-visibility.md) | Approved | [model-cost-visibility](../adr/2026-06-22-model-cost-visibility.md) |
 | [MCP / Tool Gateway](mcp-tool-gateway.md) | Approved | [mcp-server-registration-and-introspection](../adr/2026-06-29-mcp-server-registration-and-introspection.md), [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [mcp-oauth-authentication](../adr/2026-06-29-mcp-oauth-authentication.md) |
+| [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
 | [Orbit MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
 | [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
 | [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |

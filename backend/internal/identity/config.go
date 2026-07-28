@@ -25,6 +25,26 @@ type OAuthConfig struct {
 	// work. Default false (zero value) — open DCR for public PKCE clients, the MCP
 	// MVP posture. Set true for stricter deployments.
 	RequirePreRegistration bool `yaml:"requirePreRegistration"`
+
+	// StaticClients is a list of pre-registered public OAuth clients for hosted
+	// web applications (e.g. Constellation-deployed apps like Twenty CRM) whose
+	// redirect URIs are fixed HTTPS URLs rather than loopback addresses. Unlike
+	// dynamically-registered clients (DCR), these are admin-reviewed, have no TTL,
+	// and may use non-loopback redirect URIs. All clients remain public (PKCE only;
+	// no client_secret). See ADR 2026-07-28-oauth2-web-redirect-clients.
+	StaticClients []StaticOAuthClient `yaml:"staticClients"`
+}
+
+// StaticOAuthClient is a pre-registered OAuth client declared in YAML config.
+// It is a public client (no secret); PKCE is the proof of possession.
+type StaticOAuthClient struct {
+	// ClientID is a stable, human-readable slug (e.g. "spaceforce-twenty").
+	ClientID string `yaml:"clientId"`
+	// ClientName is the display name shown on the consent screen.
+	ClientName string `yaml:"clientName,omitempty"`
+	// RedirectURIs is the exact list of permitted redirect URIs for this client.
+	// Non-loopback HTTPS URLs are permitted for static clients.
+	RedirectURIs []string `yaml:"redirectUris"`
 }
 
 // TokenConfig controls platform token lifetimes.
