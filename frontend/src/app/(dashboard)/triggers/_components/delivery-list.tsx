@@ -103,7 +103,8 @@ export function DeliveryList({
               direction="horizontal"
               align="center"
               gap="cozy"
-              padding="cozy"
+              paddingInline="cozy"
+              paddingBlock="comfortable"
               onClick={() => onToggleExpanded(open ? null : d.id)}
               role="button"
               tabIndex={0}
@@ -118,7 +119,9 @@ export function DeliveryList({
             >
               <StatusDot status={dotStatus(status)} size="sm" />
 
-              <Stack gap="none" minWidth="none">
+              {/* The identity block takes the slack, so the outcome cluster
+                  and the chevron pin to the right edge on every row. */}
+              <Stack gap="tight" minWidth="none" grow>
                 <Text mono size="caption" weight="emphasis" truncate>
                   {d.id}
                 </Text>
@@ -127,16 +130,18 @@ export function DeliveryList({
                 </Text>
               </Stack>
 
-              <Text mono size="caption" weight="emphasis" color="muted">
-                {status}
-              </Text>
-              <Text mono size="micro" color="muted">
-                {dispatchDuration(d.receivedAt, outcome?.createdAt ?? null)}
-              </Text>
-              <Text size="micro" color="subtle">
-                {shortAgo(d.receivedAt)}
-              </Text>
-              <Icon name={open ? 'chevron-up' : 'chevron-down'} size="2xs" color="subtle" />
+              <Stack direction="horizontal" align="center" gap="cozy">
+                <Text mono size="caption" weight="emphasis" color="muted">
+                  {status}
+                </Text>
+                <Text mono size="micro" color="muted">
+                  {dispatchDuration(d.receivedAt, outcome?.createdAt ?? null)}
+                </Text>
+                <Text size="micro" color="subtle">
+                  {shortAgo(d.receivedAt)}
+                </Text>
+                <Icon name={open ? 'chevron-up' : 'chevron-down'} size="2xs" color="subtle" />
+              </Stack>
             </Stack>
 
             {open && (
@@ -156,7 +161,12 @@ export function DeliveryList({
                       still recorded.
                     </Text>
                   ) : d.payloadExcerpt !== null ? (
-                    <CodeBlock text={formatPayload(d.payloadExcerpt)} density="compact" wrap />
+                    <CodeBlock
+                      text={formatPayload(d.payloadExcerpt)}
+                      density="compact"
+                      language="json"
+                      wrap
+                    />
                   ) : (
                     <Text size="caption" color="subtle">
                       No payload retained for this delivery.

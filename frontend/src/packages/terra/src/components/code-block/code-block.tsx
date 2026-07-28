@@ -34,8 +34,60 @@ export interface CodeBlockProps {
    *   The copy button appears on hover so the excerpt reads as data at rest.
    */
   density?: 'default' | 'compact';
+  /**
+   * When `'json'`, tokenises the text and colours keys, values and literals so
+   * a payload reads at a glance. Anything that fails to tokenise renders as
+   * plain text; highlighting is presentation, never a validator.
+   */
+  language?: 'json';
   /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
   className?: string;
+}
+
+// ── JSON highlighting ─────────────────────────────────────────────────────────
+
+/**
+ * One regex pass, four token kinds. Keys carry the accent, values carry the
+ * healthy green, true/false/null the amber literal tone, and everything else
+ * (punctuation, whitespace) recedes to subtle, so the eye lands on data.
+ */
+const JSON_TOKEN =
+  /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?)/g;
+
+function highlightJson(src: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  for (const m of src.matchAll(JSON_TOKEN)) {
+    const at = m.index ?? 0;
+    if (at > last) {
+      parts.push(
+        <span key={key++} className="text-subtle">
+          {src.slice(last, at)}
+        </span>,
+      );
+    }
+    const cls =
+      m[1] !== undefined
+        ? 'text-accent'
+        : m[3] !== undefined
+          ? 'text-status-degraded'
+          : 'text-status-healthy';
+    parts.push(
+      <span key={key++} className={cls}>
+        {m[0]}
+      </span>,
+    );
+    last = at + m[0].length;
+  }
+  if (last < src.length) {
+    parts.push(
+      <span key={key++} className="text-subtle">
+        {src.slice(last)}
+      </span>,
+    );
+  }
+  return parts;
 }
 
 // ── CodeBlock ─────────────────────────────────────────────────────────────────
@@ -52,7 +104,7 @@ export interface CodeBlockProps {
  * ```
  */
 export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
-  ({ text, filename, wrap = false, density = 'default', className }, ref) => {
+  ({ text, filename, wrap = false, density = 'default', language, className }, ref) => {
     const [copied, setCopied] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -86,7 +138,7 @@ export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
             className={cn(
               'overflow-x-auto border',
               density === 'compact'
-                ? 'border-border-subtle bg-surface px-3 py-[11px] leading-[1.65]'
+                ? 'border-border-subtle bg-surface px-3 py-[11px] leading-normal'
                 : 'border-border bg-surface-elevated px-4 py-3 leading-relaxed',
               // Wrap mode: preserve newlines but soft-wrap long lines and break
               // overlong tokens so the block stays within its column width.
@@ -95,7 +147,7 @@ export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
             )}
           >
             <Code variant="bare" className={density === 'compact' ? 'text-[11px]' : undefined}>
-              {text}
+              {language === 'json' ? highlightJson(text) : text}
             </Code>
           </pre>
           <Button
