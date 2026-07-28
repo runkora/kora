@@ -443,6 +443,11 @@ type UpdateTriggerRequest struct {
 	Enabled        *bool               `json:"enabled,omitempty"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
+	// The two safety behaviors an operator turns off deliberately. Pointers
+	// so that omitting them leaves the stored setting alone: a PATCH that
+	// only renames a trigger must not quietly re-arm its auto-pause.
+	DedupeEnabled    *bool `json:"dedupe_enabled,omitempty"`
+	AutopauseEnabled *bool `json:"autopause_enabled,omitempty"`
 }
 
 // FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.

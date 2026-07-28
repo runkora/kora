@@ -503,6 +503,12 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 		s.applyEnabledChange(ctx, t, *req.Enabled)
 		t.Enabled = *req.Enabled
 	}
+	if req.DedupeEnabled != nil {
+		t.DedupeEnabled = *req.DedupeEnabled
+	}
+	if req.AutopauseEnabled != nil {
+		t.AutopauseEnabled = *req.AutopauseEnabled
+	}
 	if req.ScheduleConfig != nil && t.Kind == KindScheduled {
 		if err := validateScheduleConfig(req.ScheduleConfig); err != nil {
 			return nil, err

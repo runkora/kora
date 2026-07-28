@@ -720,6 +720,13 @@ export interface TriggerUpdateRequest {
   enabled?: boolean;
   /** For scheduled triggers: update the cron schedule. */
   schedule_config?: ScheduleConfig;
+  /**
+   * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
+   * PATCH that only renames a trigger must not re-arm its safety settings.
+   */
+  dedupe_enabled?: boolean;
+  /** Disable the trigger automatically after repeated consecutive failures. */
+  autopause_enabled?: boolean;
 }
 
 /** Request body for POST /api/triggers/:id/fire (manual triggers only). */

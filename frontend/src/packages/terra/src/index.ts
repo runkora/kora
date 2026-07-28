@@ -103,8 +103,12 @@ export type { NativeSelectProps } from './components/native-select';
 export { Toggle } from './components/toggle';
 export type { ToggleProps } from './components/toggle';
 
-export { ToggleRow } from './components/toggle-row';
-export type { ToggleRowProps } from './components/toggle-row';
+export { ToggleRow, toggleRowVariants } from './components/toggle-row';
+export type {
+  ToggleRowProps,
+  ToggleRowSwitchProps,
+  ToggleRowControlProps,
+} from './components/toggle-row';
 
 export { Field, FieldHint, FieldError } from './components/field';
 export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';
@@ -318,6 +322,12 @@ export type { SectionLabelProps } from './components/section-label';
 
 export { FieldRow } from './components/field-row';
 export type { FieldRowProps } from './components/field-row';
+
+export { SettingRow, settingRowVariants } from './components/setting-row';
+export type { SettingRowProps } from './components/setting-row';
+
+export { DangerZone, dangerZoneVariants } from './components/danger-zone';
+export type { DangerZoneProps } from './components/danger-zone';
 
 export {
   DataGrid,

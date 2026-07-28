@@ -263,6 +263,67 @@ export const WithDisabled: Story = {
   ),
 };
 
+export const Compact: Story = {
+  name: 'Compact size',
+  render: () => (
+    <Tabs defaultValue="overview" size="compact" className="w-[480px]">
+      <TabsList>
+        <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="events">Events</TabsTrigger>
+        <TabsTrigger value="settings">Settings</TabsTrigger>
+      </TabsList>
+      <TabsContent value="overview">
+        <Text size="supporting" color="muted">
+          38 px rail at 13 px — for side panels and dense inspectors.
+        </Text>
+      </TabsContent>
+      <TabsContent value="events">
+        <Text size="supporting" color="muted">
+          No recent events.
+        </Text>
+      </TabsContent>
+      <TabsContent value="settings">
+        <Text size="supporting" color="muted">
+          Configure agent behaviour and limits.
+        </Text>
+      </TabsContent>
+    </Tabs>
+  ),
+};
+
+export const CompactFilled: Story = {
+  name: 'Compact, filling a panel',
+  render: () => (
+    <div className="flex h-[280px] w-[420px] flex-col border border-border">
+      <div className="flex h-[60px] shrink-0 items-center border-b border-border px-[18px]">
+        <Text size="supporting" mono color="foreground">
+          hermes-1
+        </Text>
+      </div>
+      <Tabs defaultValue="events" size="compact" fill>
+        <TabsList>
+          <TabsTrigger value="events">Events</TabsTrigger>
+          <TabsTrigger value="config">Config</TabsTrigger>
+        </TabsList>
+        <TabsContent value="events" className="px-[18px]">
+          <div className="space-y-2">
+            {Array.from({ length: 20 }, (_, i) => (
+              <Text key={i} size="micro" mono color="muted">
+                event {i + 1} — tool_call completed
+              </Text>
+            ))}
+          </div>
+        </TabsContent>
+        <TabsContent value="config" className="px-[18px]">
+          <Text size="supporting" color="muted">
+            Only the content scrolls; the rail stays pinned below the header.
+          </Text>
+        </TabsContent>
+      </Tabs>
+    </div>
+  ),
+};
+
 function ControlledDemo() {
   const [tab, setTab] = React.useState('keys');
   return (

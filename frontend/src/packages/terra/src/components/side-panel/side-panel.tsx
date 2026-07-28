@@ -16,6 +16,26 @@ const PANEL_SIZE: Record<Required<SidePanelProps>['size'], string> = {
   lg: 'w-[720px]',
 };
 
+const HEADER_DENSITY: Record<Required<SidePanelHeaderProps>['density'], string> = {
+  default: 'items-start px-5 py-4',
+  compact: 'h-[60px] items-center px-[18px] gap-3',
+};
+
+const HEADER_TITLE_DENSITY: Record<Required<SidePanelHeaderProps>['density'], string> = {
+  default: '',
+  compact: 'font-mono text-[14px] font-semibold leading-none',
+};
+
+const HEADER_DESCRIPTION_DENSITY: Record<Required<SidePanelHeaderProps>['density'], string> = {
+  default: '',
+  compact: 'text-[11.5px]',
+};
+
+const BODY_PADDING: Record<Required<SidePanelBodyProps>['padding'], string> = {
+  default: 'px-5 py-4',
+  compact: 'p-[18px]',
+};
+
 // ── SidePanel ─────────────────────────────────────────────────────────────────
 
 export interface SidePanelProps {
@@ -140,6 +160,19 @@ export interface SidePanelHeaderProps {
    * all. Anything a reader would have to scroll to find does not belong here.
    */
   actions?: React.ReactNode;
+  /**
+   * Rendered before the title block — an avatar, status dot, or provider mark.
+   * Never shrinks. Nothing is rendered when omitted.
+   */
+  leading?: React.ReactNode;
+  /**
+   * Header density.
+   * - `'default'` — 20 px inline / 16 px block padding, section-scale title.
+   * - `'compact'` — a fixed 60 px rail: `0 18px` padding, 12 px gaps, a 14 px
+   *   mono title and 11.5 px description. Use when the panel is a dense
+   *   inspector rather than a form.
+   */
+  density?: 'default' | 'compact';
 }
 
 const SidePanelHeader = ({
@@ -147,44 +180,66 @@ const SidePanelHeader = ({
   description,
   showClose = true,
   actions,
-}: SidePanelHeaderProps) => (
-  <div
-    data-slot="side-panel-header"
-    className="flex items-start justify-between border-b border-border px-5 py-4 shrink-0"
-  >
+  leading,
+  density = 'default',
+}: SidePanelHeaderProps) => {
+  const titleBlock = (
     <div className="flex flex-col gap-0.5">
       <DialogPrimitive.Title asChild>
-        <Heading variant="section">{title}</Heading>
+        <Heading variant="section" className={HEADER_TITLE_DENSITY[density]}>
+          {title}
+        </Heading>
       </DialogPrimitive.Title>
       {description && (
         <DialogPrimitive.Description asChild>
-          <Text size="supporting" color="muted">
+          <Text size="supporting" color="muted" className={HEADER_DESCRIPTION_DENSITY[density]}>
             {description}
           </Text>
         </DialogPrimitive.Description>
       )}
     </div>
-    <div className="flex shrink-0 items-center gap-2">
-      {actions}
-      {showClose && (
-        <DialogPrimitive.Close asChild>
-          <button
-            type="button"
-            aria-label="Close"
-            className={cn(
-              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
-              'border-transparent bg-transparent text-muted',
-              'transition-colors hover:bg-surface-overlay hover:text-foreground',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-            )}
-          >
-            <Icon name="close" size="xs" />
-          </button>
-        </DialogPrimitive.Close>
+  );
+
+  return (
+    <div
+      data-slot="side-panel-header"
+      className={cn(
+        'flex justify-between border-b border-border shrink-0',
+        HEADER_DENSITY[density],
       )}
+    >
+      {leading ? (
+        <div className={cn('flex gap-3', density === 'compact' ? 'items-center' : 'items-start')}>
+          <div data-slot="side-panel-header-leading" className="flex shrink-0 items-center">
+            {leading}
+          </div>
+          {titleBlock}
+        </div>
+      ) : (
+        titleBlock
+      )}
+      <div className="flex shrink-0 items-center gap-2">
+        {actions}
+        {showClose && (
+          <DialogPrimitive.Close asChild>
+            <button
+              type="button"
+              aria-label="Close"
+              className={cn(
+                'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+                'border-transparent bg-transparent text-muted',
+                'transition-colors hover:bg-surface-overlay hover:text-foreground',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+              )}
+            >
+              <Icon name="close" size="xs" />
+            </button>
+          </DialogPrimitive.Close>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 SidePanelHeader.displayName = 'SidePanelHeader';
 
 // ── SidePanelBody ─────────────────────────────────────────────────────────────
@@ -196,13 +251,21 @@ export interface SidePanelBodyProps {
    * (e.g. a full-width list or table) should reach the panel edges.
    */
   flush?: boolean;
+  /**
+   * Body padding.
+   * - `'default'` — 20 px inline / 16 px block.
+   * - `'compact'` — 18 px on all four sides, matching a compact header rail.
+   *
+   * Ignored when `flush` is set.
+   */
+  padding?: 'default' | 'compact';
   className?: string;
 }
 
-const SidePanelBody = ({ children, flush, className }: SidePanelBodyProps) => (
+const SidePanelBody = ({ children, flush, padding = 'default', className }: SidePanelBodyProps) => (
   <div
     data-slot="side-panel-body"
-    className={cn('flex-1 overflow-y-auto', flush ? '' : 'px-5 py-4', className)}
+    className={cn('flex-1 overflow-y-auto', flush ? '' : BODY_PADDING[padding], className)}
   >
     {children}
   </div>

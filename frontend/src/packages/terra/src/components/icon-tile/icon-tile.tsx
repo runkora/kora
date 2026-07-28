@@ -18,6 +18,9 @@ const iconTileVariants = cva(
       size: {
         sm: 'size-5 rounded-[5px]',
         md: 'size-8 rounded-md',
+        /** 36px — the identity tile in a panel header, where the tile is the
+         *  subject's marker rather than a row's leading glyph. */
+        lg: 'size-9 rounded-md',
       },
     },
     defaultVariants: { tone: 'muted', size: 'md' },

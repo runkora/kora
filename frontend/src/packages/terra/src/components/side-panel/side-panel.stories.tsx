@@ -6,6 +6,7 @@ import { Button } from '../button/button';
 import { Text } from '../typography/typography';
 import { Stack } from '../layout/stack';
 import { Separator } from '../separator';
+import { Icon } from '../icon/icon';
 import { SidePanel, SidePanelHeader, SidePanelBody, SidePanelFooter } from './side-panel';
 
 const meta: Meta<typeof SidePanel> = {
@@ -123,6 +124,59 @@ export const WithoutFooter: Story = {
               Some panels are informational and need no footer action buttons.
             </Text>
           </SidePanelBody>
+        </>
+      )}
+    </SidePanelDemo>
+  ),
+};
+
+export const CompactHeader: Story = {
+  name: 'Compact header + body',
+  render: () => (
+    <SidePanelDemo>
+      {() => (
+        <>
+          <SidePanelHeader
+            density="compact"
+            leading={<Icon name="bot" size="sm" container containerVariant="accent" />}
+            title="hermes-1"
+            description="Running · us-east-1"
+          />
+          <SidePanelBody padding="compact">
+            <Stack gap="comfortable">
+              <Text size="supporting" color="muted">
+                A 60 px header rail with an 18 px gutter that the body padding matches — the density
+                spec for inspector panels.
+              </Text>
+            </Stack>
+          </SidePanelBody>
+        </>
+      )}
+    </SidePanelDemo>
+  ),
+};
+
+export const WithLeading: Story = {
+  name: 'With leading slot',
+  render: () => (
+    <SidePanelDemo>
+      {(onClose) => (
+        <>
+          <SidePanelHeader
+            leading={<Icon name="shield" size="sm" container />}
+            title="Guardrails"
+            description="Limits applied before every tool call."
+          />
+          <SidePanelBody>
+            <Text size="supporting" color="muted">
+              The leading slot never shrinks and renders nothing when omitted.
+            </Text>
+          </SidePanelBody>
+          <SidePanelFooter>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          </SidePanelFooter>
         </>
       )}
     </SidePanelDemo>

@@ -9,12 +9,13 @@ import {
   Button,
   Card,
   CardContent,
+  DangerZone,
   FieldRow,
   Grid,
   Icon,
   IconTile,
   SectionLabel,
-  Separator,
+  SettingRow,
   SidePanel,
   SidePanelBody,
   SidePanelHeader,
@@ -25,11 +26,20 @@ import {
   TabsTrigger,
   Text,
   Toggle,
+  ToggleRow,
 } from '@orbit/terra';
-import { CopyButton, StatusBadge } from '@orbit/components';
-import { deliveryStatusTone } from '../_types';
-import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import type { IconName } from '@orbit/terra';
+import { CopyButton, EmptyState } from '@orbit/components';
+import type { DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
+import { DeliveryList } from './delivery-list';
+
+/** Icon per kind, matching the trigger list so a row and its panel agree. */
+const KIND_ICON: Record<TriggerKind, IconName> = {
+  webhook: 'webhook',
+  scheduled: 'clock',
+  manual: 'play',
+};
 
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
@@ -40,6 +50,11 @@ interface TriggerDrawerProps {
   onClose: () => void;
   onToggleEnabled: (t: TriggerRow, enabled: boolean) => void;
   onDelete: (t: TriggerRow) => void;
+  /**
+   * Persists a safety setting. Absent when the caller cannot write, in which
+   * case the toggles render disabled rather than pretending to save.
+   */
+  onUpdateSafety?: (t: TriggerRow, patch: Partial<TriggerRow>) => void;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
@@ -115,11 +130,11 @@ export function TriggerDrawer({
   onClose,
   onToggleEnabled,
   onDelete,
+  onUpdateSafety,
   onFire,
   firing = false,
 }: TriggerDrawerProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [secretShown, setSecretShown] = useState(false);
 
   const mine = useMemo(
     () =>
@@ -153,6 +168,12 @@ export function TriggerDrawer({
   return (
     <SidePanel open onClose={onClose} size="md">
       <SidePanelHeader
+        density="compact"
+        leading={
+          <IconTile size="lg" tone={trigger.autoPausedAt !== null ? 'accent' : 'muted'}>
+            <Icon name={KIND_ICON[trigger.kind]} size="xs" />
+          </IconTile>
+        }
         title={trigger.name}
         description={subtitle}
         actions={
@@ -163,17 +184,20 @@ export function TriggerDrawer({
           />
         }
       />
-      <SidePanelBody>
-        <Tabs defaultValue="overview">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
 
+      {/* Tabs own the panel's vertical space so the strip sits flush under the
+          header with its own full-bleed border, and only the content scrolls. */}
+      <Tabs defaultValue="overview" size="compact" fill>
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+
+        <SidePanelBody padding="compact">
           {/* ── Overview: what this is and how it fires ─────────────────── */}
           <TabsContent value="overview">
-            <Stack gap="relaxed">
+            <Stack gap="comfortable">
               {trigger.autoPausedAt !== null && (
                 <Alert variant="error">
                   The platform disabled this trigger after {trigger.consecutiveFailures} consecutive
@@ -190,7 +214,7 @@ export function TriggerDrawer({
                     leading={<Icon name="lock" size="2xs" color="status-healthy" />}
                     actions={<CopyButton value={endpoint} label="Copy" />}
                   >
-                    <Text mono size="caption">
+                    <Text mono size="caption" truncate>
                       {endpoint}
                     </Text>
                   </FieldRow>
@@ -203,16 +227,10 @@ export function TriggerDrawer({
                     }
                     actions={
                       <>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => setSecretShown((v) => !v)}
-                          // The secret is write-once at creation and never
-                          // returned on reads, so there is nothing to reveal.
-                          // Saying so beats a button that appears to do nothing.
-                          disabled
-                        >
-                          {secretShown ? 'Hide' : 'Reveal'}
+                        {/* Write-once at creation and never returned on reads,
+                            so there is nothing to reveal or rotate yet. */}
+                        <Button variant="ghost" size="xs" disabled>
+                          Reveal
                         </Button>
                         <Button variant="ghost" size="xs" disabled>
                           Rotate
@@ -237,25 +255,29 @@ export function TriggerDrawer({
               {trigger.kind === 'scheduled' && trigger.scheduleConfig && (
                 <Stack gap="snug">
                   <SectionLabel>Schedule</SectionLabel>
-                  <FieldRow leading={<Icon name="clock" size="2xs" color="accent" />}>
+                  <FieldRow
+                    leading={<Icon name="clock" size="2xs" color="accent" />}
+                    actions={
+                      <Text mono size="micro" color="subtle">
+                        {trigger.scheduleConfig.timezone}
+                      </Text>
+                    }
+                  >
                     <Stack gap="none">
                       <Text mono size="supporting" weight="emphasis">
                         {trigger.scheduleConfig.cronExpression}
                       </Text>
                       <Text size="caption" color="muted">
-                        {describeCron(trigger.scheduleConfig.cronExpression)} ·{' '}
-                        {trigger.scheduleConfig.timezone}
+                        {describeCron(trigger.scheduleConfig.cronExpression)}
                       </Text>
                     </Stack>
                   </FieldRow>
                   <Grid cols={2} gap="snug">
                     <DrawerStat
-                      label="Missed runs"
-                      value={
-                        trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Recorded and skipped'
-                      }
+                      label="Catch-up"
+                      value={trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Skip missed runs'}
                     />
-                    <DrawerStat label="Timezone" value={trigger.scheduleConfig.timezone} />
+                    <DrawerStat label="Created" value={formatTime(trigger.createdAt)} />
                   </Grid>
                 </Stack>
               )}
@@ -279,17 +301,16 @@ export function TriggerDrawer({
                             {f.label ?? f.name}
                           </Text>
                           <Text mono size="micro" color="subtle">
-                            {f.name}
-                            {f.required === true ? ' · required' : ''}
+                            {f.name} · {f.type}
                           </Text>
                         </Stack>
-                        <Text size="caption" color="muted">
-                          {f.type === 'choice' ? (f.choices ?? []).join(' · ') : f.type}
+                        <Text size="micro" color={f.required === true ? 'accent' : 'subtle'}>
+                          {f.required === true ? 'required' : 'optional'}
                         </Text>
                       </Stack>
                     ))}
                     <Stack direction="horizontal" justify="between" align="center" padding="snug">
-                      <Text mono size="micro" color="subtle">
+                      <Text mono size="micro" color="accent" truncate>
                         POST /api/v1/triggers/{trigger.id}/fire
                       </Text>
                       {onFire !== undefined && (
@@ -329,13 +350,13 @@ export function TriggerDrawer({
                 <FieldRow
                   leading={
                     <IconTile tone="accent">
-                      <Text mono size="supporting" weight="heavy">
+                      <Text mono size="caption" weight="heavy">
                         {trigger.agentSlug.charAt(0).toUpperCase()}
                       </Text>
                     </IconTile>
                   }
                   actions={
-                    <Text size="caption" color="subtle">
+                    <Text size="micro" color="subtle">
                       {trigger.maxParallel} parallel · {trigger.overflow}
                     </Text>
                   }
@@ -365,135 +386,103 @@ export function TriggerDrawer({
 
           {/* ── Deliveries: what it has actually done ───────────────────── */}
           <TabsContent value="deliveries">
-            <Stack gap="comfortable">
-              {/* Honest about sampling: never imply this is everything. */}
-              <Stack direction="horizontal" justify="between" align="center">
-                <Text size="supporting" color="muted">
-                  {mine.length === 0
-                    ? 'No deliveries yet'
-                    : `Last ${shown.length} of ${mine.length}`}
-                </Text>
-                {mine.length > 0 && (
-                  <Text size="caption" color="subtle">
-                    Click a row for the payload
-                  </Text>
-                )}
-              </Stack>
-              <Stack gap="tight">
-                {shown.map((d) => {
-                  const outcome = d.runs.find((r) => r.triggerId === trigger.id);
-                  const open = expanded === d.id;
-                  return (
-                    <Card key={d.id}>
-                      <CardContent>
-                        <Stack gap="tight">
-                          <Stack direction="horizontal" justify="between" align="center">
-                            <Stack direction="horizontal" gap="snug" align="center">
-                              <StatusBadge
-                                status={deliveryStatusTone(outcome?.status ?? d.status)}
-                                label={outcome?.status ?? d.status}
-                              />
-                              <Text size="supporting">{d.eventType || d.kind}</Text>
-                            </Stack>
-                            <Stack direction="horizontal" gap="snug" align="center">
-                              <Text size="caption" color="muted">
-                                {formatTime(d.receivedAt)}
-                              </Text>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={() => setExpanded(open ? null : d.id)}
-                                aria-label={open ? 'Hide detail' : 'Show detail'}
-                              >
-                                <Icon name={open ? 'chevron-up' : 'chevron-down'} size="2xs" />
-                              </Button>
-                            </Stack>
-                          </Stack>
-                          {open && (
-                            <Stack gap="tight">
-                              {outcome?.error != null && (
-                                <Text size="caption" color="muted">
-                                  {outcome.error}
-                                </Text>
-                              )}
-                              {outcome?.runId != null && (
-                                <Text mono size="caption">
-                                  run {outcome.runId}
-                                </Text>
-                              )}
-                              {d.payloadPurged ? (
-                                <Text size="caption" color="subtle">
-                                  Payload purged past this tenant&apos;s retention window. What
-                                  happened is still recorded.
-                                </Text>
-                              ) : (
-                                d.payloadExcerpt != null && (
-                                  <Text mono size="caption" color="muted">
-                                    {d.payloadExcerpt}
-                                  </Text>
-                                )
-                              )}
-                            </Stack>
-                          )}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Stack>
+            <Stack gap="snug">
+              {mine.length === 0 ? (
+                <EmptyState
+                  icon="clock"
+                  title="No delivery payloads retained"
+                  description="This trigger has not fired within the retention window. Deliveries appear here the moment it does."
+                />
+              ) : (
+                <>
+                  {/* Honest about sampling: never imply this is everything. */}
+                  <Stack direction="horizontal" justify="between" align="center">
+                    <Text size="caption" color="muted">
+                      Last {shown.length} of {mine.length}
+                    </Text>
+                    <Text size="caption" color="subtle">
+                      Click a row for the payload
+                    </Text>
+                  </Stack>
+                  <DeliveryList
+                    deliveries={shown}
+                    triggerId={trigger.id}
+                    expandedId={expanded}
+                    onToggleExpanded={setExpanded}
+                  />
+                </>
+              )}
             </Stack>
           </TabsContent>
 
           {/* ── Settings: how it should behave ──────────────────────────── */}
           <TabsContent value="settings">
-            <Stack gap="relaxed">
-              <Text size="caption" color="subtle">
-                Changes take effect on the next delivery, not on work already in flight.
-              </Text>
-
-              <Grid cols={2} gap="snug">
-                <DrawerStat label="Runs at once" value={String(trigger.maxParallel)} />
-                <DrawerStat
-                  label="At the limit"
-                  value={
-                    trigger.overflow === 'wait'
-                      ? `Wait (${trigger.maxQueueDepth} max)`
-                      : trigger.overflow === 'replace'
-                        ? 'Replace waiting'
-                        : 'Refuse'
-                  }
-                />
-                <DrawerStat label="Start timeout" value={`${trigger.timeoutSeconds}s`} />
-                <DrawerStat
-                  label="Duplicates"
-                  value={trigger.dedupeEnabled ? 'Suppressed' : 'Allowed'}
-                />
-                <DrawerStat
-                  label="Auto-pause"
-                  value={trigger.autopauseEnabled ? 'After 10 failures' : 'Off'}
-                />
-                <DrawerStat
-                  label="Consecutive failures"
-                  value={String(trigger.consecutiveFailures)}
-                  tone={trigger.consecutiveFailures > 0 ? 'error' : undefined}
-                />
-              </Grid>
-
-              <Separator />
-
-              <Stack direction="horizontal" gap="snug">
-                <Button variant="destructive" onClick={() => onDelete(trigger)}>
-                  Delete trigger
-                </Button>
+            <Stack gap="comfortable">
+              <Stack gap="snug">
+                <SectionLabel>Delivery</SectionLabel>
+                <Stack gap="snug">
+                  <SettingRow
+                    label="Runs at once"
+                    description="How many runs this trigger may have in flight together."
+                    value={String(trigger.maxParallel)}
+                  />
+                  <SettingRow
+                    label="At the limit"
+                    description="What happens to an arrival that cannot start yet."
+                    value={
+                      trigger.overflow === 'wait'
+                        ? `Wait · ${trigger.maxQueueDepth} max`
+                        : trigger.overflow === 'replace'
+                          ? 'Replace waiting'
+                          : 'Refuse'
+                    }
+                  />
+                  <SettingRow
+                    label="Start timeout"
+                    description="How long a queued delivery may wait before it is dropped."
+                    value={`${trigger.timeoutSeconds}s`}
+                  />
+                  <SettingRow
+                    label="Consecutive failures"
+                    description="Resets to zero the next time a run starts cleanly."
+                    value={String(trigger.consecutiveFailures)}
+                  />
+                </Stack>
               </Stack>
-              <Text size="caption" color="subtle">
-                Deleting drops anything still waiting, recorded as dropped rather than silently
-                discarded. Delivery history is kept either way.
-              </Text>
+
+              <Stack gap="snug">
+                <SectionLabel>Safety</SectionLabel>
+                <Stack gap="snug">
+                  <ToggleRow
+                    checked={trigger.dedupeEnabled}
+                    disabled={onUpdateSafety === undefined}
+                    onChange={(next) => onUpdateSafety?.(trigger, { dedupeEnabled: next })}
+                    label="Suppress duplicates"
+                    description="A repeat of a delivery already seen is recorded, not run again."
+                  />
+                  <ToggleRow
+                    checked={trigger.autopauseEnabled}
+                    disabled={onUpdateSafety === undefined}
+                    onChange={(next) => onUpdateSafety?.(trigger, { autopauseEnabled: next })}
+                    label="Auto-pause on repeated failure"
+                    description="Disables the trigger after ten consecutive failures, so a broken target cannot spend the tenant's budget."
+                  />
+                </Stack>
+              </Stack>
+
+              <DangerZone
+                title="Delete trigger"
+                description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
+                action={
+                  <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
+                    Delete
+                  </Button>
+                }
+              />
             </Stack>
           </TabsContent>
-        </Tabs>
-      </SidePanelBody>
+        </SidePanelBody>
+      </Tabs>
     </SidePanel>
   );
 }

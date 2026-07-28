@@ -188,6 +188,33 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     [router],
   );
 
+  /**
+   * Persists a safety setting from the drawer.
+   *
+   * The drawer stays open: these are settings a reader adjusts while looking at
+   * the trigger, not an action that finishes with it, so closing the panel
+   * underneath them would lose their place.
+   */
+  const updateSafety = useCallback(
+    async (row: TriggerRow, patch: Partial<TriggerRow>) => {
+      await updateTrigger(row.id, {
+        ...(patch.dedupeEnabled !== undefined && { dedupe_enabled: patch.dedupeEnabled }),
+        ...(patch.autopauseEnabled !== undefined && { autopause_enabled: patch.autopauseEnabled }),
+      });
+      router.refresh();
+    },
+    [router],
+  );
+
+  // Read the open trigger back out of the live list rather than trusting the
+  // row captured when the drawer opened: saving a setting inside the panel
+  // refreshes the page data, and a snapshot would leave the control showing
+  // the value it had before the save.
+  const drawerRow =
+    drawerTrigger === null
+      ? null
+      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
+
   const confirmDeleteSource = useCallback(async () => {
     if (!deleteSrc) return;
     setDeleting(true);
@@ -522,7 +549,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       )}
 
       <TriggerDrawer
-        trigger={drawerTrigger}
+        trigger={drawerRow}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
@@ -535,6 +562,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           setDrawerTrigger(null);
           setDeleteTrg(t);
         }}
+        onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onFire={(t) => void fireManualTrigger(t)}
         firing={firingId !== null}
       />

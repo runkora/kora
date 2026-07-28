@@ -322,9 +322,11 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) erro
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE triggers
 		SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
-		       kind_config = $5, enabled = $6, updated_at = now()
-		WHERE  id = $7 AND tenant_id = $8
-	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled, t.ID, t.TenantID)
+		       kind_config = $5, enabled = $6, dedupe_enabled = $7, autopause_enabled = $8,
+		       updated_at = now()
+		WHERE  id = $9 AND tenant_id = $10
+	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
+		t.DedupeEnabled, t.AutopauseEnabled, t.ID, t.TenantID)
 	if err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}
