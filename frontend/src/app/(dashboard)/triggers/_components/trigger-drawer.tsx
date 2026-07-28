@@ -96,7 +96,7 @@ function DrawerStat({
 }) {
   return (
     <Card inset border="subtle">
-      <CardContent>
+      <CardContent padded compact>
         <Stack gap="tight">
           <SectionLabel>{label}</SectionLabel>
           <Text
@@ -296,7 +296,7 @@ export function TriggerDrawer({
                         align="center"
                         justify="between"
                         gap="snug"
-                        padding="snug"
+                        padding="cozy"
                       >
                         <Stack gap="none">
                           <Text size="supporting" weight="emphasis">
@@ -311,7 +311,7 @@ export function TriggerDrawer({
                         </Text>
                       </Stack>
                     ))}
-                    <Stack direction="horizontal" justify="between" align="center" padding="snug">
+                    <Stack direction="horizontal" justify="between" align="center" padding="cozy">
                       <Text mono size="micro" color="accent" truncate>
                         POST /api/v1/triggers/{trigger.id}/fire
                       </Text>
@@ -333,7 +333,7 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <Stack direction="horizontal" gap="tight" wrap>
+                  <Stack direction="horizontal" gap="snug" wrap>
                     <Badge variant="default" mono>
                       {trigger.eventType || 'any event'}
                     </Badge>

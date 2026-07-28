@@ -74,7 +74,7 @@ export function DeliveryList({
   onToggleExpanded,
 }: DeliveryListProps) {
   return (
-    <Stack gap="tight">
+    <Stack gap="snug">
       {deliveries.map((d) => {
         // The delivery's own status is the arrival-level verdict; this
         // trigger's row in the fan-out is the one that answers "and what
@@ -89,7 +89,7 @@ export function DeliveryList({
               direction="horizontal"
               align="center"
               gap="cozy"
-              padding="snug"
+              padding="cozy"
               onClick={() => onToggleExpanded(open ? null : d.id)}
               role="button"
               tabIndex={0}
@@ -128,7 +128,7 @@ export function DeliveryList({
             {open && (
               <>
                 <Separator />
-                <Stack gap="snug" padding="snug">
+                <Stack gap="snug" padding="cozy">
                   <Stack direction="horizontal" align="center" justify="between">
                     <SectionLabel>Request payload</SectionLabel>
                     <Text mono size="micro" color="subtle">
