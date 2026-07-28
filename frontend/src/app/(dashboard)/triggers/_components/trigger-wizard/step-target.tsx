@@ -76,8 +76,7 @@ export function StepTarget({ state, patch, context, definition }: StepComponentP
       ? agents
       : agents.filter(
           (a) =>
-            a.slug.toLowerCase().includes(query) ||
-            (a.name ?? '').toLowerCase().includes(query),
+            a.slug.toLowerCase().includes(query) || (a.name ?? '').toLowerCase().includes(query),
         );
   const overflowDetail =
     state.overflow === 'wait'
@@ -117,50 +116,55 @@ export function StepTarget({ state, patch, context, definition }: StepComponentP
           aria-label="Agent"
         >
           {/* Bounded height: past ~5 rows the list scrolls rather than pushing
-              the concurrency controls off screen. */}
-          <Stack gap="snug" maxHeight="scroll-lg" overflowY="auto">
-            {visibleAgents.length === 0 && (
-              <Text size="caption" color="subtle">
-                No agents match this search.
-              </Text>
-            )}
-            {visibleAgents.map((a) => {
-              const delegated = a.identityMode === 'delegated';
-              return (
-                <Card
-                  key={a.id}
-                  interactive={!delegated}
-                  subtle={delegated}
-                  selected={state.agentTypeId === a.id}
-                  onClick={delegated ? undefined : () => patch({ agentTypeId: a.id })}
-                >
-                  <CardContent padded compact>
-                    <Stack direction="horizontal" align="center" gap="cozy">
-                      <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
-                        <Text as="span" size="caption" mono weight="heavy">
-                          {initial(a)}
-                        </Text>
-                      </IconTile>
-                      <Stack gap="tight" grow minWidth="none">
-                        <Text as="span" size="supporting" weight="heavy">
-                          {a.name?.trim() || a.slug}
-                        </Text>
-                        <Text as="span" size="micro" mono color="subtle">
-                          {a.slug}
-                        </Text>
+              the concurrency controls off screen. The scrolling wrapper holds
+              ONE child stack: putting the cards directly inside a bounded flex
+              column would let flexbox compress them to fit instead of
+              scrolling, clipping every row. */}
+          <Stack maxHeight="scroll-lg" overflowY="auto">
+            <Stack gap="snug">
+              {visibleAgents.length === 0 && (
+                <Text size="caption" color="subtle">
+                  No agents match this search.
+                </Text>
+              )}
+              {visibleAgents.map((a) => {
+                const delegated = a.identityMode === 'delegated';
+                return (
+                  <Card
+                    key={a.id}
+                    interactive={!delegated}
+                    subtle={delegated}
+                    selected={state.agentTypeId === a.id}
+                    onClick={delegated ? undefined : () => patch({ agentTypeId: a.id })}
+                  >
+                    <CardContent padded compact>
+                      <Stack direction="horizontal" align="center" gap="cozy">
+                        <IconTile tone={state.agentTypeId === a.id ? 'accent' : 'muted'}>
+                          <Text as="span" size="caption" mono weight="heavy">
+                            {initial(a)}
+                          </Text>
+                        </IconTile>
+                        <Stack gap="tight" grow minWidth="none">
+                          <Text as="span" size="supporting" weight="heavy">
+                            {a.name?.trim() || a.slug}
+                          </Text>
+                          <Text as="span" size="micro" mono color="subtle">
+                            {a.slug}
+                          </Text>
+                        </Stack>
+                        {delegated ? (
+                          <Text as="span" size="micro" color="subtle">
+                            delegated · started by people
+                          </Text>
+                        ) : (
+                          <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
+                        )}
                       </Stack>
-                      {delegated ? (
-                        <Text as="span" size="micro" color="subtle">
-                          delegated · started by people
-                        </Text>
-                      ) : (
-                        <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
           </Stack>
         </RadioGroup>
       </Stack>
