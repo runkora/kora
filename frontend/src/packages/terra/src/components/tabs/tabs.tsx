@@ -215,12 +215,15 @@ const TabsContent = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
 >(({ className, ...props }, ref) => {
-  const { fill } = React.useContext(TabsContext);
+  const { size, fill } = React.useContext(TabsContext);
   return (
     <TabsPrimitive.Content
       ref={ref}
       className={cn(
-        'pt-6',
+        // Compact rails live inside a padded container (e.g. SidePanelBody),
+        // which already supplies the spacing below the rail; adding more here
+        // would double it.
+        size === 'compact' ? 'pt-0' : 'pt-6',
         fill && 'flex-1 min-h-0 overflow-y-auto',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
         className,
