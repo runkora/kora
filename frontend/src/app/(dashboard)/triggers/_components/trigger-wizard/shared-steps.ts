@@ -13,8 +13,8 @@ import type { KindStep } from './types';
 export const TARGET_STEP: KindStep = {
   id: 'target',
   railTitle: 'Target',
-  railSub: 'What it runs',
-  description: 'The agent this trigger invokes, and how many of its runs may overlap.',
+  railSub: 'Which agent',
+  description: 'The agent this trigger runs.',
   Component: StepTarget,
   validate: (state) => validateTarget(state),
 };
@@ -22,8 +22,9 @@ export const TARGET_STEP: KindStep = {
 export const DELIVERY_STEP: KindStep = {
   id: 'delivery',
   railTitle: 'Delivery',
-  railSub: 'Timeouts and safety',
-  description: 'How Orbit handles slow dispatches, duplicate arrivals, and sustained failure.',
+  railSub: 'Capacity and safety',
+  description:
+    'What happens between a delivery arriving and its run starting: capacity, overlap, duplicates, and failure.',
   Component: StepDelivery,
   validate: (state) => validateDelivery(state),
 };

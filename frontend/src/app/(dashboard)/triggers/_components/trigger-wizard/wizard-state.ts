@@ -143,6 +143,14 @@ export function describeMatchCondition(filters: WizardFilter[]): string | null {
 /** The Target step: an agent, and limits the platform will accept. */
 export function validateTarget(state: WizardState): StepValidation {
   if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
+  return VALID;
+}
+
+/**
+ * The Delivery step: the three bounds on the queue, checked together because
+ * they are configured together.
+ */
+export function validateDelivery(state: WizardState): StepValidation {
   if (state.maxParallel < LIMITS.parallel.min || state.maxParallel > LIMITS.parallel.max)
     return {
       valid: false,
@@ -156,11 +164,6 @@ export function validateTarget(state: WizardState): StepValidation {
       valid: false,
       hint: `Max queued deliveries must be between ${LIMITS.queueDepth.min} and ${LIMITS.queueDepth.max}.`,
     };
-  return VALID;
-}
-
-/** The Delivery step. */
-export function validateDelivery(state: WizardState): StepValidation {
   if (state.timeoutSeconds < LIMITS.timeout.min || state.timeoutSeconds > LIMITS.timeout.max)
     return {
       valid: false,
@@ -226,4 +229,23 @@ export function toDraft(def: TriggerKindDefinition, state: WizardState): Trigger
 /** The word beside the parallel-runs stepper. */
 export function parallelWord(n: number): string {
   return n === 1 ? 'One at a time' : `Up to ${n} at once`;
+}
+
+/**
+ * All three admission bounds in one sentence.
+ *
+ * Each overflow mode gets its own wording rather than a single template with
+ * gaps: only `wait` has a queue to bound, so mentioning a queue depth under
+ * `replace` or `refuse` would describe a limit that does not exist.
+ */
+export function admissionSummary(state: WizardState): string {
+  const lead = `${parallelWord(state.maxParallel)}.`;
+  const timeout = `${state.timeoutSeconds}s`;
+  if (state.overflow === 'wait') {
+    return `${lead} Further deliveries wait in order, up to ${state.maxQueueDepth} of them, for up to ${timeout} each.`;
+  }
+  if (state.overflow === 'replace') {
+    return `${lead} While one runs, a newer delivery replaces the one waiting, and it has up to ${timeout} to start.`;
+  }
+  return `${lead} Beyond that, deliveries are refused with 429, and an admitted delivery has up to ${timeout} to start.`;
 }

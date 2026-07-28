@@ -158,20 +158,42 @@ describe('shared steps', () => {
     error: null,
   };
 
-  it('renders the target step', () => {
+  it('asks the target step one question: which agent', () => {
     render(<StepTarget {...shared} />);
-    expect(screen.getByText('Max parallel runs')).toBeTruthy();
-    expect(screen.getByText('Up to 4 at once')).toBeTruthy();
+    expect(screen.getByText('Agent to run')).toBeTruthy();
+    // Capacity is a rule about the queue, so it lives on Delivery with the
+    // other two bounds rather than beside the agent picker.
+    expect(screen.queryByText('Max parallel runs')).toBeNull();
+    expect(screen.queryByText('Overlapping runs')).toBeNull();
   });
 
-  it('renders the delivery step', () => {
+  it('gathers all three queue bounds on the delivery step, capacity first', () => {
     render(<StepDelivery {...shared} />);
+    expect(screen.getByText('Overlapping runs')).toBeTruthy();
+    expect(screen.getByText('Max parallel runs')).toBeTruthy();
+    expect(screen.getByText('Max queued deliveries')).toBeTruthy();
+    expect(screen.getByText('Timeout')).toBeTruthy();
     expect(screen.getByText('Suppress duplicates')).toBeTruthy();
+  });
+
+  it('summarises the three bounds as one sentence', () => {
+    render(<StepDelivery {...shared} />);
+    expect(
+      screen.getByText(
+        'Up to 4 at once. Further deliveries wait in order, up to 32 of them, for up to 30s each.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('hides the queue depth when nothing queues', () => {
+    render(<StepDelivery {...shared} state={{ ...state, overflow: 'refuse' }} />);
+    expect(screen.queryByText('Max queued deliveries')).toBeNull();
   });
 
   it('renders the review step, including a create error', () => {
     render(<StepReview {...shared} error="source already exists" />);
     expect(screen.getByText('source already exists')).toBeTruthy();
+    // The overlap row follows its controls into the Delivery group.
     expect(screen.getByText('Up to 4 at once, then wait')).toBeTruthy();
   });
 });

@@ -99,13 +99,7 @@ export function StepReview({ state, context, definition, error, onGoTo }: StepCo
           icon="route"
           title="Target"
           onEdit={onGoTo ? () => onGoTo('target') : undefined}
-          rows={[
-            { key: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' },
-            {
-              key: 'Overlapping runs',
-              value: `${parallelWord(state.maxParallel)}, then ${state.overflow}`,
-            },
-          ]}
+          rows={[{ key: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' }]}
         />
 
         <ReviewGroup
@@ -113,6 +107,10 @@ export function StepReview({ state, context, definition, error, onGoTo }: StepCo
           title="Delivery"
           onEdit={onGoTo ? () => onGoTo('delivery') : undefined}
           rows={[
+            {
+              key: 'Overlapping runs',
+              value: `${parallelWord(state.maxParallel)}, then ${state.overflow}`,
+            },
             { key: 'Timeout', value: `${state.timeoutSeconds}s`, mono: true },
             { key: 'Suppress duplicates', value: state.dedupeEnabled ? 'On' : 'Off' },
             { key: 'Auto-pause on failure', value: state.autopauseEnabled ? 'On' : 'Off' },

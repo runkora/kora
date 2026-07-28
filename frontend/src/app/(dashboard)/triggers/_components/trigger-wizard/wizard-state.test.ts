@@ -5,6 +5,7 @@ import {
   deriveFieldKey,
   initialState,
   matchConditionFrom,
+  admissionSummary,
   parallelWord,
   previewBody,
   resolvedFields,
@@ -126,17 +127,25 @@ describe('previewBody', () => {
 });
 
 describe('shared step validation', () => {
-  it('requires an agent and in-range limits on the target step', () => {
+  it('asks the target step for an agent, and nothing else', () => {
     expect(validateTarget(state({ agentTypeId: '' })).valid).toBe(false);
-    expect(validateTarget(state({ maxParallel: 33 })).valid).toBe(false);
-    expect(validateTarget(state({ overflow: 'wait', maxQueueDepth: 0 })).valid).toBe(false);
-    expect(validateTarget(state({ overflow: 'refuse', maxQueueDepth: 0 })).valid).toBe(true);
+    expect(validateTarget(state({ agentTypeId: 'at-1' })).valid).toBe(true);
+    // The queue bounds moved to Delivery, so an out-of-range one must not
+    // block the step that no longer shows it.
+    expect(validateTarget(state({ maxParallel: 33 })).valid).toBe(true);
+    expect(validateTarget(state({ overflow: 'wait', maxQueueDepth: 0 })).valid).toBe(true);
   });
 
-  it('bounds the delivery timeout', () => {
+  it('bounds all three queue limits on the delivery step', () => {
+    expect(validateDelivery(state({ maxParallel: 33 })).valid).toBe(false);
+    expect(validateDelivery(state({ overflow: 'wait', maxQueueDepth: 0 })).valid).toBe(false);
     expect(validateDelivery(state({ timeoutSeconds: 4 })).valid).toBe(false);
     expect(validateDelivery(state({ timeoutSeconds: 601 })).valid).toBe(false);
-    expect(validateDelivery(state({ timeoutSeconds: 30 })).valid).toBe(true);
+    expect(validateDelivery(state()).valid).toBe(true);
+  });
+
+  it('ignores the queue depth when nothing queues', () => {
+    expect(validateDelivery(state({ overflow: 'refuse', maxQueueDepth: 0 })).valid).toBe(true);
   });
 
   it('explains what is missing', () => {
@@ -294,5 +303,43 @@ describe('parallelWord', () => {
   it('reads as prose at both ends', () => {
     expect(parallelWord(1)).toBe('One at a time');
     expect(parallelWord(4)).toBe('Up to 4 at once');
+  });
+});
+
+describe('admissionSummary', () => {
+  it('names all three bounds when deliveries queue', () => {
+    expect(
+      admissionSummary(
+        state({ maxParallel: 4, overflow: 'wait', maxQueueDepth: 32, timeoutSeconds: 30 }),
+      ),
+    ).toBe(
+      'Up to 4 at once. Further deliveries wait in order, up to 32 of them, for up to 30s each.',
+    );
+  });
+
+  it('does not claim a queue bound under replace, where nothing queues up', () => {
+    const sentence = admissionSummary(
+      state({ maxParallel: 1, overflow: 'replace', maxQueueDepth: 32, timeoutSeconds: 45 }),
+    );
+    expect(sentence).toBe(
+      'One at a time. While one runs, a newer delivery replaces the one waiting, and it has up to 45s to start.',
+    );
+    expect(sentence).not.toContain('32');
+  });
+
+  it('does not claim a queue bound under refuse either', () => {
+    const sentence = admissionSummary(
+      state({ maxParallel: 8, overflow: 'refuse', maxQueueDepth: 32, timeoutSeconds: 30 }),
+    );
+    expect(sentence).toBe(
+      'Up to 8 at once. Beyond that, deliveries are refused with 429, and an admitted delivery has up to 30s to start.',
+    );
+    expect(sentence).not.toContain('32');
+  });
+
+  it('always states the timeout, which applies in every mode', () => {
+    for (const overflow of ['wait', 'replace', 'refuse'] as const) {
+      expect(admissionSummary(state({ overflow, timeoutSeconds: 90 }))).toContain('90s');
+    }
   });
 });
