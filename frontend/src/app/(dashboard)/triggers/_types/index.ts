@@ -223,6 +223,30 @@ export type DeliveryDetail =
   | { kind: 'excerpt'; text: string }
   | { kind: 'empty' };
 
+/**
+ * The human end of a failure chain.
+ *
+ * Backend errors arrive as a wrapped chain, often ending in a JSON error body:
+ * "start run: unexpected status from orbit-agents: status 500: {\"code\":...,
+ * \"message\":\"failed to start run\"}". The message inside that body is what a
+ * person acts on; the full chain stays available as detail.
+ */
+export function failureSummary(error: string): string {
+  const tail = error.match(/\{[^{}]*\}\s*$/);
+  if (tail) {
+    try {
+      const body = JSON.parse(tail[0]) as { message?: unknown };
+      if (typeof body.message === 'string' && body.message.trim() !== '') {
+        return body.message;
+      }
+    } catch {
+      // Not JSON after all; fall through to the chain.
+    }
+  }
+  const parts = error.split(': ').map((p) => p.trim());
+  return parts[parts.length - 1] || error;
+}
+
 export function deliveryDetail(row: DeliveryRow): DeliveryDetail {
   if (row.runs.length > 1) return { kind: 'runs', text: `${row.runs.length} runs` };
   if (row.error) return { kind: 'error', text: row.error };

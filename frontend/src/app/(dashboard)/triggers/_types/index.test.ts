@@ -4,6 +4,7 @@ import {
   DELIVERY_EXCERPT_MAX,
   deliveryDetail,
   deliveryStatusTone,
+  failureSummary,
   matchesStatusFilter,
   type DeliveryRow,
 } from './index';
@@ -122,5 +123,23 @@ describe('deliveryStatusTone', () => {
     ['something-else', 'unknown'],
   ])('maps %s -> %s', (status, tone) => {
     expect(deliveryStatusTone(status)).toBe(tone);
+  });
+});
+
+describe('failureSummary', () => {
+  it('lifts the message out of a trailing JSON error body', () => {
+    expect(
+      failureSummary(
+        'start run: unexpected status from orbit-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
+      ),
+    ).toBe('failed to start run');
+  });
+
+  it('falls back to the last link of the chain when there is no body', () => {
+    expect(failureSummary('start run: connection refused')).toBe('connection refused');
+  });
+
+  it('returns the raw string when nothing can be extracted', () => {
+    expect(failureSummary('boom')).toBe('boom');
   });
 });

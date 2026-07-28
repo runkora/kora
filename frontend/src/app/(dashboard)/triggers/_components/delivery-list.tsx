@@ -12,8 +12,9 @@ import {
   Stack,
   StatusDot,
   Text,
+  Callout,
 } from '@orbit/terra';
-import { deliveryStatusTone } from '../_types';
+import { deliveryStatusTone, failureSummary } from '../_types';
 import type { DeliveryRow } from '../_types';
 
 /**
@@ -153,54 +154,71 @@ export function DeliveryList({
               <>
                 <Separator />
                 <Stack gap="snug" padding="cozy">
-                  <Stack direction="horizontal" align="center" justify="between">
-                    <SectionLabel>Request payload</SectionLabel>
-                    <Text mono size="micro" color="subtle">
-                      {formatBytes(d.payloadBytes)}
-                    </Text>
-                  </Stack>
-
-                  {d.payloadPurged ? (
-                    <Text size="caption" color="subtle">
-                      Payload purged past this tenant&apos;s retention window. What happened is
-                      still recorded.
-                    </Text>
-                  ) : d.payloadExcerpt !== null ? (
-                    <CodeBlock
-                      text={formatPayload(d.payloadExcerpt)}
-                      density="compact"
-                      language="json"
-                      wrap
-                    />
-                  ) : (
-                    <Text size="caption" color="subtle">
-                      No payload retained for this delivery.
-                    </Text>
-                  )}
-
+                  {/* Failure first: on a failed delivery the error is what the
+                      person opened the row for. The summary is the actionable
+                      message; the full chain stays underneath for tracing. */}
                   {outcome?.error != null && (
-                    <Text size="caption" color="status-error">
-                      {outcome.error}
-                    </Text>
+                    <Callout variant="error">
+                      <Stack gap="tight" minWidth="none">
+                        <Text size="caption" weight="emphasis" color="status-error">
+                          {failureSummary(outcome.error)}
+                        </Text>
+                        {failureSummary(outcome.error) !== outcome.error && (
+                          <Text mono size="micro" color="subtle" preserveWhitespace>
+                            {outcome.error}
+                          </Text>
+                        )}
+                      </Stack>
+                    </Callout>
                   )}
 
-                  <Stack direction="horizontal" align="center" justify="between" gap="snug">
-                    <Stack direction="horizontal" align="center" gap="tight">
-                      <Text mono size="micro" color="subtle">
-                        run
-                      </Text>
-                      <Text mono size="caption" color="accent">
-                        {outcome?.runId ?? '—'}
-                      </Text>
+                  {/* Only when there is something to say about a payload; a
+                      header over "there is none" was noise on every failed
+                      manual fire. */}
+                  {(d.payloadPurged || d.payloadExcerpt !== null) && (
+                    <Stack gap="snug">
+                      <Stack direction="horizontal" align="center" justify="between">
+                        <SectionLabel>Request payload</SectionLabel>
+                        <Text mono size="micro" color="subtle">
+                          {formatBytes(d.payloadBytes)}
+                        </Text>
+                      </Stack>
+                      {d.payloadPurged ? (
+                        <Text size="caption" color="subtle">
+                          Payload purged past this tenant&apos;s retention window. What happened is
+                          still recorded.
+                        </Text>
+                      ) : (
+                        <CodeBlock
+                          text={formatPayload(d.payloadExcerpt ?? '')}
+                          density="compact"
+                          language="json"
+                          wrap
+                        />
+                      )}
                     </Stack>
-                    {/* Redeliver is specified but not yet built: replaying a
+                  )}
+
+                  {/* The run link and Redeliver only exist once a run does. */}
+                  {outcome?.runId != null && (
+                    <Stack direction="horizontal" align="center" justify="between" gap="snug">
+                      <Stack direction="horizontal" align="center" gap="tight">
+                        <Text mono size="micro" color="subtle">
+                          run
+                        </Text>
+                        <Text mono size="caption" color="accent">
+                          {outcome.runId}
+                        </Text>
+                      </Stack>
+                      {/* Redeliver is specified but not yet built: replaying a
                           delivery has to re-run admission and dedup, which is
                           still an open decision. Shown disabled rather than
                           hidden so the affordance is discoverable. */}
-                    <Button variant="ghost" size="xs" disabled>
-                      Redeliver
-                    </Button>
-                  </Stack>
+                      <Button variant="ghost" size="xs" disabled>
+                        Redeliver
+                      </Button>
+                    </Stack>
+                  )}
                 </Stack>
               </>
             )}
