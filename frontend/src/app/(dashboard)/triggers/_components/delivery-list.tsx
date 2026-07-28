@@ -85,96 +85,96 @@ export function DeliveryList({
 
         return (
           <Card key={d.id} inset border="subtle">
-              <Stack
-                direction="horizontal"
-                align="center"
-                gap="cozy"
-                padding="snug"
-                onClick={() => onToggleExpanded(open ? null : d.id)}
-                role="button"
-                tabIndex={0}
-                aria-expanded={open}
-                aria-label={`${open ? 'Hide' : 'Show'} payload for delivery ${d.id}`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onToggleExpanded(open ? null : d.id);
-                  }
-                }}
-              >
-                <StatusDot status={dotStatus(status)} size="sm" />
+            <Stack
+              direction="horizontal"
+              align="center"
+              gap="cozy"
+              padding="snug"
+              onClick={() => onToggleExpanded(open ? null : d.id)}
+              role="button"
+              tabIndex={0}
+              aria-expanded={open}
+              aria-label={`${open ? 'Hide' : 'Show'} payload for delivery ${d.id}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onToggleExpanded(open ? null : d.id);
+                }
+              }}
+            >
+              <StatusDot status={dotStatus(status)} size="sm" />
 
-                <Stack gap="none" minWidth="none">
-                  <Text mono size="caption" weight="emphasis" truncate>
-                    {d.id}
-                  </Text>
-                  <Text mono size="micro" color="subtle" truncate>
-                    {d.eventType || d.kind}
-                  </Text>
-                </Stack>
-
-                <Text mono size="caption" weight="emphasis" color="muted">
-                  {status}
+              <Stack gap="none" minWidth="none">
+                <Text mono size="caption" weight="emphasis" truncate>
+                  {d.id}
                 </Text>
-                <Text mono size="micro" color="muted">
-                  {dispatchDuration(d.receivedAt, outcome?.createdAt ?? null)}
+                <Text mono size="micro" color="subtle" truncate>
+                  {d.eventType || d.kind}
                 </Text>
-                <Text size="micro" color="subtle">
-                  {shortAgo(d.receivedAt)}
-                </Text>
-                <Icon name={open ? 'chevron-up' : 'chevron-down'} size="2xs" color="subtle" />
               </Stack>
 
-              {open && (
-                <>
-                  <Separator />
-                  <Stack gap="snug" padding="snug">
-                    <Stack direction="horizontal" align="center" justify="between">
-                      <SectionLabel>Request payload</SectionLabel>
+              <Text mono size="caption" weight="emphasis" color="muted">
+                {status}
+              </Text>
+              <Text mono size="micro" color="muted">
+                {dispatchDuration(d.receivedAt, outcome?.createdAt ?? null)}
+              </Text>
+              <Text size="micro" color="subtle">
+                {shortAgo(d.receivedAt)}
+              </Text>
+              <Icon name={open ? 'chevron-up' : 'chevron-down'} size="2xs" color="subtle" />
+            </Stack>
+
+            {open && (
+              <>
+                <Separator />
+                <Stack gap="snug" padding="snug">
+                  <Stack direction="horizontal" align="center" justify="between">
+                    <SectionLabel>Request payload</SectionLabel>
+                    <Text mono size="micro" color="subtle">
+                      {formatBytes(d.payloadBytes)}
+                    </Text>
+                  </Stack>
+
+                  {d.payloadPurged ? (
+                    <Text size="caption" color="subtle">
+                      Payload purged past this tenant&apos;s retention window. What happened is
+                      still recorded.
+                    </Text>
+                  ) : d.payloadExcerpt !== null ? (
+                    <CodeBlock text={d.payloadExcerpt} wrap />
+                  ) : (
+                    <Text size="caption" color="subtle">
+                      No payload retained for this delivery.
+                    </Text>
+                  )}
+
+                  {outcome?.error != null && (
+                    <Text size="caption" color="status-error">
+                      {outcome.error}
+                    </Text>
+                  )}
+
+                  <Stack direction="horizontal" align="center" justify="between" gap="snug">
+                    <Stack direction="horizontal" align="center" gap="tight">
                       <Text mono size="micro" color="subtle">
-                        {formatBytes(d.payloadBytes)}
+                        run
+                      </Text>
+                      <Text mono size="caption" color="accent">
+                        {outcome?.runId ?? '—'}
                       </Text>
                     </Stack>
-
-                    {d.payloadPurged ? (
-                      <Text size="caption" color="subtle">
-                        Payload purged past this tenant&apos;s retention window. What happened is
-                        still recorded.
-                      </Text>
-                    ) : d.payloadExcerpt !== null ? (
-                      <CodeBlock text={d.payloadExcerpt} wrap />
-                    ) : (
-                      <Text size="caption" color="subtle">
-                        No payload retained for this delivery.
-                      </Text>
-                    )}
-
-                    {outcome?.error != null && (
-                      <Text size="caption" color="status-error">
-                        {outcome.error}
-                      </Text>
-                    )}
-
-                    <Stack direction="horizontal" align="center" justify="between" gap="snug">
-                      <Stack direction="horizontal" align="center" gap="tight">
-                        <Text mono size="micro" color="subtle">
-                          run
-                        </Text>
-                        <Text mono size="caption" color="accent">
-                          {outcome?.runId ?? '—'}
-                        </Text>
-                      </Stack>
-                      {/* Redeliver is specified but not yet built: replaying a
+                    {/* Redeliver is specified but not yet built: replaying a
                           delivery has to re-run admission and dedup, which is
                           still an open decision. Shown disabled rather than
                           hidden so the affordance is discoverable. */}
-                      <Button variant="ghost" size="xs" disabled>
-                        Redeliver
-                      </Button>
-                    </Stack>
+                    <Button variant="ghost" size="xs" disabled>
+                      Redeliver
+                    </Button>
                   </Stack>
-                </>
-              )}
+                </Stack>
+              </>
+            )}
           </Card>
         );
       })}

@@ -275,7 +275,9 @@ export function TriggerDrawer({
                   <Grid cols={2} gap="snug">
                     <DrawerStat
                       label="Catch-up"
-                      value={trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Skip missed runs'}
+                      value={
+                        trigger.scheduleConfig.catchUp ? 'Run on recovery' : 'Skip missed runs'
+                      }
                     />
                     <DrawerStat label="Created" value={formatTime(trigger.createdAt)} />
                   </Grid>

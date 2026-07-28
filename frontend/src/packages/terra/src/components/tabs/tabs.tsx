@@ -58,7 +58,7 @@ const LIST_SIZE: Record<TabsSize, string> = {
 const TRIGGER_SIZE: Record<TabsSize, string> = {
   default: 'px-4 pb-2.5 pt-2 text-sm font-medium',
   compact:
-    'inline-flex h-[38px] items-center px-4 text-[13px] font-medium data-[state=active]:font-semibold',
+    'inline-flex h-[38px] items-center px-3 text-[13px] font-medium data-[state=active]:font-semibold',
 };
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
