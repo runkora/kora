@@ -314,6 +314,12 @@ func (s *Service) createWebhookTrigger(ctx context.Context, tenantID string, req
 		GrantID:        &grantID,
 		Enabled:        true,
 	}
+	// Already validated by validateWebhookTriggerCreate above, before the grant
+	// existed; the grant cleanup here is belt and braces.
+	if err := applyAdmissionCreate(t, req); err != nil {
+		_ = s.policy.DeleteGrant(ctx, grantID)
+		return nil, err
+	}
 	if err := s.repo.CreateTrigger(ctx, t); err != nil {
 		if delErr := s.policy.DeleteGrant(ctx, grantID); delErr != nil {
 			s.logger.Error(ctx, "trigger create failed and grant cleanup failed",
@@ -387,6 +393,13 @@ func (s *Service) createScheduledTrigger(ctx context.Context, tenantID string, r
 		GrantIDSvc:     &svcGrantID,
 		Enabled:        true,
 	}
+	// Already validated by validateScheduledTriggerCreate above, before either
+	// grant existed; the cleanup here is belt and braces.
+	if err := applyAdmissionCreate(t, req); err != nil {
+		_ = s.policy.DeleteGrant(ctx, runGrantID)
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
+	}
 	if err := s.repo.CreateTrigger(ctx, t); err != nil {
 		_ = s.policy.DeleteGrant(ctx, runGrantID)
 		_ = s.policy.DeleteGrant(ctx, svcGrantID)
@@ -453,6 +466,13 @@ func (s *Service) createManualTrigger(ctx context.Context, tenantID string, req 
 		GrantID:        &runGrantID,
 		GrantIDSvc:     &svcGrantID,
 		Enabled:        true,
+	}
+	// Already validated by validateManualTriggerCreate above, before either
+	// grant existed; the cleanup here is belt and braces.
+	if err := applyAdmissionCreate(t, req); err != nil {
+		_ = s.policy.DeleteGrant(ctx, runGrantID)
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
 	}
 	if err := s.repo.CreateTrigger(ctx, t); err != nil {
 		_ = s.policy.DeleteGrant(ctx, runGrantID)
@@ -810,7 +830,10 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 	//               source. The fix is a missing trigger.
 	var matched []Trigger
 	for _, t := range triggers {
-		if t.EventType != eventType {
+		// An empty event_type subscribes to every event the source emits; a
+		// non-empty one is an exact match. The console renders '' as "any
+		// event", and this is the line that makes that label true.
+		if t.EventType != "" && t.EventType != eventType {
 			continue
 		}
 		if !matchesCondition(t.MatchCondition, fields) {
@@ -989,6 +1012,88 @@ func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, t
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+// Admission bounds. The ceilings are deliberately low: these settings exist to
+// protect the platform from a trigger that fires faster than its agent runs, and
+// a caller who needs more parallelism than this wants more triggers, not a
+// bigger number here. maxParallelCeiling matches the triggers_max_parallel_check
+// constraint in the admission_control migration — validating against a looser
+// bound here would turn a caller's mistake into a database error.
+const (
+	minParallel        int16 = 1
+	maxParallelCeiling int16 = 16
+	minQueueDepth      int16 = 1
+	maxQueueDepth      int16 = 500
+	minTimeoutSeconds  int16 = 5
+	maxTimeoutSeconds  int16 = 600
+)
+
+// validateAdmissionCreate checks the optional admission fields on a create
+// request. It is called from each kind's validate* function so that a bad value
+// is rejected before any principal or grant is provisioned: a rejected create
+// must leave nothing behind.
+func validateAdmissionCreate(req CreateTriggerRequest) error {
+	if req.Overflow != nil {
+		switch *req.Overflow {
+		case OverflowWait, OverflowReplace, OverflowRefuse:
+		default:
+			return fmt.Errorf("%w: overflow must be one of %q, %q or %q", ErrValidation, OverflowWait, OverflowReplace, OverflowRefuse)
+		}
+	}
+	if err := inRange("max_parallel", req.MaxParallel, minParallel, maxParallelCeiling); err != nil {
+		return err
+	}
+	if err := inRange("max_queue_depth", req.MaxQueueDepth, minQueueDepth, maxQueueDepth); err != nil {
+		return err
+	}
+	return inRange("timeout_seconds", req.TimeoutSeconds, minTimeoutSeconds, maxTimeoutSeconds)
+}
+
+func inRange(field string, v *int16, lo, hi int16) error {
+	if v == nil {
+		return nil
+	}
+	if *v < lo || *v > hi {
+		return fmt.Errorf("%w: %s must be between %d and %d", ErrValidation, field, lo, hi)
+	}
+	return nil
+}
+
+// applyAdmissionCreate copies the request's admission settings onto a freshly
+// built trigger, revalidating first so the helper is safe wherever it is called.
+//
+// The two safety flags are armed here rather than left to the column default:
+// the service is where "a new trigger dedupes and auto-pauses unless you say
+// otherwise" is decided, and a reader should not have to open a migration to
+// learn it. The remaining four stay zero when unset, which the repository reads
+// as "use the per-kind default".
+func applyAdmissionCreate(t *Trigger, req CreateTriggerRequest) error {
+	if err := validateAdmissionCreate(req); err != nil {
+		return err
+	}
+	t.DedupeEnabled = true
+	t.AutopauseEnabled = true
+
+	if req.MaxParallel != nil {
+		t.MaxParallel = *req.MaxParallel
+	}
+	if req.Overflow != nil {
+		t.Overflow = *req.Overflow
+	}
+	if req.MaxQueueDepth != nil {
+		t.MaxQueueDepth = *req.MaxQueueDepth
+	}
+	if req.TimeoutSeconds != nil {
+		t.TimeoutSeconds = *req.TimeoutSeconds
+	}
+	if req.DedupeEnabled != nil {
+		t.DedupeEnabled = *req.DedupeEnabled
+	}
+	if req.AutopauseEnabled != nil {
+		t.AutopauseEnabled = *req.AutopauseEnabled
+	}
+	return nil
+}
+
 func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
@@ -997,12 +1102,12 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
 	case req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	case req.EventType == "":
-		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+	// An empty event_type is legal and means "any event this source emits";
+	// dispatch treats '' as match-all.
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
 	}
-	return nil
+	return validateAdmissionCreate(req)
 }
 
 func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
@@ -1016,6 +1121,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 	case req.ScheduleConfig == nil:
 		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
 	}
+	if err := validateAdmissionCreate(req); err != nil {
+		return err
+	}
 	return validateScheduleConfig(req.ScheduleConfig)
 }
 
@@ -1027,6 +1135,9 @@ func validateManualTriggerCreate(req CreateTriggerRequest) error {
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
+	}
+	if err := validateAdmissionCreate(req); err != nil {
+		return err
 	}
 	// A declaration that could never be satisfied is caught here rather than at
 	// fire time, when the caller has no way to fix it.

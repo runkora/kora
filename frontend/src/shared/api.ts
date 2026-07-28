@@ -709,6 +709,17 @@ export interface TriggerCreateRequest {
   prompt_template: string;
   /** Required for scheduled triggers. */
   schedule_config?: ScheduleConfig;
+  // ── Admission control (all optional; defaults per kind when omitted) ──
+  /** Concurrency ceiling, 1..16. */
+  max_parallel?: number;
+  /** What happens to an arrival beyond the ceiling. */
+  overflow?: 'wait' | 'replace' | 'refuse';
+  /** Queue bound when overflow is 'wait', 1..500. */
+  max_queue_depth?: number;
+  /** How long a queued delivery may wait before it is dropped, 5..600 seconds. */
+  timeout_seconds?: number;
+  dedupe_enabled?: boolean;
+  autopause_enabled?: boolean;
 }
 
 /** Request body for PATCH /api/triggers/:id. */

@@ -215,12 +215,14 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 		INSERT INTO triggers
 			(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 			 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled,
-			 overflow, max_parallel, max_queue_depth, timeout_seconds)
+			 overflow, max_parallel, max_queue_depth, timeout_seconds,
+			 dedupe_enabled, autopause_enabled)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
 		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
-		defaultOverflow(t), defaultInt16(t.MaxParallel, 4), defaultInt16(t.MaxQueueDepth, 32), defaultInt16(t.TimeoutSeconds, 30))
+		defaultOverflow(t), defaultInt16(t.MaxParallel, 4), defaultInt16(t.MaxQueueDepth, 32), defaultInt16(t.TimeoutSeconds, 30),
+		t.DedupeEnabled, t.AutopauseEnabled)
 	if err != nil {
 		return fmt.Errorf("create trigger: %w", err)
 	}

@@ -1,0 +1,206 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  deriveFieldKey,
+  initialState,
+  parallelWord,
+  previewBody,
+  resolvedFields,
+  sharedReviewRows,
+  stepsFor,
+  toDraft,
+  validateDelivery,
+  validateTarget,
+} from './wizard-state';
+import { SHARED_STEPS } from './shared-steps';
+import { TRIGGER_KINDS } from './kinds';
+import { NEW_SOURCE } from './types';
+import type { WizardContext, WizardField, WizardState } from './types';
+
+const SOURCES = [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }];
+const AGENTS = [{ id: 'at-1', slug: 'coder', name: 'Coder' }];
+
+const CONTEXT: WizardContext = {
+  agents: AGENTS,
+  sources: SOURCES,
+  ingestHost: 'orbit.local.clearroute.io:8443',
+};
+
+function field(overrides: Partial<WizardField> = {}): WizardField {
+  return { id: 'f1', label: 'Question', type: 'text', required: true, ...overrides };
+}
+
+function state(overrides: Partial<WizardState> = {}): WizardState {
+  return {
+    ...initialState(TRIGGER_KINDS.webhook, SOURCES),
+    name: 'github-push',
+    promptTemplate: 'Review {{ event.ref }}',
+    agentTypeId: 'at-1',
+    ...overrides,
+  };
+}
+
+describe('stepsFor', () => {
+  it('puts the kind step first and the shared three after', () => {
+    expect(stepsFor(TRIGGER_KINDS.webhook, SHARED_STEPS).map((s) => s.id)).toEqual([
+      'source',
+      'target',
+      'delivery',
+      'review',
+    ]);
+    expect(stepsFor(TRIGGER_KINDS.scheduled, SHARED_STEPS).map((s) => s.id)).toEqual([
+      'schedule',
+      'target',
+      'delivery',
+      'review',
+    ]);
+    expect(stepsFor(TRIGGER_KINDS.manual, SHARED_STEPS).map((s) => s.id)).toEqual([
+      'inputs',
+      'target',
+      'delivery',
+      'review',
+    ]);
+  });
+});
+
+describe('initialState', () => {
+  it('applies the kind defaults over the shared ones', () => {
+    expect(initialState(TRIGGER_KINDS.webhook, SOURCES).overflow).toBe('wait');
+    expect(initialState(TRIGGER_KINDS.webhook, SOURCES).maxParallel).toBe(4);
+    // A schedule that overlaps itself is nearly always a mistake.
+    expect(initialState(TRIGGER_KINDS.scheduled, SOURCES).overflow).toBe('replace');
+    expect(initialState(TRIGGER_KINDS.scheduled, SOURCES).maxParallel).toBe(1);
+  });
+
+  it('preselects the first source so the common case is one click', () => {
+    expect(initialState(TRIGGER_KINDS.webhook, SOURCES).sourceChoice).toBe('src-1');
+    expect(initialState(TRIGGER_KINDS.webhook, []).sourceChoice).toBe('');
+  });
+});
+
+describe('deriveFieldKey', () => {
+  it('snake_cases a label', () => {
+    expect(deriveFieldKey('Row limit', 0)).toBe('row_limit');
+    expect(deriveFieldKey('Question', 0)).toBe('question');
+  });
+
+  it('collapses punctuation and runs of separators', () => {
+    expect(deriveFieldKey('Customer  ID / ref', 0)).toBe('customer_id_ref');
+    expect(deriveFieldKey('  Trailing --- ', 0)).toBe('trailing');
+  });
+
+  it('falls back to a positional key when nothing survives', () => {
+    expect(deriveFieldKey('', 0)).toBe('field_1');
+    expect(deriveFieldKey('***', 2)).toBe('field_3');
+  });
+});
+
+describe('resolvedFields', () => {
+  it('drops unlabelled rows and keys the rest', () => {
+    const fields = [
+      field({ id: 'a', label: 'Question' }),
+      field({ id: 'b', label: '   ' }),
+      field({ id: 'c', label: 'Row limit', type: 'number', required: false }),
+    ];
+    expect(resolvedFields(fields)).toEqual([
+      { name: 'question', label: 'Question', type: 'text', required: true },
+      { name: 'row_limit', label: 'Row limit', type: 'number', required: false },
+    ]);
+  });
+});
+
+describe('previewBody', () => {
+  it('shows string values, since the API takes a string map', () => {
+    const body = previewBody([
+      field({ id: 'a', label: 'Question' }),
+      field({ id: 'b', label: 'Row limit', type: 'number' }),
+      field({ id: 'c', label: 'Dry run', type: 'boolean' }),
+    ]);
+    expect(JSON.parse(body)).toEqual({
+      variables: { question: '…', row_limit: '0', dry_run: 'true' },
+    });
+  });
+});
+
+describe('shared step validation', () => {
+  it('requires an agent and in-range limits on the target step', () => {
+    expect(validateTarget(state({ agentTypeId: '' })).valid).toBe(false);
+    expect(validateTarget(state({ maxParallel: 33 })).valid).toBe(false);
+    expect(validateTarget(state({ overflow: 'wait', maxQueueDepth: 0 })).valid).toBe(false);
+    expect(validateTarget(state({ overflow: 'refuse', maxQueueDepth: 0 })).valid).toBe(true);
+  });
+
+  it('bounds the delivery timeout', () => {
+    expect(validateDelivery(state({ timeoutSeconds: 4 })).valid).toBe(false);
+    expect(validateDelivery(state({ timeoutSeconds: 601 })).valid).toBe(false);
+    expect(validateDelivery(state({ timeoutSeconds: 30 })).valid).toBe(true);
+  });
+
+  it('explains what is missing', () => {
+    expect(validateTarget(state({ agentTypeId: '' })).hint).toBeTruthy();
+  });
+
+  it('never blocks the review step', () => {
+    const review = SHARED_STEPS.find((s) => s.id === 'review')!;
+    expect(review.validate(state({ name: '' }), CONTEXT).valid).toBe(true);
+  });
+});
+
+describe('sharedReviewRows', () => {
+  it('names the agent and reads the concurrency as one sentence', () => {
+    const rows = sharedReviewRows(state({ maxParallel: 4, overflow: 'wait' }), CONTEXT);
+    expect(rows.find((r) => r.key === 'Agent')?.value).toBe('Coder');
+    expect(rows.find((r) => r.key === 'Concurrency')?.value).toBe('4 parallel · wait');
+  });
+});
+
+describe('toDraft', () => {
+  it('carries the existing source and event type for a webhook', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.webhook,
+      state({ sourceChoice: 'src-1', eventType: 'push' }),
+    );
+    expect(draft.kind).toBe('webhook');
+    expect(draft.source).toEqual({ existingId: 'src-1' });
+    expect(draft.eventType).toBe('push');
+    expect(draft.schedule).toBeUndefined();
+    expect(draft.manualInputs).toBeUndefined();
+  });
+
+  it('asks for a new source when one was requested', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.webhook,
+      state({ sourceChoice: NEW_SOURCE, newSourceName: ' acme ', newSourceProvider: 'github' }),
+    );
+    expect(draft.source).toEqual({ newName: 'acme', provider: 'github' });
+  });
+
+  it('derives the cron for a scheduled trigger', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.scheduled,
+      state({ freq: 'daily', time: '02:00', timezone: 'UTC', catchUp: true }),
+    );
+    expect(draft.schedule).toEqual({
+      cronExpression: '0 2 * * *',
+      timezone: 'UTC',
+      catchUp: true,
+    });
+  });
+
+  it('carries only labelled inputs for a manual trigger', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.manual,
+      state({ fields: [field({ id: 'a', label: 'Question' }), field({ id: 'b', label: '' })] }),
+    );
+    expect(draft.manualInputs).toEqual([
+      { name: 'question', label: 'Question', type: 'text', required: true },
+    ]);
+  });
+});
+
+describe('parallelWord', () => {
+  it('reads as prose at both ends', () => {
+    expect(parallelWord(1)).toBe('One at a time');
+    expect(parallelWord(4)).toBe('Up to 4 at once');
+  });
+});

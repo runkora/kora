@@ -15,9 +15,6 @@ import {
   Heading,
   Icon,
   Stack,
-  SidePanel,
-  SidePanelBody,
-  SidePanelHeader,
   Tabs,
   TabsContent,
   TabsList,
@@ -25,19 +22,19 @@ import {
   Text,
 } from '@orbit/terra';
 import type { DataTableColumn, TableColumnFilterOption } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
-import type { TriggerFormValue } from '@orbit/components';
+import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import {
-  deleteSource,
+  createSource,
+  createTrigger,
   deleteTrigger,
   fireTrigger,
   updateSource,
   updateTrigger,
 } from '../_services/triggers-api';
-import { SourceFormModal } from './source-form-modal';
+import { TriggerWizard } from './trigger-wizard';
+import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
 import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
-import { TriggerKindPicker } from './trigger-kind-picker';
 import { TriggerList } from './trigger-list';
 import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
@@ -83,9 +80,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const formSources = useMemo(() => sources.map((s) => ({ id: s.id, name: s.name })), [sources]);
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
-  const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [triggerForm, setTriggerForm] = useState<{ trigger: TriggerFormValue | null } | null>(null);
-  const [deleteSrc, setDeleteSrc] = useState<SourceRow | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [deleteTrg, setDeleteTrg] = useState<TriggerRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -153,7 +148,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     </Stack>
   );
 
-  const [kindPickerOpen, setKindPickerOpen] = useState(false);
   const [firingId, setFiringId] = useState<string | null>(null);
   const [fireResult, setFireResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -172,13 +166,89 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
   }, []);
 
-  const toggleSource = useCallback(
-    async (row: SourceRow) => {
-      await updateSource(row.id, { enabled: !row.enabled });
+  /**
+   * Executes the wizard's draft: the source first when one was asked for, then
+   * the trigger. The secret only exists when a source was just created, and it
+   * is passed straight through to the done screen; nothing stores it.
+   */
+  const createFromWizard = useCallback(
+    async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
+      let sourceId: string | undefined;
+      let secret: string | undefined;
+
+      if (draft.kind === 'webhook') {
+        if (draft.source === undefined) return { ok: false, error: 'Choose a source.' };
+        if ('existingId' in draft.source) {
+          sourceId = draft.source.existingId;
+        } else {
+          const made = await createSource({
+            name: draft.source.newName,
+            provider: draft.source.provider,
+          });
+          if (made.error !== null || made.source === null) {
+            return { ok: false, error: made.error ?? 'Failed to create the source.' };
+          }
+          sourceId = made.source.id;
+          secret = made.source.secret;
+        }
+      }
+
+      const made = await createTrigger({
+        kind: draft.kind,
+        name: draft.name,
+        agent_type_id: draft.agentTypeId,
+        prompt_template: draft.promptTemplate,
+        ...(sourceId !== undefined && { source_id: sourceId }),
+        ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
+        ...(draft.schedule !== undefined && {
+          schedule_config: {
+            cron_expression: draft.schedule.cronExpression,
+            timezone: draft.schedule.timezone,
+            catch_up: draft.schedule.catchUp,
+          },
+        }),
+        ...(draft.manualInputs !== undefined && {
+          manual_config: {
+            inputs: draft.manualInputs.map((f) => ({
+              name: f.name,
+              label: f.label,
+              type: f.type,
+              required: f.required,
+              ...(f.choices !== undefined && { choices: f.choices }),
+            })),
+          },
+        }),
+        max_parallel: draft.maxParallel,
+        overflow: draft.overflow,
+        max_queue_depth: draft.maxQueueDepth,
+        timeout_seconds: draft.timeoutSeconds,
+        dedupe_enabled: draft.dedupeEnabled,
+        autopause_enabled: draft.autopauseEnabled,
+      });
+      if (made.error !== null || made.trigger === null) {
+        // A just-created source outlives the failure on purpose: it is real,
+        // and the retry can pick it from the existing-sources list.
+        return { ok: false, error: made.error ?? 'Failed to create the trigger.' };
+      }
+
       router.refresh();
+      return {
+        ok: true,
+        triggerId: made.trigger.id,
+        ...(sourceId !== undefined && {
+          endpoint: `https://${ingestHost}/api/v1/webhooks/${sourceId}`,
+        }),
+        ...(secret !== undefined && { secret }),
+      };
     },
-    [router],
+    [router, ingestHost],
   );
+
+  /** Rotates a webhook trigger's source secret; the drawer shows it once. */
+  const rotateSecret = useCallback(async (row: TriggerRow): Promise<string | null> => {
+    const result = await updateSource(row.sourceId, { rotate_secret: true });
+    return result.source?.secret ?? null;
+  }, []);
 
   const toggleTrigger = useCallback(
     async (row: TriggerRow) => {
@@ -215,20 +285,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       ? null
       : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
 
-  const confirmDeleteSource = useCallback(async () => {
-    if (!deleteSrc) return;
-    setDeleting(true);
-    setDeleteError(null);
-    const result = await deleteSource(deleteSrc.id);
-    setDeleting(false);
-    if (result.error) {
-      setDeleteError(result.error);
-      return;
-    }
-    setDeleteSrc(null);
-    router.refresh();
-  }, [deleteSrc, router]);
-
   const confirmDeleteTrigger = useCallback(async () => {
     if (!deleteTrg) return;
     setDeleting(true);
@@ -244,81 +300,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   }, [deleteTrg, router]);
 
   // ── Columns ──────────────────────────────────────────────────────────────────
-
-  const sourceColumns = useMemo<DataTableColumn<SourceRow>[]>(
-    () => [
-      {
-        id: 'name',
-        header: 'Name',
-        locked: true,
-        sortable: true,
-        sortAccessor: (row) => row.name,
-        cell: (row) => (
-          <Text size="supporting" weight="emphasis">
-            {row.name}
-          </Text>
-        ),
-      },
-      {
-        id: 'provider',
-        header: 'Provider',
-        cell: (row) => (
-          <Badge variant="outline" size="sm">
-            {row.provider}
-          </Badge>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        // align start: a column Stack stretches children by default, which
-        // would pull the badge out to the column width.
-        cell: (row) => (
-          <Stack gap="none" align="start">
-            <StatusBadge
-              status={row.enabled ? 'healthy' : 'unknown'}
-              label={row.enabled ? 'Enabled' : 'Disabled'}
-            />
-            {/* Requests that failed authentication never become deliveries, so
-                this counter is the only place a wrong signing secret shows up. */}
-            {row.rejectionCount > 0 && (
-              <Text size="caption" color="muted">
-                {row.rejectionCount} rejected
-                {row.lastRejectionReason !== null ? `: ${row.lastRejectionReason}` : ''}
-              </Text>
-            )}
-          </Stack>
-        ),
-      },
-      {
-        id: 'actions',
-        header: '',
-        locked: true,
-        width: '8rem',
-        cell: (row) => (
-          <Stack direction="horizontal" gap="tight" justify="end">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => void toggleSource(row)}
-              aria-label={row.enabled ? `Disable ${row.name}` : `Enable ${row.name}`}
-            >
-              <Icon name={row.enabled ? 'eye-off' : 'eye'} size="2xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setDeleteSrc(row)}
-              aria-label={`Delete ${row.name}`}
-            >
-              <Icon name="trash" size="2xs" />
-            </Button>
-          </Stack>
-        ),
-      },
-    ],
-    [toggleSource],
-  );
 
   const deliveryColumns = useMemo<DataTableColumn<DeliveryRow>[]>(
     () => [
@@ -420,7 +401,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
             <Text mono size="caption" color="muted">
               {ingestHost}
             </Text>
-            <Button size="sm" onClick={() => setKindPickerOpen(true)}>
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
               <Icon name="plus" size="xs" />
               New trigger
             </Button>
@@ -433,54 +414,15 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
 
       <FleetKpis triggers={triggers} deliveries={deliveries} />
 
-      {/* Triggers first: the page is about what starts work. Sources are the
-          configuration behind one kind of trigger, not the headline. */}
+      {/* Sources are not a headline surface: a webhook source is created
+          inside the New Trigger flow and managed from its trigger's drawer,
+          so the page stays about what starts work. */}
       <Tabs defaultValue="triggers">
         <TabsList>
-          <TabsTrigger value="sources">Sources</TabsTrigger>
           <TabsTrigger value="triggers">Triggers</TabsTrigger>
           <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
         </TabsList>
 
-        {/* Sources */}
-        <TabsContent value="sources">
-          <Stack gap="comfortable">
-            <Stack direction="horizontal" justify="end">
-              <Button size="sm" onClick={() => setSourceModalOpen(true)}>
-                <Icon name="plus" size="xs" />
-                New source
-              </Button>
-            </Stack>
-            {sources.length === 0 ? (
-              <EmptyState
-                icon="zap"
-                title="No webhook sources"
-                description="Register a webhook source (e.g. a GitHub repository) to receive inbound events."
-                action={
-                  <Button size="sm" onClick={() => setSourceModalOpen(true)}>
-                    <Icon name="plus" size="xs" />
-                    New source
-                  </Button>
-                }
-              />
-            ) : (
-              <DataTable
-                data={sources}
-                columns={sourceColumns}
-                getRowKey={(row) => row.id}
-                noun="sources"
-                searchPlaceholder="Search sources…"
-                searchFn={(row, q) => row.name.toLowerCase().includes(q.toLowerCase())}
-                defaultSortId="name"
-                defaultSortDir="asc"
-                emptyMessage="No sources."
-                filteredEmptyMessage="No sources match your search."
-              />
-            )}
-          </Stack>
-        </TabsContent>
-
-        {/* Triggers */}
         <TabsContent value="triggers">
           <Stack gap="comfortable">
             <TriggerList
@@ -530,26 +472,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       </Tabs>
 
       {/* Modals */}
-      {/* Choosing how a trigger starts is the first decision, so it gets its own
-          step rather than a dropdown buried in the form. It also shows the kinds
-          the model accommodates but that are not built yet. */}
-      {kindPickerOpen && (
-        <SidePanel open onClose={() => setKindPickerOpen(false)} size="lg">
-          <SidePanelHeader
-            title="New trigger"
-            description="Choose how this trigger starts. What it starts is chosen next."
-          />
-          <SidePanelBody>
-            <TriggerKindPicker
-              onSelect={(kind) => {
-                setKindPickerOpen(false);
-                setTriggerForm({ trigger: { kind } as TriggerFormValue });
-              }}
-            />
-          </SidePanelBody>
-        </SidePanel>
-      )}
-
       <TriggerDrawer
         trigger={drawerRow}
         sources={sources}
@@ -565,48 +487,27 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           setDeleteTrg(t);
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
+        onRotateSecret={rotateSecret}
         onFire={(t) => void fireManualTrigger(t)}
         firing={firingId !== null}
       />
 
-      <SourceFormModal
-        open={sourceModalOpen}
-        onClose={() => setSourceModalOpen(false)}
-        onSaved={() => {
-          setSourceModalOpen(false);
-          router.refresh();
-        }}
-      />
-
-      {triggerForm && (
-        <TriggerFormModal
-          key={triggerForm.trigger?.id ?? 'create'}
-          open
-          trigger={triggerForm.trigger}
-          sources={formSources}
+      {/* One modal owns the whole creation flow: kind picker, the kind's own
+          steps from the registry, the shared steps, and the success screen. */}
+      {wizardOpen && (
+        <TriggerWizard
           agents={agents}
-          onClose={() => setTriggerForm(null)}
-          onSaved={() => {
-            setTriggerForm(null);
-            router.refresh();
-          }}
+          sources={formSources.map((f) => ({
+            ...f,
+            provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',
+          }))}
+          ingestHost={ingestHost}
+          onCreate={createFromWizard}
+          onClose={() => setWizardOpen(false)}
         />
       )}
 
       {/* Delete confirmations */}
-      <ConfirmDialog
-        open={!!deleteSrc}
-        title="Delete webhook source"
-        description={`Permanently delete "${deleteSrc?.name ?? ''}"? Its triggers and signing secret are removed and its identity's grants revoked.`}
-        confirmLabel="Delete source"
-        confirming={deleting}
-        error={deleteError}
-        onConfirm={() => void confirmDeleteSource()}
-        onClose={() => {
-          setDeleteSrc(null);
-          setDeleteError(null);
-        }}
-      />
       <ConfirmDialog
         open={!!deleteTrg}
         title="Delete trigger"

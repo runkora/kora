@@ -431,6 +431,19 @@ type CreateTriggerRequest struct {
 	PromptTemplate string              `json:"prompt_template"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
+
+	// ─── Admission control ──────────────────────────────────────────────────
+	// These tune admission control: the concurrency ceiling, what happens
+	// beyond it, and the two safety behaviors. Every one is optional and
+	// defaults per kind (see DefaultOverflowForKind and applyAdmissionCreate),
+	// so a request that omits them creates exactly the trigger it did before
+	// these fields existed.
+	MaxParallel      *int16  `json:"max_parallel,omitempty"`
+	Overflow         *string `json:"overflow,omitempty"`
+	MaxQueueDepth    *int16  `json:"max_queue_depth,omitempty"`
+	TimeoutSeconds   *int16  `json:"timeout_seconds,omitempty"`
+	DedupeEnabled    *bool   `json:"dedupe_enabled,omitempty"`
+	AutopauseEnabled *bool   `json:"autopause_enabled,omitempty"`
 }
 
 // UpdateTriggerRequest is the body for PATCH /api/v1/triggers/{id}. The agent

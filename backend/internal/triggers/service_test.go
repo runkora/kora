@@ -314,6 +314,167 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 }
 
+// ── Admission settings at create ────────────────────────────────────────────
+
+func admissionPtr[T any](v T) *T { return &v }
+
+func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
+	// Omitting every admission field must produce exactly the trigger this path
+	// produced before the fields existed: the four tuning knobs left zero for
+	// the repository to default per kind, and both safety behaviors armed.
+	tests := []struct {
+		name string
+		req  CreateTriggerRequest
+	}{
+		{"webhook", CreateTriggerRequest{Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p"}},
+		{"scheduled", CreateTriggerRequest{
+			Kind: KindScheduled, Name: "nightly", AgentTypeID: "at-1", PromptTemplate: "p",
+			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"},
+		}},
+		{"manual", CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			req := tc.req
+			if req.Kind == "" || req.Kind == KindWebhook {
+				req.SourceID = mustSource(t, svc).ID
+			}
+
+			tr, err := svc.CreateTrigger(context.Background(), testTenant, req)
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			stored := deps.repo.triggers[tr.ID]
+			if stored == nil {
+				t.Fatal("trigger not persisted")
+			}
+			if stored.MaxParallel != 0 || stored.Overflow != "" || stored.MaxQueueDepth != 0 || stored.TimeoutSeconds != 0 {
+				t.Errorf("unset tuning fields should stay zero for the repository to default: %+v", stored)
+			}
+			if !stored.DedupeEnabled || !stored.AutopauseEnabled {
+				t.Errorf("dedupe=%v autopause=%v, want both armed by default", stored.DedupeEnabled, stored.AutopauseEnabled)
+			}
+		})
+	}
+}
+
+func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+
+	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
+		MaxParallel:      admissionPtr[int16](2),
+		Overflow:         admissionPtr(OverflowRefuse),
+		MaxQueueDepth:    admissionPtr[int16](7),
+		TimeoutSeconds:   admissionPtr[int16](45),
+		DedupeEnabled:    admissionPtr(false),
+		AutopauseEnabled: admissionPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	stored := deps.repo.triggers[tr.ID]
+	switch {
+	case stored.MaxParallel != 2:
+		t.Errorf("MaxParallel = %d, want 2", stored.MaxParallel)
+	case stored.Overflow != OverflowRefuse:
+		t.Errorf("Overflow = %q, want %q", stored.Overflow, OverflowRefuse)
+	case stored.MaxQueueDepth != 7:
+		t.Errorf("MaxQueueDepth = %d, want 7", stored.MaxQueueDepth)
+	case stored.TimeoutSeconds != 45:
+		t.Errorf("TimeoutSeconds = %d, want 45", stored.TimeoutSeconds)
+	case stored.DedupeEnabled:
+		t.Error("DedupeEnabled should be off when the caller turns it off")
+	case stored.AutopauseEnabled:
+		t.Error("AutopauseEnabled should be off when the caller turns it off")
+	}
+}
+
+func TestCreateTrigger_AdmissionRejected(t *testing.T) {
+	// An out-of-range setting must be refused before anything is provisioned.
+	// The scheduled and manual paths create a principal and two grants on the
+	// way to persisting, so "rejected" has to mean "nothing was created".
+	settings := []struct {
+		name  string
+		apply func(*CreateTriggerRequest)
+	}{
+		{"max_parallel zero", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](0) }},
+		{"max_parallel above ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](17) }},
+		{"max_queue_depth zero", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](0) }},
+		{"max_queue_depth above ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](501) }},
+		{"timeout below floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](4) }},
+		{"timeout above ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](601) }},
+		{"unknown overflow", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr("drop") }},
+	}
+	kinds := []struct {
+		name string
+		base CreateTriggerRequest
+	}{
+		{"webhook", CreateTriggerRequest{Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p"}},
+		{"scheduled", CreateTriggerRequest{
+			Kind: KindScheduled, Name: "nightly", AgentTypeID: "at-1", PromptTemplate: "p",
+			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"},
+		}},
+		{"manual", CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}},
+	}
+	for _, k := range kinds {
+		for _, s := range settings {
+			t.Run(k.name+"/"+s.name, func(t *testing.T) {
+				svc, deps := newTestService(t)
+				req := k.base
+				if req.Kind == "" || req.Kind == KindWebhook {
+					req.SourceID = mustSource(t, svc).ID
+				}
+				s.apply(&req)
+				grantsBefore := len(deps.policy.created) // the source's own grant, for webhooks
+
+				if _, err := svc.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
+					t.Fatalf("got %v, want ErrValidation", err)
+				}
+				if len(deps.repo.triggers) != 0 {
+					t.Error("no trigger should be persisted")
+				}
+				if len(deps.policy.created) != grantsBefore {
+					t.Errorf("no grant should be created (grants %d → %d)", grantsBefore, len(deps.policy.created))
+				}
+			})
+		}
+	}
+}
+
+func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
+	// The edges of each range are valid; only past them is a rejection.
+	tests := []struct {
+		name  string
+		apply func(*CreateTriggerRequest)
+	}{
+		{"max_parallel floor", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](1) }},
+		{"max_parallel ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](16) }},
+		{"max_queue_depth floor", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](1) }},
+		{"max_queue_depth ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](500) }},
+		{"timeout floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](5) }},
+		{"timeout ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](600) }},
+		{"overflow wait", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowWait) }},
+		{"overflow replace", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowReplace) }},
+		{"overflow refuse", func(r *CreateTriggerRequest) { r.Overflow = admissionPtr(OverflowRefuse) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := newTestService(t)
+			src := mustSource(t, svc)
+			req := CreateTriggerRequest{
+				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
+			}
+			tc.apply(&req)
+			if _, err := svc.CreateTrigger(context.Background(), testTenant, req); err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+		})
+	}
+}
+
 func TestUpdateTrigger(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, svc)
@@ -554,6 +715,37 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	}
 	if len(got.Runs) != 2 {
 		t.Errorf("delivery.Runs = %d, want 2 (full fan-out)", len(got.Runs))
+	}
+}
+
+// An empty event_type subscribes to every event the source emits; the console
+// renders it as "any event" and dispatch must make that label true.
+func TestDispatch_EmptyEventType_MatchesAnyEvent(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	if _, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID:       src.ID,
+		Name:           "catch-all",
+		AgentTypeID:    "at-1",
+		AgentSlug:      "code-reviewer",
+		EventType:      "",
+		PromptTemplate: "handle {{ event.type }}",
+	}); err != nil {
+		t.Fatalf("CreateTrigger with empty event_type: %v", err)
+	}
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	delID := "deliv-any"
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: delID, TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusVerified,
+	})
+	deps.minter.reset()
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
+
+	if deps.agents.callCount() != 1 {
+		t.Fatalf("catch-all trigger did not fire: %d run starts", deps.agents.callCount())
 	}
 }
 

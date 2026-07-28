@@ -55,6 +55,11 @@ interface TriggerDrawerProps {
    * case the toggles render disabled rather than pretending to save.
    */
   onUpdateSafety?: (t: TriggerRow, patch: Partial<TriggerRow>) => void;
+  /**
+   * Rotates the webhook source's signing secret and resolves with the new one,
+   * which is shown once here and never again. Absent for read-only callers.
+   */
+  onRotateSecret?: (t: TriggerRow) => Promise<string | null>;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
@@ -140,10 +145,16 @@ export function TriggerDrawer({
   onToggleEnabled,
   onDelete,
   onUpdateSafety,
+  onRotateSecret,
   onFire,
   firing = false,
 }: TriggerDrawerProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Rotation is destructive (the provider's configured secret stops working the
+  // moment it lands), so the button asks once before doing it.
+  const [rotateArmed, setRotateArmed] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [rotatedSecret, setRotatedSecret] = useState<string | null>(null);
 
   const mine = useMemo(
     () =>
@@ -235,22 +246,55 @@ export function TriggerDrawer({
                       </Text>
                     }
                     actions={
-                      <>
-                        {/* Write-once at creation and never returned on reads,
-                            so there is nothing to reveal or rotate yet. */}
-                        <Button variant="ghost" size="xs" disabled>
-                          Reveal
+                      rotatedSecret !== null ? (
+                        <CopyButton value={rotatedSecret} label="Copy" />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          disabled={onRotateSecret === undefined || rotating}
+                          onClick={() => {
+                            if (!rotateArmed) {
+                              setRotateArmed(true);
+                              return;
+                            }
+                            setRotating(true);
+                            void onRotateSecret?.(trigger).then((secret) => {
+                              setRotating(false);
+                              setRotateArmed(false);
+                              if (secret !== null) setRotatedSecret(secret);
+                            });
+                          }}
+                        >
+                          {rotating
+                            ? 'Rotating…'
+                            : rotateArmed
+                              ? 'Break the old secret?'
+                              : 'Rotate'}
                         </Button>
-                        <Button variant="ghost" size="xs" disabled>
-                          Rotate
-                        </Button>
-                      </>
+                      )
                     }
                   >
-                    <Text mono size="caption" color="muted">
-                      shown once at creation
+                    <Text mono size="caption" color={rotatedSecret !== null ? undefined : 'muted'}>
+                      {/* The stored secret is write-once and never returned on
+                          reads; only a rotation mints something to show. */}
+                      {rotatedSecret ?? 'shown once at creation'}
                     </Text>
                   </FieldRow>
+                  {rotatedSecret !== null && (
+                    <Text size="caption" color="subtle">
+                      Update your provider with this secret now. It is shown once and cannot be
+                      recovered.
+                    </Text>
+                  )}
+                  {/* Requests that fail authentication never become deliveries;
+                      this counter is the only place a wrong secret shows up. */}
+                  {source !== undefined && source.rejectionCount > 0 && (
+                    <Text size="caption" color="status-error">
+                      {source.rejectionCount} rejected
+                      {source.lastRejectionReason !== null ? `: ${source.lastRejectionReason}` : ''}
+                    </Text>
+                  )}
 
                   <Text size="caption" color="subtle">
                     Deliveries are verified with an HMAC signature over the raw body. Unsigned or
