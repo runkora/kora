@@ -22,6 +22,7 @@ import {
   readModelFromDom,
   renderPreview,
   serializeToken,
+  tokenSpans,
   type TemplateCatalogEntry,
 } from './template-model';
 
@@ -58,7 +59,7 @@ export interface TemplateFieldProps {
 // ── Pill rendering ────────────────────────────────────────────────────────────
 
 const PILL_BASE =
-  'mx-px inline-block select-none rounded-sm border px-1.5 align-baseline font-mono text-[11.5px] leading-[1.35] whitespace-nowrap';
+  'mx-0.5 inline-block cursor-text select-none rounded-sm border px-1.5 align-baseline font-mono text-[11.5px] leading-[1.35] whitespace-nowrap data-[caret-adjacent]:ring-1 data-[caret-adjacent]:ring-accent/50';
 
 /** A token the catalog knows about: accent tint, the same family as a Badge. */
 const PILL_KNOWN = 'border-accent/30 bg-accent/15 text-accent';
@@ -332,12 +333,33 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
     );
 
     /** Remember the caret so the picker knows where to insert after blur. */
+    /**
+     * Highlights the pill the caret is touching. The caret itself is a thin
+     * bar that visually merges with a pill border; the ring answers both
+     * "where am I" and "what would backspace delete".
+     */
+    const markAdjacentPill = React.useCallback((offset: number) => {
+      const root = editorRef.current;
+      if (!root) return;
+      const pills = root.querySelectorAll(`[data-slot=${TOKEN_SLOT}]`);
+      const spans = tokenSpans(modelRef.current);
+      pills.forEach((pill, i) => {
+        const span = spans[i];
+        const touching = span !== undefined && (offset === span.start || offset === span.end);
+        if (touching) pill.setAttribute('data-caret-adjacent', 'true');
+        else pill.removeAttribute('data-caret-adjacent');
+      });
+    }, []);
+
     const rememberCaret = React.useCallback(() => {
       const root = editorRef.current;
       if (!root) return;
       const selection = readSelection(root);
-      if (selection) caretRef.current = selection.end;
-    }, []);
+      if (selection) {
+        caretRef.current = selection.end;
+        markAdjacentPill(selection.end);
+      }
+    }, [markAdjacentPill]);
 
     const insertToken = React.useCallback(
       (token: string) => {
@@ -397,9 +419,23 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
             onKeyUp={rememberCaret}
             onMouseUp={rememberCaret}
             onBlur={rememberCaret}
+            onClick={(event) => {
+              // A pill is contenteditable=false, so a click on it would land
+              // the selection nowhere; treat it as "put the caret after this
+              // token", which is what reaching for a pill means.
+              const pill = (event.target as HTMLElement).closest?.(`[data-slot=${TOKEN_SLOT}]`);
+              const root = editorRef.current;
+              if (!pill || !root) return;
+              const pills = Array.from(root.querySelectorAll(`[data-slot=${TOKEN_SLOT}]`));
+              const span = tokenSpans(modelRef.current)[pills.indexOf(pill as Element)];
+              if (span === undefined) return;
+              caretRef.current = span.end;
+              placeCaret(root, span.end);
+              markAdjacentPill(span.end);
+            }}
             className={cn(
               'w-full whitespace-pre-wrap break-words px-3 py-2',
-              'text-sm leading-[1.5] font-normal text-foreground',
+              'caret-accent text-sm leading-[1.5] font-normal text-foreground',
               'focus-visible:outline-none',
               disabled && 'pointer-events-none',
             )}
