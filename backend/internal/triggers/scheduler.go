@@ -19,18 +19,21 @@ import (
 // When orbit-triggers runs with >1 replica, wrap Start/Stop with a distributed
 // lock (Kubernetes Lease or DB advisory lock) before starting the scheduler.
 type Scheduler struct {
-	svc    *Service
-	repo   Repository
-	logger logging.Logger
-	c      *cron.Cron
+	svc     *Service
+	repo    Repository
+	logger  logging.Logger
+	metrics *Metrics // nil records nothing
+	c       *cron.Cron
 }
 
 // NewScheduler creates a Scheduler. It does not start immediately; call Start.
-func NewScheduler(svc *Service, repo Repository, logger logging.Logger) *Scheduler {
+// metrics may be nil.
+func NewScheduler(svc *Service, repo Repository, logger logging.Logger, metrics *Metrics) *Scheduler {
 	return &Scheduler{
-		svc:    svc,
-		repo:   repo,
-		logger: logger,
+		svc:     svc,
+		repo:    repo,
+		logger:  logger,
+		metrics: metrics,
 		// SecondOptional adds an optional leading seconds field; without it,
 		// standard 5-field cron is parsed correctly.
 		c: cron.New(cron.WithLocation(time.UTC)),
@@ -67,6 +70,14 @@ func (s *Scheduler) Stop(ctx context.Context) {
 // expression matches now (in the trigger's configured timezone).
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
+	// A tick that starts taking longer than the minute between ticks has
+	// quietly stopped being a minutely schedule, and nothing else in the system
+	// would say so. Deferred so a tick that returns early on error is still
+	// timed: those are the slow ones worth seeing.
+	scanned := 0
+	defer func(started time.Time) {
+		s.metrics.recordSchedulerTick(ctx, scanned, time.Since(started))
+	}(time.Now())
 
 	// Auto-paused schedules are evaluated too. Their tick reaches admission,
 	// which records 'paused' rather than starting a run, so a paused schedule
@@ -78,6 +89,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		)
 		return
 	}
+	scanned = len(triggers)
 
 	for _, t := range triggers {
 		if t.ScheduleConfig == nil {

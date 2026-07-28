@@ -39,6 +39,7 @@ type mockRepository struct {
 	deliveries   []*Delivery
 	deliveryRuns []*DeliveryRun
 	pending      []*pendingRow
+	retention    map[string]int  // tenant_id → payload_days
 	seenDeliv    map[string]bool // source_id|provider_delivery_id → seen (dedup)
 
 	createSourceErr   error
@@ -51,6 +52,7 @@ func newMockRepository() *mockRepository {
 	return &mockRepository{
 		sources:   map[string]*WebhookSource{},
 		triggers:  map[string]*Trigger{},
+		retention: map[string]int{},
 		seenDeliv: map[string]bool{},
 	}
 }
@@ -566,7 +568,9 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	pc := policyclient.NewClient(ps.server.URL, func(context.Context) (string, error) { return "system-tok", nil }, silentLogger())
 	ac := agentsclient.NewClient(as.server.URL, silentLogger())
 	minter := &fakeMinter{token: "minted-token"}
-	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, "/api/v1/webhooks/", silentLogger())
+	// nil metrics: instrumentation is injected, and its absence must leave
+	// behavior identical. Metrics have their own test.
+	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, "/api/v1/webhooks/", silentLogger(), nil)
 	return svc, &testDeps{repo: repo, policy: ps, agents: as, minter: minter}
 }
 
@@ -885,6 +889,60 @@ func (m *mockRepository) AutoPause(_ context.Context, triggerID string) error {
 		t.AutoPausedAt = &now
 	}
 	return nil
+}
+
+func (m *mockRepository) GetRetention(_ context.Context, tenantID string) (int, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	days, ok := m.retention[tenantID]
+	return days, ok, nil
+}
+
+func (m *mockRepository) SetRetention(_ context.Context, tenantID string, days int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retention[tenantID] = days
+	return nil
+}
+
+// ObservedEventTypes mirrors the SQL: distinct non-empty event types this source
+// has actually delivered, sorted.
+func (m *mockRepository) ObservedEventTypes(_ context.Context, sourceID string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	for _, d := range m.deliveries {
+		if d.SourceID == sourceID && d.EventType != "" {
+			seen[d.EventType] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for et := range seen {
+		out = append(out, et)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+func (m *mockRepository) PendingStats(_ context.Context) (PendingStats, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var stats PendingStats
+	oldest := time.Time{}
+	for _, p := range m.pending {
+		if p.claimed {
+			stats.Claimed++
+			continue
+		}
+		stats.Waiting++
+		if oldest.IsZero() || p.EnqueuedAt.Before(oldest) {
+			oldest = p.EnqueuedAt
+		}
+	}
+	if !oldest.IsZero() {
+		stats.OldestUnclaimedAge = time.Since(oldest)
+	}
+	return stats, nil
 }
 
 func (m *mockRepository) PurgePayloads(_ context.Context, defaultDays int) (int64, error) {

@@ -326,6 +326,93 @@ func TestHandleRedeliver_NotRedeliverable(t *testing.T) {
 	}
 }
 
+// ─── Payload retention ───────────────────────────────────────────────────────
+
+func TestHandleRetention_GetAndPut(t *testing.T) {
+	c, _, _ := newTestController(t)
+
+	// Unset: the inherited default, flagged as such.
+	w := httptest.NewRecorder()
+	c.handleGetRetention(w, withTenant(httptest.NewRequest(http.MethodGet, "/trigger-retention", nil)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	var got RetentionSettings
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.PayloadDays != DefaultPayloadRetentionDays || !got.IsDefault {
+		t.Errorf("GET body = %+v, want the inherited default", got)
+	}
+
+	raw, _ := json.Marshal(UpdateRetentionRequest{PayloadDays: 3})
+	w = httptest.NewRecorder()
+	c.handleSetRetention(w, withTenant(httptest.NewRequest(http.MethodPut, "/trigger-retention", bytes.NewReader(raw))))
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	c.handleGetRetention(w, withTenant(httptest.NewRequest(http.MethodGet, "/trigger-retention", nil)))
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.PayloadDays != 3 || got.IsDefault {
+		t.Errorf("GET after PUT = %+v, want 3 and not default", got)
+	}
+}
+
+// An out-of-range window is a 400 that names the bounds, not a constraint
+// violation surfacing as a 500.
+func TestHandleRetention_OutOfBounds(t *testing.T) {
+	c, _, _ := newTestController(t)
+	raw, _ := json.Marshal(UpdateRetentionRequest{PayloadDays: 365})
+	w := httptest.NewRecorder()
+
+	c.handleSetRetention(w, withTenant(httptest.NewRequest(http.MethodPut, "/trigger-retention", bytes.NewReader(raw))))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d (%s), want 400", w.Code, w.Body.String())
+	}
+}
+
+// ─── Event catalog ─────────────────────────────────────────────────────────
+
+func TestHandleSourceEventTypes(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	src := mustSource(t, svc)
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: "d1", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-1", EventType: "release", Status: StatusSkipped,
+	})
+
+	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/"+src.ID+"/event-types", nil))
+	req.SetPathValue("id", src.ID)
+	w := httptest.NewRecorder()
+	c.handleSourceEventTypes(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	var got EventTypesResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Declared) == 0 {
+		t.Error("declared must list what the adapter models")
+	}
+	if len(got.Observed) != 1 || got.Observed[0] != "release" {
+		t.Errorf("observed = %v, want the event this source actually sent", got.Observed)
+	}
+}
+
+func TestHandleSourceEventTypes_UnknownSource(t *testing.T) {
+	c, _, _ := newTestController(t)
+	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/nope/event-types", nil))
+	req.SetPathValue("id", "nope")
+	w := httptest.NewRecorder()
+
+	c.handleSourceEventTypes(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
 func TestController_BootAndMeta(t *testing.T) {
 	c, _, _ := newTestController(t)
 	if c.GroupedBy() != "" {

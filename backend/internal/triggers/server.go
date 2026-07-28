@@ -68,6 +68,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
 //	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
+//	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
+//	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
+//	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //
 // Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
 // handler because RouteScope cannot express a path-dependent scope):
@@ -89,6 +92,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /trigger-sources/{id}", auth, c.handleGetSource)
 	mux.HandleWithMiddleware("PATCH /trigger-sources/{id}", auth, c.handleUpdateSource)
 	mux.HandleWithMiddleware("DELETE /trigger-sources/{id}", auth, c.handleDeleteSource)
+	// Reading a source's event catalog is reading the source: it sits under
+	// the /trigger-sources prefix and takes triggers:read from the route table.
+	mux.HandleWithMiddleware("GET /trigger-sources/{id}/event-types", auth, c.handleSourceEventTypes)
 
 	mux.HandleWithMiddleware("POST /triggers", auth, c.handleCreateTrigger)
 	mux.HandleWithMiddleware("GET /triggers", auth, c.handleListTriggers)
@@ -114,6 +120,12 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// the way firing is: a webhook replay has no single trigger to name, and it
 	// starts exactly what the original arrival would start today.
 	mux.HandleWithMiddleware("POST /trigger-deliveries/{id}/redeliver", auth, c.handleRedeliver)
+
+	// Payload retention is a tenant-level setting, so it has no id in its path:
+	// the tenant comes from the caller's own claims, and a tenant can only ever
+	// read or change its own.
+	mux.HandleWithMiddleware("GET /trigger-retention", auth, c.handleGetRetention)
+	mux.HandleWithMiddleware("PUT /trigger-retention", auth, c.handleSetRetention)
 }
 
 // ─── Inbound webhook ──────────────────────────────────────────────────────────
@@ -375,6 +387,46 @@ func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusAccepted, resp)
+}
+
+// ─── Event catalog ──────────────────────────────────────────────────────────
+
+func (c *Controller) handleSourceEventTypes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.svc.SourceEventTypes(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+// ─── Payload retention ────────────────────────────────────────────────────────
+
+func (c *Controller) handleGetRetention(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.svc.GetRetention(ctx, tenantFromCtx(ctx))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+// handleSetRetention replaces the whole setting, which is why it is a PUT: there
+// is one field, and a partial update of one field is the same request.
+func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req UpdateRetentionRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	resp, err := c.svc.SetRetention(ctx, tenantFromCtx(ctx), req)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

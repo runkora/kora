@@ -49,6 +49,20 @@ func (a *githubAdapter) EventType(headers http.Header, _ []byte) string {
 	return headers.Get("X-GitHub-Event")
 }
 
+// EventTypes lists the GitHub events this adapter models — exactly the cases in
+// Fields' switch below, and nothing else.
+//
+// GitHub emits dozens more (release, workflow_run, deployment, …). They are not
+// listed because the adapter extracts no fields for them: a trigger on one would
+// see only the common set (event, action, repo.*, sender.login), and advertising
+// it here would promise a richness that is not there. A source that starts
+// sending one shows up under 'observed', which is the honest place for "this
+// arrives but is not modeled yet" and the signal that the adapter should grow a
+// case for it.
+func (a *githubAdapter) EventTypes() []string {
+	return []string{"issues", "pull_request", "push"}
+}
+
 // githubPayload covers the subset of the pull_request, push, and issues event
 // payloads exposed to matching and templating. Unknown/absent fields decode to
 // zero values.

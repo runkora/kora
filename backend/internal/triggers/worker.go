@@ -99,15 +99,17 @@ func (w *Worker) drain(ctx context.Context) {
 type RetentionJob struct {
 	repo        Repository
 	logger      logging.Logger
+	metrics     *Metrics // nil records nothing
 	interval    time.Duration
 	defaultDays int
 }
 
-// NewRetentionJob constructs the payload purge job.
-func NewRetentionJob(repo Repository, logger logging.Logger, defaultDays int) *RetentionJob {
+// NewRetentionJob constructs the payload purge job. metrics may be nil.
+func NewRetentionJob(repo Repository, logger logging.Logger, defaultDays int, metrics *Metrics) *RetentionJob {
 	return &RetentionJob{
 		repo:        repo,
 		logger:      logger,
+		metrics:     metrics,
 		interval:    time.Hour,
 		defaultDays: defaultDays,
 	}
@@ -141,6 +143,10 @@ func (j *RetentionJob) purge(ctx context.Context) {
 			logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
+	// Record the success, not only the rows. A rows counter sits at zero both
+	// when there is nothing to purge and when the job has died; only the
+	// timestamp tells those apart, and it is the one an alert should watch.
+	j.metrics.recordPurge(ctx, n, time.Now())
 	if n > 0 {
 		j.logger.Info(ctx, "purged delivery payloads past retention",
 			logging.Field{Key: "rows", Value: n})

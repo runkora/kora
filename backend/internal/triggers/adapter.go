@@ -30,6 +30,16 @@ type SourceAdapter interface {
 	// Fields parses the payload into a flat, allow-listed map of dotted keys →
 	// string values, used for both condition matching and prompt templating.
 	Fields(eventType string, body []byte) map[string]string
+	// EventTypes returns the event types this adapter MODELS: the ones Fields
+	// extracts provider-specific values for, and therefore the ones a trigger
+	// can match richly on.
+	//
+	// It is deliberately not "every event the provider can emit". A source may
+	// send anything, and a catch-all trigger (empty event_type) still fires on
+	// it with the adapter's common fields — so this is a catalog of what the
+	// platform understands, not a restriction on what it accepts. What actually
+	// arrived is answered separately, from delivery history.
+	EventTypes() []string
 }
 
 // Registry maps provider id → adapter.

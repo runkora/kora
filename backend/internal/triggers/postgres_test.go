@@ -411,6 +411,121 @@ func TestPostgres_UpdateDeliveryOutcome_PreservesArrivalStatus(t *testing.T) {
 	}
 }
 
+// Retention: absence of a row is meaningful and must survive the round trip,
+// and the upsert must be an upsert rather than a duplicate-key failure.
+func TestPostgres_Retention(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM trigger_retention_settings WHERE tenant_id = $1`, tenant)
+	})
+
+	if _, configured, err := r.GetRetention(ctx, tenant); err != nil || configured {
+		t.Fatalf("unset retention: configured=%v err=%v, want not configured", configured, err)
+	}
+
+	if err := r.SetRetention(ctx, tenant, 7); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+	if err := r.SetRetention(ctx, tenant, 14); err != nil {
+		t.Fatalf("SetRetention(upsert): %v", err)
+	}
+	days, configured, err := r.GetRetention(ctx, tenant)
+	if err != nil || !configured || days != 14 {
+		t.Errorf("GetRetention = (%d, %v, %v), want (14, true, nil)", days, configured, err)
+	}
+}
+
+// The catalog's observed half reads distinct non-empty event types for one
+// source, and no other source's.
+func TestPostgres_ObservedEventTypes(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	other := seedSource(t, r, tenant)
+
+	seed := []struct {
+		source, event, providerID string
+	}{
+		{s.ID, "pull_request", "gh-o-1"},
+		{s.ID, "pull_request", "gh-o-2"}, // distinct, not counted twice
+		{s.ID, "release", "gh-o-3"},
+		{s.ID, "", "gh-o-4"}, // empty is not a catalog entry
+		{other.ID, "issues", "gh-o-5"},
+	}
+	for _, sd := range seed {
+		if _, err := r.InsertDelivery(ctx, &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: sd.source, Kind: KindWebhook,
+			ProviderDeliveryID: sd.providerID, EventType: sd.event, Status: StatusSkipped,
+		}); err != nil {
+			t.Fatalf("InsertDelivery: %v", err)
+		}
+	}
+
+	got, err := r.ObservedEventTypes(ctx, s.ID)
+	if err != nil {
+		t.Fatalf("ObservedEventTypes: %v", err)
+	}
+	if len(got) != 2 || got[0] != "pull_request" || got[1] != "release" {
+		t.Errorf("observed = %v, want [pull_request release]", got)
+	}
+}
+
+// PendingStats answers depth and staleness in one round trip: it is polled on
+// the metrics collection interval, and three queries per scrape is a cost the
+// thing being measured did not have.
+func TestPostgres_PendingStats(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "stats", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
+	}
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM trigger_pending_deliveries WHERE tenant_id = $1`, tenant)
+	})
+
+	before, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats: %v", err)
+	}
+
+	for range 2 {
+		if err := r.EnqueuePending(ctx, &PendingDelivery{
+			ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
+		}); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+
+	after, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats: %v", err)
+	}
+	if after.Waiting-before.Waiting != 2 {
+		t.Errorf("waiting delta = %d, want 2", after.Waiting-before.Waiting)
+	}
+	if after.OldestUnclaimedAge <= 0 {
+		t.Error("a queue with waiting rows must report a non-zero oldest age")
+	}
+
+	if _, err := r.ClaimPending(ctx, 1); err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	claimed, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats after claim: %v", err)
+	}
+	if claimed.Claimed-before.Claimed != 1 {
+		t.Errorf("claimed delta = %d, want 1: in-flight work is not backlog", claimed.Claimed-before.Claimed)
+	}
+}
+
 func TestPostgres_DeliveryRuns(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()

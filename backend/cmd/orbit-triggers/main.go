@@ -31,6 +31,14 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc/credentials"
+
 	tc "github.com/clear-route/orbit/cmd/orbit-triggers/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
@@ -46,12 +54,6 @@ import (
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/triggers"
 )
-
-// defaultPayloadRetentionDays is how long a delivery payload is kept when a
-// tenant has not shortened it. A tenant may lower this but not raise it, so the
-// platform's exposure to stored third-party payload data has a ceiling no
-// tenant can lift.
-const defaultPayloadRetentionDays = 30
 
 func main() {
 	if err := realMain(); err != nil {
@@ -70,6 +72,12 @@ func realMain() error {
 	}
 	defer shutdownObservability()
 
+	meter, shutdownMeter, err := initMeter(ctx)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer shutdownMeter()
+
 	logger := initLogger()
 	logger.Info(ctx, "Triggers service starting",
 		logging.Field{Key: "version", Value: tc.Current.App.Version})
@@ -80,7 +88,7 @@ func realMain() error {
 	}
 	defer db.Close()
 
-	controller, policyCli, err := initController(ctx, logger, db, redis)
+	controller, policyCli, err := initController(ctx, logger, db, redis, meter)
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
@@ -101,6 +109,7 @@ func initController(
 	logger logging.Logger,
 	db *storage.DB,
 	redis *storage.RedisClient,
+	meter metric.Meter,
 ) (platformapi.Controller, *policyclient.Client, error) {
 	cipherKey, devFallback, err := triggers.LoadCipherKey()
 	if err != nil {
@@ -136,6 +145,18 @@ func initController(
 	repo := triggers.NewPostgresRepository(db.Pool())
 	agentsCli := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
 
+	// Instruments are built once and injected into everything that records:
+	// the service, the scheduler and the retention job. Failing to build them
+	// is not fatal — a service that refuses to start because a gauge could not
+	// be registered has turned its own observability into an outage — but it is
+	// loud, because unmeasured is not the state anyone signed up for.
+	metrics, err := triggers.NewMetrics(meter, repo, logger)
+	if err != nil {
+		logger.Error(ctx, "failed to register trigger metrics; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+		metrics = nil
+	}
+
 	// Inbound webhook path prefix: basePath + /webhooks/. Registered sources
 	// post to this address, so it must match the api VirtualService route.
 	svc := triggers.NewService(
@@ -147,6 +168,7 @@ func initController(
 		identityCli,
 		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
+		metrics,
 	)
 
 	// The delivery worker is what actually starts runs. Every fire is durably
@@ -159,13 +181,13 @@ func initController(
 	// Payload retention. On a timer rather than on write, because the promise
 	// is about data at rest: it has to hold for payloads already stored when a
 	// tenant shortens their window, not only for new ones.
-	triggers.NewRetentionJob(repo, logger, defaultPayloadRetentionDays).Start(ctx)
+	triggers.NewRetentionJob(repo, logger, triggers.DefaultPayloadRetentionDays, metrics).Start(ctx)
 
 	// The cron scheduler fires time-driven triggers. It is safe to run on every
 	// replica: each tick inserts its delivery under a unique (trigger_id,
 	// scheduled_at) key before dispatching, so a losing replica simply stops.
 	// See ADR Decision 2.
-	scheduler := triggers.NewScheduler(svc, repo, logger)
+	scheduler := triggers.NewScheduler(svc, repo, logger, metrics)
 	if err := scheduler.Start(ctx); err != nil {
 		return nil, nil, fmt.Errorf("start trigger scheduler: %w", err)
 	}
@@ -237,6 +259,10 @@ func routeScopes() []routescopes.RouteScope {
 		// Replaying a delivery starts real work, so it sits with the write
 		// scope rather than with reading history.
 		{PathPrefix: "/api/v1/trigger-deliveries", Method: "POST", RequiredScope: "triggers:write"},
+		// Payload retention: reading the window is reading configuration,
+		// shortening it changes what the platform stores.
+		{PathPrefix: "/api/v1/trigger-retention", Method: "GET", RequiredScope: "triggers:read"},
+		{PathPrefix: "/api/v1/trigger-retention", Method: "PUT", RequiredScope: "triggers:write"},
 	}
 }
 
@@ -304,6 +330,66 @@ func initObservability(ctx context.Context) (func(), error) {
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "Error shutting down observability: %v\n", err)
+		}
+	}, nil
+}
+
+// initMeter sets up the OpenTelemetry metrics pipeline for this binary and
+// returns the meter the Triggers instruments are built on.
+//
+// It deliberately mirrors observability.Setup's exporter selection, including
+// its priority order — an explicit OTLP endpoint always wins, and everything
+// else gets a provider that records nothing — so metrics and traces are
+// configured by the same two settings and cannot end up pointing at different
+// collectors.
+//
+// It lives here rather than in internal/platform/observability because that
+// package is traces-only today and is shared by every binary; adding a metrics
+// pipeline to it changes the runtime behavior of twelve other services at once.
+// This is the first service to need metrics, and the shape it proves out here is
+// what should be lifted into the platform package when the second one does.
+func initMeter(ctx context.Context) (metric.Meter, func(), error) {
+	res, err := resource.New(ctx, resource.WithAttributes(
+		semconv.ServiceName(tc.Current.Observability.ServiceName),
+		semconv.ServiceVersion(tc.Current.App.Version),
+		semconv.DeploymentEnvironment(config.Environment()),
+	))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create metrics resource: %w", err)
+	}
+
+	endpoint := observability.DefaultConfig.OTLPEndpoint
+	if endpoint == "" {
+		// No collector configured: a provider with no reader records nothing and
+		// exports nothing. The instruments still exist, so no call site needs a
+		// nil check and nothing is written to pod logs.
+		mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res))
+		otel.SetMeterProvider(mp)
+		return mp.Meter(tc.Current.Observability.ServiceName), func() { _ = mp.Shutdown(context.Background()) }, nil
+	}
+
+	opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
+	if observability.DefaultConfig.OTLPInsecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	} else {
+		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")))
+	}
+	exporter, err := otlpmetricgrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create OTLP metric exporter: %w", err)
+	}
+
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+	)
+	otel.SetMeterProvider(mp)
+
+	return mp.Meter(tc.Current.Observability.ServiceName), func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.ShutdownTimeout())
+		defer cancel()
+		if err := mp.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
 		}
 	}, nil
 }

@@ -499,6 +499,52 @@ type FireTriggerResponse struct {
 	RunID      string `json:"run_id,omitempty"`
 }
 
+// ─── Payload retention ────────────────────────────────────────────────────────
+
+// DefaultPayloadRetentionDays is how long a delivery payload is kept when a
+// tenant has not shortened it, and simultaneously the ceiling: a tenant may
+// lower this but never raise it, so the platform's exposure to stored
+// third-party payload data has a limit no tenant can lift. It matches the
+// payload_days CHECK (BETWEEN 1 AND 30) in the admission_control migration —
+// validating against a looser bound here would turn a caller's mistake into a
+// database error.
+const DefaultPayloadRetentionDays = 30
+
+// MinPayloadRetentionDays is the shortest window a tenant may choose. Zero is
+// not offered: "keep nothing" is a delete-on-write setting dressed up as
+// retention, and a payload that never survives its own delivery cannot be
+// debugged at all.
+const MinPayloadRetentionDays = 1
+
+// RetentionSettings is a tenant's payload retention window.
+//
+// IsDefault distinguishes "this tenant chose 30" from "this tenant has chosen
+// nothing and inherits 30". The number is the same; whether a later change to
+// the platform default would move it is not.
+type RetentionSettings struct {
+	PayloadDays int  `json:"payload_days"`
+	IsDefault   bool `json:"is_default"`
+}
+
+// UpdateRetentionRequest is the body for PUT /api/v1/trigger-retention.
+type UpdateRetentionRequest struct {
+	PayloadDays int `json:"payload_days"`
+}
+
+// ─── Event catalog ──────────────────────────────────────────────────────────
+
+// EventTypesResponse answers "what can I write a trigger for on this source?".
+//
+// Two lists, because neither alone is the answer. Declared is what the adapter
+// models: the event types it parses fields out of, which is what a trigger can
+// match on richly. Observed is what this source has actually sent, which catches
+// the events a provider emits that the adapter has not modeled yet — and tells
+// an admin whose trigger never fires that their event type never arrived.
+type EventTypesResponse struct {
+	Declared []string `json:"declared"`
+	Observed []string `json:"observed"`
+}
+
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.
 //
 // A redelivery is a new delivery that names the one it replays, never an edit of

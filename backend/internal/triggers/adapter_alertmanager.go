@@ -101,6 +101,16 @@ func (a *alertmanagerAdapter) EventType(_ http.Header, body []byte) string {
 	}
 }
 
+// EventTypes lists the two Alertmanager statuses, in the namespaced form
+// EventType actually produces.
+//
+// The namespace matters here: a trigger's event_type is compared against what
+// EventType returns, so a catalog saying "firing" would document a value that
+// never matches anything.
+func (a *alertmanagerAdapter) EventTypes() []string {
+	return []string{"alert.firing", "alert.resolved"}
+}
+
 // alertmanagerPayload covers the fields exposed to matching and templating.
 // Unknown/absent fields decode to zero values.
 type alertmanagerPayload struct {

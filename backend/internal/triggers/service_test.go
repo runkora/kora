@@ -1835,6 +1835,198 @@ func TestRedeliver_Refusals(t *testing.T) {
 	})
 }
 
+// ─── Payload retention ───────────────────────────────────────────────────────
+
+// A tenant who has never chosen inherits the default, and says so: is_default is
+// the difference between "we picked 30" and "we picked nothing", which decides
+// whether a later change to the platform default moves this tenant.
+func TestRetention_DefaultUntilChosen(t *testing.T) {
+	svc, _ := newTestService(t)
+
+	got, err := svc.GetRetention(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("GetRetention: %v", err)
+	}
+	if got.PayloadDays != DefaultPayloadRetentionDays || !got.IsDefault {
+		t.Errorf("unset retention = %+v, want the inherited default", got)
+	}
+
+	if _, err := svc.SetRetention(context.Background(), testTenant, UpdateRetentionRequest{PayloadDays: 7}); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+
+	got, err = svc.GetRetention(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("GetRetention after set: %v", err)
+	}
+	if got.PayloadDays != 7 || got.IsDefault {
+		t.Errorf("chosen retention = %+v, want 7 and not default", got)
+	}
+}
+
+// A tenant may shorten the window but never extend it: retention is a promise
+// about payload data the platform is holding, so the ceiling is the platform's
+// to set, not a tenant's to raise.
+func TestRetention_Bounds(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	for _, days := range []int{0, -1, DefaultPayloadRetentionDays + 1, 365} {
+		if _, err := svc.SetRetention(ctx, testTenant, UpdateRetentionRequest{PayloadDays: days}); !errors.Is(err, ErrValidation) {
+			t.Errorf("SetRetention(%d) = %v, want ErrValidation", days, err)
+		}
+	}
+	for _, days := range []int{MinPayloadRetentionDays, 15, DefaultPayloadRetentionDays} {
+		if _, err := svc.SetRetention(ctx, testTenant, UpdateRetentionRequest{PayloadDays: days}); err != nil {
+			t.Errorf("SetRetention(%d) = %v, want it accepted", days, err)
+		}
+	}
+}
+
+// Choosing the default value explicitly is still a choice, and is recorded as
+// one: a tenant who pinned 30 should not silently move when the platform's
+// default changes.
+func TestRetention_ExplicitDefaultIsNotInherited(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	if _, err := svc.SetRetention(ctx, testTenant, UpdateRetentionRequest{PayloadDays: DefaultPayloadRetentionDays}); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+	got, err := svc.GetRetention(ctx, testTenant)
+	if err != nil {
+		t.Fatalf("GetRetention: %v", err)
+	}
+	if got.IsDefault {
+		t.Error("an explicitly chosen 30 must not report as the inherited default")
+	}
+}
+
+// ─── Event catalog ─────────────────────────────────────────────────────────
+
+// Declared is what the platform models; observed is what this source has
+// actually sent. Neither alone answers "why does my trigger never fire".
+func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	ctx := context.Background()
+
+	// One modeled event and one the adapter does not model, both delivered.
+	for i, et := range []string{"pull_request", "release"} {
+		_, _ = deps.repo.InsertDelivery(ctx, &Delivery{
+			ID: fmt.Sprintf("d-%d", i), TenantID: testTenant, SourceID: src.ID,
+			Kind: KindWebhook, ProviderDeliveryID: fmt.Sprintf("gh-%d", i),
+			EventType: et, Status: StatusSkipped,
+		})
+	}
+	// An empty event type is not a catalog entry.
+	_, _ = deps.repo.InsertDelivery(ctx, &Delivery{
+		ID: "d-blank", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+		ProviderDeliveryID: "gh-blank", Status: StatusSkipped,
+	})
+
+	got, err := svc.SourceEventTypes(ctx, testTenant, src.ID)
+	if err != nil {
+		t.Fatalf("SourceEventTypes: %v", err)
+	}
+	if !slices.Equal(got.Declared, []string{"issues", "pull_request", "push"}) {
+		t.Errorf("declared = %v, want the github adapter's modeled events", got.Declared)
+	}
+	if !slices.Equal(got.Observed, []string{"pull_request", "release"}) {
+		t.Errorf("observed = %v, want what this source actually sent", got.Observed)
+	}
+}
+
+// A source with no history reports empty lists, not null: the console renders a
+// list either way.
+func TestSourceEventTypes_NoHistory(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+
+	got, err := svc.SourceEventTypes(context.Background(), testTenant, src.ID)
+	if err != nil {
+		t.Fatalf("SourceEventTypes: %v", err)
+	}
+	if got.Observed == nil || len(got.Observed) != 0 {
+		t.Errorf("observed = %v, want an empty list", got.Observed)
+	}
+	if len(got.Declared) == 0 {
+		t.Error("declared must not be empty for a registered provider")
+	}
+}
+
+func TestSourceEventTypes_TenantScoped(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+
+	if _, err := svc.SourceEventTypes(context.Background(), "t-other", src.ID); !errors.Is(err, ErrSourceNotFound) {
+		t.Errorf("cross-tenant = %v, want ErrSourceNotFound", err)
+	}
+}
+
+// ─── Editable input declaration ──────────────────────────────────────────────
+
+// UpdateTrigger accepts manual_config, so it has to apply it: a DTO field the
+// service silently ignores is a lie the console cannot see through.
+func TestUpdateTrigger_AppliesManualConfig(t *testing.T) {
+	svc, _ := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	ctx := context.Background()
+
+	updated, err := svc.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{
+		ManualConfig: &ManualConfig{Inputs: []InputField{
+			{Name: "env", Type: InputTypeChoice, Required: true, Choices: []string{"dev", "prod"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	if updated.ManualConfig == nil || len(updated.ManualConfig.Inputs) != 1 ||
+		updated.ManualConfig.Inputs[0].Type != InputTypeChoice {
+		t.Fatalf("manual_config = %+v, want the new declaration applied", updated.ManualConfig)
+	}
+
+	// And the new declaration is what fires are now judged against.
+	if _, err := svc.FireTrigger(ctx, testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "staging"}}); !errors.Is(err, ErrValidationFailed) {
+		t.Errorf("fire with a value outside the new choices = %v, want a validation failure", err)
+	}
+}
+
+// A declaration that could never be satisfied is refused at update time, when
+// the caller can still fix it, rather than at fire time when they cannot.
+func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
+	svc, _ := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+	ctx := context.Background()
+
+	bad := []struct {
+		name string
+		mc   ManualConfig
+	}{
+		{"choice with no choices", ManualConfig{Inputs: []InputField{{Name: "env", Type: InputTypeChoice}}}},
+		{"unsupported type", ManualConfig{Inputs: []InputField{{Name: "env", Type: "colour"}}}},
+		{"nameless input", ManualConfig{Inputs: []InputField{{Name: "", Type: InputTypeText}}}},
+		{"duplicate name", ManualConfig{Inputs: []InputField{
+			{Name: "env", Type: InputTypeText}, {Name: "env", Type: InputTypeText},
+		}}},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name, func(t *testing.T) {
+			mc := tt.mc
+			if _, err := svc.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{ManualConfig: &mc}); !errors.Is(err, ErrValidation) {
+				t.Errorf("err = %v, want ErrValidation", err)
+			}
+		})
+	}
+
+	// The stored declaration is untouched by a refused update.
+	stored, _ := svc.GetTrigger(ctx, testTenant, trig.ID)
+	if stored.ManualConfig == nil || stored.ManualConfig.Inputs[0].Type != InputTypeText {
+		t.Errorf("a refused update changed the stored declaration: %+v", stored.ManualConfig)
+	}
+}
+
 // Each kind gets the overflow behavior that suits it.
 func TestDefaultOverflowForKind(t *testing.T) {
 	t.Parallel()

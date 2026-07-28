@@ -121,6 +121,24 @@ type Repository interface {
 	// PurgePayloads nulls payload bodies past each tenant's retention, leaving
 	// every other column intact so history survives the payload.
 	PurgePayloads(ctx context.Context, defaultDays int) (int64, error)
+	// GetRetention returns a tenant's chosen payload retention window.
+	// configured is false when the tenant has never set one, which the caller
+	// reports as the inherited default rather than inventing a stored value.
+	GetRetention(ctx context.Context, tenantID string) (days int, configured bool, err error)
+	// SetRetention upserts a tenant's payload retention window.
+	SetRetention(ctx context.Context, tenantID string, days int) error
+
+	// ObservedEventTypes returns the distinct event types this source has
+	// actually delivered. It is the half of the event catalog no adapter can
+	// know: what a provider really sends, including events the adapter has not
+	// modeled.
+	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
+
+	// PendingStats summarizes the delivery queue in one query, for the metrics
+	// callback. One query rather than three: it is polled on the collection
+	// interval, and a gauge that costs three round trips per scrape is a cost
+	// the thing it measures did not have.
+	PendingStats(ctx context.Context) (PendingStats, error)
 
 	// InsertDeliveryRun records one per-trigger outcome for a delivery.
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
@@ -136,6 +154,19 @@ type DeliveryFilter struct {
 	TriggerID string
 	Kind      string
 	Limit     int
+}
+
+// PendingStats is a point-in-time view of the delivery queue.
+//
+// Depth alone does not say whether a queue is healthy: a steady depth of 50 that
+// drains in a second is fine, and a depth of 2 stuck for an hour is not. The age
+// of the oldest waiting fire is the half that catches a stalled worker.
+type PendingStats struct {
+	Waiting int64
+	Claimed int64
+	// OldestUnclaimedAge is how long the oldest waiting fire has been waiting,
+	// or zero when nothing is waiting.
+	OldestUnclaimedAge time.Duration
 }
 
 // ScheduledTick describes one invocation of the cron scheduler for a trigger.

@@ -973,6 +973,92 @@ func (r *postgresRepository) AutoPause(ctx context.Context, triggerID string) er
 	return nil
 }
 
+// GetRetention reads a tenant's chosen retention window.
+//
+// The absence of a row is meaningful and is reported as such: a tenant who has
+// never chosen inherits the platform default, and would move with it. Returning
+// the default as though it were stored would erase that difference.
+func (r *postgresRepository) GetRetention(ctx context.Context, tenantID string) (int, bool, error) {
+	var days int
+	err := r.pool.QueryRow(ctx, `SELECT payload_days FROM trigger_retention_settings WHERE tenant_id = $1`, tenantID).Scan(&days)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get retention settings: %w", err)
+	}
+	return days, true, nil
+}
+
+// SetRetention upserts a tenant's retention window. The CHECK constraint is the
+// backstop, not the validation: the service rejects out-of-range values first,
+// so a caller gets a message about days rather than a constraint violation.
+func (r *postgresRepository) SetRetention(ctx context.Context, tenantID string, days int) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO trigger_retention_settings (tenant_id, payload_days)
+		VALUES ($1, $2)
+		ON CONFLICT (tenant_id) DO UPDATE
+		SET payload_days = EXCLUDED.payload_days, updated_at = now()
+	`, tenantID, days)
+	if err != nil {
+		return fmt.Errorf("set retention settings: %w", err)
+	}
+	return nil
+}
+
+// ObservedEventTypes lists what a source has actually delivered.
+//
+// Read from history rather than from a counter kept on the source: the history
+// is already the record, and a counter would be a second thing to keep true.
+func (r *postgresRepository) ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT DISTINCT event_type
+		FROM   trigger_deliveries
+		WHERE  source_id = $1 AND event_type <> ''
+		ORDER  BY event_type
+	`, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("list observed event types: %w", err)
+	}
+	defer rows.Close()
+
+	out := []string{}
+	for rows.Next() {
+		var et string
+		if err := rows.Scan(&et); err != nil {
+			return nil, fmt.Errorf("scan observed event type: %w", err)
+		}
+		out = append(out, et)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate observed event types: %w", err)
+	}
+	return out, nil
+}
+
+// PendingStats summarizes the queue in a single round trip.
+//
+// The oldest waiting fire's age is the half that matters: depth alone cannot
+// distinguish a busy queue that drains from a stalled one that does not.
+func (r *postgresRepository) PendingStats(ctx context.Context) (PendingStats, error) {
+	var waiting, claimed int64
+	var oldestSeconds float64
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE claimed_at IS NULL),
+		       count(*) FILTER (WHERE claimed_at IS NOT NULL),
+		       COALESCE(EXTRACT(EPOCH FROM (now() - min(enqueued_at) FILTER (WHERE claimed_at IS NULL))), 0)
+		FROM   trigger_pending_deliveries
+	`).Scan(&waiting, &claimed, &oldestSeconds)
+	if err != nil {
+		return PendingStats{}, fmt.Errorf("read pending stats: %w", err)
+	}
+	return PendingStats{
+		Waiting:            waiting,
+		Claimed:            claimed,
+		OldestUnclaimedAge: time.Duration(oldestSeconds * float64(time.Second)),
+	}, nil
+}
+
 // PurgePayloads nulls payload bodies past each tenant's retention window.
 //
 // Only the body goes. Every other column survives, so a purged delivery still

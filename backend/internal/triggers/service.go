@@ -67,11 +67,16 @@ type Service struct {
 	minter      TokenMinter
 	admission   *Admission
 	logger      logging.Logger
-	webhookBase string // external path prefix for inbound webhooks, incl trailing slash
+	metrics     *Metrics // nil records nothing
+	webhookBase string   // external path prefix for inbound webhooks, incl trailing slash
 }
 
 // NewService constructs the Triggers service. webhookBase is the absolute path
 // prefix for inbound webhook URLs (e.g. "/api/v1/webhooks/").
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
 func NewService(
 	repo Repository,
 	registry *Registry,
@@ -81,8 +86,10 @@ func NewService(
 	minter TokenMinter,
 	webhookBase string,
 	logger logging.Logger,
+	metrics *Metrics,
 ) *Service {
 	return &Service{
+		metrics:     metrics,
 		repo:        repo,
 		registry:    registry,
 		cipher:      cipher,
@@ -510,6 +517,30 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	if err != nil {
 		return nil, err
 	}
+	// Toggling enablement has side effects (draining a backlog, clearing the
+	// auto-pause marker), so it stays here where the service's collaborators
+	// are; the rest of the edit is plain field copying.
+	if req.Enabled != nil {
+		s.applyEnabledChange(ctx, t, *req.Enabled)
+		t.Enabled = *req.Enabled
+	}
+	applyTriggerEdits(t, req)
+	if err := applyAdmissionUpdate(t, req); err != nil {
+		return nil, err
+	}
+	if err := applyKindConfigUpdate(t, req); err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdateTrigger(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// applyTriggerEdits copies the request's plain fields onto the trigger. Omitted
+// fields leave the stored value alone: a PATCH that renames a trigger must not
+// quietly reset anything else.
+func applyTriggerEdits(t *Trigger, req UpdateTriggerRequest) {
 	if req.Name != nil {
 		t.Name = strings.TrimSpace(*req.Name)
 	}
@@ -522,29 +553,37 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	if req.PromptTemplate != nil {
 		t.PromptTemplate = *req.PromptTemplate
 	}
-	if req.Enabled != nil {
-		s.applyEnabledChange(ctx, t, *req.Enabled)
-		t.Enabled = *req.Enabled
-	}
 	if req.DedupeEnabled != nil {
 		t.DedupeEnabled = *req.DedupeEnabled
 	}
 	if req.AutopauseEnabled != nil {
 		t.AutopauseEnabled = *req.AutopauseEnabled
 	}
-	if err := applyAdmissionUpdate(t, req); err != nil {
-		return nil, err
+}
+
+// applyKindConfigUpdate applies the kind-specific configuration, validated
+// exactly as at creation.
+//
+// Each config is applied only to the kind it belongs to: a schedule on a manual
+// trigger is meaningless, and silently storing it would leave a trigger carrying
+// configuration nothing reads. Validation happens before the value is applied,
+// so a rejected update leaves the stored declaration untouched — and a
+// declaration that could never be satisfied is caught here, while the caller can
+// still fix it, rather than at fire time when they cannot.
+func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
+	if req.ManualConfig != nil && t.Kind == KindManual {
+		if err := validateManualInputs(req.ManualConfig); err != nil {
+			return err
+		}
+		t.ManualConfig = req.ManualConfig
 	}
 	if req.ScheduleConfig != nil && t.Kind == KindScheduled {
 		if err := validateScheduleConfig(req.ScheduleConfig); err != nil {
-			return nil, err
+			return err
 		}
 		t.ScheduleConfig = req.ScheduleConfig
 	}
-	if err := s.repo.UpdateTrigger(ctx, t); err != nil {
-		return nil, err
-	}
-	return t, nil
+	return nil
 }
 
 // DeleteTrigger removes a trigger and all its policy grants.
@@ -938,6 +977,74 @@ func storedVariables(ctx context.Context, logger logging.Logger, payload []byte)
 		return nil
 	}
 	return values
+}
+
+// ─── Payload retention ────────────────────────────────────────────────────────
+
+// GetRetention returns a tenant's payload retention window.
+//
+// A tenant who has never chosen one inherits the platform default, and says so:
+// is_default is the difference between "we picked 30" and "we picked nothing",
+// which decides whether a later change to the default moves this tenant.
+func (s *Service) GetRetention(ctx context.Context, tenantID string) (*RetentionSettings, error) {
+	days, configured, err := s.repo.GetRetention(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !configured {
+		return &RetentionSettings{PayloadDays: DefaultPayloadRetentionDays, IsDefault: true}, nil
+	}
+	return &RetentionSettings{PayloadDays: days}, nil
+}
+
+// SetRetention chooses how long this tenant's delivery payloads are kept.
+//
+// The window can only be shortened relative to the platform default. That
+// asymmetry is the point: retention is a promise about third-party payload data
+// the platform is holding, and a tenant extending it would raise the platform's
+// exposure rather than their own.
+func (s *Service) SetRetention(ctx context.Context, tenantID string, req UpdateRetentionRequest) (*RetentionSettings, error) {
+	if req.PayloadDays < MinPayloadRetentionDays || req.PayloadDays > DefaultPayloadRetentionDays {
+		return nil, fmt.Errorf("%w: payload_days must be between %d and %d",
+			ErrValidation, MinPayloadRetentionDays, DefaultPayloadRetentionDays)
+	}
+	if err := s.repo.SetRetention(ctx, tenantID, req.PayloadDays); err != nil {
+		return nil, err
+	}
+	s.logger.Info(ctx, "payload retention updated",
+		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "payload_days", Value: req.PayloadDays},
+	)
+	return &RetentionSettings{PayloadDays: req.PayloadDays}, nil
+}
+
+// ─── Event catalog ──────────────────────────────────────────────────────────
+
+// SourceEventTypes answers "what can I write a trigger for on this source?".
+//
+// Declared comes from the adapter (what the platform models); observed comes
+// from this source's own history (what it has actually sent). Both are needed:
+// an admin whose trigger never fires is usually looking at an event type that
+// never arrived, and an event that arrives but is not declared is the signal
+// that the adapter should grow a case for it.
+func (s *Service) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
+	src, err := s.repo.GetSource(ctx, tenantID, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	adapter, ok := s.registry.Get(src.Provider)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	}
+	observed, err := s.repo.ObservedEventTypes(ctx, src.ID)
+	if err != nil {
+		return nil, err
+	}
+	declared := adapter.EventTypes()
+	if declared == nil {
+		declared = []string{}
+	}
+	return &EventTypesResponse{Declared: declared, Observed: observed}, nil
 }
 
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
@@ -1472,19 +1579,26 @@ func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateAdmissionCreate(req); err != nil {
 		return err
 	}
-	// A declaration that could never be satisfied is caught here rather than at
-	// fire time, when the caller has no way to fix it.
-	if req.ManualConfig != nil {
-		seen := map[string]bool{}
-		for _, f := range req.ManualConfig.Inputs {
-			if err := f.Validate(); err != nil {
-				return err
-			}
-			if seen[f.Name] {
-				return fmt.Errorf("%w: input %q is declared more than once", ErrValidation, f.Name)
-			}
-			seen[f.Name] = true
+	return validateManualInputs(req.ManualConfig)
+}
+
+// validateManualInputs checks an input declaration is usable before it is
+// stored. A declaration that could never be satisfied is caught here rather than
+// at fire time, when the caller has no way to fix it. Shared by create and
+// update so the two cannot drift.
+func validateManualInputs(mc *ManualConfig) error {
+	if mc == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, f := range mc.Inputs {
+		if err := f.Validate(); err != nil {
+			return err
 		}
+		if seen[f.Name] {
+			return fmt.Errorf("%w: input %q is declared more than once", ErrValidation, f.Name)
+		}
+		seen[f.Name] = true
 	}
 	return nil
 }
@@ -1716,6 +1830,7 @@ func (s *Service) noteFailure(ctx context.Context, t Trigger) {
 		)
 		return
 	}
+	s.metrics.recordAutoPause(ctx, t.ID)
 	s.logger.Warn(ctx, "auto-paused trigger after consecutive failures",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "consecutive_failures", Value: n},
