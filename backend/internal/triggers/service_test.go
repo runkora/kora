@@ -366,10 +366,10 @@ func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
 
 	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
-		MaxParallel:      admissionPtr[int16](2),
+		MaxParallel:      new(int16(2)),
 		Overflow:         new(OverflowRefuse),
-		MaxQueueDepth:    admissionPtr[int16](7),
-		TimeoutSeconds:   admissionPtr[int16](45),
+		MaxQueueDepth:    new(int16(7)),
+		TimeoutSeconds:   new(int16(45)),
 		DedupeEnabled:    new(false),
 		AutopauseEnabled: new(false),
 	})
@@ -401,12 +401,12 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 		name  string
 		apply func(*CreateTriggerRequest)
 	}{
-		{"max_parallel zero", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](0) }},
-		{"max_parallel above ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](17) }},
-		{"max_queue_depth zero", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](0) }},
-		{"max_queue_depth above ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](501) }},
-		{"timeout below floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](4) }},
-		{"timeout above ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](601) }},
+		{"max_parallel zero", func(r *CreateTriggerRequest) { r.MaxParallel = new(int16(0)) }},
+		{"max_parallel above ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = new(int16(17)) }},
+		{"max_queue_depth zero", func(r *CreateTriggerRequest) { r.MaxQueueDepth = new(int16(0)) }},
+		{"max_queue_depth above ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = new(int16(501)) }},
+		{"timeout below floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = new(int16(4)) }},
+		{"timeout above ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = new(int16(601)) }},
 		{"unknown overflow", func(r *CreateTriggerRequest) { r.Overflow = new("drop") }},
 	}
 	kinds := []struct {
@@ -451,12 +451,12 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 		name  string
 		apply func(*CreateTriggerRequest)
 	}{
-		{"max_parallel floor", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](1) }},
-		{"max_parallel ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = admissionPtr[int16](16) }},
-		{"max_queue_depth floor", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](1) }},
-		{"max_queue_depth ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = admissionPtr[int16](500) }},
-		{"timeout floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](5) }},
-		{"timeout ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = admissionPtr[int16](600) }},
+		{"max_parallel floor", func(r *CreateTriggerRequest) { r.MaxParallel = new(int16(1)) }},
+		{"max_parallel ceiling", func(r *CreateTriggerRequest) { r.MaxParallel = new(int16(16)) }},
+		{"max_queue_depth floor", func(r *CreateTriggerRequest) { r.MaxQueueDepth = new(int16(1)) }},
+		{"max_queue_depth ceiling", func(r *CreateTriggerRequest) { r.MaxQueueDepth = new(int16(500)) }},
+		{"timeout floor", func(r *CreateTriggerRequest) { r.TimeoutSeconds = new(int16(5)) }},
+		{"timeout ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = new(int16(600)) }},
 		{"overflow wait", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowWait) }},
 		{"overflow replace", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowReplace) }},
 		{"overflow refuse", func(r *CreateTriggerRequest) { r.Overflow = new(OverflowRefuse) }},
