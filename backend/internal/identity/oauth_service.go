@@ -283,7 +283,7 @@ func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequ
 // initStaticOAuthClients seeds the config-declared static OAuth clients into the
 // client repository. Static clients are re-seeded on every service startup and
 // use staticClientTTL (effectively permanent) so they are always present.
-// This is called from NewService after the signing key is initialised.
+// This is called from NewService after the signing key is initialized.
 func (s *Service) initStaticOAuthClients(ctx context.Context) error {
 	for _, sc := range s.cfg.OAuth.StaticClients {
 		if sc.ClientID == "" {
