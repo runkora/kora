@@ -813,23 +813,44 @@ func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDeliv
 // slot and both take it, which is exactly the over-admission the ceiling exists
 // to prevent.
 func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error) {
+	// in_flight counts dispatched fan-out rows with non-terminal runs plus
+	// already-claimed pendings; ranked  gives each waiting row a per-trigger
+	// position so a single batch admits at most (max_parallel - in_flight)
+	// rows per trigger. Without the ranking, every waiting row of an
+	// under-ceiling trigger satisfies the capacity check at once, and a burst
+	// blows straight through the ceiling.
 	rows, err := r.pool.Query(ctx, `
 		WITH in_flight AS (
-		    SELECT dr.trigger_id, count(*) AS n
-		    FROM   trigger_delivery_runs dr
-		    WHERE  dr.status = 'dispatched'
-		      AND  dr.created_at > now() - interval '1 hour'
-		    GROUP BY dr.trigger_id
+		    SELECT trigger_id, count(*) AS n FROM (
+		        SELECT dr.trigger_id
+		        FROM   trigger_delivery_runs dr
+		        LEFT   JOIN runs ru ON ru.id = dr.run_id
+		        WHERE  dr.status = 'dispatched'
+		          AND  dr.created_at > now() - interval '1 hour'
+		          AND  (ru.id IS NULL OR ru.state NOT IN ('completed', 'failed', 'budget_exhausted'))
+		        UNION ALL
+		        SELECT trigger_id
+		        FROM   trigger_pending_deliveries
+		        WHERE  claimed_at IS NOT NULL
+		    ) x GROUP BY trigger_id
 		),
-		claimable AS (
-		    SELECT p.id
+		ranked AS (
+		    SELECT p.id, p.enqueued_at,
+		           row_number() OVER (PARTITION BY p.trigger_id ORDER BY p.enqueued_at) AS position,
+		           COALESCE(f.n, 0) AS in_flight,
+		           t.max_parallel
 		    FROM   trigger_pending_deliveries p
 		    JOIN   triggers t ON t.id = p.trigger_id
 		    LEFT   JOIN in_flight f ON f.trigger_id = p.trigger_id
 		    WHERE  p.claimed_at IS NULL
 		      AND  t.enabled
-		      AND  COALESCE(f.n, 0) < t.max_parallel
-		    ORDER  BY p.enqueued_at
+		),
+		claimable AS (
+		    SELECT p.id
+		    FROM   trigger_pending_deliveries p
+		    JOIN   ranked k ON k.id = p.id
+		    WHERE  k.in_flight + k.position <= k.max_parallel
+		    ORDER  BY k.enqueued_at
 		    LIMIT  $1
 		    FOR UPDATE OF p SKIP LOCKED
 		)
@@ -861,13 +882,28 @@ func (r *postgresRepository) ReleasePending(ctx context.Context, id string) erro
 // silently throttle a healthy trigger to nothing, which is worse than briefly
 // over-admitting.
 func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string) (int, error) {
+	// In flight = dispatched fan-out rows whose run has not reached a terminal
+	// state, plus pending rows a worker has claimed but not yet dispatched
+	// (invisible to the fan-out until the outcome commits). The runs table is
+	// owned by orbit-agents; this read-only join is a deliberate deployment
+	// coupling (one Postgres, pooled migrations) so max_parallel can mean
+	// "runs actually running" rather than "started within the horizon". The
+	// hour horizon stays as the backstop for a run whose terminal state was
+	// lost: over-admit beats wedging the trigger forever.
 	var n int
 	err := r.pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM   trigger_delivery_runs
-		WHERE  trigger_id = $1
-		  AND  status = 'dispatched'
-		  AND  created_at > now() - interval '1 hour'
+		SELECT
+		    (SELECT count(*)
+		     FROM   trigger_delivery_runs dr
+		     LEFT   JOIN runs ru ON ru.id = dr.run_id
+		     WHERE  dr.trigger_id = $1
+		       AND  dr.status = 'dispatched'
+		       AND  dr.created_at > now() - interval '1 hour'
+		       AND  (ru.id IS NULL OR ru.state NOT IN ('completed', 'failed', 'budget_exhausted')))
+		  + (SELECT count(*)
+		     FROM   trigger_pending_deliveries
+		     WHERE  trigger_id = $1
+		       AND  claimed_at IS NOT NULL)
 	`, triggerID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count in-flight runs: %w", err)
