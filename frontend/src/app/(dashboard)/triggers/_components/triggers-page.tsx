@@ -69,7 +69,11 @@ const INGEST_HOST_FALLBACK = 'this cluster';
 
 export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
   const router = useRouter();
-  const ingestHost = typeof window === 'undefined' ? INGEST_HOST_FALLBACK : window.location.host;
+  // Webhooks are ingested on the API ingress (api.<host>), not the console's
+  // own host: the orbit-api VirtualService routes /api/v1/webhooks/ to
+  // orbit-triggers, while the console host redirects to login.
+  const ingestHost =
+    typeof window === 'undefined' ? INGEST_HOST_FALLBACK : `api.${window.location.host}`;
 
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
