@@ -9,6 +9,7 @@ import { SectionLabel } from '../section-label';
 import { Text } from '../typography';
 import { TemplateCatalogList } from './template-catalog-list';
 import {
+  CARET_ANCHOR,
   TOKEN_SLOT,
   deleteBackward,
   deleteForward,
@@ -88,11 +89,24 @@ function buildPill(doc: Document, token: string, known: boolean): HTMLElement {
 
 /** The deterministic DOM render of a template string. */
 function buildNodes(doc: Document, value: string, known: ReadonlySet<string>): Node[] {
-  return parseTemplate(value).map((part) =>
+  const parts = parseTemplate(value);
+  const nodes: Node[] = parts.map((part) =>
     part.kind === 'text'
       ? doc.createTextNode(part.text)
       : buildPill(doc, part.token, known.has(part.token)),
   );
+  // Caret anchors: a pill at either edge is otherwise unreachable by arrow
+  // keys, because no caret position exists beyond a contenteditable=false
+  // node. The anchors are zero-width, and the model layer strips them.
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  if (first !== undefined && first.kind === 'token') {
+    nodes.unshift(doc.createTextNode(CARET_ANCHOR));
+  }
+  if (last !== undefined && last.kind === 'token') {
+    nodes.push(doc.createTextNode(CARET_ANCHOR));
+  }
+  return nodes;
 }
 
 // ── Selection helpers ─────────────────────────────────────────────────────────

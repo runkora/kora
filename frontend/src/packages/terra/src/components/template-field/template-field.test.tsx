@@ -116,7 +116,8 @@ describe('TemplateField', () => {
     expect(onChange).toHaveBeenCalledWith('Review {{ pr.title }}');
     // And the DOM is re-rendered from that model, so the braces become a pill.
     expect(editor.querySelectorAll('[data-slot="template-token"]')).toHaveLength(1);
-    expect(editor.textContent).toBe('Review pr.title');
+    // textContent may carry the zero-width caret anchor after a trailing pill.
+    expect((editor.textContent ?? '').replaceAll('\u200B', '')).toBe('Review pr.title');
   });
 
   it('reads a pill back as its token rather than its label', () => {
@@ -182,7 +183,7 @@ describe('TemplateField', () => {
         aria-label="Prompt"
       />,
     );
-    expect(editor.textContent).toBe('two pr.title');
+    expect((editor.textContent ?? '').replaceAll('\u200B', '')).toBe('two pr.title');
   });
 
   it('shows the placeholder only while the template is empty', () => {
@@ -357,5 +358,31 @@ describe('TemplateCatalogList', () => {
       'data-token',
       'pr.title',
     );
+  });
+
+  it('keeps a caret anchor after a trailing pill so arrow keys can pass it', () => {
+    const { container } = render(
+      <TemplateField
+        value="Review {{ pr.title }}"
+        onChange={vi.fn()}
+        catalog={CATALOG}
+        aria-label="Prompt"
+      />,
+    );
+    const editor = editorOf(container);
+    expect(editor.lastChild?.nodeType).toBe(3);
+    expect(editor.lastChild?.nodeValue).toBe('\u200B');
+  });
+
+  it('keeps a caret anchor before a leading pill', () => {
+    const { container } = render(
+      <TemplateField
+        value="{{ pr.title }} first"
+        onChange={vi.fn()}
+        catalog={CATALOG}
+        aria-label="Prompt"
+      />,
+    );
+    expect(editorOf(container).firstChild?.nodeValue).toBe('\u200B');
   });
 });

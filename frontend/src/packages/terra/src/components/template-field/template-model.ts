@@ -339,8 +339,21 @@ function isTextNode(node: Node): node is Text {
  * pills contribute their canonical serialization, and a `<br>` contributes a
  * newline (browsers insert them even when we intercept Enter).
  */
+/**
+ * Zero-width space used as a caret anchor. A contenteditable=false pill with
+ * nothing after it is unreachable by arrow keys: the browser has no caret
+ * position to give. The editor therefore keeps an anchor text node around
+ * edge pills; it is invisible, holds the caret, and never enters the model.
+ */
+export const CARET_ANCHOR = '\u200B';
+
+/** Strips caret anchors: DOM text may carry them, the model never does. */
+function stripAnchors(text: string): string {
+  return text.split(CARET_ANCHOR).join('');
+}
+
 export function modelTextOf(node: Node): string {
-  if (isTextNode(node)) return node.nodeValue ?? '';
+  if (isTextNode(node)) return stripAnchors(node.nodeValue ?? '');
   if (isTokenPill(node)) return serializeToken(node.getAttribute('data-token') ?? '');
   if (node.nodeName === 'BR') return '\n';
   let out = '';
@@ -400,7 +413,11 @@ export function domPositionToModelOffset(root: Node, node: Node | null, offset: 
   }
 
   if (isTextNode(node)) {
-    return modelOffsetBefore(root, node) + Math.max(0, Math.min(offset, modelTextOf(node).length));
+    // Count only model characters before the raw offset: an anchor occupies a
+    // DOM position but zero model width.
+    const raw = node.nodeValue ?? '';
+    const before = stripAnchors(raw.slice(0, Math.max(0, Math.min(offset, raw.length))));
+    return modelOffsetBefore(root, node) + before.length;
   }
 
   let acc = modelOffsetBefore(root, node);
