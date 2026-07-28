@@ -143,8 +143,10 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
         </RadioGroup>
       </Stack>
 
-      {state.overflow === 'wait' && (
-        <Stack maxWidth="form-field">
+      {/* The two numeric bounds share a row: stacked they read as two topics,
+          side by side they read as what they are, twin limits on one queue. */}
+      <Grid cols={2} gap="comfortable">
+        {state.overflow === 'wait' && (
           <FormField
             label="Max queued deliveries"
             id="wizard-queue-depth"
@@ -163,10 +165,7 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
               }
             />
           </FormField>
-        </Stack>
-      )}
-
-      <Stack maxWidth="form-field">
+        )}
         <FormField
           label="Timeout"
           id="wizard-timeout"
@@ -185,7 +184,7 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
             }
           />
         </FormField>
-      </Stack>
+      </Grid>
 
       {/* All three bounds in one sentence, which is the only place they can be
           checked against each other. */}
