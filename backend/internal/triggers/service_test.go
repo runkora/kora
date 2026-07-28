@@ -326,10 +326,10 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 
 	// Applied when set, with create-time bounds.
 	upd, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
-		MaxParallel:    admissionPtr[int16](2),
+		MaxParallel:    new(int16(2)),
 		Overflow:       new(OverflowRefuse),
-		MaxQueueDepth:  admissionPtr[int16](10),
-		TimeoutSeconds: admissionPtr[int16](60),
+		MaxQueueDepth:  new(int16(10)),
+		TimeoutSeconds: new(int16(60)),
 	})
 	if err != nil {
 		t.Fatalf("UpdateTrigger admission: %v", err)
@@ -351,7 +351,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 
 	// Out-of-range rejected.
 	if _, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
-		MaxParallel: admissionPtr[int16](99),
+		MaxParallel: new(int16(99)),
 	}); err == nil {
 		t.Fatal("expected max_parallel out of range to be rejected")
 	}
