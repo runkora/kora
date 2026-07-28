@@ -23,6 +23,17 @@ export interface CodeBlockProps {
    * Defaults to `false` (horizontal scroll — best for real code).
    */
   wrap?: boolean;
+  /**
+   * Visual density.
+   *
+   * - `'default'` — 14px on the elevated surface with generous padding; a code
+   *   sample that is the point of the page.
+   * - `'compact'` — 11px on the base surface with tight padding and a subtle
+   *   border; an inset data excerpt inside a row or panel (a webhook payload,
+   *   a captured request), where the code is evidence rather than subject.
+   *   The copy button appears on hover so the excerpt reads as data at rest.
+   */
+  density?: 'default' | 'compact';
   /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
   className?: string;
 }
@@ -41,7 +52,7 @@ export interface CodeBlockProps {
  * ```
  */
 export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
-  ({ text, filename, wrap = false, className }, ref) => {
+  ({ text, filename, wrap = false, density = 'default', className }, ref) => {
     const [copied, setCopied] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -73,21 +84,30 @@ export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
         <div className="relative">
           <pre
             className={cn(
-              'overflow-x-auto border border-border bg-surface-elevated px-4 py-3 leading-relaxed',
+              'overflow-x-auto border',
+              density === 'compact'
+                ? 'border-border-subtle bg-surface px-3 py-[11px] leading-[1.65]'
+                : 'border-border bg-surface-elevated px-4 py-3 leading-relaxed',
               // Wrap mode: preserve newlines but soft-wrap long lines and break
               // overlong tokens so the block stays within its column width.
               wrap && 'whitespace-pre-wrap break-words',
-              filename ? 'rounded-b-lg' : 'rounded-lg',
+              filename ? 'rounded-b-lg' : density === 'compact' ? 'rounded-sm' : 'rounded-lg',
             )}
           >
-            <Code variant="bare">{text}</Code>
+            <Code variant="bare" className={density === 'compact' ? 'text-[11px]' : undefined}>
+              {text}
+            </Code>
           </pre>
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={handleCopy}
             aria-label="Copy code"
-            className="absolute right-2 top-2"
+            className={cn(
+              'absolute right-2 top-2',
+              density === 'compact' &&
+                'opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100',
+            )}
           >
             {copied ? (
               <Icon name="check" size="2xs" color="status-healthy" />

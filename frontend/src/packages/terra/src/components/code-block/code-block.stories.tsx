@@ -43,6 +43,14 @@ export const WithFilename: Story = {
 };
 
 /** `wrap` soft-wraps long prose-like content instead of scrolling horizontally. */
+export const Compact: Story = {
+  args: {
+    text: '{"action":"opened","number":108,"pull_request":{"number":108,"title":"Change 8","base":{"ref":"main"}},"repository":{"full_name":"clearroute/orbit"}}',
+    density: 'compact',
+    wrap: true,
+  },
+};
+
 export const Wrapped: Story = {
   args: {
     text: 'You are a release-notes agent. Summarise the merged pull requests since the last tag, group them by area, and never include internal ticket identifiers in the published output.',

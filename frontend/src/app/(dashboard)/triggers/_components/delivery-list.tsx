@@ -61,6 +61,20 @@ function shortAgo(iso: string): string {
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
+/**
+ * Pretty-prints a payload excerpt when it is complete JSON.
+ *
+ * Excerpts are truncated at capture, so parsing can fail on an honest excerpt;
+ * in that case the raw text is shown rather than nothing.
+ */
+function formatPayload(excerpt: string): string {
+  try {
+    return JSON.stringify(JSON.parse(excerpt), null, 2);
+  } catch {
+    return excerpt;
+  }
+}
+
 /** Byte counts read better as the size they are than as a raw integer. */
 function formatBytes(bytes: number | null): string {
   if (bytes === null) return '';
@@ -142,7 +156,7 @@ export function DeliveryList({
                       still recorded.
                     </Text>
                   ) : d.payloadExcerpt !== null ? (
-                    <CodeBlock text={d.payloadExcerpt} wrap />
+                    <CodeBlock text={formatPayload(d.payloadExcerpt)} density="compact" wrap />
                   ) : (
                     <Text size="caption" color="subtle">
                       No payload retained for this delivery.
