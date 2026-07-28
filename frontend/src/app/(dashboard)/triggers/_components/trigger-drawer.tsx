@@ -2,10 +2,9 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -14,6 +13,8 @@ import {
   Grid,
   Icon,
   IconTile,
+  Input,
+  NativeSelect,
   SectionLabel,
   SettingRow,
   SidePanel,
@@ -24,6 +25,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  TemplateField,
   Text,
   Toggle,
   ToggleRow,
@@ -34,6 +36,27 @@ import { CopyButton, EmptyState } from '@orbit/components';
 import type { DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { DeliveryList } from './delivery-list';
+import {
+  catalogPatterns,
+  scheduledCatalog,
+  toTemplateCatalog,
+  webhookCatalog,
+} from './trigger-wizard/field-catalog';
+import {
+  describeMatchCondition,
+  matchConditionFrom,
+  splitFilterValues,
+} from './trigger-wizard/wizard-state';
+import { resolveBrowserZone, timezoneOptions } from './trigger-wizard/cron';
+import {
+  eventOptionsFor,
+  filtersFromMatchCondition,
+  isValidCron,
+  manualInputsCatalog,
+  sameFilters,
+} from './trigger-edit';
+import type { EditFilterRow } from './trigger-edit';
+import { useEditableSection } from './use-editable-section';
 
 /** Icon per kind, matching the trigger list so a row and its panel agree. */
 const KIND_ICON: Record<TriggerKind, IconName> = {
@@ -41,6 +64,19 @@ const KIND_ICON: Record<TriggerKind, IconName> = {
   scheduled: 'clock',
   manual: 'play',
 };
+
+/**
+ * A correction to a stored trigger. Every field is optional: a section saves
+ * only what it owns, so renaming a trigger cannot disturb its filters.
+ */
+export interface TriggerEditPatch {
+  name?: string;
+  promptTemplate?: string;
+  /** Empty string means any event type. */
+  eventType?: string;
+  matchCondition?: Record<string, string[]>;
+  scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
+}
 
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
@@ -57,6 +93,13 @@ interface TriggerDrawerProps {
    * rather than pretending to save.
    */
   onUpdateSafety?: (t: TriggerRow, patch: Partial<TriggerRow>) => void;
+  /**
+   * Persists a correction to the trigger's configuration, resolving with the
+   * error string or null. Absent when the caller cannot write, in which case
+   * the edit affordances are not offered at all: a Save that cannot save is
+   * worse than a read-only panel.
+   */
+  onEdit?: (t: TriggerRow, patch: TriggerEditPatch) => Promise<string | null>;
   /**
    * Rotates the webhook source's signing secret and resolves with the new one,
    * which is shown once here and never again. Absent for read-only callers.
@@ -144,6 +187,52 @@ function StepperControl({
   );
 }
 
+/**
+ * The save affordance a dirty section grows.
+ *
+ * Nothing is shown until something changes, so a panel being read stays a panel
+ * being read. A blocker replaces the button rather than disabling it, because a
+ * dead button does not say what is wrong.
+ */
+function EditActions({
+  dirty,
+  pending,
+  error,
+  blocker,
+  saveLabel,
+  onSave,
+  onDiscard,
+}: {
+  dirty: boolean;
+  pending: boolean;
+  error: string | null;
+  /** Why this cannot be saved yet, if anything. */
+  blocker?: string;
+  saveLabel: string;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  if (!dirty) return null;
+  return (
+    <Stack gap="snug">
+      {error !== null && <Alert variant="error">{error}</Alert>}
+      <Stack direction="horizontal" align="center" justify="end" gap="snug">
+        {blocker !== undefined && (
+          <Text size="caption" color="status-error">
+            {blocker}
+          </Text>
+        )}
+        <Button variant="ghost" size="xs" disabled={pending} onClick={onDiscard}>
+          Discard
+        </Button>
+        <Button size="xs" disabled={pending || blocker !== undefined} onClick={onSave}>
+          {pending ? 'Saving…' : saveLabel}
+        </Button>
+      </Stack>
+    </Stack>
+  );
+}
+
 /** A small figure in the drawer's stat trio. */
 function DrawerStat({
   label,
@@ -198,6 +287,7 @@ export function TriggerDrawer({
   onToggleEnabled,
   onDelete,
   onUpdateSafety,
+  onEdit,
   onRotateSecret,
   onFire,
   firing = false,
@@ -219,6 +309,81 @@ export function TriggerDrawer({
     [trigger, deliveries],
   );
 
+  // ── Editing ───────────────────────────────────────────────────────────────
+  // Every section keys its draft on the trigger's id, so opening a different
+  // trigger cannot inherit half-typed edits from the last one.
+  const editKey = trigger?.id ?? '';
+  const editable = onEdit !== undefined && trigger !== null;
+
+  const savePatch = useCallback(
+    async (patch: TriggerEditPatch): Promise<string | null> => {
+      if (trigger === null || onEdit === undefined) return 'Editing is not available here.';
+      return onEdit(trigger, patch);
+    },
+    [trigger, onEdit],
+  );
+
+  const savePrompt = useCallback(
+    (value: string) => savePatch({ promptTemplate: value }),
+    [savePatch],
+  );
+  const prompt = useEditableSection(trigger?.promptTemplate ?? '', editKey, savePrompt);
+
+  const saveName = useCallback((value: string) => savePatch({ name: value.trim() }), [savePatch]);
+  const name = useEditableSection(trigger?.name ?? '', editKey, saveName);
+
+  const storedFilters = useMemo(
+    () => ({
+      eventType: trigger?.eventType ?? '',
+      filters: filtersFromMatchCondition(trigger?.matchCondition),
+    }),
+    [trigger?.eventType, trigger?.matchCondition],
+  );
+  const saveFilters = useCallback(
+    (value: { eventType: string; filters: EditFilterRow[] }) =>
+      // Sent together: the event narrows which fields exist, so a filter and
+      // the event it belongs to must never land as two separate states.
+      savePatch({
+        eventType: value.eventType,
+        matchCondition: matchConditionFrom(value.filters) ?? {},
+      }),
+    [savePatch],
+  );
+  const filters = useEditableSection(
+    storedFilters,
+    editKey,
+    saveFilters,
+    (a, b) => a.eventType === b.eventType && sameFilters(a.filters, b.filters),
+  );
+
+  const storedSchedule = useMemo(
+    () => ({
+      cronExpression: trigger?.scheduleConfig?.cronExpression ?? '',
+      timezone: trigger?.scheduleConfig?.timezone ?? 'UTC',
+      catchUp: trigger?.scheduleConfig?.catchUp ?? false,
+    }),
+    [trigger?.scheduleConfig],
+  );
+  const saveSchedule = useCallback(
+    (value: { cronExpression: string; timezone: string; catchUp: boolean }) =>
+      savePatch({ scheduleConfig: value }),
+    [savePatch],
+  );
+  const schedule = useEditableSection(
+    storedSchedule,
+    editKey,
+    saveSchedule,
+    (a, b) =>
+      a.cronExpression === b.cronExpression && a.timezone === b.timezone && a.catchUp === b.catchUp,
+  );
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  const zones = useMemo(() => {
+    const base = timezoneOptions(resolveBrowserZone());
+    const current = storedSchedule.timezone;
+    return current && !base.includes(current) ? [...base, current] : base;
+  }, [storedSchedule.timezone]);
+
   if (trigger === null) return null;
 
   const source = sources.find((s) => s.id === trigger.sourceId);
@@ -230,6 +395,37 @@ export function TriggerDrawer({
   );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
   const endpoint = `https://${ingestHost}/api/v1/webhooks/${trigger.sourceId}`;
+
+  const provider = source?.provider ?? '';
+  // The catalog follows the event being edited, not the stored one, so the
+  // fields on offer match the trigger the person is about to save.
+  const promptCatalog =
+    trigger.kind === 'webhook'
+      ? toTemplateCatalog(
+          webhookCatalog(provider, filters.value.eventType),
+          catalogPatterns(provider),
+        )
+      : trigger.kind === 'scheduled'
+        ? toTemplateCatalog(scheduledCatalog())
+        : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
+
+  // A half-written filter looks configured but matches nothing, so it is the
+  // one edit worth refusing rather than saving as-is.
+  const filterBlocker = filters.value.filters.some(
+    (row) => Boolean(row.field.trim()) !== splitFilterValues(row.values).length > 0,
+  )
+    ? 'Finish or remove the empty filter'
+    : undefined;
+  const nameBlocker = name.value.trim() ? undefined : 'Needs a name';
+  const cronBlocker = isValidCron(schedule.value.cronExpression)
+    ? undefined
+    : 'Needs a five-field cron expression';
+
+  const setFilterRow = (index: number, next: Partial<EditFilterRow>) =>
+    filters.setValue({
+      ...filters.value,
+      filters: filters.value.filters.map((row, i) => (i === index ? { ...row, ...next } : row)),
+    });
 
   const subtitle =
     trigger.kind === 'webhook'
@@ -361,23 +557,86 @@ export function TriggerDrawer({
               {trigger.kind === 'scheduled' && trigger.scheduleConfig && (
                 <Stack gap="snug">
                   <SectionLabel>Schedule</SectionLabel>
-                  <FieldRow
-                    leading={<Icon name="clock" size="2xs" color="accent" />}
-                    actions={
-                      <Text mono size="micro" color="subtle">
-                        {trigger.scheduleConfig.timezone}
-                      </Text>
-                    }
-                  >
-                    <Stack gap="none">
-                      <Text mono size="supporting" weight="emphasis">
-                        {trigger.scheduleConfig.cronExpression}
-                      </Text>
+                  {scheduleOpen ? (
+                    <Stack gap="snug">
+                      <Input
+                        mono
+                        aria-label="Cron expression"
+                        value={schedule.value.cronExpression}
+                        onChange={(e) =>
+                          schedule.setValue({ ...schedule.value, cronExpression: e.target.value })
+                        }
+                        placeholder="0 2 * * *"
+                      />
                       <Text size="caption" color="muted">
-                        {describeCron(trigger.scheduleConfig.cronExpression)}
+                        {describeCron(schedule.value.cronExpression)}
                       </Text>
+                      <NativeSelect
+                        mono
+                        aria-label="Timezone"
+                        value={schedule.value.timezone}
+                        onChange={(e) =>
+                          schedule.setValue({ ...schedule.value, timezone: e.target.value })
+                        }
+                      >
+                        {zones.map((zone) => (
+                          <option key={zone} value={zone}>
+                            {zone}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                      <ToggleRow
+                        checked={schedule.value.catchUp}
+                        onChange={(next) => schedule.setValue({ ...schedule.value, catchUp: next })}
+                        label="Catch up on missed runs"
+                        description="Replay ticks skipped while the platform was unavailable."
+                      />
+                      <EditActions
+                        dirty={schedule.dirty}
+                        pending={schedule.pending}
+                        error={schedule.error}
+                        blocker={cronBlocker}
+                        saveLabel="Save schedule"
+                        onSave={schedule.save}
+                        onDiscard={() => {
+                          schedule.discard();
+                          setScheduleOpen(false);
+                        }}
+                      />
+                      {!schedule.dirty && (
+                        <Stack direction="horizontal" justify="end">
+                          <Button variant="ghost" size="xs" onClick={() => setScheduleOpen(false)}>
+                            Done
+                          </Button>
+                        </Stack>
+                      )}
                     </Stack>
-                  </FieldRow>
+                  ) : (
+                    <FieldRow
+                      leading={<Icon name="clock" size="2xs" color="accent" />}
+                      actions={
+                        <Stack direction="horizontal" align="center" gap="snug">
+                          <Text mono size="micro" color="subtle">
+                            {trigger.scheduleConfig.timezone}
+                          </Text>
+                          {editable && (
+                            <Button variant="ghost" size="xs" onClick={() => setScheduleOpen(true)}>
+                              Edit
+                            </Button>
+                          )}
+                        </Stack>
+                      }
+                    >
+                      <Stack gap="none">
+                        <Text mono size="supporting" weight="emphasis">
+                          {trigger.scheduleConfig.cronExpression}
+                        </Text>
+                        <Text size="caption" color="muted">
+                          {describeCron(trigger.scheduleConfig.cronExpression)}
+                        </Text>
+                      </Stack>
+                    </FieldRow>
+                  )}
                   <Grid cols={2} gap="snug">
                     <DrawerStat
                       label="Catch-up"
@@ -440,18 +699,128 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <Stack direction="horizontal" gap="snug" wrap>
-                    <Badge variant="default" mono>
-                      {trigger.eventType || 'any event'}
-                    </Badge>
-                    {Object.entries(trigger.matchCondition).map(([k, vals]) => (
-                      <Badge key={k} variant="elevated" mono>
-                        {k}={vals.join('|')}
-                      </Badge>
-                    ))}
-                  </Stack>
+                  <SegmentedControl
+                    aria-label="Event type"
+                    value={filters.value.eventType}
+                    onChange={(v) => filters.setValue({ ...filters.value, eventType: v })}
+                    options={[
+                      { value: '', label: 'Any event' },
+                      ...eventOptionsFor(provider, trigger.eventType).map((ev) => ({
+                        value: ev,
+                        label: ev,
+                      })),
+                    ]}
+                  />
+
+                  {filters.value.filters.map((row, i) => (
+                    <Stack key={i} direction="horizontal" gap="snug" align="center">
+                      <Stack minWidth="form-field-sm">
+                        <NativeSelect
+                          mono
+                          aria-label={`Filter ${i + 1} field`}
+                          value={row.field}
+                          onChange={(e) => setFilterRow(i, { field: e.target.value })}
+                        >
+                          <option value="">Choose a field</option>
+                          {webhookCatalog(provider, filters.value.eventType).map((entry) => (
+                            <option key={entry.token} value={entry.token}>
+                              {entry.token}
+                            </option>
+                          ))}
+                          {/* A stored filter may name a field outside the
+                              current event's catalog; keep it selectable so
+                              editing the row cannot silently drop it. */}
+                          {row.field !== '' &&
+                            !webhookCatalog(provider, filters.value.eventType).some(
+                              (entry) => entry.token === row.field,
+                            ) && <option value={row.field}>{row.field}</option>}
+                        </NativeSelect>
+                      </Stack>
+                      <Stack grow minWidth="none">
+                        <Input
+                          mono
+                          aria-label={`Filter ${i + 1} values`}
+                          value={row.values}
+                          onChange={(e) => setFilterRow(i, { values: e.target.value })}
+                          placeholder="opened | synchronize"
+                        />
+                      </Stack>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove filter ${i + 1}`}
+                        onClick={() =>
+                          filters.setValue({
+                            ...filters.value,
+                            filters: filters.value.filters.filter((_, x) => x !== i),
+                          })
+                        }
+                      >
+                        <Icon name="close" size="2xs" />
+                      </Button>
+                    </Stack>
+                  ))}
+
+                  {editable && (
+                    <Stack direction="horizontal">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() =>
+                          filters.setValue({
+                            ...filters.value,
+                            filters: [...filters.value.filters, { field: '', values: '' }],
+                          })
+                        }
+                      >
+                        <Icon name="plus" size="2xs" />
+                        Add filter
+                      </Button>
+                    </Stack>
+                  )}
+
+                  <Text size="caption" color="subtle">
+                    {describeMatchCondition(filters.value.filters) ??
+                      'Every delivery of this event starts a run.'}
+                  </Text>
+
+                  <EditActions
+                    dirty={filters.dirty}
+                    pending={filters.pending}
+                    error={filters.error}
+                    blocker={filterBlocker}
+                    saveLabel="Save filters"
+                    onSave={filters.save}
+                    onDiscard={filters.discard}
+                  />
                 </Stack>
               )}
+
+              {/* Prompt: what the run is actually asked to do. */}
+              <Stack gap="snug">
+                <SectionLabel>Prompt</SectionLabel>
+                <TemplateField
+                  aria-label="Prompt template"
+                  value={prompt.value}
+                  onChange={prompt.setValue}
+                  catalog={promptCatalog}
+                  disabled={!editable}
+                  placeholder="What this trigger asks the agent to do."
+                  catalogLabel={
+                    trigger.kind === 'webhook' && filters.value.eventType
+                      ? `Fields for ${filters.value.eventType} deliveries`
+                      : undefined
+                  }
+                />
+                <EditActions
+                  dirty={prompt.dirty}
+                  pending={prompt.pending}
+                  error={prompt.error}
+                  saveLabel="Save prompt"
+                  onSave={prompt.save}
+                  onDiscard={prompt.discard}
+                />
+              </Stack>
 
               {/* Target: what gets started, and how many at once. */}
               <Stack gap="snug">
@@ -531,6 +900,36 @@ export function TriggerDrawer({
           {/* ── Settings: how it should behave ──────────────────────────── */}
           <TabsContent value="settings">
             <Stack gap="comfortable">
+              <Stack gap="snug">
+                <SectionLabel>Identity</SectionLabel>
+                <SettingRow
+                  label="Name"
+                  description="Shown in the triggers list and on every run it starts."
+                  value={
+                    <Stack minWidth="form-field-sm">
+                      <Input
+                        mono
+                        compact
+                        aria-label="Trigger name"
+                        value={name.value}
+                        disabled={!editable}
+                        onChange={(e) => name.setValue(e.target.value)}
+                        maxLength={128}
+                      />
+                    </Stack>
+                  }
+                />
+                <EditActions
+                  dirty={name.dirty}
+                  pending={name.pending}
+                  error={name.error}
+                  blocker={nameBlocker}
+                  saveLabel="Save name"
+                  onSave={name.save}
+                  onDiscard={name.discard}
+                />
+              </Stack>
+
               <Stack gap="snug">
                 <SectionLabel>Delivery</SectionLabel>
                 <Stack gap="snug">

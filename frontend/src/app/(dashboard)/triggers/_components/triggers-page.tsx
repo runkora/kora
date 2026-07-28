@@ -36,6 +36,7 @@ import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
 import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
+import type { TriggerEditPatch } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
@@ -331,6 +332,35 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     [router],
   );
 
+  /**
+   * Persists a correction made in the drawer.
+   *
+   * Unlike the safety controls, this resolves with the failure rather than
+   * raising a page-level notice: the drawer keeps the edit on screen next to
+   * the reason, so nothing typed is lost to a rejected save.
+   */
+  const saveTriggerEdit = useCallback(
+    async (row: TriggerRow, patch: TriggerEditPatch): Promise<string | null> => {
+      const result = await updateTrigger(row.id, {
+        ...(patch.name !== undefined && { name: patch.name }),
+        ...(patch.promptTemplate !== undefined && { prompt_template: patch.promptTemplate }),
+        ...(patch.eventType !== undefined && { event_type: patch.eventType }),
+        ...(patch.matchCondition !== undefined && { match_condition: patch.matchCondition }),
+        ...(patch.scheduleConfig !== undefined && {
+          schedule_config: {
+            cron_expression: patch.scheduleConfig.cronExpression,
+            timezone: patch.scheduleConfig.timezone,
+            catch_up: patch.scheduleConfig.catchUp,
+          },
+        }),
+      });
+      if (result.error) return result.error;
+      router.refresh();
+      return null;
+    },
+    [router],
+  );
+
   // Read the open trigger back out of the live list rather than trusting the
   // row captured when the drawer opened: saving a setting inside the panel
   // refreshes the page data, and a snapshot would leave the control showing
@@ -530,6 +560,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           setDeleteTrg(t);
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
+        onEdit={saveTriggerEdit}
         onRotateSecret={rotateSecret}
         onFire={startManualRun}
         firing={firingId !== null}
