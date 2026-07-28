@@ -3,14 +3,19 @@
 /** @tier 3 — triggers-scoped. Shared Review step: the kind summarises itself,
  * the shared rows follow, and a failed create surfaces here without loss. */
 
-import { Alert, Card, CardContent, SettingRow, Stack, Text } from '@orbit/terra';
+import { Alert, Separator, SettingRow, Stack, Text } from '@orbit/terra';
 import { sharedReviewRows } from './wizard-state';
-import type { StepComponentProps } from './types';
+import type { ReviewRow, StepComponentProps } from './types';
 
 export function StepReview({ state, context, definition, error }: StepComponentProps) {
-  const rows = [
-    { key: 'Name', value: state.name || '—', mono: true },
-    { key: 'Kind', value: definition.title },
+  const rows: ReviewRow[] = [
+    {
+      key: 'Trigger name',
+      value: state.name || '—',
+      mono: true,
+      description: 'Shown in the triggers list and on every run it starts.',
+    },
+    { key: 'Kind', value: definition.title, description: definition.description },
     ...definition.summarize(state, context),
     ...sharedReviewRows(state, context),
   ];
@@ -19,23 +24,22 @@ export function StepReview({ state, context, definition, error }: StepComponentP
     <Stack gap="comfortable">
       {error && <Alert variant="error">{error}</Alert>}
 
-      <Card inset>
-        <CardContent padded compact>
-          <Stack>
-            {rows.map((r) => (
-              <SettingRow
-                key={r.key}
-                label={r.key}
-                value={
-                  <Text as="span" size="caption" mono={r.mono} weight="emphasis">
-                    {r.value}
-                  </Text>
-                }
-              />
-            ))}
+      <Stack>
+        {rows.map((r, i) => (
+          <Stack key={r.key} gap="none">
+            {i > 0 && <Separator span="full" />}
+            <SettingRow
+              label={r.key}
+              description={r.description}
+              value={
+                <Text as="span" size="caption" mono={r.mono} weight="emphasis">
+                  {r.value}
+                </Text>
+              }
+            />
           </Stack>
-        </CardContent>
-      </Card>
+        ))}
+      </Stack>
 
       <Stack gap="tight">
         <Text size="caption" color="subtle">
@@ -45,6 +49,10 @@ export function StepReview({ state, context, definition, error }: StepComponentP
           {state.promptTemplate}
         </Text>
       </Stack>
+
+      <Text size="caption" color="subtle">
+        Nothing fires until you create it.
+      </Text>
     </Stack>
   );
 }

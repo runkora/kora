@@ -1,9 +1,9 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. Phase one of the wizard: choose what starts the
- * run. Rendered entirely from the kind registry. */
+/** @tier 3 — triggers-scoped. Phase one: choose what starts the run. Rendered
+ * entirely from the kind registry. */
 
-import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/terra';
+import { Card, CardContent, Icon, IconTile, Separator, Stack, Text } from '@orbit/terra';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
 import type { TriggerKind } from './types';
 
@@ -18,60 +18,66 @@ export interface KindPickerProps {
 export function KindPicker({ onSelect }: KindPickerProps) {
   return (
     <Stack gap="relaxed">
-      <Stack gap="snug">
-        <Text weight="heavy">Available now</Text>
-        {/* RadioCard needs the Radix group context even for a pick-and-go grid;
-            value stays empty because choosing advances the flow rather than
-            persisting a selection. */}
-        <RadioGroup value="" aria-label="Trigger kind">
-          <Grid cols={3} gap="comfortable">
-            {KIND_ORDER.map((id) => {
-              const def = TRIGGER_KINDS[id];
-              return (
-                <Stack key={id} gap="tight">
-                  <RadioCard
-                    value={def.id}
-                    selected={false}
-                    onSelect={(v) => onSelect(v as TriggerKind)}
-                    icon={def.icon}
-                    title={def.title}
-                    description={def.description}
-                  />
-                  <Text size="micro" mono color="subtle" truncate>
-                    {def.example}
-                  </Text>
+      <Text size="supporting" color="muted">
+        Choose what starts the run. Every trigger targets one agent and is policy-checked before it
+        fires.
+      </Text>
+
+      <Stack gap="cozy">
+        {KIND_ORDER.map((id) => {
+          const def = TRIGGER_KINDS[id];
+          return (
+            <Card key={id} interactive onClick={() => onSelect(def.id)}>
+              <CardContent padded compact>
+                <Stack direction="horizontal" align="center" gap="cozy">
+                  <IconTile tone="accent">
+                    <Icon name={def.icon} size="xs" label="" />
+                  </IconTile>
+                  <Stack gap="tight" grow minWidth="none">
+                    <Text as="span" size="supporting" weight="heavy">
+                      {def.title}
+                    </Text>
+                    <Text size="caption" color="muted">
+                      {def.description}
+                    </Text>
+                    <Text size="micro" mono color="subtle">
+                      {def.example}
+                    </Text>
+                  </Stack>
+                  <Icon name="chevron-right" size="xs" color="subtle" shrink label="" />
                 </Stack>
-              );
-            })}
-          </Grid>
-        </RadioGroup>
+              </CardContent>
+            </Card>
+          );
+        })}
       </Stack>
 
       <Stack gap="snug">
-        <Stack direction="horizontal" gap="snug" align="center">
-          <Text weight="heavy">Planned</Text>
-          <Badge variant="outline">Soon</Badge>
-        </Stack>
-        <Text size="supporting" color="muted">
-          Each is another way for something to start. Nothing downstream changes, which is the test
-          of whether this design is right.
+        <Text size="caption" weight="heavy" color="muted">
+          Coming soon
         </Text>
-        <RadioGroup value="" aria-label="Planned trigger kinds">
-          <Grid cols={3} gap="comfortable">
-            {PLANNED_KINDS.map((k) => (
-              <RadioCard
-                key={k.title}
-                value={k.title}
-                selected={false}
-                disabled
-                onSelect={() => undefined}
-                icon={k.icon}
-                title={k.title}
-                description={k.description}
-              />
+        <Text size="caption" color="subtle">
+          Each is another way for something to start. Target and delivery settings work the same for
+          all of them.
+        </Text>
+        <Card subtle>
+          <CardContent flush>
+            {PLANNED_KINDS.map((k, i) => (
+              <Stack key={k.title} gap="none" disabled>
+                {i > 0 && <Separator span="full" />}
+                <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
+                  <Icon name={k.icon} size="xs" color="subtle" shrink label="" />
+                  <Text as="span" size="caption" weight="strong" color="muted">
+                    {k.title}
+                  </Text>
+                  <Text as="span" size="caption" color="subtle" truncate>
+                    {k.description}
+                  </Text>
+                </Stack>
+              </Stack>
             ))}
-          </Grid>
-        </RadioGroup>
+          </CardContent>
+        </Card>
       </Stack>
     </Stack>
   );

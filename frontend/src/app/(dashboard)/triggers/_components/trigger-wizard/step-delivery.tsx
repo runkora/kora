@@ -4,19 +4,22 @@
  * two safety behaviours that keep a broken source from flooding the platform. */
 
 import { FormField, Input, Stack, Text, ToggleRow } from '@orbit/terra';
+import { FIELD_IDS } from './wizard-state';
 import type { StepComponentProps } from './types';
 
-export function StepDelivery({ state, patch }: StepComponentProps) {
+export function StepDelivery({ state, patch, fieldError, firstFieldRef }: StepComponentProps) {
   return (
     <Stack gap="relaxed">
-      <Stack maxWidth="form-field">
+      <Stack maxWidth="search-field">
         <FormField
           label="Timeout"
-          id="wizard-timeout"
-          hint="Bounds starting the run, not running it. Dispatch is abandoned after this window."
+          id={FIELD_IDS.timeout}
+          hint="Bounds starting the run, not running it. Orbit gives up after this window."
+          error={fieldError(FIELD_IDS.timeout)}
         >
           <Input
-            id="wizard-timeout"
+            id={FIELD_IDS.timeout}
+            ref={firstFieldRef}
             mono
             inputMode="numeric"
             value={String(state.timeoutSeconds)}
@@ -38,7 +41,7 @@ export function StepDelivery({ state, patch }: StepComponentProps) {
           onChange={(next) => patch({ dedupeEnabled: next })}
         />
         <ToggleRow
-          label="Auto-pause on repeated failure"
+          label="Auto-pause on failure"
           description="Disable the trigger after ten consecutive failed deliveries, so a broken target stops burning runs."
           checked={state.autopauseEnabled}
           onChange={(next) => patch({ autopauseEnabled: next })}

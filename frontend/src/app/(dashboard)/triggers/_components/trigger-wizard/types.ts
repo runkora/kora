@@ -78,6 +78,12 @@ export interface TriggerWizardProps {
    * then the trigger; resolves with what the done screen needs.
    */
   onCreate: (draft: TriggerDraft) => Promise<TriggerCreateResult>;
+  /**
+   * Opens the created trigger. When omitted the success screen offers only
+   * "Create another" and "Done", so a host with nowhere to navigate does not
+   * show a button that goes nowhere.
+   */
+  onViewTrigger?: (triggerId: string) => void;
   onClose: () => void;
 }
 
@@ -137,11 +143,19 @@ export interface WizardContext {
   ingestHost: string;
 }
 
-/** Whether a step is complete enough to move on, and what is missing if not. */
+/**
+ * Whether a step is complete enough to move on, and what is missing if not.
+ *
+ * Continue is never disabled — pressing it on an incomplete step is how a
+ * person asks what is missing, so the blocker names the one thing to fix and
+ * points at the control that fixes it.
+ */
 export interface StepValidation {
   valid: boolean;
-  /** Shown beside the disabled Continue button. Absent when the step is complete. */
-  hint?: string;
+  /** Blocker fragment, e.g. "Needs a name". Absent when the step is complete. */
+  blocker?: string;
+  /** `id` of the control to focus and mark, e.g. "wizard-name". */
+  fieldId?: string;
 }
 
 export interface StepComponentProps {
@@ -155,23 +169,34 @@ export interface StepComponentProps {
   definition: TriggerKindDefinition;
   /** The last failed create, kept on screen without losing any state. */
   error: string | null;
+  /**
+   * The blocker for a control, once the person has pressed Continue on an
+   * incomplete step. Returns undefined until then, so a half-typed form is
+   * never scolded mid-keystroke.
+   */
+  fieldError: (fieldId: string) => string | undefined;
+  /** Attach to the step's first control so focus lands there on arrival. */
+  firstFieldRef: React.Ref<HTMLInputElement>;
 }
 
 /** One step in the wizard: a rail entry and the pane it shows. */
 export interface KindStep {
   id: string;
+  /** Rail label. Titles only; the rail carries no subtitles. */
   railTitle: string;
-  railSub: string;
-  /** The sentence under the step heading. */
-  description: string;
+  /** The sentence under the step heading. Omitted when the controls say it. */
+  description?: string;
   Component: React.ComponentType<StepComponentProps>;
   validate: (state: WizardState, context: WizardContext) => StepValidation;
 }
 
 /** One key/value line on the review step. */
 export interface ReviewRow {
+  /** Must be the exact label of the control that set it. */
   key: string;
   value: string;
+  /** What the setting does, in the words the control used. */
+  description?: string;
   /** Code-ish values read as data, not prose. */
   mono?: boolean;
 }

@@ -84,7 +84,13 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [deleteTrg, setDeleteTrg] = useState<TriggerRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  /**
+   * The drawer holds an id, not a row: the row is looked up from the live list
+   * on every render, so a save inside the panel shows the saved values, and a
+   * just-created trigger's drawer simply opens once the refreshed list
+   * contains it.
+   */
+  const [drawerId, setDrawerId] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
   const [query, setQuery] = useState('');
 
@@ -280,10 +286,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   // row captured when the drawer opened: saving a setting inside the panel
   // refreshes the page data, and a snapshot would leave the control showing
   // the value it had before the save.
-  const drawerRow =
-    drawerTrigger === null
-      ? null
-      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
+  const drawerRow = drawerId === null ? null : (triggers.find((t) => t.id === drawerId) ?? null);
 
   const confirmDeleteTrigger = useCallback(async () => {
     if (!deleteTrg) return;
@@ -430,7 +433,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               triggers={visibleTriggers}
               deliveries={deliveries}
               sourceName={sourceName}
-              onOpen={setDrawerTrigger}
+              onOpen={(t) => setDrawerId(t.id)}
               onToggle={(t) => void toggleTrigger(t)}
               emptyMessage={
                 triggers.length === 0
@@ -477,13 +480,13 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
-        onClose={() => setDrawerTrigger(null)}
+        onClose={() => setDrawerId(null)}
         onToggleEnabled={(t) => {
-          setDrawerTrigger(null);
+          setDrawerId(null);
           void toggleTrigger(t);
         }}
         onDelete={(t) => {
-          setDrawerTrigger(null);
+          setDrawerId(null);
           setDeleteTrg(t);
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
@@ -503,6 +506,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           }))}
           ingestHost={ingestHost}
           onCreate={createFromWizard}
+          onViewTrigger={(id) => {
+            setWizardOpen(false);
+            setDrawerId(id);
+          }}
           onClose={() => setWizardOpen(false)}
         />
       )}

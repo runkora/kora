@@ -13,7 +13,6 @@ import type { KindStep } from './types';
 export const TARGET_STEP: KindStep = {
   id: 'target',
   railTitle: 'Target',
-  railSub: 'What it runs',
   description: 'The agent this trigger invokes, and how many of its runs may overlap.',
   Component: StepTarget,
   validate: (state) => validateTarget(state),
@@ -22,8 +21,7 @@ export const TARGET_STEP: KindStep = {
 export const DELIVERY_STEP: KindStep = {
   id: 'delivery',
   railTitle: 'Delivery',
-  railSub: 'Timeouts and safety',
-  description: 'How Orbit handles slow dispatches, duplicate arrivals, and sustained failure.',
+  // No description: a timeout and two switches describe themselves.
   Component: StepDelivery,
   validate: (state) => validateDelivery(state),
 };
@@ -31,11 +29,16 @@ export const DELIVERY_STEP: KindStep = {
 export const REVIEW_STEP: KindStep = {
   id: 'review',
   railTitle: 'Review',
-  railSub: 'Confirm and create',
-  description: 'Confirm the trigger. Nothing fires until you create it.',
+  description: 'Confirm the trigger.',
   Component: StepReview,
   validate: () => VALID,
 };
 
 /** Appended, in order, to every kind's own steps. */
 export const SHARED_STEPS: KindStep[] = [TARGET_STEP, DELIVERY_STEP, REVIEW_STEP];
+
+/**
+ * Rail titles shown on the picker phase, before a kind exists. The first step
+ * is the kind's own, so it is named generically; the rest are the shared three.
+ */
+export const PREVIEW_RAIL_TITLES: string[] = ['Configure', ...SHARED_STEPS.map((s) => s.railTitle)];

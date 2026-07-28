@@ -3,6 +3,7 @@
 /** @tier 3 — triggers-scoped. The manual kind: one input declaration that both
  * renders the console form and validates the API call. */
 
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Button,
   Card,
@@ -10,22 +11,36 @@ import {
   CodeBlock,
   FieldRow,
   FormField,
-  Grid,
   Icon,
   Input,
   SectionLabel,
   SegmentedControl,
   Stack,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
   Textarea,
   ToggleRow,
 } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
-import { VALID, deriveFieldKey, newField, previewBody, resolvedFields } from '../wizard-state';
+import {
+  FIELD_IDS,
+  VALID,
+  deriveFieldKey,
+  firstBlocker,
+  newField,
+  previewBody,
+  resolvedFields,
+  validateName,
+  validatePrompt,
+} from '../wizard-state';
 import type {
   DoneContentProps,
   ReviewRow,
   StepComponentProps,
+  StepValidation,
   TriggerKindDefinition,
   WizardField,
   WizardFieldType,
@@ -51,9 +66,32 @@ function firePath(triggerId: string): string {
   return `POST /api/v1/triggers/${triggerId}/fire`;
 }
 
-function StepInputs({ state, patch }: StepComponentProps) {
+function fieldInputId(field: WizardField): string {
+  return `wizard-field-${field.id}`;
+}
+
+function StepInputs({ state, patch, fieldError, firstFieldRef }: StepComponentProps) {
+  // A field added by the person should be the thing they are typing in next.
+  const pendingFocus = useRef<string | null>(null);
+
   const setField = (id: string, next: Partial<WizardField>) =>
     patch({ fields: state.fields.map((f) => (f.id === id ? { ...f, ...next } : f)) });
+
+  const addField = useCallback(() => {
+    const field = newField(state.fields.length);
+    pendingFocus.current = fieldInputId(field);
+    patch({ fields: [...state.fields, field] });
+  }, [state.fields, patch]);
+
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+    const el = document.getElementById(pendingFocus.current);
+    pendingFocus.current = null;
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView?.({ block: 'nearest' });
+      el.focus();
+    }
+  }, [state.fields.length]);
 
   const preview = resolvedFields(state.fields);
 
@@ -61,12 +99,14 @@ function StepInputs({ state, patch }: StepComponentProps) {
     <Stack gap="relaxed">
       <FormField
         label="Trigger name"
-        id="wizard-name"
-        hint="Shown in the triggers list and to anyone who can fire it."
+        id={FIELD_IDS.name}
+        hint="Shown in the triggers list and on every run it starts."
+        error={fieldError(FIELD_IDS.name)}
         required
       >
         <Input
-          id="wizard-name"
+          id={FIELD_IDS.name}
+          ref={firstFieldRef}
           mono
           value={state.name}
           onChange={(e) => patch({ name: e.target.value })}
@@ -75,18 +115,8 @@ function StepInputs({ state, patch }: StepComponentProps) {
         />
       </FormField>
 
-      <Stack gap="cozy">
-        <Stack direction="horizontal" align="center" justify="between">
-          <SectionLabel>Input fields</SectionLabel>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => patch({ fields: [...state.fields, newField(state.fields.length)] })}
-          >
-            <Icon name="plus" size="xs" />
-            Add field
-          </Button>
-        </Stack>
+      <Stack gap="cozy" id={FIELD_IDS.fields}>
+        <SectionLabel>Input fields</SectionLabel>
 
         <Stack gap="cozy">
           {state.fields.map((f, i) => (
@@ -96,6 +126,7 @@ function StepInputs({ state, patch }: StepComponentProps) {
                   <Stack direction="horizontal" align="center" gap="cozy">
                     <Stack grow minWidth="none">
                       <Input
+                        id={fieldInputId(f)}
                         aria-label={`Field ${i + 1} label`}
                         value={f.label}
                         onChange={(e) => setField(f.id, { label: e.target.value })}
@@ -136,14 +167,44 @@ function StepInputs({ state, patch }: StepComponentProps) {
             </Card>
           ))}
         </Stack>
+
+        <Button variant="ghost" size="sm" fullWidth onClick={addField}>
+          <Icon name="plus" size="xs" />
+          Add field
+        </Button>
+
+        {fieldError(FIELD_IDS.fields) && (
+          <Text size="caption" color="status-error">
+            {fieldError(FIELD_IDS.fields)}
+          </Text>
+        )}
       </Stack>
 
-      <Grid cols={2} gap="comfortable">
-        <Stack gap="snug">
-          <SectionLabel>Console form</SectionLabel>
-          <Card inset>
-            <CardContent padded compact>
-              <Stack gap="cozy">
+      <FormField
+        label="Prompt"
+        id={FIELD_IDS.prompt}
+        hint="What the run starts with. Reference the inputs with {{ var.<key> }} placeholders."
+        error={fieldError(FIELD_IDS.prompt)}
+        required
+      >
+        <Textarea
+          id={FIELD_IDS.prompt}
+          value={state.promptTemplate}
+          onChange={(e) => patch({ promptTemplate: e.target.value })}
+          placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
+          rows={4}
+        />
+      </FormField>
+
+      <Card inset>
+        <CardContent flush>
+          <Tabs defaultValue="form" size="compact">
+            <TabsList>
+              <TabsTrigger value="form">Console form</TabsTrigger>
+              <TabsTrigger value="api">Via API</TabsTrigger>
+            </TabsList>
+            <TabsContent value="form">
+              <Stack gap="cozy" padding="comfortable">
                 {preview.length === 0 && (
                   <Text size="caption" color="subtle">
                     Fields with a label appear here.
@@ -168,62 +229,38 @@ function StepInputs({ state, patch }: StepComponentProps) {
                   Run agent
                 </Button>
               </Stack>
-            </CardContent>
-          </Card>
-        </Stack>
-
-        <Stack gap="snug">
-          <SectionLabel>Same schema via API</SectionLabel>
-          <Stack gap="snug" minWidth="none">
-            <Text as="span" size="caption" mono color="accent">
-              {firePath('{id}')}
-            </Text>
-            <CodeBlock text={previewBody(state.fields)} density="compact" language="json" />
-            <Text size="caption" color="subtle">
-              Callers are authorised by their own grants: the same policy check the console form
-              goes through.
-            </Text>
-          </Stack>
-        </Stack>
-      </Grid>
-
-      <FormField
-        label="Prompt"
-        id="wizard-prompt"
-        hint="What the run starts with. Reference the inputs with {{ var.<key> }} placeholders."
-        required
-      >
-        <Textarea
-          id="wizard-prompt"
-          value={state.promptTemplate}
-          onChange={(e) => patch({ promptTemplate: e.target.value })}
-          placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
-          rows={4}
-        />
-      </FormField>
+            </TabsContent>
+            <TabsContent value="api">
+              <Stack gap="snug" padding="comfortable" minWidth="none">
+                <Text as="span" size="caption" mono color="accent">
+                  {firePath('{id}')}
+                </Text>
+                <CodeBlock text={previewBody(state.fields)} density="compact" language="json" />
+              </Stack>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </Stack>
   );
 }
 
-function validateInputs(state: WizardState) {
-  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
+function validateFields(state: WizardState): StepValidation {
   if (!state.fields.some((f) => f.label.trim()))
-    return { valid: false, hint: 'Add at least one field with a label.' };
-  if (!state.promptTemplate.trim())
-    return { valid: false, hint: 'Write the prompt the run starts with.' };
+    return { valid: false, blocker: 'Needs one labelled field', fieldId: FIELD_IDS.fields };
   return VALID;
 }
 
 function DoneContent({ triggerId }: DoneContentProps) {
   const path = firePath(triggerId);
   return (
-    <Stack gap="snug" minWidth="prose" maxWidth="prose">
+    <Stack gap="snug">
       <FieldRow actions={<CopyButton value={path} label="Copy fire endpoint" />}>
         <Text as="span" size="caption" mono color="accent" truncate>
           {path}
         </Text>
       </FieldRow>
-      <Text size="caption" color="subtle" align="center">
+      <Text size="caption" color="subtle">
         Run it from the trigger&apos;s page, or POST the same input schema to this endpoint.
       </Text>
     </Stack>
@@ -240,20 +277,33 @@ export const manualKind: TriggerKindDefinition = {
     {
       id: 'inputs',
       railTitle: 'Inputs',
-      railSub: 'Form and API contract',
       description:
-        'Declare what an operator is asked for when they run this agent. The same declaration renders the console form and validates the API call.',
+        'The fields someone fills in before the run starts. The same fields build the console form and validate the API call.',
       Component: StepInputs,
-      validate: validateInputs,
+      validate: (state) =>
+        firstBlocker(
+          () => validateName(state),
+          () => validateFields(state),
+          () => validatePrompt(state),
+        ),
     },
   ],
   summarize: (state) => {
     const fields = resolvedFields(state.fields);
     const rows: ReviewRow[] = [
-      { key: 'Inputs', value: `${fields.length} ${fields.length === 1 ? 'field' : 'fields'}` },
+      {
+        key: 'Input fields',
+        value: `${fields.length} ${fields.length === 1 ? 'field' : 'fields'}`,
+        description: 'Asked for in the console and validated on the API call.',
+      },
     ];
     if (fields.length > 0) {
-      rows.push({ key: 'Keys', value: fields.map((f) => f.name).join(', '), mono: true });
+      rows.push({
+        key: 'Keys',
+        value: fields.map((f) => f.name).join(', '),
+        mono: true,
+        description: 'What callers send in the request body.',
+      });
     }
     return rows;
   },
