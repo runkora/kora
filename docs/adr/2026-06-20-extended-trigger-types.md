@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-20-extended-trigger-types.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-27
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Extended Trigger Types](../prd/extended-trigger-types.md)
@@ -43,6 +43,8 @@ Three consequences follow, and they raise the stakes on the rest of this ADR rat
 1. **Creating a trigger creates a standing autonomous capability.** Its grant is not a request for permission that something else will narrow; it is the whole permission. Trigger creation therefore deserves the same scrutiny as granting a long-lived credential, because that is what it is.
 2. **A manual trigger's caller does not narrow it either.** The run executes under the trigger's principal, so a caller with narrow permissions firing a broadly-scoped trigger gets the trigger's scope, not their own. This is deliberate — a manual trigger is a published capability with a fixed blast radius — and it is exactly why firing needs its own per-trigger authorization check rather than inheriting from trigger-management permission (Decision 6).
 3. **The audit question is "who configured this and what policy authorised it", not "who asked for it".** Delivery history answers the first; the policy decision answers the second. Neither can be replaced by a delegation chain, because there isn't one.
+
+**A delegated agent type therefore cannot be bound to a trigger.** [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) defines an agent whose authority is the intersection of its own grant and the delegator's, and whose runs are accountable to the person who started them. A trigger has no delegator to intersect with, so binding one would either run a delegated agent with no ceiling or run it under a person who did not ask for it. Both defeat the model. All three create paths refuse a delegated agent type (`createWebhookTrigger`, `createScheduledTrigger`, `createManualTrigger`), which makes "no trigger ever binds a delegated agent" an invariant of the stored data rather than a rule enforced at one entry point. `UpdateTrigger` needs no check of its own because it cannot change a trigger's target agent type; retargeting means creating a new trigger, which goes through the same refusal.
 
 **What can it access?** Exactly what its grant allows, and nothing narrows that at request time. The new access-control surface is the fire endpoint, currently under-enforced (Decision 6). Firing is an authorization decision checked before the run starts, per trigger, default-deny.
 
@@ -173,6 +175,14 @@ Every row in `trigger_deliveries` is an arrival that authenticated successfully 
 
 `filtered` needs a bound. Recording a row for every trigger that did *not* want an event turns a noisy source into a write multiplier. It is therefore recorded **only for triggers that matched the source and event type but were excluded by `match_condition`** — a filter the admin authored and can debug. A trigger listening for a different event type entirely is not a filter decision and produces no row.
 
+**An empty `event_type` subscribes to every event the source emits**; a non-empty one is an exact match. That is what makes the console's "any event" label true, and it is the reason a source can send an event type no adapter models without the delivery going unmatched: a catch-all trigger still fires on it with the adapter's common fields.
+
+**`filtered` is not a failure.** A delivery whose only per-trigger outcomes are `filtered` derives to `skipped`, not `failed`: every trigger that saw it worked exactly as configured and nothing was ever going to run. `DeriveDeliveryStatus` reads `dispatched` first, then `failed` for any of `failed`/`denied`/`dropped`, and falls through to `skipped`. It leaves `duplicate` and `missed` alone, since those describe the arrival rather than the fan-out.
+
+**Duplicate semantics.** A repeat arrival is a delivery row, not silence. The row carries `status = 'duplicate'` and `redelivery_of` pointing at the original, so "the provider sent this five times" is answerable from history. The uniqueness guarantee is unchanged in substance and narrowed in expression: the per-source unique index over `(source_id, provider_delivery_id)` now excludes lineage rows (`redelivery_of IS NOT NULL`), so it guarantees **at most one original** per provider delivery id while leaving repeats and replays representable. The original's outcome is never rewritten by a retry that arrived days later.
+
+Whether a repeat *re-runs* is a separate, per-trigger question, and `dedupe_enabled` is where it is answered. The index cannot express a per-trigger choice; it is the storage-level guarantee. A repeat is fanned out only to the triggers that turned dedupe off, and a trigger with dedupe on records nothing at all: the duplicate delivery row is the acknowledgement, and a per-trigger "did nothing" row on every trigger of a noisy source is noise rather than audit. No payload is captured on a duplicate, because the body is by definition the one already stored on the original.
+
 ---
 
 ### Decision 4 — Surfacing failed authentication without writing on an unauthenticated request
@@ -262,6 +272,24 @@ The cost is claim latency on every fire. That is acceptable because the sender h
 
 **Timeout.** `dispatchTimeout` is currently a package constant covering the whole fan-out. It becomes per-trigger and covers **starting** the run, not running it. A timeout records the trigger-level outcome as `failed` and counts toward auto-pause.
 
+**Admission bounds.** The three tunables are bounded on the way in, and `max_parallel` is bounded again in the schema so no path can write a value the runtime cannot honour:
+
+| Setting | Range | Default | Enforced by |
+|---|---|---|---|
+| `max_parallel` | 1 to 16 | 4 | Service validation and a DB `CHECK` |
+| `max_queue_depth` | 1 to 500 | 32 | Service validation |
+| `timeout_seconds` | 5 to 600 | 30 | Service validation |
+
+The same bounds apply to create and to update, so a trigger cannot be edited into a configuration it could not have been created in. Changes take effect on the next delivery: the worker re-reads the trigger when it claims a fire, so work already in flight is not retimed under it.
+
+**Counting what is in flight.** `InFlightCount` counts this trigger's `dispatched` runs from the last hour, not all of them. A run whose terminal outcome was never recorded (a lost pod, a dropped callback) would otherwise hold a slot forever and silently throttle a healthy trigger to nothing. Bounding the window means the platform can briefly over-admit after such a loss, which is the deliberate choice: over-admitting is recoverable and visible, wedging is neither.
+
+**Refusal is a `429`, not a `500`.** A manual fire refused at the ceiling returns `429 Too Many Requests`: the trigger is healthy and busy, and the caller's correct response is to retry shortly. The fire is recorded either way, and the error distinguishes "at capacity" from "auto-paused", because the fixes differ.
+
+**Deletion drains first.** `DeleteTrigger` calls `Drain` before removing the trigger, so waiting fires are recorded as `dropped` rather than disappearing with the row. `trigger_pending_deliveries` is deliberately **foreign-key-free** for the same reason the delivery history is: a cascade would delete the evidence at the moment it becomes interesting. The queue's referential integrity is maintained by the drain paths (disable, auto-pause, delete) rather than by the database, and the worker re-reads the trigger on claim, so a row that outlives its trigger is recorded as dropped instead of dispatching against nothing.
+
+**Auto-paused triggers stay matchable.** The matching queries select `enabled = true OR auto_paused_at IS NOT NULL`. An auto-paused trigger is carried through matching precisely so admission can record `paused` against the fire; filtering it out at the query would make it indistinguishable from a deleted trigger in the delivery history, which is the failure the outcome exists to prevent. A trigger a person disabled *is* excluded, because that silence was asked for. This is what makes `enabled` and `auto_paused_at` two settings rather than one: manually disabling a trigger clears `auto_paused_at`, so an explicit "off" stops presenting as the platform's decision, and re-enabling clears both the marker and the failure counter.
+
 ---
 
 ### Decision 6 — Fire authorization (closing the KNOWN GAP)
@@ -301,6 +329,8 @@ The obvious alternative form, `triggers:fire:<trigger-id>`, is wrong: it puts th
 **Payload.** `payload_excerpt` is superseded by a full `payload` column plus `payload_bytes`, with a size ceiling: oversized payloads are truncated and flagged, never rejected, because a trigger should still fire. A purge job nulls `payload` past the tenant's retention (default 30 days, tenant-shortenable per PD4) and leaves every other column, so delivery metadata is kept indefinitely as the PRD requires.
 
 **Event catalogue (PD7).** Adapters already know their provider's event types, so `SourceAdapter` gains `EventTypes() []string`. Because a compiled list goes stale between releases — the liability the PRD names — the list offered in the console is the **union of the adapter's declared types and the event types actually observed for that source**, which delivery history already records. A provider's new event type becomes selectable as soon as one arrives, without a release.
+
+The declared set is pinned to what `Fields` models, not to what the provider can emit. GitHub emits dozens of event types; the adapter declares `issues`, `pull_request` and `push`, because those are the ones it extracts provider-specific fields for. Declaring the rest would promise a richness that is not there: a trigger on one would see only the common fields. `GET /trigger-sources/{id}/event-types` returns the two sets separately (`declared` and `observed`) rather than a merged list, so an event that arrives without being declared reads as what it is, the signal that the adapter should grow a case for it, and the catalogue never becomes a restriction on what the platform accepts.
 
 ---
 
@@ -422,6 +452,14 @@ ALTER TABLE triggers
     ADD CONSTRAINT triggers_overflow_check
     CHECK (overflow IN ('wait', 'replace', 'refuse'));
 
+-- max_parallel is bounded in the schema as well as in service validation: a
+-- ceiling the runtime cannot honour should not be storable by any path.
+-- max_queue_depth (1..500) and timeout_seconds (5..600) are bounded in the
+-- service only, since neither has a value that would corrupt the queue.
+ALTER TABLE triggers
+    ADD CONSTRAINT triggers_max_parallel_check
+    CHECK (max_parallel BETWEEN 1 AND 16);
+
 -- Per-kind defaults are applied at creation, not by the column default:
 -- webhook -> 'wait', scheduled -> 'replace', manual -> 'refuse'.
 
@@ -431,13 +469,26 @@ ALTER TABLE trigger_deliveries
     ADD COLUMN payload_bytes  INT,
     ADD COLUMN payload_purged BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN reason         TEXT,
-    ADD COLUMN redelivery_of  UUID REFERENCES trigger_deliveries(id);
+    ADD COLUMN redelivery_of  TEXT;
 
 ALTER TABLE trigger_deliveries DROP CONSTRAINT IF EXISTS trigger_deliveries_status_check;
 ALTER TABLE trigger_deliveries
     ADD CONSTRAINT trigger_deliveries_status_check
     CHECK (status IN ('verified','dispatched','skipped','failed',
                       'duplicate','missed'));
+
+-- Duplicates and replays both carry the original's provider delivery id, so the
+-- dedup index has to admit them while still guaranteeing one ORIGINAL per
+-- (source, provider id). Lineage rows name what they descend from and are
+-- excluded rather than blocked.
+DROP INDEX IF EXISTS idx_trigger_deliveries_dedup;
+CREATE UNIQUE INDEX idx_trigger_deliveries_dedup
+    ON trigger_deliveries (source_id, provider_delivery_id)
+    WHERE provider_delivery_id <> '' AND redelivery_of IS NULL;
+
+CREATE INDEX idx_trigger_deliveries_redelivery_of
+    ON trigger_deliveries (redelivery_of)
+    WHERE redelivery_of IS NOT NULL;
 
 -- Failed authentication never creates a row (Decision 4A). It updates the
 -- source the tenant already owns, so an unauthenticated request cannot grow
@@ -455,11 +506,21 @@ ALTER TABLE trigger_delivery_runs
                       'filtered','denied','superseded','dropped','paused'));
 
 -- The waiting backlog. Rows are transient; they do not replace delivery history.
+--
+-- Deliberately foreign-key-free. A cascade from triggers or trigger_deliveries
+-- would delete waiting fires at exactly the moment they become interesting:
+-- disabling or deleting a trigger has to record what that cost, not erase it.
+-- Drain does that explicitly on disable, auto-pause and delete, and the worker
+-- re-reads the trigger when it claims a row, so a row that outlives its trigger
+-- is recorded as dropped rather than dispatching against nothing.
+--
+-- claimed_at is nullable rather than a boolean so a stuck claim is visible and
+-- can be reaped by age.
 CREATE TABLE trigger_pending_deliveries (
-    id          UUID        PRIMARY KEY,
+    id          TEXT        PRIMARY KEY,
     tenant_id   TEXT        NOT NULL,
-    trigger_id  UUID        NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
-    delivery_id UUID        NOT NULL REFERENCES trigger_deliveries(id) ON DELETE CASCADE,
+    trigger_id  TEXT        NOT NULL,
+    delivery_id TEXT        NOT NULL,
     fields      JSONB       NOT NULL DEFAULT '{}'::jsonb,
     enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     claimed_at  TIMESTAMPTZ
@@ -469,12 +530,22 @@ CREATE INDEX idx_pending_claim
     ON trigger_pending_deliveries (trigger_id, enqueued_at)
     WHERE claimed_at IS NULL;
 
--- Tenant payload retention (PD4). An absent row means the 30-day default.
+CREATE INDEX idx_pending_delivery ON trigger_pending_deliveries (delivery_id);
+
+-- Tenant payload retention (PD4). An absent row means the 30-day default, and
+-- row existence is what distinguishes "we chose 30" from "we chose nothing".
 CREATE TABLE trigger_retention_settings (
     tenant_id    TEXT     PRIMARY KEY,
     payload_days SMALLINT NOT NULL DEFAULT 30
-                 CHECK (payload_days BETWEEN 1 AND 30)
+                 CHECK (payload_days BETWEEN 1 AND 30),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- The purge job scans by age; without this it is a sequential scan over every
+-- delivery ever recorded.
+CREATE INDEX idx_trigger_deliveries_purge
+    ON trigger_deliveries (received_at)
+    WHERE payload IS NOT NULL;
 ```
 
 ### Contracts
@@ -559,6 +630,62 @@ POST /api/v1/policy/grants
 ```
 
 `trigger:fire` covers every trigger by the coverage rule (same resource type, same action, shorter path). There is no `trigger:*:fire` literal and none should be introduced.
+
+### Replay
+
+`POST /api/v1/trigger-deliveries/{id}/redeliver` re-runs a past delivery. It is an admin action, never automatic, and it is the only recovery path this ADR provides.
+
+A replay is a **new delivery linked by `redelivery_of`**, not an edit of the original. The original's outcome is the record of what happened the first time, and an operator re-running an event after fixing its cause must not overwrite the evidence of the failure they fixed.
+
+The replay is matched and validated against configuration **as it is now**, not as it was. A webhook replay fans out against the source's current triggers; a manual replay is revalidated against the trigger's current input declaration, so a declaration that has changed since the original fire is the contract that applies. Authorization is likewise re-evaluated, which is what makes a revoked grant stop a replay.
+
+**No signature is re-verified.** The body was verified when it first arrived and has been under the platform's control since. Re-verifying would fail for any source whose secret has been rotated, which is exactly the kind of fix that precedes a replay. Verification is a property of arrival, not of storage.
+
+Four refusals, each with its own message:
+
+- A **scheduled tick** cannot be replayed. It is defined by the minute it was due, so a replay would either collide with that minute's row or invent a fire that was never due. Neither is something an operator can reason about; firing the trigger manually is the answer.
+- A **purged payload** has nothing to replay. Retention has run and the body is gone.
+- A **missing trigger or source**, or a disabled source, has nowhere to replay to.
+- A **manually disabled trigger** is refused. That is a person's decision to respect, not to work around with a replay. An **auto-paused** trigger is carried through, because replaying after fixing the cause is the common case and admission records `paused` if it has not been fixed.
+
+The response is `202 Accepted` with the **new** delivery id whenever the replay was recorded, including when admission then refuses it. Recording is the guarantee; whether a run started is the new delivery's own fan-out, exactly as for a fresh arrival.
+
+### Payload retention
+
+`GET` and `PUT /api/v1/trigger-retention` read and set the tenant's window. There is no id in the path: the tenant comes from the caller's claims, and a tenant can only read or change its own.
+
+The window is 1 to 30 days. It can be shortened relative to the platform default and never extended, which is the asymmetry that matters: retention is a promise about third-party payload data the platform is holding, so a tenant extending it would raise the platform's exposure rather than only their own.
+
+`GET` returns `is_default` on a tenant that has never chosen. Row existence is the whole mechanism: it distinguishes "we picked 30" from "we picked nothing", which is what decides whether a later change to the platform default moves this tenant.
+
+### Prompt templating and the field map
+
+A trigger's prompt template supports restricted `{{ dotted.field }}` substitution over the adapter's allow-listed field map, and nothing more. No expressions, no arbitrary payload access. An unknown key renders as an empty string rather than failing the fire or leaving the placeholder visible. Values are substituted verbatim; treating field values as untrusted input is deferred, and named as such.
+
+The same field map is what `match_condition` filters on, which is why the console's field catalogue drives both the filter picker and the prompt builder from one definition. If they disagreed, one of them would be lying about what a trigger can read.
+
+Manual triggers get their own `var.` namespace: a declared input `region` is readable as `{{ var.region }}`, built from the same declaration the form renders and the API validates.
+
+### Resolving the agent type across grant propagation
+
+`resolveAgentType` mints a token for the trigger's own principal and asks `orbit-agents` for the agent type, which both validates tenant ownership and stops a client-supplied slug from shaping the run grant's scope.
+
+For a scheduled or manual trigger this happens moments after its grant was created, and the grant is not visible to `orbit-agents` until that service's next OPA bundle poll. A self-signed token used in the same request therefore gets a `403` that means "not visible yet", not "not allowed". The call retries with exponential backoff to a six-second deadline: `ErrForbidden` is retried, `ErrAgentTypeNotFound` fails fast because it means genuinely absent. A webhook trigger's principal is its source's, granted at source-creation time, so that path resolves on the first attempt.
+
+### Observability
+
+Four signals, wired on the meter `orbit-triggers` builds in its own `main`:
+
+| Signal | Instrument | Why |
+|---|---|---|
+| Queue depth and oldest waiting age | `orbit.triggers.queue.depth` (by claim state), `orbit.triggers.queue.oldest_unclaimed_age` | Depth alone cannot tell a busy queue that drains from a stalled one that does not |
+| Auto-pauses | `orbit.triggers.auto_pauses`, attributed by trigger | "Which trigger keeps pausing" is unanswerable from an unattributed total, and trigger ids are bounded by configuration rather than traffic |
+| Purge freshness | `orbit.triggers.retention.last_success_time`, `orbit.triggers.payloads_purged` | A rows counter sits at zero both when there is nothing to purge and when the job is dead. Only the timestamp separates them, and it advances **only on a successful run** |
+| Scheduler ticks | `orbit.triggers.scheduler.tick_duration`, `orbit.triggers.scheduler.triggers_scanned` | A tick taking longer than a minute has silently stopped being a minutely schedule (Decision 2A's known limit) |
+
+The queue and purge-freshness signals are observable gauges read at collection time rather than counters the code must remember to update, so they cannot drift from the table. A failed read of one gauge is logged and skipped rather than returned, so it does not abort the collection cycle and take the other instruments with it.
+
+The meter is set up in `cmd/orbit-triggers/main.go`, not in `internal/platform/observability/`. That package is traces-only and shared by every binary, so adding a metrics pipeline to it would change the runtime behaviour of a dozen services at once. Triggers is the first service to need metrics; the exporter selection deliberately mirrors `observability.Setup`, including its priority order, so traces and metrics are configured by the same two settings and cannot end up pointing at different collectors. This shape is what should be lifted into the platform package when a second service needs it. A `*Metrics` is nil-safe throughout, so a binary with no meter behaves exactly as it did before instrumentation existed.
 
 ---
 
@@ -664,8 +791,10 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 
 ### Monitoring
 
-- Pending-queue depth and oldest-unclaimed age per trigger. A growing backlog is the earliest signal that a target agent is unhealthy.
-- Auto-pause events, with the trigger and the failure reason.
+Four signals, instrumented as described in [Observability](#observability):
+
+- Pending-queue depth and oldest-unclaimed age. A growing backlog is the earliest signal that a target agent is unhealthy.
+- Auto-pause events, attributed to the trigger.
 - Purge job last-success timestamp, alerting when stale. A retention promise that silently stops running is worse than not making it.
 - Scheduler tick duration and triggers-scanned count, to catch Decision 2A's known scaling limit before it bites.
 
@@ -688,6 +817,7 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 - [Trigger Deliveries Filter](2026-06-20-trigger-deliveries-filter.md) — the deliveries feed this ADR's widened vocabulary feeds.
 - [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — the run a trigger starts.
 - [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — the principal and grant provisioning each trigger kind reuses.
+- [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — the model a trigger cannot satisfy. All three create paths refuse a delegated agent type, because a trigger has no delegator to intersect with.
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — the middleware Decision 6 works around and 6B would extend.
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — the `RouteScope` mechanism whose limits Decision 6 documents.
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — unchanged; triggered runs use it as any run does.
@@ -702,4 +832,4 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 
 ---
 
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-07-28

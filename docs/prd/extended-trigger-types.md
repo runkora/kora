@@ -2,7 +2,7 @@
 
 **Status:** In Review
 **Created:** 2026-07-27
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-07-28
 **Owner:** Justin Wilkin
 **Stakeholders:** Platform Engineering, Agent Control Plane, Identity & Policy, Security
 
@@ -117,10 +117,12 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** someone can start a run on demand with the right inputs, without me hand-holding them or them faking a webhook.
 
 **Acceptance Criteria:**
-- [ ] A manual trigger declares typed fields — name, type (text, number, boolean, choice), required, description, default (PD2); the console renders a form from that declaration and the API validates against the same one.
-- [ ] A run can be started from the console ("Run now") or from `POST` to the trigger's run endpoint.
-- [ ] The caller is authenticated and authorized to fire that specific trigger; the resulting run still executes under the trigger's own principal, not the caller's.
+- [x] A manual trigger declares typed fields — name, type (text, number, boolean, choice), required, description, default (PD2); the console renders a form from that declaration and the API validates against the same one.
+- [x] A run can be started from the console ("Run now") or from `POST` to the trigger's run endpoint.
+- [x] The caller is authenticated and authorized to fire that specific trigger; the resulting run still executes under the trigger's own principal, not the caller's.
 - [ ] Invalid input is rejected with per-field errors before any run starts, and is recorded as a delivery.
+
+A trigger's declared inputs are **fixed once it is created**. Everything else about a manual trigger can be corrected in place, but its field names are the API contract that callers hard-code into scripts and other systems, so renaming one silently breaks every caller with no signal that anything changed. Changing the form means creating a trigger with the shape you want and retiring the old one, which leaves the old endpoint's callers failing loudly instead of quietly running with the wrong inputs.
 
 ---
 
@@ -148,8 +150,8 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** I can account for every automated action the platform took, including ones that were stopped.
 
 **Acceptance Criteria:**
-- [ ] Every delivery is recorded *before* any authorization or dispatch decision, so a denial is still auditable.
-- [ ] Delivery metadata is kept indefinitely; only the payload body is subject to retention (PD4). A purged delivery still answers "did this fire, and what happened".
+- [x] Every delivery is recorded *before* any authorization or dispatch decision, so a denial is still auditable.
+- [x] Delivery metadata is kept indefinitely; only the payload body is subject to retention (PD4). A purged delivery still answers "did this fire, and what happened". A tenant sets its own window, between 1 and 30 days, without asking anyone; a tenant that has never chosen is shown as being on the platform default rather than as having picked it.
 - [ ] A run started by a trigger links back to its delivery; the run inspector shows "started by trigger X, delivery Y."
 - [ ] Deleting a trigger retains its delivery history; the console can still show what that trigger did, named, rather than an orphaned ID.
 
@@ -177,12 +179,13 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** a broken integration doesn't burn budget indefinitely before anyone notices.
 
 **Acceptance Criteria:**
-- [ ] After 10 consecutive failures, the trigger is disabled and the console says it was auto-paused rather than turned off by a person.
-- [ ] The counter resets to zero as soon as a run starts successfully.
-- [ ] **A policy denial counts as a failure.** A trigger whose grant was revoked would otherwise be denied forever and never pause, which is exactly the case auto-pause exists for.
-- [ ] **Dropped and superseded do not count.** Those are admission control working as configured, not the trigger being broken.
-- [ ] A fire arriving at an auto-paused trigger is recorded with an outcome that says the trigger is paused — not silently unmatched, which would look identical to a trigger that was never listening.
-- [ ] Auto-pause can be turned off per trigger for triggers that are expected to fail intermittently by design.
+- [x] After 10 consecutive failures, the trigger is disabled and the console says it was auto-paused rather than turned off by a person.
+- [x] The counter resets to zero as soon as a run starts successfully.
+- [x] **A policy denial counts as a failure.** A trigger whose grant was revoked would otherwise be denied forever and never pause, which is exactly the case auto-pause exists for.
+- [x] **Dropped and superseded do not count.** Those are admission control working as configured, not the trigger being broken.
+- [x] A fire arriving at an auto-paused trigger is recorded with an outcome that says the trigger is paused — not silently unmatched, which would look identical to a trigger that was never listening.
+- [x] Auto-pause can be turned off per trigger for triggers that are expected to fail intermittently by design.
+- [x] Turning a paused trigger off by hand makes it a person's decision rather than the platform's, and turning it back on is the admin saying the cause is fixed: the pause marker and the failure count both clear.
 
 ---
 
@@ -204,7 +207,9 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** a provider's retry doesn't start a second run for the same event.
 
 **Acceptance Criteria:**
-- [ ] When duplicate suppression is on (the default) and the same event has already been handled for this trigger within the retention window, the repeat is acknowledged, linked to the original, and starts no second run.
+- [x] When duplicate suppression is on (the default) and the same event has already been handled for this trigger within the retention window, the repeat is acknowledged, linked to the original, and starts no second run.
+- [x] The repeat is visible in the history, linked to the delivery it repeats. "The provider sent this five times" is a question an admin has to be able to answer, and silence cannot answer it.
+- [x] Duplicate suppression is a per-trigger setting: two triggers on the same source can disagree about whether a repeat should run again.
 
 ### Console
 
@@ -214,9 +219,12 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** I can tell the fleet's health without opening every trigger.
 
 **Acceptance Criteria:**
-- [ ] The KPI row's values are computed from the same delivery/trigger records the table below it shows — never a value that can disagree with the rows.
-- [ ] A trigger row shows a failure badge derived from its own recent outcomes, not a separately stored flag, and distinguishes auto-paused from manually disabled.
-- [ ] A trigger row shows a 24h sparkline of delivery outcomes.
+- [x] The KPI row's values are computed from the same delivery/trigger records the table below it shows — never a value that can disagree with the rows.
+- [x] A trigger row shows a failure badge derived from its own recent outcomes, not a separately stored flag, and distinguishes auto-paused from manually disabled.
+- [x] A trigger row shows a 24h sparkline of delivery outcomes.
+- [x] **Success rate counts the configuration working as working.** A trigger declining an event through its own filter, or a newer fire replacing an older one, are outcomes an admin asked for. Counting them against success would make a correctly-configured fleet read as unhealthy and teach people to ignore the number. Only failed, denied and dropped count against it.
+- [x] Success rate is blank rather than zero when nothing arrived in the window: 0% would read as total failure where there was only silence.
+- [x] "Needs attention" counts a trigger the platform cannot fix by itself: auto-paused, or part-way to that threshold so the warning arrives before the pause. A trigger a person turned off is not asking for attention.
 
 ---
 
@@ -226,10 +234,10 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** I can debug across triggers without navigating into each one, and recover from a transient failure without waiting for the next natural fire.
 
 **Acceptance Criteria:**
-- [ ] The deliveries feed shows delivery ID, what arrived, which trigger, how long it took, and the outcome, across all triggers. Fields that only apply to an HTTP arrival (response code) are absent for a scheduled tick rather than shown empty or faked.
-- [ ] Redeliver is available on any outcome where no run started and the cause might have been fixed since — failed, denied, dropped. It re-runs the delivery against current authorization, not a replay of the original decision.
-- [ ] Redeliver into a disabled or auto-paused trigger is refused with a message saying so, not silently accepted.
-- [ ] A redelivery is a new delivery that references the original, not an edit of it. The original outcome stays on the record.
+- [x] The deliveries feed shows delivery ID, what arrived, which trigger, how long it took, and the outcome, across all triggers. Fields that only apply to an HTTP arrival (response code) are absent for a scheduled tick rather than shown empty or faked.
+- [x] Redeliver is available on any outcome where no run started and the cause might have been fixed since: failed, denied, dropped. It re-runs the delivery against current authorization and current configuration, not a replay of the original decision.
+- [x] Redeliver into a trigger a **person** disabled is refused with a message saying so, not silently accepted. An **auto-paused** trigger is the exception and is allowed through: replaying after fixing the cause is the ordinary way out of a pause, and the replay records `paused` if the cause was not fixed. Refusals are also explicit when the delivery cannot be replayed at all: a scheduled tick, a payload past its retention window, or a trigger or source that no longer exists.
+- [x] A redelivery is a new delivery that references the original, not an edit of it. The original outcome stays on the record.
 
 ---
 
@@ -296,6 +304,10 @@ Builds on the existing two-surface model (per-agent tab + platform-wide section)
 4. **Recent deliveries feed** — cross-trigger, with Redeliver on failed/denied rows.
 5. **Trigger drawer** — Overview (kind-specific config + filters + target + 24h stat trio) / Deliveries (expandable payload + run link) / Settings (timeout, admission control, safety toggles, delete).
 6. **Creation wizard** — type picker (Available: Webhook/Schedule/Manual; Planned: the deferred kinds, visibly marked) → typed wizard → success screen.
+
+**A trigger is editable in place after it is created.** Getting a prompt or a filter slightly wrong is the normal case, not the exception, and a wizard that can only create means the fix is delete-and-rebuild, which loses the trigger's history and its endpoint. Name, prompt, event type, filters, schedule, admission settings and the safety toggles are all correctable from the drawer, one section at a time, and take effect on the next delivery rather than on work already in flight. The two exceptions are deliberate: a manual trigger's **declared inputs** are frozen because their names are the API contract callers hard-code (US-002), and a trigger's **target agent** is frozen because retargeting is a different trigger, not an edit of this one.
+
+**Sources are not a top-level surface.** There is no Sources page. A webhook source is created inside the trigger flow, at the point where the admin is choosing what to listen to, and afterwards it is managed from the drawer of a trigger that uses it. A source has no meaning on its own (it exists to be listened to), and giving it its own page would create an orphan-shaped object an admin has to reason about separately. Two things about a source only ever surface there: **rotating its signing secret**, where the new secret is shown once and never again, and its **rejection counter**, which is the only place a wrong signing secret shows up at all, since a request that fails authentication never becomes a delivery.
 
 ---
 
