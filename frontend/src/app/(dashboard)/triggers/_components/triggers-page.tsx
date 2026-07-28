@@ -271,8 +271,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'status',
         header: 'Status',
+        // align start: a column Stack stretches children by default, which
+        // would pull the badge out to the column width.
         cell: (row) => (
-          <Stack gap="none">
+          <Stack gap="none" align="start">
             <StatusBadge
               status={row.enabled ? 'healthy' : 'unknown'}
               label={row.enabled ? 'Enabled' : 'Disabled'}
