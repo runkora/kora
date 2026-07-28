@@ -17,12 +17,15 @@ import {
 import type { ModelObject } from '@orbit/shared/api';
 
 function formatPrice(pricing?: {
-  effective_input_cost_per_1m: number;
-  effective_output_cost_per_1m: number;
+  effective_input_cost_per_1m?: number;
+  effective_output_cost_per_1m?: number;
 }) {
   if (!pricing) return null;
+  const inp = pricing.effective_input_cost_per_1m;
+  const out = pricing.effective_output_cost_per_1m;
+  if (inp == null || out == null) return null;
   const f = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, ''));
-  return `$${f(pricing.effective_input_cost_per_1m)} / $${f(pricing.effective_output_cost_per_1m)} · Mtok`;
+  return `$${f(inp)} / $${f(out)} · Mtok`;
 }
 
 // Below this many models the filter box is noise; above it, essential.

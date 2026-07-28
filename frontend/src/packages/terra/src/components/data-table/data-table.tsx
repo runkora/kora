@@ -75,6 +75,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../popover';
 import { Button } from '../button';
 import { Icon } from '../icon';
 import { NativeSelect } from '../native-select';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../tooltip';
 
 // ─── Filter types ──────────────────────────────────────────────────────────────
 
@@ -129,6 +130,8 @@ export interface DataTableColumn<TData> {
   id: string;
   /** Column header label. */
   header: string;
+  /** Optional tooltip shown on an info icon next to the header label. */
+  headerTooltip?: string;
   /**
    * CSS grid column sizing value for this column.
    * Examples: '1fr', '168px', 'minmax(0, 1.1fr)', '74px'
@@ -694,6 +697,29 @@ function ColumnVisibilityToggle({
   );
 }
 
+// ─── Internal: Header label ────────────────────────────────────────────────────
+
+function HeaderLabel({ label, tooltip }: { label: string; tooltip?: string }) {
+  if (!tooltip) return <>{label}</>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`More information about ${label}`}
+            className="inline-flex cursor-default text-subtle hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+          >
+            <Icon name="info" size="2xs" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    </span>
+  );
+}
+
 // ─── Internal: Header row ──────────────────────────────────────────────────────
 
 interface HeaderProps<TData> {
@@ -755,7 +781,7 @@ function DataTableHeader<TData>({
               role="columnheader"
               className={cn(alignClass, isPinned && 'sticky left-0 z-10')}
             >
-              {col.header}
+              <HeaderLabel label={col.header} tooltip={col.headerTooltip} />
             </span>
           );
         }
@@ -773,11 +799,11 @@ function DataTableHeader<TData>({
                 className="group/sort inline-flex items-center gap-1 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
                 aria-label={`Sort by ${col.header}`}
               >
-                {col.header}
+                <HeaderLabel label={col.header} tooltip={col.headerTooltip} />
                 <SortIcon dir={sortDir} />
               </button>
             )}
-            {!hasSort && <span>{col.header}</span>}
+            {!hasSort && <HeaderLabel label={col.header} tooltip={col.headerTooltip} />}
             {hasFilter && (
               <FilterButton
                 colId={col.id}

@@ -19,8 +19,9 @@ export interface RouteTarget {
 }
 
 export interface VirtualModelPricing {
-  effective_input_cost_per_1m: number;
-  effective_output_cost_per_1m: number;
+  effective_input_cost_per_1m?: number;
+  effective_output_cost_per_1m?: number;
+  non_token_only?: boolean;
 }
 
 export interface VirtualModel {
@@ -65,4 +66,15 @@ export interface PricingEntry {
   effective_output_cost_per_1m: number;
   has_override: boolean;
   last_synced_at: string; // RFC3339
+  // Non-token dimensions — synced values only. Named synced_* to match the
+  // token field convention and leave room for override_*/effective_* counterparts.
+  // Absent when zero.
+  synced_image_input_cost_per_image?: number;
+  synced_image_output_cost_per_image?: number;
+  synced_request_input_cost?: number;
+  synced_request_output_cost?: number;
+  synced_second_input_cost?: number;
+  synced_second_output_cost?: number;
+  synced_audio_input_cost_per_1m?: number;
+  synced_audio_output_cost_per_1m?: number;
 }

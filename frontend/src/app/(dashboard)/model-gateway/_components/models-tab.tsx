@@ -1,11 +1,21 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Badge, Button, Icon, SegmentedControl, Stack, Text } from '@orbit/terra';
+import {
+  Badge,
+  Button,
+  Icon,
+  SegmentedControl,
+  Stack,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
-import type { ModelRow } from '../_types';
+import type { ModelObjectPricing, ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
 import { AvailabilityDot } from './availability-dot';
 import { ModelDetailModal } from './model-detail-modal';
@@ -51,13 +61,54 @@ function Chips({ values }: { values: string[] }) {
   );
 }
 
+// ── Non-token dimension rows ──────────────────────────────────────────────────
+// Each entry: [inputKey, outputKey, inputLabel, outputLabel]
+
+type NonTokenDimension = {
+  inputKey: keyof ModelObjectPricing;
+  outputKey: keyof ModelObjectPricing;
+  inputLabel: string;
+  outputLabel: string;
+};
+
+const NON_TOKEN_DIMENSIONS: NonTokenDimension[] = [
+  {
+    inputKey: 'image_input_cost',
+    outputKey: 'image_output_cost',
+    inputLabel: '/image in',
+    outputLabel: '/image out',
+  },
+  {
+    inputKey: 'request_input_cost',
+    outputKey: 'request_output_cost',
+    inputLabel: '/req in',
+    outputLabel: '/req out',
+  },
+  {
+    inputKey: 'second_input_cost',
+    outputKey: 'second_output_cost',
+    inputLabel: '/sec in',
+    outputLabel: '/sec out',
+  },
+  {
+    inputKey: 'audio_input_cost_per_1m',
+    outputKey: 'audio_output_cost_per_1m',
+    inputLabel: '/1M audio in',
+    outputLabel: '/1M audio out',
+  },
+];
+
+function hasAnyNonTokenPricing(pricing: ModelObjectPricing): boolean {
+  return NON_TOKEN_DIMENSIONS.some(
+    (d) =>
+      ((pricing[d.inputKey] as number | undefined) ?? 0) > 0 ||
+      ((pricing[d.outputKey] as number | undefined) ?? 0) > 0,
+  );
+}
+
 // ── Effective price cell ──────────────────────────────────────────────────────
 
-function EffectivePriceCell({
-  pricing,
-}: {
-  pricing?: { effective_input_cost_per_1m: number; effective_output_cost_per_1m: number };
-}) {
+function EffectivePriceCell({ pricing }: { pricing?: ModelObjectPricing }) {
   if (!pricing) {
     return (
       <Stack direction="horizontal" align="center" gap="tight">
@@ -68,14 +119,33 @@ function EffectivePriceCell({
       </Stack>
     );
   }
+
+  if (pricing.non_token_only) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Icon name="info" size="2xs" color="muted" />
+        </TooltipTrigger>
+        <TooltipContent>Non-token pricing — see model details</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  const nonTokenPricing = hasAnyNonTokenPricing(pricing);
+
   return (
     <Stack gap="none">
       <Text size="supporting" mono color="foreground">
-        {fmtCost(pricing.effective_input_cost_per_1m)}/1M
+        {fmtCost(pricing.effective_input_cost_per_1m ?? 0)}/1M
       </Text>
       <Text size="caption" color="muted" mono>
-        out: {fmtCost(pricing.effective_output_cost_per_1m)}/1M
+        out: {fmtCost(pricing.effective_output_cost_per_1m ?? 0)}/1M
       </Text>
+      {nonTokenPricing && (
+        <Text size="caption" color="muted">
+          + other dims
+        </Text>
+      )}
     </Stack>
   );
 }
@@ -205,8 +275,14 @@ export function ModelsTab() {
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        headerTooltip:
+          'The per-1M token price for a standard text request, after any platform overrides are applied.',
         sortable: true,
-        sortAccessor: (row) => row.pricing?.effective_input_cost_per_1m ?? -1,
+        sortAccessor: (row) =>
+          row.pricing
+            ? (row.pricing.effective_input_cost_per_1m ?? 0) +
+              (row.pricing.effective_output_cost_per_1m ?? 0)
+            : -1,
         cell: (row) => <EffectivePriceCell pricing={row.pricing} />,
       },
       {

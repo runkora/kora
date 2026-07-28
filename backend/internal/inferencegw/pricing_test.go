@@ -50,7 +50,7 @@ func TestVmEffectivePricing(t *testing.T) {
 			wantOutput:     15.0,
 		},
 		{
-			name: "lowest Priority route wins, not cheapest",
+			name: "lowest combined token cost wins, not lowest priority",
 			vm: VirtualModel{Routes: []VirtualModelRoute{
 				{Provider: ProviderBedrock, ModelID: "cheap", Priority: 2, Enabled: true},
 				{Provider: ProviderBedrock, ModelID: "expensive", Priority: 1, Enabled: true},
@@ -61,8 +61,8 @@ func TestVmEffectivePricing(t *testing.T) {
 			),
 			disabledRoutes: noop,
 			connectors:     bedrockConn,
-			wantInput:      5.0,
-			wantOutput:     20.0,
+			wantInput:      0.5,
+			wantOutput:     0.5,
 		},
 		{
 			name: "disabled admin toggle skips route; next by priority wins",
