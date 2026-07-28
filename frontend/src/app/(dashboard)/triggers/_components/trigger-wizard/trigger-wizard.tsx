@@ -84,9 +84,12 @@ export function TriggerWizard({
   // Focus the step's first control on arrival, so typing can start immediately
   // rather than landing on the close button. Deferred by a tick: the dialog
   // claims focus in its own mount effect, which runs after this one.
+  const firstCardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (phase !== 'steps') return;
-    const timer = setTimeout(() => firstFieldRef.current?.focus(), 0);
+    const timer = setTimeout(() => {
+      if (phase === 'picker') firstCardRef.current?.focus();
+      else if (phase === 'steps') firstFieldRef.current?.focus();
+    }, 0);
     return () => clearTimeout(timer);
   }, [phase, step]);
 
@@ -271,7 +274,9 @@ export function TriggerWizard({
               paddingBlock="loose"
               gap="relaxed"
             >
-              {phase === 'picker' && <KindPicker onSelect={chooseKind} />}
+              {phase === 'picker' && (
+                <KindPicker onSelect={chooseKind} firstCardRef={firstCardRef} />
+              )}
 
               {phase === 'steps' && definition && state && (
                 <>
