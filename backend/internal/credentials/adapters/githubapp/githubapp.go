@@ -745,10 +745,26 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 		// intersection of the action's verb class with the installation's actual
 		// granted permissions so the umbrella never requests a level the
 		// installation does not hold (which would 422).
+		//
+		// When installationPerms is nil or empty (no permissions fetched — only
+		// possible in unit tests that construct permissionsFor directly, or if
+		// the API returned an empty map), we return only metadata:read: the
+		// minimum implicit grant on every installation token. This is safe and
+		// explicit rather than relying on the post-loop metadata floor.
 		if len(ceiling) > 0 {
 			return maps.Clone(ceiling)
 		}
+		if len(installationPerms) == 0 {
+			return map[string]string{catMetadata: verbRead}
+		}
 		for key, grantedLevel := range installationPerms {
+			// Skip permissions with unknown level strings: permissionLevels maps
+			// only "read", "write", "admin". An unknown value maps to 0, which
+			// would silently pass the cap check and let an unrecognised level
+			// through. Omitting it is the safe default.
+			if permissionLevels[grantedLevel] == 0 {
+				continue
+			}
 			level := verb
 			if key == catMetadata {
 				level = verbRead
@@ -828,6 +844,10 @@ func reposFor(qualifier string, ceiling []string) []string {
 // installationPermissions returns the App installation's permission set,
 // fetching from GitHub if the cached entry has expired. Results are cached for
 // instPermsCacheTTL to bound API calls across concurrent umbrella mints.
+// Double-check locking: the cache is read under the lock; on miss, the API call
+// runs unlocked, then re-checks under the lock before writing, so concurrent
+// callers that both see a stale entry each make the API call but the last writer
+// wins with a consistent result.
 func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error) {
 	a.mu.Lock()
 	if cached, ok := a.instPermsCache[installationID]; ok && a.now().Before(cached.expiresAt) {
@@ -843,6 +863,13 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 	}
 
 	a.mu.Lock()
+	// Double-check: another goroutine may have populated the cache while we
+	// were fetching. Prefer its entry if it arrived first and is still valid.
+	if cached, ok := a.instPermsCache[installationID]; ok && a.now().Before(cached.expiresAt) {
+		perms = maps.Clone(cached.perms)
+		a.mu.Unlock()
+		return perms, nil
+	}
 	a.instPermsCache[installationID] = cachedInstPerms{
 		perms:     maps.Clone(perms),
 		expiresAt: a.now().Add(instPermsCacheTTL),
