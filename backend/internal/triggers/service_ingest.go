@@ -312,6 +312,19 @@ func runStatusForDispatchError(err error) string {
 	return RunStatusFailed
 }
 
+// countsTowardAutoPause reports whether a dispatch failure says something about
+// this trigger, as opposed to something about the platform underneath it.
+//
+// Auto-pause is a statement that a trigger is broken, and undoing it costs a
+// human a manual re-enable. A 5xx from orbit-agents is not that statement: pod
+// capacity exhaustion fails every trigger in the tenant at once, and counting it
+// would pause the whole estate during a blip and leave someone re-enabling each
+// one by hand. The delivery is still recorded as failed either way; this governs
+// only whether it moves the trigger toward being disabled.
+func countsTowardAutoPause(err error) bool {
+	return !errors.Is(err, agentsclient.ErrUpstreamUnavailable)
+}
+
 // runPrincipal resolves whose identity a trigger's run executes under.
 //
 // Webhook triggers inherit their source's principal: a source owns the grant,

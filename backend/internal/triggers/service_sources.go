@@ -148,8 +148,12 @@ func (s *Service) UpdateSource(ctx context.Context, tenantID, id string, req Upd
 	if err := s.repo.UpdateSource(ctx, src); err != nil {
 		return nil, err
 	}
+	// Read back rather than echoing the struct the update was built from.
+	// secret_rotated_at and updated_at are set by the repository's SQL, so they
+	// are not on this struct: returning it reports the PREVIOUS rotation time to
+	// a caller who just rotated, which is the one moment that field is read.
 	return &SourceResponse{
-		WebhookSource: *redactSecret(src),
+		WebhookSource: *redactSecret(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        rotated,
 	}, nil

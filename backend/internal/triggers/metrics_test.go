@@ -182,7 +182,7 @@ func TestMetrics_AutoPauseIsRecordedWhereItFires(t *testing.T) {
 
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
 	for range autoPauseThreshold {
-		svc.noteFailure(context.Background(), trig)
+		svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 	}
 
 	if got := sumInt64(t, collect(t, reader)["orbit.triggers.auto_pauses"]); got != 1 {

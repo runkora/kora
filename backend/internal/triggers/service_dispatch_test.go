@@ -2,9 +2,19 @@ package triggers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 )
+
+// errTriggerSideFailure stands for a dispatch failure that says something about
+// the trigger rather than about the platform, which is what auto-pause counts.
+// A platform fault is covered separately by
+// TestAutoPause_IgnoresUpstreamUnavailable.
+var errTriggerSideFailure = errors.New("dispatch failed")
 
 // The ADR's headline example: one at a time, replace what is waiting, three
 // overlapping fires. Exactly one further run, and the displaced fires are
@@ -132,7 +142,7 @@ func TestAutoPause_DisablesAfterConsecutiveFailures(t *testing.T) {
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
 
 	for range autoPauseThreshold {
-		svc.noteFailure(context.Background(), trig)
+		svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 	}
 
 	stored, err := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
@@ -153,14 +163,39 @@ func TestAutoPause_SuccessResetsTheCount(t *testing.T) {
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
 
 	for range autoPauseThreshold - 1 {
-		svc.noteFailure(context.Background(), trig)
+		svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 	}
 	svc.noteSuccess(context.Background(), trig)
-	svc.noteFailure(context.Background(), trig)
+	svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 
 	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
 	if !stored.Enabled {
 		t.Error("a success should reset the counter, leaving the trigger enabled")
+	}
+}
+
+// A platform fault is not the trigger's fault. orbit-agents running out of pod
+// capacity fails every trigger in the tenant at once; pausing them all would
+// turn a transient blip into an estate-wide manual re-enable.
+func TestAutoPause_IgnoresUpstreamUnavailable(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+
+	for range autoPauseThreshold * 2 {
+		svc.noteFailure(context.Background(), trig,
+			fmt.Errorf("start run: %w", agentsclient.ErrUpstreamUnavailable))
+	}
+
+	stored, err := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+	if err != nil {
+		t.Fatalf("get trigger: %v", err)
+	}
+	if !stored.Enabled {
+		t.Error("a platform fault should not auto-pause the trigger")
+	}
+	if stored.ConsecutiveFailures != 0 {
+		t.Errorf("consecutive_failures = %d, want 0: a platform fault says nothing about this trigger",
+			stored.ConsecutiveFailures)
 	}
 }
 
@@ -171,7 +206,7 @@ func TestAutoPause_RespectsOptOut(t *testing.T) {
 	trig.AutopauseEnabled = false
 
 	for range autoPauseThreshold * 2 {
-		svc.noteFailure(context.Background(), trig)
+		svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 	}
 
 	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)

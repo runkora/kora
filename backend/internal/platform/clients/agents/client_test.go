@@ -143,8 +143,12 @@ func TestStartRun_StatusMapping(t *testing.T) {
 		{http.StatusForbidden, ErrForbidden},
 		{http.StatusUnauthorized, ErrForbidden},
 		{http.StatusNotFound, ErrAgentTypeNotFound},
-		{http.StatusInternalServerError, ErrUnexpectedStatus},
-		{http.StatusBadGateway, ErrUnexpectedStatus},
+		// 5xx is the service failing, not the request being wrong. Callers that
+		// count failures against the requester (orbit-triggers' auto-pause) rely
+		// on telling the two apart.
+		{http.StatusInternalServerError, ErrUpstreamUnavailable},
+		{http.StatusBadGateway, ErrUpstreamUnavailable},
+		{http.StatusTeapot, ErrUnexpectedStatus},
 	}
 	for _, tt := range tests {
 		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)

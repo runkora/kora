@@ -33,6 +33,14 @@ var (
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrUnexpectedStatus is returned when orbit-agents returns an unexpected status.
 	ErrUnexpectedStatus = errors.New("unexpected status from orbit-agents")
+	// ErrUpstreamUnavailable is returned when orbit-agents itself failed rather
+	// than refusing the request: a 5xx, most commonly pod capacity exhaustion.
+	//
+	// Distinct from ErrUnexpectedStatus so a caller can tell "your request was
+	// wrong" from "the service is having a bad time". The two have opposite
+	// remedies, and a caller that counts failures against the requester needs to
+	// not count this one.
+	ErrUpstreamUnavailable = errors.New("orbit-agents unavailable")
 )
 
 // Client calls the orbit-agents control-plane API.
@@ -167,6 +175,9 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 	case http.StatusNotFound:
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrAgentTypeNotFound)
 	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }

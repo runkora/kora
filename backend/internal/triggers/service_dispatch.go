@@ -109,7 +109,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 		// Carry one reason up to the delivery so the feed can say why in a
 		// single line; the per-trigger detail is the fan-out.
 		s.recordFailure(ctx, p.DeliveryID, err.Error())
-		s.noteFailure(ctx, *t)
+		s.noteFailure(ctx, *t, err)
 		s.outcomes.derive(ctx, p.DeliveryID)
 		return
 	}
@@ -157,8 +157,14 @@ func (s *Service) RecordOrphanedPending(ctx context.Context, o OrphanedPending) 
 // otherwise be denied forever and never pause, which is precisely the case
 // auto-pause exists for. Admission rejections do not reach here — dropping a
 // fire at the ceiling is the configuration working, not the trigger breaking.
-func (s *Service) noteFailure(ctx context.Context, t Trigger) {
-	if !t.AutopauseEnabled {
+//
+// A platform fault does NOT count. Auto-pause exists to stop a trigger that is
+// itself broken, and it costs a human a manual re-enable to undo. When
+// orbit-agents is the thing failing, every trigger in the tenant is failing at
+// once through no fault of its own: counting that would pause the entire estate
+// during a capacity blip and leave someone re-enabling each one by hand.
+func (s *Service) noteFailure(ctx context.Context, t Trigger, cause error) {
+	if !t.AutopauseEnabled || !countsTowardAutoPause(cause) {
 		return
 	}
 	n, err := s.repo.BumpConsecutiveFailures(ctx, t.ID)
