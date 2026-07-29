@@ -4,9 +4,13 @@ import { redirect } from 'next/navigation';
 import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import {
+  fetchMcpOAuthClient,
+  isLoopbackRedirect,
+  isWellFormedRedirect,
+} from '@orbit/server/mcp-redirect';
 
 import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_components/consent-flow';
 
@@ -18,8 +22,10 @@ import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_componen
  * preserved) → shows the requesting client, the human, and — for the server this
  * consent is for (from the RFC 8707 `resource`) — the exact tools being granted.
  * The client component owns the approve/deny + result states; nothing is minted
- * until the human approves. redirect_uri is validated as loopback (RFC 8252)
- * before render — a non-loopback URI returns an error, never a redirect.
+ * until the human approves. redirect_uri must be either a loopback address
+ * (RFC 8252, native/DCR clients) or exactly one of the client's pre-registered
+ * redirect_uris (OAuthClient CR, hosted-app clients) — checked once the client
+ * lookup below resolves; a URI that is neither returns an error, never a redirect.
  */
 interface ConsentPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -27,16 +33,6 @@ interface ConsentPageProps {
 
 function str(v: string | string[] | undefined): string {
   return typeof v === 'string' ? v : '';
-}
-
-function isLoopbackRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
-  } catch {
-    return false;
-  }
 }
 
 /** The server slug this consent is for, from the RFC 8707 resource indicator. */
@@ -91,13 +87,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   const scope = str(params.scope);
   const resource = str(params.resource);
 
-  if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
-    return (
-      <ConsentError
-        title="Invalid request"
-        message="The redirect address is not a permitted loopback address."
-      />
-    );
+  if (!redirectUri || !isWellFormedRedirect(redirectUri)) {
+    return <ConsentError title="Invalid request" message="A valid redirect address is required." />;
   }
   if (responseType !== 'code' || !clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
     return (
@@ -123,28 +114,28 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     redirect(`/login?next=${encodeURIComponent(`/mcp/authorize?${back.toString()}`)}`);
   }
 
-  // Name the application asking (registered via DCR).
-  let clientName = '';
-  let unknownClient = false;
-  try {
-    const res = await fetch(
-      `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
-      { cache: 'no-store', headers: { Authorization: `Bearer ${session.accessToken}` } },
-    );
-    if (res.status === 404) {
-      unknownClient = true;
-    } else if (res.ok) {
-      const body = (await res.json()) as { client_name?: string };
-      clientName = body.client_name ?? '';
-    }
-  } catch {
-    // Non-fatal — fall through with a generic name.
-  }
-  if (unknownClient) {
+  // Name the application asking (registered via DCR or a pre-registered
+  // OAuthClient CR), and — since redirectUri only passed a structural check
+  // above — confirm it's one this client actually registered.
+  const clientLookup = await fetchMcpOAuthClient(clientId, session.accessToken);
+  if (clientLookup.kind === 'not_found') {
     return (
       <ConsentError
         title="Unknown application"
         message="This application is not registered with Orbit."
+      />
+    );
+  }
+  const clientName = clientLookup.kind === 'ok' ? clientLookup.clientName : '';
+  const clientRedirectUris = clientLookup.kind === 'ok' ? clientLookup.redirectUris : [];
+  // The real gate: loopback URIs are always allowed (RFC 8252 native/DCR
+  // clients); anything else must exactly match a redirect_uri this client
+  // pre-registered (OAuthClient CR, hosted-app clients).
+  if (!isLoopbackRedirect(redirectUri) && !clientRedirectUris.includes(redirectUri)) {
+    return (
+      <ConsentError
+        title="Invalid request"
+        message="The redirect address is not registered for this application."
       />
     );
   }
