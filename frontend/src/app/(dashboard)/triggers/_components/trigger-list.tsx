@@ -5,16 +5,14 @@
 import { useState } from 'react';
 import {
   Badge,
-  Button,
   DataGrid,
   DataGridEmpty,
-  DataGridFooter,
+  DataGridPagination,
   DataGridHeader,
   DataGridRow,
   DataGridToolbar,
   Icon,
   IconTile,
-  NativeSelect,
   Sparkline,
   Stack,
   Text,
@@ -234,51 +232,20 @@ export function TriggerList({
       {/* Inside the frame, like the toolbar: the controls that change what the
           grid shows belong to the grid. */}
       {triggers.length > 0 && (
-        <DataGridFooter>
-          <Text size="caption" color="subtle">
-            {win.from}–{win.to} of {win.total}
-          </Text>
-          <Stack grow />
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Text as="span" size="caption" color="subtle">
-              Per page
-            </Text>
-            <NativeSelect
-              aria-label="Triggers per page"
-              value={String(paging.size)}
-              onChange={(e) =>
-                // A new page size makes the old page index meaningless, so it
-                // returns to the first page rather than landing somewhere
-                // arbitrary in the middle.
-                setPaging({ key: resetKey, page: 0, size: Number(e.target.value) })
-              }
-            >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </NativeSelect>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={win.page === 0}
-              aria-label="Previous page"
-              onClick={() => setPaging({ key: resetKey, page: win.page - 1, size: paging.size })}
-            >
-              <Icon name="chevron-left" size="2xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={win.page >= win.pageCount - 1}
-              aria-label="Next page"
-              onClick={() => setPaging({ key: resetKey, page: win.page + 1, size: paging.size })}
-            >
-              <Icon name="chevron-right" size="2xs" />
-            </Button>
-          </Stack>
-        </DataGridFooter>
+        <DataGridPagination
+          from={win.from}
+          to={win.to}
+          total={win.total}
+          page={win.page}
+          pageCount={win.pageCount}
+          pageSize={paging.size}
+          pageSizeOptions={PAGE_SIZES}
+          noun="triggers"
+          onPageChange={(page) => setPaging({ key: resetKey, page, size: paging.size })}
+          // A new page size makes the old page index meaningless, so it
+          // returns to the first page rather than landing mid-list.
+          onPageSizeChange={(size) => setPaging({ key: resetKey, page: 0, size })}
+        />
       )}
     </DataGrid>
   );

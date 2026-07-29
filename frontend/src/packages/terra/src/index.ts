@@ -356,10 +356,12 @@ export {
   DataGridRow,
   DataGridFooter,
   DataGridEmpty,
+  DataGridPagination,
 } from './components/data-grid';
 export type {
   DataGridProps,
   DataGridHeaderProps,
   DataGridHeaderCell,
   DataGridRowProps,
+  DataGridPaginationProps,
 } from './components/data-grid';

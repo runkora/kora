@@ -12,3 +12,5 @@ export type {
   DataGridHeaderCell,
   DataGridRowProps,
 } from './data-grid';
+export { DataGridPagination } from './data-grid-pagination';
+export type { DataGridPaginationProps } from './data-grid-pagination';

@@ -126,7 +126,7 @@ describe('pagination', () => {
 
   it('repages when the page size changes', () => {
     renderList(many(30));
-    fireEvent.change(screen.getByLabelText('Triggers per page'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('triggers per page'), { target: { value: '25' } });
     expect(screen.getByText('1–25 of 30')).toBeTruthy();
   });
 
