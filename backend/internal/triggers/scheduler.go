@@ -10,14 +10,20 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Scheduler evaluates all enabled scheduled triggers each minute and fires
+// Scheduler evaluates the matchable scheduled triggers each minute and fires
 // TickScheduled for each one whose cron expression matches the current time.
-// It is single-instance best-effort: if the process is down during a tick, that
-// tick is skipped (no backfill). The dedup index in the DB prevents double-fire
-// on pod restart within the same minute window.
 //
-// When orbit-triggers runs with >1 replica, wrap Start/Stop with a distributed
-// lock (Kubernetes Lease or DB advisory lock) before starting the scheduler.
+// It is safe under any number of replicas without a lock. The delivery row for a
+// tick is inserted under UNIQUE (trigger_id, scheduled_at) BEFORE anything is
+// dispatched, so a replica that loses the insert race stops: a schedule fires at
+// most once per minute no matter how many replicas run it, and the same index
+// covers a restart within the minute. Leader election would be worse rather than
+// redundant here, because a lease handover window can miss a tick entirely
+// (docs/adr/2026-06-20-extended-trigger-types.md, Decision 2A).
+//
+// A tick missed while the platform was down is not lost silently: each pass
+// reconciles the last hour, recording a due minute with no delivery as 'missed',
+// or firing it when the trigger opts into catch_up.
 type Scheduler struct {
 	svc     *Service
 	repo    Repository

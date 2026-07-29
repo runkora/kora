@@ -102,12 +102,12 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **So that** recurring agent work runs inside Orbit's identity and policy model instead of on a laptop or a CI cron.
 
 **Acceptance Criteria:**
-- [ ] A trigger can be created with a cron expression and an IANA timezone; the console shows the next fire time in that timezone before I save.
-- [ ] The schedule fires within one minute of its due time.
-- [ ] DST transitions are handled by the configured timezone, not by UTC offset arithmetic — a 02:30 daily schedule does not skip or double-fire across a transition.
-- [ ] The minimum interval is one minute; a more frequent expression is rejected at creation with a clear message.
-- [ ] A fire missed during downtime is recorded as missed and skipped by default; catching up is a per-trigger opt-in, visible in the creation wizard rather than buried (PD1).
-- [ ] The run is attributed to the trigger's own principal, exactly as a webhook-triggered run is.
+- [x] A trigger can be created with a cron expression and an IANA timezone; the console shows the next fire time in that timezone before I save.
+- [x] The schedule fires within one minute of its due time.
+- [x] DST transitions are handled by the configured timezone, not by UTC offset arithmetic — a 02:30 daily schedule does not skip or double-fire across a transition.
+- [x] The minimum interval is one minute; a more frequent expression is rejected at creation with a clear message.
+- [x] A fire missed during downtime is recorded as missed and skipped by default; catching up is a per-trigger opt-in, visible in the creation wizard rather than buried (PD1).
+- [x] The run is attributed to the trigger's own principal, exactly as a webhook-triggered run is.
 
 ---
 
@@ -120,7 +120,7 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 - [x] A manual trigger declares typed fields — name, type (text, number, boolean, choice), required, description, default (PD2); the console renders a form from that declaration and the API validates against the same one.
 - [x] A run can be started from the console ("Run now") or from `POST` to the trigger's run endpoint.
 - [x] The caller is authenticated and authorized to fire that specific trigger; the resulting run still executes under the trigger's own principal, not the caller's.
-- [ ] Invalid input is rejected with per-field errors before any run starts, and is recorded as a delivery.
+- [x] Invalid input is rejected with per-field errors before any run starts, and is recorded as a delivery.
 
 A trigger's declared inputs are **fixed once it is created**. Everything else about a manual trigger can be corrected in place, but its field names are the API contract that callers hard-code into scripts and other systems, so renaming one silently breaks every caller with no signal that anything changed. Changing the form means creating a trigger with the shape you want and retiring the old one, which leaves the old endpoint's callers failing loudly instead of quietly running with the wrong inputs.
 
@@ -134,13 +134,13 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 **So that** I can fix the actual problem instead of guessing from a generic "failed" badge.
 
 **Acceptance Criteria:**
-- [ ] Each of those reasons is a distinct, visible outcome — none collapses into a generic failure.
-- [ ] Outcomes that belong to a trigger (filtered, denied, superseded, dropped, dispatched, failed) are recorded per trigger, so a delivery that started two runs and was rejected by a third says exactly that.
-- [ ] Outcomes that belong to the arrival itself (duplicate, missed, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
-- [ ] A sender failing authentication is visible on the source it is posting to, with a count and the most recent reason, without creating delivery records.
-- [ ] A policy denial keeps the reason policy gave.
-- [ ] "A trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
-- [ ] An outcome that means "no run will ever start for this" is visibly terminal, not left looking pending.
+- [x] Each of those reasons is a distinct, visible outcome — none collapses into a generic failure.
+- [x] Outcomes that belong to a trigger (filtered, denied, superseded, dropped, dispatched, failed) are recorded per trigger, so a delivery that started two runs and was rejected by a third says exactly that.
+- [x] Outcomes that belong to the arrival itself (duplicate, missed, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
+- [x] A sender failing authentication is visible on the source it is posting to, with a count and the most recent reason, without creating delivery records.
+- [x] A policy denial keeps the reason policy gave.
+- [x] "A trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
+- [x] An outcome that means "no run will ever start for this" is visibly terminal, not left looking pending.
 
 ---
 
@@ -152,8 +152,8 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 **Acceptance Criteria:**
 - [x] Every delivery is recorded *before* any authorization or dispatch decision, so a denial is still auditable.
 - [x] Delivery metadata is kept indefinitely; only the payload body is subject to retention (PD4). A purged delivery still answers "did this fire, and what happened". A tenant sets its own window, between 1 and 30 days, without asking anyone; a tenant that has never chosen is shown as being on the platform default rather than as having picked it.
-- [ ] A run started by a trigger links back to its delivery; the run inspector shows "started by trigger X, delivery Y."
-- [ ] Deleting a trigger retains its delivery history; the console can still show what that trigger did, named, rather than an orphaned ID.
+- [x] A run started by a trigger links back to its delivery; the run inspector shows "started by trigger X, delivery Y."
+- [x] Deleting a trigger retains its delivery history; the console can still show what that trigger did, named, rather than an orphaned ID.
 
 ### Admission control
 
@@ -163,13 +163,13 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 **So that** a burst of events doesn't put unbounded concurrent load on the target agent.
 
 **Acceptance Criteria:**
-- [ ] The concurrency ceiling is configurable per trigger within a sensible range, and defaults to a value that suits most triggers without needing thought.
-- [ ] Overflow behavior is configurable per trigger: **wait** (hold in order, discarding the oldest if the backlog grows too large), **replace** (keep only the most recent waiting fire), or **refuse** (reject immediately and tell the sender).
-- [ ] Each kind gets the default that suits it: webhooks wait, schedules replace, manual fires refuse.
-- [ ] Admission control is scoped per trigger: two triggers targeting the same agent each get their own ceiling, independent of each other.
-- [ ] Disabling a trigger stops it accepting new fires and discards anything still waiting, recorded as dropped rather than vanishing. Runs already started are left alone — stopping a run is the agent's business, not the trigger's.
-- [ ] Deleting a trigger does the same, and its delivery history survives it (US-004).
-- [ ] The drawer shows how many fires are currently waiting, so a backlog is visible before it becomes a surprise.
+- [x] The concurrency ceiling is configurable per trigger within a sensible range, and defaults to a value that suits most triggers without needing thought.
+- [x] Overflow behavior is configurable per trigger: **wait** (hold in order, discarding the oldest if the backlog grows too large), **replace** (keep only the most recent waiting fire), or **refuse** (reject immediately and tell the sender).
+- [x] Each kind gets the default that suits it: webhooks wait, schedules replace, manual fires refuse.
+- [x] Admission control is scoped per trigger: two triggers targeting the same agent each get their own ceiling, independent of each other.
+- [x] Disabling a trigger stops it accepting new fires and discards anything still waiting, recorded as dropped rather than vanishing. Runs already started are left alone — stopping a run is the agent's business, not the trigger's.
+- [x] Deleting a trigger does the same, and its delivery history survives it (US-004).
+- [x] The drawer shows how many fires are currently waiting, so a backlog is visible before it becomes a surprise.
 
 ### Delivery safety
 
@@ -195,9 +195,9 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 **So that** a wedged agent shows as a failure I can see instead of a delivery stuck in flight forever.
 
 **Acceptance Criteria:**
-- [ ] A dispatch that doesn't start a run within the trigger's timeout is abandoned and recorded as failed, and counts toward auto-pause.
-- [ ] The timeout covers starting the run, not running it — a long-running agent is not a failure.
-- [ ] The default is sensible without configuration; the setting exists for triggers whose agents are legitimately slow to start.
+- [x] A dispatch that doesn't start a run within the trigger's timeout is abandoned and recorded as failed, and counts toward auto-pause.
+- [x] The timeout covers starting the run, not running it — a long-running agent is not a failure.
+- [x] The default is sensible without configuration; the setting exists for triggers whose agents are legitimately slow to start.
 
 ---
 
@@ -247,8 +247,8 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 **So that** everything about one trigger's behavior and history is in one place.
 
 **Acceptance Criteria:**
-- [ ] The Deliveries tab header is honest about sampling — e.g. "Last 4 of 55 deliveries" — never implies it's showing everything when it isn't.
-- [ ] Settings changes take effect on the next delivery, not retroactively on work already in flight.
+- [x] The Deliveries tab header is honest about sampling — e.g. "Last 4 of 55 deliveries" — never implies it's showing everything when it isn't.
+- [x] Settings changes take effect on the next delivery, not retroactively on work already in flight.
 
 ---
 
@@ -301,11 +301,11 @@ Builds on the existing two-surface model (per-agent tab + platform-wide section)
 1. **KPI row** — active triggers, 24h deliveries, success rate, needs attention, avg dispatch time. Derived, never hand-set.
 2. **Type filter chips + search** — filter by kind, search across name/source/agent.
 3. **Triggers table** — type icon, name + failure badge, source, fires-on, target agent, 24h sparkline, last fired, inline enable/disable. Pagination: 12/25/50 rows; filter or search resets to page 1.
-4. **Recent deliveries feed** — cross-trigger, with Redeliver on failed/denied rows.
-5. **Trigger drawer** — Overview (kind-specific config + filters + target + 24h stat trio) / Deliveries (expandable payload + run link) / Settings (timeout, admission control, safety toggles, delete).
-6. **Creation wizard** — type picker (Available: Webhook/Schedule/Manual; Planned: the deferred kinds, visibly marked) → typed wizard → success screen.
+4. **Recent deliveries feed** — cross-trigger, showing which trigger handled each arrival and how long it took from arriving to its run being recorded. Redeliver is offered only where no run started and the cause might since have been fixed: failed, denied, dropped. Offering it on a delivery that already ran would invite a duplicate run, and offering it on one that was filtered would replay a decision the admin made on purpose.
+5. **Trigger drawer** — Overview (kind-specific config + filters + target + 24h stat trio) / Deliveries (expandable payload + run link, header honest about sampling) / Settings (timeout, admission control, safety toggles, delete). The Settings tab shows **Waiting now** only while fires are actually queued: a permanent "0 waiting" would read as a queue that exists rather than one that is empty.
+6. **Creation wizard** — kind picker (Available: Webhook/Schedule/Manual; Planned: the deferred kinds, visibly marked) → the kind's own step (how it fires) → **Target** (which agent) → **Delivery** (capacity and safety in one place: ceiling, overflow, queue depth, timeout, duplicate suppression, auto-pause) → **Review** → success screen. Every kind shares the last three steps, because what a trigger runs and what happens between an arrival and its run starting are the same questions regardless of how it fires. Grouping capacity and safety into one step is deliberate: they are one decision about the waiting room, and splitting them across the flow made each look like a detail rather than the pair they are.
 
-**A trigger is editable in place after it is created.** Getting a prompt or a filter slightly wrong is the normal case, not the exception, and a wizard that can only create means the fix is delete-and-rebuild, which loses the trigger's history and its endpoint. Name, prompt, event type, filters, schedule, admission settings and the safety toggles are all correctable from the drawer, one section at a time, and take effect on the next delivery rather than on work already in flight. The two exceptions are deliberate: a manual trigger's **declared inputs** are frozen because their names are the API contract callers hard-code (US-002), and a trigger's **target agent** is frozen because retargeting is a different trigger, not an edit of this one.
+**A trigger is editable in place after it is created.** Getting a prompt or a filter slightly wrong is the normal case, not the exception, and a wizard that can only create means the fix is delete-and-rebuild, which loses the trigger's history and its endpoint. Name, prompt, event type, filters, schedule, admission settings and the safety toggles are all correctable from the drawer, and take effect on the next delivery rather than on work already in flight. Editing is **per section**, each with its own save and discard: a draft exists only while it differs from what is stored, so the section being edited keeps the person's text while every other section keeps following the live row as the page refreshes underneath the open panel. The two exceptions are deliberate: a manual trigger's **declared inputs** are frozen because their names are the API contract callers hard-code (US-002), and a trigger's **target agent** is frozen because retargeting is a different trigger, not an edit of this one.
 
 **Sources are not a top-level surface.** There is no Sources page. A webhook source is created inside the trigger flow, at the point where the admin is choosing what to listen to, and afterwards it is managed from the drawer of a trigger that uses it. A source has no meaning on its own (it exists to be listened to), and giving it its own page would create an orphan-shaped object an admin has to reason about separately. Two things about a source only ever surface there: **rotating its signing secret**, where the new secret is shown once and never again, and its **rejection counter**, which is the only place a wrong signing secret shows up at all, since a request that fails authentication never becomes a delivery.
 
@@ -377,20 +377,20 @@ Three consequences for this PRD's scope, all deliberate:
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] Scheduled triggers: recurring expression + timezone, next-fire preview before saving, one-minute minimum interval, correct across DST transitions, explicit missed-fire behavior.
-- [ ] Manual triggers: a declared input that drives both the console form and API validation; fire from either; the run is attributed to the trigger, not the caller.
-- [ ] Every outcome in §Key Components is recorded distinctly, per trigger, including for deliveries that never started a run.
-- [ ] A trigger's concurrency ceiling and overflow behavior are enforced exactly as US-005 specifies, per trigger only (PD6).
-- [ ] A dispatch that exceeds the trigger's timeout is abandoned and recorded as failed (US-006a).
-- [ ] Auto-pause disables a trigger after sustained consecutive failure, resets on success, and is surfaced in the console (PD5).
-- [ ] Console KPI row, sparkline and failure badge, deliveries feed, and the drawer's three tabs, all backed by the same records an admin could query directly.
+- [x] Scheduled triggers: recurring expression + timezone, next-fire preview before saving, one-minute minimum interval, correct across DST transitions, explicit missed-fire behavior.
+- [x] Manual triggers: a declared input that drives both the console form and API validation; fire from either; the run is attributed to the trigger, not the caller.
+- [x] Every outcome in §Key Components is recorded distinctly, per trigger, including for deliveries that never started a run.
+- [x] A trigger's concurrency ceiling and overflow behavior are enforced exactly as US-005 specifies, per trigger only (PD6).
+- [x] A dispatch that exceeds the trigger's timeout is abandoned and recorded as failed (US-006a).
+- [x] Auto-pause disables a trigger after sustained consecutive failure, resets on success, and is surfaced in the console (PD5).
+- [x] Console KPI row, sparkline and failure badge, deliveries feed, and the drawer's three tabs, all backed by the same records an admin could query directly.
 
 **Should Have (P1):**
-- [ ] Duplicate suppression within the retention window.
-- [ ] Event filters chosen from a curated per-provider list rather than typed (PD7).
-- [ ] Redeliver on a delivery that didn't start a run.
-- [ ] Full payload capture, retained 30 days by default, shortenable per tenant, purged automatically (PD4). Delivery metadata is kept indefinitely.
-- [ ] Creation wizard with the Planned-kinds picker.
+- [x] Duplicate suppression within the retention window.
+- [x] Event filters chosen from a curated per-provider list rather than typed (PD7).
+- [x] Redeliver on a delivery that didn't start a run.
+- [x] Full payload capture, retained 30 days by default, shortenable per tenant, purged automatically (PD4). Delivery metadata is kept indefinitely.
+- [x] Creation wizard with the Planned-kinds picker.
 
 **Nice to Have (P2):**
 - [ ] Notification when a trigger auto-pauses, beyond the console — deferred pending evidence that pauses go unnoticed (PD5).

@@ -258,7 +258,7 @@ Considered seriously, because Orbit intends to build a multi-agent workflow engi
 - **Operational cost.** Self-hosted Temporal's weight is not its process count (the four server roles can run as one binary); it is history shard management, retention configuration and datastore growth, on a platform already operating SPIRE, Istio, OPA, Postgres, Redis and Dex.
 - **Retry is not currently a benefit.** The PRD excludes automatic retry deliberately: webhook providers already retry, so platform-side retry compounds someone else's backoff. The headline feature is one this feature does not want.
 
-**Rejected for now, revisit when the workflow engine is designed.** That is the decision point, not this one. `Admission` is an interface, so a durable-execution-backed implementation can replace the Postgres one without touching the pipeline — the door stays open without being walked through early.
+**Rejected for now, revisit when the workflow engine is designed.** That is the decision point, not this one. `Admission` is a concrete type over the repository rather than an interface, so swapping in a durable-execution-backed implementation is a small refactor first: extracting the two methods the pipeline actually calls, `Admit` and `Drain`, into an interface and injecting it. That is a contained change because the pipeline's coupling is already narrow, but it is honest to say the seam has to be cut rather than that it is already there.
 
 **Chosen: 5A, with every fire routed through the queue.**
 
@@ -266,7 +266,7 @@ The tempting optimisation is a fast path: when a trigger is under its ceiling an
 
 Triggers is the platform's front door for starting things (Decision 8), so **an acknowledged fire always starts** is a property worth being able to state without qualification. Routing everything through the queue makes it true, and leaves one dispatch path instead of two — two paths being the same class of coherence risk as two status vocabularies, and worth avoiding for the same reason.
 
-The cost is claim latency on every fire. That is acceptable because the sender has already been acknowledged by then: everything after **RECORD** is asynchronous, so the latency is on no caller's path. `LISTEN`/`NOTIFY` on insert reduces it to a wake-up rather than a poll interval.
+The cost is claim latency on every fire. That is acceptable because the sender has already been acknowledged by then: everything after **RECORD** is asynchronous, so the latency is on no caller's path. The worker polls on a **one second tick**, claiming up to sixteen fires per pass. A poll rather than a `LISTEN`/`NOTIFY` wake-up: the claim query is a cheap indexed lookup that returns nothing when idle, so a second of latency on a path nobody is waiting on does not justify a second delivery mechanism whose failure mode (a missed notification) is silent. The batch bound is what keeps a burst draining steadily rather than arriving at the agent API as one thundering herd. If sub-second start latency ever becomes a requirement, `LISTEN`/`NOTIFY` is the change, and the poll stays underneath it as the backstop.
 
 `Admission` stays deliberately narrow — concurrency and overflow, nothing more. It is not an attempt at a general deferred-work primitive, because that primitive belongs with the workflow engine (Decision 8) and would be under-designed if invented here.
 
@@ -282,7 +282,18 @@ The cost is claim latency on every fire. That is acceptable because the sender h
 
 The same bounds apply to create and to update, so a trigger cannot be edited into a configuration it could not have been created in. Changes take effect on the next delivery: the worker re-reads the trigger when it claims a fire, so work already in flight is not retimed under it.
 
-**Counting what is in flight.** `InFlightCount` counts this trigger's `dispatched` runs from the last hour, not all of them. A run whose terminal outcome was never recorded (a lost pod, a dropped callback) would otherwise hold a slot forever and silently throttle a healthy trigger to nothing. Bounding the window means the platform can briefly over-admit after such a loss, which is the deliberate choice: over-admitting is recoverable and visible, wedging is neither.
+**What "in flight" means.** `max_parallel` counts runs that are **genuinely running**, not runs that were started recently. The count is a read-only join from `trigger_delivery_runs` to the `runs` table, excluding runs that have reached `completed`, `failed` or `budget_exhausted`. Counting starts-within-a-horizon instead would make the ceiling drift with run duration: a trigger whose runs finish in ten seconds would be throttled for the rest of the horizon by work that had already finished.
+
+`runs` is owned by `orbit-agents`, so this is a **deliberate cross-service read**, and it is worth naming as a coupling rather than leaving it to be discovered. It is safe here for the reason it would not be in general: the platform runs one Postgres with pooled migrations, and the read is read-only and additive, so it can never be the cause of a write conflict. If the two services are ever split across databases, this join is the thing that breaks, and the replacement is a count served by `orbit-agents` over its typed client.
+
+Two bounds sit on top of that count:
+
+- **The hour horizon stays**, no longer as the definition of in-flight but as a backstop for a run whose terminal state was never recorded at all: a lost pod, a dropped callback. Without it such a run holds a slot forever and silently throttles a healthy trigger to nothing. Over-admitting after a lost outcome is recoverable and visible; wedging is neither.
+- **Claimed-but-undispatched fires count too.** A worker that has claimed a row but not yet recorded its outcome is invisible to the fan-out, so omitting it would let a burst admit past the ceiling in the window between claim and dispatch. That half is bounded by the reclaim window below, so one dead pod cannot permanently cost a trigger a slot.
+
+**One batch cannot blow the ceiling.** `ClaimPending` ranks waiting rows per trigger (`row_number()` over a partition by `trigger_id`, oldest first) and claims only those where `in_flight + position <= max_parallel`. Without the ranking every waiting row of an under-ceiling trigger satisfies the same capacity check simultaneously, and a burst claims all of them in one pass: a ceiling of 4 with 30 waiting fires admits 30. The ranking is what makes a single batch admit at most the remaining capacity.
+
+**The stuck-claim reaper.** A worker claims a fire and then dispatches it. If the pod dies in between, the row stays claimed forever: nothing re-claims it, the fire never starts, and it costs its trigger a parallel slot permanently. That falsifies the one promise the queue exists to keep. Each drain pass therefore reclaims first: a claim older than **fifteen minutes** has its `claimed_at` cleared and returns to the queue, and each reclaim is logged individually at warning level, because a pod dying while holding acknowledged work is worth knowing about even though the queue recovers by itself. Fifteen minutes is chosen against the ceiling on a legitimate dispatch: `timeout_seconds` is capped at 600, so a claim older than the window cannot belong to a dispatch still in progress. The margin is deliberately generous, because reclaiming a live dispatch would start the same fire twice, which is worse than a stranded fire starting late.
 
 **Refusal is a `429`, not a `500`.** A manual fire refused at the ceiling returns `429 Too Many Requests`: the trigger is healthy and busy, and the caller's correct response is to retry shortly. The fire is recorded either way, and the error distinguishes "at capacity" from "auto-paused", because the fixes differ.
 
@@ -498,6 +509,18 @@ ALTER TABLE webhook_sources
     ADD COLUMN last_rejection_at     TIMESTAMPTZ,
     ADD COLUMN last_rejection_reason TEXT;
 
+-- Trigger names captured onto history, so a deleted trigger's deliveries stay
+-- readable (US-004). Neither delivery table carries a foreign key to triggers,
+-- deliberately: history has to survive the trigger. The cost was that a deleted
+-- trigger left rows identified by an id alone, unreadable at exactly the moment
+-- someone was asking what had happened.
+--
+-- Captured at write time rather than joined at read time. A join returns NULL
+-- for a deleted trigger, which is the case that matters, and a later rename
+-- would silently rewrite history. This column is the name AS IT WAS.
+ALTER TABLE trigger_deliveries    ADD COLUMN trigger_name TEXT;
+ALTER TABLE trigger_delivery_runs ADD COLUMN trigger_name TEXT;
+
 -- Per-trigger outcome: the level admission control and auto-pause act on.
 ALTER TABLE trigger_delivery_runs DROP CONSTRAINT IF EXISTS trigger_delivery_runs_status_check;
 ALTER TABLE trigger_delivery_runs
@@ -551,27 +574,34 @@ CREATE INDEX idx_trigger_deliveries_purge
 ### Contracts
 
 ```go
-// Admission decides whether a matched trigger may start a run now.
-// Implementations must be correct across replicas.
-type Admission interface {
-    // Admit returns AdmitDispatch when the trigger is under its ceiling, or
-    // the terminal outcome to record when it is not. AdmitEnqueue means the
-    // fire is durably waiting and will be claimed by a worker.
-    Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (AdmissionResult, error)
+// Admission decides whether a matched trigger may start a run now, and durably
+// holds the fires that cannot. A concrete type over the Repository, not an
+// interface: there is one implementation, and inventing a seam for a second
+// that does not exist would be the speculative generality Decision 5D declines.
+// Correctness across replicas comes from the queue's SQL, not from the type.
+type Admission struct { /* repo, logger */ }
 
-    // Release frees a slot when a run reaches a terminal state.
-    Release(ctx context.Context, triggerID, runID string) error
+// Admit records a fire for later dispatch, applying the trigger's overflow
+// behavior when it is already at its ceiling. There is no "dispatch now"
+// result: every fire is enqueued, including the uncontended case, which is
+// what makes an acknowledged fire survive a restart.
+func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (AdmissionResult, error)
 
-    // Drain removes everything waiting for a trigger, recording each as
-    // dropped. Called when a trigger is disabled, auto-paused, or deleted.
-    Drain(ctx context.Context, triggerID string) (int, error)
-}
+// Drain removes everything waiting for a trigger, recording each as dropped
+// under the given reason. Called when a trigger is disabled, auto-paused, or
+// deleted. It takes the Trigger rather than an id because it writes the
+// trigger's name onto each outcome row.
+func (a *Admission) Drain(ctx context.Context, t Trigger, reason string) (int, error)
+
+// There is no Release. A slot is freed by the run reaching a terminal state,
+// which admission reads through the runs join rather than being told about;
+// the claimed pending row is cleared by the worker (ReleasePending) or by the
+// reaper. Nothing has to remember to hand a slot back.
 
 type AdmissionResult int
 
 const (
-    AdmitDispatch   AdmissionResult = iota // start now
-    AdmitEnqueue                           // durably waiting
+    AdmitEnqueued   AdmissionResult = iota // durably waiting; the normal outcome
     AdmitSuperseded                        // replaced a waiting fire, or was replaced
     AdmitDropped                           // refused at the ceiling, or evicted
     AdmitPaused                            // the trigger is auto-paused
@@ -597,15 +627,33 @@ type Repository interface {
     RecordSourceRejection(ctx context.Context, sourceID, reason string) error
     DueScheduledMinutesWithoutDelivery(ctx context.Context, triggerID string, since time.Time) ([]time.Time, error)
 
+    EnqueuePending(ctx context.Context, p *PendingDelivery) error
+    // Claims oldest-first, per-trigger-ranked so one batch admits at most the
+    // remaining capacity.
     ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
+    ReleasePending(ctx context.Context, id string) error
+    // Un-claims fires whose worker died mid-dispatch, returning the ids taken
+    // back so the caller can log each one.
+    ReclaimStalePending(ctx context.Context, olderThan time.Duration) ([]string, error)
     InFlightCount(ctx context.Context, triggerID string) (int, error)
+    SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
+    TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
+    DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
 
     BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
     ResetConsecutiveFailures(ctx context.Context, triggerID string) error
     AutoPause(ctx context.Context, triggerID string) error
 
     DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
-    PurgePayloads(ctx context.Context, before time.Time) (int64, error)
+    // Takes the platform default rather than a cutoff time: the cutoff is
+    // per tenant, so it is resolved inside the query against each tenant's
+    // configured window, falling back to the default where none is set.
+    PurgePayloads(ctx context.Context, defaultDays int) (int64, error)
+    GetRetention(ctx context.Context, tenantID string) (days int, configured bool, err error)
+    SetRetention(ctx context.Context, tenantID string, days int) error
+
+    ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
+    PendingStats(ctx context.Context) (PendingStats, error)
 }
 ```
 
@@ -630,6 +678,40 @@ POST /api/v1/policy/grants
 ```
 
 `trigger:fire` covers every trigger by the coverage rule (same resource type, same action, shorter path). There is no `trigger:*:fire` literal and none should be introduced.
+
+### HTTP surface
+
+Everything is under `/api/v1`. Ingestion is the only unauthenticated route; the rest carry the platform's standard auth middleware, and the fire endpoint adds the per-trigger check above.
+
+| Route | Purpose |
+|---|---|
+| `POST /webhooks/{sourceID}` | Inbound webhook. Unauthenticated by design; verified by signature. Path unchanged from v1 |
+| `POST`/`GET`/`PATCH`/`DELETE /trigger-sources[/{id}]` | Source registration and management |
+| `GET /trigger-sources/{id}/event-types` | Event catalogue: `declared` from the adapter, `observed` from this source's history (Decision 7) |
+| `POST`/`GET`/`PATCH`/`DELETE /triggers[/{id}]` | Trigger management |
+| `POST /triggers/{id}/fire` | Fire a manual trigger. Authorized against `trigger:{id}:fire` (Decision 6) |
+| `POST /triggers/schedule-preview` | Next fire times for a cron expression and timezone, before the trigger is saved |
+| `GET /trigger-deliveries` | The cross-trigger deliveries feed |
+| `POST /trigger-deliveries/{id}/redeliver` | Replay a past delivery as a new one |
+| `GET`/`PUT /trigger-retention` | The tenant's payload retention window |
+
+A trigger read carries `pending_count`: how many fires are waiting on it right now, counted from the queue rather than stored. It is the number that makes a backlog visible before it becomes a surprise, and computing it per read is what keeps it from disagreeing with the queue it describes.
+
+### Manual input validation
+
+A manual fire is validated against the trigger's declared inputs before anything is admitted, and **the rejection is recorded as a delivery**: status `failed`, with a summary of the per-field problems as its reason and the submitted values stored as its payload. The values and the complaint are the pair that makes a rejection diagnosable.
+
+Recording it matters for the same reason recording a policy denial does. An invalid fire that vanished was indistinguishable from one that was never made, which is precisely what leaves "why did nothing happen?" unanswerable. The rejected fire is recorded and never admitted: it must not reach the queue, or it would start the run the refusal was about. The caller gets the per-field detail, which is the part they can act on.
+
+### Run attribution
+
+The forward link always existed: a delivery records the run it started. The reverse did not, so a run opened from the runs list could not say a trigger started it at all. Its `created_by` is the trigger's `SERVICE` principal, which reads as an opaque id.
+
+A run therefore carries `started_by`: `{trigger_id, trigger_name, delivery_id}`, three typed nullable columns on `runs` rather than a metadata bag, following the precedent `summary` and `delegation_jti` already set. Absent means a person started the run, which is what its absence means everywhere downstream.
+
+**The attribution is authorized, not trusted.** Only a `SERVICE` principal may claim it. A person who could label their own run as trigger-started could manufacture evidence that an automated, policy-governed path did something they did themselves, so the check fails closed and mirrors the delegation model's `requireDelegatorPrincipal`. Attribution that names a delivery without naming a trigger is refused outright: a dangling delivery id renders as nothing and would quietly become a run claiming automation without saying what automated it.
+
+`trigger_name` is a snapshot taken at start time and there is no foreign key, for the same reason the delivery tables have neither: a run is audit history and outlives the trigger that started it. A deleted trigger still reads as something a person recognises, and a later rename does not rewrite what this run says happened.
 
 ### Replay
 
@@ -757,7 +839,7 @@ The kinds exist; this phase brings them to the PRD's bar.
 ### Phase 3 — Admission control and delivery safety
 
 1. Migration: `trigger_pending_deliveries`, `trigger_retention_settings`, and the trigger columns.
-2. `Admission` implementation; the `SKIP LOCKED` worker loop with `LISTEN`/`NOTIFY` wake-up. Every fire routes through the queue.
+2. `Admission` implementation; the `SKIP LOCKED` worker loop on a one second poll, with the stuck-claim reaper running ahead of each claim. Every fire routes through the queue.
 3. Per-trigger `timeout_seconds` replacing the package constant; a timeout counts toward auto-pause.
 4. Auto-pause: denials count, admission rejections do not (PRD, US-006); `Drain` on pause, disable, and delete.
 5. Payload purge job honouring `trigger_retention_settings`, with a rows-purged metric and an alert when it has not run.

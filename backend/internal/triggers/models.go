@@ -1,14 +1,16 @@
-// Package triggers implements the Orbit Triggers feature: a generic, inbound
-// event framework that starts agent runs automatically in response to external
-// events. The webhook trigger is the first (v1) kind; scheduled and manual kinds
-// are added here. See docs/adr/2026-06-20-extended-trigger-types.md and the
-// original docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
+// Package triggers implements the Orbit Triggers feature: the front door for the
+// ways something can start in the platform. Three kinds ship today: an inbound
+// webhook, a cron schedule, and a manual fire. See
+// docs/adr/2026-06-20-extended-trigger-types.md and the original
+// docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
 //
-// The package is hosted by the identity binary (the only externally-reachable
-// service and the platform token authority) but is a self-contained feature
-// package: it never imports other feature packages. It reaches the agent control
-// plane through a typed platform client and mints each trigger source's identity
-// via the TokenMinter interface (satisfied by the identity service in main).
+// The package is hosted by the orbit-triggers binary, deliberately separate from
+// identity: webhook ingestion is the one unauthenticated, internet-reachable
+// surface in the platform, and it should not share a process with the service
+// that mints every token. It is a self-contained feature package: it never
+// imports other feature packages. It reaches the agent control plane through a
+// typed platform client and mints each trigger's identity via the TokenMinter
+// interface (satisfied by a typed identity client in main).
 package triggers
 
 import (
