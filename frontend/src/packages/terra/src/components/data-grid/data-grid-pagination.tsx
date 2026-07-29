@@ -71,7 +71,10 @@ const DataGridPagination = React.forwardRef<HTMLDivElement, DataGridPaginationPr
       </span>
       <span className="grow" />
       <span className="text-xs whitespace-nowrap text-subtle">Rows per page</span>
+      {/* The select sizes to its content: a page-size chooser sitting in a
+          footer must not stretch across the frame the way a form field does. */}
       <NativeSelect
+        className="h-8 w-auto min-w-0 px-2 py-0 text-xs"
         aria-label={`${noun} per page`}
         value={String(pageSize)}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}
