@@ -18,8 +18,10 @@ import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_componen
  * preserved) → shows the requesting client, the human, and — for the server this
  * consent is for (from the RFC 8707 `resource`) — the exact tools being granted.
  * The client component owns the approve/deny + result states; nothing is minted
- * until the human approves. redirect_uri is validated as loopback (RFC 8252)
- * before render — a non-loopback URI returns an error, never a redirect.
+ * until the human approves. redirect_uri must be either a loopback address
+ * (RFC 8252, native/DCR clients) or exactly one of the client's pre-registered
+ * redirect_uris (OAuthClient CR, hosted-app clients) — checked once the client
+ * lookup below resolves; a URI that is neither returns an error, never a redirect.
  */
 interface ConsentPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -34,6 +36,18 @@ function isLoopbackRedirect(raw: string): boolean {
     const u = new URL(raw);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
     return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Structural check only (parses as http/https) — not a security gate. The real
+ * gate is isLoopbackRedirect() OR exact membership in the client's registered
+ * redirect_uris, checked once the client lookup below resolves. */
+function isWellFormedRedirect(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:';
   } catch {
     return false;
   }
@@ -91,12 +105,9 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   const scope = str(params.scope);
   const resource = str(params.resource);
 
-  if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
+  if (!redirectUri || !isWellFormedRedirect(redirectUri)) {
     return (
-      <ConsentError
-        title="Invalid request"
-        message="The redirect address is not a permitted loopback address."
-      />
+      <ConsentError title="Invalid request" message="A valid redirect address is required." />
     );
   }
   if (responseType !== 'code' || !clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
@@ -123,9 +134,12 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     redirect(`/login?next=${encodeURIComponent(`/mcp/authorize?${back.toString()}`)}`);
   }
 
-  // Name the application asking (registered via DCR).
+  // Name the application asking (registered via DCR or a pre-registered
+  // OAuthClient CR), and — since redirectUri only passed a structural check
+  // above — confirm it's one this client actually registered.
   let clientName = '';
   let unknownClient = false;
+  let clientRedirectUris: string[] = [];
   try {
     const res = await fetch(
       `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
@@ -134,8 +148,9 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     if (res.status === 404) {
       unknownClient = true;
     } else if (res.ok) {
-      const body = (await res.json()) as { client_name?: string };
+      const body = (await res.json()) as { client_name?: string; redirect_uris?: string[] };
       clientName = body.client_name ?? '';
+      clientRedirectUris = body.redirect_uris ?? [];
     }
   } catch {
     // Non-fatal — fall through with a generic name.
@@ -145,6 +160,17 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
       <ConsentError
         title="Unknown application"
         message="This application is not registered with Orbit."
+      />
+    );
+  }
+  // The real gate: loopback URIs are always allowed (RFC 8252 native/DCR
+  // clients); anything else must exactly match a redirect_uri this client
+  // pre-registered (OAuthClient CR, hosted-app clients).
+  if (!isLoopbackRedirect(redirectUri) && !clientRedirectUris.includes(redirectUri)) {
+    return (
+      <ConsentError
+        title="Invalid request"
+        message="The redirect address is not registered for this application."
       />
     );
   }

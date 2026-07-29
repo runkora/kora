@@ -16,8 +16,13 @@ import { consentTokenValid } from '@orbit/server/mcp-consent';
  * - failure → { error } with a 4xx/5xx status; the screen shows it and resets.
  *
  * Security: the redirect_uri is only ever used as a redirect target if it is a
- * loopback address (RFC 8252). The render-bound CSRF token + Sec-Fetch-Site gate
- * a cross-site submission; nothing is minted until both pass.
+ * loopback address (RFC 8252, native/DCR clients) or exactly one of the
+ * client's pre-registered redirect_uris (OAuthClient CR, hosted-app clients) —
+ * confirmed via isRegisteredRedirect() before ANY redirect is built, including
+ * the deny/lost-session paths below (those never call identity's own
+ * AllowsRedirect check, so this is the only gate they get). The render-bound
+ * CSRF token + Sec-Fetch-Site gate a cross-site submission; nothing is minted
+ * until both pass.
  */
 export async function POST(req: Request): Promise<Response> {
   if (req.headers.get('sec-fetch-site') === 'cross-site') {
@@ -33,9 +38,8 @@ export async function POST(req: Request): Promise<Response> {
   const state = p.get('state') ?? '';
   const scope = p.get('scope') ?? '';
 
-  // Never use a non-loopback redirect_uri as a target (open-redirect guard).
-  if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
-    return jsonError('redirect_uri must be a loopback address', 400);
+  if (!redirectUri || !isWellFormedRedirect(redirectUri)) {
+    return jsonError('invalid_request', 400);
   }
   if (!clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
     return jsonError('invalid_request', 400);
@@ -47,7 +51,20 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = await getSession();
   if (!isSessionValid(session)) {
+    // No bearer token to verify a non-loopback client's registered redirect_uris
+    // against — only take the fast error-redirect path for loopback targets;
+    // a hosted-app client hitting this (rare: session expired between page
+    // load and submit) gets a JSON error instead of an unverified redirect.
+    if (!isLoopbackRedirect(redirectUri)) {
+      return jsonError('session_expired', 401);
+    }
     return json({ redirect: errorRedirect(redirectUri, state, 'access_denied') });
+  }
+  if (
+    !isLoopbackRedirect(redirectUri) &&
+    !(await isRegisteredRedirect(clientId, redirectUri, session.accessToken))
+  ) {
+    return jsonError('invalid_request', 400);
   }
   if (decision !== 'approve') {
     return json({ redirect: errorRedirect(redirectUri, state, 'access_denied') });
@@ -100,12 +117,42 @@ export async function POST(req: Request): Promise<Response> {
   return json({ redirect: cb.toString() });
 }
 
-/** Loopback-only redirect targets for public native MCP clients (RFC 8252). */
+/** Loopback redirect targets for public native/DCR MCP clients (RFC 8252). */
 function isLoopbackRedirect(raw: string): boolean {
   try {
     const u = new URL(raw);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
     return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Structural check only (parses as http/https) — not a security gate. */
+function isWellFormedRedirect(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Whether redirectUri is exactly one of clientId's pre-registered redirect_uris
+ * (OAuthClient CR, hosted-app clients) — the real gate for non-loopback URIs. */
+async function isRegisteredRedirect(
+  clientId: string,
+  redirectUri: string,
+  accessToken: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
+      { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) return false;
+    const body = (await res.json()) as { redirect_uris?: string[] };
+    return (body.redirect_uris ?? []).includes(redirectUri);
   } catch {
     return false;
   }
