@@ -39,8 +39,9 @@ type mockRepository struct {
 	deliveries   []*Delivery
 	deliveryRuns []*DeliveryRun
 	pending      []*pendingRow
-	retention    map[string]int  // tenant_id → payload_days
-	seenDeliv    map[string]bool // source_id|provider_delivery_id → seen (dedup)
+	retention    map[string]int          // tenant_id → payload_days
+	seenDeliv    map[string]bool         // source_id|provider_delivery_id → seen (dedup)
+	replayKeys   map[string]replayKeyRow // source_id|body_hash → what was seen
 
 	createSourceErr   error
 	createTriggerErr  error
@@ -50,10 +51,11 @@ type mockRepository struct {
 
 func newMockRepository() *mockRepository {
 	return &mockRepository{
-		sources:   map[string]*WebhookSource{},
-		triggers:  map[string]*Trigger{},
-		retention: map[string]int{},
-		seenDeliv: map[string]bool{},
+		sources:    map[string]*WebhookSource{},
+		triggers:   map[string]*Trigger{},
+		retention:  map[string]int{},
+		seenDeliv:  map[string]bool{},
+		replayKeys: map[string]replayKeyRow{},
 	}
 }
 
@@ -64,6 +66,9 @@ func (m *mockRepository) CreateSource(_ context.Context, s *WebhookSource) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := *s
+	// Mirrors the SQL: the secret a source starts with was issued now.
+	now := time.Now()
+	cp.SecretRotatedAt = &now
 	m.sources[s.ID] = &cp
 	return nil
 }
@@ -105,10 +110,18 @@ func (m *mockRepository) ListSources(_ context.Context, tenantID string) ([]Webh
 func (m *mockRepository) UpdateSource(_ context.Context, s *WebhookSource) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.sources[s.ID]; !ok {
+	prev, ok := m.sources[s.ID]
+	if !ok {
 		return ErrSourceNotFound
 	}
 	cp := *s
+	// Mirrors the SQL: the date moves only when the stored secret changes, so
+	// an ordinary enable/disable cannot invalidate every older replay.
+	cp.SecretRotatedAt = prev.SecretRotatedAt
+	if prev.SecretCiphertext != s.SecretCiphertext {
+		now := time.Now()
+		cp.SecretRotatedAt = &now
+	}
 	m.sources[s.ID] = &cp
 	return nil
 }
@@ -682,6 +695,60 @@ func (m *mockRepository) RecordSourceRejection(_ context.Context, sourceID, reas
 	return nil
 }
 
+func (m *mockRepository) RecordAccepted(_ context.Context, sourceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if src, ok := m.sources[sourceID]; ok {
+		src.AcceptedCount++
+	}
+	return nil
+}
+
+// replayKeyRow is one remembered body fingerprint.
+type replayKeyRow struct {
+	providerDeliveryID string
+	seenAt             time.Time
+}
+
+// ClaimReplayKey mirrors the SQL: within the window, the same body is fresh only
+// under the delivery id it first arrived with (an ordinary provider retry).
+func (m *mockRepository) ClaimReplayKey(_ context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := sourceID + "|" + string(bodyHash)
+	seen, ok := m.replayKeys[key]
+	if ok && time.Since(seen.seenAt) < window && seen.providerDeliveryID != providerDeliveryID {
+		return false, nil
+	}
+	m.replayKeys[key] = replayKeyRow{providerDeliveryID: providerDeliveryID, seenAt: time.Now()}
+	return true, nil
+}
+
+func (m *mockRepository) PruneReplayKeys(_ context.Context, window time.Duration) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for k, seen := range m.replayKeys {
+		if time.Since(seen.seenAt) >= window {
+			delete(m.replayKeys, k)
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *mockRepository) CountRedeliveries(_ context.Context, originalID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, d := range m.deliveries {
+		if d.RedeliveryOf != nil && *d.RedeliveryOf == originalID {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // allDeliveries returns every persisted delivery. Used to assert that an
 // unauthenticated request creates no rows at all.
 func (m *mockRepository) allDeliveries() []*Delivery {
@@ -871,13 +938,80 @@ func (m *mockRepository) SupersedePending(_ context.Context, triggerID string) (
 	})
 }
 
+// DrainPending mirrors the SQL: only WAITING rows go. A claimed row belongs to a
+// live dispatch that will record its own outcome.
 func (m *mockRepository) DrainPending(_ context.Context, triggerID string) ([]PendingDelivery, error) {
-	return m.removePending(func(p *pendingRow) bool { return p.TriggerID == triggerID })
+	return m.removePending(func(p *pendingRow) bool { return p.TriggerID == triggerID && !p.claimed })
+}
+
+// DrainOrphanedPending mirrors the SQL: waiting rows whose trigger is gone or
+// switched off.
+func (m *mockRepository) DrainOrphanedPending(_ context.Context, limit int) ([]OrphanedPending, error) {
+	m.mu.Lock()
+	type meta struct {
+		name   string
+		exists bool
+	}
+	orphans := map[string]meta{}
+	for _, p := range m.pending {
+		if p.claimed || len(orphans) >= limit {
+			continue
+		}
+		t, ok := m.triggers[p.TriggerID]
+		if ok && t.Enabled {
+			continue
+		}
+		md := meta{exists: ok}
+		if ok {
+			md.name = t.Name
+		}
+		orphans[p.ID] = md
+	}
+	m.mu.Unlock()
+
+	removed, err := m.removePending(func(p *pendingRow) bool { _, ok := orphans[p.ID]; return ok })
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OrphanedPending, 0, len(removed))
+	for _, p := range removed {
+		md := orphans[p.ID]
+		out = append(out, OrphanedPending{PendingDelivery: p, TriggerName: md.name, TriggerExists: md.exists})
+	}
+	return out, nil
+}
+
+func (m *mockRepository) UnclaimedPendingCount(_ context.Context, triggerID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID && !p.claimed {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *mockRepository) TouchPendingClaim(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.pending {
+		if p.ID == id && p.claimed {
+			p.claimedAt = time.Now()
+		}
+	}
+	return nil
 }
 
 // TrimPending evicts the oldest rows beyond depth, matching the SQL's OFFSET on
-// a newest-first ordering.
+// a newest-first ordering. depth counts the fire about to be enqueued, so the
+// offset is depth-1.
 func (m *mockRepository) TrimPending(_ context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
+	offset := depth - 1
+	if offset < 0 {
+		offset = 0
+	}
 	m.mu.Lock()
 	var waiting []*pendingRow
 	for _, p := range m.pending {
@@ -888,7 +1022,7 @@ func (m *mockRepository) TrimPending(_ context.Context, triggerID string, depth 
 	slices.SortFunc(waiting, func(a, b *pendingRow) int { return b.EnqueuedAt.Compare(a.EnqueuedAt) })
 	evict := map[string]bool{}
 	for i, p := range waiting {
-		if i >= depth {
+		if i >= offset {
 			evict[p.ID] = true
 		}
 	}

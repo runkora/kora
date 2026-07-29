@@ -134,6 +134,13 @@ const (
 	// Use with ConflictError for duplicate creation attempts.
 	ErrCodeResourceExists = "resource_already_exists"
 
+	// ErrCodeConflict indicates the resource exists but its current state does
+	// not permit the requested action. Use with ConflictError where nothing is
+	// being created: a client branching on the code should be able to tell
+	// "there is already one of these" from "this one is not accepting that
+	// right now", and resource_already_exists cannot say the second.
+	ErrCodeConflict = "conflict"
+
 	// ErrCodeUnauthorized indicates the request lacks valid authentication credentials.
 	// Use with UnauthorizedError when authentication is missing or invalid.
 	ErrCodeUnauthorized = "unauthorized"

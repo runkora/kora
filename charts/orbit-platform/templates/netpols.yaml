@@ -111,6 +111,10 @@ spec:
         - port: 8084
         - port: 8095
         - port: 8096
+        # orbit-triggers: the ingress side already allows 8097, and a one-sided
+        # allowance is an outage waiting for the first in-namespace caller —
+        # the frontend BFF reaching the triggers API is exactly that call.
+        - port: 8097
         - port: 9090
         - port: 15006
         - port: 15008

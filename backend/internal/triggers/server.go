@@ -21,6 +21,24 @@ import (
 // oversized payloads. GitHub deliveries are well under this.
 const maxWebhookBodyBytes = 5 << 20 // 5 MiB
 
+// maxManagementBodyBytes caps every authenticated management body.
+//
+// The inbound webhook path has always been bounded; the management routes were
+// not, and the fire endpoint stores what it is sent — a rejected fire is
+// recorded with the values that were rejected, which is what makes it
+// diagnosable, and which without a bound lets an authenticated caller write an
+// arbitrarily large row per request. A megabyte is orders of magnitude above any
+// real trigger definition or set of manual inputs.
+const maxManagementBodyBytes = 1 << 20 // 1 MiB
+
+// limitBody bounds what a handler will read before decoding. MaxBytesReader
+// makes the read itself fail rather than buffering first, so an oversized body
+// costs the limit and not its own size, and api.DecodeJSON turns the failure
+// into the ordinary 400.
+func limitBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxManagementBodyBytes)
+}
+
 // Controller wires the Triggers service to HTTP routes. It is a self-contained
 // api.Controller mounted by the identity binary alongside the identity controller.
 type Controller struct {
@@ -109,8 +127,15 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
 
 	// Schedule preview for the creation wizard. Read-only and computed from the
-	// request alone — it touches no stored trigger, so it needs no more than
-	// triggers:read (applied by the /triggers prefix in the route table).
+	// request alone: it touches no stored trigger and writes nothing.
+	//
+	// It is a POST because the cron expression and timezone are a body, not a
+	// path — and being a POST under the /triggers prefix, the route table gives
+	// it triggers:write, not triggers:read. That is stricter than the operation
+	// needs and is left as it is deliberately: the callers are the create and
+	// edit surfaces, which hold triggers:write already, and a GET variant would
+	// be a second route to keep in step for no one who cannot already reach
+	// this one.
 	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
@@ -143,11 +168,17 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 	outcome, err := c.svc.Ingest(ctx, sourceID, r.Header, body)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrSignatureInvalid):
-			api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "signature verification failed", nil), nil)
-		case errors.Is(err, ErrMissingDeliveryID):
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "delivery is missing a provider delivery id", nil), nil)
-		case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrSourceDisabled):
+		// One answer for every way an unauthenticated caller can be refused:
+		// "there is nothing here". A distinct 401 for a bad signature told a
+		// prober that the source id they guessed is real and that only the
+		// secret is missing, which is the one fact this endpoint should never
+		// hand out. The reasons stay distinguishable where they belong — the
+		// per-reason counter on the source, which the owning tenant can see.
+		case errors.Is(err, ErrSignatureInvalid),
+			errors.Is(err, ErrMissingDeliveryID),
+			errors.Is(err, ErrReplayedPayload),
+			errors.Is(err, ErrSourceNotFound),
+			errors.Is(err, ErrSourceDisabled):
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "webhook source not found", nil), nil)
 		default:
 			api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to process delivery", nil), err)
@@ -166,6 +197,7 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	limitBody(w, r)
 	var req CreateSourceRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -200,6 +232,7 @@ func (c *Controller) handleGetSource(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	limitBody(w, r)
 	var req UpdateSourceRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -225,6 +258,7 @@ func (c *Controller) handleDeleteSource(w http.ResponseWriter, r *http.Request) 
 
 func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	limitBody(w, r)
 	var req CreateTriggerRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -259,6 +293,7 @@ func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	limitBody(w, r)
 	var req UpdateTriggerRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -307,6 +342,7 @@ func (c *Controller) handleFireTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limitBody(w, r)
 	var req FireTriggerRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -417,6 +453,7 @@ func (c *Controller) handleGetRetention(w http.ResponseWriter, r *http.Request) 
 // is one field, and a partial update of one field is the same request.
 func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	limitBody(w, r)
 	var req UpdateRetentionRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
@@ -447,8 +484,10 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.
 		// Which one it is decides what that action is, so the two keep separate
-		// messages rather than one "disabled".
-		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
+		// messages rather than one "disabled". The code is 'conflict', not
+		// 'resource_already_exists' — nothing was being created, and a client
+		// branching on the code was being told the opposite of what happened.
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
 	case errors.Is(err, ErrNotRedeliverable):
 		// 400: the delivery exists and the caller may see it, but replaying this
 		// one is not a thing that can be done. The message says which reason.
@@ -522,6 +561,7 @@ const schedulePreviewCount = 3
 func (c *Controller) handleSchedulePreview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	limitBody(w, r)
 	var req SchedulePreviewRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return

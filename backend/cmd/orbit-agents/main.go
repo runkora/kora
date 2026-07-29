@@ -305,7 +305,20 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
 		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
-		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: "agents:runs:write"},
+		// Starting a run is authenticated-only at the route layer, on the same
+		// reasoning as the agent-type writes above: the scope that governs it is
+		// per-agent (agents:runs:{slug}:write), and the slug comes from the agent
+		// type named in the request body — invisible to a static route map. The
+		// authoritative check is Authz.checkRun, run in RunService.authorizeStart
+		// before the first write, so a refused start still leaves nothing behind.
+		//
+		// A route-level agents:runs:write here would not narrow anything, it
+		// would widen: every principal allowed to start any run would need the
+		// parent scope, which prefix-covers every per-agent child. That is what
+		// made a webhook source's token able to start any agent in its tenant.
+		// The parent scope still covers the per-agent check for the admin roles
+		// that legitimately hold it.
+		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},

@@ -29,6 +29,25 @@ CREATE INDEX idx_trigger_deliveries_redelivery_of
 -- +goose Down
 -- +goose StatementBegin
 
+-- Rolling back re-imposes the stricter uniqueness, which the rows written since
+-- the Up migration legitimately violate: every provider retry and every
+-- operator replay is a second row carrying the original's provider delivery id.
+-- Recreating the index over them fails, and it fails half-way through the Down
+-- block — after the lineage index is already gone, leaving the schema in
+-- neither shape.
+--
+-- The lineage rows go first. They are exactly the rows the old schema could not
+-- represent, so a rollback to it is a decision to give them up; their originals,
+-- which are what the outcome history hangs off, are untouched. Deleting them is
+-- the only way this Down block can complete on real data.
+DELETE FROM trigger_delivery_runs
+WHERE  delivery_id IN (SELECT id FROM trigger_deliveries WHERE redelivery_of IS NOT NULL);
+
+DELETE FROM trigger_pending_deliveries
+WHERE  delivery_id IN (SELECT id FROM trigger_deliveries WHERE redelivery_of IS NOT NULL);
+
+DELETE FROM trigger_deliveries WHERE redelivery_of IS NOT NULL;
+
 DROP INDEX IF EXISTS idx_trigger_deliveries_redelivery_of;
 DROP INDEX IF EXISTS idx_trigger_deliveries_dedup;
 

@@ -154,15 +154,9 @@ func (a *alertmanagerAdapter) Fields(eventType string, body []byte) map[string]s
 		"external_url": p.ExternalURL,
 		"alerts.count": strconv.Itoa(len(p.Alerts)),
 	}
-	for k, v := range p.GroupLabels {
-		f["group.labels."+k] = v
-	}
-	for k, v := range p.CommonLabels {
-		f["common.labels."+k] = v
-	}
-	for k, v := range p.CommonAnnotations {
-		f["common.annotations."+k] = v
-	}
+	putDerived(f, "group.labels.", p.GroupLabels)
+	putDerived(f, "common.labels.", p.CommonLabels)
+	putDerived(f, "common.annotations.", p.CommonAnnotations)
 	if len(p.Alerts) > 0 {
 		first := p.Alerts[0]
 		f["first_alert.status"] = first.Status
@@ -170,12 +164,55 @@ func (a *alertmanagerAdapter) Fields(eventType string, body []byte) map[string]s
 		f["first_alert.ends_at"] = first.EndsAt
 		f["first_alert.generator_url"] = first.GeneratorURL
 		f["first_alert.fingerprint"] = first.Fingerprint
-		for k, v := range first.Labels {
-			f["first_alert.labels."+k] = v
-		}
-		for k, v := range first.Annotations {
-			f["first_alert.annotations."+k] = v
-		}
+		putDerived(f, "first_alert.labels.", first.Labels)
+		putDerived(f, "first_alert.annotations.", first.Annotations)
 	}
 	return f
+}
+
+// Bounds on the field names and values derived from a payload's own keys.
+//
+// Every other field in this map has a name the adapter chose. These do not: the
+// suffix comes from whoever wrote the Prometheus rule. An unbounded key can
+// shadow a field a trigger's match condition relies on ("event", "status"), or
+// carry the dots and spaces that make a template token unreadable, and an
+// unbounded value goes verbatim into a prompt and into the stored fields of
+// every queued fire.
+const (
+	maxDerivedKeyLen   = 64
+	maxDerivedValueLen = 4096
+)
+
+// putDerived copies payload-derived entries under a fixed prefix, keeping only
+// the keys that are safe to name a field with.
+//
+// The allow-list is [A-Za-z0-9_]: it is what a label key can legally be in
+// Prometheus, so nothing an operator can legitimately configure is lost, and a
+// key outside it is dropped rather than sanitized. Rewriting a key would invent
+// a field name that matches no trigger and appears in no catalog, which is
+// harder to diagnose than the field simply not being there.
+func putDerived(f map[string]string, prefix string, in map[string]string) {
+	for k, v := range in {
+		if !safeDerivedKey(k) {
+			continue
+		}
+		if len(v) > maxDerivedValueLen {
+			v = strings.ToValidUTF8(v[:maxDerivedValueLen], "")
+		}
+		f[prefix+k] = v
+	}
+}
+
+func safeDerivedKey(k string) bool {
+	if k == "" || len(k) > maxDerivedKeyLen {
+		return false
+	}
+	for _, r := range k {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -25,6 +25,16 @@ type Worker struct {
 	// batch bounds how many fires one tick claims, so a burst is drained
 	// steadily rather than in one thundering herd against the agent API.
 	batch int
+	// sweepEvery is how many ticks pass between housekeeping sweeps (reclaiming
+	// stranded claims, collecting orphaned fires). Both scan the whole queue
+	// table, and neither is urgent: the stale-claim window is fifteen minutes,
+	// and an orphaned fire is already never going to run. Running them every
+	// second cost two table scans a second to fix conditions measured in
+	// minutes.
+	sweepEvery int
+	// ticks counts drains since start, so the sweep can run on its own cadence.
+	// Only the single drain goroutine touches it.
+	ticks int
 
 	stopped chan struct{}
 }
@@ -32,12 +42,13 @@ type Worker struct {
 // NewWorker constructs the pending-delivery worker.
 func NewWorker(svc *Service, repo Repository, logger logging.Logger) *Worker {
 	return &Worker{
-		svc:      svc,
-		repo:     repo,
-		logger:   logger,
-		interval: time.Second,
-		batch:    16,
-		stopped:  make(chan struct{}),
+		svc:        svc,
+		repo:       repo,
+		logger:     logger,
+		interval:   time.Second,
+		batch:      16,
+		sweepEvery: 30,
+		stopped:    make(chan struct{}),
 	}
 }
 
@@ -70,9 +81,43 @@ func (w *Worker) Wait(ctx context.Context) {
 	}
 }
 
+// sweep is the queue's housekeeping: take back fires stranded by a dead worker,
+// and collect fires whose trigger can no longer run them.
+//
+// Both are repairs of conditions measured in minutes, so they run on their own
+// slower cadence rather than on every tick. It runs before claiming so anything
+// reclaimed can be picked up in the same tick.
+func (w *Worker) sweep(ctx context.Context) {
+	w.reclaimStale(ctx)
+	w.collectOrphaned(ctx)
+}
+
+// collectOrphaned drops fires waiting on a trigger that was deleted or switched
+// off, recording each so the work is visibly accounted for rather than
+// disappearing.
+//
+// The lifecycle paths drain their own backlog; this catches the fire admitted in
+// the instant between a disable committing and that drain running. Nothing else
+// ever would: claiming requires an enabled trigger, and the stale-claim reaper
+// only touches rows a worker already holds, so such a fire waits forever.
+func (w *Worker) collectOrphaned(ctx context.Context) {
+	orphans, err := w.repo.DrainOrphanedPending(ctx, w.batch)
+	if err != nil {
+		w.logger.Error(ctx, "failed to collect orphaned pending deliveries",
+			logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	for _, o := range orphans {
+		w.svc.RecordOrphanedPending(ctx, o)
+	}
+	if len(orphans) > 0 {
+		w.logger.Info(ctx, "dropped fires whose trigger can no longer run them",
+			logging.Field{Key: "count", Value: len(orphans)})
+	}
+}
+
 // reclaimStale takes back fires whose worker died mid-dispatch.
 //
-// It runs before claiming so a reclaimed fire can be picked up in the same tick.
 // Each one is logged individually and at warning level: a reclaim means a pod
 // died holding acknowledged work, which is worth knowing about even though the
 // queue recovers by itself.
@@ -90,15 +135,20 @@ func (w *Worker) reclaimStale(ctx context.Context) {
 	}
 }
 
-// drain reclaims stranded fires, then claims a batch of waiting ones and
-// dispatches each.
+// drain sweeps the queue on its slower cadence, then claims a batch of waiting
+// fires and dispatches each.
 //
 // A claim that fails to dispatch is still released: leaving it claimed would
 // hold a slot no run occupies, silently throttling a healthy trigger.
 func (w *Worker) drain(ctx context.Context) {
-	// Before claiming: a fire stranded by a dead pod is owed a dispatch, and
-	// nothing else in the system will ever give it one.
-	w.reclaimStale(ctx)
+	// Sweep on the first tick, then every sweepEvery ticks. The first one
+	// matters: a pod restarting is exactly when there are stranded claims to
+	// take back, and waiting half a minute to look would be waiting for no
+	// reason.
+	w.ticks++
+	if w.sweepEvery <= 1 || w.ticks%w.sweepEvery == 1 {
+		w.sweep(ctx)
+	}
 
 	claimed, err := w.repo.ClaimPending(ctx, w.batch)
 	if err != nil {
@@ -107,6 +157,17 @@ func (w *Worker) drain(ctx context.Context) {
 		return
 	}
 	for _, p := range claimed {
+		// Re-stamp the claim as this row's dispatch begins. The batch was
+		// claimed in one statement, and dispatches run one after another, each
+		// up to the trigger's own timeout — so without this the last row of a
+		// full batch can carry a claim far older than the stale-claim window by
+		// the time it actually runs, and another replica's reaper would take it
+		// back and start the same fire a second time.
+		if err := w.repo.TouchPendingClaim(ctx, p.ID); err != nil {
+			w.logger.Error(ctx, "failed to re-stamp claim before dispatch",
+				logging.Field{Key: "pending_id", Value: p.ID},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
 		w.svc.DispatchPending(ctx, p)
 		if err := w.repo.ReleasePending(ctx, p.ID); err != nil {
 			w.logger.Error(ctx, "failed to release claimed delivery",
@@ -160,6 +221,15 @@ func (j *RetentionJob) Start(ctx context.Context) {
 }
 
 func (j *RetentionJob) purge(ctx context.Context) {
+	// The replay window is a window, not a ledger. Pruned here rather than on a
+	// job of its own: it is the same kind of promise (data the platform holds
+	// about inbound deliveries has a lifetime), on the same cadence, and a
+	// second timer for one DELETE would be ceremony.
+	if _, err := j.repo.PruneReplayKeys(ctx, replayWindow); err != nil {
+		j.logger.Error(ctx, "replay-key prune failed",
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+
 	n, err := j.repo.PurgePayloads(ctx, j.defaultDays)
 	if err != nil {
 		// Loud: a retention promise that has silently stopped running is worse

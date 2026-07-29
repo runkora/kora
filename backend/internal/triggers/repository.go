@@ -89,6 +89,25 @@ type Repository interface {
 	// regardless of volume (ADR Decision 4).
 	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
 
+	// RecordAccepted counts an inbound request that authenticated and was
+	// taken. The counterpart to RecordSourceRejection: a rejection count is
+	// only readable next to the number of requests that got through.
+	RecordAccepted(ctx context.Context, sourceID string) error
+
+	// ClaimReplayKey records a body fingerprint against a source and reports
+	// whether the source may take that body under this provider delivery id.
+	// False means the same bytes have already been handled under a DIFFERENT
+	// id, which is the replay of a captured, correctly-signed delivery that a
+	// rewritten delivery-id header would otherwise disguise as a fresh arrival.
+	// A retry under the same id stays true: that is an ordinary duplicate.
+	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
+	// PruneReplayKeys drops fingerprints past the window.
+	PruneReplayKeys(ctx context.Context, window time.Duration) (int64, error)
+
+	// CountRedeliveries is how many replays already descend from a delivery,
+	// so replaying can be bounded per original.
+	CountRedeliveries(ctx context.Context, originalID string) (int, error)
+
 	// ─── Admission control ──────────────────────────────────────────────────
 	// EnqueuePending durably records a fire waiting for a slot. Every fire goes
 	// through here, so an acknowledged fire always starts.
@@ -98,6 +117,9 @@ type Repository interface {
 	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
 	// ReleasePending removes a claimed row once its dispatch has settled.
 	ReleasePending(ctx context.Context, id string) error
+	// TouchPendingClaim re-stamps a claim at the moment its dispatch starts, so
+	// the stale-claim window bounds one dispatch rather than a whole batch.
+	TouchPendingClaim(ctx context.Context, id string) error
 	// ReclaimStalePending un-claims fires whose worker died mid-dispatch,
 	// returning the ids it took back so the caller can say so.
 	//
@@ -115,8 +137,17 @@ type Repository interface {
 	SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
-	// DrainPending removes everything waiting for a trigger, returning it.
+	// DrainPending removes everything still WAITING for a trigger, returning it.
+	// Claimed rows are left to the worker already dispatching them.
 	DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
+	// DrainOrphanedPending removes waiting fires whose trigger was deleted or
+	// switched off, up to limit. The backstop for a fire admitted in the window
+	// between a disable committing and its drain running: nothing else collects
+	// those, because claiming requires an enabled trigger and the stale-claim
+	// reaper only touches rows already claimed.
+	DrainOrphanedPending(ctx context.Context, limit int) ([]OrphanedPending, error)
+	// UnclaimedPendingCount is how many fires are waiting on a trigger.
+	UnclaimedPendingCount(ctx context.Context, triggerID string) (int, error)
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
 	// BumpConsecutiveFailures increments the failure counter and returns the

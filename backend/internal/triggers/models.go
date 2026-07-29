@@ -135,6 +135,13 @@ var (
 	// ErrTriggerAtCapacity is returned when a manual fire is refused because
 	// the trigger is already at its concurrency ceiling.
 	ErrTriggerAtCapacity = errors.New("trigger is at its concurrency limit; try again shortly")
+
+	// ErrReplayedPayload is returned when a source is sent a body it has
+	// already handled inside the replay window, under a different provider
+	// delivery id. The delivery id is not part of what a provider signs, so
+	// without this a captured, correctly-signed body could be re-sent forever
+	// with a fresh id each time and every copy would start a run.
+	ErrReplayedPayload = errors.New("this exact payload has already been delivered to this source")
 )
 
 // WebhookSource is a registered inbound origin of webhook deliveries. It owns the
@@ -168,6 +175,19 @@ type WebhookSource struct {
 	RejectionCount      int64      `json:"rejection_count"`
 	LastRejectionAt     *time.Time `json:"last_rejection_at,omitempty"`
 	LastRejectionReason string     `json:"last_rejection_reason,omitempty"`
+
+	// AcceptedCount is how many inbound requests authenticated and were taken.
+	// It is what makes RejectionCount readable: five rejections against a
+	// million accepted is background noise from the internet, and five against
+	// five is a signing secret that is simply wrong. Always serialized, never
+	// omitted at zero — "none accepted yet" is the answer that matters most.
+	AcceptedCount int64 `json:"accepted_count"`
+
+	// SecretRotatedAt dates the signing secret currently on this source.
+	// Replaying a stored payload does not re-verify it, so a payload that
+	// arrived under an older secret is refused: rotation is what an operator
+	// does when the previous secret may be in someone else's hands.
+	SecretRotatedAt *time.Time `json:"secret_rotated_at,omitempty"`
 }
 
 // ScheduleConfig holds the cron schedule for a KindScheduled trigger.
@@ -352,6 +372,12 @@ type Trigger struct {
 	// as of the read. Only unclaimed fires count: a claimed one is already being
 	// dispatched, and showing it as waiting would promise work that has started.
 	//
+	// This is the same quantity MaxQueueDepth bounds — unclaimed depth — so the
+	// two are directly comparable: pending_count approaching max_queue_depth is
+	// a trigger about to start evicting its oldest waiting fires. Fires being
+	// dispatched right now are in neither number; they are bounded by
+	// MaxParallel instead.
+	//
 	// Always serialized, never omitted at zero. "Nothing is waiting" is the
 	// answer an operator most needs to trust, and an absent field reads as
 	// "unknown" rather than "none". Derived per read, not a stored column.
@@ -515,13 +541,14 @@ type FireTriggerRequest struct {
 
 // FireTriggerResponse is returned from POST /api/v1/triggers/{id}/fire.
 //
-// RunID is empty on acceptance: the fire is durably queued and the run starts
-// moments later, so there is no run to name yet. Follow DeliveryID to see the
-// outcome. Reporting a run id here would mean starting the run before
-// acknowledging, which is the behavior that loses fires on a restart.
+// The delivery id and nothing else. There is deliberately no run id: the fire is
+// durably queued and the run starts moments later, so at the moment of the
+// acknowledgement no run exists to name. The field used to be declared and was
+// never once populated, which is worse than absent — a caller reading the type
+// would code against a value they can never receive. Follow the delivery id to
+// see what the fire did.
 type FireTriggerResponse struct {
 	DeliveryID string `json:"delivery_id"`
-	RunID      string `json:"run_id,omitempty"`
 }
 
 // ─── Payload retention ────────────────────────────────────────────────────────

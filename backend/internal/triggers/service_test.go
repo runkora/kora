@@ -673,9 +673,20 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 		t.Error("a duplicate must not capture the payload again; the original holds it")
 	}
 
-	// The original is history: a retry days later must not rewrite it.
-	if got := deps.repo.deliveryByID(original.ID); got.Status != original.Status || got.RedeliveryOf != nil {
-		t.Errorf("original was modified by the repeat: %+v", got)
+	// The original is history: a retry days later must not rewrite it. Its own
+	// status is settled by the first arrival's fan-out, which runs detached, so
+	// what is asserted here is the part the repeat could have overwritten —
+	// never that the original became lineage of its own retry, and never that
+	// the retry took its payload.
+	got := deps.repo.deliveryByID(original.ID)
+	if got.RedeliveryOf != nil {
+		t.Errorf("the repeat rewrote the original as lineage: redelivery_of = %v", got.RedeliveryOf)
+	}
+	if got.Status == StatusDuplicate {
+		t.Error("the repeat rewrote the original's status to 'duplicate'")
+	}
+	if len(got.Payload) != len(original.Payload) {
+		t.Errorf("the repeat changed the original's payload: %d bytes, want %d", len(got.Payload), len(original.Payload))
 	}
 	if len(deps.repo.deliveryRunsFor(dup.ID)) != 0 {
 		t.Error("a duplicate must not start a run for a trigger that dedupes")
@@ -2392,5 +2403,234 @@ func TestDefaultOverflowForKind(t *testing.T) {
 		if got := DefaultOverflowForKind(kind); got != want {
 			t.Errorf("%s default overflow = %q, want %q", kind, got, want)
 		}
+	}
+}
+
+// ─── Findings from the pre-merge security and correctness review ─────────────
+
+// A trigger that refuses at its ceiling must actually refuse. In-flight alone
+// only counts work a worker has picked up, and the worker polls on an interval,
+// so two fires a fraction of a second apart both saw nothing in flight and both
+// were accepted — silent queueing under the one overflow behavior whose entire
+// promise is that it does not queue.
+func TestAdmission_Refuse_CountsFiresAlreadyWaiting(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
+
+	ids := enqueue(t, svc, deps, trig, 3)
+
+	if got := len(deps.repo.pendingFor(trig.ID)); got != 1 {
+		t.Fatalf("queued %d fires, want 1 (max_parallel) with the rest refused", got)
+	}
+	dropped := 0
+	for _, id := range ids {
+		for _, r := range deps.repo.deliveryRunsFor(id) {
+			if r.Status == RunStatusDropped {
+				dropped++
+			}
+		}
+	}
+	if dropped != 2 {
+		t.Errorf("recorded %d refusals, want 2 — a refused fire has to leave a row", dropped)
+	}
+}
+
+// max_queue_depth is the ceiling INCLUDING the fire being admitted. Trimming to
+// depth and then inserting left the backlog permanently one over its declared
+// maximum.
+func TestAdmission_Wait_BacklogNeverExceedsItsCeiling(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 3)
+
+	enqueue(t, svc, deps, trig, 8)
+
+	if got := len(deps.repo.pendingFor(trig.ID)); got > 3 {
+		t.Errorf("backlog = %d, want at most max_queue_depth (3)", got)
+	}
+}
+
+// Draining a trigger must not delete a row a worker is dispatching right now:
+// the drain and the live worker would each record an outcome, and one fire would
+// show up twice in the delivery history saying two different things.
+func TestDrain_LeavesAClaimedFireToItsWorker(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ctx := context.Background()
+
+	enqueue(t, svc, deps, trig, 2)
+	claimed, err := deps.repo.ClaimPending(ctx, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPending = %v, %v; want one claim", claimed, err)
+	}
+
+	n, err := svc.admission.Drain(ctx, trig, "the trigger was disabled while this fire was waiting")
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("drained %d fires, want only the one still waiting", n)
+	}
+	remaining := deps.repo.pendingFor(trig.ID)
+	if len(remaining) != 1 || remaining[0].ID != claimed[0].ID {
+		t.Errorf("remaining queue = %+v, want exactly the claimed row", remaining)
+	}
+}
+
+// A fire admitted in the window between a disable committing and its drain
+// running is claimable by nobody (claiming requires an enabled trigger) and
+// reapable by nobody (the reaper only touches claimed rows). The worker's sweep
+// is what stops it waiting forever.
+func TestWorker_CollectsFiresWhoseTriggerCanNoLongerRunThem(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ctx := context.Background()
+
+	ids := enqueue(t, svc, deps, trig, 1)
+	disabled := trig
+	disabled.Enabled = false
+	if err := deps.repo.UpdateTrigger(ctx, &disabled); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+
+	NewWorker(svc, deps.repo, silentLogger()).drain(ctx)
+
+	if got := len(deps.repo.pendingFor(trig.ID)); got != 0 {
+		t.Errorf("orphaned fires still queued = %d, want 0", got)
+	}
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusDropped {
+		t.Fatalf("outcomes = %+v, want one 'dropped' so the work is visibly accounted for", runs)
+	}
+}
+
+// A captured, correctly-signed body replays forever if the only dedup key is a
+// header the sender controls. The body is the part they cannot rewrite.
+func TestIngest_RefusesAReplayedBodyUnderAFreshDeliveryID(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+
+	h := sign(src.Secret, body)
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestAccepted {
+		t.Fatalf("first delivery = %v, %v; want accepted", out, err)
+	}
+
+	// Same bytes, same signature, a delivery id of the sender's choosing.
+	replay := sign(src.Secret, body)
+	replay.Set("X-GitHub-Delivery", "a-fresh-id")
+	if _, err := svc.Ingest(context.Background(), src.ID, replay, body); !errors.Is(err, ErrReplayedPayload) {
+		t.Fatalf("replay = %v, want ErrReplayedPayload", err)
+	}
+}
+
+// A provider retrying an unacknowledged delivery re-sends the same body under
+// the same id. That is an ordinary duplicate, and the replay window must not
+// turn it into a refusal.
+func TestIngest_AGenuineRetryIsStillADuplicateNotAReplay(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+
+	if _, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	out, err := svc.Ingest(context.Background(), src.ID, h, body)
+	if err != nil {
+		t.Fatalf("retry = %v, want it handled as a duplicate", err)
+	}
+	if out != IngestDuplicate {
+		t.Errorf("retry outcome = %v, want IngestDuplicate", out)
+	}
+}
+
+// A rejection count is only readable next to the number of requests that got
+// through: five rejections against a million is noise, five against five is a
+// signing secret that is simply wrong.
+func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	bad := sign("not-the-secret", body)
+	if _, err := svc.Ingest(context.Background(), src.ID, bad, body); !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("bad signature = %v, want ErrSignatureInvalid", err)
+	}
+
+	stored, err := svc.GetSource(context.Background(), testTenant, src.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if stored.AcceptedCount != 1 || stored.RejectionCount != 1 {
+		t.Errorf("accepted = %d, rejected = %d; want 1 and 1", stored.AcceptedCount, stored.RejectionCount)
+	}
+}
+
+// Free text a caller can store unbounded ends up rendered into every prompt the
+// trigger ever starts.
+func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+
+	for _, tc := range []struct {
+		name string
+		req  CreateTriggerRequest
+	}{
+		{"name", CreateTriggerRequest{Name: strings.Repeat("n", maxNameLen+1), SourceID: src.ID,
+			AgentTypeID: "at-1", PromptTemplate: "go"}},
+		{"prompt_template", CreateTriggerRequest{Name: "ok", SourceID: src.ID,
+			AgentTypeID: "at-1", PromptTemplate: strings.Repeat("p", maxPromptTemplateLen+1)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.CreateTrigger(context.Background(), testTenant, tc.req); !errors.Is(err, ErrValidation) {
+				t.Fatalf("err = %v, want ErrValidation", err)
+			}
+		})
+	}
+}
+
+// Replaying starts real work under the trigger's own authority from a body the
+// platform does not re-verify. Unbounded, the endpoint is a run generator.
+func TestRedeliver_IsBoundedPerOriginal(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	original := deps.repo.lastDelivery()
+
+	for i := range maxRedeliveriesPerOriginal {
+		if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); err != nil {
+			t.Fatalf("replay %d: %v", i, err)
+		}
+	}
+	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+		t.Errorf("replay past the limit = %v, want ErrNotRedeliverable", err)
+	}
+}
+
+// Rotating a signing secret is what an operator does when the old one may be in
+// someone else's hands. Replaying a payload from before the rotation would
+// re-run, under the platform's authority, exactly what the rotation was meant to
+// render unusable.
+func TestRedeliver_RefusesAPayloadOlderThanTheCurrentSecret(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	original := deps.repo.lastDelivery()
+
+	if _, err := svc.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{RotateSecret: true}); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+		t.Errorf("replay after rotation = %v, want ErrNotRedeliverable", err)
 	}
 }

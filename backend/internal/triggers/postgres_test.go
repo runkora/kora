@@ -929,3 +929,258 @@ func TestPostgres_DeliveryRuns(t *testing.T) {
 		t.Error("deleting a delivery must cascade-delete its run records")
 	}
 }
+
+// ─── Findings from the pre-merge security and correctness review ─────────────
+
+// A batch is claimed in one statement and dispatched serially, each row up to
+// its trigger's own timeout. Without a re-stamp the last row of a batch carries
+// a claim stamped before the first row's dispatch began, which can be far past
+// the reaper's window while the work is still live — and another replica would
+// take it back and start the same fire twice.
+func TestPostgres_TouchPendingClaimResetsTheStaleWindow(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	if err := r.EnqueuePending(ctx, p); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	if claimed, err := r.ClaimPending(ctx, 10); err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPending = %v, %v", claimed, err)
+	}
+	backdateClaim(t, r, p.ID, StaleClaimWindow+time.Minute)
+
+	if err := r.TouchPendingClaim(ctx, p.ID); err != nil {
+		t.Fatalf("TouchPendingClaim: %v", err)
+	}
+	reclaimed, err := r.ReclaimStalePending(ctx, StaleClaimWindow)
+	if err != nil {
+		t.Fatalf("ReclaimStalePending: %v", err)
+	}
+	if len(reclaimed) != 0 {
+		t.Errorf("reclaimed %v, want the re-stamped claim treated as live work", reclaimed)
+	}
+}
+
+// Draining a trigger must leave a row a worker is dispatching right now: two
+// outcomes for one fire is a delivery history that contradicts itself.
+func TestPostgres_DrainPendingLeavesClaimedRows(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	waiting := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	claimed := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	for _, p := range []*PendingDelivery{claimed, waiting} {
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+	if got, err := r.ClaimPending(ctx, 1); err != nil || len(got) != 1 || got[0].ID != claimed.ID {
+		t.Fatalf("ClaimPending = %v, %v; want the oldest row claimed", got, err)
+	}
+
+	drained, err := r.DrainPending(ctx, tr.ID)
+	if err != nil {
+		t.Fatalf("DrainPending: %v", err)
+	}
+	if len(drained) != 1 || drained[0].ID != waiting.ID {
+		t.Fatalf("drained = %+v, want only the waiting row", drained)
+	}
+}
+
+// A fire admitted between a disable committing and its drain running is
+// claimable by nobody and reapable by nobody. This is what collects it.
+func TestPostgres_DrainOrphanedPending(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	live := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	off := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	off.Enabled = false
+	if err := r.UpdateTrigger(ctx, off); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+
+	stays := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: live.ID, DeliveryID: uuid.NewString()}
+	goes := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: off.ID, DeliveryID: uuid.NewString()}
+	for _, p := range []*PendingDelivery{stays, goes} {
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+
+	orphans, err := r.DrainOrphanedPending(ctx, 100)
+	if err != nil {
+		t.Fatalf("DrainOrphanedPending: %v", err)
+	}
+	var found *OrphanedPending
+	for i := range orphans {
+		if orphans[i].ID == goes.ID {
+			found = &orphans[i]
+		}
+		if orphans[i].ID == stays.ID {
+			t.Error("collected a fire waiting on an enabled trigger")
+		}
+	}
+	if found == nil {
+		t.Fatal("the disabled trigger's fire was not collected")
+	}
+	if !found.TriggerExists || found.TriggerName != off.Name {
+		t.Errorf("orphan = %+v, want the trigger named so the dropped row is recognizable", found)
+	}
+}
+
+// max_queue_depth is the ceiling including the fire being admitted, so trimming
+// leaves depth-1 behind and the insert brings it to exactly depth.
+func TestPostgres_TrimPendingLeavesRoomForTheIncomingFire(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	for range 5 {
+		p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+
+	if _, err := r.TrimPending(ctx, tr.ID, 3); err != nil {
+		t.Fatalf("TrimPending: %v", err)
+	}
+	n, err := r.UnclaimedPendingCount(ctx, tr.ID)
+	if err != nil {
+		t.Fatalf("UnclaimedPendingCount: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("backlog after trim = %d, want depth-1 (2) so the incoming fire lands on exactly 3", n)
+	}
+}
+
+// The delivery id is not part of what a provider signs, so a captured body
+// replays with a fresh id forever unless the body itself is remembered. A retry
+// under the SAME id is an ordinary duplicate and must still get through.
+func TestPostgres_ClaimReplayKey(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM trigger_delivery_replay_keys WHERE source_id = $1`, s.ID)
+	})
+	hash := bodyFingerprint([]byte(`{"a":1}`))
+
+	fresh, err := r.ClaimReplayKey(ctx, s.ID, hash, "delivery-1", time.Hour)
+	if err != nil || !fresh {
+		t.Fatalf("first arrival = %v, %v; want fresh", fresh, err)
+	}
+	if fresh, err = r.ClaimReplayKey(ctx, s.ID, hash, "delivery-1", time.Hour); err != nil || !fresh {
+		t.Errorf("same-id retry = %v, %v; want it through as an ordinary duplicate", fresh, err)
+	}
+	if fresh, err = r.ClaimReplayKey(ctx, s.ID, hash, "a-fresh-id", time.Hour); err != nil || fresh {
+		t.Errorf("replay under a new id = %v, %v; want refused", fresh, err)
+	}
+
+	// Past the window it is a new arrival again, which is why this is a window
+	// and not a permanent ledger.
+	if fresh, err = r.ClaimReplayKey(ctx, s.ID, hash, "much-later", 0); err != nil || !fresh {
+		t.Errorf("past the window = %v, %v; want fresh", fresh, err)
+	}
+
+	if _, err := r.PruneReplayKeys(ctx, 0); err != nil {
+		t.Fatalf("PruneReplayKeys: %v", err)
+	}
+}
+
+// The date moves when the secret does, and only then: an ordinary enable/disable
+// must not invalidate every replay of an older payload.
+func TestPostgres_SecretRotatedAtTracksTheSecret(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	created, err := r.GetSource(ctx, tenant, s.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if created.SecretRotatedAt == nil {
+		t.Fatal("a new source has no secret date; every replay would then be refused")
+	}
+
+	created.Enabled = false
+	if err := r.UpdateSource(ctx, created); err != nil {
+		t.Fatalf("UpdateSource: %v", err)
+	}
+	afterToggle, err := r.GetSource(ctx, tenant, s.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if !afterToggle.SecretRotatedAt.Equal(*created.SecretRotatedAt) {
+		t.Errorf("disabling a source moved the secret date from %v to %v",
+			created.SecretRotatedAt, afterToggle.SecretRotatedAt)
+	}
+
+	afterToggle.SecretCiphertext = "rotated-ciphertext"
+	if err := r.UpdateSource(ctx, afterToggle); err != nil {
+		t.Fatalf("UpdateSource: %v", err)
+	}
+	rotated, err := r.GetSource(ctx, tenant, s.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if !rotated.SecretRotatedAt.After(*created.SecretRotatedAt) {
+		t.Errorf("rotating the secret left the date at %v", rotated.SecretRotatedAt)
+	}
+}
+
+// The counter that makes rejection_count readable.
+func TestPostgres_RecordAccepted(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	for range 3 {
+		if err := r.RecordAccepted(ctx, s.ID); err != nil {
+			t.Fatalf("RecordAccepted: %v", err)
+		}
+	}
+	got, err := r.GetSource(ctx, tenant, s.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if got.AcceptedCount != 3 {
+		t.Errorf("accepted_count = %d, want 3", got.AcceptedCount)
+	}
+}
+
+// Replays are bounded per original, so the endpoint cannot become an unbounded
+// run generator for anyone who can reach it.
+func TestPostgres_CountRedeliveries(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	original := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: uuid.NewString(), Status: StatusVerified}
+	if _, err := r.InsertDelivery(ctx, original); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+	for range 2 {
+		dup := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: original.ProviderDeliveryID, Status: StatusVerified, RedeliveryOf: &original.ID}
+		if _, err := r.InsertDelivery(ctx, dup); err != nil {
+			t.Fatalf("InsertDelivery(lineage): %v", err)
+		}
+	}
+
+	n, err := r.CountRedeliveries(ctx, original.ID)
+	if err != nil {
+		t.Fatalf("CountRedeliveries: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("redeliveries = %d, want 2", n)
+	}
+}

@@ -87,6 +87,17 @@ type PendingDelivery struct {
 	EnqueuedAt time.Time
 }
 
+// OrphanedPending is a waiting fire whose trigger can no longer run it.
+//
+// It carries the trigger's name where there still is one, so the dropped
+// outcome reads as something a person recognizes rather than a bare id, and
+// TriggerExists so the recorded reason can say which of the two happened.
+type OrphanedPending struct {
+	PendingDelivery
+	TriggerName   string
+	TriggerExists bool
+}
+
 // StaleClaimWindow is how long a claimed fire may sit undispatched before the
 // worker takes it back.
 //
@@ -97,11 +108,15 @@ type PendingDelivery struct {
 // trigger's ceiling, so each stranded row permanently costs that trigger a
 // parallel slot until someone notices.
 //
-// Fifteen minutes is chosen against the ceiling on how long a dispatch may
+// Fifteen minutes is chosen against the ceiling on how long ONE dispatch may
 // legitimately take: timeout_seconds is capped at 600 (ten minutes), so a claim
-// older than this cannot belong to a dispatch still in progress. The margin is
-// deliberately generous — reclaiming a live dispatch would start the same fire
-// twice, which is worse than a stranded fire starting late.
+// older than this cannot belong to a dispatch still in progress. That holds only
+// because the worker re-stamps each row's claim as its own dispatch begins
+// (Repository.TouchPendingClaim) — a batch is claimed in a single statement and
+// dispatched serially, so without the re-stamp the last row of a batch of
+// sixteen could carry a claim over two hours old while still being live work.
+// The margin is deliberately generous: reclaiming a live dispatch would start
+// the same fire twice, which is worse than a stranded fire starting late.
 const StaleClaimWindow = 15 * time.Minute
 
 // autoPauseThreshold is how many consecutive failures disable a trigger.
@@ -159,7 +174,18 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		if err != nil {
 			return AdmitDropped, fmt.Errorf("count in-flight: %w", err)
 		}
-		if inFlight >= int(t.MaxParallel) {
+		// Fires already waiting count toward the ceiling too. In-flight alone
+		// only sees work a worker has picked up, and the worker polls on an
+		// interval — so two fires a fraction of a second apart both saw an empty
+		// in-flight count and both were accepted, which is silent queueing under
+		// the one overflow behavior whose entire promise is that it does not
+		// queue. A person told "not now" can retry; a person told "accepted" and
+		// then made to wait cannot tell the difference from a stall.
+		waiting, err := a.repo.UnclaimedPendingCount(ctx, t.ID)
+		if err != nil {
+			return AdmitDropped, fmt.Errorf("count waiting fires: %w", err)
+		}
+		if inFlight+waiting >= int(t.MaxParallel) {
 			return AdmitDropped, nil
 		}
 

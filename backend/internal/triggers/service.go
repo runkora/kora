@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,15 +28,25 @@ const (
 	payloadExcerptBytes = 512
 )
 
-// sourceRunScopes are granted to every webhook source's principal so it may
-// reach the run endpoints at all (the route-level scope on POST /api/v1/runs)
-// and resolve agent types when a trigger is bound. The "agents:types:read" scope
-// lets CreateTrigger look up an agent type under the source's own (tenant-scoped)
-// identity to derive its canonical slug.
-var sourceRunScopes = []string{"agents:runs:read", "agents:runs:write", "agents:types:read"}
+// sourceRunScopes are granted to every source/trigger principal at provisioning
+// time, before any agent is bound. It is deliberately only the agent-type read:
+// CreateTrigger looks the agent type up under the principal's own
+// (tenant-scoped) identity to derive its canonical slug, and nothing else here
+// happens before a binding exists.
+//
+// The broad agents:runs:read/write pair is NOT granted. Scope hierarchy is by
+// prefix, so agents:runs:write covers every agents:runs:<slug>:write — granting
+// it would have made the per-agent narrowing in triggerRunScopes decorative, and
+// a leaked source token could start any agent in the tenant. The route scope on
+// POST /api/v1/runs is authenticated-only for exactly this reason (see
+// cmd/orbit-agents/main.go agentRoutes); the authoritative check is
+// orbit-agents' own per-slug Authz.checkRun.
+var sourceRunScopes = []string{"agents:types:read"}
 
 // triggerRunScopes are the per-agent run scopes a source/trigger principal needs
-// to start runs for a specific agent slug.
+// to start runs for a specific agent slug. These are the ONLY run scopes a
+// trigger principal ever holds, so its blast radius is the one agent it is bound
+// to.
 func triggerRunScopes(slug string) []string {
 	return []string{"agents:runs:" + slug + ":read", "agents:runs:" + slug + ":write"}
 }
@@ -118,6 +129,9 @@ func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateS
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+	if err := validateTextBounds(name, ""); err != nil {
+		return nil, err
 	}
 	if err := s.registry.validateProvider(req.Provider); err != nil {
 		return nil, err
@@ -345,7 +359,7 @@ func (s *Service) createWebhookTrigger(ctx context.Context, tenantID string, req
 		logging.Field{Key: "source_id", Value: req.SourceID},
 		logging.Field{Key: "agent_slug", Value: at.Slug},
 	)
-	return t, nil
+	return s.readBackTrigger(ctx, t), nil
 }
 
 // createScheduledTrigger creates a scheduled trigger with its own SERVICE principal.
@@ -421,7 +435,7 @@ func (s *Service) createScheduledTrigger(ctx context.Context, tenantID string, r
 		logging.Field{Key: "cron", Value: req.ScheduleConfig.CronExpression},
 		logging.Field{Key: "agent_slug", Value: at.Slug},
 	)
-	return t, nil
+	return s.readBackTrigger(ctx, t), nil
 }
 
 // createManualTrigger creates a manual trigger with its own SERVICE principal.
@@ -494,7 +508,29 @@ func (s *Service) createManualTrigger(ctx context.Context, tenantID string, req 
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "agent_slug", Value: at.Slug},
 	)
-	return t, nil
+	return s.readBackTrigger(ctx, t), nil
+}
+
+// readBackTrigger returns the trigger as it was actually stored.
+//
+// The in-memory struct a create was built from is not the row: the repository
+// fills in the per-kind admission defaults for everything the caller left unset,
+// and created_at/updated_at are the database's. Returning the struct meant a
+// create response carrying max_parallel 0 and a created_at of year one, which a
+// console renders and a caller may echo straight back into a PATCH.
+//
+// Falls back to the in-memory trigger if the read fails: the trigger exists and
+// the create succeeded, so a failure here is a worse response, not a failure.
+func (s *Service) readBackTrigger(ctx context.Context, t *Trigger) *Trigger {
+	stored, err := s.repo.GetTrigger(ctx, t.TenantID, t.ID)
+	if err != nil {
+		s.logger.Warn(ctx, "could not read back the created trigger; returning the requested values",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return t
+	}
+	return stored
 }
 
 // ListTriggers returns triggers for a tenant, optionally filtered by agent type.
@@ -517,24 +553,40 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	if err != nil {
 		return nil, err
 	}
-	// Toggling enablement has side effects (draining a backlog, clearing the
-	// auto-pause marker), so it stays here where the service's collaborators
-	// are; the rest of the edit is plain field copying.
-	if req.Enabled != nil {
-		s.applyEnabledChange(ctx, t, *req.Enabled)
-		t.Enabled = *req.Enabled
-	}
+	wasEnabled := t.Enabled
+
+	// Everything that can be rejected happens first, and every side effect
+	// happens after the row is stored. Draining a backlog is destructive and
+	// irreversible, so running it before validation meant a request rejected on
+	// its schedule or its admission bounds had already thrown away the queued
+	// work of a trigger that is still enabled.
 	applyTriggerEdits(t, req)
-	if err := applyAdmissionUpdate(t, req); err != nil {
+	if err = applyAdmissionUpdate(t, req); err != nil {
 		return nil, err
 	}
-	if err := applyKindConfigUpdate(t, req); err != nil {
+	if err = applyKindConfigUpdate(t, req); err != nil {
 		return nil, err
 	}
-	if err := s.repo.UpdateTrigger(ctx, t); err != nil {
+	if req.Enabled != nil {
+		applyEnabledFields(t, *req.Enabled)
+	}
+	if err = s.repo.UpdateTrigger(ctx, t); err != nil {
 		return nil, err
 	}
-	return t, nil
+	if req.Enabled != nil {
+		s.afterEnabledChange(ctx, *t, wasEnabled, *req.Enabled)
+	}
+
+	// Re-read so the response is the stored row, not the in-memory one the
+	// write was built from: the repository applies per-kind defaults for
+	// anything left unset, and updated_at is the database's. A caller that
+	// echoes this back into their next PATCH must not be echoing values that
+	// were never stored.
+	stored, err := s.repo.GetTrigger(ctx, tenantID, id)
+	if err != nil {
+		return t, nil
+	}
+	return stored, nil
 }
 
 // applyTriggerEdits copies the request's plain fields onto the trigger. Omitted
@@ -823,6 +875,9 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkRedeliveryBudget(ctx, original.ID); err != nil {
+		return nil, err
+	}
 
 	switch original.Kind {
 	case KindWebhook:
@@ -857,6 +912,15 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 	}
 	if !src.Enabled {
 		return nil, fmt.Errorf("%w: the source this delivery arrived on is disabled", ErrNotRedeliverable)
+	}
+	// A payload that arrived before the current signing secret was issued is
+	// not replayable. Replay is the one path that re-runs a stored body without
+	// re-verifying it, and rotating a secret is what an operator does when the
+	// old one may be in someone else's hands — so replaying a payload from
+	// before the rotation would re-run, under the platform's own authority,
+	// something the rotation was meant to render unusable.
+	if src.SecretRotatedAt != nil && original.ReceivedAt.Before(*src.SecretRotatedAt) {
+		return nil, fmt.Errorf("%w: this payload arrived before the source's current signing secret was issued", ErrNotRedeliverable)
 	}
 	adapter, ok := s.registry.Get(src.Provider)
 	if !ok {
@@ -958,6 +1022,30 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: original.ID}, nil
 }
 
+// maxRedeliveriesPerOriginal bounds how many times one delivery may be replayed.
+//
+// Replaying starts real work under the trigger's own authority, from a body the
+// platform is holding and does not re-verify. Ten is generous for the reason the
+// endpoint exists (re-run after fixing the cause) and small enough that the
+// endpoint cannot be turned into an unbounded run generator by anyone who can
+// reach it. The bound is per original, so it is not a rate limit an operator has
+// to wait out; it is a limit on how many times one event can happen.
+const maxRedeliveriesPerOriginal = 10
+
+// checkRedeliveryBudget refuses a replay once an original has been replayed
+// enough times.
+func (s *Service) checkRedeliveryBudget(ctx context.Context, originalID string) error {
+	n, err := s.repo.CountRedeliveries(ctx, originalID)
+	if err != nil {
+		return fmt.Errorf("count existing redeliveries: %w", err)
+	}
+	if n >= maxRedeliveriesPerOriginal {
+		return fmt.Errorf("%w: this delivery has already been replayed %d times, which is the limit",
+			ErrNotRedeliverable, maxRedeliveriesPerOriginal)
+	}
+	return nil
+}
+
 // varFields maps a manual trigger's input values into the {{ var.key }}
 // namespace the prompt template renders against.
 func varFields(values map[string]string) map[string]string {
@@ -968,11 +1056,19 @@ func varFields(values map[string]string) map[string]string {
 	return fields
 }
 
-// captureVariables serializes a manual fire's inputs for storage.
+// captureVariables serializes a manual fire's inputs for storage, bounded by the
+// same maxPayloadBytes ceiling every other stored payload obeys.
 //
-// Best-effort: a fire must not be refused because its own audit record could not
-// be encoded, and every value is a string, so there is no realistic failure here
-// beyond a bug worth logging.
+// The bound matters because a fire is recorded BEFORE its inputs are judged: a
+// rejected fire is stored with the values that were rejected, which is the pair
+// that makes it diagnosable, and which without a ceiling lets a caller write a
+// row of their choosing on a request the platform is refusing. An oversized
+// capture is dropped rather than truncated: truncated JSON is not readable back,
+// so storing it would only trade a large row for an unparseable one.
+//
+// Best-effort otherwise: a fire must not be refused because its own audit record
+// could not be encoded, and every value is a string, so there is no realistic
+// encoding failure here beyond a bug worth logging.
 func (s *Service) captureVariables(ctx context.Context, values map[string]string) []byte {
 	if len(values) == 0 {
 		return nil
@@ -981,6 +1077,12 @@ func (s *Service) captureVariables(ctx context.Context, values map[string]string
 	if err != nil {
 		s.logger.Error(ctx, "failed to capture manual fire inputs",
 			logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	if len(b) > maxPayloadBytes {
+		s.logger.Warn(ctx, "manual fire inputs exceed the payload ceiling; recording the fire without them",
+			logging.Field{Key: "bytes", Value: len(b)},
+			logging.Field{Key: "limit", Value: maxPayloadBytes})
 		return nil
 	}
 	return b
@@ -1116,6 +1218,28 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		s.recordSourceRejection(ctx, src.ID, "missing provider delivery id")
 		return 0, ErrMissingDeliveryID
 	}
+	// Replay defense that does not depend on the delivery id being honest. The id
+	// is not part of what a provider signs (GitHub puts it in a plain header), so
+	// a captured body with a rewritten id verifies perfectly and dedups against
+	// nothing — the same event starts a run as many times as it is re-sent. The
+	// body is the one thing whoever holds a captured delivery cannot change
+	// without invalidating the signature, so the window keys on that, and on the
+	// id the body first arrived under so an ordinary provider retry still reads
+	// as the duplicate it is.
+	//
+	// Failing OPEN on a storage error is deliberate: this is a second line behind
+	// signature verification, and losing every genuine delivery because one dedup
+	// table is unavailable is the larger outage.
+	if fresh, replayErr := s.repo.ClaimReplayKey(ctx, src.ID, bodyFingerprint(body), deliveryID, replayWindow); replayErr != nil {
+		s.logger.Error(ctx, "replay check failed; accepting the delivery",
+			logging.Field{Key: "source_id", Value: src.ID},
+			logging.Field{Key: "error", Value: replayErr.Error()},
+		)
+	} else if !fresh {
+		s.recordSourceRejection(ctx, src.ID, "payload already delivered under a different delivery id")
+		return 0, ErrReplayedPayload
+	}
+
 	eventType := adapter.EventType(headers, body)
 
 	delivery := &Delivery{
@@ -1143,9 +1267,41 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return IngestDuplicate, nil
 	}
 
+	s.recordAccepted(ctx, src.ID)
+
 	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
 
 	return IngestAccepted, nil
+}
+
+// replayWindow is how long a source remembers the bodies it has handled.
+//
+// Twenty-four hours covers the realistic replay: a delivery captured off the
+// wire or out of a log is used quickly, and a window measured in days would keep
+// a fingerprint per delivery for a cost that buys very little more. It is a
+// window and not a permanent ledger for exactly that reason.
+const replayWindow = 24 * time.Hour
+
+// bodyFingerprint identifies a delivery body.
+//
+// A hash, not the body: this is stored per arrival, and keeping a second copy of
+// every payload here would double the retention footprint the retention window
+// exists to bound.
+func bodyFingerprint(body []byte) []byte {
+	sum := sha256.Sum256(body)
+	return sum[:]
+}
+
+// recordAccepted counts an inbound request that got through, best-effort on the
+// same reasoning as recordSourceRejection: the delivery is already accepted, and
+// a counter that failed to increment must not change that.
+func (s *Service) recordAccepted(ctx context.Context, sourceID string) {
+	if err := s.repo.RecordAccepted(ctx, sourceID); err != nil {
+		s.logger.Error(ctx, "failed to count accepted delivery",
+			logging.Field{Key: "source_id", Value: sourceID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // recordDuplicate writes the row for a repeat arrival and, for the triggers that
@@ -1476,11 +1632,39 @@ const (
 	maxTimeoutSeconds  int16 = 600
 )
 
+// Text bounds on what a trigger stores.
+//
+// Both columns are unbounded TEXT, so without these an authenticated caller can
+// write a row of any size and, in the template's case, have it rendered into
+// every prompt the trigger ever starts. The numbers are chosen to be invisible
+// to real use: a name is a label a person reads in a list, and eight kilobytes
+// of prompt is far past the point where a template is doing templating.
+const (
+	maxNameLen           = 128
+	maxPromptTemplateLen = 8 << 10 // 8 KiB
+)
+
+// validateTextBounds checks the free-text fields of a create or update. Applied
+// identically to both, so a value that could not be created cannot be edited in
+// either.
+func validateTextBounds(name, promptTemplate string) error {
+	if len(name) > maxNameLen {
+		return fmt.Errorf("%w: name must be %d characters or fewer", ErrValidation, maxNameLen)
+	}
+	if len(promptTemplate) > maxPromptTemplateLen {
+		return fmt.Errorf("%w: prompt_template must be %d bytes or fewer", ErrValidation, maxPromptTemplateLen)
+	}
+	return nil
+}
+
 // validateAdmissionCreate checks the optional admission fields on a create
 // request. It is called from each kind's validate* function so that a bad value
 // is rejected before any principal or grant is provisioned: a rejected create
 // must leave nothing behind.
 func validateAdmissionCreate(req CreateTriggerRequest) error {
+	if err := validateTextBounds(strings.TrimSpace(req.Name), req.PromptTemplate); err != nil {
+		return err
+	}
 	if req.Overflow != nil {
 		switch *req.Overflow {
 		case OverflowWait, OverflowReplace, OverflowRefuse:
@@ -1500,6 +1684,12 @@ func validateAdmissionCreate(req CreateTriggerRequest) error {
 // applyAdmissionUpdate validates and applies a PATCH's admission tuning, with
 // exactly the create-time bounds. Omitted fields leave the stored value alone.
 func applyAdmissionUpdate(t *Trigger, req UpdateTriggerRequest) error {
+	// applyTriggerEdits has already copied the request's text onto t, so the
+	// bounds are checked against what would actually be stored — an omitted
+	// field keeps the stored value and is checked against that.
+	if err := validateTextBounds(t.Name, t.PromptTemplate); err != nil {
+		return err
+	}
 	if req.Overflow != nil {
 		switch *req.Overflow {
 		case OverflowWait, OverflowReplace, OverflowRefuse:
@@ -1847,6 +2037,22 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	)
 }
 
+// RecordOrphanedPending records a waiting fire the worker collected because its
+// trigger can no longer run it.
+//
+// The row is written for the same reason every other refusal is: work the
+// platform accepted and then did not do has to be visible in the delivery
+// history. Silently deleting the queue row would leave a delivery marked
+// 'verified' forever, which reads as still-in-progress.
+func (s *Service) RecordOrphanedPending(ctx context.Context, o OrphanedPending) {
+	reason := "the trigger was deleted while this fire was waiting"
+	if o.TriggerExists {
+		reason = "the trigger was disabled while this fire was waiting"
+	}
+	s.recordDeliveryRun(ctx, o.TenantID, o.DeliveryID, o.TriggerID, o.TriggerName, RunStatusDropped, nil, &reason)
+	s.deriveDeliveryStatus(ctx, o.DeliveryID)
+}
+
 // noteFailure counts a failure toward auto-pause and disables the trigger once
 // it has failed enough times in a row.
 //
@@ -1899,23 +2105,36 @@ func (s *Service) noteSuccess(ctx context.Context, t Trigger) {
 	}
 }
 
-// applyEnabledChange handles the side effects of toggling a trigger.
+// applyEnabledFields sets the in-memory state a toggle implies, so the write
+// that follows carries it. Pure: no collaborators, nothing persisted.
 //
-// Re-enabling clears the auto-pause marker and its failure count: an admin
-// turning a trigger back on has decided the cause is fixed, and leaving the
-// counter at the threshold would pause it again on the next failure.
+// Both directions clear the auto-pause marker. Re-enabling clears it because an
+// admin turning a trigger back on has decided the cause is fixed. Disabling
+// clears it because an explicit "off" is a person's decision and must not keep
+// presenting as the platform's — which is the difference between recording a
+// refused fire and recording nothing at all.
+func applyEnabledFields(t *Trigger, enabled bool) {
+	t.Enabled = enabled
+	t.AutoPausedAt = nil
+}
+
+// afterEnabledChange runs the side effects of a toggle, AFTER the new state is
+// stored.
 //
-// Disabling drops the backlog, visibly. Those fires would otherwise drain into
-// a trigger the admin just turned off. It also clears the auto-pause marker: an
-// explicit "off" is a person's decision, and it must not keep presenting as the
-// platform's, which is now the difference between recording a refused fire and
-// recording nothing at all.
-func (s *Service) applyEnabledChange(ctx context.Context, t *Trigger, enabled bool) {
+// Order is the whole point. Draining first and persisting second leaves a window
+// where the trigger is still enabled in the database with its backlog already
+// gone: a fire admitted in that window is enqueued against a trigger that is
+// about to be disabled, and nothing will ever claim it (claiming requires an
+// enabled trigger) or reap it (the stale-claim reaper only touches claimed
+// rows). Persisting first closes admission before the drain runs. The worker's
+// orphan sweep is the backstop for anything that still lands in between.
+func (s *Service) afterEnabledChange(ctx context.Context, t Trigger, wasEnabled, enabled bool) {
 	if enabled {
-		if t.Enabled {
+		if wasEnabled {
 			return
 		}
-		t.AutoPausedAt = nil
+		// Leaving the counter at the threshold would pause the trigger again on
+		// its very next failure, which is not what "turn it back on" means.
 		if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
 			s.logger.Error(ctx, "failed to clear failure count on re-enable",
 				logging.Field{Key: "trigger_id", Value: t.ID},
@@ -1924,8 +2143,9 @@ func (s *Service) applyEnabledChange(ctx context.Context, t *Trigger, enabled bo
 		}
 		return
 	}
-	if t.Enabled && s.admission != nil {
-		_, _ = s.admission.Drain(ctx, *t, "the trigger was disabled while this fire was waiting")
+	// Anything still waiting would drain into a trigger the admin just turned
+	// off. Drop it visibly rather than silently.
+	if wasEnabled && s.admission != nil {
+		_, _ = s.admission.Drain(ctx, t, "the trigger was disabled while this fire was waiting")
 	}
-	t.AutoPausedAt = nil
 }

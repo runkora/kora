@@ -103,7 +103,12 @@ func TestHandleIngest_Accepted(t *testing.T) {
 	}
 }
 
-func TestHandleIngest_BadSignature(t *testing.T) {
+// A bad signature answers exactly as an unknown source id does. A 401 here told
+// a prober that the id they guessed is a real source and only the secret is
+// missing, which is the single fact this unauthenticated endpoint should never
+// give away. The reason is still recorded against the source, where the tenant
+// that owns it can see it.
+func TestHandleIngest_BadSignatureIsIndistinguishableFromAnUnknownSource(t *testing.T) {
 	c, _, svc := newTestController(t)
 	src := mustSource(t, svc)
 	body := prBody("opened", "main")
@@ -116,8 +121,17 @@ func TestHandleIngest_BadSignature(t *testing.T) {
 
 	c.handleIngest(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (the same answer an unknown source gets)", w.Code)
+	}
+
+	unknown := httptest.NewRequest(http.MethodPost, "/webhooks/nope", bytes.NewReader(body))
+	unknown.SetPathValue("sourceID", "nope")
+	uw := httptest.NewRecorder()
+	c.handleIngest(uw, unknown)
+	if uw.Body.String() != w.Body.String() {
+		t.Errorf("bad signature answered %q, unknown source answered %q; they must be identical",
+			w.Body.String(), uw.Body.String())
 	}
 }
 

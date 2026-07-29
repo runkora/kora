@@ -27,11 +27,14 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	if err != nil {
 		return fmt.Errorf("marshal source config: %w", err)
 	}
+	// secret_rotated_at is stamped at creation: the secret a source starts with
+	// was issued now, and dating it is what lets a later replay tell whether the
+	// payload it wants to re-run predates the secret currently in force.
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO webhook_sources
-			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled)
+			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled)
 	if err != nil {
 		return fmt.Errorf("create webhook source: %w", err)
@@ -39,7 +42,7 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	return nil
 }
 
-const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason`
+const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at`
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
@@ -49,6 +52,7 @@ func scanSource(row pgx.Row) (*WebhookSource, error) {
 		&s.ID, &s.TenantID, &s.Name, &s.Provider, &s.PrincipalID, &s.GrantID,
 		&s.SecretCiphertext, &configJSON, &s.Enabled, &s.CreatedAt, &s.UpdatedAt,
 		&s.RejectionCount, &s.LastRejectionAt, &lastRejectionReason,
+		&s.AcceptedCount, &s.SecretRotatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -113,9 +117,17 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	if err != nil {
 		return fmt.Errorf("marshal source config: %w", err)
 	}
+	// secret_rotated_at moves only when the stored ciphertext actually changes.
+	// Every SET expression is evaluated against the pre-update row, so the
+	// comparison reads the old secret. Deriving it here rather than passing a
+	// flag means an ordinary enable/disable can never accidentally date the
+	// secret forward and invalidate every replay of an older payload.
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE webhook_sources
-		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, updated_at = now()
+		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5,
+		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
+		                                THEN now() ELSE secret_rotated_at END,
+		       updated_at = now()
 		WHERE  id = $6 AND tenant_id = $7
 	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID)
 	if err != nil {
@@ -755,6 +767,79 @@ func (r *postgresRepository) RecordSourceRejection(ctx context.Context, sourceID
 	return nil
 }
 
+// RecordAccepted counts an inbound request that authenticated and was taken.
+//
+// The counterpart to RecordSourceRejection. A rejection count on its own cannot
+// be read: it takes the accepted count beside it to tell "a handful of probes
+// against a busy source" from "this source's signing secret is wrong".
+func (r *postgresRepository) RecordAccepted(ctx context.Context, sourceID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE webhook_sources SET accepted_count = accepted_count + 1 WHERE id = $1
+	`, sourceID)
+	if err != nil {
+		return fmt.Errorf("record accepted delivery: %w", err)
+	}
+	return nil
+}
+
+// ClaimReplayKey records a body fingerprint for a source and says whether this
+// source may take that body under this delivery id.
+//
+// One statement, so concurrent copies of a replayed body race each other in the
+// database rather than in the process: the insert either wins or conflicts, and
+// exactly one caller is told the body is fresh.
+//
+// Two ON CONFLICT escapes, both deliberate. A key older than the window is
+// refreshed and accepted, because the window is the whole point of not keeping
+// this ledger forever. A key whose delivery id matches is accepted, because that
+// is a provider retrying an unacknowledged delivery — an ordinary duplicate the
+// delivery history already records as one, not the attack. The attack is the
+// same body under a delivery id the sender chose freshly, and that is the only
+// case left refused.
+func (r *postgresRepository) ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (bool, error) {
+	var seenAt time.Time
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO trigger_delivery_replay_keys (source_id, body_hash, provider_delivery_id)
+		VALUES ($1, $2, $4)
+		ON CONFLICT (source_id, body_hash) DO UPDATE
+		    SET seen_at = now(), provider_delivery_id = EXCLUDED.provider_delivery_id
+		    WHERE trigger_delivery_replay_keys.seen_at < now() - make_interval(secs => $3)
+		       OR trigger_delivery_replay_keys.provider_delivery_id = EXCLUDED.provider_delivery_id
+		RETURNING seen_at
+	`, sourceID, bodyHash, window.Seconds(), providerDeliveryID).Scan(&seenAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("claim replay key: %w", err)
+	}
+	return true, nil
+}
+
+// PruneReplayKeys drops fingerprints past the replay window, keeping the table a
+// window rather than a permanent record of every body ever received.
+func (r *postgresRepository) PruneReplayKeys(ctx context.Context, window time.Duration) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM trigger_delivery_replay_keys WHERE seen_at < now() - make_interval(secs => $1)
+	`, window.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("prune replay keys: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CountRedeliveries is how many replays already descend from one delivery.
+func (r *postgresRepository) CountRedeliveries(ctx context.Context, originalID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FROM trigger_deliveries WHERE redelivery_of = $1
+	`, originalID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count redeliveries: %w", err)
+	}
+	return n, nil
+}
+
 // DueScheduledMinutesWithoutDelivery lists the minutes in [since, now) that have
 // no delivery for this trigger.
 //
@@ -797,6 +882,21 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 
 // ─── Admission control ───────────────────────────────────────────────────────
 
+// settledRunStatesSQL is the SQL value list of run states that no longer occupy
+// one of a trigger's parallel slots.
+//
+// 'idle' belongs here even though orbit-agents does not treat it as terminal. An
+// idle run has finished its turn and is waiting for a message that will never
+// come: a trigger-started run has no person on the other end. Counting it as
+// in-flight until the 30-minute run reaper collects it throttles a healthy
+// frequent trigger to zero, and then evicts real work at the backlog ceiling —
+// the failure the ceiling exists to prevent, caused by the ceiling itself.
+//
+// One constant, interpolated into both the claim query and InFlightCount, so the
+// two cannot disagree about what "in flight" means. It is a compile-time literal
+// with no caller input in it.
+const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'idle')`
+
 func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {
 	fieldsJSON, err := json.Marshal(p.Fields)
 	if err != nil {
@@ -822,6 +922,12 @@ func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDeliv
 // Reading it separately would leave a window where two workers each see a free
 // slot and both take it, which is exactly the over-admission the ceiling exists
 // to prevent.
+//
+// The outer UPDATE repeats `claimed_at IS NULL` even though the CTE already
+// filtered on it. Under READ COMMITTED, a row locked by a concurrent claim is
+// re-read after that claim commits (EvalPlanQual), and the re-read row can be
+// one this statement's snapshot saw as unclaimed. Re-checking at the point of
+// write is what makes a double claim impossible rather than merely unlikely.
 func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error) {
 	// in_flight counts dispatched fan-out rows with non-terminal runs plus
 	// already-claimed pendings. The claimed half is bounded by the same window
@@ -840,7 +946,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		        LEFT   JOIN runs ru ON ru.id = dr.run_id
 		        WHERE  dr.status = 'dispatched'
 		          AND  dr.created_at > now() - interval '1 hour'
-		          AND  (ru.id IS NULL OR ru.state NOT IN ('completed', 'failed', 'budget_exhausted'))
+		          AND  (ru.id IS NULL OR ru.state NOT IN `+settledRunStatesSQL+`)
 		        UNION ALL
 		        SELECT trigger_id
 		        FROM   trigger_pending_deliveries
@@ -871,7 +977,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		UPDATE trigger_pending_deliveries p
 		SET    claimed_at = now()
 		FROM   claimable c
-		WHERE  p.id = c.id
+		WHERE  p.id = c.id AND p.claimed_at IS NULL
 		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at
 	`, limit, StaleClaimWindow.Seconds())
 	if err != nil {
@@ -928,8 +1034,10 @@ func (r *postgresRepository) ReclaimStalePending(ctx context.Context, olderThan 
 // silently throttle a healthy trigger to nothing, which is worse than briefly
 // over-admitting.
 func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string) (int, error) {
-	// In flight = dispatched fan-out rows whose run has not reached a terminal
-	// state, plus pending rows a worker has claimed but not yet dispatched
+	// In flight = dispatched fan-out rows whose run has not settled (see
+	// settledRunStatesSQL, which counts 'idle' as settled because a
+	// trigger-started run has nobody to send it the next message), plus
+	// pending rows a worker has claimed but not yet dispatched
 	// (invisible to the fan-out until the outcome commits). The runs table is
 	// owned by orbit-agents; this read-only join is a deliberate deployment
 	// coupling (one Postgres, pooled migrations) so max_parallel can mean
@@ -948,7 +1056,7 @@ func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string
 		     WHERE  dr.trigger_id = $1
 		       AND  dr.status = 'dispatched'
 		       AND  dr.created_at > now() - interval '1 hour'
-		       AND  (ru.id IS NULL OR ru.state NOT IN ('completed', 'failed', 'budget_exhausted')))
+		       AND  (ru.id IS NULL OR ru.state NOT IN `+settledRunStatesSQL+`))
 		  + (SELECT count(*)
 		     FROM   trigger_pending_deliveries
 		     WHERE  trigger_id = $1
@@ -974,11 +1082,24 @@ func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID str
 	return scanPending(rows)
 }
 
-// TrimPending evicts the oldest waiting rows beyond depth.
+// TrimPending evicts the oldest waiting rows beyond depth, leaving room for the
+// one row the caller is about to enqueue.
 //
 // Oldest rather than newest: when a trigger is behind, the freshest events are
 // the ones still worth acting on.
+//
+// depth is the ceiling INCLUDING the fire about to be added, so the offset is
+// depth-1. Trimming to depth and then inserting left the backlog one over its
+// declared maximum, permanently — a max_queue_depth of 32 that always held 33.
+// The trim and the insert are not one transaction, so under a burst several
+// admissions can interleave between a trim and its insert and the depth can
+// briefly exceed the ceiling; the next admission trims it back. Bounding the
+// backlog is the guarantee, not bounding it to the exact row.
 func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
+	offset := depth - 1
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
 		WHERE  id IN (
@@ -988,7 +1109,7 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 		    OFFSET $2
 		)
 		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
-	`, triggerID, depth)
+	`, triggerID, offset)
 	if err != nil {
 		return nil, fmt.Errorf("trim pending deliveries: %w", err)
 	}
@@ -996,10 +1117,19 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 	return scanPending(rows)
 }
 
+// DrainPending removes everything still WAITING for a trigger.
+//
+// Claimed rows are left alone. A claimed row is being dispatched right now by a
+// worker that will record its own outcome and then release it; deleting it from
+// under that dispatch produced two fan-out rows for one fire (a 'dropped' from
+// the drain and a 'failed' or 'dispatched' from the live worker), which is a
+// delivery history that contradicts itself. The claimed fire finishes on its own
+// terms; it is at most one per parallel slot, and DispatchPending re-reads the
+// trigger, so a disabled one is refused there anyway.
 func (r *postgresRepository) DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
-		WHERE  trigger_id = $1
+		WHERE  trigger_id = $1 AND claimed_at IS NULL
 		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
 	`, triggerID)
 	if err != nil {
@@ -1007,6 +1137,97 @@ func (r *postgresRepository) DrainPending(ctx context.Context, triggerID string)
 	}
 	defer rows.Close()
 	return scanPending(rows)
+}
+
+// DrainOrphanedPending collects waiting fires whose trigger can no longer run
+// them: it was deleted, or it is switched off.
+//
+// The lifecycle paths that disable a trigger drain its backlog themselves, so
+// this is the backstop for the windows they cannot cover — a fire admitted in
+// the instant between the disable committing and the drain running, or a trigger
+// row deleted by a path that never went through the service. Nothing else would
+// ever collect those: ClaimPending requires t.enabled, and the stale-claim reaper
+// only touches rows a worker already claimed. Without this they wait forever and
+// count against the queue depth gauge for good.
+//
+// Claimed rows are excluded on the same reasoning as DrainPending.
+func (r *postgresRepository) DrainOrphanedPending(ctx context.Context, limit int) ([]OrphanedPending, error) {
+	rows, err := r.pool.Query(ctx, `
+		DELETE FROM trigger_pending_deliveries p
+		USING (
+		    SELECT p2.id, t.id AS found_id, t.name AS trigger_name
+		    FROM   trigger_pending_deliveries p2
+		    LEFT   JOIN triggers t ON t.id = p2.trigger_id
+		    WHERE  p2.claimed_at IS NULL
+		      AND  (t.id IS NULL OR t.enabled = false)
+		    ORDER  BY p2.enqueued_at
+		    LIMIT  $1
+		) g
+		WHERE  p.id = g.id
+		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at,
+		          g.trigger_name, (g.found_id IS NOT NULL)
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("drain orphaned pending deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []OrphanedPending
+	for rows.Next() {
+		var o OrphanedPending
+		var fieldsJSON []byte
+		var triggerName *string
+		if err := rows.Scan(&o.ID, &o.TenantID, &o.TriggerID, &o.DeliveryID, &fieldsJSON,
+			&o.EnqueuedAt, &triggerName, &o.TriggerExists); err != nil {
+			return nil, fmt.Errorf("scan orphaned pending delivery: %w", err)
+		}
+		if len(fieldsJSON) > 0 {
+			if err := json.Unmarshal(fieldsJSON, &o.Fields); err != nil {
+				return nil, fmt.Errorf("unmarshal orphaned pending fields: %w", err)
+			}
+		}
+		if triggerName != nil {
+			o.TriggerName = *triggerName
+		}
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate orphaned pending deliveries: %w", err)
+	}
+	return out, nil
+}
+
+// UnclaimedPendingCount is how many fires are waiting on a trigger right now.
+func (r *postgresRepository) UnclaimedPendingCount(ctx context.Context, triggerID string) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FROM trigger_pending_deliveries
+		WHERE  trigger_id = $1 AND claimed_at IS NULL
+	`, triggerID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count unclaimed pending deliveries: %w", err)
+	}
+	return n, nil
+}
+
+// TouchPendingClaim re-stamps a claim immediately before its dispatch begins.
+//
+// A batch is claimed in one statement and dispatched one row at a time, each
+// bounded by the trigger's own timeout. Without this, the last row of a full
+// batch carries a claim stamped before the first row's dispatch even started,
+// which can be far older than the stale-claim window by the time it runs — and
+// another replica's reaper would take it back and dispatch it a second time,
+// mid-flight. Re-stamping makes the window mean what its name says: how long
+// THIS dispatch has been running.
+func (r *postgresRepository) TouchPendingClaim(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE trigger_pending_deliveries SET claimed_at = now()
+		WHERE  id = $1 AND claimed_at IS NOT NULL
+	`, id)
+	if err != nil {
+		return fmt.Errorf("re-stamp pending claim: %w", err)
+	}
+	return nil
 }
 
 func scanPending(rows pgx.Rows) ([]PendingDelivery, error) {
