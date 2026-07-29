@@ -46,8 +46,11 @@ func pkceS256(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// isLoopbackRedirect reports whether a redirect URI targets a loopback address.
-// Used by the BFF consent layer and as a sub-check within isValidDCRRedirectURI.
+// isLoopbackRedirect reports whether a redirect URI targets a loopback address
+// (127.0.0.1, ::1, or localhost). Used in two places:
+//   - isValidDCRRedirectURI: allows loopback http/https for native/desktop clients
+//   - firstInvalidStaticRedirectURI: allows non-HTTPS URIs for loopback-only, since
+//     pre-registered OAuthClient CRs may use http on loopback for local tooling
 func isLoopbackRedirect(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -284,7 +287,7 @@ func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequ
 	}
 	for _, u := range req.RedirectURIs {
 		if !isValidDCRRedirectURI(u) {
-			return RegisteredClient{}, fmt.Errorf("%w: redirect_uris must be loopback addresses or non-loopback https", ErrInvalidClientMetadata)
+			return RegisteredClient{}, fmt.Errorf("%w: redirect_uris must be loopback (http or https) or non-loopback https", ErrInvalidClientMetadata)
 		}
 	}
 	// Only public clients — the flow relies on PKCE, not a client secret.

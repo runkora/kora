@@ -180,7 +180,7 @@ func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 func setOAuthCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
 
 // handleOAuthCORSPreflight handles OPTIONS preflight requests for the public
