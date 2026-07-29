@@ -77,12 +77,13 @@ describe('ToggleRow (switch form)', () => {
     const track = () => container.querySelector('[data-slot="toggle-row-track"]');
     const knob = () => track()?.firstElementChild;
 
-    expect(track()).toHaveClass('bg-surface-elevated', 'h-[20px]', 'w-[34px]');
-    expect(knob()).toHaveClass('left-[2px]', 'transition-[left]', 'duration-150');
+    // The shared toggle-visuals recipe, the same one `Toggle` draws.
+    expect(track()).toHaveClass('bg-surface-elevated', 'h-5', 'w-9');
+    expect(knob()).toHaveClass('translate-x-0', 'transition-transform');
 
     rerender(<ToggleRow checked onChange={vi.fn()} label="Streaming" />);
     expect(track()).toHaveClass('bg-accent');
-    expect(knob()).toHaveClass('left-[16px]');
+    expect(knob()).toHaveClass('translate-x-4');
   });
 
   it('recedes the text block while the setting is off', () => {

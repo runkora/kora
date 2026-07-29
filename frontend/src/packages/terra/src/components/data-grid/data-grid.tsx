@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { sectionLabelVariants } from '../section-label';
 
 /**
  * DataGrid
@@ -50,6 +51,10 @@ const DataGrid = React.forwardRef<HTMLDivElement, DataGridProps>(
         role="table"
         className={cn(
           'overflow-hidden rounded-lg border border-border-subtle bg-surface',
+          // The final row closes against the frame rather than drawing a rule
+          // into it. Derived here — "the row with no row after it" — so no
+          // caller has to know which row is last.
+          '[&>[data-slot=data-grid-row]:not(:has(~[data-slot=data-grid-row]))]:border-b-0',
           className,
         )}
         {...props}
@@ -89,7 +94,9 @@ const DataGridHeader = React.forwardRef<HTMLDivElement, DataGridHeaderProps>(
         role="row"
         className={cn(
           'grid items-center border-b border-border-subtle px-4 py-[9px]',
-          'font-sans text-[10px] font-semibold uppercase tracking-[0.09em] text-subtle',
+          // The same overline recipe as SectionLabel, so a grid header and a
+          // panel label read as one treatment rather than two near-misses.
+          sectionLabelVariants(),
           className,
         )}
         style={{ gridTemplateColumns: columns, columnGap }}
@@ -120,7 +127,11 @@ export interface DataGridRowProps extends React.HTMLAttributes<HTMLDivElement> {
   onClick?: React.MouseEventHandler<HTMLDivElement>;
   /** Accessible label for a clickable row, e.g. "Open pr-review". */
   rowLabel?: string;
-  /** Hides the bottom border. Set on the last row so the frame closes cleanly. */
+  /**
+   * @deprecated The last row's border is now derived by `DataGrid` in CSS, so
+   * nothing needs to be told which row is last. Still honoured — passing
+   * `last` hides the bottom border as before — but new code should omit it.
+   */
   last?: boolean;
 }
 
@@ -149,8 +160,8 @@ const DataGridRow = React.forwardRef<HTMLDivElement, DataGridRowProps>(
             : undefined
         }
         className={cn(
-          'grid items-center px-4 py-3',
-          last ? '' : 'border-b border-border-subtle',
+          'grid items-center border-b border-border-subtle px-4 py-3',
+          last && 'border-b-0',
           clickable &&
             'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
           className,

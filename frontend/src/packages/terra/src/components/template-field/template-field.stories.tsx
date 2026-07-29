@@ -168,9 +168,9 @@ export const Empty: Story = {
 };
 
 /**
- * A token the catalog does not know. It is not a blocking error — the backend
- * renders it as the empty string — but it reads as wrong, because it is nearly
- * always a typo for something real.
+ * A token the catalog does not know. It is not a blocking error: an unresolved
+ * token renders as the empty string. It reads as wrong all the same, because it
+ * is nearly always a typo for something real.
  */
 export const UnknownToken: Story = {
   render: () => (
@@ -200,7 +200,7 @@ export const LongCatalogWithGroups: Story = {
 /**
  * The preview panel, showing the template with every field replaced by its
  * sample value. `repo.default_branch` and the rest resolve; anything without a
- * sample renders empty, matching the backend.
+ * sample renders empty.
  */
 export const PreviewOn: Story = {
   render: () => (

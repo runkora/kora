@@ -73,7 +73,7 @@ describe('TemplateField', () => {
     );
     const pill = editorOf(container).querySelector('[data-slot="template-token"]');
     expect(pill).toHaveAttribute('data-known', 'false');
-    expect(pill).toHaveAttribute('title', 'Unknown field: renders empty');
+    expect(pill).toHaveAttribute('title', 'Not in this catalog: renders empty');
     expect(pill?.getAttribute('class')).toContain('text-status-error');
   });
 
@@ -252,7 +252,7 @@ describe('TemplateField preview', () => {
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     const panel = container.querySelector('[data-slot="template-field-preview"]');
     // repo.full_name has no example, so it renders empty — exactly what the
-    // backend does with a field it cannot resolve.
+    // editor does with a field it cannot resolve.
     expect(panel?.textContent).toContain('Review Fix login retry in ');
   });
 

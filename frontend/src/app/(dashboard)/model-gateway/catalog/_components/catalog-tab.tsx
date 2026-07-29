@@ -7,6 +7,7 @@ import {
   Grid,
   Heading,
   Stack,
+  StatCard,
   Tabs,
   TabsContent,
   TabsList,
@@ -20,7 +21,6 @@ import type {
 } from '../../_services/catalog-server';
 import type { VirtualModel } from '../_types/catalog';
 import { toVirtualModel, toProviderModel } from '../_utils/catalog-api';
-import { StatCard } from './stat-card';
 import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import { EditorPanel } from './editor-panel';
@@ -95,28 +95,28 @@ export function CatalogTab({
 
       <Grid cols={{ base: 2, lg: 4 }} gap="snug">
         <StatCard
-          icon={<Icon name="layers" />}
+          icon={<Icon name="layers" size="xs" />}
           label="Virtual Models"
-          value={virtualModels.length}
-          sub={`${enabledVMs} enabled`}
+          value={String(virtualModels.length)}
+          detail={`${enabledVMs} enabled`}
         />
         <StatCard
-          icon={<Icon name="circle-dot" />}
+          icon={<Icon name="circle-dot" size="xs" />}
           label="Provider Models"
-          value={providerModels.length}
-          sub={`${enabledPMs} enabled`}
+          value={String(providerModels.length)}
+          detail={`${enabledPMs} enabled`}
         />
         <StatCard
-          icon={<Icon name="network" />}
+          icon={<Icon name="network" size="xs" />}
           label="Connected Providers"
-          value={connectedProviders || '—'}
-          sub={connectedProviders > 0 ? 'discovered' : 'none yet'}
+          value={connectedProviders > 0 ? String(connectedProviders) : '—'}
+          detail={connectedProviders > 0 ? 'discovered' : 'none yet'}
         />
         <StatCard
-          icon={<Icon name="shield-check" />}
+          icon={<Icon name="shield-check" size="xs" />}
           label="Policy Scopes"
-          value={virtualModels.length}
-          sub="auto-registered"
+          value={String(virtualModels.length)}
+          detail="auto-registered"
         />
       </Grid>
 

@@ -1,5 +1,54 @@
 import * as React from 'react';
+import { cva } from 'class-variance-authority';
 import { cn } from '../../utils';
+
+/** @tier 1 — Zero Orbit domain knowledge. A row of mutually exclusive filters on one track. */
+
+const segmentedControlVariants = cva([
+  'inline-flex',
+  'gap-1',
+  'rounded-md',
+  'border',
+  'border-border-subtle',
+  'bg-surface',
+  'p-[3px]',
+]);
+
+const segmentedControlOptionVariants = cva(
+  [
+    'inline-flex',
+    'h-7',
+    'cursor-pointer',
+    'items-center',
+    'gap-1.5',
+    'rounded-[6px]',
+    'border-none',
+    'px-[11px]',
+    'font-sans',
+    'text-xs',
+    'transition-colors',
+    'focus-visible:outline-2',
+    'focus-visible:-outline-offset-2',
+    'focus-visible:outline-accent',
+  ],
+  {
+    variants: {
+      selected: {
+        true: 'bg-surface-overlay font-semibold text-foreground',
+        false: 'bg-transparent font-medium text-muted hover:text-foreground',
+      },
+    },
+    defaultVariants: { selected: false },
+  },
+);
+
+/** The trailing count. Monospaced so numbers align down the row. */
+const segmentedControlCountVariants = cva([
+  'font-mono',
+  'text-[10px]',
+  'font-medium',
+  'text-subtle',
+]);
 
 export interface SegmentedControlOption {
   /** Stable value passed to `onChange`. */
@@ -37,6 +86,14 @@ export interface SegmentedControlProps extends Omit<
  * Prefer `Tabs` when the options swap between genuinely different views rather
  * than filtering one.
  *
+ * **Semantics.** A `group` of toggle buttons each carrying `aria-pressed`, not
+ * a radio group. A radio group promises the roving-tabindex keyboard contract —
+ * one tab stop for the set, arrow keys to move between options, selection
+ * following focus — and this does not implement it. Announcing an honest set of
+ * toggle buttons that Tab reaches individually beats announcing a contract the
+ * keyboard does not honour. Rebuild on Radix ToggleGroup if the roving model is
+ * ever wanted; the `options` API would not have to change.
+ *
  * ```tsx
  * <SegmentedControl
  *   aria-label="Filter by kind"
@@ -53,12 +110,9 @@ const SegmentedControl = React.forwardRef<HTMLDivElement, SegmentedControlProps>
   ({ options, value, onChange, className, ...props }, ref) => (
     <div
       ref={ref}
-      role="radiogroup"
+      role="group"
       data-slot="segmented-control"
-      className={cn(
-        'inline-flex gap-1 rounded-md border border-border-subtle bg-surface p-[3px]',
-        className,
-      )}
+      className={cn(segmentedControlVariants(), className)}
       {...props}
     >
       {options.map((o) => {
@@ -67,22 +121,16 @@ const SegmentedControl = React.forwardRef<HTMLDivElement, SegmentedControlProps>
           <button
             key={o.value}
             type="button"
-            role="radio"
-            aria-checked={selected}
+            aria-pressed={selected}
             data-slot="segmented-control-option"
             data-state={selected ? 'active' : 'inactive'}
             onClick={() => onChange(o.value)}
-            className={cn(
-              'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] border-none px-[11px] font-sans text-xs transition-colors',
-              selected
-                ? 'bg-surface-overlay font-semibold text-foreground'
-                : 'bg-transparent font-medium text-muted hover:text-foreground',
-            )}
+            className={cn(segmentedControlOptionVariants({ selected }))}
           >
             {o.icon}
             {o.label}
             {o.count !== undefined && (
-              <span className="font-mono text-[10.5px] font-medium text-subtle">{o.count}</span>
+              <span className={cn(segmentedControlCountVariants())}>{o.count}</span>
             )}
           </button>
         );
@@ -92,4 +140,4 @@ const SegmentedControl = React.forwardRef<HTMLDivElement, SegmentedControlProps>
 );
 SegmentedControl.displayName = 'SegmentedControl';
 
-export { SegmentedControl };
+export { SegmentedControl, segmentedControlVariants, segmentedControlOptionVariants };

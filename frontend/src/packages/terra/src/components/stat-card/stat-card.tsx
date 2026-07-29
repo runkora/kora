@@ -1,10 +1,18 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
+import { sectionLabelVariants } from '../section-label';
+
+/** @tier 1 — Zero Orbit domain knowledge. One headline figure in a row of them. */
 
 /**
  * Tone drives the value and icon colour together, so a card that is reporting a
  * problem reads as one at a glance rather than requiring the label to be read.
+ *
+ * 25px is off the type scale deliberately: `Heading variant="metric"` is 30px
+ * sans, and monospaced digits at that size overflow a five-across row. 25px
+ * mono is the optical match for the sans metric at the density this card is
+ * built for. Do not "snap" it.
  */
 const valueVariants = cva(['font-mono', 'font-bold', 'text-[25px]', 'tracking-[-0.02em]'], {
   variants: {
@@ -75,14 +83,13 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
       {...props}
     >
       <div className="flex items-center justify-between">
-        <span className="font-sans text-[10px] font-semibold tracking-[0.11em] text-subtle">
-          {label}
-        </span>
+        {/* The same overline recipe as SectionLabel and the DataGrid header. */}
+        <span className={cn(sectionLabelVariants())}>{label}</span>
         {icon != null && <span className={cn(iconVariants({ tone }))}>{icon}</span>}
       </div>
       <div className={cn('mt-[11px]', valueVariants({ tone }))}>{value}</div>
       {detail != null && (
-        <div className={cn('mt-1 text-[11.5px]', detailToneClass[detailTone])}>{detail}</div>
+        <div className={cn('mt-1 text-[11px]', detailToneClass[detailTone])}>{detail}</div>
       )}
     </div>
   ),

@@ -1,24 +1,20 @@
 import * as React from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../utils';
+import {
+  settingsRowDescriptionVariants,
+  settingsRowLabelVariants,
+  settingsRowSurfaceVariants,
+} from './settings-row-surface';
 
 /** @tier 1 — Zero Orbit domain knowledge. A read-only settings row: label, description, value. */
 
 /**
- * The container is shared with `ToggleRow` so a settings pane made of both
- * reads as one stack rather than two competing row treatments.
+ * The plain settings-row container. An alias for the shared surface
+ * (`settings-row-surface.ts`), which `ToggleRow` and `DangerZone` also draw
+ * from, so a settings pane made of all three reads as one stack.
  */
-const settingRowVariants = cva([
-  'flex',
-  'items-center',
-  'gap-[12px]',
-  'rounded-md',
-  'border',
-  'border-border-subtle',
-  'bg-background',
-  'px-[14px]',
-  'py-[12px]',
-]);
+const settingRowVariants = () => settingsRowSurfaceVariants();
 
 const settingValueVariants = cva([
   'shrink-0',
@@ -71,9 +67,9 @@ const SettingRow = React.forwardRef<HTMLDivElement, SettingRowProps>(
       {...props}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] font-semibold text-foreground">{label}</div>
+        <div className={cn(settingsRowLabelVariants())}>{label}</div>
         {description != null && (
-          <div className="mt-[2px] text-[11.5px] text-muted">{description}</div>
+          <div className={cn(settingsRowDescriptionVariants())}>{description}</div>
         )}
       </div>
       <div data-slot="setting-row-value" className={cn(settingValueVariants())}>
@@ -85,3 +81,8 @@ const SettingRow = React.forwardRef<HTMLDivElement, SettingRowProps>(
 SettingRow.displayName = 'SettingRow';
 
 export { SettingRow, settingRowVariants };
+export {
+  settingsRowSurfaceVariants,
+  settingsRowLabelVariants,
+  settingsRowDescriptionVariants,
+} from './settings-row-surface';

@@ -19,8 +19,14 @@
  */
 
 /**
- * The token pattern, matching the backend's renderer exactly. Dotted paths of
- * word characters, optionally padded inside the braces.
+ * The token grammar this editor recognises: a dotted path of word characters
+ * inside double braces, optionally padded (`{{ pr.title }}` and `{{pr.title}}`
+ * are the same token).
+ *
+ * Exported because a consumer's own renderer has to agree with this grammar
+ * for a template written here to mean the same thing when it is rendered. Match
+ * against this source rather than restating the pattern, and the two cannot
+ * drift.
  */
 export const TOKEN_PATTERN_SOURCE = '\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*\\}\\}';
 
@@ -310,7 +316,8 @@ export function exampleMap(catalog: readonly TemplateCatalogEntry[]): Map<string
 /**
  * Render a template with each token replaced by its sample value. Tokens with
  * no sample, and tokens absent from the map entirely, render as the empty
- * string — the same thing the backend renderer does with an unknown field.
+ * string: an unresolved token contributes nothing rather than leaking its own
+ * braces into the output.
  */
 export function renderPreview(value: string, examples: ReadonlyMap<string, string>): string {
   return parseTemplate(value)

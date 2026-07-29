@@ -1,26 +1,20 @@
 import * as React from 'react';
-import { cva } from 'class-variance-authority';
 import { cn } from '../../utils';
+import {
+  settingsRowDescriptionVariants,
+  settingsRowLabelVariants,
+  settingsRowSurfaceVariants,
+} from '../setting-row/settings-row-surface';
 
 /** @tier 1 — Zero Orbit domain knowledge. The destructive action at the foot of a settings pane. */
 
 /**
- * Error tint at 7% rather than the 5% used by `Callout`/`Alert`: this row sits
- * alone at the foot of a pane with no icon or heading to carry the warning, so
- * the surface has to do it.
+ * The shared settings-row surface in its danger tone, so the destructive row
+ * lines up with the settings above it and differs only in colour — which is the
+ * whole signal. The tint rationale lives with the recipe.
  */
-const dangerZoneVariants = cva([
-  'flex',
-  'items-center',
-  'justify-between',
-  'gap-[12px]',
-  'rounded-md',
-  'border',
-  'border-status-error/30',
-  'bg-status-error/[0.07]',
-  'px-[14px]',
-  'py-[13px]',
-]);
+const dangerZoneVariants = () =>
+  cn(settingsRowSurfaceVariants({ tone: 'danger' }), 'justify-between');
 
 export interface DangerZoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
   /** Names the destructive action, e.g. "Delete this agent". */
@@ -56,9 +50,9 @@ const DangerZone = React.forwardRef<HTMLDivElement, DangerZoneProps>(
       {...props}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] font-semibold text-status-error">{title}</div>
+        <div className={cn(settingsRowLabelVariants({ tone: 'danger' }))}>{title}</div>
         {description != null && (
-          <div className="mt-[2px] text-[11.5px] text-muted">{description}</div>
+          <div className={cn(settingsRowDescriptionVariants())}>{description}</div>
         )}
       </div>
       {action != null && (

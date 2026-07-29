@@ -6,7 +6,7 @@ import { Icon } from '../icon';
 import { NativeSelect } from '../native-select';
 import { DataGridFooter } from './data-grid';
 
-export interface DataGridPaginationProps {
+export interface DataGridPaginationProps extends React.HTMLAttributes<HTMLDivElement> {
   /** First visible row, 1-based. 0 when the list is empty. */
   from: number;
   /** Last visible row, 1-based. */
@@ -60,10 +60,12 @@ const DataGridPagination = React.forwardRef<HTMLDivElement, DataGridPaginationPr
       onPageChange,
       onPageSizeChange,
       noun = 'rows',
+      className,
+      ...props
     },
     ref,
   ) => (
-    <DataGridFooter ref={ref} data-slot="data-grid-pagination">
+    <DataGridFooter ref={ref} data-slot="data-grid-pagination" className={className} {...props}>
       <span className="text-xs whitespace-nowrap text-subtle">
         {from}–{to} of {total}
       </span>

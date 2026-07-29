@@ -220,7 +220,7 @@ describe('renderPreview', () => {
     expect(renderPreview(TPL, examples)).toBe('Review Fix login retry on orbital/orbit');
   });
 
-  it('renders unknown fields as the empty string, like the backend', () => {
+  it('renders unknown fields as the empty string', () => {
     expect(renderPreview('a {{ nope }} b', examples)).toBe('a  b');
   });
 

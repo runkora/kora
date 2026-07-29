@@ -15,7 +15,7 @@ export interface TemplateCatalogListProps {
    * deliveries". Shown above the results so a narrowed catalog visibly says
    * why it narrowed.
    */
-  contextLabel?: string;
+  catalogLabel?: string;
   /** Called with the bare token when a row is chosen. */
   onSelect: (token: string) => void;
   /** Focus the search box on mount. Defaults to true. */
@@ -36,7 +36,7 @@ export interface TemplateCatalogListProps {
  * description of a family, not a field that resolves to anything.
  */
 export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCatalogListProps>(
-  ({ catalog, contextLabel, onSelect, autoFocusSearch = true, className }, ref) => {
+  ({ catalog, catalogLabel, onSelect, autoFocusSearch = true, className }, ref) => {
     const [query, setQuery] = React.useState('');
     const [active, setActive] = React.useState(0);
 
@@ -101,9 +101,9 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
           data-slot="template-catalog-search"
         />
 
-        {contextLabel && (
+        {catalogLabel && (
           <Text size="micro" color="subtle" className="px-2 pt-1">
-            {contextLabel}
+            {catalogLabel}
           </Text>
         )}
 

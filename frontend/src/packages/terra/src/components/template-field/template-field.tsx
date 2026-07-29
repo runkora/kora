@@ -66,13 +66,14 @@ const PILL_BASE =
 const PILL_KNOWN = 'border-accent/30 bg-accent/15 text-accent';
 
 /**
- * A token the catalog does not know about. It is not an error the person must
- * fix before saving — the backend simply renders it empty — but it should look
- * wrong, because it almost always is a typo.
+ * A token the catalog does not know about. Not an error the person must fix
+ * before saving: an unresolved token renders as the empty string, so the
+ * template is still valid. It should look wrong all the same, because it
+ * almost always is a typo.
  */
 const PILL_UNKNOWN = 'border-status-error/30 bg-status-error/15 text-status-error';
 
-const UNKNOWN_TITLE = 'Unknown field: renders empty';
+const UNKNOWN_TITLE = 'Not in this catalog: renders empty';
 
 function buildPill(doc: Document, token: string, known: boolean): HTMLElement {
   const el = doc.createElement('span');
@@ -477,7 +478,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
             <PopoverContent align="start" className="p-1.5">
               <TemplateCatalogList
                 catalog={catalog}
-                contextLabel={catalogLabel}
+                catalogLabel={catalogLabel}
                 onSelect={insertToken}
               />
             </PopoverContent>

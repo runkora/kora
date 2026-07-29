@@ -12,6 +12,12 @@ export type EyebrowProps = React.ComponentPropsWithoutRef<'span'>;
  * `<Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">`:
  * 11 px, bold, uppercase, widened tracking, subtle colour.
  *
+ * **Prefer `SectionLabel` in new code.** The two draw the same visual idea at
+ * slightly different weights, and `SectionLabel` is the one the rest of Terra
+ * (DataGrid headers, StatCard labels, TemplateField's preview) is built on, so
+ * its `sectionLabelVariants` recipe is what keeps overlines consistent. This
+ * one stays for the inline `<span>` case and its existing callers.
+ *
  * ```tsx
  * <Eyebrow>Audit</Eyebrow>
  * ```

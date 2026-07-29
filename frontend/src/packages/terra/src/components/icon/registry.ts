@@ -8,10 +8,13 @@
  *   1. Import the Lucide component here.
  *   2. Add the kebab-case name to the IconName union.
  *   3. Add the mapping to ICON_REGISTRY.
+ *
+ * All three lists are kept in alphabetical order (the imports by Lucide name,
+ * the union and the map by Terra name) so an addition has exactly one correct
+ * home and a duplicate is visible on sight. Insert, do not append.
  */
 import {
   Activity,
-  Cpu,
   AlertCircle,
   ArrowDown,
   ArrowLeft,
@@ -21,9 +24,13 @@ import {
   BarChart3,
   Bell,
   Bot,
+  Box,
+  Braces,
+  Building2,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   CircleAlert,
@@ -34,6 +41,7 @@ import {
   Clock,
   Code2,
   Copy,
+  Cpu,
   Database,
   DollarSign,
   Ellipsis,
@@ -44,16 +52,14 @@ import {
   FileText,
   Filter,
   FlaskConical,
+  Gauge,
+  Globe,
   GripVertical,
+  HardDrive,
   Heart,
   Info,
   KeyRound,
-  Play,
-  PlayCircle,
-  SearchX,
   Layers,
-  Webhook,
-  Gauge,
   LayoutDashboard,
   LayoutGrid,
   LayoutList,
@@ -65,12 +71,15 @@ import {
   LogOut,
   Menu,
   Minus,
+  Monitor,
   Moon,
   MoreHorizontal,
   MoreVertical,
   Network,
   PanelLeft,
   Pencil,
+  Play,
+  PlayCircle,
   Plus,
   RefreshCw,
   Rocket,
@@ -78,7 +87,9 @@ import {
   Route,
   ScrollText,
   Search,
+  SearchX,
   Send,
+  Server,
   Settings,
   Shield,
   ShieldCheck,
@@ -86,28 +97,21 @@ import {
   Sparkles,
   SquareTerminal,
   Sun,
+  Table,
   Terminal,
-  HardDrive,
-  Server,
   ThumbsDown,
   ThumbsUp,
-  TrendingUp,
   Trash2,
+  TrendingUp,
   TriangleAlert,
   User,
   UserCheck,
   Users,
+  Webhook,
   Wrench,
   X,
   XCircle,
   Zap,
-  Globe,
-  Monitor,
-  Braces,
-  Table,
-  ChevronLeft,
-  Building2,
-  Box,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -115,13 +119,6 @@ import {
 
 export type IconName =
   | 'activity'
-  | 'globe'
-  | 'monitor'
-  | 'braces'
-  | 'table'
-  | 'chevron-left'
-  | 'building'
-  | 'box'
   | 'alert-circle'
   | 'arrow-down'
   | 'arrow-left'
@@ -131,14 +128,17 @@ export type IconName =
   | 'bar-chart'
   | 'bell'
   | 'bot'
+  | 'box'
+  | 'braces'
+  | 'building'
   | 'check'
   | 'check-circle'
   | 'chevron-down'
+  | 'chevron-left'
   | 'chevron-right'
   | 'chevron-up'
   | 'circle-alert'
   | 'circle-check'
-  | 'cpu'
   | 'circle-dot'
   | 'circle-x'
   | 'clipboard'
@@ -146,6 +146,7 @@ export type IconName =
   | 'close'
   | 'code-2'
   | 'copy'
+  | 'cpu'
   | 'database'
   | 'dollar-sign'
   | 'edit'
@@ -157,13 +158,14 @@ export type IconName =
   | 'file-text'
   | 'filter'
   | 'flask'
+  | 'gauge'
+  | 'globe'
   | 'grip-vertical'
+  | 'hard-drive'
   | 'heart'
   | 'info'
   | 'key'
   | 'layers'
-  | 'webhook'
-  | 'gauge'
   | 'layout-dashboard'
   | 'layout-grid'
   | 'layout-list'
@@ -175,6 +177,7 @@ export type IconName =
   | 'log-out'
   | 'menu'
   | 'minus'
+  | 'monitor'
   | 'moon'
   | 'more-horizontal'
   | 'more-vertical'
@@ -191,6 +194,7 @@ export type IconName =
   | 'search'
   | 'search-x'
   | 'send'
+  | 'server'
   | 'settings'
   | 'shield'
   | 'shield-check'
@@ -198,17 +202,17 @@ export type IconName =
   | 'sparkles'
   | 'square-terminal'
   | 'sun'
+  | 'table'
   | 'terminal'
-  | 'hard-drive'
-  | 'server'
   | 'thumbs-down'
   | 'thumbs-up'
-  | 'trending-up'
   | 'trash'
+  | 'trending-up'
   | 'triangle-alert'
   | 'user'
   | 'user-check'
   | 'users'
+  | 'webhook'
   | 'wrench'
   | 'x-circle'
   | 'zap';
@@ -217,13 +221,6 @@ export type IconName =
 
 export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   activity: Activity,
-  globe: Globe,
-  monitor: Monitor,
-  braces: Braces,
-  table: Table,
-  'chevron-left': ChevronLeft,
-  building: Building2,
-  box: Box,
   'alert-circle': AlertCircle,
   'arrow-down': ArrowDown,
   'arrow-left': ArrowLeft,
@@ -233,13 +230,16 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'bar-chart': BarChart3,
   bell: Bell,
   bot: Bot,
+  box: Box,
+  braces: Braces,
+  building: Building2,
   check: Check,
   'check-circle': CheckCircle2,
   'chevron-down': ChevronDown,
+  'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
   'chevron-up': ChevronUp,
   'circle-alert': CircleAlert,
-  cpu: Cpu,
   'circle-check': CircleCheck,
   'circle-dot': CircleDot,
   'circle-x': CircleX,
@@ -248,6 +248,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   close: X,
   'code-2': Code2,
   copy: Copy,
+  cpu: Cpu,
   database: Database,
   'dollar-sign': DollarSign,
   edit: Pencil,
@@ -259,13 +260,14 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'file-text': FileText,
   filter: Filter,
   flask: FlaskConical,
+  gauge: Gauge,
+  globe: Globe,
   'grip-vertical': GripVertical,
+  'hard-drive': HardDrive,
   heart: Heart,
   info: Info,
   key: KeyRound,
   layers: Layers,
-  webhook: Webhook,
-  gauge: Gauge,
   'layout-dashboard': LayoutDashboard,
   'layout-grid': LayoutGrid,
   'layout-list': LayoutList,
@@ -277,6 +279,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'log-out': LogOut,
   menu: Menu,
   minus: Minus,
+  monitor: Monitor,
   moon: Moon,
   'more-horizontal': MoreHorizontal,
   'more-vertical': MoreVertical,
@@ -293,6 +296,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   search: Search,
   'search-x': SearchX,
   send: Send,
+  server: Server,
   settings: Settings,
   shield: Shield,
   'shield-check': ShieldCheck,
@@ -300,17 +304,17 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   sparkles: Sparkles,
   'square-terminal': SquareTerminal,
   sun: Sun,
+  table: Table,
   terminal: Terminal,
-  'hard-drive': HardDrive,
-  server: Server,
   'thumbs-down': ThumbsDown,
   'thumbs-up': ThumbsUp,
-  'trending-up': TrendingUp,
   trash: Trash2,
+  'trending-up': TrendingUp,
   'triangle-alert': TriangleAlert,
   user: User,
   'user-check': UserCheck,
   users: Users,
+  webhook: Webhook,
   wrench: Wrench,
   'x-circle': XCircle,
   zap: Zap,
