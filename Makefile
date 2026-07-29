@@ -698,6 +698,7 @@ cluster-operator-chart: ## helm upgrade --install the operator chart (CRDs + ope
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
 		--namespace orbit-operator --create-namespace \
+		--server-side=true \
 		--force-conflicts \
 		--timeout 90s --wait
 
