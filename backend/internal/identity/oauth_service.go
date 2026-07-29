@@ -47,12 +47,7 @@ func pkceS256(verifier string) string {
 }
 
 // isLoopbackRedirect reports whether a redirect URI targets a loopback address.
-// Used by RegisterClient (DCR) to enforce the RFC 8252 loopback-only restriction
-// for dynamically-registered public clients, which are native/desktop MCP apps.
-// Pre-registered OAuthClient CRs (hosted web apps) bypass this check — their
-// redirect URIs are admin-reviewed GitOps config, so non-loopback HTTPS URLs
-// are permitted. The authorize-time gate for every client is the exact-match
-// AllowsRedirect check in CreateAuthCode, not this loopback test.
+// Used by the BFF consent layer and as a sub-check within isValidDCRRedirectURI.
 func isLoopbackRedirect(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -61,6 +56,32 @@ func isLoopbackRedirect(raw string) bool {
 	switch u.Hostname() {
 	case "127.0.0.1", "localhost", "::1":
 		return true
+	default:
+		return false
+	}
+}
+
+// isValidDCRRedirectURI reports whether a redirect URI is acceptable for
+// dynamic client registration (RFC 7591). Acceptable URIs are:
+//   - loopback http or https (RFC 8252 §8.3, for native/desktop clients)
+//   - non-loopback https (for remote/hosted MCP clients such as Claude Desktop)
+//
+// Non-loopback plain-http is rejected: it sends the authorization code over an
+// unencrypted channel to a remote host, enabling trivial code theft. The
+// authorize-time gate for every DCR client is the exact-match AllowsRedirect
+// check in CreateAuthCode — this function only guards what may be registered.
+// Pre-registered OAuthClient CRs (admin-reviewed GitOps config) skip this check
+// entirely and may declare any well-formed http(s) redirect URI.
+func isValidDCRRedirectURI(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackRedirect(raw)
 	default:
 		return false
 	}
@@ -97,9 +118,9 @@ func (s *Service) CreateAuthCode(ctx context.Context, human AuthCode, p Authoriz
 	// The client_id must be registered (via DCR or a pre-registered OAuthClient
 	// CR), and the redirect_uri must be one it registered. AllowsRedirect (exact
 	// string match) is the security gate: it covers both loopback and non-loopback
-	// URIs for registered clients, so there is no open-redirect exposure. The
-	// loopback restriction is enforced at DCR registration time only (RegisterClient)
-	// — pre-registered hosted-app clients may declare non-loopback redirect URIs.
+	// URIs for registered clients, so there is no open-redirect exposure. DCR
+	// accepts loopback and non-loopback HTTPS URIs (isValidDCRRedirectURI);
+	// pre-registered OAuthClient CRs may also declare non-loopback URIs.
 	client, err := s.clients.Get(ctx, p.ClientID)
 	if errors.Is(err, ErrClientNotFound) {
 		return "", fmt.Errorf("%w: unknown client_id", ErrInvalidOAuthRequest)
@@ -250,8 +271,10 @@ func (s *Service) GetClient(ctx context.Context, clientID string) (RegisteredCli
 }
 
 // RegisterClient validates a dynamic client registration and stores a new public
-// client. Public clients only (no secret; PKCE is the proof) with loopback
-// redirect URIs. Returns ErrDCRDisabled when open registration is turned off.
+// client. Public clients only (no secret; PKCE is the proof). Redirect URIs
+// must be loopback addresses (RFC 8252, native clients) or non-loopback HTTPS
+// (remote/hosted MCP clients such as Claude Desktop). Returns ErrDCRDisabled
+// when open registration is turned off.
 func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequest) (RegisteredClient, error) {
 	if s.cfg.OAuth.RequirePreRegistration {
 		return RegisteredClient{}, ErrDCRDisabled
@@ -260,8 +283,8 @@ func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequ
 		return RegisteredClient{}, fmt.Errorf("%w: at least one redirect_uri is required", ErrInvalidClientMetadata)
 	}
 	for _, u := range req.RedirectURIs {
-		if !isLoopbackRedirect(u) {
-			return RegisteredClient{}, fmt.Errorf("%w: redirect_uris must be loopback addresses", ErrInvalidClientMetadata)
+		if !isValidDCRRedirectURI(u) {
+			return RegisteredClient{}, fmt.Errorf("%w: redirect_uris must be loopback addresses or non-loopback https", ErrInvalidClientMetadata)
 		}
 	}
 	// Only public clients — the flow relies on PKCE, not a client secret.

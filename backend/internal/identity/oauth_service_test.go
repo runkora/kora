@@ -225,18 +225,23 @@ func TestOAuth_RegisterClient_Validation(t *testing.T) {
 	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{}); !errors.Is(err, ErrInvalidClientMetadata) {
 		t.Errorf("no redirect_uris should be invalid_client_metadata, got %v", err)
 	}
-	// non-loopback redirect
-	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{"https://evil.com/cb"}}); !errors.Is(err, ErrInvalidClientMetadata) {
-		t.Errorf("non-loopback redirect should be invalid_client_metadata, got %v", err)
+	// non-loopback plain HTTP redirect — rejected (unencrypted code exfiltration risk)
+	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{"http://evil.com/cb"}}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("non-loopback http redirect should be invalid_client_metadata, got %v", err)
 	}
 	// confidential client (secret auth) rejected — public only
 	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{testRedirect}, TokenEndpointAuthMethod: "client_secret_post"}); !errors.Is(err, ErrInvalidClientMetadata) {
 		t.Errorf("confidential client should be rejected, got %v", err)
 	}
-	// valid
+	// valid loopback
 	c, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{testRedirect}})
 	if err != nil || c.ClientID == "" {
-		t.Errorf("valid registration failed: %v / %+v", err, c)
+		t.Errorf("valid loopback registration failed: %v / %+v", err, c)
+	}
+	// valid non-loopback HTTPS — remote MCP clients like Claude Desktop
+	c2, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{"https://claude.ai/api/mcp/callback"}, ClientName: "Claude Desktop"})
+	if err != nil || c2.ClientID == "" {
+		t.Errorf("valid https registration failed: %v / %+v", err, c2)
 	}
 }
 
@@ -296,13 +301,55 @@ func TestOAuth_StaticClient_UnregisteredRedirectDenied(t *testing.T) {
 	}
 }
 
-func TestOAuth_DCR_NonLoopbackStillRejected(t *testing.T) {
+func TestOAuth_DCR_NonLoopbackHTTPRejected(t *testing.T) {
 	svc := newOAuthTestService(t)
-	// Dynamic client registration must still reject non-loopback URIs (RFC 8252);
-	// only admin-reviewed OAuthClient CRs may declare hosted HTTPS redirects.
+	// Non-loopback plain HTTP is rejected — it would send the authorization code
+	// over an unencrypted channel to a remote host (code exfiltration).
 	if _, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{
-		RedirectURIs: []string{testHostedRedirect}, TokenEndpointAuthMethod: "none",
+		RedirectURIs: []string{"http://remote.example.com/cb"}, TokenEndpointAuthMethod: "none",
 	}); !errors.Is(err, ErrInvalidClientMetadata) {
-		t.Errorf("DCR with a non-loopback redirect must be ErrInvalidClientMetadata, got %v", err)
+		t.Errorf("DCR with a non-loopback http redirect must be ErrInvalidClientMetadata, got %v", err)
+	}
+}
+
+func TestOAuth_DCR_NonLoopbackHTTPSAllowed(t *testing.T) {
+	svc := newOAuthTestService(t)
+	// Non-loopback HTTPS is now accepted for remote MCP clients (e.g. Claude Desktop).
+	c, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{
+		RedirectURIs: []string{testHostedRedirect}, TokenEndpointAuthMethod: "none",
+	})
+	if err != nil || c.ClientID == "" {
+		t.Errorf("DCR with a non-loopback https redirect must succeed, got err=%v client=%+v", err, c)
+	}
+	if !c.AllowsRedirect(testHostedRedirect) {
+		t.Errorf("registered client must allow its own redirect URI")
+	}
+}
+
+func TestIsValidDCRRedirectURI(t *testing.T) {
+	allowed := []string{
+		"http://127.0.0.1:8080/cb",
+		"http://localhost:1234/cb",
+		"https://localhost/cb",
+		"https://claude.ai/api/mcp/callback",
+		"https://app.example.com/auth/callback",
+	}
+	for _, u := range allowed {
+		if !isValidDCRRedirectURI(u) {
+			t.Errorf("expected DCR redirect allowed: %s", u)
+		}
+	}
+	rejected := []string{
+		"http://evil.com/cb",
+		"http://remote.example.com/cb",
+		"not a url",
+		"ftp://localhost/cb",
+		"",
+		"://bad",
+	}
+	for _, u := range rejected {
+		if isValidDCRRedirectURI(u) {
+			t.Errorf("expected DCR redirect rejected: %s", u)
+		}
 	}
 }
