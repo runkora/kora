@@ -85,6 +85,19 @@ type config struct {
 type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
+	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
+}
+
+// instPermsCacheTTL is how long the installation's permission set is cached
+// before re-fetching from GitHub. The set changes only when an admin modifies
+// the App installation; a short TTL avoids thundering-herd on first use while
+// keeping the adapter responsive to permission changes within minutes.
+const instPermsCacheTTL = 5 * time.Minute
+
+// cachedInstPerms holds a fetched installation permission set and its expiry.
+type cachedInstPerms struct {
+	perms     map[string]string
+	expiresAt time.Time
 }
 
 // Adapter mints short-lived GitHub App installation tokens. Tokens are scoped to
@@ -96,19 +109,21 @@ type Adapter struct {
 	logger  logging.Logger
 	now     func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]credentials.Credential
+	mu            sync.Mutex
+	cache         map[string]credentials.Credential
+	instPermsCache map[int64]cachedInstPerms
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
 // resolver.
 func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Adapter {
 	return &Adapter{
-		api:     api,
-		secrets: secrets,
-		logger:  logger,
-		now:     time.Now,
-		cache:   make(map[string]credentials.Credential),
+		api:            api,
+		secrets:        secrets,
+		logger:         logger,
+		now:            time.Now,
+		cache:          make(map[string]credentials.Credential),
+		instPermsCache: make(map[int64]cachedInstPerms),
 	}
 }
 
@@ -693,13 +708,9 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 
 // categoryPermissionKeys maps each category to the installation-token permission
 // keys it needs. The level minted is the action's verb class (metadata is always
-// read). The repo catch-all/umbrella derives the union of these, minus
-// umbrellaExcludedPermissions (secrets/dependabot_secrets and
-// administration/repository_hooks): an agent that can push should not silently
-// also hold repo-admin or secrets access via the GraphQL catch-all. Those
-// permissions are reached only via their explicit category action, or by
-// declaring them in the connection's permission ceiling, which the umbrella
-// mints verbatim.
+// read). The umbrella (repo:*) uses this map only for explicit per-category
+// actions; the umbrella itself intersects with the installation's actual
+// granted permissions rather than deriving a static union.
 var categoryPermissionKeys = map[string][]string{
 	"metadata": {"metadata"},
 	"contents": {"contents"},
@@ -710,38 +721,14 @@ var categoryPermissionKeys = map[string][]string{
 	"admin":    {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
 }
 
-// umbrellaExcludedPermissions are permission keys the repo:read/repo:write
-// umbrella drops from its DERIVED union (the no-ceiling path in permissionsFor).
-// The umbrella is the catch-all for uncategorized routes (search, GraphQL, and
-// long-tail APIs); none of them is a secrets or repo-administration operation.
-// Two classes are excluded:
-//
-//   - secrets, dependabot_secrets: credential-adjacent and commonly ungranted
-//     (the orbit dev App has no secrets access).
-//   - administration, repository_hooks: repo-management escalation. An agent
-//     that opens a PR over GraphQL should not silently also hold token scope to
-//     rewrite branch protection, manage collaborators, delete the repo, or
-//     reconfigure webhooks.
-//
-// Unioning any of these into the umbrella is wrong in both directions: when the
-// App lacks the permission every umbrella mint fails with GitHub 422
-// "permissions not granted to this installation" (breaking all GraphQL egress),
-// and when the App holds it every GraphQL token is silently widened to admin.
-//
-// The exclusion applies ONLY to the derived union. These permissions remain
-// reachable two deliberate ways: an explicit admin:read / admin:write action,
-// and a connection permission ceiling — the umbrella mints a declared ceiling
-// verbatim, so an operator that lists them there has opted in.
-var umbrellaExcludedPermissions = map[string]bool{
-	"secrets":            true,
-	"dependabot_secrets": true,
-	"administration":     true,
-	"repository_hooks":   true,
-}
-
 // permissionsFor derives the installation-token permission set for the
 // classified action, intersected with the connection's declared ceiling.
-func permissionsFor(action string, ceiling map[string]string) map[string]string {
+// installationPerms is the App installation's actual granted permissions (from
+// GetInstallationPermissions); it is used as the intersection floor for the
+// repo:* umbrella when no explicit ceiling is declared, so the umbrella can
+// never request a permission the installation does not hold. For non-umbrella
+// categories (and umbrella with a declared ceiling) installationPerms is unused.
+func permissionsFor(action string, ceiling map[string]string, installationPerms map[string]string) map[string]string {
 	category, verb := splitAction(action)
 
 	derived := map[string]string{}
@@ -754,22 +741,23 @@ func permissionsFor(action string, ceiling map[string]string) map[string]string 
 		}
 	default:
 		// The repo catch-all/umbrella (and, defensively, anything unrecognized):
-		// the configured ceiling verbatim when declared, else the union of every
-		// category at the action's verb class.
+		// when a ceiling is declared, mint it verbatim. Otherwise, mint the
+		// intersection of the action's verb class with the installation's actual
+		// granted permissions so the umbrella never requests a level the
+		// installation does not hold (which would 422).
 		if len(ceiling) > 0 {
 			return maps.Clone(ceiling)
 		}
-		for cat, keys := range categoryPermissionKeys {
+		for key, grantedLevel := range installationPerms {
 			level := verb
-			if cat == catMetadata {
+			if key == catMetadata {
 				level = verbRead
 			}
-			for _, key := range keys {
-				if umbrellaExcludedPermissions[key] {
-					continue
-				}
-				derived[key] = level
+			// Cap at the installation's actual grant level.
+			if permissionLevels[grantedLevel] < permissionLevels[level] {
+				level = grantedLevel
 			}
+			derived[key] = level
 		}
 	}
 
@@ -837,6 +825,33 @@ func reposFor(qualifier string, ceiling []string) []string {
 // the git smart-HTTP Basic credential, narrowed to the classified category's
 // permissions and the request's repository. The raw token is also exposed on
 // the returned Credential so the gateway can reformat it as a Bearer for REST.
+// installationPermissions returns the App installation's permission set,
+// fetching from GitHub if the cached entry has expired. Results are cached for
+// instPermsCacheTTL to bound API calls across concurrent umbrella mints.
+func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error) {
+	a.mu.Lock()
+	if cached, ok := a.instPermsCache[installationID]; ok && a.now().Before(cached.expiresAt) {
+		perms := maps.Clone(cached.perms)
+		a.mu.Unlock()
+		return perms, nil
+	}
+	a.mu.Unlock()
+
+	perms, err := a.api.GetInstallationPermissions(ctx, appJWT, installationID)
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	a.instPermsCache[installationID] = cachedInstPerms{
+		perms:     maps.Clone(perms),
+		expiresAt: a.now().Add(instPermsCacheTTL),
+	}
+	a.mu.Unlock()
+
+	return perms, nil
+}
+
 func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id credentials.CallerIdentity) (credentials.Credential, error) {
 	var cfg config
 	if err := json.Unmarshal(conn.Config, &cfg); err != nil {
@@ -846,8 +861,33 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 		return credentials.Credential{}, fmt.Errorf("%w: github_app requires app_id and installation_id", credentials.ErrInvalidConfig)
 	}
 
-	perms := permissionsFor(id.Action, cfg.Permissions)
 	repos := reposFor(id.Qualifier, cfg.Repositories)
+
+	// For the repo:* umbrella with no declared ceiling, derive the permission set
+	// by intersecting with the App installation's actual grants. This prevents
+	// the umbrella from requesting a permission the installation does not hold,
+	// which would cause GitHub to reject the entire token mint with 422.
+	// The installation's permissions are cached (instPermsCacheTTL) so the API
+	// call is amortized across mints; the App JWT is only signed when the cache
+	// is cold.
+	category, _ := splitAction(id.Action)
+	var installationPerms map[string]string
+	if category == catRepo && len(cfg.Permissions) == 0 {
+		pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
+		if err != nil {
+			return credentials.Credential{}, fmt.Errorf("resolve github app secret: %w", err)
+		}
+		appJWT, err := signAppJWT(cfg.AppID, pem, a.now())
+		if err != nil {
+			return credentials.Credential{}, fmt.Errorf("sign github app jwt: %w", err)
+		}
+		installationPerms, err = a.installationPermissions(ctx, appJWT, cfg.InstallationID)
+		if err != nil {
+			return credentials.Credential{}, fmt.Errorf("fetch installation permissions: %w", err)
+		}
+	}
+
+	perms := permissionsFor(id.Action, cfg.Permissions, installationPerms)
 
 	cacheKey := a.cacheKey(conn.ID, repos, perms)
 	if cred, ok := a.cached(cacheKey); ok {
@@ -987,3 +1027,4 @@ func signAppJWT(appID string, privateKeyPEM []byte, now time.Time) (string, erro
 func basicAuth(user, pass string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 }
+
