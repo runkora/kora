@@ -375,6 +375,14 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			apiErr := api.InternalError(api.ErrCodeInternalError,
 				"this agent uses the delegated identity model and no delegation could be minted; the run was not started", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		case errors.Is(err, ErrForbidden):
+			// A refused start is the caller's answer, not a server fault. It
+			// also has to arrive as 403 for the caller to tell it apart from a
+			// broken service: orbit-triggers retries a refusal while a young
+			// grant propagates, and cannot do so if the refusal reads as 500.
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
+				"not permitted to start runs for this agent", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		default:
 			apiErr := api.InternalError(api.ErrCodeInternalError, "failed to start run", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
