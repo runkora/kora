@@ -977,7 +977,7 @@ export function TriggerDrawer({
                   {trigger.overflow === 'wait' && (
                     <SettingRow
                       label="Queue depth"
-                      description="How many deliveries may wait before new ones are refused."
+                      description="How many deliveries may wait. Beyond this the oldest waiting delivery is dropped."
                       value={
                         <StepperControl
                           value={trigger.maxQueueDepth}
@@ -993,7 +993,7 @@ export function TriggerDrawer({
                   )}
                   <SettingRow
                     label="Start timeout"
-                    description="How long a queued delivery may wait before it is dropped."
+                    description="How long dispatch may take to start the run. Orbit gives up after this window."
                     value={
                       <StepperControl
                         value={trigger.timeoutSeconds}
