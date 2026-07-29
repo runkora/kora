@@ -431,6 +431,21 @@ func TestPermissionsFor(t *testing.T) {
 		got["administration"] != "read" || got["repository_hooks"] != "read" {
 		t.Errorf("admin:read must still grant the full admin category, got %v", got)
 	}
+
+	// Unknown level strings from GitHub (not "read"/"write"/"admin") must be
+	// skipped entirely — they must not appear in the minted permissions.
+	unknownLevelPerms := map[string]string{
+		"contents": "write",
+		"issues":   "unknown_level", // GitHub-invented future level, not in permissionLevels
+		"metadata": "read",
+	}
+	gotUnknown := permissionsFor("repo:write", nil, unknownLevelPerms)
+	if _, ok := gotUnknown["issues"]; ok {
+		t.Errorf("umbrella must skip permissions with unknown level, got issues=%q", gotUnknown["issues"])
+	}
+	if gotUnknown["contents"] != "write" {
+		t.Errorf("umbrella must still include known-level permissions, got contents=%q", gotUnknown["contents"])
+	}
 }
 
 // TestAdapter_Resolve_UmbrellaOmitsMissingPermission verifies that the repo:*
