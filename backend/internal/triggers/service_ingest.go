@@ -355,7 +355,7 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	if err != nil {
 		return "", fmt.Errorf("mint trigger token: %w", err)
 	}
-	run, err := s.agents.StartRun(ctx, tok, agentsclient.StartRunRequest{
+	req := agentsclient.StartRunRequest{
 		AgentTypeID:    t.AgentTypeID,
 		InitialMessage: prompt,
 		// The name travels with the ids: orbit-agents does not read the triggers
@@ -364,14 +364,45 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 		TriggerID:   t.ID,
 		TriggerName: t.Name,
 		DeliveryID:  deliveryID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("start run: %w", err)
 	}
-	return run.ID, nil
+
+	// A trigger's run grant is minted when the trigger is created, and is not
+	// visible to orbit-agents until its next OPA bundle poll. A trigger fired
+	// within that window is refused for a reason that is nothing to do with the
+	// fire: the grant exists, it is merely young.
+	//
+	// Retry only while that explanation is available. Once the trigger is older
+	// than the propagation window, a refusal is a real denial (a revoked grant,
+	// a delegated agent type) and retrying would delay an honest failure and
+	// hold a queue slot for the whole budget.
+	retryable := time.Since(t.CreatedAt) < grantPropagationWindow
+
+	var run agentsclient.StartRunResponse
+	backoff := agentTypeRetryInitialBackoff
+	deadline := time.Now().Add(agentTypeRetryBudget)
+	for {
+		run, err = s.agents.StartRun(ctx, tok, req)
+		if err == nil {
+			return run.ID, nil
+		}
+		if !retryable || !errors.Is(err, agentsclient.ErrForbidden) || time.Now().Add(backoff).After(deadline) {
+			return "", fmt.Errorf("start run: %w", err)
+		}
+		s.logger.Debug(ctx, "run start refused, retrying while the grant propagates",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "backoff", Value: backoff.String()},
+		)
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("start run: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
 }
 
-// Retry budget for resolving an agent type under a just-created grant.
+// Retry budget for reaching orbit-agents under a just-created grant, used both
+// when resolving the agent type at create and when starting the first run.
 //
 // The budget is sized against orbit-agents' OPA bundle poll interval
 // (policy.bundlePollIntervalSecs in backend/cmd/orbit-agents/config/base.yaml,
@@ -381,6 +412,12 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 const (
 	agentTypeRetryInitialBackoff = 250 * time.Millisecond
 	agentTypeRetryBudget         = 6 * time.Second
+
+	// How long after a trigger is created a run-start refusal is still
+	// attributable to grant propagation rather than to policy. Deliberately
+	// wider than the retry budget: a fire queued behind others can reach
+	// dispatch well after the trigger was written.
+	grantPropagationWindow = 60 * time.Second
 )
 
 // resolveAgentType looks up an agent type under a given SERVICE principal and

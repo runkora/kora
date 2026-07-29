@@ -7,10 +7,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
-  Badge,
   Button,
-  DataTable,
   Input,
+  NativeSelect,
   SegmentedControl,
   Heading,
   Icon,
@@ -24,8 +23,7 @@ import {
   TabsTrigger,
   Text,
 } from '@orbit/terra';
-import type { DataTableColumn, TableColumnFilterOption } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
+import { ConfirmDialog, StatusBadge } from '@orbit/components';
 import {
   deleteTrigger,
   fireTrigger,
@@ -42,9 +40,8 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import type { TriggerEditPatch } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
+import { DeliveryGrid } from './delivery-grid';
 import {
-  deliveryDetail,
-  deliveryDuration,
   deliveryStatusTone,
   deliveryTriggerLabel,
   matchesStatusFilter,
@@ -68,15 +65,15 @@ function formatTimestamp(iso: string): string {
   return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
 
-const DELIVERY_STATUS_OPTIONS: TableColumnFilterOption[] = [
-  { value: 'dispatched', label: 'Dispatched', dot: 'bg-status-healthy' },
-  { value: 'verified', label: 'Verified', dot: 'bg-status-degraded' },
-  { value: 'skipped', label: 'Skipped', dot: 'bg-status-degraded' },
-  { value: 'failed', label: 'Failed', dot: 'bg-status-error' },
+const DELIVERY_STATUS_OPTIONS = [
+  { value: 'dispatched', label: 'Dispatched' },
+  { value: 'verified', label: 'Verified' },
+  { value: 'skipped', label: 'Skipped' },
+  { value: 'failed', label: 'Failed' },
   // Neither is a fault: one arrived twice, the other arrived while the platform
   // was not listening. Both are outcomes worth filtering to.
-  { value: 'duplicate', label: 'Duplicate', dot: 'bg-status-idle' },
-  { value: 'missed', label: 'Missed', dot: 'bg-status-idle' },
+  { value: 'duplicate', label: 'Duplicate' },
+  { value: 'missed', label: 'Missed' },
 ];
 
 export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
@@ -104,7 +101,8 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
   const [query, setQuery] = useState('');
 
-  // Kind filter only: DataTable owns the search box, so it also owns matching.
+  // The grid renders the toolbar but owns none of it, so the page holds both the
+  // kind filter and the search and hands down the rows that survived them.
   const visibleTriggers = useMemo(() => {
     const q = query.trim().toLowerCase();
     return triggers.filter(
@@ -166,6 +164,51 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           <Icon name="plus" size="xs" />
           New trigger
         </Button>
+      </Stack>
+    </Stack>
+  );
+
+  // ── Deliveries: status filter and search ─────────────────────────────────────
+  const [deliveryStatus, setDeliveryStatus] = useState('all');
+  const [deliveryQuery, setDeliveryQuery] = useState('');
+
+  const visibleDeliveries = useMemo(() => {
+    const q = deliveryQuery.trim().toLowerCase();
+    const selected = new Set([deliveryStatus]);
+    return deliveries.filter((d) => {
+      if (deliveryStatus !== 'all' && !matchesStatusFilter(d, selected)) return false;
+      if (q === '') return true;
+      // Searched over what the row actually shows, plus the id, so a delivery
+      // quoted in a log line can be found by pasting it in.
+      return [d.eventType, d.status, deliveryTriggerLabel(d), sourceName(d.sourceId), d.id].some(
+        (field) => field.toLowerCase().includes(q),
+      );
+    });
+  }, [deliveries, deliveryStatus, deliveryQuery, sourceName]);
+
+  const deliveryFilterRow = (
+    <Stack direction="horizontal" align="center" justify="between" gap="cozy" grow>
+      <Stack maxWidth="form-field">
+        <NativeSelect
+          aria-label="Filter deliveries by status"
+          value={deliveryStatus}
+          onChange={(e) => setDeliveryStatus(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          {DELIVERY_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </NativeSelect>
+      </Stack>
+      <Stack grow maxWidth="search-field">
+        <Input
+          value={deliveryQuery}
+          onChange={(e) => setDeliveryQuery(e.target.value)}
+          placeholder="Search deliveries…"
+          aria-label="Search deliveries"
+        />
       </Stack>
     </Stack>
   );
@@ -326,121 +369,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     router.refresh();
   }, [deleteTrg, router]);
 
-  // ── Columns ──────────────────────────────────────────────────────────────────
-
-  const deliveryColumns = useMemo<DataTableColumn<DeliveryRow>[]>(
-    () => [
-      {
-        id: 'received',
-        header: 'Received',
-        locked: true,
-        sortable: true,
-        sortAccessor: (row) => row.receivedAt,
-        cell: (row) => (
-          <Text mono size="caption">
-            {formatTimestamp(row.receivedAt)}
-          </Text>
-        ),
-      },
-      {
-        id: 'event',
-        header: 'Event',
-        cell: (row) =>
-          row.eventType ? (
-            <Badge variant="outline" size="sm">
-              {row.eventType}
-            </Badge>
-          ) : (
-            <Text size="caption" color="muted">
-              —
-            </Text>
-          ),
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        filter: {
-          mode: 'client',
-          options: DELIVERY_STATUS_OPTIONS,
-          filterFn: matchesStatusFilter,
-        },
-        cell: (row) => <StatusBadge status={deliveryStatusTone(row.status)} label={row.status} />,
-      },
-      {
-        id: 'source',
-        header: 'Source',
-        cell: (row) => <Text size="caption">{sourceName(row.sourceId)}</Text>,
-      },
-      {
-        id: 'trigger',
-        header: 'Trigger',
-        cell: (row) => {
-          const label = deliveryTriggerLabel(row);
-          return (
-            <Text size="caption" color={label === '—' ? 'muted' : undefined} truncate>
-              {label}
-            </Text>
-          );
-        },
-      },
-      {
-        id: 'duration',
-        header: 'Duration',
-        width: '7rem',
-        sortable: true,
-        // Sorted on the raw gap, not the formatted string, so "900ms" cannot
-        // sort above "1.2s".
-        sortAccessor: (row) => {
-          const started = row.runs[0]?.createdAt;
-          return started === undefined || started === null
-            ? -1
-            : Date.parse(started) - Date.parse(row.receivedAt);
-        },
-        cell: (row) => (
-          <Text mono size="caption" color="muted">
-            {deliveryDuration(row)}
-          </Text>
-        ),
-      },
-      {
-        id: 'detail',
-        header: 'Detail',
-        width: '14rem',
-        cell: (row) => {
-          const detail = deliveryDetail(row);
-          switch (detail.kind) {
-            case 'runs':
-            case 'error':
-              return (
-                <Text size="caption" color="muted">
-                  {detail.text}
-                </Text>
-              );
-            case 'runId':
-              return (
-                <Text mono size="caption">
-                  {detail.text}
-                </Text>
-              );
-            case 'excerpt':
-              return (
-                <Text mono size="caption" color="muted">
-                  {detail.text}
-                </Text>
-              );
-            case 'empty':
-              return (
-                <Text size="caption" color="muted">
-                  —
-                </Text>
-              );
-          }
-        },
-      },
-    ],
-    [sourceName],
-  );
-
   return (
     <Stack gap="comfortable">
       <Stack gap="tight">
@@ -493,31 +421,20 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
 
         {/* Deliveries */}
         <TabsContent value="deliveries">
-          {deliveries.length === 0 ? (
-            <EmptyState
-              icon="activity"
-              title="No deliveries yet"
-              description="Inbound webhook deliveries and their outcomes appear here once a source receives events."
-            />
-          ) : (
-            <DataTable
-              data={deliveries}
-              columns={deliveryColumns}
-              getRowKey={(row) => row.id}
-              noun="deliveries"
-              searchPlaceholder="Search deliveries…"
-              searchFn={(row, q) =>
-                row.eventType.toLowerCase().includes(q.toLowerCase()) ||
-                row.status.toLowerCase().includes(q.toLowerCase())
-              }
-              defaultSortId="received"
-              defaultSortDir="desc"
-              emptyMessage="No deliveries."
-              filteredEmptyMessage="No deliveries match your search or filter."
-              onRowClick={setDetailDelivery}
-              onRowClickLabel="View payload and outcome"
-            />
-          )}
+          <DeliveryGrid
+            toolbar={deliveryFilterRow}
+            resetKey={`${deliveryStatus}|${deliveryQuery.trim()}`}
+            deliveries={visibleDeliveries}
+            sourceName={sourceName}
+            onOpen={setDetailDelivery}
+            emptyMessage={
+              deliveries.length === 0
+                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                : deliveryQuery.trim() !== ''
+                  ? 'No deliveries match this search.'
+                  : `No ${deliveryStatus} deliveries.`
+            }
+          />
         </TabsContent>
       </Tabs>
 

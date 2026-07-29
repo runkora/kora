@@ -18,7 +18,7 @@ import {
   Text,
   Toggle,
 } from '@orbit/terra';
-import { KIND_ICON } from '../_types';
+import { KIND_ICON, relativeTime } from '../_types';
 import type { DeliveryRow, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES, pageWindow } from '../_types/pagination';
@@ -52,19 +52,6 @@ interface TriggerListProps {
  * longest realistic content.
  */
 const COLUMNS = '1fr 168px 148px 96px 118px 74px';
-
-/** Relative time, because "2m ago" answers the question and a timestamp does not. */
-function relativeTime(iso: string | null): string {
-  if (iso === null) return 'Never';
-  const ms = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(ms)) return 'Never';
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 /** What this trigger fires on, in its own vocabulary. */
 function firesOn(t: TriggerRow): string {

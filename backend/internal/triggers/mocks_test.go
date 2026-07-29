@@ -147,6 +147,12 @@ func (m *mockRepository) CreateTrigger(_ context.Context, t *Trigger) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := *t
+	// The database stamps these; the mock must too, or code that reasons about
+	// a trigger's age (grant propagation) sees every trigger as ancient.
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now()
+		cp.UpdatedAt = cp.CreatedAt
+	}
 	m.triggers[t.ID] = &cp
 	return nil
 }
@@ -508,6 +514,9 @@ type agentsStub struct {
 	calls      []startCall
 	status     int    // run-start response status; 0 → 201
 	runErrBody string // run-start error body written when status >= 300
+	// statusOnce, when set, applies to the next run-start only and is then
+	// cleared: a refusal that resolves on retry, as a young grant does.
+	statusOnce int
 
 	// agent-type resolution (GET /api/v1/agent-types/{id}).
 	atSlug         string // slug to return; "" → "code-reviewer"
@@ -558,6 +567,9 @@ func newAgentsStub() *agentsStub {
 			deliveryID:     req.DeliveryID,
 		})
 		status, errBody := as.status, as.runErrBody
+		if as.statusOnce != 0 {
+			status, as.statusOnce = as.statusOnce, 0
+		}
 		as.mu.Unlock()
 		if status == 0 {
 			status = http.StatusCreated

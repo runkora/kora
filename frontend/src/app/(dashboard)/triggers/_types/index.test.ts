@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   DELIVERY_EXCERPT_MAX,
@@ -6,10 +6,16 @@ import {
   eventOptionsFor,
   toTriggerUpdateRequest,
   PROVIDER_EVENTS,
+  DELIVERY_SUMMARY_MAX,
   deliveryDetail,
+  deliveryDotStatus,
   deliveryDuration,
   deliveryStatusTone,
+  deliverySummary,
+  deliveryTriggerIdentity,
   deliveryTriggerLabel,
+  relativeTime,
+  shortId,
   dispatchDuration,
   isRedeliverable,
   failureSummary,
@@ -259,6 +265,150 @@ describe('deliveryTriggerLabel', () => {
 
   it('says nothing matched, which is a real outcome and not missing data', () => {
     expect(deliveryTriggerLabel(row({ triggerId: null, runs: [] }))).toBe('—');
+  });
+});
+
+describe('shortId', () => {
+  it('cuts an id to eight characters, because a wrapped uuid is what makes a row three lines tall', () => {
+    expect(shortId('5c0f7a1e-2b44-4f9e-9d21-77aa0f9b1c33')).toBe('5c0f7a1e');
+  });
+
+  it('leaves an already-short id alone rather than padding or truncating it', () => {
+    expect(shortId('trg_9')).toBe('trg_9');
+  });
+});
+
+describe('relativeTime', () => {
+  it('answers the question a timestamp does not', () => {
+    const now = Date.parse('2026-07-29T04:30:00Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    expect(relativeTime('2026-07-29T04:29:50Z')).toBe('just now');
+    expect(relativeTime('2026-07-29T04:24:00Z')).toBe('6m ago');
+    expect(relativeTime('2026-07-29T01:30:00Z')).toBe('3h ago');
+    expect(relativeTime('2026-07-27T04:30:00Z')).toBe('2d ago');
+    vi.useRealTimers();
+  });
+
+  it('says never rather than inventing a gap', () => {
+    expect(relativeTime(null)).toBe('Never');
+    expect(relativeTime('not-a-date')).toBe('Never');
+  });
+});
+
+describe('deliveryDotStatus', () => {
+  it('shows an unrecognised status as idle rather than inventing a verdict', () => {
+    expect(deliveryDotStatus('something-else')).toBe('idle');
+  });
+
+  it('carries the known tones through unchanged', () => {
+    expect(deliveryDotStatus('dispatched')).toBe('healthy');
+    expect(deliveryDotStatus('failed')).toBe('error');
+  });
+});
+
+describe('deliveryTriggerIdentity', () => {
+  it('reports a name as a name', () => {
+    expect(deliveryTriggerIdentity(row({ triggerName: 'nightly-report' }))).toEqual({
+      kind: 'name',
+      label: 'nightly-report',
+    });
+  });
+
+  it('shortens an id rather than wrapping a uuid across the row', () => {
+    expect(
+      deliveryTriggerIdentity(row({ triggerId: '5c0f7a1e-2b44-4f9e-9d21-77aa0f9b1c33' })),
+    ).toEqual({ kind: 'id', label: '5c0f7a1e' });
+  });
+
+  it('counts the rest of a fan-out beside the first name', () => {
+    expect(
+      deliveryTriggerIdentity(
+        row({
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: 'gh-push',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+            {
+              triggerId: 't2',
+              triggerName: 'gh-audit',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'name', label: 'gh-push +1' });
+  });
+
+  it('has nothing to name when an arrival matched no trigger', () => {
+    expect(deliveryTriggerIdentity(row({ triggerId: null, runs: [] }))).toEqual({ kind: 'none' });
+  });
+});
+
+describe('deliverySummary', () => {
+  it('lifts the human message out of a wrapped failure chain', () => {
+    const r = row({
+      error:
+        'start run: unexpected status from orbit-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
+    });
+    expect(deliverySummary(r)).toEqual({ kind: 'error', text: 'failed to start run' });
+  });
+
+  it('keeps the priority chain deliveryDetail already established', () => {
+    expect(deliverySummary(row({ runId: 'abcdef1234567890' }))).toEqual({
+      kind: 'runId',
+      text: 'run abcdef12',
+    });
+    expect(
+      deliverySummary(
+        row({
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: null,
+              runId: 'r1',
+              status: 'completed',
+              error: null,
+              createdAt: null,
+            },
+            {
+              triggerId: 't2',
+              triggerName: null,
+              runId: 'r2',
+              status: 'failed',
+              error: null,
+              createdAt: null,
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'runs', text: '2 runs' });
+  });
+
+  it('flattens newlines, so a multi-line chain cannot hold a row open', () => {
+    const r = row({ error: 'start run:\n  connection refused' });
+    const summary = deliverySummary(r);
+    expect(summary.kind).toBe('error');
+    if (summary.kind !== 'none') expect(summary.text).not.toContain('\n');
+  });
+
+  it('clips anything longer than a line', () => {
+    const summary = deliverySummary(row({ payloadExcerpt: 'x'.repeat(200) }));
+    if (summary.kind !== 'none') {
+      expect(summary.text).toHaveLength(DELIVERY_SUMMARY_MAX + 1); // +1 for the ellipsis glyph
+    }
+  });
+
+  it('has nothing to say about an arrival that recorded nothing', () => {
+    expect(deliverySummary(row())).toEqual({ kind: 'none' });
   });
 });
 

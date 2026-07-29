@@ -324,6 +324,37 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
   };
 }
 
+// ── Display helpers shared by the trigger and delivery surfaces ──────────────
+
+/**
+ * Characters of an id worth showing.
+ *
+ * Enough to correlate a row with a log line, short enough that an id never
+ * wraps a table row onto a second line. Full ids stay available in the panel.
+ */
+export const SHORT_ID_LENGTH = 8;
+
+export function shortId(id: string): string {
+  return id.length > SHORT_ID_LENGTH ? id.slice(0, SHORT_ID_LENGTH) : id;
+}
+
+/**
+ * Relative time, because "2m ago" answers the question and a timestamp does
+ * not. Shared, so the trigger list and the delivery list cannot phrase the same
+ * gap two ways.
+ */
+export function relativeTime(iso: string | null): string {
+  if (iso === null) return 'Never';
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return 'Never';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /** Maps a delivery status to a StatusBadge tone. */
 export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
   switch (status) {
@@ -346,21 +377,50 @@ export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'er
 }
 
 /**
+ * StatusDot has no "unknown" tone. An outcome the console does not recognise is
+ * shown as idle rather than as healthy or failed: inventing a verdict for a
+ * status we have not taught the UI about is worse than showing none.
+ */
+export function deliveryDotStatus(status: string): 'healthy' | 'degraded' | 'error' | 'idle' {
+  const tone = deliveryStatusTone(status);
+  return tone === 'unknown' ? 'idle' : tone;
+}
+
+/**
  * Which trigger this delivery was for, in the best terms available.
  *
  * A delivery is an arrival, not a dispatch: one can fan out to several triggers
  * or to none at all. The denormalised name is preferred, then the fan-out's own
- * names, then ids, and finally an em-less dash for an arrival that matched
- * nothing, which is a real and interesting outcome rather than missing data.
+ * names, then a shortened id, and finally nothing at all for an arrival that
+ * matched no trigger, which is a real and interesting outcome rather than
+ * missing data. `kind` lets a caller render an id differently from a name; the
+ * id is already shortened, because a uuid wrapped over three lines is what turns
+ * a list into a wall.
  */
+export type DeliveryTriggerIdentity =
+  | { kind: 'name'; label: string }
+  | { kind: 'id'; label: string }
+  | { kind: 'none' };
+
+export function deliveryTriggerIdentity(d: DeliveryRow): DeliveryTriggerIdentity {
+  if (d.triggerName) return { kind: 'name', label: d.triggerName };
+
+  const first = d.runs.find((r) => Boolean(r.triggerName) || Boolean(r.triggerId));
+  if (first !== undefined) {
+    const extra = d.runs.length - 1;
+    const suffix = extra > 0 ? ` +${extra}` : '';
+    return first.triggerName
+      ? { kind: 'name', label: `${first.triggerName}${suffix}` }
+      : { kind: 'id', label: `${shortId(first.triggerId)}${suffix}` };
+  }
+
+  return d.triggerId !== null ? { kind: 'id', label: shortId(d.triggerId) } : { kind: 'none' };
+}
+
+/** The identity as a single string, for surfaces that cannot style the two apart. */
 export function deliveryTriggerLabel(d: DeliveryRow): string {
-  if (d.triggerName) return d.triggerName;
-
-  const named = d.runs.map((r) => r.triggerName ?? r.triggerId).filter(Boolean);
-  if (named.length === 1) return named[0] as string;
-  if (named.length > 1) return `${named[0] as string} +${named.length - 1}`;
-
-  return d.triggerId ?? '—';
+  const identity = deliveryTriggerIdentity(d);
+  return identity.kind === 'none' ? '—' : identity.label;
 }
 
 /**
@@ -461,11 +521,43 @@ export function deliveryDetail(row: DeliveryRow): DeliveryDetail {
   return { kind: 'empty' };
 }
 
+/** Max characters of a one-line delivery summary, so every row stays one line. */
+export const DELIVERY_SUMMARY_MAX = 72;
+
+function clip(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > DELIVERY_SUMMARY_MAX ? `${flat.slice(0, DELIVERY_SUMMARY_MAX)}…` : flat;
+}
+
+/**
+ * One line about what a delivery did, for a list row.
+ *
+ * The same priority chain as `deliveryDetail`, reduced to something that fits a
+ * cell: an error becomes its human end rather than the whole wrapped chain, and
+ * everything is flattened to a single line. The full chain stays in the panel,
+ * which is where a person goes once the summary tells them to look.
+ */
+export type DeliverySummary =
+  | { kind: 'runs' | 'error' | 'runId' | 'excerpt'; text: string }
+  | { kind: 'none' };
+
+export function deliverySummary(row: DeliveryRow): DeliverySummary {
+  const detail = deliveryDetail(row);
+  switch (detail.kind) {
+    case 'empty':
+      return { kind: 'none' };
+    case 'error':
+      return { kind: 'error', text: clip(failureSummary(detail.text)) };
+    default:
+      return { kind: detail.kind, text: clip(detail.text) };
+  }
+}
+
 /**
  * Client-side Deliveries status-filter predicate. A row passes when its status
- * is in the selected set (OR semantics across multiple selections). The
- * DataTable skips filtering entirely when nothing is selected, so an empty
- * selection shows all rows.
+ * is in the selected set (OR semantics across multiple selections). An empty
+ * selection matches nothing, so a caller that means "no filter" skips the
+ * predicate rather than passing an empty set.
  */
 export function matchesStatusFilter(row: DeliveryRow, selected: ReadonlySet<string>): boolean {
   return selected.has(row.status);

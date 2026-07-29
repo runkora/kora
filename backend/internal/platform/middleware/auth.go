@@ -26,6 +26,7 @@ import (
 //	func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	    return mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
 //	}
+//
 // It is AuthMiddlewareWithRevocation without a blocklist: a token revoked ahead
 // of its expiry stays usable here until it expires.
 func AuthMiddleware(verifier *token.Verifier, logger logging.Logger) Middleware {

@@ -3,19 +3,9 @@
 'use client';
 
 import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
-import { deliveryStatusTone, dispatchDuration } from '../_types';
+import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';
-
-/**
- * StatusDot has no "unknown" tone. An outcome the console does not recognise is
- * shown as idle rather than as healthy or failed: inventing a verdict for a
- * status we have not taught the UI about is worse than showing none.
- */
-function dotStatus(status: string): 'healthy' | 'degraded' | 'error' | 'idle' {
-  const tone = deliveryStatusTone(status);
-  return tone === 'unknown' ? 'idle' : tone;
-}
 
 interface DeliveryListProps {
   /** Deliveries that reached this trigger, newest first. */
@@ -79,7 +69,7 @@ export function DeliveryList({
                 }
               }}
             >
-              <StatusDot status={dotStatus(status)} size="sm" />
+              <StatusDot status={deliveryDotStatus(status)} size="sm" />
 
               {/* The identity block takes the slack, so the outcome cluster
                   and the chevron pin to the right edge on every row. */}
@@ -97,7 +87,7 @@ export function DeliveryList({
                   mono
                   size="caption"
                   weight="emphasis"
-                  color={dotStatus(status) === 'error' ? 'status-error' : 'muted'}
+                  color={deliveryDotStatus(status) === 'error' ? 'status-error' : 'muted'}
                 >
                   {status}
                 </Text>

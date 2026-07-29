@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIngest_SourceNotFound(t *testing.T) {
@@ -358,6 +359,13 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	// reason legibly — the upstream body flows into the delivery error via the
 	// agents client's error wrapping, not as an opaque 403.
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	// The scenario is a trigger that predates the identity model, so it is old:
+	// a young trigger's 403 is retried as grant propagation instead.
+	deps.repo.mu.Lock()
+	for _, tr := range deps.repo.triggers {
+		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+	}
+	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
 	deps.agents.runErrBody = `{"code":"forbidden","message":"this agent uses the delegated identity model: runs can only be started by a person (HUMAN or PAT principal)"}`
 	adapter, _ := NewRegistry().Get(ProviderGitHub)
@@ -696,5 +704,48 @@ func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
 	}
 	if stored.AcceptedCount != 1 || stored.RejectionCount != 1 {
 		t.Errorf("accepted = %d, rejected = %d; want 1 and 1", stored.AcceptedCount, stored.RejectionCount)
+	}
+}
+
+// A grant minted moments ago is not yet visible to orbit-agents; the fire that
+// follows must not fail for that reason alone.
+func TestStartRun_RetriesWhileAYoungGrantPropagates(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.agents.statusOnce = http.StatusForbidden // one refusal, as an unpolled bundle gives
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
+
+	if got := deps.agents.callCount(); got < 2 {
+		t.Fatalf("call count = %d, want a retry after the refusal", got)
+	}
+	if got := deps.repo.deliveryByID(delID).Status; got != StatusDispatched {
+		t.Errorf("status = %q, want dispatched once the grant landed", got)
+	}
+}
+
+// A refusal on a trigger old enough to have propagated is a real denial: it
+// must fail at once rather than hold a queue slot for the whole budget.
+func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	// Age every trigger past the propagation window so a refusal reads as policy.
+	deps.repo.mu.Lock()
+	for _, tr := range deps.repo.triggers {
+		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+	}
+	deps.repo.mu.Unlock()
+	deps.agents.status = http.StatusForbidden
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	start := time.Now()
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	drainPending(t, svc, deps.repo)
+
+	if elapsed := time.Since(start); elapsed >= agentTypeRetryBudget {
+		t.Errorf("established refusal took %s, want an immediate failure", elapsed)
+	}
+	if got := deps.agents.callCount(); got != 1 {
+		t.Errorf("call count = %d, want exactly one attempt", got)
 	}
 }
