@@ -2,7 +2,7 @@
 
 **Status:** In Review
 **Created:** 2026-07-27
-**Last Updated:** 2026-07-28
+**Last Updated:** 2026-07-29
 **Owner:** Justin Wilkin
 **Stakeholders:** Platform Engineering, Agent Control Plane, Identity & Policy, Security
 
@@ -42,7 +42,7 @@ That means outcomes live at **two levels**, and conflating them is the main way 
 
 Both levels have to be visible. An admin looking at one trigger needs its own outcomes; an admin looking at the feed needs to see the arrivals that never reached a trigger at all.
 
-**Failed authentication is deliberately not a delivery.** A webhook with a bad signature is an unauthenticated request, so recording it as a delivery would let anyone on the internet create records. Instead the source itself carries a rejection count and the most recent reason, which is what an admin with a wrong signing secret needs to see, without an unauthenticated caller ever creating a row. Everything in the delivery history is therefore an arrival that authenticated.
+**Failed authentication is deliberately not a delivery.** A webhook with a bad signature is an unauthenticated request, so recording it as a delivery would let anyone on the internet create records. Instead the source itself carries a rejection count, the most recent reason, and a count of what it has accepted, which together are what an admin with a wrong signing secret needs to see, without an unauthenticated caller ever creating a row. Everything in the delivery history is therefore an arrival that authenticated.
 
 ### User Pain Points
 
@@ -138,6 +138,8 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 - [x] Outcomes that belong to a trigger (filtered, denied, superseded, dropped, dispatched, failed) are recorded per trigger, so a delivery that started two runs and was rejected by a third says exactly that.
 - [x] Outcomes that belong to the arrival itself (duplicate, missed, nothing listening) are recorded once on the delivery, since there is no trigger to attribute them to.
 - [x] A sender failing authentication is visible on the source it is posting to, with a count and the most recent reason, without creating delivery records.
+- [x] The source also shows how many requests it has accepted, so the rejection count can be read as a ratio. Five rejections against a million deliveries is noise; five against five is a wrong signing secret, and the count alone cannot tell those apart.
+- [x] The sender itself is told only that there is nothing there. Which check refused it is shown to the tenant that owns the source, never to the caller, so someone guessing at source addresses learns nothing from the answer.
 - [x] A policy denial keeps the reason policy gave.
 - [x] "A trigger filtered this out" is distinguishable from "nothing was listening" (PD3).
 - [x] An outcome that means "no run will ever start for this" is visibly terminal, not left looking pending.
@@ -170,6 +172,8 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 - [x] Disabling a trigger stops it accepting new fires and discards anything still waiting, recorded as dropped rather than vanishing. Runs already started are left alone — stopping a run is the agent's business, not the trigger's.
 - [x] Deleting a trigger does the same, and its delivery history survives it (US-004).
 - [x] The drawer shows how many fires are currently waiting, so a backlog is visible before it becomes a surprise.
+- [x] A run waiting for a reply it will never get does not hold a slot. A triggered run has no person attached to it, so once it has finished its turn it is done as far as the trigger is concerned. Counting it as still running would let a trigger wedge itself permanently after its first few fires, with a ceiling that never frees up and no way for an admin to see why.
+- [x] Under **refuse**, fires already waiting count toward the ceiling as well as those running, so two fires arriving together cannot both be accepted into a queue this setting exists to avoid. A caller told "not now" can retry; a caller told "accepted" and then left waiting cannot tell that apart from a stall.
 
 ### Delivery safety
 
@@ -210,6 +214,7 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 - [x] When duplicate suppression is on (the default) and the same event has already been handled for this trigger within the retention window, the repeat is acknowledged, linked to the original, and starts no second run.
 - [x] The repeat is visible in the history, linked to the delivery it repeats. "The provider sent this five times" is a question an admin has to be able to answer, and silence cannot answer it.
 - [x] Duplicate suppression is a per-trigger setting: two triggers on the same source can disagree about whether a repeat should run again.
+- [x] A payload captured and replayed by someone else is refused, even though its signature is genuine. Providers that identify a delivery in an unsigned part of the request would otherwise let a captured event be re-sent under a fresh identifier indefinitely, each copy looking new. A provider's own retry of the same event is unaffected and still records as a linked repeat.
 
 ### Console
 
@@ -238,6 +243,8 @@ A trigger's declared inputs are **fixed once it is created**. Everything else ab
 - [x] Redeliver is available on any outcome where no run started and the cause might have been fixed since: failed, denied, dropped. It re-runs the delivery against current authorization and current configuration, not a replay of the original decision.
 - [x] Redeliver into a trigger a **person** disabled is refused with a message saying so, not silently accepted. An **auto-paused** trigger is the exception and is allowed through: replaying after fixing the cause is the ordinary way out of a pause, and the replay records `paused` if the cause was not fixed. Refusals are also explicit when the delivery cannot be replayed at all: a scheduled tick, a payload past its retention window, or a trigger or source that no longer exists.
 - [x] A redelivery is a new delivery that references the original, not an edit of it. The original outcome stays on the record.
+- [x] Redeliver is refused for a payload that arrived before the source's signing secret was last rotated. Rotating a secret is what an admin does when the old one may be in someone else's hands, and everything that arrived under it is what they are disowning; replaying it would work around their own decision.
+- [x] One delivery can be replayed ten times. Redeliver is a deliberate act of recovery, not a retry loop, and the bound stops a single stored payload becoming an unlimited source of runs.
 
 ---
 
@@ -307,7 +314,7 @@ Builds on the existing two-surface model (per-agent tab + platform-wide section)
 
 **A trigger is editable in place after it is created.** Getting a prompt or a filter slightly wrong is the normal case, not the exception, and a wizard that can only create means the fix is delete-and-rebuild, which loses the trigger's history and its endpoint. Name, prompt, event type, filters, schedule, admission settings and the safety toggles are all correctable from the drawer, and take effect on the next delivery rather than on work already in flight. Editing is **per section**, each with its own save and discard: a draft exists only while it differs from what is stored, so the section being edited keeps the person's text while every other section keeps following the live row as the page refreshes underneath the open panel. The two exceptions are deliberate: a manual trigger's **declared inputs** are frozen because their names are the API contract callers hard-code (US-002), and a trigger's **target agent** is frozen because retargeting is a different trigger, not an edit of this one.
 
-**Sources are not a top-level surface.** There is no Sources page. A webhook source is created inside the trigger flow, at the point where the admin is choosing what to listen to, and afterwards it is managed from the drawer of a trigger that uses it. A source has no meaning on its own (it exists to be listened to), and giving it its own page would create an orphan-shaped object an admin has to reason about separately. Two things about a source only ever surface there: **rotating its signing secret**, where the new secret is shown once and never again, and its **rejection counter**, which is the only place a wrong signing secret shows up at all, since a request that fails authentication never becomes a delivery.
+**Sources are not a top-level surface.** There is no Sources page. A webhook source is created inside the trigger flow, at the point where the admin is choosing what to listen to, and afterwards it is managed from the drawer of a trigger that uses it. A source has no meaning on its own (it exists to be listened to), and giving it its own page would create an orphan-shaped object an admin has to reason about separately. Two things about a source only ever surface there: **rotating its signing secret**, where the new secret is shown once and never again, and its **accepted and rejected counts**, which are the only place a wrong signing secret shows up at all, since a request that fails authentication never becomes a delivery and the sender is told nothing that would help it guess.
 
 ---
 
@@ -526,12 +533,12 @@ Technical decisions this PRD deliberately does not make, listed so they aren't l
 ### Key Milestones
 
 - [ ] PRD Approved: TBD
-- [ ] ADR Created: TBD
-- [ ] Implementation Started: TBD
-- [ ] Phase 1 complete (model + pipeline): TBD
-- [ ] Phase 2 complete (scheduled + manual): TBD
-- [ ] Phase 3 complete (admission control + safety): TBD
-- [ ] Phase 4 complete (console): TBD
+- [x] ADR Created: 2026-07-27
+- [x] Implementation Started: 2026-07-27
+- [x] Phase 1 complete (model + pipeline)
+- [x] Phase 2 complete (scheduled + manual)
+- [x] Phase 3 complete (admission control + safety)
+- [x] Phase 4 complete (console)
 
 ---
 
@@ -541,7 +548,7 @@ Technical decisions this PRD deliberately does not make, listed so they aren't l
 
 - [PRD: Agent Webhook Triggers](./agent-webhook-triggers.md) — the v1 PRD; its identity/scope/webhook-auth decisions are preserved by this PRD, not revisited.
 - [ADR: Agent Triggers and Webhook Ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1 ADR.
-- [ADR: Extended Trigger Types: Scheduled and Manual](../adr/2026-06-20-extended-trigger-types.md) — the earlier ADR draft on this branch; this PRD's companion ADR replaces it in place, taking up the decisions above.
+- [ADR: Extended Trigger Types and an Operable Delivery Pipeline](../adr/2026-06-20-extended-trigger-types.md). This PRD's companion ADR, taking up the decisions above.
 - [ADR: Run and Session Lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
 - [ADR: JIT Credential Brokering / Egress Gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md)
 - Design reference: `Triggers.dc.html`, claude.ai/design project `24c98b96-a1bc-4ba2-b744-3e363f9587ca` — the console layout this PRD's UI section describes.

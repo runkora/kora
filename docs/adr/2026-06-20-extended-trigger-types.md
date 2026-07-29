@@ -221,6 +221,20 @@ One row per `(source_id, reason, minute)`, no payload, enforced by a partial uni
 
 **Consequence for the delivery vocabulary:** `rejected` is therefore **not** a delivery status. The vocabulary in Decision 3 drops it, and `trigger_deliveries` carries only arrivals that authenticated successfully. `duplicate` and `missed` remain, since both describe authenticated or platform-originated arrivals.
 
+**The counter is paired with an accepted counter.** A rejection count on its own says nothing: five rejections on a source taking a million deliveries is noise, and five on a source taking five is a wrong signing secret. The ratio is the diagnostic, so `accepted_count` exists alongside `rejection_count` and both are kept on the source. The reason stored is the most recent one rather than a history, which is the cost 4A accepted above.
+
+**Every rejection answers the same `404`.** The reasons stay distinguishable where they belong, on the source, which only the owning tenant can read. On the wire they collapse into one response: "there is nothing here". A distinct `401` for a bad signature told a prober that the source id they guessed is real and that only the secret is missing, which is the one fact an unauthenticated endpoint should never hand out. An invalid signature, a missing delivery id, a replayed payload, an unknown source and a disabled source are therefore indistinguishable to the sender.
+
+#### Replay defence
+
+Dedup keys on the provider's delivery id, and for GitHub that id travels in an **unsigned** header. A captured, correctly-signed body therefore replays forever: rewrite `X-GitHub-Delivery` on each copy and every one is a fresh, verified arrival that starts a run. Signature verification alone does not close this, because the signature is still genuine.
+
+The fingerprint that cannot be rewritten is the body itself. The signature is a deterministic function of `(secret, body)`, so a hash of the body identifies exactly the repeats a hash of the signature would, without the mechanism needing to know where any given provider puts its signature. `trigger_delivery_replay_keys` stores `(source_id, body_hash)` as its primary key, with the provider delivery id the body **first arrived under** beside it.
+
+That second column is what keeps the defence from breaking honest senders. A provider retrying an unacknowledged delivery re-sends the same body under the *same* id, which is an ordinary duplicate that Decision 3 already handles and which still records as a linked duplicate row. The attack is the same body under a *different* id, and that is the only case refused.
+
+The window is **24 hours**, pruned by the retention job so this stays a window rather than a growing ledger of every body ever received. It runs **behind** signature verification and **fails open**: a replay-key lookup that errors is logged and the delivery is accepted. The check is defence in depth on top of a signature that has already been verified, so a database problem should not take webhook ingestion down with it.
+
 ---
 
 ### Decision 5 — Admission control and the waiting backlog
@@ -282,7 +296,9 @@ The cost is claim latency on every fire. That is acceptable because the sender h
 
 The same bounds apply to create and to update, so a trigger cannot be edited into a configuration it could not have been created in. Changes take effect on the next delivery: the worker re-reads the trigger when it claims a fire, so work already in flight is not retimed under it.
 
-**What "in flight" means.** `max_parallel` counts runs that are **genuinely running**, not runs that were started recently. The count is a read-only join from `trigger_delivery_runs` to the `runs` table, excluding runs that have reached `completed`, `failed` or `budget_exhausted`. Counting starts-within-a-horizon instead would make the ceiling drift with run duration: a trigger whose runs finish in ten seconds would be throttled for the rest of the horizon by work that had already finished.
+**What "in flight" means.** `max_parallel` counts runs that are **genuinely running**, not runs that were started recently. The count is a read-only join from `trigger_delivery_runs` to the `runs` table, excluding runs that have **settled**: `completed`, `failed`, `budget_exhausted`, and `idle`. Counting starts-within-a-horizon instead would make the ceiling drift with run duration: a trigger whose runs finish in ten seconds would be throttled for the rest of the horizon by work that had already finished.
+
+**`idle` counts as settled, and this changes what `max_parallel` means.** `orbit-agents` does not treat `idle` as terminal, and correctly so: an idle run has finished its turn and is waiting for a message that would continue the conversation. A **trigger-started** run has nobody to send that message. There is no user attached to it, so the message never comes and the run sits idle until something reaps it. Treating idle as occupying a slot would let a trigger with `max_parallel = 4` wedge permanently after four fires, each holding a slot against a conversation that will never resume. Idle is therefore terminal *for admission purposes only*, and the divergence from the agent control plane's own view is deliberate rather than an oversight. The consequence to state plainly: `max_parallel` bounds runs that are actively working, not runs that exist.
 
 `runs` is owned by `orbit-agents`, so this is a **deliberate cross-service read**, and it is worth naming as a coupling rather than leaving it to be discovered. It is safe here for the reason it would not be in general: the platform runs one Postgres with pooled migrations, and the read is read-only and additive, so it can never be the cause of a write conflict. If the two services are ever split across databases, this join is the thing that breaks, and the replacement is a count served by `orbit-agents` over its typed client.
 
@@ -295,9 +311,17 @@ Two bounds sit on top of that count:
 
 **The stuck-claim reaper.** A worker claims a fire and then dispatches it. If the pod dies in between, the row stays claimed forever: nothing re-claims it, the fire never starts, and it costs its trigger a parallel slot permanently. That falsifies the one promise the queue exists to keep. Each drain pass therefore reclaims first: a claim older than **fifteen minutes** has its `claimed_at` cleared and returns to the queue, and each reclaim is logged individually at warning level, because a pod dying while holding acknowledged work is worth knowing about even though the queue recovers by itself. Fifteen minutes is chosen against the ceiling on a legitimate dispatch: `timeout_seconds` is capped at 600, so a claim older than the window cannot belong to a dispatch still in progress. The margin is deliberately generous, because reclaiming a live dispatch would start the same fire twice, which is worse than a stranded fire starting late.
 
+**The claim is re-stamped immediately before each dispatch**, and that is what makes the window sound for a batch. A batch is claimed in **one** statement but dispatched one row at a time, each bounded by its own trigger's timeout. Without re-stamping, the last row of a full batch carries a `claimed_at` set before the first row's dispatch even began, which can already be far older than fifteen minutes by the time its turn arrives. Another replica's reaper would then take it back and dispatch it a second time, mid-flight, which is the exact double-start the generous margin was chosen to avoid. Re-stamping makes the window mean what its name says: how long *this* dispatch has been running. With the per-dispatch bound at 600 seconds, a live dispatch can never age past the window.
+
+The reaper and the orphan sweep both scan the whole queue table and neither is urgent, so they run on their own slower cadence rather than on every tick, ahead of the claim so anything they recover is picked up in the same pass.
+
+**`refuse` counts the fires already waiting, not only those in flight.** In-flight alone sees only work a worker has picked up, and the worker polls on an interval, so two fires a fraction of a second apart both observed an empty in-flight count and both were accepted. That is silent queueing under the one overflow behaviour whose entire promise is that it does not queue. The check is therefore `in_flight + unclaimed_waiting >= max_parallel`. A person told "not now" can retry; a person told "accepted" and then made to wait cannot tell that apart from a stall.
+
 **Refusal is a `429`, not a `500`.** A manual fire refused at the ceiling returns `429 Too Many Requests`: the trigger is healthy and busy, and the caller's correct response is to retry shortly. The fire is recorded either way, and the error distinguishes "at capacity" from "auto-paused", because the fixes differ.
 
 **Deletion drains first.** `DeleteTrigger` calls `Drain` before removing the trigger, so waiting fires are recorded as `dropped` rather than disappearing with the row. `trigger_pending_deliveries` is deliberately **foreign-key-free** for the same reason the delivery history is: a cascade would delete the evidence at the moment it becomes interesting. The queue's referential integrity is maintained by the drain paths (disable, auto-pause, delete) rather than by the database, and the worker re-reads the trigger on claim, so a row that outlives its trigger is recorded as dropped instead of dispatching against nothing.
+
+**An orphan sweep is the backstop under those drain paths.** They each drain their own backlog, but a fire admitted in the instant between a disable committing and its drain running belongs to no path at all: claiming requires an enabled trigger, so such a row is never claimed, and the stale-claim reaper only touches rows a worker already holds. Without a sweep it waits forever, invisible, holding nothing and explaining nothing. `DrainOrphanedPending` therefore collects waiting fires whose trigger has been deleted or disabled and records each as `dropped`, so the work is visibly accounted for rather than silently stranded.
 
 **Auto-paused triggers stay matchable.** The matching queries select `enabled = true OR auto_paused_at IS NOT NULL`. An auto-paused trigger is carried through matching precisely so admission can record `paused` against the fire; filtering it out at the query would make it indistinguishable from a deleted trigger in the delivery history, which is the failure the outcome exists to prevent. A trigger a person disabled *is* excluded, because that silence was asked for. This is what makes `enabled` and `auto_paused_at` two settings rather than one: manually disabling a trigger clears `auto_paused_at`, so an explicit "off" stops presenting as the platform's decision, and re-enabling clears both the marker and the failure counter.
 
@@ -332,6 +356,24 @@ The obvious alternative form, `triggers:fire:<trigger-id>`, is wrong: it puts th
 **Chosen: 6A**, with 6B recorded as the better long-term shape in [Future Work](#future-work).
 
 **The caller's identity does not become the run's identity.** The run continues to execute under the trigger's own `SERVICE` principal; the caller is recorded in `fired_by`. This is deliberate: a manual trigger is a published capability with a fixed blast radius, not a way to run something as yourself.
+
+#### What a trigger's principal may start
+
+Fire authorization decides who may *ask*. This decides what the resulting principal can reach, and it is the larger of the two surfaces, because a trigger principal is autonomous and nothing narrows it at request time.
+
+A source or trigger principal is provisioned with `agents:types:read` and nothing else. The per-agent pair `agents:runs:<slug>:read` and `agents:runs:<slug>:write` is added only once a binding to that agent exists. The broad `agents:runs:read`/`agents:runs:write` pair is never granted: scope hierarchy is by prefix, so `agents:runs:write` covers every `agents:runs:<slug>:write`, and holding it would make the per-agent narrowing decorative. A leaked source token would start any agent in the tenant.
+
+That narrowing only holds if the route does not undo it. **`POST /api/v1/runs` is therefore authenticated-only at the route layer**, registered with an empty required scope and excluded from policy-service registration. The scope that governs starting a run is per-agent, and the slug arrives in the request body, where a static path-prefix route map cannot see it. A route-level `agents:runs:write` would not narrow the endpoint; it would **widen** it, because the parent prefix-covers every child, so every principal permitted to start any run would need the scope that permits starting all of them. That is precisely what let a source token start any agent in its tenant. The authoritative check is `orbit-agents`' own per-slug `Authz.checkRun`, run in `RunService.authorizeStart` before the first write, so a refused start leaves nothing behind. It answers `403`, not `500`: a refusal is the caller's answer rather than a server fault, and the propagation retry below can only recognise a refusal that arrives as `403`. [orbit-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) is corrected accordingly.
+
+#### Who may reach `orbit-triggers` at all
+
+Scope enforcement treats a `SYSTEM` principal as unrestricted, which is the platform-wide convention. `orbit-triggers` holds every webhook source's signing secret and can start a run under any trigger's principal, so under that convention a token minted by any other in-mesh component reaches every triggers route. Mesh-wide reachability is a far larger surface than the callers this service actually has.
+
+An Istio `AuthorizationPolicy` restricts it to them. It is an **ALLOW**, not a DENY: a DENY listing the callers to exclude is a list that must be kept complete forever, whereas an ALLOW listing the callers that exist fails closed when something new appears, which is the direction this service should fail in. The check runs in the sidecar, before the application sees the request.
+
+#### Bounds on what a caller can write
+
+Every write path is bounded on the way in, so a request cannot be turned into storage of the caller's choosing: a trigger name is capped at 128 characters, a prompt template at 8 KiB, and management request bodies at 1 MiB. The webhook ingest body has its own, larger ceiling of 5 MiB, since its size is the sender's choice rather than an operator's.
 
 ---
 
@@ -701,7 +743,11 @@ A trigger read carries `pending_count`: how many fires are waiting on it right n
 
 A manual fire is validated against the trigger's declared inputs before anything is admitted, and **the rejection is recorded as a delivery**: status `failed`, with a summary of the per-field problems as its reason and the submitted values stored as its payload. The values and the complaint are the pair that makes a rejection diagnosable.
 
-Recording it matters for the same reason recording a policy denial does. An invalid fire that vanished was indistinguishable from one that was never made, which is precisely what leaves "why did nothing happen?" unanswerable. The rejected fire is recorded and never admitted: it must not reach the queue, or it would start the run the refusal was about. The caller gets the per-field detail, which is the part they can act on.
+Recording it matters for the same reason recording a policy denial does. An invalid fire that vanished was indistinguishable from one that was never made, which is precisely what leaves "why did nothing happen?" unanswerable. The rejected fire is recorded and never admitted: it must not reach the queue, or it would start the run the refusal was about. The caller gets the per-field detail, which is the part they can act on, and the delivery's `reason` carries a summary of the same per-field problems so the record explains itself without the caller's response beside it.
+
+**The captured variables are bounded**, and the bound matters more here than anywhere else payloads are stored, because a manual fire is recorded **before** its inputs are judged. Without a ceiling, a caller could write a row of their choosing on a request the platform is in the act of refusing. The capture obeys the same 1 MiB payload ceiling as every other stored body. An oversized capture is **dropped rather than truncated**: truncated JSON cannot be read back, so storing it would trade a large row for an unparseable one. Capture is otherwise best-effort, since a fire must not be refused because its own audit record failed to encode.
+
+A trigger a person disabled is refused before any of this, with nothing recorded: they asked for silence. An **auto-paused** trigger is carried through to admission instead, which records `paused` against the fire, because otherwise an auto-paused trigger and a deleted one look identical in the history.
 
 ### Run attribution
 
@@ -709,7 +755,15 @@ The forward link always existed: a delivery records the run it started. The reve
 
 A run therefore carries `started_by`: `{trigger_id, trigger_name, delivery_id}`, three typed nullable columns on `runs` rather than a metadata bag, following the precedent `summary` and `delegation_jti` already set. Absent means a person started the run, which is what its absence means everywhere downstream.
 
-**The attribution is authorized, not trusted.** Only a `SERVICE` principal may claim it. A person who could label their own run as trigger-started could manufacture evidence that an automated, policy-governed path did something they did themselves, so the check fails closed and mirrors the delegation model's `requireDelegatorPrincipal`. Attribution that names a delivery without naming a trigger is refused outright: a dangling delivery id renders as nothing and would quietly become a run claiming automation without saying what automated it.
+**The attribution is authorized, not trusted.** A person who could label their own run as trigger-started could manufacture evidence that an automated, policy-governed path did something they did themselves, so the check fails closed and mirrors the delegation model's `requireDelegatorPrincipal`. Attribution that names a delivery without naming a trigger is refused outright: a dangling delivery id renders as nothing and would quietly become a run claiming automation without saying what automated it.
+
+`SERVICE` alone is not sufficient, because every in-mesh workload is a `SERVICE` principal and any of them could otherwise stamp a run as automation a person can no longer tell from the real thing. The caller's principal id is **bound to the claim**, against the prefixes the triggers feature mints its principals under:
+
+- A principal named `trigger:<id>` may attribute a run to trigger `<id>` **and to no other**. The principal id *is* the trigger id, so the claim carries its own proof and needs no lookup.
+- A principal named `trigger-source:<id>` is accepted without naming which trigger it is, because a source fans one delivery out to the several triggers hanging off it and that binding is knowable only in the triggers database. Tenancy still bounds it: `StartRun` derives `tenant_id` from the token and never from the body, so a source can only ever name a trigger inside its own tenant.
+- Every other principal, including a person, a PAT, the session-manager and any other in-mesh workload, is refused.
+
+**The residual, stated rather than hidden:** a source principal can name a *sibling* trigger id within its own tenant. Closing it would require `orbit-agents` to read the triggers database to resolve the source-to-trigger binding, which the feature boundary deliberately forbids. The durable fix is to stamp the trigger id into the minted token's claims so the binding travels with the credential and needs no lookup at all; it is recorded in [Future Work](#future-work).
 
 `trigger_name` is a snapshot taken at start time and there is no foreign key, for the same reason the delivery tables have neither: a run is audit history and outlives the trigger that started it. A deleted trigger still reads as something a person recognises, and a later rename does not rewrite what this run says happened.
 
@@ -723,7 +777,13 @@ The replay is matched and validated against configuration **as it is now**, not 
 
 **No signature is re-verified.** The body was verified when it first arrived and has been under the platform's control since. Re-verifying would fail for any source whose secret has been rotated, which is exactly the kind of fix that precedes a replay. Verification is a property of arrival, not of storage.
 
-Four refusals, each with its own message:
+That concession is what makes replay the one path that re-runs a stored payload without re-authenticating it, so it carries two bounds of its own.
+
+**A payload predating the source's current secret is refused.** `webhook_sources.secret_rotated_at` dates the secret currently on the source, moving only when the stored ciphertext actually changes, and a replay of a delivery received before that timestamp is rejected. Rotating a secret is what an operator does when the old one may be in someone else's hands, and everything that arrived under it is exactly what they are trying to disown. Existing rows inherit their creation time, which is when their secret was in fact issued.
+
+**Ten replays per original.** Replay is a deliberate admin action, not a retry loop, so a bound this generous never obstructs legitimate use while still stopping one stored payload from becoming an unbounded run generator, whether through a mistake or through a compromised admin credential.
+
+Four further refusals, each with its own message:
 
 - A **scheduled tick** cannot be replayed. It is defined by the minute it was due, so a replay would either collide with that minute's row or invent a fire that was never due. Neither is something an operator can reason about; firing the trigger manually is the answer.
 - A **purged payload** has nothing to replay. Retention has run and the body is gone.
@@ -748,11 +808,17 @@ The same field map is what `match_condition` filters on, which is why the consol
 
 Manual triggers get their own `var.` namespace: a declared input `region` is readable as `{{ var.region }}`, built from the same declaration the form renders and the API validates.
 
-### Resolving the agent type across grant propagation
+### Grant propagation
 
-`resolveAgentType` mints a token for the trigger's own principal and asks `orbit-agents` for the agent type, which both validates tenant ownership and stops a client-supplied slug from shaping the run grant's scope.
+A trigger's run grant is written by `orbit-triggers` but enforced by `orbit-agents`, which learns about it only on its next OPA bundle poll (`policy.bundlePollIntervalSecs`, currently 3s). Between the two there is a window in which the grant exists and is refused. A `403` in that window means "not visible yet", not "not allowed", and the two are indistinguishable from the outside.
 
-For a scheduled or manual trigger this happens moments after its grant was created, and the grant is not visible to `orbit-agents` until that service's next OPA bundle poll. A self-signed token used in the same request therefore gets a `403` that means "not visible yet", not "not allowed". The call retries with exponential backoff to a six-second deadline: `ErrForbidden` is retried, `ErrAgentTypeNotFound` fails fast because it means genuinely absent. A webhook trigger's principal is its source's, granted at source-creation time, so that path resolves on the first attempt.
+There are **two** sites on that window, sharing one retry budget of six seconds with exponential backoff from 250ms. The budget is sized against the poll interval and must comfortably exceed one poll; raising `bundlePollIntervalSecs` without raising the budget breaks trigger creation.
+
+**At create, `resolveAgentType`.** It mints a token for the trigger's own principal and asks `orbit-agents` for the agent type, which validates tenant ownership and stops a client-supplied slug from shaping the run grant's scope. For a scheduled or manual trigger this runs moments after the grant was created, so the self-signed token is used in the same request that wrote the grant. `ErrForbidden` is retried; `ErrAgentTypeNotFound` fails fast, because it means genuinely absent. A webhook trigger's principal is its source's, granted at source-creation time, so that path resolves on the first attempt.
+
+**At dispatch, the run start.** The same window reopens on the first fire, and it needs a second bound the create site does not, because dispatch happens repeatedly and indefinitely. A refusal here is only attributable to propagation while the **trigger is young**, so the retry is gated on `time.Since(trigger.CreatedAt) < 60s`. Beyond that window a `403` is a real denial (a revoked grant, a refused delegated agent type) and is returned immediately. Retrying it would delay an honest failure and hold a queue slot for the whole budget on every fire. The 60 second window is deliberately wider than the six second budget, because a fire queued behind others can reach dispatch well after its trigger was written.
+
+**This depends on `orbit-agents` answering `403` rather than `500`.** A start refused by the per-agent scope check previously fell through to an internal error, which misreports the caller's own answer as a server fault and silently defeats the retry: the loop can only recognise a refusal that arrives as `ErrForbidden`. The fix belongs on the agents side and is recorded in Decision 6 above.
 
 ### Observability
 
@@ -792,6 +858,9 @@ The meter is set up in `cmd/orbit-triggers/main.go`, not in `internal/platform/o
 - Full payload storage grows the delivery table substantially and creates a retention obligation that must actually run. A purge job that silently stops is a compliance problem, so it needs monitoring rather than trust.
 - Two status vocabularies must stay coherent. The derived-summary invariant is the mitigation and is the thing most likely to be got wrong under time pressure.
 - Every replica scans all scheduled triggers each minute. Cheap now, and a known thing to revisit.
+- Admission and the agent control plane disagree about `idle` on purpose. `max_parallel` therefore bounds runs that are actively working, not runs that exist, and anyone reading the two counts side by side has to know why they differ.
+- A webhook source principal can still attribute a run to a sibling trigger in its own tenant. Tenancy bounds the residual, and closing it needs the token claim in Future Work rather than a cross-service read.
+- The grant-propagation retries couple `orbit-triggers` to `orbit-agents`' bundle poll interval. Raising that interval without raising the retry budget breaks trigger creation, which is a coupling between two services' configuration that nothing enforces.
 
 ### Neutral
 
@@ -870,6 +939,10 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 - After extraction, an existing webhook source fires end to end against its unchanged URL, with no reconfiguration on the sender's side.
 - Killing the pod between acknowledgement and dispatch loses no fire: it starts when the pod returns.
 - Payloads past the tenant's retention have `payload IS NULL` with every other column intact.
+- A source's token cannot start an agent type it is not bound to: the per-agent check refuses it with `403`, and nothing is written.
+- The same signed body resent under a rewritten provider delivery id is refused; resent under its original id it records as a linked duplicate.
+- A person starting a run cannot attribute it to a trigger, and a trigger principal cannot attribute a run to a different trigger.
+- A replay of a delivery received before the source's last secret rotation is refused, as is an eleventh replay of the same original.
 
 ### Monitoring
 
@@ -884,6 +957,8 @@ Four signals, instrumented as described in [Observability](#observability):
 
 ## Future Work
 
+- **Push-based bundle invalidation, to remove the poll coupling.** Both grant-propagation retry sites exist only because a grant written by `orbit-triggers` is not visible to `orbit-agents` until that service's next OPA bundle poll. Two retry loops, a six-second budget and a 60-second attributability window are all compensation for one missing push. [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) already names push-based invalidation as deferred; when it lands, both loops here delete rather than shrink, and a refusal becomes unambiguously a denial. Until then the budget is coupled to `policy.bundlePollIntervalSecs` and cannot be tuned independently of it.
+- **Stamp the trigger id into the minted `SERVICE` token's claims.** Attribution currently proves itself from the shape of the caller's principal id, which works exactly for a `trigger:<id>` principal and not at all for a `trigger-source:<id>` one, leaving the sibling-trigger residual described in [Run attribution](#run-attribution). Carrying the trigger id in the token makes the binding travel with the credential, so `orbit-agents` verifies it against a claim rather than a prefix and needs no lookup into a database it must not read. It closes the residual without weakening the feature boundary, which is why it is the durable fix rather than a cross-service query.
 - **Route-declared per-resource scopes (Decision 6B).** The right long-term shape for every per-resource endpoint, not just this one. Its own ADR.
 - **Per-trigger payload opt-out.** The first thing to add if a tenant handling PII needs to record that a delivery happened without storing its body (PRD, PD4).
 - **Automatic retry with backoff.** Deliberately out of scope; revisit if Redeliver is observed being used as a manual substitute.
@@ -900,6 +975,8 @@ Four signals, instrumented as described in [Observability](#observability):
 - [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — the run a trigger starts.
 - [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — the principal and grant provisioning each trigger kind reuses.
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — the model a trigger cannot satisfy. All three create paths refuse a delegated agent type, because a trigger has no delegator to intersect with.
+- [orbit-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md). Its `POST /api/v1/runs` binding is corrected by Decision 6: the governing scope is per-agent, so a route-level parent scope widens rather than narrows.
+- [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md). The OPA bundle poll whose propagation window both grant-propagation retry sites compensate for.
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — the middleware Decision 6 works around and 6B would extend.
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — the `RouteScope` mechanism whose limits Decision 6 documents.
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — unchanged; triggered runs use it as any run does.
@@ -914,4 +991,4 @@ Four signals, instrumented as described in [Observability](#observability):
 
 ---
 
-**Last Updated:** 2026-07-28
+**Last Updated:** 2026-07-29

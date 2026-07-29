@@ -28,13 +28,19 @@ orbit-agents will register its public routes and scope vocabulary with the polic
 | `GET` | `/api/v1/agent-types` | `agents:types:read` |
 | `GET` | `/api/v1/agent-types/` | `agents:types:read` |
 | `DELETE` | `/api/v1/agent-types/` | `agents:types:write` |
-| `POST` | `/api/v1/runs` | `agents:runs:write` |
+| `POST` | `/api/v1/runs` | *(authenticated only)* |
 | `GET` | `/api/v1/runs` | `agents:runs:read` |
 | `GET` | `/api/v1/runs/` | `agents:runs:read` |
 | `DELETE` | `/api/v1/runs/` | `agents:runs:write` |
 | `POST` | `/api/v1/runs/` | `agents:runs:write` |
 
 The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, and future per-run read actions.
+
+**Correction: starting a run is authenticated-only at the route layer.** This ADR originally bound `POST /api/v1/runs` to `agents:runs:write`. That binding is wrong, and [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) corrects it.
+
+The scope that governs starting a run is per-agent (`agents:runs:{slug}:write`), and the slug comes from the agent type named in the request body, which a static path-prefix route map cannot see. A route-level `agents:runs:write` therefore does not narrow the endpoint, it **widens** it: by the `scope_covers` prefix rule stated above, the parent scope covers every per-agent child, so every principal permitted to start any run would have to hold the scope that permits starting *all* of them. That is what allowed a webhook source's minted token to start any agent type in its tenant.
+
+The route is registered with an empty required scope and excluded from policy-service registration, exactly as the drafts and agent-type-mode routes are. The authoritative check is `Authz.checkRun`, evaluated in `RunService.authorizeStart` before the first write, so a refused start leaves nothing behind and returns `403`, not `500`. The parent `agents:runs:write` still satisfies that per-agent check for the admin roles that legitimately hold it, so nothing an administrator could do before is lost.
 
 ### Scope Vocabulary
 
