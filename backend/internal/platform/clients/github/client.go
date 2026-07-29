@@ -205,3 +205,41 @@ func (c *Client) ListInstallationRepositories(ctx context.Context, installationT
 	}
 	return names, nil
 }
+
+// installationResponse is the wire shape of GET /app/installations/{id}.
+type installationResponse struct {
+	Permissions map[string]string `json:"permissions"`
+}
+
+// GetInstallationPermissions fetches the App installation's current permission
+// set from GitHub. appJWT must be a freshly-signed App JWT (RS256). The
+// returned map is keyed by permission name (e.g. "contents", "pull_requests")
+// with string level values ("read", "write"). It is used by the credential
+// adapter to intersect the umbrella permission set with the installation's
+// actual grants, avoiding GitHub 422 errors from ungranted permissions.
+func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error) {
+	endpoint := fmt.Sprintf("%s/app/installations/%d", c.baseURL, installationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get installation request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+appJWT)
+	req.Header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, "github.Client.GetInstallationPermissions", req)
+	defer span.End()
+	if err != nil {
+		return nil, fmt.Errorf("get installation call: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var body installationResponse
+	if err = c.DecodeJSON(span, resp, &body); err != nil {
+		return nil, err
+	}
+	return body.Permissions, nil
+}
