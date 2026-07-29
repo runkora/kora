@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DELIVERY_EXCERPT_MAX,
   deliveryDetail,
+  deliveryDuration,
   deliveryStatusTone,
+  deliveryTriggerLabel,
+  dispatchDuration,
+  isRedeliverable,
   failureSummary,
   matchesStatusFilter,
   type DeliveryRow,
@@ -17,6 +21,7 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     eventType: 'push',
     status: 'verified',
     triggerId: null,
+    triggerName: null,
     runId: null,
     error: null,
     payloadExcerpt: null,
@@ -35,8 +40,22 @@ describe('deliveryDetail priority chain', () => {
   it('shows fan-out run count when there is more than one run (highest priority)', () => {
     const r = row({
       runs: [
-        { triggerId: 't1', runId: 'r1', status: 'completed', error: null, createdAt: null },
-        { triggerId: 't2', runId: 'r2', status: 'failed', error: 'boom', createdAt: null },
+        {
+          triggerId: 't1',
+          triggerName: null,
+          runId: 'r1',
+          status: 'completed',
+          error: null,
+          createdAt: null,
+        },
+        {
+          triggerId: 't2',
+          triggerName: null,
+          runId: 'r2',
+          status: 'failed',
+          error: 'boom',
+          createdAt: null,
+        },
       ],
       error: 'should-be-ignored',
       runId: 'r1',
@@ -66,7 +85,16 @@ describe('deliveryDetail priority chain', () => {
 
   it('does not treat a single run as a fan-out (single run falls through to excerpt)', () => {
     const r = row({
-      runs: [{ triggerId: 't1', runId: 'r1', status: 'completed', error: null, createdAt: null }],
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: null,
+          runId: 'r1',
+          status: 'completed',
+          error: null,
+          createdAt: null,
+        },
+      ],
       payloadExcerpt: 'just-the-excerpt',
     });
     expect(deliveryDetail(r)).toEqual({ kind: 'excerpt', text: 'just-the-excerpt' });
@@ -141,5 +169,165 @@ describe('failureSummary', () => {
 
   it('returns the raw string when nothing can be extracted', () => {
     expect(failureSummary('boom')).toBe('boom');
+  });
+});
+
+describe('deliveryTriggerLabel', () => {
+  it('prefers the name denormalised onto the delivery', () => {
+    expect(deliveryTriggerLabel(row({ triggerName: 'nightly-report', triggerId: 't1' }))).toBe(
+      'nightly-report',
+    );
+  });
+
+  it('falls back to the fan-out when the delivery carries no name', () => {
+    expect(
+      deliveryTriggerLabel(
+        row({
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: 'gh-push',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+          ],
+        }),
+      ),
+    ).toBe('gh-push');
+  });
+
+  it('counts the rest when an arrival fanned out to several triggers', () => {
+    expect(
+      deliveryTriggerLabel(
+        row({
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: 'gh-push',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+            {
+              triggerId: 't2',
+              triggerName: 'gh-audit',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+            {
+              triggerId: 't3',
+              triggerName: 'gh-lint',
+              runId: null,
+              status: 'dispatched',
+              error: null,
+              createdAt: null,
+            },
+          ],
+        }),
+      ),
+    ).toBe('gh-push +2');
+  });
+
+  it('falls back to an id rather than showing nothing', () => {
+    expect(deliveryTriggerLabel(row({ triggerId: 'trg_123' }))).toBe('trg_123');
+    expect(
+      deliveryTriggerLabel(
+        row({
+          runs: [
+            {
+              triggerId: 'trg_9',
+              triggerName: null,
+              runId: null,
+              status: 'skipped',
+              error: null,
+              createdAt: null,
+            },
+          ],
+        }),
+      ),
+    ).toBe('trg_9');
+  });
+
+  it('says nothing matched, which is a real outcome and not missing data', () => {
+    expect(deliveryTriggerLabel(row({ triggerId: null, runs: [] }))).toBe('—');
+  });
+});
+
+describe('dispatchDuration', () => {
+  it('reports sub-second gaps in milliseconds', () => {
+    expect(dispatchDuration('2026-06-26T00:00:00.000Z', '2026-06-26T00:00:00.250Z')).toBe('250ms');
+  });
+
+  it('reports longer gaps in seconds, to one decimal', () => {
+    expect(dispatchDuration('2026-06-26T00:00:00Z', '2026-06-26T00:00:01.500Z')).toBe('1.5s');
+  });
+
+  it('reports no duration when nothing ever ran', () => {
+    // A filtered or denied arrival never reached a run, and "0ms" would read as
+    // suspiciously fast rather than as not-applicable.
+    expect(dispatchDuration('2026-06-26T00:00:00Z', null)).toBe('—');
+  });
+
+  it('refuses to report a negative or unparseable gap', () => {
+    expect(dispatchDuration('2026-06-26T00:00:05Z', '2026-06-26T00:00:00Z')).toBe('—');
+    expect(dispatchDuration('not-a-date', '2026-06-26T00:00:00Z')).toBe('—');
+  });
+});
+
+describe('deliveryDuration', () => {
+  const runs = [
+    {
+      triggerId: 't1',
+      triggerName: null,
+      runId: 'r1',
+      status: 'dispatched',
+      error: null,
+      createdAt: '2026-06-26T00:00:00.400Z',
+    },
+    {
+      triggerId: 't2',
+      triggerName: null,
+      runId: 'r2',
+      status: 'dispatched',
+      error: null,
+      createdAt: '2026-06-26T00:00:02Z',
+    },
+  ];
+
+  it('reads the named trigger out of the fan-out', () => {
+    expect(deliveryDuration(row({ runs }), 't2')).toBe('2.0s');
+  });
+
+  it('falls back to the first outcome when no trigger is named', () => {
+    expect(deliveryDuration(row({ runs }), undefined)).toBe('400ms');
+  });
+
+  it('has nothing to report for an arrival that started nothing', () => {
+    expect(deliveryDuration(row({ runs: [] }))).toBe('—');
+  });
+});
+
+describe('isRedeliverable', () => {
+  it('allows replay of outcomes a replay could recover', () => {
+    for (const status of ['failed', 'denied', 'dropped']) {
+      expect(isRedeliverable(status)).toBe(true);
+    }
+  });
+
+  it('refuses replay of work that already succeeded', () => {
+    // The backend would accept this one; the rule exists so a stray click
+    // cannot run completed work a second time.
+    expect(isRedeliverable('dispatched')).toBe(false);
+  });
+
+  it('refuses replay of arrivals that were never meant to run', () => {
+    for (const status of ['verified', 'skipped', 'duplicate', 'missed', 'pending']) {
+      expect(isRedeliverable(status)).toBe(false);
+    }
   });
 });

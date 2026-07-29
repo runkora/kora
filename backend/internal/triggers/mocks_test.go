@@ -143,7 +143,20 @@ func (m *mockRepository) GetTrigger(_ context.Context, tenantID, id string) (*Tr
 		return nil, ErrTriggerNotFound
 	}
 	cp := *t
+	cp.PendingCount = m.pendingCountLocked(t.ID)
 	return &cp, nil
+}
+
+// pendingCountLocked mirrors the correlated subquery in triggerColumns: fires
+// waiting on this trigger, unclaimed only. Callers must hold m.mu.
+func (m *mockRepository) pendingCountLocked(triggerID string) int {
+	n := 0
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID && !p.claimed {
+			n++
+		}
+	}
+	return n
 }
 
 func (m *mockRepository) ListTriggers(_ context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
@@ -155,7 +168,9 @@ func (m *mockRepository) ListTriggers(_ context.Context, tenantID, agentTypeID s
 	var out []Trigger
 	for _, t := range m.triggers {
 		if t.TenantID == tenantID && (agentTypeID == "" || t.AgentTypeID == agentTypeID) {
-			out = append(out, *t)
+			cp := *t
+			cp.PendingCount = m.pendingCountLocked(t.ID)
+			out = append(out, cp)
 		}
 	}
 	return out, nil
@@ -169,7 +184,9 @@ func (m *mockRepository) ListMatchableTriggersForSource(_ context.Context, sourc
 	var out []Trigger
 	for _, t := range m.triggers {
 		if t.SourceID == sourceID && matchable(t) {
-			out = append(out, *t)
+			cp := *t
+			cp.PendingCount = m.pendingCountLocked(t.ID)
+			out = append(out, cp)
 		}
 	}
 	return out, nil
@@ -181,7 +198,9 @@ func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Tr
 	var out []Trigger
 	for _, t := range m.triggers {
 		if t.Kind == KindScheduled && matchable(t) {
-			out = append(out, *t)
+			cp := *t
+			cp.PendingCount = m.pendingCountLocked(t.ID)
+			out = append(out, cp)
 		}
 	}
 	return out, nil
@@ -738,6 +757,10 @@ func (m *mockRepository) DueScheduledMinutesWithoutDelivery(_ context.Context, t
 type pendingRow struct {
 	PendingDelivery
 	claimed bool
+	// claimedAt mirrors the real table's nullable timestamp, which is what the
+	// stale-claim reaper acts on: "claimed" alone cannot express "claimed by a
+	// worker that died twenty minutes ago".
+	claimedAt time.Time
 }
 
 func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) error {
@@ -763,6 +786,13 @@ func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDe
 			inFlight[r.TriggerID]++
 		}
 	}
+	// Claimed rows hold a slot, but only within the reaper's window: a claim
+	// older than that belongs to a worker that died.
+	for _, p := range m.pending {
+		if p.claimed && time.Since(p.claimedAt) < StaleClaimWindow {
+			inFlight[p.TriggerID]++
+		}
+	}
 
 	var out []PendingDelivery
 	for _, p := range m.pending {
@@ -784,8 +814,26 @@ func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDe
 			continue
 		}
 		p.claimed = true
+		p.claimedAt = time.Now()
 		inFlight[p.TriggerID]++
 		out = append(out, p.PendingDelivery)
+	}
+	return out, nil
+}
+
+// ReclaimStalePending mirrors the SQL: un-claim rows whose claim is older than
+// the window, returning what was taken back.
+func (m *mockRepository) ReclaimStalePending(_ context.Context, olderThan time.Duration) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-olderThan)
+	var out []string
+	for _, p := range m.pending {
+		if p.claimed && !p.claimedAt.IsZero() && p.claimedAt.Before(cutoff) {
+			p.claimed = false
+			p.claimedAt = time.Time{}
+			out = append(out, p.ID)
+		}
 	}
 	return out, nil
 }
@@ -797,12 +845,20 @@ func (m *mockRepository) ReleasePending(_ context.Context, id string) error {
 	return nil
 }
 
+// InFlightCount mirrors the SQL: dispatched fan-out rows, plus pendings a
+// worker has claimed — but only claims fresh enough to belong to a live worker.
+// A stranded claim must not keep costing the trigger a parallel slot.
 func (m *mockRepository) InFlightCount(_ context.Context, triggerID string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
 	for _, r := range m.deliveryRuns {
 		if r.TriggerID == triggerID && r.Status == RunStatusDispatched {
+			n++
+		}
+	}
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID && p.claimed && time.Since(p.claimedAt) < StaleClaimWindow {
 			n++
 		}
 	}
@@ -855,6 +911,18 @@ func (m *mockRepository) removePending(match func(*pendingRow) bool) ([]PendingD
 	}
 	m.pending = kept
 	return removed, nil
+}
+
+// backdateClaim ages a row's claim, standing in for a worker that claimed it and
+// then died: the row the reaper exists to take back.
+func (m *mockRepository) backdateClaim(pendingID string, by time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.pending {
+		if p.ID == pendingID {
+			p.claimedAt = time.Now().Add(-by)
+		}
+	}
 }
 
 func (m *mockRepository) pendingFor(triggerID string) []PendingDelivery {

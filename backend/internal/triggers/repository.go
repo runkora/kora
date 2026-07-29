@@ -98,6 +98,15 @@ type Repository interface {
 	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
 	// ReleasePending removes a claimed row once its dispatch has settled.
 	ReleasePending(ctx context.Context, id string) error
+	// ReclaimStalePending un-claims fires whose worker died mid-dispatch,
+	// returning the ids it took back so the caller can say so.
+	//
+	// Without it a pod that dies between claiming and dispatching strands the
+	// row forever: nothing re-claims it, so the fire never starts, and it holds
+	// one of its trigger's parallel slots for good. olderThan must stay above
+	// the longest dispatch a trigger may legitimately take, or this restarts
+	// work that is still running.
+	ReclaimStalePending(ctx context.Context, olderThan time.Duration) ([]string, error)
 	// InFlightCount is how many runs this trigger has started that have not yet
 	// reached a terminal state.
 	InFlightCount(ctx context.Context, triggerID string) (int, error)

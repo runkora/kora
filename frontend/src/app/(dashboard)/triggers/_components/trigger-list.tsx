@@ -2,15 +2,19 @@
 
 'use client';
 
+import { useState } from 'react';
 import {
   Badge,
+  Button,
   DataGrid,
   DataGridEmpty,
+  DataGridFooter,
   DataGridHeader,
   DataGridRow,
   DataGridToolbar,
   Icon,
   IconTile,
+  NativeSelect,
   Sparkline,
   Stack,
   Text,
@@ -19,6 +23,7 @@ import {
 import type { IconName } from '@orbit/terra';
 import type { DeliveryRow, TriggerKind, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES, pageWindow } from '../_types/pagination';
 
 interface TriggerListProps {
   triggers: TriggerRow[];
@@ -35,6 +40,12 @@ interface TriggerListProps {
    * its own escape hatch off screen.
    */
   toolbar?: React.ReactNode;
+  /**
+   * Changes whenever the filters upstream change. A new value returns the list
+   * to page one, because a page index means nothing once the rows behind it
+   * have been replaced.
+   */
+  resetKey?: string;
 }
 
 /**
@@ -84,7 +95,15 @@ export function TriggerList({
   onToggle,
   emptyMessage,
   toolbar,
+  resetKey = '',
 }: TriggerListProps) {
+  const [paging, setPaging] = useState({ key: resetKey, page: 0, size: DEFAULT_PAGE_SIZE });
+  // Derived rather than reset in an effect, so a filter change never renders
+  // one frame of the wrong page first.
+  const requested = paging.key === resetKey ? paging.page : 0;
+  const win = pageWindow(triggers.length, paging.size, requested);
+  const visible = triggers.slice(win.start, win.end);
+
   return (
     <DataGrid columns={COLUMNS} aria-label="Triggers">
       {toolbar !== undefined && <DataGridToolbar>{toolbar}</DataGridToolbar>}
@@ -107,7 +126,7 @@ export function TriggerList({
           </Text>
         </DataGridEmpty>
       ) : (
-        triggers.map((t, i) => {
+        visible.map((t, i) => {
           const failures = recentFailures(t.id, deliveries);
           const buckets = sparkline(t.id, deliveries);
           const activity = buckets.map((b) => b.started + b.failed + b.other);
@@ -116,7 +135,7 @@ export function TriggerList({
           return (
             <DataGridRow
               key={t.id}
-              last={i === triggers.length - 1}
+              last={i === visible.length - 1}
               onClick={() => onOpen(t)}
               rowLabel={`Open ${t.name}`}
             >
@@ -130,6 +149,14 @@ export function TriggerList({
                     <Text mono size="supporting" weight="emphasis">
                       {t.name}
                     </Text>
+                    {/* A trigger the platform stopped is not the same as one a
+                        person turned off: the toggle already says the second,
+                        and only the first needs looking into. */}
+                    {t.autoPausedAt !== null && (
+                      <Badge variant="degraded" size="sm" shape="pill">
+                        Auto-paused
+                      </Badge>
+                    )}
                     {/* Derived from this trigger's own recent outcomes, never a
                         stored flag that could drift from the deliveries below. */}
                     {failures > 0 && (
@@ -202,6 +229,56 @@ export function TriggerList({
             </DataGridRow>
           );
         })
+      )}
+
+      {/* Inside the frame, like the toolbar: the controls that change what the
+          grid shows belong to the grid. */}
+      {triggers.length > 0 && (
+        <DataGridFooter>
+          <Text size="caption" color="subtle">
+            {win.from}–{win.to} of {win.total}
+          </Text>
+          <Stack grow />
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Text as="span" size="caption" color="subtle">
+              Per page
+            </Text>
+            <NativeSelect
+              aria-label="Triggers per page"
+              value={String(paging.size)}
+              onChange={(e) =>
+                // A new page size makes the old page index meaningless, so it
+                // returns to the first page rather than landing somewhere
+                // arbitrary in the middle.
+                setPaging({ key: resetKey, page: 0, size: Number(e.target.value) })
+              }
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </NativeSelect>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={win.page === 0}
+              aria-label="Previous page"
+              onClick={() => setPaging({ key: resetKey, page: win.page - 1, size: paging.size })}
+            >
+              <Icon name="chevron-left" size="2xs" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={win.page >= win.pageCount - 1}
+              aria-label="Next page"
+              onClick={() => setPaging({ key: resetKey, page: win.page + 1, size: paging.size })}
+            >
+              <Icon name="chevron-right" size="2xs" />
+            </Button>
+          </Stack>
+        </DataGridFooter>
       )}
     </DataGrid>
   );

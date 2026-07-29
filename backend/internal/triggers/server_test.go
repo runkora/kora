@@ -413,6 +413,43 @@ func TestHandleSourceEventTypes_UnknownSource(t *testing.T) {
 	}
 }
 
+// pending_count is always serialized, including at zero: "nothing is waiting" is
+// the answer an operator most needs to trust, and an absent field reads as
+// unknown rather than none.
+func TestHandleGetTrigger_PendingCountAlwaysPresent(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 32)
+
+	get := func() (map[string]any, int) {
+		req := withTenant(httptest.NewRequest(http.MethodGet, "/triggers/"+trig.ID, nil))
+		req.SetPathValue("id", trig.ID)
+		w := httptest.NewRecorder()
+		c.handleGetTrigger(w, req)
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body, w.Code
+	}
+
+	body, code := get()
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	got, present := body["pending_count"]
+	if !present {
+		t.Fatal("pending_count must be present even at zero")
+	}
+	if got.(float64) != 0 {
+		t.Errorf("pending_count = %v, want 0", got)
+	}
+
+	enqueue(t, svc, deps, trig, 2)
+
+	body, _ = get()
+	if body["pending_count"].(float64) != 2 {
+		t.Errorf("pending_count = %v, want 2 waiting", body["pending_count"])
+	}
+}
+
 func TestController_BootAndMeta(t *testing.T) {
 	c, _, _ := newTestController(t)
 	if c.GroupedBy() != "" {

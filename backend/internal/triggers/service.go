@@ -638,19 +638,19 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		return nil, ErrTriggerDisabled
 	}
 
-	// Validate against the trigger's own input declaration before anything is
-	// recorded or started. The console renders its form from the same
-	// declaration, so what it shows and what the API accepts cannot drift.
+	// Validated against the trigger's own input declaration, which the console
+	// also renders its form from, so what it shows and what the API accepts
+	// cannot drift.
 	values := t.ManualConfig.ApplyDefaults(req.Variables)
-	if problems := t.ManualConfig.ValidateInputs(values); problems != nil {
-		return nil, &InputValidationError{Problems: problems}
-	}
+	problems := t.ManualConfig.ValidateInputs(values)
 
 	fields := varFields(values)
 
 	// The values a person supplied are the manual kind's payload. Storing them is
 	// what makes a manual fire answerable after the fact ("what was it run
-	// with?") and what makes it replayable at all.
+	// with?") and what makes it replayable at all. A rejected fire is recorded
+	// with the values that were rejected, which is the pair that makes it
+	// diagnosable.
 	captured := s.captureVariables(ctx, values)
 
 	deliveryID := uuid.NewString()
@@ -666,6 +666,15 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 		Payload:      captured,
 		PayloadBytes: len(captured),
 	}
+	// A rejected fire is still a fire: someone tried to start this trigger and
+	// the platform refused. Recorded before validation is judged, so the attempt
+	// leaves a row either way — an invalid fire that vanished was indistinguishable
+	// from one that was never made, which is the gap that made "why did nothing
+	// happen?" unanswerable.
+	if problems != nil {
+		delivery.Status = StatusFailed
+		delivery.Reason = new(inputProblemSummary(problems))
+	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
 		return nil, fmt.Errorf("record manual delivery: %w", err)
@@ -673,6 +682,17 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	if !inserted {
 		// Should not happen for manual (no dedup key), but handle defensively.
 		return nil, fmt.Errorf("failed to record delivery")
+	}
+	if problems != nil {
+		// Recorded, never admitted: a fire the platform refused must not reach
+		// the queue, or it would start the run the refusal was about. The caller
+		// gets the per-field detail, which is what they can act on.
+		s.logger.Info(ctx, "manual fire rejected: invalid input",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "fired_by", Value: callerPrincipalID},
+		)
+		return nil, &InputValidationError{Problems: problems}
 	}
 
 	// Manual fires go through the queue like every other kind, so an accepted

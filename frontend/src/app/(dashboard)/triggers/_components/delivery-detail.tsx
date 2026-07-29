@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/terra';
-import { failureSummary } from '../_types';
+import { failureSummary, isRedeliverable } from '../_types';
 import type { DeliveryRow } from '../_types';
 
 /**
@@ -60,6 +60,13 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
     triggerId === undefined ? undefined : delivery.runs.find((r) => r.triggerId === triggerId);
   const error = outcome?.error ?? (triggerId === undefined ? delivery.error : null);
   const runId = outcome?.runId ?? (triggerId === undefined ? delivery.runId : null);
+
+  // Replay is a recovery action, so it is offered only where there is something
+  // to recover. A dispatched delivery already did its work; replaying it would
+  // run that work a second time, and the button being there at all is enough
+  // for a stray click to do it.
+  const canRedeliver =
+    onRedeliver !== undefined && isRedeliverable(outcome?.status ?? delivery.status);
 
   const replay = () => {
     if (onRedeliver === undefined) return;
@@ -138,7 +145,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
 
       {/* The run line, and the replay that only makes sense once something
           arrived to replay. */}
-      {(runId != null || onRedeliver !== undefined) && (
+      {(runId != null || canRedeliver) && (
         <Stack direction="horizontal" align="center" justify="between" gap="snug">
           {runId != null ? (
             <Stack direction="horizontal" align="center" gap="tight">
@@ -154,7 +161,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
               No run started for this delivery.
             </Text>
           )}
-          {onRedeliver !== undefined && (
+          {canRedeliver && (
             <Button
               variant="ghost"
               size="xs"

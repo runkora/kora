@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -607,6 +608,263 @@ func TestPostgres_DeliveryRunWithoutTriggerName(t *testing.T) {
 	}
 	if len(runs[d.ID]) != 1 || runs[d.ID][0].TriggerName != "" {
 		t.Errorf("fan-out = %+v, want an empty name", runs[d.ID])
+	}
+}
+
+// seedPendingTrigger stores an enabled trigger to hang pending rows off.
+func seedPendingTrigger(t *testing.T, r *postgresRepository, tenant, sourceID string, maxParallel int16) *Trigger {
+	t.Helper()
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: sourceID,
+		Name: "pending", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p",
+		Enabled: true, MaxParallel: maxParallel,
+	}
+	if err := r.CreateTrigger(context.Background(), tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(context.Background(), `DELETE FROM trigger_pending_deliveries WHERE trigger_id = $1`, tr.ID)
+	})
+	return tr
+}
+
+// The row a dead worker left behind: claimed, never dispatched, never released.
+// Nothing else in the system will ever give that fire a dispatch.
+func TestPostgres_ReclaimStalePending(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	if err := r.EnqueuePending(ctx, p); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d, want 1", len(claimed))
+	}
+	// While claimed, it is invisible to the claim path — this is the strand.
+	if again, _ := r.ClaimPending(ctx, 10); len(again) != 0 {
+		t.Fatal("a claimed row must not be re-claimable")
+	}
+
+	// A fresh claim is left alone: reclaiming a live dispatch would run the
+	// same fire twice.
+	if reclaimed, err := r.ReclaimStalePending(ctx, StaleClaimWindow); err != nil || len(reclaimed) != 0 {
+		t.Fatalf("reclaimed %v (%v), want a fresh claim untouched", reclaimed, err)
+	}
+
+	backdateClaim(t, r, p.ID, StaleClaimWindow+time.Minute)
+
+	reclaimed, err := r.ReclaimStalePending(ctx, StaleClaimWindow)
+	if err != nil {
+		t.Fatalf("ReclaimStalePending: %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0] != p.ID {
+		t.Fatalf("reclaimed = %v, want [%s]", reclaimed, p.ID)
+	}
+
+	// And it is claimable again, which is the whole point: the fire finally runs.
+	after, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending after reclaim: %v", err)
+	}
+	if len(after) != 1 || after[0].ID != p.ID {
+		t.Errorf("re-claimed = %+v, want the reclaimed fire", after)
+	}
+}
+
+// A stranded claim must not permanently cost its trigger a parallel slot, in
+// either place the ceiling is evaluated.
+func TestPostgres_StrandedClaimReleasesItsSlot(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+
+	stranded := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	if err := r.EnqueuePending(ctx, stranded); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	if claimed, _ := r.ClaimPending(ctx, 10); len(claimed) != 1 {
+		t.Fatalf("claimed %d, want 1", len(claimed))
+	}
+
+	if n, err := r.InFlightCount(ctx, tr.ID); err != nil || n != 1 {
+		t.Fatalf("in-flight with a fresh claim = %d (%v), want 1", n, err)
+	}
+
+	// A second fire cannot be claimed: the ceiling is 1 and the claim holds it.
+	next := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	if err := r.EnqueuePending(ctx, next); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	if claimed, _ := r.ClaimPending(ctx, 10); len(claimed) != 0 {
+		t.Fatal("the ceiling should hold while the claim is live")
+	}
+
+	backdateClaim(t, r, stranded.ID, StaleClaimWindow+time.Minute)
+
+	if n, err := r.InFlightCount(ctx, tr.ID); err != nil || n != 0 {
+		t.Errorf("in-flight with a stranded claim = %d (%v), want 0", n, err)
+	}
+	// The claim path agrees: the slot is free again even before the reaper runs.
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != next.ID {
+		t.Errorf("claimed = %+v, want the waiting fire to get the freed slot", claimed)
+	}
+}
+
+// pending_count answers "how many fires are waiting", and waiting means
+// unclaimed: a claimed row is mid-dispatch.
+func TestPostgres_TriggerPendingCount(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	other := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 0 {
+		t.Errorf("idle pending_count = %d, want 0", got.PendingCount)
+	}
+
+	for range 3 {
+		if err := r.EnqueuePending(ctx, &PendingDelivery{
+			ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
+		}); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+	// Another trigger's backlog must not leak into this one's count.
+	if err := r.EnqueuePending(ctx, &PendingDelivery{
+		ID: uuid.NewString(), TenantID: tenant, TriggerID: other.ID, DeliveryID: uuid.NewString(),
+	}); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+
+	got, err = r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 3 {
+		t.Errorf("pending_count = %d, want 3", got.PendingCount)
+	}
+
+	// The list query shares the projection, so it has to agree.
+	listed, err := r.ListTriggers(ctx, tenant, "")
+	if err != nil {
+		t.Fatalf("ListTriggers: %v", err)
+	}
+	for _, lt := range listed {
+		want := map[string]int{tr.ID: 3, other.ID: 1}[lt.ID]
+		if lt.PendingCount != want {
+			t.Errorf("listed %s pending_count = %d, want %d", lt.ID, lt.PendingCount, want)
+		}
+	}
+
+	if _, err := r.ClaimPending(ctx, 1); err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	got, err = r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 2 {
+		t.Errorf("pending_count = %d after one claim, want 2 still waiting", got.PendingCount)
+	}
+}
+
+// The purge honours the tenant's own window when they have one and the platform
+// default when they do not, and takes only the payload: every other column
+// survives, because the retention promise is about third-party payload data, not
+// about erasing history.
+func TestPostgres_PurgePayloads(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM trigger_retention_settings WHERE tenant_id = $1`, tenant)
+	})
+
+	insert := func(providerID string, ageDays int) string {
+		id := uuid.NewString()
+		if _, err := r.InsertDelivery(ctx, &Delivery{
+			ID: id, TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: providerID, Status: StatusDispatched,
+			Payload: []byte(`{"a":1}`), PayloadBytes: 7,
+		}); err != nil {
+			t.Fatalf("InsertDelivery: %v", err)
+		}
+		if _, err := r.pool.Exec(ctx,
+			`UPDATE trigger_deliveries SET received_at = now() - make_interval(days => $2) WHERE id = $1`,
+			id, ageDays); err != nil {
+			t.Fatalf("backdate delivery: %v", err)
+		}
+		return id
+	}
+
+	old := insert("gh-purge-old", 40)
+	recent := insert("gh-purge-recent", 2)
+
+	if _, err := r.PurgePayloads(ctx, DefaultPayloadRetentionDays); err != nil {
+		t.Fatalf("PurgePayloads: %v", err)
+	}
+
+	purged, err := r.GetDelivery(ctx, tenant, old)
+	if err != nil {
+		t.Fatalf("GetDelivery(old): %v", err)
+	}
+	if purged.Payload != nil || !purged.PayloadPurged {
+		t.Errorf("old delivery = payload %v purged %v, want the body gone and flagged", purged.Payload, purged.PayloadPurged)
+	}
+	if purged.Status != StatusDispatched || purged.ProviderDeliveryID != "gh-purge-old" {
+		t.Error("the purge must take the payload only, leaving the history intact")
+	}
+	kept, err := r.GetDelivery(ctx, tenant, recent)
+	if err != nil {
+		t.Fatalf("GetDelivery(recent): %v", err)
+	}
+	if kept.Payload == nil {
+		t.Error("a delivery inside the window must keep its payload")
+	}
+
+	// A tenant that shortens its window brings the recent one into scope.
+	if err := r.SetRetention(ctx, tenant, 1); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+	if _, err := r.PurgePayloads(ctx, DefaultPayloadRetentionDays); err != nil {
+		t.Fatalf("PurgePayloads: %v", err)
+	}
+	kept, err = r.GetDelivery(ctx, tenant, recent)
+	if err != nil {
+		t.Fatalf("GetDelivery(recent): %v", err)
+	}
+	if kept.Payload != nil {
+		t.Error("a shortened tenant window must apply to payloads already stored")
+	}
+}
+
+// backdateClaim ages a row's claim to stand in for a worker that died holding it.
+func backdateClaim(t *testing.T, r *postgresRepository, pendingID string, by time.Duration) {
+	t.Helper()
+	_, err := r.pool.Exec(context.Background(), `
+		UPDATE trigger_pending_deliveries
+		SET    claimed_at = now() - make_interval(secs => $2)
+		WHERE  id = $1
+	`, pendingID, by.Seconds())
+	if err != nil {
+		t.Fatalf("backdate claim: %v", err)
 	}
 }
 

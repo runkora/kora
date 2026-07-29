@@ -64,6 +64,12 @@ export interface TriggerRow {
    * investigating, the other was deliberate.
    */
   autoPausedAt: string | null;
+  /**
+   * Deliveries admitted and queued for this trigger, not yet started. Zero
+   * until the backend reports it, so a console deployed first shows nothing
+   * rather than a wrong number.
+   */
+  pendingCount: number;
 }
 
 export interface DeliveryRow {
@@ -73,6 +79,8 @@ export interface DeliveryRow {
   eventType: string;
   status: string;
   triggerId: string | null;
+  /** Denormalised on the delivery, so the feed can name a trigger it never loaded. */
+  triggerName: string | null;
   runId: string | null;
   error: string | null;
   payloadExcerpt: string | null;
@@ -91,6 +99,8 @@ export interface DeliveryRow {
 
 export interface DeliveryRunRow {
   triggerId: string;
+  /** Present once the API denormalises it; the id is the fallback. */
+  triggerName: string | null;
   runId: string | null;
   status: string;
   error: string | null;
@@ -158,10 +168,21 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     autopauseEnabled: t.autopause_enabled ?? true,
     consecutiveFailures: t.consecutive_failures ?? 0,
     autoPausedAt: t.auto_paused_at ?? null,
+    // Read off a widened shape: the field is being added upstream, and
+    // defaulting to zero means the console can ship first and simply show
+    // nothing until the numbers start arriving.
+    pendingCount: (t as Trigger & { pending_count?: number }).pending_count ?? 0,
   };
 }
 
 export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
+  // Widened locally: trigger_name is being denormalised onto deliveries and
+  // their fan-out entries upstream, and reading it defensively lets the feed
+  // name triggers as soon as the field appears without a lockstep deploy.
+  const named = d as TriggerDelivery & {
+    trigger_name?: string;
+    runs?: { trigger_name?: string }[];
+  };
   return {
     id: d.id,
     kind: d.kind,
@@ -169,6 +190,7 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     eventType: d.event_type ?? '',
     status: d.status,
     triggerId: d.trigger_id ?? null,
+    triggerName: named.trigger_name ?? null,
     runId: d.run_id ?? null,
     error: d.error ?? null,
     payloadExcerpt: d.payload_excerpt ?? null,
@@ -178,8 +200,9 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     payloadBytes: d.payload_bytes ?? null,
     payloadPurged: d.payload_purged ?? false,
     receivedAt: d.received_at,
-    runs: (d.runs ?? []).map((r) => ({
+    runs: (d.runs ?? []).map((r, i) => ({
       triggerId: r.trigger_id,
+      triggerName: named.runs?.[i]?.trigger_name ?? null,
       runId: r.run_id ?? null,
       status: r.status,
       error: r.error ?? null,
@@ -195,12 +218,72 @@ export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'er
       return 'healthy';
     case 'verified':
     case 'skipped':
+    // A repeat arrival and a tick that fired while the platform was away are
+    // notable but not faults; they share the cautionary tone with skipped.
+    case 'duplicate':
+    case 'missed':
       return 'degraded';
     case 'failed':
+    case 'denied':
+    case 'dropped':
       return 'error';
     default:
       return 'unknown';
   }
+}
+
+/**
+ * Which trigger this delivery was for, in the best terms available.
+ *
+ * A delivery is an arrival, not a dispatch: one can fan out to several triggers
+ * or to none at all. The denormalised name is preferred, then the fan-out's own
+ * names, then ids, and finally an em-less dash for an arrival that matched
+ * nothing, which is a real and interesting outcome rather than missing data.
+ */
+export function deliveryTriggerLabel(d: DeliveryRow): string {
+  if (d.triggerName) return d.triggerName;
+
+  const named = d.runs.map((r) => r.triggerName ?? r.triggerId).filter(Boolean);
+  if (named.length === 1) return named[0] as string;
+  if (named.length > 1) return `${named[0] as string} +${named.length - 1}`;
+
+  return d.triggerId ?? '—';
+}
+
+/**
+ * How long the platform took to turn an arrival into a recorded outcome.
+ *
+ * Null when the outcome carries no timestamp: an event that was filtered or
+ * denied never reached a run, so there is no duration to report and a "0ms"
+ * would read as suspiciously fast rather than as not-applicable.
+ */
+export function dispatchDuration(receivedAt: string, createdAt: string | null): string {
+  if (createdAt === null) return '—';
+  const ms = Date.parse(createdAt) - Date.parse(receivedAt);
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** The dispatch duration for a delivery, from a trigger's row in its fan-out. */
+export function deliveryDuration(d: DeliveryRow, triggerId?: string): string {
+  const outcome =
+    triggerId === undefined
+      ? (d.runs[0] ?? null)
+      : (d.runs.find((r) => r.triggerId === triggerId) ?? null);
+  return dispatchDuration(d.receivedAt, outcome?.createdAt ?? null);
+}
+
+/**
+ * Outcomes a replay could actually recover.
+ *
+ * The backend refuses what is genuinely unreplayable, but a delivery that
+ * already dispatched is replayable and should still not be offered: one stray
+ * click would start a second, duplicate run of work that already succeeded.
+ */
+const REDELIVERABLE_STATUSES = new Set(['failed', 'denied', 'dropped']);
+
+export function isRedeliverable(status: string): boolean {
+  return REDELIVERABLE_STATUSES.has(status);
 }
 
 /** Max characters of a payload excerpt rendered in the Deliveries "Detail" column. */

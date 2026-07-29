@@ -2183,6 +2183,204 @@ func TestDispatchPending_UnreadableTrigger_RecordsNoName(t *testing.T) {
 	}
 }
 
+// ─── Stuck-claim reaper ──────────────────────────────────────────────────────
+
+// A pod that dies between claiming a fire and dispatching it strands the row:
+// nothing re-claims it, so the fire never starts. The queue's whole promise is
+// that an acknowledged fire always starts, so the worker takes it back.
+func TestWorker_ReclaimsStrandedClaim(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ctx := context.Background()
+
+	ids := enqueue(t, svc, deps, trig, 1)
+
+	// A worker claims it and dies: no dispatch, no release.
+	claimed, err := deps.repo.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d fires, want 1", len(claimed))
+	}
+	if again, _ := deps.repo.ClaimPending(ctx, 10); len(again) != 0 {
+		t.Fatal("a claimed fire must not be claimable again while the claim is fresh")
+	}
+	deps.repo.backdateClaim(claimed[0].ID, StaleClaimWindow+time.Minute)
+
+	worker := NewWorker(svc, deps.repo, silentLogger())
+	worker.drain(ctx)
+
+	// Reclaimed, dispatched, and released — the fire finally ran.
+	if pending := deps.repo.pendingFor(trig.ID); len(pending) != 0 {
+		t.Errorf("pending rows = %d, want the reclaimed fire dispatched and released", len(pending))
+	}
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusDispatched {
+		t.Fatalf("outcomes = %+v, want the reclaimed fire dispatched", runs)
+	}
+	if deps.agents.callCount() != 1 {
+		t.Errorf("run starts = %d, want exactly one (reclaimed, not duplicated)", deps.agents.callCount())
+	}
+}
+
+// A claim that is still within the window belongs to a worker that may yet
+// dispatch it. Reclaiming it would start the same fire twice, which is worse
+// than a stranded fire starting late.
+func TestWorker_DoesNotReclaimALiveClaim(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ctx := context.Background()
+	enqueue(t, svc, deps, trig, 1)
+
+	claimed, _ := deps.repo.ClaimPending(ctx, 10)
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d, want 1", len(claimed))
+	}
+
+	reclaimed, err := deps.repo.ReclaimStalePending(ctx, StaleClaimWindow)
+	if err != nil {
+		t.Fatalf("ReclaimStalePending: %v", err)
+	}
+	if len(reclaimed) != 0 {
+		t.Errorf("reclaimed %v, want a fresh claim left alone", reclaimed)
+	}
+}
+
+// A stranded claim must not keep costing its trigger a parallel slot in the
+// interval before the reaper reaches it.
+func TestAdmission_StrandedClaimDoesNotHoldASlot(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
+	ctx := context.Background()
+
+	enqueue(t, svc, deps, trig, 1)
+	claimed, _ := deps.repo.ClaimPending(ctx, 10)
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d, want 1", len(claimed))
+	}
+
+	// While the claim is fresh it holds the only slot, so a new fire is refused.
+	if n, err := deps.repo.InFlightCount(ctx, trig.ID); err != nil || n != 1 {
+		t.Fatalf("in-flight with a fresh claim = %d (%v), want 1", n, err)
+	}
+
+	// Once it is stale it belongs to a dead worker and must not count.
+	deps.repo.backdateClaim(claimed[0].ID, StaleClaimWindow+time.Minute)
+	if n, err := deps.repo.InFlightCount(ctx, trig.ID); err != nil || n != 0 {
+		t.Errorf("in-flight with a stranded claim = %d (%v), want 0", n, err)
+	}
+}
+
+// ─── Per-trigger pending count (US-005) ──────────────────────────────────────
+
+// The drawer asks "how many fires are waiting". Waiting means unclaimed: a
+// claimed fire is already being dispatched, and counting it would promise work
+// that has started.
+func TestTrigger_PendingCount(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 32)
+	ctx := context.Background()
+
+	got, err := svc.GetTrigger(ctx, testTenant, trig.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 0 {
+		t.Errorf("pending_count = %d, want 0 for an idle trigger", got.PendingCount)
+	}
+
+	enqueue(t, svc, deps, trig, 3)
+
+	got, err = svc.GetTrigger(ctx, testTenant, trig.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 3 {
+		t.Errorf("pending_count = %d, want 3 waiting", got.PendingCount)
+	}
+
+	listed, err := svc.ListTriggers(ctx, testTenant, "")
+	if err != nil {
+		t.Fatalf("ListTriggers: %v", err)
+	}
+	if len(listed) != 1 || listed[0].PendingCount != 3 {
+		t.Errorf("listed pending_count = %+v, want 3 on the list too", listed)
+	}
+
+	// Claiming one takes it out of "waiting": it is mid-dispatch, not queued.
+	if _, err := deps.repo.ClaimPending(ctx, 1); err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	got, err = svc.GetTrigger(ctx, testTenant, trig.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.PendingCount != 2 {
+		t.Errorf("pending_count = %d after a claim, want 2 still waiting", got.PendingCount)
+	}
+}
+
+// ─── Rejected manual input is history (US-005) ───────────────────────────────
+
+// A fire the platform refused is still a fire someone attempted. Recorded with
+// the per-field reason, so "why did nothing happen?" has an answer.
+func TestFireTrigger_InvalidInput_RecordedAsFailedDelivery(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, svc)
+
+	_, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{}})
+	if !errors.Is(err, ErrValidationFailed) {
+		t.Fatalf("err = %v, want an input validation failure", err)
+	}
+
+	// The caller still gets per-field detail: that is what they can act on.
+	var ive *InputValidationError
+	if !errors.As(err, &ive) || ive.Problems["env"] != "required" {
+		t.Errorf("problems = %+v, want env: required", ive)
+	}
+
+	all := deps.repo.allDeliveries()
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d, want the rejected fire recorded", len(all))
+	}
+	d := all[0]
+	if d.Status != StatusFailed {
+		t.Errorf("status = %q, want %q", d.Status, StatusFailed)
+	}
+	if d.Reason == nil || *d.Reason != "invalid input: env: required" {
+		t.Errorf("reason = %v, want the per-field summary", d.Reason)
+	}
+	if d.FiredBy != "user:1" {
+		t.Errorf("fired_by = %q, want the caller who attempted it", d.FiredBy)
+	}
+
+	// Recorded, never admitted: a refused fire must not reach the queue.
+	if pending := deps.repo.pendingFor(trig.ID); len(pending) != 0 {
+		t.Errorf("a rejected fire queued %d pending rows, want none", len(pending))
+	}
+	if len(deps.repo.deliveryRunsFor(d.ID)) != 0 {
+		t.Error("a rejected fire must record no per-trigger outcome")
+	}
+	drainPending(t, svc, deps.repo)
+	if deps.agents.callCount() != 0 {
+		t.Error("a rejected fire must not start a run")
+	}
+}
+
+// Several bad fields produce one compact, stable line, in field order.
+func TestInputProblemSummary_IsCompactAndSorted(t *testing.T) {
+	t.Parallel()
+	got := inputProblemSummary(map[string]string{
+		"row_limit": "must be a number",
+		"env":       "required",
+	})
+	if got != "invalid input: env: required; row_limit: must be a number" {
+		t.Errorf("summary = %q", got)
+	}
+}
+
 // Each kind gets the overflow behavior that suits it.
 func TestDefaultOverflowForKind(t *testing.T) {
 	t.Parallel()

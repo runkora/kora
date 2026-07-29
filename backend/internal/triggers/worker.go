@@ -70,11 +70,36 @@ func (w *Worker) Wait(ctx context.Context) {
 	}
 }
 
-// drain claims a batch of waiting fires and dispatches each.
+// reclaimStale takes back fires whose worker died mid-dispatch.
+//
+// It runs before claiming so a reclaimed fire can be picked up in the same tick.
+// Each one is logged individually and at warning level: a reclaim means a pod
+// died holding acknowledged work, which is worth knowing about even though the
+// queue recovers by itself.
+func (w *Worker) reclaimStale(ctx context.Context) {
+	reclaimed, err := w.repo.ReclaimStalePending(ctx, StaleClaimWindow)
+	if err != nil {
+		w.logger.Error(ctx, "failed to reclaim stale pending deliveries",
+			logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	for _, id := range reclaimed {
+		w.logger.Warn(ctx, "reclaimed a fire whose worker never dispatched it",
+			logging.Field{Key: "pending_id", Value: id},
+			logging.Field{Key: "stale_after", Value: StaleClaimWindow.String()})
+	}
+}
+
+// drain reclaims stranded fires, then claims a batch of waiting ones and
+// dispatches each.
 //
 // A claim that fails to dispatch is still released: leaving it claimed would
 // hold a slot no run occupies, silently throttling a healthy trigger.
 func (w *Worker) drain(ctx context.Context) {
+	// Before claiming: a fire stranded by a dead pod is owed a dispatch, and
+	// nothing else in the system will ever give it one.
+	w.reclaimStale(ctx)
+
 	claimed, err := w.repo.ClaimPending(ctx, w.batch)
 	if err != nil {
 		w.logger.Error(ctx, "failed to claim pending deliveries",

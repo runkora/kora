@@ -12,6 +12,7 @@ function delivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     eventType: 'push',
     status: 'dispatched',
     triggerId: 't1',
+    triggerName: 'gh-push',
     runId: null,
     error: null,
     payloadExcerpt: '{"ref":"refs/heads/main"}',
@@ -24,6 +25,7 @@ function delivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     runs: [
       {
         triggerId: 't1',
+        triggerName: 'gh-push',
         runId: 'run-9',
         status: 'dispatched',
         error: null,
@@ -34,6 +36,23 @@ function delivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
   };
 }
 
+/** A delivery whose outcome a replay could actually recover. */
+function failedDelivery(): DeliveryRow {
+  return delivery({
+    status: 'failed',
+    runs: [
+      {
+        triggerId: 't1',
+        triggerName: 'gh-push',
+        runId: null,
+        status: 'failed',
+        error: 'agent type not found',
+        createdAt: null,
+      },
+    ],
+  });
+}
+
 describe('scoping', () => {
   it('reads the outcome of the named trigger out of the fan-out', () => {
     render(
@@ -42,6 +61,7 @@ describe('scoping', () => {
           runs: [
             {
               triggerId: 't1',
+              triggerName: null,
               runId: 'run-mine',
               status: 'dispatched',
               error: null,
@@ -49,6 +69,7 @@ describe('scoping', () => {
             },
             {
               triggerId: 't2',
+              triggerName: 'theirs',
               runId: 'run-theirs',
               status: 'failed',
               error: 'boom',
@@ -95,7 +116,7 @@ describe('redeliver', () => {
 
   it('names the new delivery on success, and will not fire twice', async () => {
     const onRedeliver = vi.fn().mockResolvedValue({ deliveryId: 'd-2', error: null });
-    render(<DeliveryDetail delivery={delivery()} triggerId="t1" onRedeliver={onRedeliver} />);
+    render(<DeliveryDetail delivery={failedDelivery()} triggerId="t1" onRedeliver={onRedeliver} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Redeliver' }));
 
@@ -108,7 +129,7 @@ describe('redeliver', () => {
     const onRedeliver = vi
       .fn()
       .mockResolvedValue({ deliveryId: null, error: 'delivery is not redeliverable' });
-    render(<DeliveryDetail delivery={delivery()} triggerId="t1" onRedeliver={onRedeliver} />);
+    render(<DeliveryDetail delivery={failedDelivery()} triggerId="t1" onRedeliver={onRedeliver} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Redeliver' }));
 
@@ -119,12 +140,89 @@ describe('redeliver', () => {
   it('is offered even when nothing ran, which is when a replay matters most', () => {
     render(
       <DeliveryDetail
-        delivery={delivery({ runs: [], runId: null })}
+        delivery={delivery({ status: 'failed', runs: [], runId: null })}
         triggerId="t1"
         onRedeliver={vi.fn()}
       />,
     );
     expect(screen.getByText('No run started for this delivery.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Redeliver' })).toBeTruthy();
+  });
+});
+
+describe('redeliver is offered only where it recovers something', () => {
+  function renderFor(status: string) {
+    return render(
+      <DeliveryDetail
+        delivery={delivery({
+          status,
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: 'gh-push',
+              runId: null,
+              status,
+              error: null,
+              createdAt: null,
+            },
+          ],
+        })}
+        triggerId="t1"
+        onRedeliver={vi.fn()}
+      />,
+    );
+  }
+
+  it.each(['failed', 'denied', 'dropped'])('offers replay of a %s outcome', (status) => {
+    const view = renderFor(status);
+    expect(screen.getByRole('button', { name: 'Redeliver' })).toBeTruthy();
+    view.unmount();
+  });
+
+  it.each(['dispatched', 'verified', 'skipped', 'duplicate', 'missed'])(
+    'hides replay of a %s outcome',
+    (status) => {
+      const view = renderFor(status);
+      expect(screen.queryByRole('button', { name: 'Redeliver' })).toBeNull();
+      view.unmount();
+    },
+  );
+
+  it('reads the delivery status when no trigger is named', () => {
+    render(
+      <DeliveryDetail delivery={delivery({ status: 'failed', runs: [] })} onRedeliver={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: 'Redeliver' })).toBeTruthy();
+  });
+
+  it('judges each trigger in a fan-out on its own outcome', () => {
+    const fanned = delivery({
+      status: 'dispatched',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'ok',
+          runId: 'r1',
+          status: 'dispatched',
+          error: null,
+          createdAt: null,
+        },
+        {
+          triggerId: 't2',
+          triggerName: 'broken',
+          runId: null,
+          status: 'failed',
+          error: 'boom',
+          createdAt: null,
+        },
+      ],
+    });
+
+    const ok = render(<DeliveryDetail delivery={fanned} triggerId="t1" onRedeliver={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Redeliver' })).toBeNull();
+    ok.unmount();
+
+    render(<DeliveryDetail delivery={fanned} triggerId="t2" onRedeliver={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Redeliver' })).toBeTruthy();
   });
 });

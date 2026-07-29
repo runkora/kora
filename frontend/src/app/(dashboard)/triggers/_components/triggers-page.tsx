@@ -42,7 +42,13 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import type { TriggerEditPatch } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
-import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
+import {
+  deliveryDetail,
+  deliveryDuration,
+  deliveryStatusTone,
+  deliveryTriggerLabel,
+  matchesStatusFilter,
+} from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
 interface TriggersPageProps {
@@ -65,6 +71,10 @@ const DELIVERY_STATUS_OPTIONS: TableColumnFilterOption[] = [
   { value: 'verified', label: 'Verified', dot: 'bg-status-degraded' },
   { value: 'skipped', label: 'Skipped', dot: 'bg-status-degraded' },
   { value: 'failed', label: 'Failed', dot: 'bg-status-error' },
+  // Neither is a fault: one arrived twice, the other arrived while the platform
+  // was not listening. Both are outcomes worth filtering to.
+  { value: 'duplicate', label: 'Duplicate', dot: 'bg-status-idle' },
+  { value: 'missed', label: 'Missed', dot: 'bg-status-idle' },
 ];
 
 /**
@@ -389,8 +399,40 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         cell: (row) => <Text size="caption">{sourceName(row.sourceId)}</Text>,
       },
       {
+        id: 'trigger',
+        header: 'Trigger',
+        cell: (row) => {
+          const label = deliveryTriggerLabel(row);
+          return (
+            <Text size="caption" color={label === '—' ? 'muted' : undefined} truncate>
+              {label}
+            </Text>
+          );
+        },
+      },
+      {
+        id: 'duration',
+        header: 'Duration',
+        width: '7rem',
+        sortable: true,
+        // Sorted on the raw gap, not the formatted string, so "900ms" cannot
+        // sort above "1.2s".
+        sortAccessor: (row) => {
+          const started = row.runs[0]?.createdAt;
+          return started === undefined || started === null
+            ? -1
+            : Date.parse(started) - Date.parse(row.receivedAt);
+        },
+        cell: (row) => (
+          <Text mono size="caption" color="muted">
+            {deliveryDuration(row)}
+          </Text>
+        ),
+      },
+      {
         id: 'detail',
         header: 'Detail',
+        width: '14rem',
         cell: (row) => {
           const detail = deliveryDetail(row);
           switch (detail.kind) {
@@ -459,6 +501,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           <Stack gap="comfortable">
             <TriggerList
               toolbar={filterRow}
+              resetKey={`${kindFilter}|${query.trim()}`}
               triggers={visibleTriggers}
               deliveries={deliveries}
               sourceName={sourceName}

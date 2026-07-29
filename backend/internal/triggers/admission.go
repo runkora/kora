@@ -87,6 +87,23 @@ type PendingDelivery struct {
 	EnqueuedAt time.Time
 }
 
+// StaleClaimWindow is how long a claimed fire may sit undispatched before the
+// worker takes it back.
+//
+// A worker claims a fire, then dispatches it. If the pod dies in between, the
+// row stays claimed forever: nothing re-claims it, so the fire never starts —
+// which falsifies the one promise the queue exists to keep, that a fire the
+// platform acknowledged always starts. Worse, a claimed row counts against its
+// trigger's ceiling, so each stranded row permanently costs that trigger a
+// parallel slot until someone notices.
+//
+// Fifteen minutes is chosen against the ceiling on how long a dispatch may
+// legitimately take: timeout_seconds is capped at 600 (ten minutes), so a claim
+// older than this cannot belong to a dispatch still in progress. The margin is
+// deliberately generous — reclaiming a live dispatch would start the same fire
+// twice, which is worse than a stranded fire starting late.
+const StaleClaimWindow = 15 * time.Minute
+
 // autoPauseThreshold is how many consecutive failures disable a trigger.
 //
 // A policy denial counts: a trigger whose grant was revoked would otherwise be

@@ -345,6 +345,15 @@ type Trigger struct {
 	// AutoPausedAt is set when the platform disabled this trigger itself, which
 	// the console shows differently from a trigger a person turned off.
 	AutoPausedAt *time.Time `json:"auto_paused_at,omitempty"`
+
+	// PendingCount is how many fires are waiting for a slot on this trigger,
+	// as of the read. Only unclaimed fires count: a claimed one is already being
+	// dispatched, and showing it as waiting would promise work that has started.
+	//
+	// Always serialized, never omitted at zero. "Nothing is waiting" is the
+	// answer an operator most needs to trust, and an absent field reads as
+	// "unknown" rather than "none". Derived per read, not a stored column.
+	PendingCount int `json:"pending_count"`
 }
 
 // Delivery is the durable record of a trigger delivery and its outcome.
@@ -579,17 +588,27 @@ type InputValidationError struct {
 	Problems map[string]string
 }
 
-func (e *InputValidationError) Error() string {
-	names := make([]string, 0, len(e.Problems))
-	for k := range e.Problems {
+func (e *InputValidationError) Error() string { return inputProblemSummary(e.Problems) }
+
+// inputProblemSummary renders per-field problems as one compact line, e.g.
+//
+//	invalid input: env: required; row_limit: must be a number
+//
+// One formatter for both the error a caller sees and the reason stored on the
+// rejected delivery, so the history and the response cannot describe the same
+// refusal differently. Sorted by field name to keep it stable: an audit line
+// that reorders itself between reads is not one anybody can diff.
+func inputProblemSummary(problems map[string]string) string {
+	names := make([]string, 0, len(problems))
+	for k := range problems {
 		names = append(names, k)
 	}
 	slices.Sort(names)
 	parts := make([]string, 0, len(names))
 	for _, n := range names {
-		parts = append(parts, n+": "+e.Problems[n])
+		parts = append(parts, n+": "+problems[n])
 	}
-	return "invalid input — " + strings.Join(parts, "; ")
+	return "invalid input: " + strings.Join(parts, "; ")
 }
 
 func (e *InputValidationError) Is(target error) bool { return target == ErrValidationFailed }

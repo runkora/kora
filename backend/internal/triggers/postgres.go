@@ -143,10 +143,20 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 // triggerColumns lists all columns for a trigger row.
 // kind, kind_config, principal_id, and grant_id_svc are the new columns added
 // in migration 20260620100000_extend_trigger_kinds.sql.
+// pending_count is how many fires are waiting on this trigger right now.
+//
+// Only unclaimed rows count: a claimed row is mid-dispatch, and reporting it as
+// waiting would tell an operator to expect work that has in fact already
+// started. Written as a correlated subquery rather than a join so every existing
+// trigger read picks it up unchanged — all of them select from an unaliased
+// `triggers` — and it is served by the partial index the claim path already
+// maintains on (trigger_id, enqueued_at) WHERE claimed_at IS NULL.
 const triggerColumns = `id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at,
 	max_parallel, overflow, max_queue_depth, timeout_seconds, dedupe_enabled, autopause_enabled,
-	consecutive_failures, auto_paused_at`
+	consecutive_failures, auto_paused_at,
+	(SELECT count(*) FROM trigger_pending_deliveries p
+	  WHERE p.trigger_id = triggers.id AND p.claimed_at IS NULL) AS pending_count`
 
 func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var t Trigger
@@ -157,7 +167,7 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
 		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
 		&t.MaxParallel, &t.Overflow, &t.MaxQueueDepth, &t.TimeoutSeconds, &t.DedupeEnabled,
-		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt,
+		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt, &t.PendingCount,
 	); err != nil {
 		return nil, err
 	}
@@ -814,7 +824,10 @@ func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDeliv
 // to prevent.
 func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error) {
 	// in_flight counts dispatched fan-out rows with non-terminal runs plus
-	// already-claimed pendings; ranked  gives each waiting row a per-trigger
+	// already-claimed pendings. The claimed half is bounded by the same window
+	// the reaper uses: a claim older than that belongs to a worker that died,
+	// and letting it count would keep costing the trigger a slot in the interval
+	// before the reaper takes the row back. ranked gives each waiting row a per-trigger
 	// position so a single batch admits at most (max_parallel - in_flight)
 	// rows per trigger. Without the ranking, every waiting row of an
 	// under-ceiling trigger satisfies the capacity check at once, and a burst
@@ -832,6 +845,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		        SELECT trigger_id
 		        FROM   trigger_pending_deliveries
 		        WHERE  claimed_at IS NOT NULL
+		          AND  claimed_at > now() - make_interval(secs => $2)
 		    ) x GROUP BY trigger_id
 		),
 		ranked AS (
@@ -859,7 +873,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		FROM   claimable c
 		WHERE  p.id = c.id
 		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at
-	`, limit)
+	`, limit, StaleClaimWindow.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("claim pending deliveries: %w", err)
 	}
@@ -873,6 +887,38 @@ func (r *postgresRepository) ReleasePending(ctx context.Context, id string) erro
 		return fmt.Errorf("release pending delivery: %w", err)
 	}
 	return nil
+}
+
+// ReclaimStalePending returns fires whose worker never came back to the queue.
+//
+// The row is un-claimed rather than deleted: the fire was acknowledged and has
+// not run, so it is owed a dispatch. Claiming it again is the normal path, and
+// the next tick picks it up like any other waiting fire.
+func (r *postgresRepository) ReclaimStalePending(ctx context.Context, olderThan time.Duration) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		UPDATE trigger_pending_deliveries
+		SET    claimed_at = NULL
+		WHERE  claimed_at IS NOT NULL
+		  AND  claimed_at < now() - make_interval(secs => $1)
+		RETURNING id
+	`, olderThan.Seconds())
+	if err != nil {
+		return nil, fmt.Errorf("reclaim stale pending deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan reclaimed pending delivery: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate reclaimed pending deliveries: %w", err)
+	}
+	return out, nil
 }
 
 // InFlightCount counts runs this trigger started that have not settled.
@@ -889,7 +935,10 @@ func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string
 	// coupling (one Postgres, pooled migrations) so max_parallel can mean
 	// "runs actually running" rather than "started within the horizon". The
 	// hour horizon stays as the backstop for a run whose terminal state was
-	// lost: over-admit beats wedging the trigger forever.
+	// lost: over-admit beats wedging the trigger forever. The claimed-pending
+	// half is bounded on the same principle: a claim older than the reaper's
+	// window belongs to a worker that died, and counting it would let one dead
+	// pod permanently cost the trigger a parallel slot.
 	var n int
 	err := r.pool.QueryRow(ctx, `
 		SELECT
@@ -903,8 +952,9 @@ func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string
 		  + (SELECT count(*)
 		     FROM   trigger_pending_deliveries
 		     WHERE  trigger_id = $1
-		       AND  claimed_at IS NOT NULL)
-	`, triggerID).Scan(&n)
+		       AND  claimed_at IS NOT NULL
+		       AND  claimed_at > now() - make_interval(secs => $2))
+	`, triggerID, StaleClaimWindow.Seconds()).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count in-flight runs: %w", err)
 	}
@@ -1112,7 +1162,6 @@ func (r *postgresRepository) PurgePayloads(ctx context.Context, defaultDays int)
 		UPDATE trigger_deliveries d
 		SET    payload = NULL, payload_purged = TRUE
 		FROM  (SELECT $1::int AS days) def
-		LEFT   JOIN trigger_retention_settings s ON TRUE
 		WHERE  d.payload IS NOT NULL
 		  AND  d.received_at < now() - make_interval(days => COALESCE(
 		           (SELECT payload_days FROM trigger_retention_settings WHERE tenant_id = d.tenant_id),

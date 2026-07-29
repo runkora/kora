@@ -3,7 +3,7 @@
 'use client';
 
 import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
-import { deliveryStatusTone } from '../_types';
+import { deliveryStatusTone, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';
 
@@ -29,20 +29,6 @@ interface DeliveryListProps {
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
-}
-
-/**
- * How long the platform took to turn an arrival into a recorded outcome.
- *
- * Null when the outcome carries no timestamp — an event that was filtered or
- * denied never reached a run, so there is no duration to report and a "0ms"
- * would read as suspiciously fast rather than as not-applicable.
- */
-function dispatchDuration(receivedAt: string, createdAt: string | null): string {
-  if (createdAt === null) return '—';
-  const ms = Date.parse(createdAt) - Date.parse(receivedAt);
-  if (!Number.isFinite(ms) || ms < 0) return '—';
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 /** Compact relative time, so a column of these stays scannable. */

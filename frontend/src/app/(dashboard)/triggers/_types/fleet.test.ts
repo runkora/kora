@@ -27,6 +27,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     autopauseEnabled: true,
     consecutiveFailures: 0,
     autoPausedAt: null,
+    pendingCount: 0,
     ...overrides,
   };
 }
@@ -39,6 +40,7 @@ function delivery(ageHours: number, runs: Array<Partial<DeliveryRunRow>>): Deliv
     eventType: 'push',
     status: 'dispatched',
     triggerId: 't1',
+    triggerName: null,
     runId: null,
     error: null,
     payloadExcerpt: null,
@@ -50,6 +52,7 @@ function delivery(ageHours: number, runs: Array<Partial<DeliveryRunRow>>): Deliv
     receivedAt: new Date(NOW - ageHours * HOUR).toISOString(),
     runs: runs.map((r) => ({
       triggerId: 't1',
+      triggerName: 'Trigger',
       runId: null,
       status: 'dispatched',
       error: null,

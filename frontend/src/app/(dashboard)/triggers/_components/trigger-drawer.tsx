@@ -1007,6 +1007,20 @@ export function TriggerDrawer({
                       />
                     }
                   />
+                  {/* Only when something is actually waiting: a permanent
+                      "0 waiting" would read as a queue that exists rather than
+                      as a trigger keeping up. */}
+                  {trigger.pendingCount > 0 && (
+                    <SettingRow
+                      label="Waiting now"
+                      description="Deliveries admitted and queued, not yet started."
+                      value={
+                        <Text mono size="supporting" weight="heavy">
+                          {trigger.pendingCount}
+                        </Text>
+                      }
+                    />
+                  )}
                   <SettingRow
                     label="Consecutive failures"
                     description="Resets to zero the next time a run starts cleanly."
