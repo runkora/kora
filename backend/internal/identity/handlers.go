@@ -82,6 +82,12 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// with the authorization code + PKCE verifier, not a session.
 	mux.Handle("POST /oauth/token", c.handleOAuthToken)
 	mux.Handle("POST /oauth/register", c.handleRegisterClient)
+	// CORS preflight for the public OAuth back-channel endpoints. Remote MCP
+	// clients (e.g. Claude Desktop) call /oauth/register and /oauth/token
+	// cross-origin from their HTTP stack; these OPTIONS handlers satisfy the
+	// browser/fetch preflight so the actual request is not blocked.
+	mux.Handle("OPTIONS /oauth/token", c.handleOAuthCORSPreflight)
+	mux.Handle("OPTIONS /oauth/register", c.handleOAuthCORSPreflight)
 
 	// PAT management routes: require a non-PAT authenticated caller.
 	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the

@@ -159,9 +159,12 @@ func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeOAuthJSON writes a no-store JSON response (token/code endpoints must not cache).
+// CORS headers are set on all responses so remote MCP clients (e.g. Claude Desktop)
+// can call the registration and token endpoints cross-origin.
 func writeOAuthJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	setOAuthCORSHeaders(w)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
@@ -169,6 +172,23 @@ func writeOAuthJSON(w http.ResponseWriter, status int, body any) {
 // writeOAuthError writes an RFC 6749 {error, error_description} response.
 func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 	writeOAuthJSON(w, status, map[string]string{"error": code, "error_description": desc})
+}
+
+// setOAuthCORSHeaders sets CORS headers on the public OAuth back-channel
+// endpoints (/oauth/register, /oauth/token). These endpoints are called
+// cross-origin by remote MCP clients such as Claude Desktop.
+func setOAuthCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+// handleOAuthCORSPreflight handles OPTIONS preflight requests for the public
+// OAuth back-channel endpoints (/oauth/register, /oauth/token).
+func (c *Controller) handleOAuthCORSPreflight(w http.ResponseWriter, _ *http.Request) {
+	setOAuthCORSHeaders(w)
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // clientRegistrationResponse is the RFC 7591 registration response.
