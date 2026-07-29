@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -1286,5 +1287,74 @@ func TestPostgres_CountRedeliveries(t *testing.T) {
 	}
 	if n != 2 {
 		t.Errorf("redeliveries = %d, want 2", n)
+	}
+}
+
+// The refuse ceiling admits exactly one when ten callers go for the last slot.
+//
+// What this proves: EnqueueWithinCeiling's real SQL runs, the transaction and
+// the FOR UPDATE are syntactically and semantically valid against the real
+// schema, and ten parallel callers end up with one row and nine refusals that
+// left nothing behind. That is the part a mock cannot check.
+//
+// What it does NOT prove: that the lock is load-bearing. Removing FOR UPDATE
+// still passes this test, because each transaction is faster than the jitter in
+// waking ten goroutines, so they never actually interleave no matter how they
+// are released. Making it fail needs a delay injected between the count and the
+// insert, which would be testing the injected delay.
+//
+// The lock's necessity is pinned by the unit test instead
+// (TestAdmission_Refuse_HoldsCeilingUnderConcurrentFires), where the mock's
+// mutex makes the interleaving deterministic: releasing it between check and
+// insert reproduces the bug every run. Treat that one as the regression net and
+// this one as proof the SQL itself is right.
+func TestPostgres_EnqueueWithinCeiling_HoldsUnderConcurrency(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+
+	// A start barrier, because without one the callers do not actually overlap:
+	// ten fast local queries run to completion in turn, the race never happens,
+	// and the test passes whether or not the lock is there. Every caller blocks
+	// on the same channel and is released at once.
+	const callers = 10
+	admitted := make(chan bool, callers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Go(func() {
+			<-start
+			ok, err := r.EnqueueWithinCeiling(ctx, &PendingDelivery{
+				ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
+			}, 1)
+			if err != nil {
+				t.Errorf("EnqueueWithinCeiling: %v", err)
+				return
+			}
+			admitted <- ok
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(admitted)
+
+	got := 0
+	for ok := range admitted {
+		if ok {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Errorf("admitted %d of %d concurrent fires, want exactly 1", got, callers)
+	}
+
+	// And the queue agrees with what the callers were told.
+	n, err := r.UnclaimedPendingCount(ctx, tr.ID)
+	if err != nil {
+		t.Fatalf("UnclaimedPendingCount: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("waiting fires = %d, want 1: a refused caller must not have left a row", n)
 	}
 }
