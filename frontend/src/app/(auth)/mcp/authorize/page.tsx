@@ -106,9 +106,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   const resource = str(params.resource);
 
   if (!redirectUri || !isWellFormedRedirect(redirectUri)) {
-    return (
-      <ConsentError title="Invalid request" message="A valid redirect address is required." />
-    );
+    return <ConsentError title="Invalid request" message="A valid redirect address is required." />;
   }
   if (responseType !== 'code' || !clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
     return (
