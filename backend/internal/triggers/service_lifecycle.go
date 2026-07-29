@@ -307,8 +307,15 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	// anything left unset, and updated_at is the database's. A caller that
 	// echoes this back into their next PATCH must not be echoing values that
 	// were never stored.
+	//
+	// Falls back to the in-memory trigger if the read fails: the update was
+	// stored, so a failure here is a worse response, not a failed update.
 	stored, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
+		s.logger.Warn(ctx, "could not read back the updated trigger; returning the requested values",
+			logging.Field{Key: "trigger_id", Value: id},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 		return t, nil
 	}
 	return stored, nil

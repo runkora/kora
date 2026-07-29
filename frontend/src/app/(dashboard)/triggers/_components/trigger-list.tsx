@@ -110,19 +110,14 @@ export function TriggerList({
           </Text>
         </DataGridEmpty>
       ) : (
-        visible.map((t, i) => {
+        visible.map((t) => {
           const failures = recentFailures(t.id, deliveries);
           const buckets = sparkline(t.id, deliveries);
           const activity = buckets.map((b) => b.started + b.failed + b.other);
           const hasActivity = activity.some((v) => v > 0);
 
           return (
-            <DataGridRow
-              key={t.id}
-              last={i === visible.length - 1}
-              onClick={() => onOpen(t)}
-              rowLabel={`Open ${t.name}`}
-            >
+            <DataGridRow key={t.id} onClick={() => onOpen(t)} rowLabel={`Open ${t.name}`}>
               {/* Trigger: how it starts, what it is called, where it comes from */}
               <Stack direction="horizontal" gap="cozy" align="center" minWidth="none">
                 <IconTile tone={t.autoPausedAt !== null ? 'accent' : 'muted'}>

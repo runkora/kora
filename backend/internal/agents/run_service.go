@@ -102,10 +102,6 @@ func NewRunService(
 	}
 }
 
-// StartRun creates a new run and assigns it to a pod. Tenant and created_by are
-// derived from the verified platform claims in ctx; request-body values are
-// ignored. Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
-// scope; the handler maps this to 404 to avoid leaking existence.
 // authorizeStart resolves the target agent type and settles everything the
 // caller must be entitled to before any resource is created: that the type is
 // theirs to run, that the identity model permits this principal to start it, and
@@ -140,12 +136,25 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	startedBy, err := authorizeTriggerAttribution(ctx, req)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTriggerAttributionRefused.Error())
+		// Neutral status: this branch covers both a refused claim and an
+		// incomplete one, so the description must not name either sentinel.
+		// span.RecordError above carries which it was.
+		span.SetStatus(codes.Error, "authorize trigger attribution")
 		return nil, nil, err
 	}
 	return at, startedBy, nil
 }
 
+// StartRun creates a new run and assigns it to a pod. Tenant and created_by are
+// derived from the verified platform claims in ctx; request-body values are
+// ignored.
+//
+// Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
+// scope. The handler maps that to 403, not 404 and not 500: a refusal is the
+// caller's answer, and orbit-triggers relies on being able to tell it apart
+// from a broken service — it retries a 403 while a freshly created trigger's
+// grant propagates into the policy bundle, which it cannot do if a refusal
+// reads as an internal error.
 func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started *Run, retErr error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",

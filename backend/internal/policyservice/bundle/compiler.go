@@ -48,6 +48,13 @@ var budgetRego string
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
 //
+// The plural "triggers:*" and singular "trigger:*" scopes are a deliberate
+// split, not a typo to be tidied up: triggers:read/triggers:write are
+// management scopes over the collection (list, create, edit, delete), while
+// trigger:fire is the covering form of the per-instance scope trigger:<id>:fire.
+// Renaming either to match the other would either make fire authority
+// collection-wide by accident or make management authority per-instance.
+//
 // Fire authority is granted via the covering scope "trigger:fire" rather than
 // one scope per trigger. A covering scope keeps the action and drops the path,
 // so trigger:fire covers every trigger:<id>:fire. An admin can therefore fire

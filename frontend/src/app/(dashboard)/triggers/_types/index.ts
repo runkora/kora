@@ -469,8 +469,9 @@ export const DELIVERY_EXCERPT_MAX = 120;
 /**
  * Decision for the Deliveries "Detail" column, in priority order:
  * fan-out run count > error > single run id > payload excerpt > none.
- * Pure so the priority chain and excerpt truncation are unit-testable; the
- * cell renders styling from `kind`.
+ * Pure so the priority chain and excerpt truncation are unit-testable. The grid
+ * reads it through `deliverySummary`, which clips it to one line and styles from
+ * `kind`; the panel shows the untrimmed form.
  *
  * Note: `text` for `excerpt` is derived from `payload_excerpt`, which is
  * untrusted webhook data — it is rendered through Terra `<Text>` (React-escaped),

@@ -14,6 +14,8 @@ import type {
   TriggerDraft,
 } from '../../../triggers/_components/trigger-wizard';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
+import { updateTrigger } from '../../../triggers/_services/triggers-api';
+import { toTriggerUpdateRequest } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -55,6 +57,7 @@ export function AgentTriggersTab() {
   const [deleteCandidate, setDeleteCandidate] = useState<Trigger | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const agentId = agent?.id ?? '';
 
@@ -101,13 +104,22 @@ export function AgentTriggersTab() {
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
+  /**
+   * Enables or disables a trigger through the Triggers page's own client and
+   * mapper, so a refusal here reads the same as a refusal there.
+   *
+   * The hand-rolled PATCH this replaced ignored the response: a toggle the API
+   * refused (no permission, a delegated agent) reloaded the list, put the switch
+   * back where it started, and said nothing about why.
+   */
   const toggleTrigger = useCallback(
     async (t: Trigger) => {
-      await fetch(ApiRoute.triggers.detail(t.id), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !t.enabled }),
-      });
+      setToggleError(null);
+      const result = await updateTrigger(t.id, toTriggerUpdateRequest({ enabled: !t.enabled }));
+      if (result.error) {
+        setToggleError(`${t.name}: ${result.error}`);
+        return;
+      }
       void load();
     },
     [load],
@@ -312,6 +324,7 @@ export function AgentTriggersTab() {
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
+      {toggleError && <Alert variant="error">{toggleError}</Alert>}
 
       {sources.length === 0 && !loading && (
         <Callout variant="info">

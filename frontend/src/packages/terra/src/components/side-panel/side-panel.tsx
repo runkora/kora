@@ -26,6 +26,10 @@ const HEADER_TITLE_DENSITY: Record<Required<SidePanelHeaderProps>['density'], st
   compact: 'font-mono text-[14px] font-semibold leading-none',
 };
 
+// 11.5px is off the type scale on purpose. The compact header's title is mono
+// and its description is sans; at 11px the description reads a step smaller than
+// the header's optical weight, and at 12px it competes with the title. Do not
+// round it to a scale token.
 const HEADER_DESCRIPTION_DENSITY: Record<Required<SidePanelHeaderProps>['density'], string> = {
   default: '',
   compact: 'text-[11.5px]',

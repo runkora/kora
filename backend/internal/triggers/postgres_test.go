@@ -742,6 +742,90 @@ func TestPostgres_StrandedClaimReleasesItsSlot(t *testing.T) {
 	}
 }
 
+// seedRun stores an agent type and a run in the given state, so the ceiling
+// queries have a real row to join against. The runs table is owned by
+// orbit-agents; the triggers repository reads it, so the test writes it the same
+// way — directly, with the FK the schema demands.
+func seedRun(t *testing.T, r *postgresRepository, tenant, state string) string {
+	t.Helper()
+	ctx := context.Background()
+	agentTypeID := uuid.NewString()
+	runID := uuid.NewString()
+	if _, err := r.pool.Exec(ctx, `
+		INSERT INTO agent_types (id, tenant_id, name, slug) VALUES ($1, $2, 'ceiling', $3)
+	`, agentTypeID, tenant, "ceiling-"+agentTypeID[:8]); err != nil {
+		t.Fatalf("insert agent type: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+		INSERT INTO runs (id, tenant_id, agent_type_id, state) VALUES ($1, $2, $3, $4)
+	`, runID, tenant, agentTypeID, state); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, runID)
+		_, _ = r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id = $1`, agentTypeID)
+	})
+	return runID
+}
+
+// An idle run does not hold a parallel slot.
+//
+// A trigger-started run has nobody on the other end to send it the next message,
+// so 'idle' is where it stops, not a pause on the way to somewhere else. Counting
+// it as in flight until the 30-minute reaper collects it throttles a healthy
+// frequent trigger to zero and then evicts real work at the backlog ceiling — the
+// exact failure the ceiling exists to prevent. The complement is asserted in the
+// same test, because "idle is settled" is only correct if 'active' still isn't:
+// a fix that freed every slot would pass the first half alone.
+func TestPostgres_IdleRunDoesNotHoldAParallelSlot(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	runID := seedRun(t, r, tenant, "active")
+
+	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, ProviderDeliveryID: "gh-idle-1", Status: StatusVerified}
+	if _, err := r.InsertDelivery(ctx, d); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+	dr := &DeliveryRun{
+		ID: uuid.NewString(), TenantID: tenant, DeliveryID: d.ID,
+		TriggerID: tr.ID, RunID: &runID, Status: RunStatusDispatched,
+	}
+	if err := r.InsertDeliveryRun(ctx, dr); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	waiting := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	if err := r.EnqueuePending(ctx, waiting); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+
+	// The complement first: an active run holds the only slot, in both places
+	// the ceiling is evaluated.
+	if n, err := r.InFlightCount(ctx, tr.ID); err != nil || n != 1 {
+		t.Fatalf("in-flight with an active run = %d (%v), want 1", n, err)
+	}
+	if claimed, err := r.ClaimPending(ctx, 10); err != nil || len(claimed) != 0 {
+		t.Fatalf("ClaimPending = %v (%v), want nothing claimed while the slot is held", claimed, err)
+	}
+
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state = 'idle' WHERE id = $1`, runID); err != nil {
+		t.Fatalf("set run idle: %v", err)
+	}
+
+	if n, err := r.InFlightCount(ctx, tr.ID); err != nil || n != 0 {
+		t.Errorf("in-flight with an idle run = %d (%v), want 0", n, err)
+	}
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != waiting.ID {
+		t.Errorf("claimed = %+v, want the waiting fire to take the freed slot", claimed)
+	}
+}
+
 // pending_count answers "how many fires are waiting", and waiting means
 // unclaimed: a claimed row is mid-dispatch.
 func TestPostgres_TriggerPendingCount(t *testing.T) {
