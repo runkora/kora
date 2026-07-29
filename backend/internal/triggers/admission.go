@@ -177,24 +177,30 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		}
 
 	case OverflowRefuse:
-		inFlight, err := a.repo.InFlightCount(ctx, t.ID)
+		// Checked and enqueued together, under one lock on the trigger.
+		//
+		// Fires already waiting count toward the ceiling as well as work in
+		// flight: in-flight alone only sees what a worker has picked up, and the
+		// worker polls on an interval, so two fires a fraction of a second apart
+		// would both read an empty count. Doing the check as its own statement
+		// had the same shape of bug one level up, because two callers could both
+		// pass it before either inserted. A person told "not now" can retry; a
+		// person told "accepted" and then made to wait cannot tell the
+		// difference from a stall.
+		admitted, err := a.repo.EnqueueWithinCeiling(ctx, &PendingDelivery{
+			ID:         newID(),
+			TenantID:   t.TenantID,
+			TriggerID:  t.ID,
+			DeliveryID: deliveryID,
+			Fields:     fields,
+		}, int(t.MaxParallel))
 		if err != nil {
-			return AdmitDropped, fmt.Errorf("count in-flight: %w", err)
+			return AdmitDropped, fmt.Errorf("admit within ceiling: %w", err)
 		}
-		// Fires already waiting count toward the ceiling too. In-flight alone
-		// only sees work a worker has picked up, and the worker polls on an
-		// interval — so two fires a fraction of a second apart both saw an empty
-		// in-flight count and both were accepted, which is silent queueing under
-		// the one overflow behavior whose entire promise is that it does not
-		// queue. A person told "not now" can retry; a person told "accepted" and
-		// then made to wait cannot tell the difference from a stall.
-		waiting, err := a.repo.UnclaimedPendingCount(ctx, t.ID)
-		if err != nil {
-			return AdmitDropped, fmt.Errorf("count waiting fires: %w", err)
-		}
-		if inFlight+waiting >= int(t.MaxParallel) {
+		if !admitted {
 			return AdmitDropped, nil
 		}
+		return AdmitEnqueued, nil
 
 	case OverflowWait:
 		// Bound the backlog. Dropping the oldest rather than the newest is

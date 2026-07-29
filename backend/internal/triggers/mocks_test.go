@@ -856,6 +856,39 @@ func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) e
 	return nil
 }
 
+// EnqueueWithinCeiling mirrors the SQL: the count and the insert happen under
+// one lock, so two concurrent admissions cannot both pass the check. Holding
+// m.mu across both is what makes this the same guarantee the row lock gives.
+func (m *mockRepository) EnqueueWithinCeiling(_ context.Context, p *PendingDelivery, maxParallel int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	occupied := 0
+	for _, r := range m.deliveryRuns {
+		if r.TriggerID == p.TriggerID && r.Status == RunStatusDispatched {
+			occupied++
+		}
+	}
+	for _, q := range m.pending {
+		if q.TriggerID != p.TriggerID {
+			continue
+		}
+		if !q.claimed || time.Since(q.claimedAt) < StaleClaimWindow {
+			occupied++
+		}
+	}
+	if occupied >= maxParallel {
+		return false, nil
+	}
+
+	cp := *p
+	if cp.EnqueuedAt.IsZero() {
+		cp.EnqueuedAt = time.Now()
+	}
+	m.pending = append(m.pending, &pendingRow{PendingDelivery: cp})
+	return true, nil
+}
+
 // ClaimPending mirrors the SQL: oldest unclaimed first, only for triggers under
 // their ceiling.
 func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDelivery, error) {

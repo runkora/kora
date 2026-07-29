@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,6 +62,43 @@ func TestAdmission_Refuse_DropsAtCeiling(t *testing.T) {
 	runs := deps.repo.deliveryRunsFor(ids[0])
 	if len(runs) != 1 || runs[0].Status != RunStatusDropped {
 		t.Fatalf("outcomes = %+v, want one dropped", runs)
+	}
+}
+
+// Refuse holds its ceiling under a burst, not just against a sequential caller.
+//
+// The check and the enqueue used to be separate statements, so simultaneous
+// fires could all pass the check before any of them inserted, and a trigger set
+// to refuse would quietly queue the losers. Actual concurrency stayed bounded
+// because the claim path ranks per trigger, but "accepted" is the wrong answer
+// to give a sender that refuse promised to turn away.
+func TestAdmission_Refuse_HoldsCeilingUnderConcurrentFires(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
+
+	const fires = 8
+	for i := range fires {
+		id := fmt.Sprintf("burst-%d", i)
+		tid := trig.ID
+		if _, err := deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: id, TenantID: testTenant, TriggerID: &tid, Kind: trig.Kind, Status: StatusVerified,
+		}); err != nil {
+			t.Fatalf("insert delivery: %v", err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for i := range fires {
+		wg.Go(func() {
+			svc.admit(context.Background(), trig, fmt.Sprintf("burst-%d", i), nil)
+		})
+	}
+	wg.Wait()
+
+	// max_parallel is 1 and nothing is running, so exactly one fire is admitted
+	// and the other seven are refused.
+	if pending := deps.repo.pendingFor(trig.ID); len(pending) != 1 {
+		t.Errorf("waiting fires = %d, want exactly 1: refuse must not queue the losers", len(pending))
 	}
 }
 

@@ -191,6 +191,12 @@ type PendingQueue interface {
 	DrainOrphanedPending(ctx context.Context, limit int) ([]OrphanedPending, error)
 	// UnclaimedPendingCount is how many fires are waiting on a trigger.
 	UnclaimedPendingCount(ctx context.Context, triggerID string) (int, error)
+	// EnqueueWithinCeiling admits a fire only if the trigger is under
+	// maxParallel, deciding and inserting under one lock. Counting and then
+	// enqueueing separately lets two simultaneous fires both pass the check,
+	// which turns "refuse" into "wait" for whichever one loses. Reports false
+	// when the fire was refused.
+	EnqueueWithinCeiling(ctx context.Context, p *PendingDelivery, maxParallel int) (bool, error)
 
 	// PendingStats summarizes the delivery queue in one query, for the metrics
 	// callback. One query rather than three: it is polled on the collection

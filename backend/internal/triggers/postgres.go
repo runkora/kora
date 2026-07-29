@@ -885,6 +885,58 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 // with no caller input in it.
 const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'idle')`
 
+// EnqueueWithinCeiling admits a fire only if the trigger is under its ceiling,
+// deciding and inserting under one lock so the two cannot disagree.
+//
+// Counting and then inserting as separate statements is a time-of-check race:
+// two fires a moment apart both read an occupancy below the ceiling and both
+// enqueue, so a trigger set to refuse quietly queues one instead. Actual
+// concurrency is still bounded, because ClaimPending ranks per trigger and
+// will not dispatch past max_parallel, but the fire was told "accepted" when
+// refuse promises "not now", and those are different answers to the sender.
+//
+// Serialized on the trigger row rather than an advisory lock: the row is
+// already the thing whose max_parallel is being read, the lock is scoped to one
+// trigger so unrelated triggers never contend, and it needs no hashing scheme
+// to collide over. Returns false when the fire was refused.
+func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *PendingDelivery, maxParallel int) (bool, error) {
+	fieldsJSON, err := json.Marshal(p.Fields)
+	if err != nil {
+		return false, fmt.Errorf("marshal pending fields: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin admission: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	var lockedID string
+	if err = tx.QueryRow(ctx,
+		`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
+		return false, fmt.Errorf("lock trigger for admission: %w", err)
+	}
+
+	var occupied int
+	if err = tx.QueryRow(ctx, occupancySQL, p.TriggerID, StaleClaimWindow.Seconds()).Scan(&occupied); err != nil {
+		return false, fmt.Errorf("count occupancy: %w", err)
+	}
+	if occupied >= maxParallel {
+		return false, nil
+	}
+
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
+		VALUES ($1, $2, $3, $4, $5)
+	`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+		return false, fmt.Errorf("enqueue pending delivery: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit admission: %w", err)
+	}
+	return true, nil
+}
+
 func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {
 	fieldsJSON, err := json.Marshal(p.Fields)
 	if err != nil {
@@ -1036,26 +1088,41 @@ func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string
 	// window belongs to a worker that died, and counting it would let one dead
 	// pod permanently cost the trigger a parallel slot.
 	var n int
-	err := r.pool.QueryRow(ctx, `
-		SELECT
-		    (SELECT count(*)
-		     FROM   trigger_delivery_runs dr
-		     LEFT   JOIN runs ru ON ru.id = dr.run_id
-		     WHERE  dr.trigger_id = $1
-		       AND  dr.status = 'dispatched'
-		       AND  dr.created_at > now() - interval '1 hour'
-		       AND  (ru.id IS NULL OR ru.state NOT IN `+settledRunStatesSQL+`))
-		  + (SELECT count(*)
-		     FROM   trigger_pending_deliveries
-		     WHERE  trigger_id = $1
-		       AND  claimed_at IS NOT NULL
-		       AND  claimed_at > now() - make_interval(secs => $2))
-	`, triggerID, StaleClaimWindow.Seconds()).Scan(&n)
+	err := r.pool.QueryRow(ctx, inFlightSQL, triggerID, StaleClaimWindow.Seconds()).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count in-flight runs: %w", err)
 	}
 	return n, nil
 }
+
+// inFlightSQL counts the work a trigger currently has running. $1 is the trigger
+// id, $2 the stale-claim window in seconds.
+const inFlightSQL = `
+	SELECT
+	    (SELECT count(*)
+	     FROM   trigger_delivery_runs dr
+	     LEFT   JOIN runs ru ON ru.id = dr.run_id
+	     WHERE  dr.trigger_id = $1
+	       AND  dr.status = 'dispatched'
+	       AND  dr.created_at > now() - interval '1 hour'
+	       AND  (ru.id IS NULL OR ru.state NOT IN ` + settledRunStatesSQL + `))
+	  + (SELECT count(*)
+	     FROM   trigger_pending_deliveries
+	     WHERE  trigger_id = $1
+	       AND  claimed_at IS NOT NULL
+	       AND  claimed_at > now() - make_interval(secs => $2))
+`
+
+// occupancySQL is what "refuse" measures against the ceiling: work in flight
+// plus fires still waiting. Waiting fires count because in-flight alone only
+// sees what a worker has already picked up, and the worker polls on an interval,
+// so two fires a moment apart would both read an empty count. Same parameters as
+// inFlightSQL.
+const occupancySQL = inFlightSQL + `
+	  + (SELECT count(*)
+	     FROM   trigger_pending_deliveries
+	     WHERE  trigger_id = $1 AND claimed_at IS NULL)
+`
 
 func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
 	rows, err := r.pool.Query(ctx, `
