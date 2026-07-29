@@ -124,6 +124,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 		PromptTemplate: "review {{ pr.number }}",
 		Enabled:        true,
 	}
+	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -218,6 +219,7 @@ func TestPostgres_ScheduledAndManualTriggerCRUD(t *testing.T) {
 		PrincipalID:    "trigger:" + uuid.NewString(),
 		Enabled:        true,
 	}
+	admissionDefaults(scheduled)
 	if err := r.CreateTrigger(ctx, scheduled); err != nil {
 		t.Fatalf("CreateTrigger (scheduled): %v", err)
 	}
@@ -246,6 +248,7 @@ func TestPostgres_ScheduledAndManualTriggerCRUD(t *testing.T) {
 		PrincipalID:    "trigger:" + uuid.NewString(),
 		Enabled:        true,
 	}
+	admissionDefaults(manual)
 	if err := r.CreateTrigger(ctx, manual); err != nil {
 		t.Fatalf("CreateTrigger (manual): %v", err)
 	}
@@ -484,6 +487,7 @@ func TestPostgres_PendingStats(t *testing.T) {
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
 		Name: "stats", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
 	}
+	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -539,6 +543,7 @@ func TestPostgres_TriggerNameSurvivesDeletion(t *testing.T) {
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
 		Name: "PR reviewer", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
 	}
+	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -611,14 +616,29 @@ func TestPostgres_DeliveryRunWithoutTriggerName(t *testing.T) {
 	}
 }
 
+// admissionDefaults stamps the admission settings the service writes at create.
+//
+// The repository stores what it is given and no longer substitutes defaults, so
+// a row built by hand in a test has to carry the same values a real create
+// would, or it fails the column check constraints.
+func admissionDefaults(t *Trigger) *Trigger {
+	t.MaxParallel = defaultMaxParallel
+	t.MaxQueueDepth = defaultMaxQueueDepth
+	t.TimeoutSeconds = defaultTimeoutSeconds
+	t.Overflow = DefaultOverflowForKind(t.Kind)
+	return t
+}
+
 // seedPendingTrigger stores an enabled trigger to hang pending rows off.
 func seedPendingTrigger(t *testing.T, r *postgresRepository, tenant, sourceID string, maxParallel int16) *Trigger {
 	t.Helper()
 	tr := &Trigger{
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: sourceID,
 		Name: "pending", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p",
-		Enabled: true, MaxParallel: maxParallel,
+		Enabled: true,
 	}
+	admissionDefaults(tr)
+	tr.MaxParallel = maxParallel
 	if err := r.CreateTrigger(context.Background(), tr); err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}

@@ -496,12 +496,23 @@ type CreateTriggerRequest struct {
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
 
-	// ─── Admission control ──────────────────────────────────────────────────
-	// These tune admission control: the concurrency ceiling, what happens
-	// beyond it, and the two safety behaviors. Every one is optional and
-	// defaults per kind (see DefaultOverflowForKind and applyAdmissionCreate),
-	// so a request that omits them creates exactly the trigger it did before
-	// these fields existed.
+	// Embedded, not repeated: create and update accept the same settings with
+	// the same bounds, and JSON field promotion keeps them flat on the wire.
+	AdmissionSettings
+}
+
+// AdmissionSettings is the admission policy a caller may tune on a trigger: the
+// concurrency ceiling, what happens beyond it, and the two safety behaviors.
+//
+// Every field is optional. On create, an omitted field takes the platform
+// default (see applyAdmissionCreate); on update, it leaves the stored value
+// alone, so a PATCH that only renames a trigger cannot quietly re-arm its
+// auto-pause.
+//
+// It is embedded in both request types rather than declared twice: one set of
+// fields, one Validate, one applyTo. The embedding is anonymous so the wire
+// format stays flat — the fields are promoted into the enclosing object.
+type AdmissionSettings struct {
 	MaxParallel      *int16  `json:"max_parallel,omitempty"`
 	Overflow         *string `json:"overflow,omitempty"`
 	MaxQueueDepth    *int16  `json:"max_queue_depth,omitempty"`
@@ -520,17 +531,9 @@ type UpdateTriggerRequest struct {
 	Enabled        *bool               `json:"enabled,omitempty"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
-	// The two safety behaviors an operator turns off deliberately. Pointers
-	// so that omitting them leaves the stored setting alone: a PATCH that
-	// only renames a trigger must not quietly re-arm its auto-pause.
-	DedupeEnabled    *bool `json:"dedupe_enabled,omitempty"`
-	AutopauseEnabled *bool `json:"autopause_enabled,omitempty"`
-	// Admission tuning, editable after creation with the same bounds as
-	// create. Changes apply to the next delivery, not work in flight.
-	MaxParallel    *int16  `json:"max_parallel,omitempty"`
-	Overflow       *string `json:"overflow,omitempty"`
-	MaxQueueDepth  *int16  `json:"max_queue_depth,omitempty"`
-	TimeoutSeconds *int16  `json:"timeout_seconds,omitempty"`
+	// Editable after creation with exactly the create-time bounds. Changes
+	// apply to the next delivery, not to work already in flight.
+	AdmissionSettings
 }
 
 // FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.

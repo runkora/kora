@@ -86,6 +86,20 @@ func ForbiddenError(code, message string, details map[string]any) *APIError {
 	}
 }
 
+// TooManyRequestsError creates a 429 Too Many Requests error.
+//
+// Use it where the resource is healthy but temporarily at capacity and the
+// caller should retry, rather than InternalError, which tells the caller the
+// platform is broken when nothing is.
+func TooManyRequestsError(code, message string, details map[string]any) *APIError {
+	return &APIError{
+		Code:       code,
+		Message:    message,
+		Details:    details,
+		StatusCode: http.StatusTooManyRequests,
+	}
+}
+
 // ServiceUnavailableError creates a 503 Service Unavailable error
 func ServiceUnavailableError(code, message string, details map[string]any) *APIError {
 	return &APIError{
@@ -152,6 +166,10 @@ const (
 	// ErrCodeInvalidCredentials indicates the provided authentication credentials are incorrect.
 	// Use with UnauthorizedError for failed login attempts.
 	ErrCodeInvalidCredentials = "invalid_credentials" // #nosec G101 -- This is an error code constant, not a credential
+
+	// ErrCodeTooManyRequests indicates the caller should back off and retry.
+	// Use with TooManyRequestsError for rate limits and at-capacity resources.
+	ErrCodeTooManyRequests = "too_many_requests"
 
 	// Server errors (5xx)
 

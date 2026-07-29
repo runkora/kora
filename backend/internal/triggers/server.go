@@ -476,11 +476,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	case errors.Is(err, ErrTriggerAtCapacity):
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the
 		// caller should retry rather than treat this as a fault.
-		api.ErrorResponse(ctx, w, c.logger, &api.APIError{
-			Code:       "too_many_requests",
-			Message:    err.Error(),
-			StatusCode: http.StatusTooManyRequests,
-		}, nil)
+		api.ErrorResponse(ctx, w, c.logger, api.TooManyRequestsError(api.ErrCodeTooManyRequests, err.Error(), nil), nil)
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.
 		// Which one it is decides what that action is, so the two keep separate

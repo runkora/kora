@@ -10,6 +10,14 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// scheduleStore is the storage the cron loop touches: the schedules to evaluate,
+// and the delivery rows that say which minutes have already fired. Two methods
+// off two roles, so it is declared here rather than as a seventh role interface.
+type scheduleStore interface {
+	ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error)
+	DueScheduledMinutesWithoutDelivery(ctx context.Context, triggerID string, since time.Time) ([]time.Time, error)
+}
+
 // Scheduler evaluates the matchable scheduled triggers each minute and fires
 // TickScheduled for each one whose cron expression matches the current time.
 //
@@ -26,7 +34,7 @@ import (
 // or firing it when the trigger opts into catch_up.
 type Scheduler struct {
 	svc     *Service
-	repo    Repository
+	repo    scheduleStore
 	logger  logging.Logger
 	metrics *Metrics // nil records nothing
 	c       *cron.Cron
@@ -34,7 +42,7 @@ type Scheduler struct {
 
 // NewScheduler creates a Scheduler. It does not start immediately; call Start.
 // metrics may be nil.
-func NewScheduler(svc *Service, repo Repository, logger logging.Logger, metrics *Metrics) *Scheduler {
+func NewScheduler(svc *Service, repo scheduleStore, logger logging.Logger, metrics *Metrics) *Scheduler {
 	return &Scheduler{
 		svc:     svc,
 		repo:    repo,
@@ -101,7 +109,18 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if t.ScheduleConfig == nil {
 			continue
 		}
-		if matchesCron(t.ScheduleConfig, now) {
+		sched, loc, err := ParseSchedule(t.ScheduleConfig)
+		if err != nil {
+			// A stored expression that no longer parses would otherwise never
+			// fire and never say so. Parsing once per pass keeps the log to one
+			// line per trigger per minute rather than one per due minute.
+			s.logger.Error(ctx, "scheduler: stored schedule does not parse; trigger cannot fire",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		if firesAt(sched, loc, now) {
 			tick := ScheduledTick{Trigger: t, ScheduledAt: now}
 			// Dispatch each trigger in its own goroutine so one slow trigger
 			// does not delay others. The service's dispatchTimeout bounds each.
@@ -111,7 +130,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		// Not due now, but a fire may have been missed while the platform was
 		// down. Reconcile the recent past so a missed fire leaves a record
 		// instead of vanishing.
-		go s.reconcileMissed(context.WithoutCancel(ctx), t, now)
+		go s.reconcileMissed(context.WithoutCancel(ctx), t, sched, loc, now)
 	}
 }
 
@@ -129,7 +148,7 @@ const backfillWindow = time.Hour
 // would otherwise dump a burst of runs at once. A trigger whose work genuinely
 // must not be skipped opts in with catch_up, and then the missed minutes fire
 // for real.
-func (s *Scheduler) reconcileMissed(ctx context.Context, t Trigger, now time.Time) {
+func (s *Scheduler) reconcileMissed(ctx context.Context, t Trigger, sched cron.Schedule, loc *time.Location, now time.Time) {
 	due, err := s.repo.DueScheduledMinutesWithoutDelivery(ctx, t.ID, now.Add(-backfillWindow))
 	if err != nil {
 		s.logger.Error(ctx, "scheduler: failed to look for missed fires",
@@ -139,7 +158,7 @@ func (s *Scheduler) reconcileMissed(ctx context.Context, t Trigger, now time.Tim
 		return
 	}
 	for _, minute := range due {
-		if !matchesCron(t.ScheduleConfig, minute) {
+		if !firesAt(sched, loc, minute) {
 			continue
 		}
 		if t.ScheduleConfig.CatchUp {
@@ -150,24 +169,13 @@ func (s *Scheduler) reconcileMissed(ctx context.Context, t Trigger, now time.Tim
 	}
 }
 
-// matchesCron reports whether the given cron schedule matches the given time
-// (to minute precision). It parses the expression in the trigger's configured
-// timezone.
-func matchesCron(sc *ScheduleConfig, now time.Time) bool {
-	loc, err := time.LoadLocation(sc.Timezone)
-	if err != nil {
-		return false
-	}
-	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sched, err := p.Parse(sc.CronExpression)
-	if err != nil {
-		return false
-	}
+// firesAt reports whether an already-parsed schedule fires at the given time,
+// to minute precision, in the schedule's own timezone.
+func firesAt(sched cron.Schedule, loc *time.Location, at time.Time) bool {
 	// cron.Schedule.Next returns the next time AFTER t. If Next(now-1min) == now
 	// (truncated to minute), the cron fires at this minute.
-	prevMinute := now.In(loc).Truncate(time.Minute).Add(-time.Second)
-	next := sched.Next(prevMinute)
-	return next.Truncate(time.Minute).Equal(now.In(loc).Truncate(time.Minute))
+	minute := at.In(loc).Truncate(time.Minute)
+	return sched.Next(minute.Add(-time.Second)).Truncate(time.Minute).Equal(minute)
 }
 
 // ParseSchedule parses a schedule's cron expression in its own timezone.

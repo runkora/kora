@@ -243,7 +243,7 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
 		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
-		defaultOverflow(t), defaultInt16(t.MaxParallel, 4), defaultInt16(t.MaxQueueDepth, 32), defaultInt16(t.TimeoutSeconds, 30),
+		t.Overflow, t.MaxParallel, t.MaxQueueDepth, t.TimeoutSeconds,
 		t.DedupeEnabled, t.AutopauseEnabled)
 	if err != nil {
 		return fmt.Errorf("create trigger: %w", err)
@@ -378,8 +378,8 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) erro
 		WHERE  id = $14 AND tenant_id = $15
 	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
 		t.DedupeEnabled, t.AutopauseEnabled,
-		defaultInt16(t.MaxParallel, 4), defaultOverflow(t), defaultInt16(t.MaxQueueDepth, 32),
-		defaultInt16(t.TimeoutSeconds, 30), t.AutoPausedAt, t.ID, t.TenantID)
+		t.MaxParallel, t.Overflow, t.MaxQueueDepth,
+		t.TimeoutSeconds, t.AutoPausedAt, t.ID, t.TenantID)
 	if err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}
@@ -402,61 +402,61 @@ func (r *postgresRepository) DeleteTrigger(ctx context.Context, tenantID, id str
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
-func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (bool, error) {
-	// Two dedup strategies depending on kind:
-	//   webhook:   ON CONFLICT (source_id, provider_delivery_id) WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
-	//   scheduled: ON CONFLICT (trigger_id, scheduled_at)        WHERE scheduled_at IS NOT NULL
-	// Both partial unique indexes use DO NOTHING; RowsAffected == 0 signals duplicate.
-	//
-	// The arbiter predicate matches the index exactly, which is also what makes a
-	// lineage row insertable: a row naming the delivery it descends from is not
-	// an original arrival, so it is outside the uniqueness guarantee rather than
-	// blocked by it.
-	var sourceID *string
-	if d.SourceID != "" {
-		sourceID = &d.SourceID
-	}
-	tag, err := r.pool.Exec(ctx, `
+// deliveryInsertColumns is the row a delivery is written as, shared by both
+// insert paths so a new column cannot be added to one and forgotten in the
+// other.
+const deliveryInsertColumns = `
 		INSERT INTO trigger_deliveries
 			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
 			 payload, payload_bytes, reason, redelivery_of)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-		ON CONFLICT (source_id, provider_delivery_id)
-			WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
-			DO NOTHING
-	`, d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
+		`
+
+// insertDelivery writes a delivery under the given ON CONFLICT clause, which is
+// the only thing that differs between the two arrival kinds.
+//
+// Reports whether the row landed. That (bool, error) shape is the point rather
+// than an oddity: the partial unique indexes are the concurrency control, so
+// "was this the first arrival?" is answered by the database, not by a read the
+// caller races against.
+func (r *postgresRepository) insertDelivery(ctx context.Context, d *Delivery, onConflict, what string) (bool, error) {
+	var sourceID *string
+	if d.SourceID != "" {
+		sourceID = &d.SourceID
+	}
+	tag, err := r.pool.Exec(ctx, deliveryInsertColumns+onConflict,
+		d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
 		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
-		return false, fmt.Errorf("insert delivery: %w", err)
+		return false, fmt.Errorf("%s: %w", what, err)
 	}
 	return tag.RowsAffected() > 0, nil
 }
 
-// InsertScheduledDelivery inserts a delivery for a scheduled trigger tick,
-// using the scheduled_at dedup index to prevent double-fire on pod restart.
+// InsertDelivery inserts an inbound arrival, deduplicated on the provider's own
+// delivery id.
+//
+// The arbiter predicate matches the partial index exactly, which is also what
+// makes a lineage row insertable: a row naming the delivery it descends from is
+// not an original arrival, so it is outside the uniqueness guarantee rather than
+// blocked by it.
+func (r *postgresRepository) InsertDelivery(ctx context.Context, d *Delivery) (bool, error) {
+	return r.insertDelivery(ctx, d, `
+		ON CONFLICT (source_id, provider_delivery_id)
+			WHERE provider_delivery_id <> '' AND redelivery_of IS NULL
+			DO NOTHING`, "insert delivery")
+}
+
+// InsertScheduledDelivery inserts a delivery for a scheduled trigger tick, using
+// the scheduled_at dedup index to prevent a double fire on pod restart and to
+// settle the race between replicas ticking the same minute.
 func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Delivery) (bool, error) {
-	var sourceID *string
-	if d.SourceID != "" {
-		sourceID = &d.SourceID
-	}
-	tag, err := r.pool.Exec(ctx, `
-		INSERT INTO trigger_deliveries
-			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
-			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
-			 payload, payload_bytes, reason, redelivery_of)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-		ON CONFLICT (trigger_id, scheduled_at) WHERE scheduled_at IS NOT NULL DO NOTHING
-	`, d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
-		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
-		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
-	if err != nil {
-		return false, fmt.Errorf("insert scheduled delivery: %w", err)
-	}
-	return tag.RowsAffected() > 0, nil
+	return r.insertDelivery(ctx, d, `
+		ON CONFLICT (trigger_id, scheduled_at) WHERE scheduled_at IS NOT NULL DO NOTHING`,
+		"insert scheduled delivery")
 }
 
 // UpdateDeliveryOutcome records the run a delivery produced.
@@ -658,27 +658,6 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 	return []byte("{}"), nil
 }
 
-// defaultOverflow gives each kind the overflow behavior that suits it when the
-// caller did not choose one. A webhook waits (the sender was acknowledged and
-// dropping its event loses work), a schedule replaces (the newest tick is the
-// state worth acting on), a manual fire refuses (a person is waiting).
-func defaultOverflow(t *Trigger) string {
-	if t.Overflow != "" {
-		return t.Overflow
-	}
-	return DefaultOverflowForKind(t.Kind)
-}
-
-// defaultInt16 returns v, or fallback when v is unset.
-func defaultInt16(v, fallback int16) int16 {
-	if v <= 0 {
-		return fallback
-	}
-	return v
-}
-
-// nullableInt maps a zero size to SQL NULL, so "no payload captured" is
-// distinguishable from "an empty payload".
 // defaultTargetKind fills in the only target kind that exists today. Triggers
 // are the front door for starting work; when the workflow engine lands, a
 // trigger can name it here without changing anything else.
@@ -689,6 +668,8 @@ func defaultTargetKind(k string) string {
 	return k
 }
 
+// nullableInt maps a zero size to SQL NULL, so "no payload captured" is
+// distinguishable from "an empty payload".
 func nullableInt(n int) *int {
 	if n == 0 {
 		return nil
@@ -1096,10 +1077,7 @@ func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID str
 // briefly exceed the ceiling; the next admission trims it back. Bounding the
 // backlog is the guarantee, not bounding it to the exact row.
 func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
-	offset := depth - 1
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(depth-1, 0)
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
 		WHERE  id IN (

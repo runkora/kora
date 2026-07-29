@@ -55,7 +55,7 @@ type Metrics struct {
 // repo is read by the queue-depth callback, which is why this takes one: an
 // observable gauge is only honest if it reports the queue as it is at collection
 // time rather than a counter the code remembered to keep updated.
-func NewMetrics(meter metric.Meter, repo Repository, logger logging.Logger) (*Metrics, error) {
+func NewMetrics(meter metric.Meter, repo PendingQueue, logger logging.Logger) (*Metrics, error) {
 	m := &Metrics{}
 
 	var err error

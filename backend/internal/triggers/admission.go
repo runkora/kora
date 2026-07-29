@@ -135,13 +135,20 @@ const autoPauseThreshold = 10
 // designed against that engine's requirements rather than invented here with
 // triggers as its only consumer.
 type Admission struct {
-	repo   Repository
-	logger logging.Logger
+	repo     PendingQueue
+	logger   logging.Logger
+	outcomes outcomeRecorder
 }
 
-// NewAdmission constructs the admission controller.
+// NewAdmission constructs the admission controller. It takes the whole
+// Repository and keeps only the two roles it uses: the queue it manages, and the
+// outcome rows it writes when it refuses or displaces a fire.
 func NewAdmission(repo Repository, logger logging.Logger) *Admission {
-	return &Admission{repo: repo, logger: logger}
+	return &Admission{
+		repo:     repo,
+		logger:   logger,
+		outcomes: outcomeRecorder{repo: repo, logger: logger},
+	}
 }
 
 // Admit records a fire for later dispatch, applying the trigger's overflow
@@ -237,9 +244,14 @@ func (a *Admission) Drain(ctx context.Context, t Trigger, reason string) (int, e
 	return len(pending), nil
 }
 
+// recordOutcome writes the audit row for a fire admission refused or displaced.
+//
+// Admission both decides and records here. That is a deliberate narrowing of the
+// alternative: returning displaced rows for the service to record would put the
+// invariant back in the caller's hands, which is exactly the split this
+// consolidated.
 func (a *Admission) recordOutcome(ctx context.Context, t Trigger, deliveryID, status, detail string) {
-	err := a.repo.InsertDeliveryRun(ctx, &DeliveryRun{
-		ID:         newID(),
+	a.outcomes.record(ctx, &DeliveryRun{
 		TenantID:   t.TenantID,
 		DeliveryID: deliveryID,
 		TriggerID:  t.ID,
@@ -249,20 +261,6 @@ func (a *Admission) recordOutcome(ctx context.Context, t Trigger, deliveryID, st
 		Status:      status,
 		Error:       &detail,
 	})
-	if err != nil {
-		a.logger.Error(ctx, "failed to record admission outcome",
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-			logging.Field{Key: "status", Value: status},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return
-	}
-	if err := a.repo.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
-		a.logger.Error(ctx, "failed to derive delivery status after admission",
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
 }
 
 // newID returns a fresh identifier for a pending row or delivery run.

@@ -26,32 +26,10 @@ import (
 //	func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	    return mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
 //	}
+// It is AuthMiddlewareWithRevocation without a blocklist: a token revoked ahead
+// of its expiry stays usable here until it expires.
 func AuthMiddleware(verifier *token.Verifier, logger logging.Logger) Middleware {
-	return NewMiddleware(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-
-			raw := r.Header.Get("Authorization")
-			if raw == "" {
-				writeUnauthorized(w, "Authorization header required")
-				return
-			}
-
-			rawToken := strings.TrimPrefix(raw, "Bearer ")
-			rawToken = strings.TrimSpace(rawToken)
-
-			claims, err := verifier.Verify(ctx, rawToken)
-			if err != nil {
-				logger.Error(ctx, "platform token verification failed",
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-				writeUnauthorized(w, "invalid or expired platform token")
-				return
-			}
-
-			next.ServeHTTP(w, r.WithContext(token.WithClaims(ctx, claims)))
-		})
-	})
+	return AuthMiddlewareWithRevocation(verifier, nil, logger)
 }
 
 // writeUnauthorized writes a minimal JSON 401 response without importing

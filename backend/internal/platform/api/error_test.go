@@ -143,6 +143,17 @@ func TestForbiddenError(t *testing.T) {
 	}
 }
 
+func TestTooManyRequestsError(t *testing.T) {
+	err := TooManyRequestsError(ErrCodeTooManyRequests, "at capacity", nil)
+
+	if err.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("StatusCode = %d, want %d", err.StatusCode, http.StatusTooManyRequests)
+	}
+	if err.Code != "too_many_requests" {
+		t.Errorf("Code = %q, want %q", err.Code, "too_many_requests")
+	}
+}
+
 func TestInternalError(t *testing.T) {
 	err := InternalError("database_error", "Database error", nil)
 

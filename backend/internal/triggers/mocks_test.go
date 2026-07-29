@@ -66,9 +66,12 @@ func (m *mockRepository) CreateSource(_ context.Context, s *WebhookSource) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := *s
-	// Mirrors the SQL: the secret a source starts with was issued now.
+	// Mirrors the SQL: the secret a source starts with was issued now, and the
+	// timestamps are the database's, not the caller's.
 	now := time.Now()
 	cp.SecretRotatedAt = &now
+	cp.CreatedAt = now
+	cp.UpdatedAt = now
 	m.sources[s.ID] = &cp
 	return nil
 }
@@ -1008,10 +1011,7 @@ func (m *mockRepository) TouchPendingClaim(_ context.Context, id string) error {
 // a newest-first ordering. depth counts the fire about to be enqueued, so the
 // offset is depth-1.
 func (m *mockRepository) TrimPending(_ context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
-	offset := depth - 1
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(depth-1, 0)
 	m.mu.Lock()
 	var waiting []*pendingRow
 	for _, p := range m.pending {

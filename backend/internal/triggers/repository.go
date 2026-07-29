@@ -5,19 +5,65 @@ import (
 	"time"
 )
 
-// Repository is the storage contract for the Triggers feature.
+// Repository is the storage contract for the Triggers feature: the union of the
+// role interfaces below, satisfied whole by the Postgres implementation.
+//
+// The split is documentation with teeth. Each component declares only the role
+// it needs — the Worker takes a PendingQueue, the retention job a
+// RetentionStore — so what a component may touch is visible in its constructor
+// rather than implied by a thirty-five-method surface, and a change of mind
+// about that shows up as a compile error.
 type Repository interface {
-	// ─── Sources ────────────────────────────────────────────────────────────
+	SourceStore
+	TriggerStore
+	DeliveryStore
+	PendingQueue
+	SafetyStore
+	RetentionStore
+}
+
+// SourceStore is the webhook sources a tenant registers, and the counters the
+// unauthenticated ingest path keeps on them.
+type SourceStore interface {
 	CreateSource(ctx context.Context, s *WebhookSource) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	// GetSourceByID looks a source up by id alone (no tenant scoping) — used by
 	// the public ingest path, which has no authenticated tenant context.
+	//
+	// Deliberately unscoped, and fenced off here rather than sitting beside the
+	// tenant-scoped reads without comment: an inbound webhook arrives with a
+	// source id and a signature and nothing else, so the tenant is a conclusion
+	// of the lookup rather than an input to it. Every caller that HAS a tenant
+	// must use GetSource.
 	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
 	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 
-	// ─── Triggers ───────────────────────────────────────────────────────────
+	// RecordSourceRejection counts an inbound request that failed
+	// authentication and stores its reason on the source.
+	//
+	// This deliberately does not create a delivery: the request is
+	// unauthenticated, so a row per request would let anyone on the internet
+	// grow the table. Updating one already-existing row bounds the write
+	// regardless of volume (ADR Decision 4).
+	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
+
+	// RecordAccepted counts an inbound request that authenticated and was
+	// taken. The counterpart to RecordSourceRejection: a rejection count is
+	// only readable next to the number of requests that got through.
+	RecordAccepted(ctx context.Context, sourceID string) error
+
+	// ObservedEventTypes returns the distinct event types this source has
+	// actually delivered. It is the half of the event catalog no adapter can
+	// know: what a provider really sends, including events the adapter has not
+	// modeled.
+	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
+}
+
+// TriggerStore is the triggers themselves, plus the two matchable listings the
+// ingest and scheduler paths dispatch from.
+type TriggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	// ListTriggers returns triggers for a tenant, optionally filtered by
@@ -40,8 +86,11 @@ type Repository interface {
 	ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error)
 	UpdateTrigger(ctx context.Context, t *Trigger) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
+}
 
-	// ─── Deliveries ─────────────────────────────────────────────────────────
+// DeliveryStore is the audit spine: what arrived, what each trigger did with it,
+// and the derived summary that ties the two together.
+type DeliveryStore interface {
 	// InsertDelivery persists a new delivery row. It returns false (no error)
 	// when a row with the same dedup key already exists:
 	//   - webhook: same (source_id, provider_delivery_id)
@@ -80,19 +129,12 @@ type Repository interface {
 	// "started two, denied one" unrepresentable (ADR Decision 3).
 	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
 
-	// RecordSourceRejection counts an inbound request that failed
-	// authentication and stores its reason on the source.
-	//
-	// This deliberately does not create a delivery: the request is
-	// unauthenticated, so a row per request would let anyone on the internet
-	// grow the table. Updating one already-existing row bounds the write
-	// regardless of volume (ADR Decision 4).
-	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
-
-	// RecordAccepted counts an inbound request that authenticated and was
-	// taken. The counterpart to RecordSourceRejection: a rejection count is
-	// only readable next to the number of requests that got through.
-	RecordAccepted(ctx context.Context, sourceID string) error
+	// InsertDeliveryRun records one per-trigger outcome for a delivery.
+	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
+	// ListDeliveryRunsForDeliveries returns the per-trigger dispatch records for
+	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
+	// attach the full run fan-out to a delivery listing without an N+1 query.
+	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
 
 	// ClaimReplayKey records a body fingerprint against a source and reports
 	// whether the source may take that body under this provider delivery id.
@@ -101,14 +143,15 @@ type Repository interface {
 	// rewritten delivery-id header would otherwise disguise as a fresh arrival.
 	// A retry under the same id stays true: that is an ordinary duplicate.
 	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
-	// PruneReplayKeys drops fingerprints past the window.
-	PruneReplayKeys(ctx context.Context, window time.Duration) (int64, error)
 
 	// CountRedeliveries is how many replays already descend from a delivery,
 	// so replaying can be bounded per original.
 	CountRedeliveries(ctx context.Context, originalID string) (int, error)
+}
 
-	// ─── Admission control ──────────────────────────────────────────────────
+// PendingQueue is the durable fire queue: everything between a fire being
+// accepted and its run starting.
+type PendingQueue interface {
 	// EnqueuePending durably records a fire waiting for a slot. Every fire goes
 	// through here, so an acknowledged fire always starts.
 	EnqueuePending(ctx context.Context, p *PendingDelivery) error
@@ -149,7 +192,16 @@ type Repository interface {
 	// UnclaimedPendingCount is how many fires are waiting on a trigger.
 	UnclaimedPendingCount(ctx context.Context, triggerID string) (int, error)
 
-	// ─── Delivery safety ────────────────────────────────────────────────────
+	// PendingStats summarizes the delivery queue in one query, for the metrics
+	// callback. One query rather than three: it is polled on the collection
+	// interval, and a gauge that costs three round trips per scrape is a cost
+	// the thing it measures did not have.
+	PendingStats(ctx context.Context) (PendingStats, error)
+}
+
+// SafetyStore is the auto-pause state: the consecutive-failure counter and the
+// pause it eventually trips.
+type SafetyStore interface {
 	// BumpConsecutiveFailures increments the failure counter and returns the
 	// new value, so the caller can auto-pause on the threshold.
 	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
@@ -158,34 +210,22 @@ type Repository interface {
 	// AutoPause disables a trigger and records that the platform did it, which
 	// the console distinguishes from a person turning it off.
 	AutoPause(ctx context.Context, triggerID string) error
+}
+
+// RetentionStore is what the platform promises about data at rest: the tenant's
+// chosen window, and the purges that keep it.
+type RetentionStore interface {
 	// PurgePayloads nulls payload bodies past each tenant's retention, leaving
 	// every other column intact so history survives the payload.
 	PurgePayloads(ctx context.Context, defaultDays int) (int64, error)
+	// PruneReplayKeys drops fingerprints past the window.
+	PruneReplayKeys(ctx context.Context, window time.Duration) (int64, error)
 	// GetRetention returns a tenant's chosen payload retention window.
 	// configured is false when the tenant has never set one, which the caller
 	// reports as the inherited default rather than inventing a stored value.
 	GetRetention(ctx context.Context, tenantID string) (days int, configured bool, err error)
 	// SetRetention upserts a tenant's payload retention window.
 	SetRetention(ctx context.Context, tenantID string, days int) error
-
-	// ObservedEventTypes returns the distinct event types this source has
-	// actually delivered. It is the half of the event catalog no adapter can
-	// know: what a provider really sends, including events the adapter has not
-	// modeled.
-	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
-
-	// PendingStats summarizes the delivery queue in one query, for the metrics
-	// callback. One query rather than three: it is polled on the collection
-	// interval, and a gauge that costs three round trips per scrape is a cost
-	// the thing it measures did not have.
-	PendingStats(ctx context.Context) (PendingStats, error)
-
-	// InsertDeliveryRun records one per-trigger outcome for a delivery.
-	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
-	// ListDeliveryRunsForDeliveries returns the per-trigger dispatch records for
-	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
-	// attach the full run fan-out to a delivery listing without an N+1 query.
-	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
 }
 
 // DeliveryFilter narrows a delivery listing. Empty/zero fields are ignored.

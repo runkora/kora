@@ -15,7 +15,7 @@ import (
 // between the acknowledgement and the dispatch.
 type Worker struct {
 	svc    *Service
-	repo   Repository
+	repo   PendingQueue
 	logger logging.Logger
 
 	// interval is how often the queue is polled. Short because it is the
@@ -40,7 +40,7 @@ type Worker struct {
 }
 
 // NewWorker constructs the pending-delivery worker.
-func NewWorker(svc *Service, repo Repository, logger logging.Logger) *Worker {
+func NewWorker(svc *Service, repo PendingQueue, logger logging.Logger) *Worker {
 	return &Worker{
 		svc:        svc,
 		repo:       repo,
@@ -183,7 +183,7 @@ func (w *Worker) drain(ctx context.Context) {
 // data at rest: it has to hold for payloads already stored when a tenant
 // shortens their window, not only for new ones.
 type RetentionJob struct {
-	repo        Repository
+	repo        RetentionStore
 	logger      logging.Logger
 	metrics     *Metrics // nil records nothing
 	interval    time.Duration
@@ -191,7 +191,7 @@ type RetentionJob struct {
 }
 
 // NewRetentionJob constructs the payload purge job. metrics may be nil.
-func NewRetentionJob(repo Repository, logger logging.Logger, defaultDays int, metrics *Metrics) *RetentionJob {
+func NewRetentionJob(repo RetentionStore, logger logging.Logger, defaultDays int, metrics *Metrics) *RetentionJob {
 	return &RetentionJob{
 		repo:        repo,
 		logger:      logger,
@@ -204,6 +204,13 @@ func NewRetentionJob(repo Repository, logger logging.Logger, defaultDays int, me
 // Start runs the purge loop until ctx is canceled. It purges once immediately
 // so a shortened retention window takes effect on the next deploy rather than
 // after the first interval.
+//
+// Unlike Worker, this deliberately has no Wait: there is nothing to wait for.
+// A purge is a pair of DELETEs with no acknowledged work behind them, so a
+// shutdown that cuts one short loses nothing — the rows it did not reach are
+// still past their window on the next pass, an hour or a restart later.
+// Blocking shutdown on an hourly cleanup would trade real availability for a
+// tidiness no caller can observe.
 func (j *RetentionJob) Start(ctx context.Context) {
 	go func() {
 		j.purge(ctx)

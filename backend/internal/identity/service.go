@@ -1126,6 +1126,10 @@ func (s *Service) GetPATAttribution(ctx context.Context, tenantID string, patIDs
 // request's Authorization header and stores the verified claims in the context
 // via token.WithClaims, identical to mw.AuthMiddleware but using the service's
 // in-memory signing key instead of a remote JWKS endpoint.
+//
+// It stays a separate implementation deliberately: identity is the token
+// authority and verifies with the key it signs with, so it cannot route through
+// mw.AuthMiddlewareWithRevocation, which takes a *token.Verifier backed by JWKS.
 func (s *Service) AuthMiddleware(logger logging.Logger) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
