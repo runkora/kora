@@ -2,6 +2,11 @@ import 'server-only';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
 import { consentTokenValid } from '@orbit/server/mcp-consent';
+import {
+  isLoopbackRedirect,
+  isRegisteredRedirect,
+  isWellFormedRedirect,
+} from '@orbit/server/mcp-redirect';
 
 /**
  * POST /api/mcp/authorize — the consent decision endpoint for the MCP OAuth flow.
@@ -115,47 +120,6 @@ export async function POST(req: Request): Promise<Response> {
   cb.searchParams.set('code', body.code);
   if (state) cb.searchParams.set('state', state);
   return json({ redirect: cb.toString() });
-}
-
-/** Loopback redirect targets for public native/DCR MCP clients (RFC 8252). */
-function isLoopbackRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** Structural check only (parses as http/https) — not a security gate. */
-function isWellFormedRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-/** Whether redirectUri is exactly one of clientId's pre-registered redirect_uris
- * (OAuthClient CR, hosted-app clients) — the real gate for non-loopback URIs. */
-async function isRegisteredRedirect(
-  clientId: string,
-  redirectUri: string,
-  accessToken: string,
-): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
-      { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (!res.ok) return false;
-    const body = (await res.json()) as { redirect_uris?: string[] };
-    return (body.redirect_uris ?? []).includes(redirectUri);
-  } catch {
-    return false;
-  }
 }
 
 function errorRedirect(redirectUri: string, state: string, error: string): string {

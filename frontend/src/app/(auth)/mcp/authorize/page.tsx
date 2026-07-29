@@ -4,9 +4,13 @@ import { redirect } from 'next/navigation';
 import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import {
+  fetchMcpOAuthClient,
+  isLoopbackRedirect,
+  isWellFormedRedirect,
+} from '@orbit/server/mcp-redirect';
 
 import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_components/consent-flow';
 
@@ -29,28 +33,6 @@ interface ConsentPageProps {
 
 function str(v: string | string[] | undefined): string {
   return typeof v === 'string' ? v : '';
-}
-
-function isLoopbackRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** Structural check only (parses as http/https) — not a security gate. The real
- * gate is isLoopbackRedirect() OR exact membership in the client's registered
- * redirect_uris, checked once the client lookup below resolves. */
-function isWellFormedRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
 }
 
 /** The server slug this consent is for, from the RFC 8707 resource indicator. */
@@ -135,25 +117,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   // Name the application asking (registered via DCR or a pre-registered
   // OAuthClient CR), and — since redirectUri only passed a structural check
   // above — confirm it's one this client actually registered.
-  let clientName = '';
-  let unknownClient = false;
-  let clientRedirectUris: string[] = [];
-  try {
-    const res = await fetch(
-      `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
-      { cache: 'no-store', headers: { Authorization: `Bearer ${session.accessToken}` } },
-    );
-    if (res.status === 404) {
-      unknownClient = true;
-    } else if (res.ok) {
-      const body = (await res.json()) as { client_name?: string; redirect_uris?: string[] };
-      clientName = body.client_name ?? '';
-      clientRedirectUris = body.redirect_uris ?? [];
-    }
-  } catch {
-    // Non-fatal — fall through with a generic name.
-  }
-  if (unknownClient) {
+  const clientLookup = await fetchMcpOAuthClient(clientId, session.accessToken);
+  if (clientLookup.kind === 'not_found') {
     return (
       <ConsentError
         title="Unknown application"
@@ -161,6 +126,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
       />
     );
   }
+  const clientName = clientLookup.kind === 'ok' ? clientLookup.clientName : '';
+  const clientRedirectUris = clientLookup.kind === 'ok' ? clientLookup.redirectUris : [];
   // The real gate: loopback URIs are always allowed (RFC 8252 native/DCR
   // clients); anything else must exactly match a redirect_uri this client
   // pre-registered (OAuthClient CR, hosted-app clients).
