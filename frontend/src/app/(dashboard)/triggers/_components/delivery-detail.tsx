@@ -58,7 +58,11 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
   // the fan-out is the one that answers "and what happened for me".
   const outcome =
     triggerId === undefined ? undefined : delivery.runs.find((r) => r.triggerId === triggerId);
-  const error = outcome?.error ?? (triggerId === undefined ? delivery.error : null);
+  // Falls back to the delivery's own error when this trigger has no row in the
+  // fan-out at all. A fire refused before it ever fanned out (invalid input, a
+  // full queue) has its reason only on the delivery, and scoping past it left
+  // the panel saying nothing on exactly the deliveries opened to ask why.
+  const error = outcome?.error ?? (outcome === undefined ? delivery.error : null);
   const runId = outcome?.runId ?? (triggerId === undefined ? delivery.runId : null);
 
   // Replay is a recovery action, so it is offered only where there is something
@@ -99,6 +103,17 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
               </Text>
             )}
           </Stack>
+        </Callout>
+      )}
+
+      {/* An arrival that ended without dispatching carries its reason on the
+          delivery rather than in the fan-out: a duplicate, a fire that matched
+          no trigger. The grid's Detail column already says this, and the panel
+          is where someone goes when that one line was not enough, so it cannot
+          be the one place the reason is missing. */}
+      {(error == null || error === '') && delivery.reason != null && delivery.reason !== '' && (
+        <Callout variant="info">
+          <Text size="caption">{delivery.reason}</Text>
         </Callout>
       )}
 

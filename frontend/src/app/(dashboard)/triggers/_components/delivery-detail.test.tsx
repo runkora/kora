@@ -226,3 +226,49 @@ describe('redeliver is offered only where it recovers something', () => {
     expect(screen.getByRole('button', { name: 'Redeliver' })).toBeTruthy();
   });
 });
+
+describe('why an arrival ended without dispatching', () => {
+  it('shows the delivery-level reason when there is no error to show', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          status: 'duplicate',
+          reason: 'already delivered under d-0',
+          runs: [],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('already delivered under d-0')).toBeTruthy();
+  });
+
+  it('prefers a real error over the reason, rather than showing both', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          status: 'failed',
+          error: 'start run: boom',
+          reason: 'a reason',
+          runs: [],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('start run: boom')).toBeTruthy();
+    expect(screen.queryByText('a reason')).toBeNull();
+  });
+
+  // A fire refused before it ever fanned out carries its reason only on the
+  // delivery. Scoping past that left the panel silent on exactly the rows
+  // someone opens to ask why.
+  it('falls back to the delivery error when this trigger has no fan-out row', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({ status: 'failed', error: 'task: required', runs: [] })}
+        triggerId="t1"
+      />,
+    );
+
+    expect(screen.getByText('task: required')).toBeTruthy();
+  });
+});

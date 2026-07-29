@@ -169,7 +169,17 @@ const DataGridRow = React.forwardRef<HTMLDivElement, DataGridRowProps>(
         style={{ gridTemplateColumns: columns, columnGap }}
         {...props}
       >
-        {children}
+        {/* Each child is one column, so each child is one cell. Wrapped here
+            rather than asking every consumer to wrap its own: a role="row"
+            whose children carry no cell role describes a table with rows and
+            no cells, which is worse for a screen reader than no table role at
+            all. The wrapper takes over as the grid item, so it carries the
+            min-w-0 that lets a truncating child actually truncate. */}
+        {React.Children.map(children, (child) => (
+          <div role="cell" className="min-w-0">
+            {child}
+          </div>
+        ))}
       </div>
     );
   },
