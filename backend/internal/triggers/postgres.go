@@ -770,6 +770,13 @@ func (r *postgresRepository) RecordAccepted(ctx context.Context, sourceID string
 // database rather than in the process: the insert either wins or conflicts, and
 // exactly one caller is told the body is fresh.
 //
+// Keyed per source, which is what makes the same body legitimately fresh for a
+// different source. Sources are separate trust boundaries with separate signing
+// secrets, so a body captured from one cannot verify against another in the
+// first place; scoping the ledger any wider would let one source's traffic
+// refuse another's. Reading a cross-source sequence as a replay failure is a
+// misreading of that boundary, not a hole in it.
+//
 // Two ON CONFLICT escapes, both deliberate. A key older than the window is
 // refreshed and accepted, because the window is the whole point of not keeping
 // this ledger forever. A key whose delivery id matches is accepted, because that
