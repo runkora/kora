@@ -5,10 +5,12 @@
  */
 
 import { resolveBrowserZone, timezoneOptions } from './cron';
+import { LIMITS } from '../../_types';
 import type {
   KindStep,
   StepValidation,
   TriggerDraft,
+  TriggerKind,
   TriggerKindDefinition,
   WizardField,
   WizardFilter,
@@ -16,13 +18,6 @@ import type {
 } from './types';
 
 export const VALID: StepValidation = { valid: true };
-
-/** Bounds the platform enforces, mirrored here so the UI refuses before the API does. */
-export const LIMITS = {
-  parallel: { min: 1, max: 32 },
-  queueDepth: { min: 1, max: 500 },
-  timeout: { min: 5, max: 600 },
-};
 
 /**
  * Derives the API-visible variable key from a field's label. Keys must be
@@ -121,8 +116,8 @@ export function matchConditionFrom(filters: WizardFilter[]): Record<string, stri
  * but silently does nothing, so the trigger would fire on deliveries the person
  * believes it excludes.
  */
-export function validateFilters(state: WizardState): StepValidation {
-  const halfWritten = state.filters.some((row) => {
+export function validateFilters(filters: WizardFilter[]): StepValidation {
+  const halfWritten = filters.some((row) => {
     const hasField = Boolean(row.field.trim());
     const hasValues = splitFilterValues(row.values).length > 0;
     return hasField !== hasValues;
@@ -209,9 +204,7 @@ export function previewBody(fields: WizardField[]): string {
 
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
-  const matchCondition = matchConditionFrom(state.filters);
   return {
-    ...(matchCondition ? { matchCondition } : {}),
     kind: def.id,
     name: state.name.trim(),
     promptTemplate: state.promptTemplate,
@@ -237,15 +230,22 @@ export function parallelWord(n: number): string {
  * Each overflow mode gets its own wording rather than a single template with
  * gaps: only `wait` has a queue to bound, so mentioning a queue depth under
  * `replace` or `refuse` would describe a limit that does not exist.
+ *
+ * Two claims are narrower than they look, and the wording says so. The timeout
+ * bounds *starting* a run, never running it. And only a manual fire is refused
+ * with a 429, because only a manual fire has a caller waiting on the response;
+ * a webhook or scheduled arrival beyond the limit is recorded as dropped.
  */
-export function admissionSummary(state: WizardState): string {
+export function admissionSummary(state: WizardState, kind: TriggerKind): string {
   const lead = `${parallelWord(state.maxParallel)}.`;
-  const timeout = `${state.timeoutSeconds}s`;
+  const toStart = `up to ${state.timeoutSeconds}s to start`;
   if (state.overflow === 'wait') {
-    return `${lead} Further deliveries wait in order, up to ${state.maxQueueDepth} of them, for up to ${timeout} each.`;
+    return `${lead} Further deliveries wait in order, up to ${state.maxQueueDepth} of them, and each has ${toStart} once it is admitted.`;
   }
   if (state.overflow === 'replace') {
-    return `${lead} While one runs, a newer delivery replaces the one waiting, and it has up to ${timeout} to start.`;
+    return `${lead} While one runs, a newer delivery replaces the one waiting, and it has ${toStart}.`;
   }
-  return `${lead} Beyond that, deliveries are refused with 429, and an admitted delivery has up to ${timeout} to start.`;
+  const refused =
+    kind === 'manual' ? 'a fire is refused with 429' : 'further deliveries are recorded as dropped';
+  return `${lead} Beyond that, ${refused}, and an admitted delivery has ${toStart}.`;
 }

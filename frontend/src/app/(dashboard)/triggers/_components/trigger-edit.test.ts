@@ -1,35 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  PROVIDER_EVENTS,
-  eventOptionsFor,
   filtersFromMatchCondition,
   isValidCron,
   manualInputsCatalog,
   sameFilters,
 } from './trigger-edit';
-
-describe('eventOptionsFor', () => {
-  it('offers the provider common events', () => {
-    expect(eventOptionsFor('github', '')).toEqual(PROVIDER_EVENTS.github);
-    expect(eventOptionsFor('alertmanager', '')).toEqual(['firing', 'resolved']);
-  });
-
-  it('keeps an event the trigger already listens on, even off the common list', () => {
-    // The backend takes whatever the provider sends, so a trigger can hold an
-    // event the console does not list. Dropping it would rewrite the trigger.
-    expect(eventOptionsFor('github', 'deployment_status')).toContain('deployment_status');
-  });
-
-  it('does not duplicate an event already listed', () => {
-    const options = eventOptionsFor('github', 'push');
-    expect(options.filter((e) => e === 'push')).toHaveLength(1);
-  });
-
-  it('is empty for a provider with no adapter', () => {
-    expect(eventOptionsFor('gitlab', '')).toEqual([]);
-  });
-});
 
 describe('filtersFromMatchCondition', () => {
   it('turns a stored condition back into editable rows', () => {
@@ -77,7 +53,8 @@ describe('manualInputsCatalog', () => {
       { name: 'b', type: 'boolean' },
       { name: 'c', type: 'choice', choices: ['alpha', 'beta'] },
     ]);
-    expect(num?.example).toBe('12');
+    // The one example ladder, shared with the wizard's own field builder.
+    expect(num?.example).toBe('3');
     expect(bool?.example).toBe('true');
     expect(choice?.example).toBe('alpha');
   });

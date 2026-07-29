@@ -138,6 +138,10 @@ describe('shared step validation', () => {
 
   it('bounds all three queue limits on the delivery step', () => {
     expect(validateDelivery(state({ maxParallel: 33 })).valid).toBe(false);
+    // The wizard refuses at the same ceiling the API does: 17 was accepted here
+    // and rejected on submit while the bound was written down twice.
+    expect(validateDelivery(state({ maxParallel: 17 })).valid).toBe(false);
+    expect(validateDelivery(state({ maxParallel: 16 })).valid).toBe(true);
     expect(validateDelivery(state({ overflow: 'wait', maxQueueDepth: 0 })).valid).toBe(false);
     expect(validateDelivery(state({ timeoutSeconds: 4 })).valid).toBe(false);
     expect(validateDelivery(state({ timeoutSeconds: 601 })).valid).toBe(false);
@@ -267,20 +271,16 @@ describe('matchConditionFrom', () => {
 
 describe('validateFilters', () => {
   it('passes on no filters and on complete ones', () => {
-    expect(validateFilters(state({ filters: [] })).valid).toBe(true);
-    expect(validateFilters(state({ filters: [{ field: 'action', values: 'opened' }] })).valid).toBe(
-      true,
-    );
+    expect(validateFilters([]).valid).toBe(true);
+    expect(validateFilters([{ field: 'action', values: 'opened' }]).valid).toBe(true);
   });
 
   it('blocks a half-written filter, which would silently do nothing', () => {
-    const noValues = validateFilters(state({ filters: [{ field: 'action', values: '' }] }));
+    const noValues = validateFilters([{ field: 'action', values: '' }]);
     expect(noValues.valid).toBe(false);
     expect(noValues.hint).toBe('Finish or remove the empty filter');
 
-    expect(validateFilters(state({ filters: [{ field: '', values: 'opened' }] })).valid).toBe(
-      false,
-    );
+    expect(validateFilters([{ field: '', values: 'opened' }]).valid).toBe(false);
   });
 });
 
@@ -311,15 +311,17 @@ describe('admissionSummary', () => {
     expect(
       admissionSummary(
         state({ maxParallel: 4, overflow: 'wait', maxQueueDepth: 32, timeoutSeconds: 30 }),
+        'webhook',
       ),
     ).toBe(
-      'Up to 4 at once. Further deliveries wait in order, up to 32 of them, for up to 30s each.',
+      'Up to 4 at once. Further deliveries wait in order, up to 32 of them, and each has up to 30s to start once it is admitted.',
     );
   });
 
   it('does not claim a queue bound under replace, where nothing queues up', () => {
     const sentence = admissionSummary(
       state({ maxParallel: 1, overflow: 'replace', maxQueueDepth: 32, timeoutSeconds: 45 }),
+      'scheduled',
     );
     expect(sentence).toBe(
       'One at a time. While one runs, a newer delivery replaces the one waiting, and it has up to 45s to start.',
@@ -330,16 +332,28 @@ describe('admissionSummary', () => {
   it('does not claim a queue bound under refuse either', () => {
     const sentence = admissionSummary(
       state({ maxParallel: 8, overflow: 'refuse', maxQueueDepth: 32, timeoutSeconds: 30 }),
+      'manual',
     );
     expect(sentence).toBe(
-      'Up to 8 at once. Beyond that, deliveries are refused with 429, and an admitted delivery has up to 30s to start.',
+      'Up to 8 at once. Beyond that, a fire is refused with 429, and an admitted delivery has up to 30s to start.',
     );
     expect(sentence).not.toContain('32');
   });
 
-  it('always states the timeout, which applies in every mode', () => {
+  it('promises a 429 only where there is a caller to answer', () => {
+    // Only a manual fire is synchronous. A webhook or scheduled arrival beyond
+    // the limit is recorded as dropped, so claiming a 429 would be a lie.
+    for (const kind of ['webhook', 'scheduled'] as const) {
+      const sentence = admissionSummary(state({ overflow: 'refuse' }), kind);
+      expect(sentence).not.toContain('429');
+      expect(sentence).toContain('recorded as dropped');
+    }
+  });
+
+  it('says the timeout bounds starting, not running', () => {
     for (const overflow of ['wait', 'replace', 'refuse'] as const) {
-      expect(admissionSummary(state({ overflow, timeoutSeconds: 90 }))).toContain('90s');
+      const sentence = admissionSummary(state({ overflow, timeoutSeconds: 90 }), 'webhook');
+      expect(sentence).toContain('up to 90s to start');
     }
   });
 });

@@ -28,7 +28,8 @@ import {
   ToggleRow,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { LIMITS, admissionSummary, parallelWord } from './wizard-state';
+import { admissionSummary, parallelWord } from './wizard-state';
+import { LIMITS } from '../../_types';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';
 
 interface OverflowOption {
@@ -59,7 +60,9 @@ const OVERFLOW_OPTIONS: OverflowOption[] = [
     id: 'refuse',
     label: 'Refuse',
     icon: 'x-circle',
-    description: 'Reject the delivery with 429 so the sender decides what to do.',
+    // Deliberately not "with 429": only a manual fire has a caller to answer,
+    // so the summary below the cards states the outcome for this kind.
+    description: 'Turn the delivery away instead of queueing it.',
     best: [],
   },
 ];
@@ -192,7 +195,7 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
         <Stack direction="horizontal" gap="cozy" align="center">
           <Icon name="route" size="sm" color="accent" label="" shrink />
           <Text size="caption" color="muted">
-            {admissionSummary(state)}
+            {admissionSummary(state, definition.id)}
           </Text>
         </Stack>
       </Callout>

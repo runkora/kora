@@ -104,6 +104,33 @@ describe('pagination', () => {
     expect(screen.getByText('trigger-00')).toBeTruthy();
   });
 
+  it('does not resurrect the old page when the filters come back', () => {
+    const view = renderList(many(30), 'all|');
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('13–24 of 30')).toBeTruthy();
+
+    const list = (resetKey: string) => (
+      <TriggerList
+        triggers={many(30)}
+        deliveries={[]}
+        sourceName={(id) => id}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+        emptyMessage="No triggers yet."
+        resetKey={resetKey}
+      />
+    );
+
+    view.rerender(list('webhook|push'));
+    expect(screen.getByText('1–12 of 30')).toBeTruthy();
+
+    // Back to the first filter: the reset was written back, so page 3 is gone
+    // rather than waiting behind the old key.
+    view.rerender(list('all|'));
+    expect(screen.getByText('1–12 of 30')).toBeTruthy();
+    expect(screen.getByText('trigger-00')).toBeTruthy();
+  });
+
   it('does not strand the viewer on a page the filter emptied', () => {
     const view = renderList(many(30), 'all|');
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));

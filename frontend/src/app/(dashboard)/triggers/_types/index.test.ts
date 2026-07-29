@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DELIVERY_EXCERPT_MAX,
+  LIMITS,
+  eventOptionsFor,
+  toTriggerUpdateRequest,
+  PROVIDER_EVENTS,
   deliveryDetail,
   deliveryDuration,
   deliveryStatusTone,
@@ -314,7 +318,9 @@ describe('deliveryDuration', () => {
 
 describe('isRedeliverable', () => {
   it('allows replay of outcomes a replay could recover', () => {
-    for (const status of ['failed', 'denied', 'dropped']) {
+    // 'superseded' belongs with 'dropped': the queue discarded it in favour of
+    // a newer arrival, so the work it carried never ran.
+    for (const status of ['failed', 'denied', 'dropped', 'superseded']) {
       expect(isRedeliverable(status)).toBe(true);
     }
   });
@@ -329,5 +335,91 @@ describe('isRedeliverable', () => {
     for (const status of ['verified', 'skipped', 'duplicate', 'missed', 'pending']) {
       expect(isRedeliverable(status)).toBe(false);
     }
+  });
+});
+
+describe('eventOptionsFor', () => {
+  it('offers the provider common events', () => {
+    expect(eventOptionsFor('github', '')).toEqual(PROVIDER_EVENTS.github);
+    expect(eventOptionsFor('alertmanager', '')).toEqual(['firing', 'resolved']);
+  });
+
+  it('keeps an event the trigger already listens on, even off the common list', () => {
+    // The backend takes whatever the provider sends, so a trigger can hold an
+    // event the console does not list. Dropping it would rewrite the trigger.
+    expect(eventOptionsFor('github', 'deployment_status')).toContain('deployment_status');
+  });
+
+  it('does not duplicate an event already listed', () => {
+    const options = eventOptionsFor('github', 'push');
+    expect(options.filter((e) => e === 'push')).toHaveLength(1);
+  });
+
+  it('is empty for a provider with no adapter', () => {
+    expect(eventOptionsFor('gitlab', '')).toEqual([]);
+  });
+});
+
+describe('LIMITS', () => {
+  it('stops the parallel ceiling where the backend does', () => {
+    // maxParallelCeiling in internal/triggers/service.go, and the DB check
+    // constraint behind it. A UI that offered 17 would collect a value the API
+    // rejects on submit.
+    expect(LIMITS.parallel.max).toBe(16);
+  });
+
+  it('is one object, so the wizard and the drawer cannot bound differently', () => {
+    expect(LIMITS.queueDepth).toEqual({ min: 1, max: 500 });
+    expect(LIMITS.timeout).toEqual({ min: 5, max: 600 });
+  });
+});
+
+describe('toTriggerUpdateRequest', () => {
+  it('maps the console vocabulary onto the wire in one place', () => {
+    expect(
+      toTriggerUpdateRequest({
+        name: 'gh-push',
+        promptTemplate: 'Review it',
+        eventType: 'push',
+        matchCondition: { action: ['opened'] },
+        scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: true },
+        enabled: false,
+        dedupeEnabled: true,
+        autopauseEnabled: false,
+        maxParallel: 4,
+        overflow: 'wait',
+        maxQueueDepth: 32,
+        timeoutSeconds: 30,
+      }),
+    ).toEqual({
+      name: 'gh-push',
+      prompt_template: 'Review it',
+      event_type: 'push',
+      match_condition: { action: ['opened'] },
+      schedule_config: { cron_expression: '0 2 * * *', timezone: 'UTC', catch_up: true },
+      enabled: false,
+      dedupe_enabled: true,
+      autopause_enabled: false,
+      max_parallel: 4,
+      overflow: 'wait',
+      max_queue_depth: 32,
+      timeout_seconds: 30,
+    });
+  });
+
+  it('omits what was not set, since PATCH leaves an absent field alone', () => {
+    expect(toTriggerUpdateRequest({ name: 'renamed' })).toEqual({ name: 'renamed' });
+  });
+
+  it('sends an empty event type, which means any event rather than unchanged', () => {
+    expect(toTriggerUpdateRequest({ eventType: '' })).toEqual({ event_type: '' });
+  });
+
+  it('defaults catch-up rather than sending undefined', () => {
+    expect(
+      toTriggerUpdateRequest({ scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC' } }),
+    ).toEqual({
+      schedule_config: { cron_expression: '0 2 * * *', timezone: 'UTC', catch_up: false },
+    });
   });
 });

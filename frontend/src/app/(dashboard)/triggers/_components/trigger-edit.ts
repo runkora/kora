@@ -9,30 +9,15 @@
  */
 
 import type { InputField } from '@orbit/shared/api';
+import { inputsToCatalog } from './trigger-wizard/field-catalog';
 import type { FieldCatalogEntry } from './trigger-wizard/types';
 
 /**
- * Common event types per provider, mirroring the wizard's source step so a
- * trigger offers the same vocabulary whether it is being created or corrected.
- */
-export const PROVIDER_EVENTS: Record<string, string[]> = {
-  github: ['push', 'pull_request', 'issues', 'release', 'workflow_run'],
-  alertmanager: ['firing', 'resolved'],
-};
-
-/**
- * The events to offer for a provider, including the trigger's current one.
+ * One editable filter row. Values stay a raw string while being typed.
  *
- * A trigger may listen on an event outside the common list: the backend takes
- * whatever the provider sends. Dropping it from the control would silently
- * rewrite the trigger the moment anything else on the row was saved.
+ * Structurally the wizard's `WizardFilter`: both surfaces edit the same rows
+ * through the shared `FilterRowsEditor`.
  */
-export function eventOptionsFor(provider: string, current: string): string[] {
-  const common = PROVIDER_EVENTS[provider] ?? [];
-  return current && !common.includes(current) ? [...common, current] : common;
-}
-
-/** One editable filter row. Values stay a raw string while being typed. */
 export interface EditFilterRow {
   field: string;
   values: string;
@@ -61,19 +46,15 @@ export function filtersFromMatchCondition(
  * has the resolved keys, so this reads them straight off the declaration.
  */
 export function manualInputsCatalog(inputs: InputField[] | undefined): FieldCatalogEntry[] {
-  return (inputs ?? []).map((input) => ({
-    token: `var.${input.name}`,
-    description: input.label?.trim()
-      ? `The "${input.label.trim()}" input`
-      : `The ${input.name} input`,
-    example:
-      input.type === 'number'
-        ? '12'
-        : input.type === 'boolean'
-          ? 'true'
-          : (input.choices?.[0] ?? input.default ?? 'a value'),
-    group: 'Inputs',
-  }));
+  return inputsToCatalog(
+    (inputs ?? []).map((input) => ({
+      name: input.name,
+      ...(input.label !== undefined && { label: input.label }),
+      type: input.type,
+      ...(input.choices !== undefined && { choices: input.choices }),
+      ...(input.default !== undefined && { default: input.default }),
+    })),
+  );
 }
 
 /**

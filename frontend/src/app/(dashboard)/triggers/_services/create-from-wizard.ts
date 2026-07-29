@@ -1,5 +1,12 @@
 /**
- * @tier 3 — triggers-scoped. Executes a wizard draft against the API.
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * (`triggers/_components/triggers-page.tsx`) and the agent detail page
+ * (`agents/[slug]/_components/agent-triggers-tab.tsx`), which imports it across
+ * feature areas. Deliberately left here beside the wizard it executes rather
+ * than promoted to `src/components/`: the two move together, and splitting the
+ * draft type from the call that consumes it would buy nothing.
+ *
+ * Executes a wizard draft against the API.
  *
  * Shared by the platform Triggers page and the agent detail page so a trigger
  * created from either surface is created the same way. Kept out of both
@@ -9,6 +16,8 @@
  */
 
 import { createSource, createTrigger } from './triggers-api';
+import { endpointFor } from '../_lib/endpoints';
+import { toScheduleConfigRequest } from '../_types';
 import type { TriggerCreateResult, TriggerDraft } from '../_components/trigger-wizard';
 
 export interface CreateFromWizardOptions {
@@ -49,11 +58,7 @@ export async function createFromWizardDraft(
     ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
     ...(draft.matchCondition !== undefined && { match_condition: draft.matchCondition }),
     ...(draft.schedule !== undefined && {
-      schedule_config: {
-        cron_expression: draft.schedule.cronExpression,
-        timezone: draft.schedule.timezone,
-        catch_up: draft.schedule.catchUp,
-      },
+      schedule_config: toScheduleConfigRequest(draft.schedule),
     }),
     ...(draft.manualInputs !== undefined && {
       manual_config: {
@@ -83,7 +88,7 @@ export async function createFromWizardDraft(
     ok: true,
     triggerId: made.trigger.id,
     ...(sourceId !== undefined && {
-      endpoint: `https://${ingestHost}/api/v1/webhooks/${sourceId}`,
+      endpoint: endpointFor(ingestHost, sourceId),
     }),
     ...(secret !== undefined && { secret }),
   };

@@ -48,7 +48,9 @@ import {
   deliveryStatusTone,
   deliveryTriggerLabel,
   matchesStatusFilter,
+  toTriggerUpdateRequest,
 } from '../_types';
+import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
 interface TriggersPageProps {
@@ -77,19 +79,9 @@ const DELIVERY_STATUS_OPTIONS: TableColumnFilterOption[] = [
   { value: 'missed', label: 'Missed', dot: 'bg-status-idle' },
 ];
 
-/**
- * Where inbound webhooks arrive. Shown in the header because "what do I point
- * my provider at" is the first question a new webhook source raises.
- */
-const INGEST_HOST_FALLBACK = 'this cluster';
-
 export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
   const router = useRouter();
-  // Webhooks are ingested on the API ingress (api.<host>), not the console's
-  // own host: the orbit-api VirtualService routes /api/v1/webhooks/ to
-  // orbit-triggers, while the console host redirects to login.
-  const ingestHost =
-    typeof window === 'undefined' ? INGEST_HOST_FALLBACK : `api.${window.location.host}`;
+  const ingestHost = ingestHostFromWindow();
 
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
@@ -189,7 +181,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       setFireResult(null);
       const result = await fireTrigger(row.id, variables);
       setFiringId(null);
-      if ('error' in result && result.error) {
+      if (result.error !== null) {
         setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
         return result.error;
       }
@@ -249,7 +241,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
 
   const toggleTrigger = useCallback(
     async (row: TriggerRow) => {
-      const result = await updateTrigger(row.id, { enabled: !row.enabled });
+      const result = await updateTrigger(row.id, toTriggerUpdateRequest({ enabled: !row.enabled }));
       if (result.error) {
         setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
         return;
@@ -268,14 +260,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
    */
   const updateSafety = useCallback(
     async (row: TriggerRow, patch: Partial<TriggerRow>) => {
-      const result = await updateTrigger(row.id, {
-        ...(patch.dedupeEnabled !== undefined && { dedupe_enabled: patch.dedupeEnabled }),
-        ...(patch.autopauseEnabled !== undefined && { autopause_enabled: patch.autopauseEnabled }),
-        ...(patch.maxParallel !== undefined && { max_parallel: patch.maxParallel }),
-        ...(patch.overflow !== undefined && { overflow: patch.overflow }),
-        ...(patch.maxQueueDepth !== undefined && { max_queue_depth: patch.maxQueueDepth }),
-        ...(patch.timeoutSeconds !== undefined && { timeout_seconds: patch.timeoutSeconds }),
-      });
+      const result = await updateTrigger(row.id, toTriggerUpdateRequest(patch));
       if (result.error) {
         setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
         return;
@@ -294,19 +279,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
    */
   const saveTriggerEdit = useCallback(
     async (row: TriggerRow, patch: TriggerEditPatch): Promise<string | null> => {
-      const result = await updateTrigger(row.id, {
-        ...(patch.name !== undefined && { name: patch.name }),
-        ...(patch.promptTemplate !== undefined && { prompt_template: patch.promptTemplate }),
-        ...(patch.eventType !== undefined && { event_type: patch.eventType }),
-        ...(patch.matchCondition !== undefined && { match_condition: patch.matchCondition }),
-        ...(patch.scheduleConfig !== undefined && {
-          schedule_config: {
-            cron_expression: patch.scheduleConfig.cronExpression,
-            timezone: patch.scheduleConfig.timezone,
-            catch_up: patch.scheduleConfig.catchUp,
-          },
-        }),
-      });
+      const result = await updateTrigger(row.id, toTriggerUpdateRequest(patch));
       if (result.error) return result.error;
       router.refresh();
       return null;
@@ -475,8 +448,8 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           <Stack gap="tight" maxWidth="prose">
             <Heading variant="section">Triggers</Heading>
             <Text size="supporting" color="muted">
-              Everything that starts an agent run: inbound webhooks, schedules and manual runs
-              today, with control-plane events, chained runs and chat commands coming. Every
+              Everything that starts work on the platform: inbound webhooks, schedules and manual
+              fires today, with control-plane events, chained runs and chat commands coming. Every
               delivery is recorded.
             </Text>
           </Stack>
@@ -610,7 +583,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         onRedeliver={redeliver}
         onRotateSecret={rotateSecret}
         onFire={startManualRun}
-        firing={firingId !== null}
+        // Scoped to the trigger on screen: firing one trigger must not make
+        // another one's panel claim it is queueing.
+        firing={firingId === drawerRow?.id}
       />
 
       {/* One modal owns the whole creation flow: kind picker, the kind's own

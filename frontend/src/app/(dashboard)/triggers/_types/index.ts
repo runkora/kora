@@ -3,16 +3,64 @@
 // *Row types are the shapes consumed by the UI. The raw API shapes
 // (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
 
+import type { IconName } from '@orbit/terra';
 import type {
   InputField,
   Trigger,
   TriggerDelivery,
   TriggerKind,
   TriggerOverflow,
+  TriggerUpdateRequest,
   WebhookSource,
 } from '@orbit/shared/api';
 
 export type { InputField, TriggerKind, TriggerOverflow };
+
+// ── Shared vocabulary ─────────────────────────────────────────────────────────
+//
+// Constants both the create surface (wizard) and the read/edit surfaces (list,
+// drawer) need. They live here rather than in either one, so a bound or an icon
+// cannot mean two things depending on which screen you are looking at.
+
+/**
+ * Bounds the platform enforces, mirrored here so the UI refuses before the API
+ * does. `parallel.max` matches the backend ceiling (and its DB check
+ * constraint) exactly: a wizard that offered more would collect a value the API
+ * then rejects.
+ */
+export const LIMITS = {
+  parallel: { min: 1, max: 16 },
+  queueDepth: { min: 1, max: 500 },
+  timeout: { min: 5, max: 600 },
+};
+
+/** Icon per kind: what wakes this trigger up. One map, so every surface agrees. */
+export const KIND_ICON: Record<TriggerKind, IconName> = {
+  webhook: 'webhook',
+  scheduled: 'clock',
+  manual: 'play',
+};
+
+/**
+ * Common event types per provider. Any other value the API accepts still works;
+ * this is the vocabulary the console offers, not a constraint.
+ */
+export const PROVIDER_EVENTS: Record<string, string[]> = {
+  github: ['push', 'pull_request', 'issues', 'release', 'workflow_run'],
+  alertmanager: ['firing', 'resolved'],
+};
+
+/**
+ * The events to offer for a provider, including the trigger's current one.
+ *
+ * A trigger may listen on an event outside the common list: the backend takes
+ * whatever the provider sends. Dropping it from the control would silently
+ * rewrite the trigger the moment anything else on the row was saved.
+ */
+export function eventOptionsFor(provider: string, current: string): string[] {
+  const common = PROVIDER_EVENTS[provider] ?? [];
+  return current && !common.includes(current) ? [...common, current] : common;
+}
 
 export interface SourceRow {
   id: string;
@@ -211,6 +259,71 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
   };
 }
 
+// ── Request mapping ───────────────────────────────────────────────────────────
+
+/** A schedule as the console holds it, before it is put on the wire. */
+export interface TriggerScheduleDraft {
+  cronExpression: string;
+  timezone: string;
+  catchUp?: boolean;
+}
+
+/**
+ * A correction to a stored trigger, in the console's own vocabulary. Every
+ * field is optional: a caller sends only what it owns, so adjusting a limit
+ * cannot disturb a prompt.
+ */
+export interface TriggerPatch {
+  name?: string;
+  promptTemplate?: string;
+  /** Webhook only. Empty string means any event type. */
+  eventType?: string;
+  matchCondition?: Record<string, string[]>;
+  scheduleConfig?: TriggerScheduleDraft;
+  enabled?: boolean;
+  dedupeEnabled?: boolean;
+  autopauseEnabled?: boolean;
+  maxParallel?: number;
+  overflow?: TriggerOverflow;
+  maxQueueDepth?: number;
+  timeoutSeconds?: number;
+}
+
+/** The wire form of a schedule. Shared by create and update. */
+export function toScheduleConfigRequest(schedule: TriggerScheduleDraft) {
+  return {
+    cron_expression: schedule.cronExpression,
+    timezone: schedule.timezone,
+    catch_up: schedule.catchUp ?? false,
+  };
+}
+
+/**
+ * The single camelCase → snake_case mapper for a trigger update.
+ *
+ * Written once so a renamed API field is one edit, and so no component has to
+ * know the wire casing. Absent keys stay absent: PATCH semantics mean an
+ * omitted field is unchanged, and sending `undefined` would risk clearing it.
+ */
+export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateRequest {
+  return {
+    ...(patch.name !== undefined && { name: patch.name }),
+    ...(patch.promptTemplate !== undefined && { prompt_template: patch.promptTemplate }),
+    ...(patch.eventType !== undefined && { event_type: patch.eventType }),
+    ...(patch.matchCondition !== undefined && { match_condition: patch.matchCondition }),
+    ...(patch.scheduleConfig !== undefined && {
+      schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
+    }),
+    ...(patch.enabled !== undefined && { enabled: patch.enabled }),
+    ...(patch.dedupeEnabled !== undefined && { dedupe_enabled: patch.dedupeEnabled }),
+    ...(patch.autopauseEnabled !== undefined && { autopause_enabled: patch.autopauseEnabled }),
+    ...(patch.maxParallel !== undefined && { max_parallel: patch.maxParallel }),
+    ...(patch.overflow !== undefined && { overflow: patch.overflow }),
+    ...(patch.maxQueueDepth !== undefined && { max_queue_depth: patch.maxQueueDepth }),
+    ...(patch.timeoutSeconds !== undefined && { timeout_seconds: patch.timeoutSeconds }),
+  };
+}
+
 /** Maps a delivery status to a StatusBadge tone. */
 export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
   switch (status) {
@@ -279,8 +392,12 @@ export function deliveryDuration(d: DeliveryRow, triggerId?: string): string {
  * The backend refuses what is genuinely unreplayable, but a delivery that
  * already dispatched is replayable and should still not be offered: one stray
  * click would start a second, duplicate run of work that already succeeded.
+ *
+ * `superseded` belongs here for the same reason as `dropped`: a delivery the
+ * queue discarded in favour of a newer one never ran, so replaying it is the
+ * only way to recover the work it was carrying.
  */
-const REDELIVERABLE_STATUSES = new Set(['failed', 'denied', 'dropped']);
+const REDELIVERABLE_STATUSES = new Set(['failed', 'denied', 'dropped', 'superseded']);
 
 export function isRedeliverable(status: string): boolean {
   return REDELIVERABLE_STATUSES.has(status);

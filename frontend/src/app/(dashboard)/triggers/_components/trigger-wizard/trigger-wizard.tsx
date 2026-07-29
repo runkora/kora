@@ -176,8 +176,8 @@ export function TriggerWizard({
             <Stack gap="snug">
               <Heading variant="subsection">New trigger</Heading>
               <Text size="supporting" color="muted">
-                Choose what starts the run. Every trigger targets one agent and is policy-checked
-                before it fires.
+                Choose what starts it. Every trigger names one target and is policy-checked before
+                it fires.
               </Text>
             </Stack>
             <KindPicker onSelect={chooseKind} />

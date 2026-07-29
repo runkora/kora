@@ -14,6 +14,7 @@ import type {
   TriggerDraft,
 } from '../../../triggers/_components/trigger-wizard';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
+import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { Trigger, TriggerDelivery, WebhookSource } from '@orbit/shared/api';
@@ -50,9 +51,7 @@ export function AgentTriggersTab() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
-  // Webhooks arrive on the API ingress (api.<host>), not the console's own
-  // host, which redirects to login.
-  const ingestHost = typeof window === 'undefined' ? 'this cluster' : `api.${window.location.host}`;
+  const ingestHost = ingestHostFromWindow();
   const [deleteCandidate, setDeleteCandidate] = useState<Trigger | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);

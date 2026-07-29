@@ -31,7 +31,7 @@ function renderWizard(initialKind?: TriggerKind) {
 describe('TriggerWizard picker phase', () => {
   it('opens on the picker when no kind is given', () => {
     renderWizard();
-    expect(screen.getByText('Choose what starts the run.', { exact: false })).toBeTruthy();
+    expect(screen.getByText('Choose what starts it.', { exact: false })).toBeTruthy();
   });
 
   it('lists every registry entry, and every planned kind', () => {
@@ -52,7 +52,7 @@ describe('TriggerWizard picker phase', () => {
     expect(screen.getByText('How often')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Choose kind/ }));
-    expect(screen.getByText('Choose what starts the run.', { exact: false })).toBeTruthy();
+    expect(screen.getByText('Choose what starts it.', { exact: false })).toBeTruthy();
   });
 });
 
@@ -180,7 +180,7 @@ describe('shared steps', () => {
     render(<StepDelivery {...shared} />);
     expect(
       screen.getByText(
-        'Up to 4 at once. Further deliveries wait in order, up to 32 of them, for up to 30s each.',
+        'Up to 4 at once. Further deliveries wait in order, up to 32 of them, and each has up to 30s to start once it is admitted.',
       ),
     ).toBeTruthy();
   });

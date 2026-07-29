@@ -9,7 +9,6 @@ import {
   Grid,
   Icon,
   Input,
-  NativeSelect,
   RadioCard,
   RadioGroup,
   SectionLabel,
@@ -20,8 +19,16 @@ import {
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
-import { VALID, describeMatchCondition, validateFilters } from '../wizard-state';
+import {
+  VALID,
+  describeMatchCondition,
+  matchConditionFrom,
+  validateFilters,
+} from '../wizard-state';
 import { catalogPatterns, webhookCatalog, toTemplateCatalog } from '../field-catalog';
+import { FilterRowsEditor } from '../../filter-rows-editor';
+import { PROVIDER_EVENTS } from '../../../_types';
+import { endpointFor } from '../../../_lib/endpoints';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
@@ -46,27 +53,13 @@ const PROVIDERS: { id: string; name: string; description: string; icon: IconName
   },
 ];
 
-/** Common event types per provider. Any other value the API accepts still works. */
-const EVENTS: Record<string, string[]> = {
-  github: ['push', 'pull_request', 'issues', 'release', 'workflow_run'],
-  alertmanager: ['firing', 'resolved'],
-};
-
-/** The inbound path is owned by the source, so the URL is derivable from its id. */
-function endpointFor(ingestHost: string, sourceId: string): string {
-  return `https://${ingestHost}/api/v1/webhooks/${sourceId}`;
-}
-
 function StepSource({ state, patch, context }: StepComponentProps) {
   const { sources, ingestHost } = context;
   const selected = sources.find((s) => s.id === state.sourceChoice);
   const provider =
     state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (selected?.provider ?? '');
-  const events = EVENTS[provider] ?? [];
+  const events = PROVIDER_EVENTS[provider] ?? [];
   const catalog = webhookCatalog(provider, state.eventType);
-
-  const setFilter = (index: number, next: Partial<{ field: string; values: string }>) =>
-    patch({ filters: state.filters.map((f, i) => (i === index ? { ...f, ...next } : f)) });
 
   return (
     <Stack gap="relaxed">
@@ -208,53 +201,11 @@ function StepSource({ state, patch, context }: StepComponentProps) {
           </Text>
         </Stack>
 
-        {state.filters.map((filter, i) => (
-          <Stack key={i} direction="horizontal" gap="snug" align="center">
-            <Stack minWidth="form-field-sm">
-              <NativeSelect
-                aria-label={`Filter ${i + 1} field`}
-                mono
-                value={filter.field}
-                onChange={(e) => setFilter(i, { field: e.target.value })}
-              >
-                <option value="">Choose a field</option>
-                {catalog.map((entry) => (
-                  <option key={entry.token} value={entry.token}>
-                    {entry.token}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Stack>
-            <Stack grow minWidth="none">
-              <Input
-                aria-label={`Filter ${i + 1} values`}
-                mono
-                value={filter.values}
-                onChange={(e) => setFilter(i, { values: e.target.value })}
-                placeholder="opened | synchronize"
-              />
-            </Stack>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={`Remove filter ${i + 1}`}
-              onClick={() => patch({ filters: state.filters.filter((_, x) => x !== i) })}
-            >
-              <Icon name="close" size="xs" />
-            </Button>
-          </Stack>
-        ))}
-
-        <Stack direction="horizontal">
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => patch({ filters: [...state.filters, { field: '', values: '' }] })}
-          >
-            <Icon name="plus" size="xs" />
-            Add filter
-          </Button>
-        </Stack>
+        <FilterRowsEditor
+          rows={state.filters}
+          fields={catalog}
+          onChange={(filters) => patch({ filters })}
+        />
       </Stack>
 
       <FormField
@@ -290,7 +241,7 @@ function validateSource(state: WizardState) {
   } else if (!state.sourceChoice) {
     return { valid: false, hint: 'Choose where deliveries come from.' };
   }
-  const filters = validateFilters(state);
+  const filters = validateFilters(state.filters);
   if (!filters.valid) return filters;
   if (!state.promptTemplate.trim())
     return { valid: false, hint: 'Write the prompt the run starts with.' };
@@ -377,12 +328,18 @@ export const webhookKind: TriggerKindDefinition = {
       state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (source?.provider ?? '');
     return webhookCatalog(provider, state.eventType);
   },
-  draftPatch: (state) => ({
-    source:
-      state.sourceChoice === NEW_SOURCE
-        ? { newName: state.newSourceName.trim(), provider: state.newSourceProvider }
-        : { existingId: state.sourceChoice },
-    eventType: state.eventType,
-  }),
+  draftPatch: (state) => {
+    // The match condition is webhook-only, so it is folded here beside the
+    // source and event it belongs to rather than in the shared draft builder.
+    const matchCondition = matchConditionFrom(state.filters);
+    return {
+      source:
+        state.sourceChoice === NEW_SOURCE
+          ? { newName: state.newSourceName.trim(), provider: state.newSourceProvider }
+          : { existingId: state.sourceChoice },
+      eventType: state.eventType,
+      ...(matchCondition ? { matchCondition } : {}),
+    };
+  },
   doneContent: DoneContent,
 };

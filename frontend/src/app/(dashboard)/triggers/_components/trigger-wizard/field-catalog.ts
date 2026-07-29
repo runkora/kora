@@ -253,22 +253,52 @@ export function scheduledCatalog(): FieldCatalogEntry[] {
   return SCHEDULED;
 }
 
-/** The fields a manual fire carries: one per declared input. */
-export function manualCatalog(fields: WizardField[]): FieldCatalogEntry[] {
-  return fields
-    .filter((f) => f.label.trim())
-    .map((f, i) => ({
-      token: `var.${deriveFieldKey(f.label, i)}`,
-      description: `The "${f.label.trim()}" input`,
+/** An input as either surface holds it: being drafted, or already stored. */
+export interface CatalogInput {
+  /** The API-visible key, e.g. `row_limit`. */
+  name: string;
+  label?: string;
+  type: WizardField['type'];
+  choices?: string[];
+  default?: string;
+}
+
+/**
+ * The canonical input → catalog mapping, used by both the wizard (fields being
+ * drafted) and the drawer (inputs already declared). One ladder of examples, so
+ * the two surfaces cannot describe the same input differently.
+ */
+export function inputsToCatalog(inputs: CatalogInput[]): FieldCatalogEntry[] {
+  return inputs.map((input) => {
+    const label = input.label?.trim() ?? '';
+    return {
+      token: `var.${input.name}`,
+      description: label ? `The "${label}" input` : `The ${input.name} input`,
       group: 'Inputs',
       // A sample in the field's own type, so the preview reads plausibly.
       example:
-        f.type === 'number'
+        input.type === 'number'
           ? '3'
-          : f.type === 'boolean'
+          : input.type === 'boolean'
             ? 'true'
-            : `a ${f.label.trim().toLowerCase()}`,
-    }));
+            : (input.choices?.[0] ??
+              input.default ??
+              (label ? `a ${label.toLowerCase()}` : 'a value')),
+    };
+  });
+}
+
+/** The fields a manual fire carries: one per declared input. */
+export function manualCatalog(fields: WizardField[]): FieldCatalogEntry[] {
+  return inputsToCatalog(
+    fields
+      .filter((f) => f.label.trim())
+      .map((f, i) => ({
+        name: deriveFieldKey(f.label, i),
+        label: f.label,
+        type: f.type,
+      })),
+  );
 }
 
 /** Pattern hints for a provider, shown but not insertable. */

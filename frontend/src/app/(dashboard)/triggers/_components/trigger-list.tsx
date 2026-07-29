@@ -18,8 +18,8 @@ import {
   Text,
   Toggle,
 } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
-import type { DeliveryRow, TriggerKind, TriggerRow } from '../_types';
+import { KIND_ICON } from '../_types';
+import type { DeliveryRow, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES, pageWindow } from '../_types/pagination';
 
@@ -52,13 +52,6 @@ interface TriggerListProps {
  * longest realistic content.
  */
 const COLUMNS = '1fr 168px 148px 96px 118px 74px';
-
-/** Icon per kind: what wakes this trigger up. */
-const KIND_ICON: Record<TriggerKind, IconName> = {
-  webhook: 'webhook',
-  scheduled: 'clock',
-  manual: 'play',
-};
 
 /** Relative time, because "2m ago" answers the question and a timestamp does not. */
 function relativeTime(iso: string | null): string {
@@ -96,8 +89,14 @@ export function TriggerList({
   resetKey = '',
 }: TriggerListProps) {
   const [paging, setPaging] = useState({ key: resetKey, page: 0, size: DEFAULT_PAGE_SIZE });
-  // Derived rather than reset in an effect, so a filter change never renders
-  // one frame of the wrong page first.
+  // Adjusted during render rather than in an effect, so a filter change never
+  // renders one frame of the wrong page first. The reset is written back
+  // instead of shadowed: leaving the old page in state means returning to a
+  // previous filter resurrects the page it was left on, which reads as the
+  // list having jumped on its own.
+  if (paging.key !== resetKey) {
+    setPaging({ key: resetKey, page: 0, size: paging.size });
+  }
   const requested = paging.key === resetKey ? paging.page : 0;
   const win = pageWindow(triggers.length, paging.size, requested);
   const visible = triggers.slice(win.start, win.end);

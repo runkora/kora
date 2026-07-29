@@ -31,11 +31,13 @@ import {
   ToggleRow,
   SegmentedControl,
 } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
 import { CopyButton, EmptyState } from '@orbit/components';
-import type { DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
+import { KIND_ICON, LIMITS, eventOptionsFor } from '../_types';
+import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
+import { endpointFor } from '../_lib/endpoints';
 import { DeliveryList } from './delivery-list';
+import { FilterRowsEditor } from './filter-rows-editor';
 import {
   catalogPatterns,
   scheduledCatalog,
@@ -45,11 +47,10 @@ import {
 import {
   describeMatchCondition,
   matchConditionFrom,
-  splitFilterValues,
+  validateFilters,
 } from './trigger-wizard/wizard-state';
 import { resolveBrowserZone, timezoneOptions } from './trigger-wizard/cron';
 import {
-  eventOptionsFor,
   filtersFromMatchCondition,
   isValidCron,
   manualInputsCatalog,
@@ -57,13 +58,6 @@ import {
 } from './trigger-edit';
 import type { EditFilterRow } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
-
-/** Icon per kind, matching the trigger list so a row and its panel agree. */
-const KIND_ICON: Record<TriggerKind, IconName> = {
-  webhook: 'webhook',
-  scheduled: 'clock',
-  manual: 'play',
-};
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -338,7 +332,9 @@ export function TriggerDrawer({
   const prompt = useEditableSection(trigger?.promptTemplate ?? '', editKey, savePrompt);
 
   const saveName = useCallback((value: string) => savePatch({ name: value.trim() }), [savePatch]);
-  const name = useEditableSection(trigger?.name ?? '', editKey, saveName);
+  const name = useEditableSection(trigger?.name ?? '', editKey, saveName, {
+    validate: (value) => (value.trim() ? undefined : 'Needs a name'),
+  });
 
   const storedFilters = useMemo(
     () => ({
@@ -357,12 +353,13 @@ export function TriggerDrawer({
       }),
     [savePatch],
   );
-  const filters = useEditableSection(
-    storedFilters,
-    editKey,
-    saveFilters,
-    (a, b) => a.eventType === b.eventType && sameFilters(a.filters, b.filters),
-  );
+  const filters = useEditableSection(storedFilters, editKey, saveFilters, {
+    isEqual: (a, b) => a.eventType === b.eventType && sameFilters(a.filters, b.filters),
+    // A half-written filter looks configured but matches nothing, so it is the
+    // one edit worth refusing rather than saving as-is. Same rule as the
+    // wizard's, from the same function.
+    validate: (value) => validateFilters(value.filters).hint,
+  });
 
   const storedSchedule = useMemo(
     () => ({
@@ -377,13 +374,12 @@ export function TriggerDrawer({
       savePatch({ scheduleConfig: value }),
     [savePatch],
   );
-  const schedule = useEditableSection(
-    storedSchedule,
-    editKey,
-    saveSchedule,
-    (a, b) =>
+  const schedule = useEditableSection(storedSchedule, editKey, saveSchedule, {
+    isEqual: (a, b) =>
       a.cronExpression === b.cronExpression && a.timezone === b.timezone && a.catchUp === b.catchUp,
-  );
+    validate: (value) =>
+      isValidCron(value.cronExpression) ? undefined : 'Needs a five-field cron expression',
+  });
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const zones = useMemo(() => {
@@ -402,7 +398,7 @@ export function TriggerDrawer({
     0,
   );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
-  const endpoint = `https://${ingestHost}/api/v1/webhooks/${trigger.sourceId}`;
+  const endpoint = endpointFor(ingestHost, trigger.sourceId);
 
   const provider = source?.provider ?? '';
   // The catalog follows the event being edited, not the stored one, so the
@@ -417,23 +413,8 @@ export function TriggerDrawer({
         ? toTemplateCatalog(scheduledCatalog())
         : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
-  // A half-written filter looks configured but matches nothing, so it is the
-  // one edit worth refusing rather than saving as-is.
-  const filterBlocker = filters.value.filters.some(
-    (row) => Boolean(row.field.trim()) !== splitFilterValues(row.values).length > 0,
-  )
-    ? 'Finish or remove the empty filter'
-    : undefined;
-  const nameBlocker = name.value.trim() ? undefined : 'Needs a name';
-  const cronBlocker = isValidCron(schedule.value.cronExpression)
-    ? undefined
-    : 'Needs a five-field cron expression';
-
-  const setFilterRow = (index: number, next: Partial<EditFilterRow>) =>
-    filters.setValue({
-      ...filters.value,
-      filters: filters.value.filters.map((row, i) => (i === index ? { ...row, ...next } : row)),
-    });
+  const setFilterRows = (rows: EditFilterRow[]) =>
+    filters.setValue({ ...filters.value, filters: rows });
 
   const subtitle =
     trigger.kind === 'webhook'
@@ -603,7 +584,7 @@ export function TriggerDrawer({
                         dirty={schedule.dirty}
                         pending={schedule.pending}
                         error={schedule.error}
-                        blocker={cronBlocker}
+                        blocker={schedule.blocker}
                         saveLabel="Save schedule"
                         onSave={schedule.save}
                         onDiscard={() => {
@@ -720,72 +701,12 @@ export function TriggerDrawer({
                     ]}
                   />
 
-                  {filters.value.filters.map((row, i) => (
-                    <Stack key={i} direction="horizontal" gap="snug" align="center">
-                      <Stack minWidth="form-field-sm">
-                        <NativeSelect
-                          mono
-                          aria-label={`Filter ${i + 1} field`}
-                          value={row.field}
-                          onChange={(e) => setFilterRow(i, { field: e.target.value })}
-                        >
-                          <option value="">Choose a field</option>
-                          {webhookCatalog(provider, filters.value.eventType).map((entry) => (
-                            <option key={entry.token} value={entry.token}>
-                              {entry.token}
-                            </option>
-                          ))}
-                          {/* A stored filter may name a field outside the
-                              current event's catalog; keep it selectable so
-                              editing the row cannot silently drop it. */}
-                          {row.field !== '' &&
-                            !webhookCatalog(provider, filters.value.eventType).some(
-                              (entry) => entry.token === row.field,
-                            ) && <option value={row.field}>{row.field}</option>}
-                        </NativeSelect>
-                      </Stack>
-                      <Stack grow minWidth="none">
-                        <Input
-                          mono
-                          aria-label={`Filter ${i + 1} values`}
-                          value={row.values}
-                          onChange={(e) => setFilterRow(i, { values: e.target.value })}
-                          placeholder="opened | synchronize"
-                        />
-                      </Stack>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove filter ${i + 1}`}
-                        onClick={() =>
-                          filters.setValue({
-                            ...filters.value,
-                            filters: filters.value.filters.filter((_, x) => x !== i),
-                          })
-                        }
-                      >
-                        <Icon name="close" size="2xs" />
-                      </Button>
-                    </Stack>
-                  ))}
-
-                  {editable && (
-                    <Stack direction="horizontal">
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() =>
-                          filters.setValue({
-                            ...filters.value,
-                            filters: [...filters.value.filters, { field: '', values: '' }],
-                          })
-                        }
-                      >
-                        <Icon name="plus" size="2xs" />
-                        Add filter
-                      </Button>
-                    </Stack>
-                  )}
+                  <FilterRowsEditor
+                    rows={filters.value.filters}
+                    fields={webhookCatalog(provider, filters.value.eventType)}
+                    onChange={setFilterRows}
+                    canAdd={editable}
+                  />
 
                   <Text size="caption" color="subtle">
                     {describeMatchCondition(filters.value.filters) ??
@@ -796,7 +717,7 @@ export function TriggerDrawer({
                     dirty={filters.dirty}
                     pending={filters.pending}
                     error={filters.error}
-                    blocker={filterBlocker}
+                    blocker={filters.blocker}
                     saveLabel="Save filters"
                     onSave={filters.save}
                     onDiscard={filters.discard}
@@ -932,7 +853,7 @@ export function TriggerDrawer({
                   dirty={name.dirty}
                   pending={name.pending}
                   error={name.error}
-                  blocker={nameBlocker}
+                  blocker={name.blocker}
                   saveLabel="Save name"
                   onSave={name.save}
                   onDiscard={name.discard}
@@ -948,8 +869,8 @@ export function TriggerDrawer({
                     value={
                       <StepperControl
                         value={trigger.maxParallel}
-                        min={1}
-                        max={16}
+                        min={LIMITS.parallel.min}
+                        max={LIMITS.parallel.max}
                         label="runs at once"
                         disabled={onUpdateSafety === undefined}
                         onChange={(next) => onUpdateSafety?.(trigger, { maxParallel: next })}
@@ -981,8 +902,8 @@ export function TriggerDrawer({
                       value={
                         <StepperControl
                           value={trigger.maxQueueDepth}
-                          min={1}
-                          max={500}
+                          min={LIMITS.queueDepth.min}
+                          max={LIMITS.queueDepth.max}
                           step={trigger.maxQueueDepth >= 50 ? 25 : 1}
                           label="queue depth"
                           disabled={onUpdateSafety === undefined}
@@ -997,8 +918,8 @@ export function TriggerDrawer({
                     value={
                       <StepperControl
                         value={trigger.timeoutSeconds}
-                        min={5}
-                        max={600}
+                        min={LIMITS.timeout.min}
+                        max={LIMITS.timeout.max}
                         step={5}
                         suffix="s"
                         label="start timeout"
