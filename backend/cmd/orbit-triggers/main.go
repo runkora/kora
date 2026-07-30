@@ -87,6 +87,7 @@ func realMain() error {
 		return fmt.Errorf("init storage: %w", err)
 	}
 	defer db.Close()
+	defer redis.Close()
 
 	controller, policyClient, err := initController(ctx, logger, db, redis, meter)
 	if err != nil {

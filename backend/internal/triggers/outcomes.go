@@ -20,8 +20,20 @@ import (
 // Failures are logged rather than returned throughout: the outcome row is a
 // record of something that already happened, and there is no caller who could
 // act on the error.
+// outcomeStore is the two writes recording an outcome takes, declared here by
+// the consumer rather than reached for from the twelve-method DeliveryStore.
+//
+// The narrower declaration is the point: it says in one place exactly what
+// writing an outcome touches, so widening it is a visible decision, and a fake
+// in a test implements two methods instead of twelve. *postgresRepository
+// satisfies it without being told.
+type outcomeStore interface {
+	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
+	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
+}
+
 type outcomeRecorder struct {
-	repo   DeliveryStore
+	repo   outcomeStore
 	logger logging.Logger
 }
 

@@ -135,15 +135,22 @@ const autoPauseThreshold = 10
 // designed against that engine's requirements rather than invented here with
 // triggers as its only consumer.
 type Admission struct {
-	repo     PendingQueue
+	repo     admissionStore
 	logger   logging.Logger
 	outcomes outcomeRecorder
 }
 
-// NewAdmission constructs the admission controller. It takes the whole
-// Repository and keeps only the two roles it uses: the queue it manages, and the
-// outcome rows it writes when it refuses or displaces a fire.
-func NewAdmission(repo Repository, logger logging.Logger) *Admission {
+// admissionStore is what admission touches: the queue it manages, and the two
+// outcome writes it makes when it refuses or displaces a fire. Fifteen methods
+// rather than the Repository union's fifty-six, so what admission may reach is
+// stated rather than implied.
+type admissionStore interface {
+	PendingQueue
+	outcomeStore
+}
+
+// NewAdmission constructs the admission controller.
+func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
 	return &Admission{
 		repo:     repo,
 		logger:   logger,
