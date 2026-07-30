@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -69,31 +68,32 @@ func (c *secretCipher) decrypt(encoded string) (string, error) {
 	return string(plaintext), nil
 }
 
-// LoadCipherKey resolves the AES-256 key for encrypting webhook signing secrets.
+// LoadCipherKey resolves the AES-256 key for encrypting webhook signing secrets
+// from ORBIT_TRIGGERS_ENCRYPTION_KEY, base64-encoded and 32 bytes.
 //
-// It reads a base64-encoded 32-byte key from ORBIT_TRIGGERS_ENCRYPTION_KEY. When
-// the variable is unset (local development), it derives a stable well-known key
-// from a fixed passphrase so the feature works out of the box — devFallback is
-// true so the caller can log a warning. Production deployments MUST set the
-// variable.
-//
-// A variable that is set but malformed (not valid base64, or not 32 bytes) is a
-// fatal misconfiguration: it returns ErrCipherKey rather than silently falling
-// back to the public dev key, which would leave every signing secret encrypted
-// under a well-known key.
-func LoadCipherKey() (key []byte, devFallback bool, err error) {
-	if raw := os.Getenv("ORBIT_TRIGGERS_ENCRYPTION_KEY"); raw != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(raw)
-		if decErr != nil {
-			return nil, false, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is not valid base64: %w", ErrCipherKey, decErr)
-		}
-		if len(decoded) != 32 {
-			return nil, false, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY must decode to 32 bytes, got %d", ErrCipherKey, len(decoded))
-		}
-		return decoded, false, nil
+// Required, with no fallback. There used to be one: an unset variable derived a
+// stable key from a fixed passphrase so the feature worked out of the box, and
+// the caller logged a warning. That is the wrong shape for this. The key
+// protects every tenant's webhook signing secrets, the fallback was a constant
+// in this file, and "starts anyway with a warning" meant a production deployment
+// that forgot the variable encrypted every secret under a key published in the
+// repository and stayed up to keep doing it. A missing key is now a refusal to
+// start, so the failure is at boot and unmissable rather than silent and
+// permanent. Environments supply the key themselves: `make setup` generates one
+// into .env for local, and create-secrets.sh puts it in orbit-secrets.
+func LoadCipherKey() ([]byte, error) {
+	raw := os.Getenv("ORBIT_TRIGGERS_ENCRYPTION_KEY")
+	if raw == "" {
+		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is required (base64-encoded 32 bytes)", ErrCipherKey)
 	}
-	sum := sha256.Sum256([]byte("orbit-triggers-local-dev-key"))
-	return sum[:], true, nil
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is not valid base64: %w", ErrCipherKey, err)
+	}
+	if len(decoded) != 32 {
+		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY must decode to 32 bytes, got %d", ErrCipherKey, len(decoded))
+	}
+	return decoded, nil
 }
 
 // generateSecret returns a cryptographically random hex string suitable for use

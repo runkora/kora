@@ -20,6 +20,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
 var tracer = otel.Tracer("inferencegw")
@@ -251,12 +253,12 @@ func (s *Service) ChatCompletion(
 		TenantID:                     p.TenantID,
 		PrincipalID:                  p.PrincipalID,
 		PrincipalType:                p.PrincipalType,
-		TokenID:                      nullableText(p.TokenID),
+		TokenID:                      storage.NullIfZero(p.TokenID),
 		APIDialect:                   DialectOpenAI,
 		Provider:                     &usedTarget.Provider,
-		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		VirtualModelID:               storage.NullIfZero(usedTarget.VirtualModelID),
 		ModelID:                      usedTarget.ModelID,
-		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
 		PromptTokens:                 promptTokens,
 		CompletionTokens:             completionTokens,
@@ -414,13 +416,13 @@ func (s *Service) ChatCompletionStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
 			s.logProviderError(writeCtx, params.Model, streamErr)
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 
@@ -434,12 +436,12 @@ func (s *Service) ChatCompletionStream(
 			TenantID:                     p.TenantID,
 			PrincipalID:                  p.PrincipalID,
 			PrincipalType:                p.PrincipalType,
-			TokenID:                      nullableText(p.TokenID),
+			TokenID:                      storage.NullIfZero(p.TokenID),
 			APIDialect:                   DialectOpenAI,
 			Provider:                     &capturedTarget.Provider,
-			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			VirtualModelID:               storage.NullIfZero(capturedTarget.VirtualModelID),
 			ModelID:                      capturedTarget.ModelID,
-			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
 			PromptTokens:                 promptTokens,
 			CompletionTokens:             completionTokens,
@@ -1493,10 +1495,10 @@ func (s *Service) writeFailedUsage(
 		TenantID:        p.TenantID,
 		PrincipalID:     p.PrincipalID,
 		PrincipalType:   p.PrincipalType,
-		TokenID:         nullableText(p.TokenID),
+		TokenID:         storage.NullIfZero(p.TokenID),
 		APIDialect:      dialect,
 		Provider:        provider,
-		VirtualModelID:  nullableText(req.Model),
+		VirtualModelID:  storage.NullIfZero(req.Model),
 		ModelID:         req.Model,
 		ModelFamily:     modelFamily,
 		RoutingStrategy: strategy,
@@ -1743,12 +1745,12 @@ func (s *Service) Embeddings(
 		TenantID:                     p.TenantID,
 		PrincipalID:                  p.PrincipalID,
 		PrincipalType:                p.PrincipalType,
-		TokenID:                      nullableText(p.TokenID),
+		TokenID:                      storage.NullIfZero(p.TokenID),
 		APIDialect:                   DialectOpenAI,
 		Provider:                     &usedTarget.Provider,
-		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		VirtualModelID:               storage.NullIfZero(usedTarget.VirtualModelID),
 		ModelID:                      usedTarget.ModelID,
-		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
 		PromptTokens:                 promptTokens,
 		CompletionTokens:             0,
@@ -1865,12 +1867,12 @@ func (s *Service) Responses(
 		TenantID:                     p.TenantID,
 		PrincipalID:                  p.PrincipalID,
 		PrincipalType:                p.PrincipalType,
-		TokenID:                      nullableText(p.TokenID),
+		TokenID:                      storage.NullIfZero(p.TokenID),
 		APIDialect:                   DialectResponses,
 		Provider:                     &usedTarget.Provider,
-		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		VirtualModelID:               storage.NullIfZero(usedTarget.VirtualModelID),
 		ModelID:                      usedTarget.ModelID,
-		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
 		PromptTokens:                 promptTokens,
 		CompletionTokens:             completionTokens,
@@ -1991,13 +1993,13 @@ func (s *Service) ResponsesStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
 			s.logProviderError(writeCtx, params.Model, streamErr)
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 
@@ -2012,12 +2014,12 @@ func (s *Service) ResponsesStream(
 			TenantID:                     p.TenantID,
 			PrincipalID:                  p.PrincipalID,
 			PrincipalType:                p.PrincipalType,
-			TokenID:                      nullableText(p.TokenID),
+			TokenID:                      storage.NullIfZero(p.TokenID),
 			APIDialect:                   DialectResponses,
 			Provider:                     &capturedTarget.Provider,
-			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			VirtualModelID:               storage.NullIfZero(capturedTarget.VirtualModelID),
 			ModelID:                      capturedTarget.ModelID,
-			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
 			PromptTokens:                 inputTokens,
 			CompletionTokens:             outputTokens,
@@ -2215,12 +2217,12 @@ func (s *Service) AnthropicMessages(
 		TenantID:                     p.TenantID,
 		PrincipalID:                  p.PrincipalID,
 		PrincipalType:                p.PrincipalType,
-		TokenID:                      nullableText(p.TokenID),
+		TokenID:                      storage.NullIfZero(p.TokenID),
 		APIDialect:                   DialectAnthropic,
 		Provider:                     &usedTarget.Provider,
-		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		VirtualModelID:               storage.NullIfZero(usedTarget.VirtualModelID),
 		ModelID:                      usedTarget.ModelID,
-		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
 		PromptTokens:                 promptTokens,
 		CompletionTokens:             completionTokens,
@@ -2356,13 +2358,13 @@ func (s *Service) AnthropicMessagesStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
 			s.logProviderError(writeCtx, params.Model, streamErr)
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 
@@ -2380,12 +2382,12 @@ func (s *Service) AnthropicMessagesStream(
 			TenantID:                     p.TenantID,
 			PrincipalID:                  p.PrincipalID,
 			PrincipalType:                p.PrincipalType,
-			TokenID:                      nullableText(p.TokenID),
+			TokenID:                      storage.NullIfZero(p.TokenID),
 			APIDialect:                   DialectAnthropic,
 			Provider:                     &capturedTarget.Provider,
-			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			VirtualModelID:               storage.NullIfZero(capturedTarget.VirtualModelID),
 			ModelID:                      capturedTarget.ModelID,
-			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
 			PromptTokens:                 promptTokens,
 			CompletionTokens:             completionTokens,

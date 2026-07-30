@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
 // ErrNotFound is returned when a requested resource does not exist.
@@ -198,9 +200,9 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	// the run exists, which cannot change after it starts.
 	var triggerID, triggerName, deliveryID *string
 	if run.StartedBy != nil {
-		triggerID = nullableRunStr(run.StartedBy.TriggerID)
-		triggerName = nullableRunStr(run.StartedBy.TriggerName)
-		deliveryID = nullableRunStr(run.StartedBy.DeliveryID)
+		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
+		triggerName = storage.NullIfZero(run.StartedBy.TriggerName)
+		deliveryID = storage.NullIfZero(run.StartedBy.DeliveryID)
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
@@ -569,27 +571,11 @@ func scanRun(s scanner) (*Run, error) {
 	if triggerID != nil && *triggerID != "" {
 		r.StartedBy = &StartedByTrigger{
 			TriggerID:   *triggerID,
-			TriggerName: derefRunStr(triggerName),
-			DeliveryID:  derefRunStr(deliveryID),
+			TriggerName: storage.Deref(triggerName),
+			DeliveryID:  storage.Deref(deliveryID),
 		}
 	}
 	return &r, nil
-}
-
-// nullableRunStr maps an empty string to SQL NULL, so "not recorded" is
-// distinguishable from "recorded as empty".
-func nullableRunStr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func derefRunStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 func isUniqueViolation(err error) bool {

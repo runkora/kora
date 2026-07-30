@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
 type postgresRepository struct {
@@ -242,7 +244,7 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name, t.AgentTypeID, t.AgentSlug, t.EventType,
-		condJSON, t.PromptTemplate, kindConfigJSON, nullableStr(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
+		condJSON, t.PromptTemplate, kindConfigJSON, storage.NullIfZero(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
 		t.Overflow, t.MaxParallel, t.MaxQueueDepth, t.TimeoutSeconds,
 		t.DedupeEnabled, t.AutopauseEnabled)
 	if err != nil {
@@ -427,9 +429,9 @@ func (r *postgresRepository) insertDelivery(ctx context.Context, d *Delivery, on
 		sourceID = &d.SourceID
 	}
 	tag, err := r.pool.Exec(ctx, deliveryInsertColumns+onConflict,
-		d.ID, d.TenantID, sourceID, d.TriggerID, nullableStr(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
-		d.Status, d.RunID, d.Error, d.PayloadExcerpt, nullableStr(d.FiredBy), d.ScheduledAt,
-		d.Payload, nullableInt(d.PayloadBytes), d.Reason, d.RedeliveryOf)
+		d.ID, d.TenantID, sourceID, d.TriggerID, storage.NullIfZero(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
+		d.Status, d.RunID, d.Error, d.PayloadExcerpt, storage.NullIfZero(d.FiredBy), d.ScheduledAt,
+		d.Payload, storage.NullIfZero(d.PayloadBytes), d.Reason, d.RedeliveryOf)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", what, err)
 	}
@@ -595,7 +597,7 @@ func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *Delivery
 			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8)
-	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, nullableStr(dr.TriggerName), dr.RunID, dr.Status, dr.Error)
+	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, storage.NullIfZero(dr.TriggerName), dr.RunID, dr.Status, dr.Error)
 	if err != nil {
 		return fmt.Errorf("insert delivery run: %w", err)
 	}
@@ -666,22 +668,6 @@ func defaultTargetKind(k string) string {
 		return TargetKindAgent
 	}
 	return k
-}
-
-// nullableInt maps a zero size to SQL NULL, so "no payload captured" is
-// distinguishable from "an empty payload".
-func nullableInt(n int) *int {
-	if n == 0 {
-		return nil
-	}
-	return &n
-}
-
-func nullableStr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // scheduledAtMinute truncates t to minute precision for the cron dedup index.
@@ -900,41 +886,41 @@ const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'idle')
 // trigger so unrelated triggers never contend, and it needs no hashing scheme
 // to collide over. Returns false when the fire was refused.
 func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *PendingDelivery, maxParallel int) (bool, error) {
-	fieldsJSON, err := json.Marshal(p.Fields)
-	if err != nil {
-		return false, fmt.Errorf("marshal pending fields: %w", err)
+	fieldsJSON, marshalErr := json.Marshal(p.Fields)
+	if marshalErr != nil {
+		return false, fmt.Errorf("marshal pending fields: %w", marshalErr)
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return false, fmt.Errorf("begin admission: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+	admitted := false
+	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		var lockedID string
+		if err := tx.QueryRow(ctx,
+			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
+			return fmt.Errorf("lock trigger for admission: %w", err)
+		}
 
-	var lockedID string
-	if err = tx.QueryRow(ctx,
-		`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
-		return false, fmt.Errorf("lock trigger for admission: %w", err)
-	}
+		var occupied int
+		if err := tx.QueryRow(ctx, occupancySQL, p.TriggerID, StaleClaimWindow.Seconds()).Scan(&occupied); err != nil {
+			return fmt.Errorf("count occupancy: %w", err)
+		}
+		if occupied >= maxParallel {
+			// Refused, not failed: commit the (empty) transaction and report it.
+			return nil
+		}
 
-	var occupied int
-	if err = tx.QueryRow(ctx, occupancySQL, p.TriggerID, StaleClaimWindow.Seconds()).Scan(&occupied); err != nil {
-		return false, fmt.Errorf("count occupancy: %w", err)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
+			VALUES ($1, $2, $3, $4, $5)
+		`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+			return fmt.Errorf("enqueue pending delivery: %w", err)
+		}
+		admitted = true
+		return nil
+	})
+	if txErr != nil {
+		return false, txErr
 	}
-	if occupied >= maxParallel {
-		return false, nil
-	}
-
-	if _, err = tx.Exec(ctx, `
-		INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
-		VALUES ($1, $2, $3, $4, $5)
-	`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
-		return false, fmt.Errorf("enqueue pending delivery: %w", err)
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit admission: %w", err)
-	}
-	return true, nil
+	return admitted, nil
 }
 
 func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {

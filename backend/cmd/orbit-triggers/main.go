@@ -88,7 +88,7 @@ func realMain() error {
 	}
 	defer db.Close()
 
-	controller, policyCli, err := initController(ctx, logger, db, redis, meter)
+	controller, policyClient, err := initController(ctx, logger, db, redis, meter)
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
@@ -96,7 +96,10 @@ func realMain() error {
 	// Publish the Triggers scope vocabulary so the policy service can validate
 	// triggers:read / triggers:write when they are granted. Best-effort and
 	// retried in the background: the policy service may still be starting.
-	go registerScopes(ctx, logger, policyCli)
+	go registerScopes(ctx, logger, policyClient)
+	// Then keep it published: the policy service's registration store is in
+	// memory, so its restart would otherwise leave us silently unregistered.
+	go runRegistrationLoop(ctx, logger, policyClient, tc.Current.ReregistrationInterval())
 
 	run(ctx, logger, initServer(ctx, logger, controller))
 	return nil
@@ -111,12 +114,9 @@ func initController(
 	redis *storage.RedisClient,
 	meter metric.Meter,
 ) (platformapi.Controller, *policyclient.Client, error) {
-	cipherKey, devFallback, err := triggers.LoadCipherKey()
+	cipherKey, err := triggers.LoadCipherKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load triggers encryption key: %w", err)
-	}
-	if devFallback {
-		logger.Warn(ctx, "ORBIT_TRIGGERS_ENCRYPTION_KEY not set — using insecure local-dev key; set it in production")
 	}
 	cipher, err := triggers.NewSecretCipherFromKey(cipherKey)
 	if err != nil {
@@ -127,11 +127,11 @@ func initController(
 	// it asks identity for each trigger's SERVICE token, authenticated by the
 	// mesh (this pod's SVID presented as the mTLS client cert). The same client
 	// exchanges our own SVID for the platform token the policy client needs.
-	identityCli := identityclient.NewClient(tc.Current.Identity.InternalURL, logger)
+	identityClient := identityclient.NewClient(tc.Current.Identity.InternalURL, logger)
 
-	policyCli := policyclient.NewClient(
+	policyClient := policyclient.NewClient(
 		tc.Current.Policy.PolicyServiceInternalURL,
-		newSelfTokenSource(identityCli),
+		newSelfTokenSource(identityClient),
 		logger,
 	)
 
@@ -143,7 +143,7 @@ func initController(
 	policyEval.Start(ctx)
 
 	repo := triggers.NewPostgresRepository(db.Pool())
-	agentsCli := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
+	agentsClient := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
 
 	// Instruments are built once and injected into everything that records:
 	// the service, the scheduler and the retention job. Failing to build them
@@ -163,9 +163,9 @@ func initController(
 		repo,
 		triggers.NewRegistry(),
 		cipher,
-		policyCli,
-		agentsCli,
-		identityCli,
+		policyClient,
+		agentsClient,
+		identityClient,
 		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
 		metrics,
@@ -206,7 +206,7 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := mw.AuthMiddlewareWithRevocation(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyCli, nil
+	return triggers.NewController(svc, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
 }
 
 // newSelfTokenSource returns a token func for the policy client that exchanges
@@ -215,7 +215,7 @@ func initController(
 // The exchange is a network call on the mesh, so caching keeps it off the hot
 // path; the early refresh margin avoids handing out a token that expires
 // mid-request.
-func newSelfTokenSource(identityCli *identityclient.Client) func(context.Context) (string, error) {
+func newSelfTokenSource(identityClient *identityclient.Client) func(context.Context) (string, error) {
 	const refreshMargin = 30 * time.Second
 
 	// Guarded: the policy client calls this from concurrent request handlers.
@@ -231,7 +231,7 @@ func newSelfTokenSource(identityCli *identityclient.Client) func(context.Context
 		if cached != "" && time.Now().Before(expiry.Add(-refreshMargin)) {
 			return cached, nil
 		}
-		tok, exp, err := identityCli.Exchange(ctx)
+		tok, exp, err := identityClient.Exchange(ctx)
 		if err != nil {
 			return "", fmt.Errorf("exchange SVID for platform token: %w", err)
 		}
@@ -288,14 +288,14 @@ func scopeDeclarations() []routescopes.ScopeDeclaration {
 // It goes through the authenticated policy client rather than the anonymous
 // routescopes client: /routes/register requires a bearer token, which the
 // client obtains by exchanging this pod's SVID.
-func registerScopes(ctx context.Context, logger logging.Logger, policyCli *policyclient.Client) {
+func registerScopes(ctx context.Context, logger logging.Logger, policyClient *policyclient.Client) {
 	const (
 		maxAttempts = 10
 		baseDelay   = 2 * time.Second
 	)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := policyCli.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations()); err == nil {
+		if err := policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations()); err == nil {
 			logger.Info(ctx, "triggers scope vocabulary registered with policy service")
 			return
 		} else {
@@ -313,6 +313,33 @@ func registerScopes(ctx context.Context, logger logging.Logger, policyCli *polic
 	}
 
 	logger.Error(ctx, "trigger scope registration gave up after max attempts")
+}
+
+// runRegistrationLoop re-registers routes and scopes on a fixed cadence, so a
+// policy-service restart does not leave this service unregistered.
+//
+// Registration lives in the policy service's memory. Registering once at startup
+// therefore holds only until that pod restarts, after which nothing re-publishes
+// our route table and every scope we declare is unknown to it. Matches the
+// inference gateway and tool gateway, which self-heal the same way for the same
+// reason. Registration is idempotent, so a tick that changes nothing costs one
+// call.
+func runRegistrationLoop(ctx context.Context, logger logging.Logger, policyClient *policyclient.Client, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations()); err != nil {
+				logger.Warn(ctx, "periodic trigger scope re-registration failed",
+					logging.Field{Key: "error", Value: err.Error()})
+				continue
+			}
+			logger.Debug(ctx, "trigger scope vocabulary re-registered")
+		}
+	}
 }
 
 func initObservability(ctx context.Context) (func(), error) {

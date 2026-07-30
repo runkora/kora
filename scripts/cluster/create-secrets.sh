@@ -18,6 +18,7 @@
 #   DB_PASSWORD              Postgres password
 #   REDIS_PASSWORD           Redis password           (orbit-system only)
 #   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
+#   ORBIT_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
 #   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
@@ -81,6 +82,13 @@ if should_run "orbit-system"; then
     || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
     || fail "BFF_SESSION_SECRET must be at least 32 characters (got ${#BFF_SESSION_SECRET})"
+  # orbit-triggers refuses to start without this: it encrypts every webhook
+  # source's signing secret at rest, and there is deliberately no in-code
+  # fallback to boot without one.
+  [[ -n "${ORBIT_TRIGGERS_ENCRYPTION_KEY:-}" ]] \
+    || fail "ORBIT_TRIGGERS_ENCRYPTION_KEY is not set. 'make setup' generates it into .env"
+  [[ $(printf %s "${ORBIT_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
+    || fail "ORBIT_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
 fi
 
 ok "Prerequisites satisfied"
@@ -96,6 +104,7 @@ if should_run "orbit-system"; then
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
     --from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}"
     --from-file=ORBIT_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
+    --from-literal=ORBIT_TRIGGERS_ENCRYPTION_KEY="${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
   )
   if [[ -n "${ORBIT_OIDC_CLIENT_SECRET:-}" ]]; then
     IDENTITY_SECRET_ARGS+=(--from-literal=ORBIT_OIDC_CLIENT_SECRET="${ORBIT_OIDC_CLIENT_SECRET}")

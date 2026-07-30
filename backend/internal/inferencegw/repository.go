@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
 // InferenceUsageRepository defines the storage contract for inference usage records.
@@ -178,7 +180,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		rec.EffectiveInputCostPer1M, rec.EffectiveOutputCostPer1M,
 		rec.EffectiveCacheReadCostPer1M, rec.EffectiveCacheWriteCostPer1M,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
-		nullableText(rec.RunID), rec.PrincipalRoles, rec.DelegatorID, rec.DelegatorPrincipalType,
+		storage.NullIfZero(rec.RunID), rec.PrincipalRoles, rec.DelegatorID, rec.DelegatorPrincipalType,
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -1200,14 +1202,4 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
-}
-
-// nullableText converts an empty string to nil so it is stored as SQL NULL.
-// Use this when a field is semantically absent (e.g. TokenID for non-PAT callers)
-// rather than an empty string — the two are not equivalent in the schema.
-func nullableText(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
