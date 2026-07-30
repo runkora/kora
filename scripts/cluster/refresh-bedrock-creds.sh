@@ -8,6 +8,7 @@
 #   bash scripts/cluster/refresh-bedrock-creds.sh  # direct
 #
 # Requires AWS_PROFILE to be set (in .env or environment).
+# BEDROCK_ACCOUNTS (in .env) controls which per-alias keys are patched.
 #
 # What it does:
 #   1. Checks if the current SSO session is still valid.
@@ -62,15 +63,31 @@ ok "Credentials exported"
 
 step "Patching orbit-secrets in orbit-system"
 
-kubectl patch secret orbit-secrets -n orbit-system \
-  --type=json \
-  -p="[
-    {\"op\":\"add\",\"path\":\"/data/AWS_ACCESS_KEY_ID\",    \"value\":\"$(echo -n "${ACCESS_KEY}"    | base64 | tr -d '\n')\"},
-    {\"op\":\"add\",\"path\":\"/data/AWS_SECRET_ACCESS_KEY\",\"value\":\"$(echo -n "${SECRET_KEY}"    | base64 | tr -d '\n')\"},
-    {\"op\":\"add\",\"path\":\"/data/AWS_SESSION_TOKEN\",    \"value\":\"$(echo -n "${SESSION_TOKEN}" | base64 | tr -d '\n')\"}
-  ]"
+B64_KEY=$(echo -n "${ACCESS_KEY}"    | base64 | tr -d '\n')
+B64_SECRET=$(echo -n "${SECRET_KEY}" | base64 | tr -d '\n')
+B64_TOKEN=$(echo -n "${SESSION_TOKEN}" | base64 | tr -d '\n')
 
-ok "orbit-secrets patched"
+[[ -n "${BEDROCK_ACCOUNTS:-}" ]] \
+  || fail "BEDROCK_ACCOUNTS is not set — add BEDROCK_ACCOUNTS=<alias,...> to .env"
+
+# Build a merge-patch data object for all per-alias credential keys.
+# --type=merge takes a plain {"data":{...}} object; no op/path/value noise.
+# All aliases share the same SSO session — one export covers all of them.
+PATCH_DATA="{"
+IFS=',' read -ra RAW_ALIASES <<< "${BEDROCK_ACCOUNTS}"
+for RAW in "${RAW_ALIASES[@]}"; do
+  ALIAS="${RAW^^}"
+  ALIAS="${ALIAS// /}"
+  [[ -z "${ALIAS}" ]] && continue
+  PATCH_DATA+="\"BEDROCK_${ALIAS}_ACCESS_KEY_ID\":\"${B64_KEY}\","
+  PATCH_DATA+="\"BEDROCK_${ALIAS}_SECRET_ACCESS_KEY\":\"${B64_SECRET}\","
+  PATCH_DATA+="\"BEDROCK_${ALIAS}_SESSION_TOKEN\":\"${B64_TOKEN}\","
+done
+PATCH_DATA="${PATCH_DATA%,}}"
+
+kubectl patch secret orbit-secrets -n orbit-system --type=merge -p="{\"data\":${PATCH_DATA}}"
+
+ok "orbit-secrets patched (${BEDROCK_ACCOUNTS})"
 
 # ── Restart inference gateway ─────────────────────────────────────────────────
 

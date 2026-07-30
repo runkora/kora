@@ -57,12 +57,6 @@ spec:
               value: {{ .Values.inferenceGateway.config.logFormat | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            {{- if .Values.inferenceGateway.bedrock.enabled }}
-            - name: BEDROCK_ENABLED
-              value: "true"
-            - name: BEDROCK_REGION
-              value: {{ required "inferenceGateway.bedrock.region must be set when bedrock is enabled" .Values.inferenceGateway.bedrock.region | quote }}
-            {{- end }}
           ports:
             - name: http
               containerPort: 8081

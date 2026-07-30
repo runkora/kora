@@ -153,12 +153,6 @@ inferenceGateway:
     otlpInsecure: "false"
     logFormat: "json"
 
-  # Provider enablement — non-secret config injected as env vars into the deployment.
-  # Credentials (AWS_ACCESS_KEY_ID etc.) go in the existingSecret via create-secrets.sh.
-  bedrock:
-    enabled: false
-    region: ""
-
   # Name of the existing Secret containing DB_PASSWORD (and optionally provider credentials).
   # Shares orbit-secrets with the identity service — extra keys are ignored.
   existingSecret: "orbit-secrets"
