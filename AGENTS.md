@@ -233,14 +233,24 @@ This describes what the backend test suite **actually is today**, and (separatel
 
 **What exists today:**
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **Postgres-backed repository tests**: `backend/internal/triggers/postgres_test.go`, gated on `ORBIT_TEST_DB_URL` and skipped when it's unset, so `make check` never needs a database. These are the only tests that talk to a real one, and they cover the Triggers repository specifically: the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, and the admission ceiling. Run them with:
+- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, currently in five packages:
+
+  | Package | File | Covers |
+  |---|---|---|
+  | `triggers` | `postgres_test.go` | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling |
+  | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
+  | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
+  | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
+  | `example` | `postgres_test.go` | the reference repository |
+
+  Run them against the docker-compose Postgres (after `make migrate-up`):
 
   ```bash
   ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
-    go test ./internal/triggers/ -run Postgres
+    go test ./... -run Postgres
   ```
 
-  Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever the author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. They are skipped in CI, so a change to that SQL still needs them run locally.
+  Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever its author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. **CI does not run these**, so a change to that SQL still needs them run locally.
 - **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
