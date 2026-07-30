@@ -23,7 +23,7 @@ var knownNamespacePrefixes = []string{
 	"anthropic.", "amazon.", "meta.", "mistral.", "cohere.",
 	"ai21.", "deepseek.", "writer.", "google.", "nvidia.",
 	"qwen.", "openai.", "moonshotai.", "moonshot.", "minimax.",
-	"zai.", "twelvelabs.", "stability.",
+	"xai.", "zai.", "twelvelabs.", "stability.",
 }
 
 // titleCaseSlug converts a hyphen/underscore-separated slug to Title Case.
@@ -40,13 +40,29 @@ func titleCaseSlug(s string) string {
 }
 
 // fallbackDisplayName derives a human-readable name from a Bedrock model ID
-// when the API did not return a ModelName. Takes the last segment after "." or
-// "/" and title-cases it, stripping trailing ":N" version suffixes.
+// when the API did not return a ModelName. Strips any region prefix and known
+// provider namespace, then title-cases the result and strips trailing ":N"
+// version suffixes. For unknown namespaces, strips at the last "." to avoid
+// leaking the vendor prefix into the display name.
 func fallbackDisplayName(modelID string) string {
-	slug := modelID
-	if i := strings.LastIndexAny(slug, "./"); i >= 0 {
-		slug = slug[i+1:]
+	slug := stripRegionPrefix(modelID)
+	// Strip known provider namespace prefix (e.g. "xai.", "anthropic.", "amazon.").
+	stripped := false
+	for _, ns := range knownNamespacePrefixes {
+		if strings.HasPrefix(slug, ns) {
+			slug = slug[len(ns):]
+			stripped = true
+			break
+		}
 	}
+	// For unknown namespaces, fall back to stripping at the last "." so the
+	// vendor prefix doesn't leak into the title-cased display name.
+	if !stripped {
+		if i := strings.LastIndex(slug, "."); i >= 0 {
+			slug = slug[i+1:]
+		}
+	}
+	// Strip trailing ":N" version suffix.
 	if i := strings.LastIndex(slug, ":"); i >= 0 {
 		slug = slug[:i]
 	}
@@ -242,6 +258,72 @@ func computeCapabilities(canonicalID string, outputMods []inferencegw.Modality) 
 	return caps
 }
 
+// regionDisplayPrefixMap maps each known cross-region model ID prefix to the
+// corresponding word AWS prepends to the ModelName. Used to strip the region
+// word from display names only when the model ID confirms the model is actually
+// a cross-region profile — preventing false-positive matches on model names
+// that happen to start with "Global", "AU", etc.
+var regionDisplayPrefixMap = map[string]string{
+	"us.":     "US ",
+	"eu.":     "EU ",
+	"ap.":     "AP ",
+	"jp.":     "JP ",
+	"au.":     "AU ",
+	"apac.":   "APAC ",
+	"global.": "Global ",
+}
+
+// stripRegionDisplayPrefix removes a leading AWS region word from an
+// API-returned ModelName when the canonical model ID confirms the model is a
+// cross-region profile. Without the ID check, short prefixes like "AU " or
+// "Global " could false-positive on legitimate model names.
+func stripRegionDisplayPrefix(canonicalID, name string) string {
+	for idPfx, namePfx := range regionDisplayPrefixMap {
+		if strings.HasPrefix(canonicalID, idPfx) && strings.HasPrefix(name, namePfx) {
+			return name[len(namePfx):]
+		}
+	}
+	return name
+}
+
+// vendorDisplayPrefixes maps the model ID namespace to the canonical vendor
+// display prefix that should appear in a model's name. Used to detect when
+// AWS omits the vendor prefix from the ModelName (e.g. "V3.1" instead of
+// "DeepSeek V3.1") and re-add it.
+var vendorDisplayPrefixes = map[string]string{
+	"deepseek.": "DeepSeek ",
+}
+
+// normaliseAPIName cleans up the raw ModelName returned by the AWS API:
+//  1. Strips a leading region word ("US ", "Global ", etc.) that AWS injects
+//     when a model is accessible via cross-region profiles.
+//  2. Re-adds a vendor prefix (e.g. "DeepSeek ") when AWS omits it and the
+//     model ID namespace implies one.
+//  3. Replaces a vendor-name separator hyphen ("DeepSeek-V3") with a space
+//     ("DeepSeek V3") when the vendor prefix is immediately followed by "-".
+func normaliseAPIName(canonicalID, name string) string {
+	name = stripRegionDisplayPrefix(canonicalID, name)
+	base := stripRegionPrefix(canonicalID)
+	for ns, vendor := range vendorDisplayPrefixes {
+		if !strings.HasPrefix(base, ns) {
+			continue
+		}
+		vendorWord := strings.TrimSuffix(vendor, " ") // e.g. "DeepSeek"
+		switch {
+		case strings.HasPrefix(name, vendor):
+			// Correct prefix with space — nothing to do.
+		case strings.HasPrefix(name, vendorWord+"-"):
+			// "DeepSeek-V3" → "DeepSeek V3": vendor present but hyphen-separated.
+			name = vendor + name[len(vendorWord)+1:]
+		default:
+			// Vendor prefix missing entirely — prepend it.
+			name = vendor + name
+		}
+		break
+	}
+	return name
+}
+
 // buildProviderModel constructs a ProviderModel for the given canonical Bedrock
 // model ID. name is the human-readable name returned by the API; if empty,
 // a fallback is derived from the model ID. inputMods/outputMods come from the
@@ -249,6 +331,8 @@ func computeCapabilities(canonicalID string, outputMods []inferencegw.Modality) 
 func buildProviderModel(canonicalID, name string, inputMods, outputMods []inferencegw.Modality, provider inferencegw.ProviderName) inferencegw.ProviderModel {
 	if name == "" {
 		name = fallbackDisplayName(canonicalID)
+	} else {
+		name = normaliseAPIName(canonicalID, name)
 	}
 	// Fall back to pattern inference when modality data is absent OR empty.
 	// An empty (non-nil) slice can result when the API returns modality values

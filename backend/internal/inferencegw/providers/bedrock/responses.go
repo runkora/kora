@@ -61,9 +61,9 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 	)
 
 	switch c.dispatchBackend(params.Model) {
-	case backendMantleGPT5:
-		// GPT-5.x uses /openai/v1/responses — a separate client with a different base path.
-		resp, err := c.mantleGPT5Client.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
+	case backendMantleOpenAIV1:
+		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
+		resp, err := c.mantleOpenAIV1Client.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
 		if err != nil {
 			c.logger.Error(ctx, "bedrock: responses error",
 				logging.Field{Key: "error", Value: err.Error()},
@@ -100,9 +100,9 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 	)
 
 	switch c.dispatchBackend(params.Model) {
-	case backendMantleGPT5:
-		// GPT-5.x uses /openai/v1/responses — a separate client with a different base path.
-		stream := c.mantleGPT5Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
+	case backendMantleOpenAIV1:
+		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
+		stream := c.mantleOpenAIV1Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
 		go func() {
 			defer close(ch)

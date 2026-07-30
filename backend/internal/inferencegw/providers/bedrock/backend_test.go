@@ -2,10 +2,10 @@ package bedrock
 
 import "testing"
 
-// TestInferBackendID_GPT5Models verifies that every GPT-5.x model ID is routed
-// to backendMantleGPT5 by both the cold-start heuristic (inferBackendID) and
+// TestInferBackendID_MantleOpenAIV1Models verifies that every GPT-5.x and xAI Grok model ID
+// is routed to backendMantleOpenAIV1 by both the cold-start heuristic (inferBackendID) and
 // the warm-registry path (dispatchBackend).
-func TestInferBackendID_GPT5Models(t *testing.T) {
+func TestInferBackendID_MantleOpenAIV1Models(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		id string
@@ -18,20 +18,21 @@ func TestInferBackendID_GPT5Models(t *testing.T) {
 		{"openai.gpt-5.6-sol"},
 		{"openai.gpt-5.6-terra"},
 		{"us.openai.gpt-5.6-terra"}, // prefixed form — stripRegionPrefix must normalise
+		{"xai.grok-4.3"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
 			t.Parallel()
 			got := inferBackendID(tc.id)
-			if got != backendMantleGPT5 {
-				t.Errorf("inferBackendID(%q) = %v, want backendMantleGPT5 (%v)", tc.id, got, backendMantleGPT5)
+			if got != backendMantleOpenAIV1 {
+				t.Errorf("inferBackendID(%q) = %v, want backendMantleOpenAIV1 (%v)", tc.id, got, backendMantleOpenAIV1)
 			}
 		})
 	}
 }
 
 // TestInferBackendID_MantleOSSModels verifies that openai.gpt-oss-* models are
-// still routed to backendMantle (not backendMantleGPT5) so the existing
+// still routed to backendMantle (not backendMantleOpenAIV1) so the existing
 // chat/completions path is not regressed.
 func TestInferBackendID_MantleOSSModels(t *testing.T) {
 	t.Parallel()
@@ -52,12 +53,12 @@ func TestInferBackendID_MantleOSSModels(t *testing.T) {
 	}
 }
 
-// TestDispatchBackend_GPT5_WarmRegistry verifies that dispatchBackend reads
-// backendMantleGPT5 from a pre-populated registry (warm path).
-func TestDispatchBackend_GPT5_WarmRegistry(t *testing.T) {
+// TestDispatchBackend_MantleOpenAIV1_WarmRegistry verifies that dispatchBackend reads
+// backendMantleOpenAIV1 from a pre-populated registry (warm path).
+func TestDispatchBackend_MantleOpenAIV1_WarmRegistry(t *testing.T) {
 	t.Parallel()
 	reg := map[string]backendID{
-		"openai.gpt-5.6-terra": backendMantleGPT5,
+		"openai.gpt-5.6-terra": backendMantleOpenAIV1,
 		"openai.gpt-oss-120b":  backendMantle,
 	}
 	c := &Connector{}
@@ -67,7 +68,7 @@ func TestDispatchBackend_GPT5_WarmRegistry(t *testing.T) {
 		id   string
 		want backendID
 	}{
-		{"openai.gpt-5.6-terra", backendMantleGPT5},
+		{"openai.gpt-5.6-terra", backendMantleOpenAIV1},
 		{"openai.gpt-oss-120b", backendMantle},
 	}
 	for _, tc := range cases {
@@ -81,9 +82,9 @@ func TestDispatchBackend_GPT5_WarmRegistry(t *testing.T) {
 	}
 }
 
-// TestDispatchBackend_GPT5_ColdStart verifies that dispatchBackend falls back
-// to inferBackendID (returning backendMantleGPT5) when the registry is nil.
-func TestDispatchBackend_GPT5_ColdStart(t *testing.T) {
+// TestDispatchBackend_MantleOpenAIV1_ColdStart verifies that dispatchBackend falls back
+// to inferBackendID (returning backendMantleOpenAIV1) when the registry is nil.
+func TestDispatchBackend_MantleOpenAIV1_ColdStart(t *testing.T) {
 	t.Parallel()
 	c := &Connector{} // modelRegistry is nil — cold start
 
@@ -91,8 +92,8 @@ func TestDispatchBackend_GPT5_ColdStart(t *testing.T) {
 		id   string
 		want backendID
 	}{
-		{"openai.gpt-5.6-terra", backendMantleGPT5},
-		{"openai.gpt-5.4", backendMantleGPT5},
+		{"openai.gpt-5.6-terra", backendMantleOpenAIV1},
+		{"openai.gpt-5.4", backendMantleOpenAIV1},
 		{"openai.gpt-oss-120b", backendMantle}, // must not regress
 	}
 	for _, tc := range cases {
@@ -106,11 +107,11 @@ func TestDispatchBackend_GPT5_ColdStart(t *testing.T) {
 	}
 }
 
-// TestDispatchBackend_GPT5_RegistryMiss_FallsBackToInfer verifies the case
+// TestDispatchBackend_MantleOpenAIV1_RegistryMiss_FallsBackToInfer verifies the case
 // where the registry exists but does not contain the model (e.g. a new model
 // added after the last ListModels sweep).  The fallback to inferBackendID
-// must still route GPT-5.x correctly.
-func TestDispatchBackend_GPT5_RegistryMiss_FallsBackToInfer(t *testing.T) {
+// must still route GPT-5.x and xAI Grok correctly.
+func TestDispatchBackend_MantleOpenAIV1_RegistryMiss_FallsBackToInfer(t *testing.T) {
 	t.Parallel()
 	// Registry is non-nil but empty — every lookup misses and falls through.
 	reg := map[string]backendID{}
@@ -118,7 +119,7 @@ func TestDispatchBackend_GPT5_RegistryMiss_FallsBackToInfer(t *testing.T) {
 	c.modelRegistry.Store(&reg)
 
 	got := c.dispatchBackend("openai.gpt-5.6-luna")
-	if got != backendMantleGPT5 {
-		t.Errorf("dispatchBackend(\"openai.gpt-5.6-luna\") with empty registry = %v, want backendMantleGPT5", got)
+	if got != backendMantleOpenAIV1 {
+		t.Errorf("dispatchBackend(\"openai.gpt-5.6-luna\") with empty registry = %v, want backendMantleOpenAIV1", got)
 	}
 }

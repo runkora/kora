@@ -6,6 +6,65 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 )
 
+// TestBuildProviderModel_DisplayNameNormalisation verifies systematic
+// corrections applied to AWS-returned ModelNames.
+func TestBuildProviderModel_DisplayNameNormalisation(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		canonicalID string
+		apiName     string // what AWS returned
+		wantName    string
+	}{
+		// Cohere: AWS injects a region word into the ModelName.
+		{"us.cohere.embed-v4:0", "US Cohere Embed v4", "Cohere Embed v4"},
+		{"global.cohere.embed-v4:0", "Global Cohere Embed v4", "Cohere Embed v4"},
+		// DeepSeek: AWS omits the vendor prefix entirely.
+		{"deepseek.v3.1", "V3.1", "DeepSeek V3.1"},
+		// DeepSeek: AWS uses a hyphen separator after the vendor name.
+		{"deepseek.v3-v1:0", "DeepSeek-V3.1", "DeepSeek V3.1"},
+		// Unaffected: correct AWS name passes through unchanged.
+		{"deepseek.v3.2", "DeepSeek V3.2", "DeepSeek V3.2"},
+		// Unaffected: non-DeepSeek hyphenated names are not touched.
+		{"amazon.nova-pro-v1:0", "Nova Pro", "Nova Pro"},
+		// No false-positive: model with no region ID prefix keeps "Global" in name.
+		{"acme.global-model-v1", "Global Model v1", "Global Model v1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.canonicalID, func(t *testing.T) {
+			t.Parallel()
+			m := buildProviderModel(tc.canonicalID, tc.apiName, nil, nil, "bedrock")
+			if m.DisplayName != tc.wantName {
+				t.Errorf("DisplayName = %q, want %q", m.DisplayName, tc.wantName)
+			}
+		})
+	}
+}
+
+// TestFallbackDisplayName_UnknownNamespace verifies that an unrecognised
+// provider namespace is stripped at the last "." rather than leaking into
+// the title-cased display name.
+func TestFallbackDisplayName_UnknownNamespace(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		want string
+	}{
+		{"future.cool-model-v1", "Cool Model V1"},
+		{"newco.reasoning-8b-v1:0", "Reasoning 8b V1"},
+		// Known namespace still works correctly.
+		{"xai.grok-4.3", "Grok 4.3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
+			got := fallbackDisplayName(tc.id)
+			if got != tc.want {
+				t.Errorf("fallbackDisplayName(%q) = %q, want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildProviderModel_ProviderField(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
