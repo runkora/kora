@@ -208,6 +208,20 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // ---- Hardcoded colour ban -----------------------------------------------
+  // All colour values — hex literals, oklch(), rgb(), hsl() — must reference a
+  // Terra CSS variable so they respond to the active theme. Inline colour
+  // literals are not themed and silently break in light mode (or any future
+  // theme). Use var(--color-*) tokens from tokens.css, or derive from them via
+  // color-mix(). Terra's own tokens.css and Storybook stories are excluded.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/packages/terra/**', '**/*.stories.{ts,tsx}'],
+    rules: {
+      'local/no-hardcoded-color': 'error',
+    },
+  },
+
   // ---- Kebab-case filename enforcement ------------------------------------
   // ALL JavaScript and TypeScript source files under src/ must use kebab-case
   // filenames — this includes the Terra package and any future packages added

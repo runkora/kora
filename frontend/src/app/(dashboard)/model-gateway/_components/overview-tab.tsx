@@ -65,17 +65,17 @@ function pctDelta(curr: number, prev: number): number {
   return prev > 0 ? ((curr - prev) / prev) * 100 : 0;
 }
 
-// ── Chart Colors (Terra tokens as hex) ────────────────────────────────────────
+// ── Chart Colors (Terra tokens) ───────────────────────────────────────────────
 
 const COLORS = {
-  accent: '#e8a07a',
-  healthy: '#9ce37d',
-  degraded: '#ffd046',
-  error: '#ef4444',
-  surfaceOverlay: '#34343d',
+  accent: 'var(--color-accent)',
+  healthy: 'var(--color-status-healthy)',
+  degraded: 'var(--color-status-degraded)',
+  error: 'var(--color-status-error)',
+  surfaceOverlay: 'var(--color-surface-overlay)',
   borderSubtle: 'var(--color-border-subtle)',
-  foreground: '#ededef',
-  subtle: '#8a8a94',
+  foreground: 'var(--color-foreground)',
+  subtle: 'var(--color-subtle)',
 };
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────

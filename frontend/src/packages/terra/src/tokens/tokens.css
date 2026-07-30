@@ -117,11 +117,26 @@
   /* Strategy colours — routing-strategy identity badges.                        */
   --terra-raw-strategy-weighted: #a855f7; /* Purple — weighted split             */
 
+  /* Categorical chart series — fixed order, never cycled; CVD-safe hue spacing */
+  --terra-raw-chart-1: oklch(60.8% 0.15 250);
+  --terra-raw-chart-2: oklch(55% 0.15 45);
+  --terra-raw-chart-3: oklch(60.4% 0.15 310);
+  --terra-raw-chart-4: oklch(66.4% 0.136 95);
+  --terra-raw-chart-5: oklch(61.2% 0.108 215);
+  --terra-raw-chart-6: oklch(61.1% 0.15 135);
+  --terra-raw-chart-7: oklch(52.8% 0.15 355);
+  --terra-raw-chart-8: oklch(64.6% 0.134 165);
+
   /* Overlay — semi-transparent backdrop for modal/drawer overlays.              */
   /* Using OKLCH pure-black at 40% opacity: perceptually uniform across displays */
   --terra-raw-overlay: oklch(0% 0 0 / 40%);
   /* overlay-strong: heavier scrim for modals (vs side panels at 40%) */
   --terra-raw-overlay-strong: oklch(0% 0 0 / 50%);
+
+  /* Shadows — floating surfaces. Pure-black alpha shadows; light mode overrides  */
+  /* to pure-white (inverted) shadows so elevated surfaces lift on light bg.      */
+  --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.25);
+  --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.3), 0 2px 8px oklch(0% 0 0 / 0.15);
 
   /* Declared here, not inline in @theme — @theme inline bakes literals into    */
   /* utilities, and only var() references can be re-themed at runtime.           */
@@ -162,6 +177,20 @@
   --terra-raw-subtle: oklch(44% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-border: oklch(62% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-border-subtle: oklch(85% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  /* Shadows — lighter on a light background; reduced opacity vs dark mode */
+  --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.1);
+  --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.12), 0 2px 8px oklch(0% 0 0 / 0.06);
+
+  /* Chart series — same hue order as dark; deeper steps for the light surface */
+  --terra-raw-chart-1: oklch(51.8% 0.146 250);
+  --terra-raw-chart-2: oklch(59.3% 0.15 45);
+  --terra-raw-chart-3: oklch(47.2% 0.15 310);
+  --terra-raw-chart-4: oklch(52.3% 0.106 95);
+  --terra-raw-chart-5: oklch(58.5% 0.102 215);
+  --terra-raw-chart-6: oklch(53.8% 0.15 135);
+  --terra-raw-chart-7: oklch(44.2% 0.15 355);
+  --terra-raw-chart-8: oklch(54.2% 0.114 165);
 }
 
 /* ─── Semantic tokens (Tailwind v4 @theme) ───────────────────────────────── */
@@ -209,9 +238,23 @@
   /* Strategy identity tokens */
   --color-strategy-weighted: var(--terra-raw-strategy-weighted);
 
+  /* Categorical chart series — assign in fixed order, never cycle */
+  --color-chart-1: var(--terra-raw-chart-1);
+  --color-chart-2: var(--terra-raw-chart-2);
+  --color-chart-3: var(--terra-raw-chart-3);
+  --color-chart-4: var(--terra-raw-chart-4);
+  --color-chart-5: var(--terra-raw-chart-5);
+  --color-chart-6: var(--terra-raw-chart-6);
+  --color-chart-7: var(--terra-raw-chart-7);
+  --color-chart-8: var(--terra-raw-chart-8);
+
   /* Overlay — for modal/drawer backdrop elements */
   --color-overlay: var(--terra-raw-overlay);
   --color-overlay-strong: var(--terra-raw-overlay-strong);
+
+  /* Shadows — floating surfaces (scroll-anchored buttons, input areas) */
+  --shadow-sm: var(--terra-raw-shadow-sm);
+  --shadow-elevated: var(--terra-raw-shadow-elevated);
 
   /* Typography */
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);

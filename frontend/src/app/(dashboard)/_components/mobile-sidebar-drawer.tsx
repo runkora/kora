@@ -26,7 +26,7 @@ export function MobileSidebarDrawer() {
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50 md:hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay-strong md:hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200" />
         <DialogPrimitive.Content className="fixed inset-y-0 left-0 z-50 w-64 flex flex-col bg-surface border-r border-border-subtle shadow-2xl md:hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left-full data-[state=open]:slide-in-from-left-full duration-300">
           {/* Visually hidden title for screen readers */}
           <DialogPrimitive.Title className="sr-only">Navigation</DialogPrimitive.Title>

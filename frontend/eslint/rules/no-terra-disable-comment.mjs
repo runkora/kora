@@ -25,6 +25,7 @@ const rule = {
       'local/no-raw-interactive-elements',
       'local/no-raw-list-elements',
       'local/no-raw-form-elements',
+      'local/no-hardcoded-color',
     ]);
 
     return {

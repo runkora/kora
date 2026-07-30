@@ -28,12 +28,12 @@ const CHART_CONFIG: ChartConfig = {
   p99: { label: 'P99', color: 'var(--color-status-error)' },
 };
 
-// ── Chart Colors (Terra tokens as hex) ────────────────────────────────────────
+// ── Chart Colors (Terra tokens) ───────────────────────────────────────────────
 
 const COLORS = {
-  surfaceOverlay: '#34343d',
+  surfaceOverlay: 'var(--color-surface-overlay)',
   borderSubtle: 'var(--color-border-subtle)',
-  subtle: '#8a8a94',
+  subtle: 'var(--color-subtle)',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
