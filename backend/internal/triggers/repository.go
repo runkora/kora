@@ -172,9 +172,6 @@ type PendingQueue interface {
 	// the longest dispatch a trigger may legitimately take, or this restarts
 	// work that is still running.
 	ReclaimStalePending(ctx context.Context, olderThan time.Duration) ([]string, error)
-	// InFlightCount is how many runs this trigger has started that have not yet
-	// reached a terminal state.
-	InFlightCount(ctx context.Context, triggerID string) (int, error)
 	// SupersedePending removes everything waiting for a trigger, returning the
 	// displaced rows so the caller can record them.
 	SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
@@ -189,8 +186,6 @@ type PendingQueue interface {
 	// those, because claiming requires an enabled trigger and the stale-claim
 	// reaper only touches rows already claimed.
 	DrainOrphanedPending(ctx context.Context, limit int) ([]OrphanedPending, error)
-	// UnclaimedPendingCount is how many fires are waiting on a trigger.
-	UnclaimedPendingCount(ctx context.Context, triggerID string) (int, error)
 	// EnqueueWithinCeiling admits a fire only if the trigger is under
 	// maxParallel, deciding and inserting under one lock. Counting and then
 	// enqueueing separately lets two simultaneous fires both pass the check,
