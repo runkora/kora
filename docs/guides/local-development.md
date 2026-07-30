@@ -213,7 +213,7 @@ Everything else has a default and does not appear in `.env`:
 
 | Variable | Purpose |
 |---|---|
-| `BEDROCK_ENABLED`, `AWS_PROFILE`, `BEDROCK_REGION` | Enable the Bedrock provider. `make cluster-bedrock-creds` reads these to refresh the cluster's AWS credentials from your SSO session. |
+| `BEDROCK_ACCOUNTS`, `BEDROCK_<ALIAS>_REGION`, `AWS_PROFILE` | Enable Bedrock providers. Set `BEDROCK_ACCOUNTS=us,aus` and one `BEDROCK_<ALIAS>_REGION` per alias. `make up` writes these into the cluster; `make cluster-bedrock-creds` refreshes credentials from your SSO session. |
 | `DB_PORT`, `DB_USER`, `DB_NAME`, `DB_PASSWORD`, `REDIS_PORT`, `REDIS_PASSWORD` | Override compose defaults on port collisions. |
 | `ORBIT_TENANT_ID` | Tenant used by `make auth`. Defaults to `example`. |
 
