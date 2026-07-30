@@ -67,6 +67,11 @@ var budgetRego string
 // tool-gateway enforces (see internal/toolgateway/scopes.go), mcp:use covers
 // every mcp:<server>:<tool>:use, so an admin can use any MCP server — orbit,
 // github, and any server added later — without enumerating each one here.
+// Hardcoded, and it should not stay that way: every service that declares a new
+// scope has to remember to add it here by hand, in both roles, and nothing fails
+// if it is forgotten. The policy service already receives every declared scope
+// through /routes/register, so this is a second hand-maintained copy of
+// information it already has. See #167.
 var DefaultRoleScopes = map[string][]string{
 	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
 	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
