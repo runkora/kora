@@ -503,7 +503,7 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 
 	// statuses must be capped at "read" (installation only grants read).
 	if gotTokenBody.Permissions["statuses"] != "read" {
-		t.Errorf("statuses permission = %q, want capped at "read"", gotTokenBody.Permissions["statuses"])
+		t.Errorf("statuses permission = %q, want capped at \"read\"", gotTokenBody.Permissions["statuses"])
 	}
 	// checks must be absent (installation does not grant it at all).
 	if _, ok := gotTokenBody.Permissions["checks"]; ok {
@@ -511,14 +511,14 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 	}
 	// contents and pull_requests should be present at write.
 	if gotTokenBody.Permissions["contents"] != "write" {
-		t.Errorf("contents permission = %q, want "write"", gotTokenBody.Permissions["contents"])
+		t.Errorf("contents permission = %q, want \"write\"", gotTokenBody.Permissions["contents"])
 	}
 	if gotTokenBody.Permissions["pull_requests"] != "write" {
-		t.Errorf("pull_requests permission = %q, want "write"", gotTokenBody.Permissions["pull_requests"])
+		t.Errorf("pull_requests permission = %q, want \"write\"", gotTokenBody.Permissions["pull_requests"])
 	}
 	// metadata:read is always present.
 	if gotTokenBody.Permissions["metadata"] != "read" {
-		t.Errorf("metadata permission = %q, want "read"", gotTokenBody.Permissions["metadata"])
+		t.Errorf("metadata permission = %q, want \"read\"", gotTokenBody.Permissions["metadata"])
 	}
 }
 
