@@ -760,7 +760,7 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 		for key, grantedLevel := range installationPerms {
 			// Skip permissions with unknown level strings: permissionLevels maps
 			// only "read", "write", "admin". An unknown value maps to 0, which
-			// would silently pass the cap check and let an unrecognised level
+			// would silently pass the cap check and let an unrecognized level
 			// through. Omitting it is the safe default.
 			if permissionLevels[grantedLevel] == 0 {
 				continue
