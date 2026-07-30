@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -75,6 +78,22 @@ const (
 // lookup from orbit-agents, which the feature boundary deliberately forbids;
 // the alternative is a trigger id stamped into the minted token's claims, which
 // is the durable fix (see the ADR follow-ups).
+// authorizeAttribution is the span-aware wrapper StartRun calls, mirroring
+// authorizeDelegatedStart so the two gates on a start are shaped alike and each
+// owns the span status for its own refusal.
+func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, req StartRunRequest) (*StartedByTrigger, error) {
+	startedBy, err := authorizeTriggerAttribution(ctx, req)
+	if err != nil {
+		span.RecordError(err)
+		// Neutral description: this covers both a refused claim and an
+		// incomplete one, so it must not name either sentinel. RecordError
+		// above carries which it was.
+		span.SetStatus(codes.Error, "authorize trigger attribution")
+		return nil, err
+	}
+	return startedBy, nil
+}
+
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {
 	triggerID := strings.TrimSpace(req.TriggerID)
 	deliveryID := strings.TrimSpace(req.DeliveryID)

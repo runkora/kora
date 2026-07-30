@@ -900,7 +900,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	// delegated agent's grant is a ceiling, never a standing entitlement
 	// (delegated-agent-identity ADR, Decision 2). Reconciled like scopes — a
 	// grant whose marker drifted from the identity mode is stale and replaced.
-	delegationRequired := at.IdentityMode.OrDefault() == IdentityModeDelegated
+	delegationRequired := at.IsDelegated()
 
 	// Walk existing grants: keep the first whose SCOPES and delegation marker
 	// match (budget is reconciled separately), delete the rest. Remember the

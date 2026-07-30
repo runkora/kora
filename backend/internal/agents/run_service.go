@@ -102,47 +102,36 @@ func NewRunService(
 	}
 }
 
-// authorizeStart resolves the target agent type and settles everything the
-// caller must be entitled to before any resource is created: that the type is
-// theirs to run, that the identity model permits this principal to start it, and
-// that any trigger attribution on the request is a claim this caller may make.
+// authorizeStart resolves the target agent type and decides whether this caller
+// may start a run of it at all: the type is theirs, its scope permits the start,
+// and the identity model allows this kind of principal to initiate it.
 //
-// All of it happens before the first write, so a refused start leaves nothing
-// behind.
-func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, *StartedByTrigger, error) {
+// Scoped to that one question deliberately. Whether the caller may also attach a
+// trigger to the run is a separate decision about a separate thing, made by
+// authorizeAttribution: this one gates the action, that one gates a label on an
+// action already permitted. Both run before the first write, so a refused start
+// leaves nothing behind.
+func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, error) {
 	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
-		return nil, nil, fmt.Errorf("get agent type: %w", err)
+		return nil, fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantID {
-		return nil, nil, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
 	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
 	// of a delegated agent, because the run executes with THEIR authority.
-	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
-	if err = s.authorizeDelegatedStart(ctx, span, delegated); err != nil {
-		return nil, nil, err
+	if err = s.authorizeDelegatedStart(ctx, span, at.IsDelegated()); err != nil {
+		return nil, err
 	}
-
-	// Trigger attribution is an audit claim about why the run exists, so it is
-	// checked rather than trusted because it arrived in a request body.
-	startedBy, err := authorizeTriggerAttribution(ctx, req)
-	if err != nil {
-		span.RecordError(err)
-		// Neutral status: this branch covers both a refused claim and an
-		// incomplete one, so the description must not name either sentinel.
-		// span.RecordError above carries which it was.
-		span.SetStatus(codes.Error, "authorize trigger attribution")
-		return nil, nil, err
-	}
-	return at, startedBy, nil
+	return at, nil
 }
 
 // StartRun creates a new run and assigns it to a pod. Tenant and created_by are
@@ -183,11 +172,17 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	at, startedBy, err := s.authorizeStart(ctx, span, req, tenantID)
+	// Two separate questions, in order: may this caller start this agent, and
+	// may it also say a trigger is why.
+	at, err := s.authorizeStart(ctx, span, req, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
+	startedBy, err := s.authorizeAttribution(ctx, span, req)
+	if err != nil {
+		return nil, err
+	}
+	delegated := at.IsDelegated()
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	podOrdinal, err := s.providePod(ctx, span, at, namespace)

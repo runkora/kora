@@ -61,6 +61,17 @@ func (m IdentityMode) OrDefault() IdentityMode {
 	return m
 }
 
+// IsDelegated reports whether runs of this type execute with a person's
+// authority rather than the agent's own.
+//
+// A named predicate rather than the comparison spelled out at each site: it
+// decides who may start a run, whether a delegation is minted, and what the
+// sandbox is allowed to do, and an empty mode has to normalise to autonomous
+// every time. One spelling that cannot drift.
+func (t AgentType) IsDelegated() bool {
+	return t.IdentityMode.OrDefault() == IdentityModeDelegated
+}
+
 // ConnectivityMode is an agent type's outbound egress posture — the platform's
 // reachability gate for the agent's sandboxes. It compiles to egress:<host>:connect
 // scopes enforced at the sandbox OPA. See the egress-gateway ADR (Amendment
