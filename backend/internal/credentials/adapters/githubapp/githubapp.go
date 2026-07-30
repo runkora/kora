@@ -109,8 +109,8 @@ type Adapter struct {
 	logger  logging.Logger
 	now     func() time.Time
 
-	mu            sync.Mutex
-	cache         map[string]credentials.Credential
+	mu             sync.Mutex
+	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
 }
 
@@ -1054,4 +1054,3 @@ func signAppJWT(appID string, privateKeyPEM []byte, now time.Time) (string, erro
 func basicAuth(user, pass string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 }
-
