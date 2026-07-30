@@ -45,14 +45,19 @@ function fmt(usd: number): string {
 interface ModelPoint {
   model: string;
   cost: number;
+  isOther?: boolean;
 }
 
-// Top 8 — one bar per chart token; never cycled.
+// One bar per chart token; models beyond the top bars aggregate into "Other"
+// so no spend is hidden and series colours are never cycled.
 function toPoints(costByModel: AnalyticsCostByModel[]): ModelPoint[] {
-  return [...costByModel]
+  const sorted = [...costByModel]
     .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd)
-    .slice(0, BAR_COLORS.length)
     .map((m) => ({ model: m.model_id, cost: m.estimated_cost_usd }));
+  if (sorted.length <= BAR_COLORS.length) return sorted;
+  const head = sorted.slice(0, BAR_COLORS.length - 1);
+  const rest = sorted.slice(BAR_COLORS.length - 1);
+  return [...head, { model: 'Other', cost: rest.reduce((s, p) => s + p.cost, 0), isOther: true }];
 }
 
 export function AnalyticsCostByModelChart({
@@ -123,7 +128,10 @@ export function AnalyticsCostByModelChart({
             />
             <Bar dataKey="cost" isAnimationActive={false}>
               {data.map((entry, index) => (
-                <Cell key={`cell-${entry.model}`} fill={BAR_COLORS[index]} />
+                <Cell
+                  key={`cell-${entry.model}`}
+                  fill={entry.isOther ? COLORS.subtle : BAR_COLORS[index]}
+                />
               ))}
             </Bar>
           </BarChart>
