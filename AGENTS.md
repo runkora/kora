@@ -265,6 +265,11 @@ When implementing Orbit components:
 - **Credential Brokering**: Never expose raw credentials to agents; use scoped, temporary access
 - **Identity Context**: Carry identity context through the entire execution chain via `context.Context`
 - **Repository Pattern**: Define repository interfaces in feature packages, implement with PostgreSQL in the same package
+- **A component takes the interface it calls, never the union**: a feature's full `Repository` exists for wiring, so `main.go` can construct one thing. It must not appear as a parameter type. Each component declares the narrowest interface listing exactly the methods it uses, next to the component, unexported. The Postgres implementation satisfies them without being told.
+
+  This is the difference between a 15-line fake and a 1,200-line one, and it is why test-support files grow without bound: a constructor that asks for a 56-method union forces every test that builds it to implement all 56, whatever the test is about. `internal/triggers/outcomes.go` is the worked example: it writes outcome rows and calls two of `DeliveryStore`'s twelve methods, so it declares those two.
+
+  The pressure to take the union comes from a type that spans several concerns and therefore needs everything. When a component genuinely needs most of a union, that is the signal to split the component, not to widen the interface.
 - **Feature Independence**: Features must not import each other; share only through `internal/platform/`
 - **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
