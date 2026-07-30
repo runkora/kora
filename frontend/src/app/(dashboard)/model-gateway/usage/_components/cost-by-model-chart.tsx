@@ -98,7 +98,7 @@ export function CostByModelChart() {
               {data.map((entry, index) => (
                 <Cell
                   key={`cell-${entry.model}`}
-                  fill={entry.isOther ? 'var(--color-subtle)' : MODEL_BAR_COLORS[index]}
+                  fill={entry.isOther ? COLORS.subtle : MODEL_BAR_COLORS[index]}
                 />
               ))}
             </Bar>
