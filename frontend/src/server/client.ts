@@ -12,28 +12,9 @@ import { config } from './config';
 // Error types
 // ---------------------------------------------------------------------------
 
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+import { ApiError } from './api-error';
 
-  get isNotFound() {
-    return this.status === 404;
-  }
-
-  get isConflict() {
-    return this.status === 409;
-  }
-
-  get isUnauthorized() {
-    return this.status === 401;
-  }
-}
+export { ApiError } from './api-error';
 
 // ---------------------------------------------------------------------------
 // Backend error shape (Go backend returns errors at the top level, not nested)

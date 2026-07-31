@@ -49,13 +49,13 @@ import {
   matchConditionFrom,
   validateFilters,
 } from './trigger-wizard/wizard-state';
-import { resolveBrowserZone, timezoneOptions } from './trigger-wizard/cron';
 import {
-  filtersFromMatchCondition,
+  describeCron,
   isValidCron,
-  manualInputsCatalog,
-  sameFilters,
-} from './trigger-edit';
+  resolveBrowserZone,
+  timezoneOptions,
+} from './trigger-wizard/cron';
+import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import type { EditFilterRow } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 
@@ -120,21 +120,6 @@ function formatTime(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return iso;
   // "28 Jul 2026, 08:30" reads at a glance; seconds are noise at this grain.
   return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}`;
-}
-
-/** Renders a cron expression as something a person can check at a glance. */
-function describeCron(expr: string): string {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return 'Custom schedule';
-  const [min, hour, dom, mon, dow] = parts;
-  if (min === '0' && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
-    return 'Every hour, on the hour';
-  }
-  if (dom === '*' && mon === '*' && dow === '*' && /^\d+$/.test(hour) && /^\d+$/.test(min)) {
-    return `Every day at ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
-  }
-  if (min.startsWith('*/')) return `Every ${min.slice(2)} minutes`;
-  return 'Custom schedule';
 }
 
 /**

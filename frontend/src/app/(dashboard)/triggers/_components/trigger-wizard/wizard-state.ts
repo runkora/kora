@@ -20,6 +20,25 @@ import type {
 export const VALID: StepValidation = { valid: true };
 
 /**
+ * Wraps a kind's own first-step checks with the two every kind shares: the
+ * name before, the prompt after. The order is deliberate and preserved from
+ * when each kind spelled it out — the hint tracks the top-to-bottom order of
+ * the fields on screen, so the first unmet requirement the person sees is the
+ * first one reported.
+ */
+export function validateNamedPromptStep(
+  state: WizardState,
+  inner: (state: WizardState) => StepValidation,
+): StepValidation {
+  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
+  const kind = inner(state);
+  if (!kind.valid) return kind;
+  if (!state.promptTemplate.trim())
+    return { valid: false, hint: 'Write the prompt the run starts with.' };
+  return VALID;
+}
+
+/**
  * Derives the API-visible variable key from a field's label. Keys must be
  * stable snake_case identifiers because callers hard-code them in request
  * bodies; the label is free text the console shows.

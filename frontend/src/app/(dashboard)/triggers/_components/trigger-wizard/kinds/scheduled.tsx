@@ -22,7 +22,6 @@ import {
   Stack,
   Text,
   ToggleRow,
-  TemplateField,
 } from '@orbit/terra';
 import {
   FREQS,
@@ -36,7 +35,8 @@ import {
   toggleWeekday,
 } from '../cron';
 import type { Frequency } from '../cron';
-import { VALID } from '../wizard-state';
+import { VALID, validateNamedPromptStep } from '../wizard-state';
+import { PromptField, TriggerNameField } from '../shared-fields';
 import { useSchedulePreview } from '../use-schedule-preview';
 import { scheduledCatalog, toTemplateCatalog } from '../field-catalog';
 import type {
@@ -64,21 +64,12 @@ function StepSchedule({ state, patch }: StepComponentProps) {
 
   return (
     <Stack gap="relaxed">
-      <FormField
-        label="Trigger name"
-        id="wizard-name"
+      <TriggerNameField
+        value={state.name}
+        onChange={(name) => patch({ name })}
         hint="Shown in the triggers list and on every fire."
-        required
-      >
-        <Input
-          id="wizard-name"
-          mono
-          value={state.name}
-          onChange={(e) => patch({ name: e.target.value })}
-          placeholder="nightly-report"
-          maxLength={128}
-        />
-      </FormField>
+        placeholder="nightly-report"
+      />
 
       <Stack gap="snug">
         <SectionLabel>How often</SectionLabel>
@@ -320,33 +311,24 @@ function StepSchedule({ state, patch }: StepComponentProps) {
         onChange={(next) => patch({ catchUp: next })}
       />
 
-      <FormField
-        label="Prompt"
-        id="wizard-prompt"
+      <PromptField
+        value={state.promptTemplate}
+        onChange={(next) => patch({ promptTemplate: next })}
         hint="What the run starts with. Every fire uses this prompt."
-        required
-      >
-        <TemplateField
-          id="wizard-prompt"
-          aria-label="Prompt"
-          value={state.promptTemplate}
-          onChange={(next) => patch({ promptTemplate: next })}
-          catalog={toTemplateCatalog(scheduledCatalog())}
-          catalogLabel={'Filled by the scheduler at each fire.'}
-          placeholder="Summarise yesterday's failed deliveries and open an issue for anything unresolved."
-        />
-      </FormField>
+        catalog={toTemplateCatalog(scheduledCatalog())}
+        catalogLabel="Filled by the scheduler at each fire."
+        placeholder="Summarise yesterday's failed deliveries and open an issue for anything unresolved."
+      />
     </Stack>
   );
 }
 
 function validateSchedule(state: WizardState) {
-  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
-  if (!cronFor(state).trim())
-    return { valid: false, hint: 'The schedule does not resolve to a cron expression.' };
-  if (!state.promptTemplate.trim())
-    return { valid: false, hint: 'Write the prompt the run starts with.' };
-  return VALID;
+  return validateNamedPromptStep(state, (s) => {
+    if (!cronFor(s).trim())
+      return { valid: false, hint: 'The schedule does not resolve to a cron expression.' };
+    return VALID;
+  });
 }
 
 function DoneContent({ state }: DoneContentProps) {

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  filtersFromMatchCondition,
-  isValidCron,
-  manualInputsCatalog,
-  sameFilters,
-} from './trigger-edit';
+import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 
 describe('filtersFromMatchCondition', () => {
   it('turns a stored condition back into editable rows', () => {
@@ -62,30 +57,6 @@ describe('manualInputsCatalog', () => {
   it('is empty when the trigger declares nothing', () => {
     expect(manualInputsCatalog(undefined)).toEqual([]);
     expect(manualInputsCatalog([])).toEqual([]);
-  });
-});
-
-describe('isValidCron', () => {
-  it('accepts five-field expressions', () => {
-    expect(isValidCron('0 2 * * *')).toBe(true);
-    expect(isValidCron('*/15 * * * *')).toBe(true);
-    expect(isValidCron('0 9 * * 1-5')).toBe(true);
-    expect(isValidCron('30 3 1 * *')).toBe(true);
-  });
-
-  it('tolerates surrounding and repeated whitespace', () => {
-    expect(isValidCron('  0   2 * * *  ')).toBe(true);
-  });
-
-  it('rejects the wrong number of fields', () => {
-    expect(isValidCron('')).toBe(false);
-    expect(isValidCron('0 2 * *')).toBe(false);
-    expect(isValidCron('0 2 * * * *')).toBe(false);
-  });
-
-  it('rejects a field with characters no cron field carries', () => {
-    expect(isValidCron('0 2 * * every-day!')).toBe(false);
-    expect(isValidCron('0 2 * * $')).toBe(false);
   });
 });
 

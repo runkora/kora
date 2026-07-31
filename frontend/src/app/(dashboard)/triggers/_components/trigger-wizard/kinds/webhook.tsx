@@ -15,16 +15,16 @@ import {
   Stack,
   Text,
   FieldRow,
-  TemplateField,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
 import {
-  VALID,
   describeMatchCondition,
   matchConditionFrom,
   validateFilters,
+  validateNamedPromptStep,
 } from '../wizard-state';
+import { PromptField, TriggerNameField } from '../shared-fields';
 import { catalogPatterns, webhookCatalog, toTemplateCatalog } from '../field-catalog';
 import { FilterRowsEditor } from '../../filter-rows-editor';
 import { PROVIDER_EVENTS } from '../../../_types';
@@ -63,21 +63,12 @@ function StepSource({ state, patch, context }: StepComponentProps) {
 
   return (
     <Stack gap="relaxed">
-      <FormField
-        label="Trigger name"
-        id="wizard-name"
+      <TriggerNameField
+        value={state.name}
+        onChange={(name) => patch({ name })}
         hint="Shown in the triggers list and on every delivery."
-        required
-      >
-        <Input
-          id="wizard-name"
-          mono
-          value={state.name}
-          onChange={(e) => patch({ name: e.target.value })}
-          placeholder="github-push"
-          maxLength={128}
-        />
-      </FormField>
+        placeholder="github-push"
+      />
 
       <Stack gap="cozy">
         <Stack gap="tight">
@@ -208,44 +199,33 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         />
       </Stack>
 
-      <FormField
-        label="Prompt"
-        id="wizard-prompt"
+      <PromptField
+        value={state.promptTemplate}
+        onChange={(next) => patch({ promptTemplate: next })}
         hint="What the run starts with. Fields are filled from the delivery that fires it."
-        required
-      >
-        <TemplateField
-          id="wizard-prompt"
-          aria-label="Prompt"
-          value={state.promptTemplate}
-          onChange={(next) => patch({ promptTemplate: next })}
-          catalog={toTemplateCatalog(catalog, catalogPatterns(provider))}
-          catalogLabel={
-            state.eventType
-              ? `Fields on ${state.eventType} deliveries from this source.`
-              : 'Fields across every event this source sends; per-event fields are empty on other events.'
-          }
-          placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
-        />
-      </FormField>
+        catalog={toTemplateCatalog(catalog, catalogPatterns(provider))}
+        catalogLabel={
+          state.eventType
+            ? `Fields on ${state.eventType} deliveries from this source.`
+            : 'Fields across every event this source sends; per-event fields are empty on other events.'
+        }
+        placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
+      />
     </Stack>
   );
 }
 
 function validateSource(state: WizardState) {
-  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
-  if (state.sourceChoice === NEW_SOURCE) {
-    if (!state.newSourceName.trim())
-      return { valid: false, hint: 'Name the source you are creating.' };
-    if (!state.newSourceProvider) return { valid: false, hint: 'Choose a provider.' };
-  } else if (!state.sourceChoice) {
-    return { valid: false, hint: 'Choose where deliveries come from.' };
-  }
-  const filters = validateFilters(state.filters);
-  if (!filters.valid) return filters;
-  if (!state.promptTemplate.trim())
-    return { valid: false, hint: 'Write the prompt the run starts with.' };
-  return VALID;
+  return validateNamedPromptStep(state, (s) => {
+    if (s.sourceChoice === NEW_SOURCE) {
+      if (!s.newSourceName.trim())
+        return { valid: false, hint: 'Name the source you are creating.' };
+      if (!s.newSourceProvider) return { valid: false, hint: 'Choose a provider.' };
+    } else if (!s.sourceChoice) {
+      return { valid: false, hint: 'Choose where deliveries come from.' };
+    }
+    return validateFilters(s.filters);
+  });
 }
 
 function DoneContent({ context, endpoint, secret }: DoneContentProps) {

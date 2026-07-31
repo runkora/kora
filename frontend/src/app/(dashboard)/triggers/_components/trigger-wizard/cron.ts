@@ -155,3 +155,78 @@ export function resolveBrowserZone(): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * Whether an expression is a 5-field cron the scheduler will accept.
+ *
+ * Deliberately shallow: it checks the shape, not the semantics of each field,
+ * because the scheduler is the authority on what a field may contain and a
+ * stricter guess here would reject expressions that actually work.
+ */
+export function isValidCron(expr: string): boolean {
+  const parts = expr.trim().split(/\s+/).filter(Boolean);
+  if (parts.length !== 5) return false;
+  return parts.every((part) => /^[0-9*,/\-a-zA-Z?]+$/.test(part));
+}
+
+const NUMERIC = /^\d+$/;
+
+/**
+ * Parses a 5-field expression back into the builder's vocabulary, when it fits
+ * one of the shapes the builder can produce. Returns null for anything else —
+ * a range, a month restriction, a raw expression someone typed — which the
+ * caller renders as 'Custom schedule' rather than guessing at.
+ */
+export function specFromCron(expr: string): CronSpec | null {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [min, hour, dom, mon, dow] = parts as [string, string, string, string, string];
+  if (mon !== '*') return null;
+
+  const base: CronSpec = {
+    freq: 'custom',
+    interval: '',
+    atMinute: '',
+    time: '',
+    weekdays: [],
+    dom: '',
+    customCron: expr,
+  };
+  const time = () => `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+
+  if (
+    min.startsWith('*/') &&
+    NUMERIC.test(min.slice(2)) &&
+    hour === '*' &&
+    dom === '*' &&
+    dow === '*'
+  ) {
+    return { ...base, freq: 'minutes', interval: min.slice(2) };
+  }
+  if (NUMERIC.test(min) && hour === '*' && dom === '*' && dow === '*') {
+    return { ...base, freq: 'hourly', atMinute: min };
+  }
+  if (!NUMERIC.test(min) || !NUMERIC.test(hour)) return null;
+  if (dom === '*' && dow === '*') {
+    return { ...base, freq: 'daily', time: time() };
+  }
+  if (dom === '*' && dow !== '*') {
+    const days = dow.split(',');
+    if (!days.every((d) => NUMERIC.test(d) && Number(d) >= 0 && Number(d) <= 6)) return null;
+    return { ...base, freq: 'weekly', time: time(), weekdays: days.map(Number) };
+  }
+  if (dow === '*' && NUMERIC.test(dom)) {
+    return { ...base, freq: 'monthly', time: time(), dom };
+  }
+  return null;
+}
+
+/**
+ * One sentence for a stored expression, phrased exactly as the builder would
+ * phrase it. Shared by the drawer and the wizard through humanFor, so the same
+ * schedule can never read differently on two surfaces.
+ */
+export function describeCron(expr: string): string {
+  const spec = specFromCron(expr);
+  return spec === null || spec.freq === 'custom' ? 'Custom schedule' : humanFor(spec);
+}

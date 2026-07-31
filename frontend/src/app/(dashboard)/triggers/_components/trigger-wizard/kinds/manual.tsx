@@ -9,7 +9,6 @@ import {
   CardContent,
   CodeBlock,
   FieldRow,
-  FormField,
   Grid,
   Icon,
   Input,
@@ -18,10 +17,17 @@ import {
   Stack,
   Text,
   ToggleRow,
-  TemplateField,
 } from '@orbit/terra';
 import { CopyButton } from '@orbit/components';
-import { VALID, deriveFieldKey, newField, previewBody, resolvedFields } from '../wizard-state';
+import {
+  VALID,
+  deriveFieldKey,
+  newField,
+  previewBody,
+  resolvedFields,
+  validateNamedPromptStep,
+} from '../wizard-state';
+import { PromptField, TriggerNameField } from '../shared-fields';
 import { manualCatalog, toTemplateCatalog } from '../field-catalog';
 import type {
   DoneContentProps,
@@ -60,21 +66,12 @@ function StepInputs({ state, patch }: StepComponentProps) {
 
   return (
     <Stack gap="relaxed">
-      <FormField
-        label="Trigger name"
-        id="wizard-name"
+      <TriggerNameField
+        value={state.name}
+        onChange={(name) => patch({ name })}
         hint="Shown in the triggers list and to anyone who can fire it."
-        required
-      >
-        <Input
-          id="wizard-name"
-          mono
-          value={state.name}
-          onChange={(e) => patch({ name: e.target.value })}
-          placeholder="run-analysis"
-          maxLength={128}
-        />
-      </FormField>
+        placeholder="run-analysis"
+      />
 
       <Stack gap="cozy">
         <Stack direction="horizontal" align="center" justify="between">
@@ -188,33 +185,24 @@ function StepInputs({ state, patch }: StepComponentProps) {
         </Stack>
       </Grid>
 
-      <FormField
-        label="Prompt"
-        id="wizard-prompt"
+      <PromptField
+        value={state.promptTemplate}
+        onChange={(next) => patch({ promptTemplate: next })}
         hint="What the run starts with. The declared inputs fill the fields."
-        required
-      >
-        <TemplateField
-          id="wizard-prompt"
-          aria-label="Prompt"
-          value={state.promptTemplate}
-          onChange={(next) => patch({ promptTemplate: next })}
-          catalog={toTemplateCatalog(manualCatalog(state.fields))}
-          catalogLabel={'Your declared inputs; add fields above to extend this list.'}
-          placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
-        />
-      </FormField>
+        catalog={toTemplateCatalog(manualCatalog(state.fields))}
+        catalogLabel="Your declared inputs; add fields above to extend this list."
+        placeholder="Answer {{ var.question }} using the {{ var.dataset }} dataset."
+      />
     </Stack>
   );
 }
 
 function validateInputs(state: WizardState) {
-  if (!state.name.trim()) return { valid: false, hint: 'Give the trigger a name.' };
-  if (!state.fields.some((f) => f.label.trim()))
-    return { valid: false, hint: 'Add at least one field with a label.' };
-  if (!state.promptTemplate.trim())
-    return { valid: false, hint: 'Write the prompt the run starts with.' };
-  return VALID;
+  return validateNamedPromptStep(state, (s) => {
+    if (!s.fields.some((f) => f.label.trim()))
+      return { valid: false, hint: 'Add at least one field with a label.' };
+    return VALID;
+  });
 }
 
 function DoneContent({ triggerId }: DoneContentProps) {

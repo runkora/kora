@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { cronFor, humanFor, ordinal, timezoneOptions, toggleWeekday, type CronSpec } from './cron';
+import {
+  cronFor,
+  describeCron,
+  humanFor,
+  isValidCron,
+  ordinal,
+  timezoneOptions,
+  toggleWeekday,
+  type CronSpec,
+} from './cron';
 
 function spec(overrides: Partial<CronSpec> = {}): CronSpec {
   return {
@@ -159,5 +168,47 @@ describe('timezoneOptions', () => {
 
   it('tolerates an unknown browser zone', () => {
     expect(timezoneOptions(undefined)).toEqual(['UTC', 'Europe/London', 'Australia/Sydney']);
+  });
+});
+
+describe('isValidCron', () => {
+  it('accepts five-field expressions', () => {
+    expect(isValidCron('0 2 * * *')).toBe(true);
+    expect(isValidCron('*/15 * * * *')).toBe(true);
+    expect(isValidCron('0 9 * * 1-5')).toBe(true);
+    expect(isValidCron('30 3 1 * *')).toBe(true);
+  });
+
+  it('tolerates surrounding and repeated whitespace', () => {
+    expect(isValidCron('  0   2 * * *  ')).toBe(true);
+  });
+
+  it('rejects the wrong number of fields', () => {
+    expect(isValidCron('')).toBe(false);
+    expect(isValidCron('0 2 * *')).toBe(false);
+    expect(isValidCron('0 2 * * * *')).toBe(false);
+  });
+
+  it('rejects a field with characters no cron field carries', () => {
+    expect(isValidCron('0 2 * * every-day!')).toBe(false);
+    expect(isValidCron('0 2 * * $')).toBe(false);
+  });
+});
+
+describe('describeCron', () => {
+  it('phrases a stored expression exactly as the builder would', () => {
+    expect(describeCron('*/15 * * * *')).toBe('Every 15 minutes');
+    expect(describeCron('0 * * * *')).toBe('Every hour at the top of the hour');
+    expect(describeCron('15 * * * *')).toBe('Every hour at 15 minutes past');
+    expect(describeCron('0 2 * * *')).toBe('Every day at 02:00');
+    expect(describeCron('30 9 * * 1,2,3,4,5')).toBe('Every week on weekdays at 09:30');
+    expect(describeCron('0 3 1 * *')).toBe('Monthly on the 1st at 03:00');
+  });
+
+  it('falls back to Custom schedule for shapes the builder cannot produce', () => {
+    expect(describeCron('0 9 * * 1-5')).toBe('Custom schedule');
+    expect(describeCron('0 2 1 6 *')).toBe('Custom schedule');
+    expect(describeCron('not a cron')).toBe('Custom schedule');
+    expect(describeCron('')).toBe('Custom schedule');
   });
 });

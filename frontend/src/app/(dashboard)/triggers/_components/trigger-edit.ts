@@ -57,19 +57,6 @@ export function manualInputsCatalog(inputs: InputField[] | undefined): FieldCata
   );
 }
 
-/**
- * Whether an expression is a 5-field cron the scheduler will accept.
- *
- * Deliberately shallow: it checks the shape, not the semantics of each field,
- * because the scheduler is the authority on what a field may contain and a
- * stricter guess here would reject expressions that actually work.
- */
-export function isValidCron(expr: string): boolean {
-  const parts = expr.trim().split(/\s+/).filter(Boolean);
-  if (parts.length !== 5) return false;
-  return parts.every((part) => /^[0-9*,/\-a-zA-Z?]+$/.test(part));
-}
-
 /** Whether two filter row lists carry the same content. */
 export function sameFilters(a: EditFilterRow[], b: EditFilterRow[]): boolean {
   if (a.length !== b.length) return false;
