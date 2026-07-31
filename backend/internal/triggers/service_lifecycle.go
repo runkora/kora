@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -106,20 +105,9 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 
 // rollbackGrants deletes grants created for a trigger that then failed to
 // persist, so a failed create leaves no authority behind.
-//
-// Cleanup failures are logged rather than returned: the caller's error is the
-// one that matters, and a leaked grant is an operational cleanup, not a reason
-// to tell the caller something different about their request.
 func (s *TriggerService) rollbackGrants(ctx context.Context, triggerID string, grantIDs []string) {
-	for _, id := range grantIDs {
-		if err := s.policy.DeleteGrant(ctx, id); err != nil {
-			s.logger.Error(ctx, "trigger create failed and grant cleanup failed",
-				logging.Field{Key: "trigger_id", Value: triggerID},
-				logging.Field{Key: "grant_id", Value: id},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}
+	deleteGrantsBestEffort(ctx, s.policy, s.logger, "trigger create failed and grant cleanup failed",
+		grantIDs, logging.Field{Key: "trigger_id", Value: triggerID})
 }
 
 // createWebhookTrigger creates a trigger on an existing webhook source.
@@ -278,20 +266,21 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 	return s.readBackTrigger(ctx, t), nil
 }
 
-// readBackTrigger returns the trigger as it was actually stored.
+// readBackTrigger returns the trigger as it was actually stored, after a
+// create or an update.
 //
-// The in-memory struct a create was built from is not the row: the repository
+// The in-memory struct a write was built from is not the row: the repository
 // fills in the per-kind admission defaults for everything the caller left unset,
 // and created_at/updated_at are the database's. Returning the struct meant a
 // create response carrying max_parallel 0 and a created_at of year one, which a
 // console renders and a caller may echo straight back into a PATCH.
 //
-// Falls back to the in-memory trigger if the read fails: the trigger exists and
-// the create succeeded, so a failure here is a worse response, not a failure.
+// Falls back to the in-memory trigger if the read fails: the write itself
+// succeeded, so a failure here is a worse response, not a failure.
 func (s *TriggerService) readBackTrigger(ctx context.Context, t *Trigger) *Trigger {
 	stored, err := s.repo.GetTrigger(ctx, t.TenantID, t.ID)
 	if err != nil {
-		s.logger.Warn(ctx, "could not read back the created trigger; returning the requested values",
+		s.logger.Warn(ctx, "could not read back the stored trigger; returning the requested values",
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -345,22 +334,9 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	}
 
 	// Re-read so the response is the stored row, not the in-memory one the
-	// write was built from: the repository applies per-kind defaults for
-	// anything left unset, and updated_at is the database's. A caller that
-	// echoes this back into their next PATCH must not be echoing values that
-	// were never stored.
-	//
-	// Falls back to the in-memory trigger if the read fails: the update was
-	// stored, so a failure here is a worse response, not a failed update.
-	stored, err := s.repo.GetTrigger(ctx, tenantID, id)
-	if err != nil {
-		s.logger.Warn(ctx, "could not read back the updated trigger; returning the requested values",
-			logging.Field{Key: "trigger_id", Value: id},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return t, nil
-	}
-	return stored, nil
+	// write was built from — same reasoning as after create, and the same
+	// helper, so the update path cannot drift from it.
+	return s.readBackTrigger(ctx, t), nil
 }
 
 // applyTriggerEdits copies the request's plain fields onto the trigger. Omitted
@@ -424,18 +400,14 @@ func (s *TriggerService) DeleteTrigger(ctx context.Context, tenantID, id string)
 	if s.admission != nil {
 		_, _ = s.admission.Drain(ctx, *t, "the trigger was deleted while this fire was waiting")
 	}
+	var grantIDs []string
 	for _, gid := range []*string{t.GrantID, t.GrantIDSvc} {
-		if gid == nil {
-			continue
-		}
-		if delErr := s.policy.DeleteGrant(ctx, *gid); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
-			s.logger.Error(ctx, "failed to delete trigger grant",
-				logging.Field{Key: "trigger_id", Value: id},
-				logging.Field{Key: "grant_id", Value: *gid},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
+		if gid != nil {
+			grantIDs = append(grantIDs, *gid)
 		}
 	}
+	deleteGrantsBestEffort(ctx, s.policy, s.logger, "failed to delete trigger grant",
+		grantIDs, logging.Field{Key: "trigger_id", Value: id})
 	return s.repo.DeleteTrigger(ctx, tenantID, id)
 }
 
@@ -490,27 +462,23 @@ func (s *TriggerService) resolveAgentType(ctx context.Context, tenantID, princip
 	// attempt for that path. ErrForbidden means "not visible yet" and is
 	// retried; ErrAgentTypeNotFound means "genuinely absent" and fails fast.
 	var at agentsclient.AgentType
-	backoff := agentTypeRetryInitialBackoff
-	deadline := time.Now().Add(agentTypeRetryBudget)
-	for {
-		at, err = s.agents.GetAgentType(ctx, tok, agentTypeID)
-		if err == nil {
-			return &at, nil
-		}
-		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) {
-			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-		}
-		if !errors.Is(err, agentsclient.ErrForbidden) || time.Now().Add(backoff).After(deadline) {
-			if errors.Is(err, agentsclient.ErrForbidden) {
-				return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-			}
-			return nil, fmt.Errorf("resolve agent type: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("resolve agent type: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-		backoff *= 2
+	err = retryWhileGrantPropagates(ctx,
+		func(err error) bool { return errors.Is(err, agentsclient.ErrForbidden) },
+		nil,
+		func() error {
+			var getErr error
+			at, getErr = s.agents.GetAgentType(ctx, tok, agentTypeID)
+			return getErr
+		})
+	switch {
+	case err == nil:
+		return &at, nil
+	// Cross-tenant and still-forbidden both answer "not found in this tenant":
+	// a caller who names an agent type belonging to someone else learns nothing
+	// about whether it exists.
+	case errors.Is(err, agentsclient.ErrAgentTypeNotFound), errors.Is(err, agentsclient.ErrForbidden):
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+	default:
+		return nil, fmt.Errorf("resolve agent type: %w", err)
 	}
 }

@@ -169,6 +169,16 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		return AdmitPaused, nil
 	}
 
+	// One pending row, built once: both enqueue paths below store the same
+	// thing, so a field added to it cannot reach one and miss the other.
+	pending := &PendingDelivery{
+		ID:         newID(),
+		TenantID:   t.TenantID,
+		TriggerID:  t.ID,
+		DeliveryID: deliveryID,
+		Fields:     fields,
+	}
+
 	switch t.Overflow {
 	case OverflowReplace:
 		// Displace anything already waiting: if the previous fire has not run
@@ -192,13 +202,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		// pass it before either inserted. A person told "not now" can retry; a
 		// person told "accepted" and then made to wait cannot tell the
 		// difference from a stall.
-		admitted, err := a.repo.EnqueueWithinCeiling(ctx, &PendingDelivery{
-			ID:         newID(),
-			TenantID:   t.TenantID,
-			TriggerID:  t.ID,
-			DeliveryID: deliveryID,
-			Fields:     fields,
-		}, int(t.MaxParallel))
+		admitted, err := a.repo.EnqueueWithinCeiling(ctx, pending, int(t.MaxParallel))
 		if err != nil {
 			return AdmitDropped, fmt.Errorf("admit within ceiling: %w", err)
 		}
@@ -220,13 +224,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		}
 	}
 
-	if err := a.repo.EnqueuePending(ctx, &PendingDelivery{
-		ID:         newID(),
-		TenantID:   t.TenantID,
-		TriggerID:  t.ID,
-		DeliveryID: deliveryID,
-		Fields:     fields,
-	}); err != nil {
+	if err := a.repo.EnqueuePending(ctx, pending); err != nil {
 		return AdmitDropped, fmt.Errorf("enqueue pending: %w", err)
 	}
 	return AdmitEnqueued, nil

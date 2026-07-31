@@ -12,6 +12,13 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// Delivery listing bounds. An out-of-range ask gets the default page rather
+// than an error: the limit shapes a read, it does not change what exists.
+const (
+	defaultDeliveryPageSize = 100
+	maxDeliveryPageSize     = 500
+)
+
 // buildManualDelivery is the delivery row a manual fire produces, whether it
 // came from a person pressing fire or from a replay of one that already did.
 //
@@ -69,12 +76,9 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	if t.Kind != KindManual {
 		return nil, fmt.Errorf("%w: only manual triggers can be fired directly", ErrWrongKind)
 	}
-	// A trigger a person turned off is refused here, with nothing recorded: they
-	// asked for silence. A trigger the PLATFORM paused is carried through to
-	// admission instead, which records 'paused' against the fire — otherwise an
-	// auto-paused trigger and a deleted one look identical in the history, which
-	// is the whole point of distinguishing them.
-	if !t.Enabled && t.AutoPausedAt == nil {
+	// A person's OFF is refused with nothing recorded; a platform pause is
+	// carried through to admission. See Trigger.DisabledByPerson for why.
+	if t.DisabledByPerson() {
 		return nil, ErrTriggerDisabled
 	}
 
@@ -213,6 +217,12 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 // ListDeliveries returns recent deliveries for a tenant, each with its full
 // per-trigger run fan-out attached (one batched query, no N+1).
 func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
+	// The page-size bounds are business policy, so they live here rather than
+	// in the storage layer: an unset limit gets the default page, and a caller
+	// cannot ask for more than the ceiling.
+	if filter.Limit <= 0 || filter.Limit > maxDeliveryPageSize {
+		filter.Limit = defaultDeliveryPageSize
+	}
 	deliveries, err := s.repo.ListDeliveries(ctx, tenantID, filter)
 	if err != nil {
 		return nil, err
@@ -353,10 +363,9 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 		return nil, err
 	}
 	// Auto-paused is allowed through: replaying after fixing the cause is the
-	// common case, and admission records whatever it then decides. A trigger a
-	// person turned off is not: that is a decision to respect, not to work
-	// around with a replay.
-	if !t.Enabled && t.AutoPausedAt == nil {
+	// common case, and admission records whatever it then decides. A person's
+	// OFF is not worked around with a replay (Trigger.DisabledByPerson).
+	if t.DisabledByPerson() {
 		return nil, fmt.Errorf("%w: the trigger this delivery fired is disabled", ErrNotRedeliverable)
 	}
 

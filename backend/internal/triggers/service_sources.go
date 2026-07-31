@@ -2,7 +2,6 @@ package triggers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -108,13 +107,8 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		SecretCiphertext: ciphertext,
 	}
 	if err := s.repo.CreateSource(ctx, src); err != nil {
-		if delErr := s.policy.DeleteGrant(ctx, grantID); delErr != nil {
-			s.logger.Error(ctx, "source create failed and grant cleanup failed",
-				logging.Field{Key: "source_id", Value: id},
-				logging.Field{Key: "grant_id", Value: grantID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
+		deleteGrantsBestEffort(ctx, s.policy, s.logger, "source create failed and grant cleanup failed",
+			[]string{grantID}, logging.Field{Key: "source_id", Value: id})
 		return nil, err
 	}
 
@@ -221,14 +215,12 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+	grantIDs := make([]string, 0, len(grants))
 	for _, g := range grants {
-		if delErr := s.policy.DeleteGrant(ctx, g.ID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
-			s.logger.Error(ctx, "failed to delete source grant",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
+		grantIDs = append(grantIDs, g.ID)
 	}
+	deleteGrantsBestEffort(ctx, s.policy, s.logger, "failed to delete source grant",
+		grantIDs, logging.Field{Key: "source_id", Value: id})
 	return s.repo.DeleteSource(ctx, tenantID, id)
 }
 

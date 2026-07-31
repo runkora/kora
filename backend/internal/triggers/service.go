@@ -140,7 +140,6 @@ func NewService(
 // NewSecretCipherFromKey exposes secretCipher construction to the binary wiring.
 func NewSecretCipherFromKey(key []byte) (*secretCipher, error) { return newSecretCipher(key) }
 
-// WebhookPath returns the inbound webhook path for a source id.
 // ─── Payload retention ────────────────────────────────────────────────────────
 
 // GetRetention returns a tenant's payload retention window.
@@ -340,49 +339,46 @@ func applyAdmissionCreate(t *Trigger, req CreateTriggerRequest) error {
 	return nil
 }
 
-func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
+// validateCommonTriggerCreate checks what every kind requires — a name, an
+// agent binding, a prompt — plus the free-text bounds and admission settings.
+// Each kind's validator adds only its own clause on top, so a new common
+// requirement is one edit here, not one per kind.
+func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
 		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.SourceID == "":
-		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
 	case req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	// An empty event_type is legal and means "any event this source emits";
-	// dispatch treats '' as match-all.
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
 	}
 	return validateAdmissionCreate(req)
 }
 
-func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
-	switch {
-	case strings.TrimSpace(req.Name) == "":
-		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.AgentTypeID == "":
-		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	case strings.TrimSpace(req.PromptTemplate) == "":
-		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
-	case req.ScheduleConfig == nil:
-		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
-	}
-	if err := validateAdmissionCreate(req); err != nil {
+func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
+	}
+	// An empty event_type is legal and means "any event this source emits";
+	// dispatch treats '' as match-all.
+	if req.SourceID == "" {
+		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
+	}
+	return nil
+}
+
+func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	if req.ScheduleConfig == nil {
+		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
 	}
 	return validateScheduleConfig(req.ScheduleConfig)
 }
 
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
-	switch {
-	case strings.TrimSpace(req.Name) == "":
-		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.AgentTypeID == "":
-		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	case strings.TrimSpace(req.PromptTemplate) == "":
-		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
-	}
-	if err := validateAdmissionCreate(req); err != nil {
+	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
 	return validateManualInputs(req.ManualConfig)

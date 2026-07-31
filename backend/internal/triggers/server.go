@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -472,6 +471,7 @@ func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) 
 
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
+	var ive *InputValidationError
 	switch {
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
@@ -492,11 +492,9 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
-	case errors.As(err, new(*InputValidationError)):
+	case errors.As(err, &ive):
 		// Per-field detail so the console can mark the offending inputs rather
 		// than showing one opaque message.
-		var ive *InputValidationError
-		_ = errors.As(err, &ive)
 		details := make(map[string]any, len(ive.Problems))
 		for k, v := range ive.Problems {
 			details[k] = v
@@ -526,29 +524,6 @@ func principalFromCtx(ctx context.Context) string {
 	return claims.Subject
 }
 
-// SchedulePreviewRequest asks what a cron expression would actually do.
-type SchedulePreviewRequest struct {
-	ScheduleConfig *ScheduleConfig `json:"schedule_config"`
-}
-
-// SchedulePreviewResponse returns the upcoming fire times in the schedule's own
-// timezone, plus a human-readable rendering of each.
-type SchedulePreviewResponse struct {
-	NextFires []SchedulePreviewFire `json:"next_fires"`
-	Timezone  string                `json:"timezone"`
-}
-
-// SchedulePreviewFire is one upcoming fire.
-type SchedulePreviewFire struct {
-	At    time.Time `json:"at"`
-	Label string    `json:"label"`
-}
-
-// schedulePreviewCount is how many upcoming fires to show. Three is enough to
-// reveal the shape of a schedule (daily, weekdays, monthly) without becoming a
-// wall of timestamps.
-const schedulePreviewCount = 3
-
 // handleSchedulePreview answers "what will this actually do?" before a schedule
 // is saved.
 //
@@ -564,26 +539,10 @@ func (c *Controller) handleSchedulePreview(w http.ResponseWriter, r *http.Reques
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.ScheduleConfig == nil {
-		api.ErrorResponse(ctx, w, c.logger,
-			api.ValidationError(api.ErrCodeValidationFailed, "schedule_config is required", nil), nil)
-		return
-	}
-
-	fires, err := NextFires(req.ScheduleConfig, time.Now(), schedulePreviewCount)
+	preview, err := c.svc.SchedulePreview(req)
 	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger,
-			api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
+		c.writeServiceError(w, r, err)
 		return
 	}
-
-	out := make([]SchedulePreviewFire, 0, len(fires))
-	for _, f := range fires {
-		out = append(out, SchedulePreviewFire{At: f, Label: f.Format("Mon 2 Jan 2006, 15:04")})
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, SchedulePreviewResponse{
-		NextFires: out,
-		Timezone:  req.ScheduleConfig.Timezone,
-	})
+	api.JSON(ctx, w, c.logger, http.StatusOK, preview)
 }

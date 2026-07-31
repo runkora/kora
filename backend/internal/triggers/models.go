@@ -384,6 +384,19 @@ type Trigger struct {
 	PendingCount int `json:"pending_count"`
 }
 
+// DisabledByPerson reports whether a person turned this trigger off, as
+// opposed to the platform pausing it after sustained failure.
+//
+// The two are different answers to a fire. A person's OFF is a decision to
+// respect: refuse with nothing recorded, and never work around it with a
+// replay. The platform's pause is a state to surface: carry the fire through
+// to admission so it records 'paused', because otherwise an auto-paused
+// trigger and a deleted one look identical in the delivery history. One
+// predicate, so the two callers cannot drift on which is which.
+func (t *Trigger) DisabledByPerson() bool {
+	return !t.Enabled && t.AutoPausedAt == nil
+}
+
 // Delivery is the durable record of a trigger delivery and its outcome.
 // TriggerID/RunID summarize the first dispatched run; Runs carries the complete
 // per-trigger fan-out (one entry per matched trigger) and is populated on reads.
@@ -659,4 +672,24 @@ func (t Trigger) dispatchTimeout() time.Duration {
 		return dispatchTimeout
 	}
 	return time.Duration(t.TimeoutSeconds) * time.Second
+}
+
+// ─── Schedule preview ─────────────────────────────────────────────────────────
+
+// SchedulePreviewRequest asks what a cron expression would actually do.
+type SchedulePreviewRequest struct {
+	ScheduleConfig *ScheduleConfig `json:"schedule_config"`
+}
+
+// SchedulePreviewResponse returns the upcoming fire times in the schedule's own
+// timezone, plus a human-readable rendering of each.
+type SchedulePreviewResponse struct {
+	NextFires []SchedulePreviewFire `json:"next_fires"`
+	Timezone  string                `json:"timezone"`
+}
+
+// SchedulePreviewFire is one upcoming fire.
+type SchedulePreviewFire struct {
+	At    time.Time `json:"at"`
+	Label string    `json:"label"`
 }

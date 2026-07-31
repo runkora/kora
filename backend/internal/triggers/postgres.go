@@ -22,6 +22,57 @@ func NewPostgresRepository(pool *pgxpool.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
+// getOne runs a single-row query, mapping pgx.ErrNoRows to notFound and
+// wrapping anything else as "get {what}". One implementation of the
+// QueryRow→scan→sentinel dance the getters otherwise each hand-copy.
+func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFound error, scan func(pgx.Row) (*T, error), sql string, args ...any) (*T, error) {
+	v, err := scan(pool.QueryRow(ctx, sql, args...))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, notFound
+		}
+		return nil, fmt.Errorf("get %s: %w", what, err)
+	}
+	return v, nil
+}
+
+// queryList runs a query and scans one T per row, closing rows and checking
+// rows.Err. The Query→Next→Scan→Err loop appeared ten times in this file with
+// hand-copied wrap messages that drifted; `what` names the rows once for all
+// three wraps. The SQL stays at each call site — this is a scan helper, not a
+// query builder.
+func queryList[T any](ctx context.Context, pool *pgxpool.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
+	rows, err := pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list %s: %w", what, err)
+	}
+	defer rows.Close()
+
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan %s: %w", what, err)
+		}
+		out = append(out, *v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate %s: %w", what, err)
+	}
+	return out, nil
+}
+
+// deref returns the value a nullable column scanned into, or the zero value
+// for NULL. The read-side mirror of storage.NullIfZero: one spelling for the
+// hand-rolled `if p != nil` blocks the scanners each carried.
+func deref[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
+}
+
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
 func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource) error {
@@ -58,9 +109,7 @@ func scanSource(row pgx.Row) (*WebhookSource, error) {
 	); err != nil {
 		return nil, err
 	}
-	if lastRejectionReason != nil {
-		s.LastRejectionReason = *lastRejectionReason
-	}
+	s.LastRejectionReason = deref(lastRejectionReason)
 	if len(configJSON) > 0 {
 		if err := json.Unmarshal(configJSON, &s.Config); err != nil {
 			return nil, fmt.Errorf("unmarshal source config: %w", err)
@@ -70,48 +119,18 @@ func scanSource(row pgx.Row) (*WebhookSource, error) {
 }
 
 func (r *postgresRepository) GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error) {
-	row := r.pool.QueryRow(ctx, `SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	s, err := scanSource(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrSourceNotFound
-		}
-		return nil, fmt.Errorf("get webhook source: %w", err)
-	}
-	return s, nil
+	return getOne(ctx, r.pool, "webhook source", ErrSourceNotFound, scanSource,
+		`SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 }
 
 func (r *postgresRepository) GetSourceByID(ctx context.Context, id string) (*WebhookSource, error) {
-	row := r.pool.QueryRow(ctx, `SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1`, id)
-	s, err := scanSource(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrSourceNotFound
-		}
-		return nil, fmt.Errorf("get webhook source by id: %w", err)
-	}
-	return s, nil
+	return getOne(ctx, r.pool, "webhook source by id", ErrSourceNotFound, scanSource,
+		`SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1`, id)
 }
 
 func (r *postgresRepository) ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list webhook sources: %w", err)
-	}
-	defer rows.Close()
-
-	var out []WebhookSource
-	for rows.Next() {
-		s, err := scanSource(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan webhook source: %w", err)
-		}
-		out = append(out, *s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate webhook sources: %w", err)
-	}
-	return out, nil
+	return queryList(ctx, r.pool, "webhook sources", scanSource,
+		`SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 }
 
 func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource) error {
@@ -185,12 +204,8 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 	); err != nil {
 		return nil, err
 	}
-	if sourceID != nil {
-		t.SourceID = *sourceID
-	}
-	if principalID != nil {
-		t.PrincipalID = *principalID
-	}
+	t.SourceID = deref(sourceID)
+	t.PrincipalID = deref(principalID)
 	if len(condJSON) > 0 {
 		if err := json.Unmarshal(condJSON, &t.MatchCondition); err != nil {
 			return nil, fmt.Errorf("unmarshal match condition: %w", err)
@@ -254,15 +269,8 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 }
 
 func (r *postgresRepository) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
-	row := r.pool.QueryRow(ctx, `SELECT `+triggerColumns+` FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	t, err := scanTrigger(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTriggerNotFound
-		}
-		return nil, fmt.Errorf("get trigger: %w", err)
-	}
-	return t, nil
+	return getOne(ctx, r.pool, "trigger", ErrTriggerNotFound, scanTrigger,
+		`SELECT `+triggerColumns+` FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 }
 
 func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
@@ -274,25 +282,13 @@ func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTy
 	}
 	query += ` ORDER BY created_at DESC`
 
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list triggers: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Trigger
-	for rows.Next() {
-		t, err := scanTrigger(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan trigger: %w", err)
-		}
-		out = append(out, *t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate triggers: %w", err)
-	}
-	return out, nil
+	return queryList(ctx, r.pool, "triggers", scanTrigger, query, args...)
 }
+
+// matchablePredicate is the load-bearing definition of "matchable": enabled,
+// plus auto-paused. It appears in every matchable listing as one constant so
+// the two listings cannot drift apart on what matchable means.
+const matchablePredicate = `(enabled = true OR auto_paused_at IS NOT NULL)`
 
 // ListMatchableTriggersForSource returns the triggers a delivery is matched
 // against: enabled, plus auto-paused.
@@ -303,29 +299,11 @@ func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTy
 // in the delivery history, which is the failure this listing exists to avoid. A
 // trigger a person disabled is still excluded: that silence was asked for.
 func (r *postgresRepository) ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error) {
-	rows, err := r.pool.Query(ctx, `
+	return queryList(ctx, r.pool, "triggers for source", scanTrigger, `
 		SELECT `+triggerColumns+`
 		FROM   triggers
 		WHERE  source_id = $1 AND kind = 'webhook'
-		  AND  (enabled = true OR auto_paused_at IS NOT NULL)
-	`, sourceID)
-	if err != nil {
-		return nil, fmt.Errorf("list triggers for source: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Trigger
-	for rows.Next() {
-		t, err := scanTrigger(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan trigger: %w", err)
-		}
-		out = append(out, *t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate triggers for source: %w", err)
-	}
-	return out, nil
+		  AND  `+matchablePredicate, sourceID)
 }
 
 // ListMatchableScheduledTriggers returns the scheduled triggers the cron loop
@@ -333,29 +311,11 @@ func (r *postgresRepository) ListMatchableTriggersForSource(ctx context.Context,
 // ListMatchableTriggersForSource. A paused schedule records that its fire was
 // due and refused rather than going quiet.
 func (r *postgresRepository) ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error) {
-	rows, err := r.pool.Query(ctx, `
+	return queryList(ctx, r.pool, "scheduled triggers", scanTrigger, `
 		SELECT `+triggerColumns+`
 		FROM   triggers
 		WHERE  kind = 'scheduled'
-		  AND  (enabled = true OR auto_paused_at IS NOT NULL)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("list scheduled triggers: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Trigger
-	for rows.Next() {
-		t, err := scanTrigger(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan scheduled trigger: %w", err)
-		}
-		out = append(out, *t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate scheduled triggers: %w", err)
-	}
-	return out, nil
+		  AND  `+matchablePredicate)
 }
 
 func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) error {
@@ -497,50 +457,27 @@ func scanDelivery(row pgx.Row) (*Delivery, error) {
 	); err != nil {
 		return nil, err
 	}
-	if sourceID != nil {
-		d.SourceID = *sourceID
-	}
-	if firedBy != nil {
-		d.FiredBy = *firedBy
-	}
-	if triggerName != nil {
-		d.TriggerName = *triggerName
-	}
-	if payloadBytes != nil {
-		d.PayloadBytes = *payloadBytes
-	}
+	d.SourceID = deref(sourceID)
+	d.FiredBy = deref(firedBy)
+	d.TriggerName = deref(triggerName)
+	d.PayloadBytes = deref(payloadBytes)
 	return &d, nil
 }
 
 func (r *postgresRepository) GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error) {
-	row := r.pool.QueryRow(ctx, `SELECT `+deliveryColumns+` FROM trigger_deliveries WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	d, err := scanDelivery(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrDeliveryNotFound
-		}
-		return nil, fmt.Errorf("get delivery: %w", err)
-	}
-	return d, nil
+	return getOne(ctx, r.pool, "delivery", ErrDeliveryNotFound, scanDelivery,
+		`SELECT `+deliveryColumns+` FROM trigger_deliveries WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 }
 
 // GetDeliveryByProviderID resolves the ORIGINAL delivery behind a provider
 // delivery id. Lineage rows are excluded so a source that has already been
 // replayed still resolves to the one arrival everything else descends from.
 func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, sourceID, providerDeliveryID string) (*Delivery, error) {
-	row := r.pool.QueryRow(ctx, `
+	return getOne(ctx, r.pool, "delivery by provider id", ErrDeliveryNotFound, scanDelivery, `
 		SELECT `+deliveryColumns+`
 		FROM   trigger_deliveries
 		WHERE  source_id = $1 AND provider_delivery_id = $2 AND redelivery_of IS NULL
 	`, sourceID, providerDeliveryID)
-	d, err := scanDelivery(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrDeliveryNotFound
-		}
-		return nil, fmt.Errorf("get delivery by provider id: %w", err)
-	}
-	return d, nil
 }
 
 func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
@@ -565,30 +502,12 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		args = append(args, filter.Kind)
 	}
 	query += ` ORDER BY received_at DESC`
-	limit := filter.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
+	// filter.Limit is already clamped by the service; the storage layer trusts
+	// its caller on business bounds and only refuses the nonsensical.
+	limit := max(filter.Limit, 1)
 	query += fmt.Sprintf(` LIMIT %d`, limit)
 
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list deliveries: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Delivery
-	for rows.Next() {
-		d, err := scanDelivery(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan delivery: %w", err)
-		}
-		out = append(out, *d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate deliveries: %w", err)
-	}
-	return out, nil
+	return queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
 }
 
 func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {
@@ -629,9 +548,7 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 		); err != nil {
 			return nil, fmt.Errorf("scan delivery run: %w", err)
 		}
-		if triggerName != nil {
-			dr.TriggerName = *triggerName
-		}
+		dr.TriggerName = deref(triggerName)
 		out[dr.DeliveryID] = append(out[dr.DeliveryID], dr)
 	}
 	if err := rows.Err(); err != nil {
@@ -908,10 +825,8 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 			return nil
 		}
 
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
-			VALUES ($1, $2, $3, $4, $5)
-		`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+		if _, err := tx.Exec(ctx, pendingInsertSQL,
+			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
 			return fmt.Errorf("enqueue pending delivery: %w", err)
 		}
 		admitted = true
@@ -923,16 +838,22 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 	return admitted, nil
 }
 
+// pendingInsertSQL is the one statement that enqueues a pending row, shared by
+// the ceiling-checked and unconditional paths so a new column cannot be added
+// to one and forgotten in the other (the failure deliveryInsertColumns exists
+// to prevent for deliveries).
+const pendingInsertSQL = `
+	INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
+	VALUES ($1, $2, $3, $4, $5)
+`
+
 func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {
 	fieldsJSON, err := json.Marshal(p.Fields)
 	if err != nil {
 		return fmt.Errorf("marshal pending fields: %w", err)
 	}
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
-		VALUES ($1, $2, $3, $4, $5)
-	`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON)
-	if err != nil {
+	if _, err := r.pool.Exec(ctx, pendingInsertSQL,
+		p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
 		return fmt.Errorf("enqueue pending delivery: %w", err)
 	}
 	return nil
@@ -1110,17 +1031,12 @@ const occupancySQL = inFlightSQL + `
 	     WHERE  trigger_id = $1 AND claimed_at IS NULL)
 `
 
+// SupersedePending and DrainPending share one implementation: both remove
+// every waiting row. The two names stay at the interface because they carry
+// different intent — replace-on-overflow versus disable-and-drain — and the
+// delivery history records different reasons for each.
 func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
-	rows, err := r.pool.Query(ctx, `
-		DELETE FROM trigger_pending_deliveries
-		WHERE  trigger_id = $1 AND claimed_at IS NULL
-		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
-	`, triggerID)
-	if err != nil {
-		return nil, fmt.Errorf("supersede pending deliveries: %w", err)
-	}
-	defer rows.Close()
-	return scanPending(rows)
+	return r.deleteUnclaimedPending(ctx, triggerID, "supersede")
 }
 
 // TrimPending evicts the oldest waiting rows beyond depth, leaving room for the
@@ -1165,13 +1081,20 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 // terms; it is at most one per parallel slot, and DispatchPending re-reads the
 // trigger, so a disabled one is refused there anyway.
 func (r *postgresRepository) DrainPending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
+	return r.deleteUnclaimedPending(ctx, triggerID, "drain")
+}
+
+// deleteUnclaimedPending removes every waiting (unclaimed) row for a trigger
+// and returns them. Claimed rows are left alone — see DrainPending's doc for
+// why a mid-dispatch row must finish on its own terms.
+func (r *postgresRepository) deleteUnclaimedPending(ctx context.Context, triggerID, what string) ([]PendingDelivery, error) {
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
 		WHERE  trigger_id = $1 AND claimed_at IS NULL
 		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
 	`, triggerID)
 	if err != nil {
-		return nil, fmt.Errorf("drain pending deliveries: %w", err)
+		return nil, fmt.Errorf("%s pending deliveries: %w", what, err)
 	}
 	defer rows.Close()
 	return scanPending(rows)
@@ -1224,9 +1147,7 @@ func (r *postgresRepository) DrainOrphanedPending(ctx context.Context, limit int
 				return nil, fmt.Errorf("unmarshal orphaned pending fields: %w", err)
 			}
 		}
-		if triggerName != nil {
-			o.TriggerName = *triggerName
-		}
+		o.TriggerName = deref(triggerName)
 		out = append(out, o)
 	}
 	if err := rows.Err(); err != nil {

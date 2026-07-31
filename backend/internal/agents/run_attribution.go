@@ -73,11 +73,6 @@ const (
 //   - Every other principal — a person, a PAT, a session-manager or any other
 //     in-mesh SERVICE workload — is refused outright.
 //
-// Residual, stated rather than hidden: a webhook source principal could name a
-// sibling trigger id in its own tenant. Closing that needs a triggers-database
-// lookup from orbit-agents, which the feature boundary deliberately forbids;
-// the alternative is a trigger id stamped into the minted token's claims, which
-// is the durable fix (see the ADR follow-ups).
 // authorizeAttribution is the span-aware wrapper StartRun calls, mirroring
 // authorizeDelegatedStart so the two gates on a start are shaped alike and each
 // owns the span status for its own refusal.
@@ -94,6 +89,11 @@ func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, 
 	return startedBy, nil
 }
 
+// Residual, stated rather than hidden: a webhook source principal could name a
+// sibling trigger id in its own tenant. Closing that needs a triggers-database
+// lookup from orbit-agents, which the feature boundary deliberately forbids;
+// the alternative is a trigger id stamped into the minted token's claims, which
+// is the durable fix (see the ADR follow-ups).
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {
 	triggerID := strings.TrimSpace(req.TriggerID)
 	deliveryID := strings.TrimSpace(req.DeliveryID)

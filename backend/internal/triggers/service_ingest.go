@@ -388,26 +388,54 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	// than the propagation window, a refusal is a real denial (a revoked grant,
 	// a delegated agent type) and retrying would delay an honest failure and
 	// hold a queue slot for the whole budget.
-	retryable := time.Since(t.CreatedAt) < grantPropagationWindow
+	young := time.Since(t.CreatedAt) < grantPropagationWindow
 
 	var run agentsclient.StartRunResponse
+	err = retryWhileGrantPropagates(ctx,
+		func(err error) bool { return young && errors.Is(err, agentsclient.ErrForbidden) },
+		func(backoff time.Duration) {
+			s.logger.Debug(ctx, "run start refused, retrying while the grant propagates",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "backoff", Value: backoff.String()},
+			)
+		},
+		func() error {
+			var startErr error
+			run, startErr = s.agents.StartRun(ctx, tok, req)
+			return startErr
+		})
+	if err != nil {
+		return "", fmt.Errorf("start run: %w", err)
+	}
+	return run.ID, nil
+}
+
+// retryWhileGrantPropagates runs call, retrying with exponential backoff while
+// retryable classifies its error as grant-propagation lag and the budget
+// allows. Both trigger creation (resolving the agent type under a just-minted
+// grant) and dispatch (starting a run under one) hit the same window; the
+// backoff arithmetic lives once so a fix to it cannot land in one path and
+// miss the other.
+//
+// Returns the last error unwrapped — including ctx.Err() when canceled
+// mid-backoff — so each caller adds its own context.
+func retryWhileGrantPropagates(ctx context.Context, retryable func(error) bool, onRetry func(time.Duration), call func() error) error {
 	backoff := agentTypeRetryInitialBackoff
 	deadline := time.Now().Add(agentTypeRetryBudget)
 	for {
-		run, err = s.agents.StartRun(ctx, tok, req)
+		err := call()
 		if err == nil {
-			return run.ID, nil
+			return nil
 		}
-		if !retryable || !errors.Is(err, agentsclient.ErrForbidden) || time.Now().Add(backoff).After(deadline) {
-			return "", fmt.Errorf("start run: %w", err)
+		if !retryable(err) || time.Now().Add(backoff).After(deadline) {
+			return err
 		}
-		s.logger.Debug(ctx, "run start refused, retrying while the grant propagates",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "backoff", Value: backoff.String()},
-		)
+		if onRetry != nil {
+			onRetry(backoff)
+		}
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("start run: %w", ctx.Err())
+			return ctx.Err()
 		case <-time.After(backoff):
 		}
 		backoff *= 2

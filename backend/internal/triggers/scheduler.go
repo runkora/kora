@@ -218,3 +218,27 @@ func NextFires(sc *ScheduleConfig, from time.Time, n int) ([]time.Time, error) {
 	}
 	return out, nil
 }
+
+// schedulePreviewCount is how many upcoming fires to show. Three is enough to
+// reveal the shape of a schedule (daily, weekdays, monthly) without becoming a
+// wall of timestamps.
+const schedulePreviewCount = 3
+
+// SchedulePreview answers "what will this actually do?" before a schedule is
+// saved, from the same NextFires the scheduler itself runs, so what the console
+// shows and what fires cannot drift. Lives beside NextFires rather than in the
+// transport layer, like every other endpoint's logic.
+func (s *Service) SchedulePreview(req SchedulePreviewRequest) (*SchedulePreviewResponse, error) {
+	if req.ScheduleConfig == nil {
+		return nil, fmt.Errorf("%w: schedule_config is required", ErrValidation)
+	}
+	fires, err := NextFires(req.ScheduleConfig, time.Now(), schedulePreviewCount)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, err.Error())
+	}
+	out := make([]SchedulePreviewFire, 0, len(fires))
+	for _, f := range fires {
+		out = append(out, SchedulePreviewFire{At: f, Label: f.Format("Mon 2 Jan 2006, 15:04")})
+	}
+	return &SchedulePreviewResponse{NextFires: out, Timezone: req.ScheduleConfig.Timezone}, nil
+}
