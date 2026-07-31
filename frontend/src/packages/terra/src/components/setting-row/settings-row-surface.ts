@@ -15,40 +15,48 @@ import { cva } from 'class-variance-authority';
  * Type sizes here are on the defined scale (12px label, 11px description)
  * rather than the half-pixel values the rows originally carried.
  */
-const settingsRowSurfaceVariants = cva(
-  ['flex', 'items-center', 'gap-[12px]', 'rounded-md', 'border', 'px-[14px]', 'py-[12px]'],
-  {
-    variants: {
-      tone: {
-        default: 'border-border-subtle bg-background',
-        /**
-         * Error tint at 7% rather than the 5% used by `Callout`/`Alert`: a
-         * danger row sits alone at the foot of a pane with no icon or heading
-         * to carry the warning, so the surface has to do it.
-         */
-        danger: 'border-status-error/30 bg-status-error/[0.07]',
-      },
-      /** The whole row is the control: it is a button, so it needs button chrome. */
-      interactive: {
-        true: [
-          'w-full',
-          'text-left',
-          'transition-colors',
-          'focus-visible:outline-2',
-          'focus-visible:outline-offset-2',
-          'focus-visible:outline-accent',
-        ],
-        false: '',
-      },
-      disabled: {
-        true: 'cursor-not-allowed opacity-40',
-        false: '',
-      },
+const settingsRowSurfaceVariants = cva(['flex', 'items-center', 'rounded-md', 'border'], {
+  variants: {
+    /**
+     * `compact` is FieldRow's row: a value the user reads or copies, not a
+     * setting with a label and description. Its tighter metrics are
+     * intentional — a single-line value row at settings-row padding reads as
+     * empty — so they live here as a named density rather than as a drifted
+     * copy.
+     */
+    density: {
+      default: 'gap-[12px] px-[14px] py-[12px]',
+      compact: 'gap-[9px] px-[13px] py-[11px]',
     },
-    compoundVariants: [{ interactive: true, disabled: false, class: 'cursor-pointer' }],
-    defaultVariants: { tone: 'default', interactive: false, disabled: false },
+    tone: {
+      default: 'border-border-subtle bg-background',
+      /**
+       * Error tint at 7% rather than the 5% used by `Callout`/`Alert`: a
+       * danger row sits alone at the foot of a pane with no icon or heading
+       * to carry the warning, so the surface has to do it.
+       */
+      danger: 'border-status-error/30 bg-status-error/[0.07]',
+    },
+    /** The whole row is the control: it is a button, so it needs button chrome. */
+    interactive: {
+      true: [
+        'w-full',
+        'text-left',
+        'transition-colors',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent',
+      ],
+      false: '',
+    },
+    disabled: {
+      true: 'cursor-not-allowed opacity-40',
+      false: '',
+    },
   },
-);
+  compoundVariants: [{ interactive: true, disabled: false, class: 'cursor-pointer' }],
+  defaultVariants: { density: 'default', tone: 'default', interactive: false, disabled: false },
+});
 
 /** The row's name. 12px semibold, tinted by tone. */
 const settingsRowLabelVariants = cva(['text-xs', 'font-semibold'], {

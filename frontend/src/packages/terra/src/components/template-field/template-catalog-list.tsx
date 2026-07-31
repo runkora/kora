@@ -7,6 +7,8 @@ import { SectionLabel } from '../section-label';
 import { Text } from '../typography';
 import { filterCatalog, groupCatalog, type TemplateCatalogEntry } from './template-model';
 
+/** @tier 1 — Zero Orbit domain knowledge. The searchable, grouped field picker for TemplateField. */
+
 export interface TemplateCatalogListProps {
   /** Every field the template may reference. */
   catalog: readonly TemplateCatalogEntry[];
@@ -23,6 +25,28 @@ export interface TemplateCatalogListProps {
   /** @internal Used for internal Terra composition via cn(). */
   className?: string;
 }
+
+/**
+ * The two-span body every catalog row shares: the mono token beside its
+ * truncating sans description. Rendered identically by the pattern row and the
+ * selectable row; only the token's colour differs.
+ *
+ * 11.5px is off the type scale on purpose: mono renders optically larger than
+ * sans at the same size, so the token is nudged down to sit level with the
+ * 11px sans description beside it. Do not round it to 11 or 12.
+ */
+const EntryBody = ({
+  entry,
+  tokenClassName,
+}: {
+  entry: TemplateCatalogEntry;
+  tokenClassName: string;
+}) => (
+  <>
+    <span className={cn('shrink-0 font-mono text-[11.5px]', tokenClassName)}>{entry.token}</span>
+    <span className="truncate text-[11px] text-subtle">{entry.description}</span>
+  </>
+);
 
 /**
  * TemplateCatalogList
@@ -126,14 +150,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                       className="flex items-baseline gap-2 rounded-sm px-2 py-1 opacity-55"
                       aria-disabled="true"
                     >
-                      {/* 11.5px is off the type scale on purpose: mono renders
-                          optically larger than sans at the same size, so the
-                          token is nudged down to sit level with the 11px sans
-                          description beside it. Do not round it to 11 or 12. */}
-                      <span className="shrink-0 font-mono text-[11.5px] text-muted">
-                        {entry.token}
-                      </span>
-                      <span className="truncate text-[11px] text-subtle">{entry.description}</span>
+                      <EntryBody entry={entry} tokenClassName="text-muted" />
                     </div>
                   ) : (
                     <button
@@ -150,13 +167,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                         isActive && 'bg-surface-overlay',
                       )}
                     >
-                      {/* Same off-scale 11.5px as the pattern row above: the
-                          mono token optically matches the 11px sans
-                          description only at this size. */}
-                      <span className="shrink-0 font-mono text-[11.5px] text-foreground">
-                        {entry.token}
-                      </span>
-                      <span className="truncate text-[11px] text-subtle">{entry.description}</span>
+                      <EntryBody entry={entry} tokenClassName="text-foreground" />
                     </button>
                   );
                 })}

@@ -22,12 +22,16 @@ import {
   parseTemplate,
   readModelFromDom,
   renderPreview,
+  replaceSelection,
   serializeToken,
   tokenSpans,
   type TemplateCatalogEntry,
+  type TokenSpan,
 } from './template-model';
 
 export type { TemplateCatalogEntry } from './template-model';
+
+/** @tier 1 — Zero Orbit domain knowledge. A prompt-template editor drawing tokens as pills. */
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -132,6 +136,23 @@ function readSelection(root: HTMLElement): ModelSelection | null {
   const a = domPositionToModelOffset(root, anchorNode, anchorOffset);
   const b = domPositionToModelOffset(root, focusNode, focusOffset);
   return { start: Math.min(a, b), end: Math.max(a, b) };
+}
+
+/**
+ * Each rendered pill paired with its model span, in document order. The DOM
+ * pills and `tokenSpans` are both renders of the same model, so index `i` of
+ * one is index `i` of the other; this pairs them once so no call site repeats
+ * that reasoning.
+ */
+function pillSpans(
+  root: HTMLElement,
+  model: string,
+): { pill: Element; span: TokenSpan | undefined }[] {
+  const spans = tokenSpans(model);
+  return Array.from(root.querySelectorAll(`[data-slot=${TOKEN_SLOT}]`)).map((pill, i) => ({
+    pill,
+    span: spans[i],
+  }));
 }
 
 /** Place the caret at a model offset. Best-effort: no-op where unsupported. */
@@ -307,9 +328,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
           const selection = readSelection(root);
           const start = selection ? selection.start : model.length;
           const end = selection ? selection.end : model.length;
-          const cleared =
-            start === end ? { value: model, caret: start } : deleteRange(model, start, end);
-          applyEdit(insertAt(cleared.value, cleared.caret, '\n'));
+          applyEdit(replaceSelection(model, start, end, '\n'));
           return;
         }
 
@@ -340,9 +359,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
         const selection = readSelection(root);
         const start = selection ? selection.start : caretRef.current;
         const end = selection ? selection.end : caretRef.current;
-        const cleared =
-          start === end ? { value: model, caret: start } : deleteRange(model, start, end);
-        applyEdit(insertAt(cleared.value, cleared.caret, text));
+        applyEdit(replaceSelection(model, start, end, text));
       },
       [applyEdit, disabled],
     );
@@ -356,10 +373,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
     const markAdjacentPill = React.useCallback((offset: number) => {
       const root = editorRef.current;
       if (!root) return;
-      const pills = root.querySelectorAll(`[data-slot=${TOKEN_SLOT}]`);
-      const spans = tokenSpans(modelRef.current);
-      pills.forEach((pill, i) => {
-        const span = spans[i];
+      pillSpans(root, modelRef.current).forEach(({ pill, span }) => {
         const touching = span !== undefined && (offset === span.start || offset === span.end);
         if (touching) pill.setAttribute('data-caret-adjacent', 'true');
         else pill.removeAttribute('data-caret-adjacent');
@@ -441,8 +455,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
               const pill = (event.target as HTMLElement).closest?.(`[data-slot=${TOKEN_SLOT}]`);
               const root = editorRef.current;
               if (!pill || !root) return;
-              const pills = Array.from(root.querySelectorAll(`[data-slot=${TOKEN_SLOT}]`));
-              const span = tokenSpans(modelRef.current)[pills.indexOf(pill as Element)];
+              const span = pillSpans(root, modelRef.current).find((p) => p.pill === pill)?.span;
               if (span === undefined) return;
               caretRef.current = span.end;
               placeCaret(root, span.end);

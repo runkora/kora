@@ -6,6 +6,8 @@ import { cn } from '../../utils';
 import { Icon } from '../icon/icon';
 import type { IconName } from '../icon/registry';
 
+/** @tier 1 — Zero Orbit domain knowledge. Layered tab panels behind a shared trigger rail. */
+
 /**
  * Tabs
  *

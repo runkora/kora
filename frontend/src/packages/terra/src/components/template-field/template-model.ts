@@ -1,3 +1,5 @@
+/** @tier 1 — Zero Orbit domain knowledge. The pure string-and-caret model behind TemplateField. */
+
 /**
  * Template model — the pure, DOM-adjacent core of TemplateField.
  *
@@ -191,6 +193,21 @@ export function deleteRange(value: string, start: number, end: number): Template
   const to = snapOffset(value, Math.max(start, end));
   if (from === to) return { value, caret: from };
   return normalizeTemplate(value.slice(0, from) + value.slice(to), from);
+}
+
+/**
+ * Collapse a selection and insert text where it stood: the one edit behind
+ * Enter, paste, and anything else that types over a selection. A collapsed
+ * selection (start === end) is a plain insertion at that offset.
+ */
+export function replaceSelection(
+  value: string,
+  start: number,
+  end: number,
+  insert: string,
+): TemplateEdit {
+  const cleared = deleteRange(value, start, end);
+  return insertAt(cleared.value, cleared.caret, insert);
 }
 
 /** Length of the code point ending at `offset`, so astral characters survive. */

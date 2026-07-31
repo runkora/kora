@@ -1,5 +1,8 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { settingsRowSurfaceVariants } from '../setting-row/settings-row-surface';
+
+/** @tier 1 — Zero Orbit domain knowledge. A recessed row for a value the user reads or copies. */
 
 export interface FieldRowProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Leading element: an icon, a status marker, or a short key. */
@@ -27,10 +30,7 @@ const FieldRow = React.forwardRef<HTMLDivElement, FieldRowProps>(
     <div
       ref={ref}
       data-slot="field-row"
-      className={cn(
-        'flex items-center gap-[9px] rounded-md border border-border-subtle bg-background px-[13px] py-[11px]',
-        className,
-      )}
+      className={cn(settingsRowSurfaceVariants({ density: 'compact' }), className)}
       {...props}
     >
       {leading != null && <span className="inline-flex shrink-0">{leading}</span>}

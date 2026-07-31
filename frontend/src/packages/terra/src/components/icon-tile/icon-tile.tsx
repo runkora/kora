@@ -2,6 +2,8 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 
+/** @tier 1 — Zero Orbit domain knowledge. A fixed-footprint tile for an icon or initial. */
+
 const iconTileVariants = cva(
   ['inline-flex', 'shrink-0', 'items-center', 'justify-center', 'border'],
   {

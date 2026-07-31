@@ -6,40 +6,37 @@ import { sectionLabelVariants } from '../section-label';
 /** @tier 1 — Zero Orbit domain knowledge. One headline figure in a row of them. */
 
 /**
- * Tone drives the value and icon colour together, so a card that is reporting a
- * problem reads as one at a glance rather than requiring the label to be read.
- *
+ * The one tone scale, shared by the value, the icon and the detail line, so a
+ * card that is reporting a problem reads as one at a glance rather than
+ * requiring the label to be read. `default` is deliberately empty: each slot
+ * keeps its own resting colour (foreground value, subtle icon and detail) and
+ * a non-default tone overrides it via `cn`'s Tailwind merge.
+ */
+const toneVariants = cva('', {
+  variants: {
+    tone: {
+      default: '',
+      error: 'text-status-error',
+      healthy: 'text-status-healthy',
+    },
+  },
+  defaultVariants: { tone: 'default' },
+});
+
+export type StatCardTone = NonNullable<VariantProps<typeof toneVariants>['tone']>;
+
+/**
  * 25px is off the type scale deliberately: `Heading variant="metric"` is 30px
  * sans, and monospaced digits at that size overflow a five-across row. 25px
  * mono is the optical match for the sans metric at the density this card is
  * built for. Do not "snap" it.
  */
-const valueVariants = cva(['font-mono', 'font-bold', 'text-[25px]', 'tracking-[-0.02em]'], {
-  variants: {
-    tone: {
-      default: 'text-foreground',
-      error: 'text-status-error',
-      healthy: 'text-status-healthy',
-    },
-  },
-  defaultVariants: { tone: 'default' },
-});
-
-const iconVariants = cva(['inline-flex', 'shrink-0'], {
-  variants: {
-    tone: {
-      default: 'text-subtle',
-      error: 'text-status-error',
-      healthy: 'text-status-healthy',
-    },
-  },
-  defaultVariants: { tone: 'default' },
-});
+const VALUE_CLASSES = 'font-mono font-bold text-[25px] tracking-[-0.02em] text-foreground';
 
 export interface StatCardProps
   extends
     Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>,
-    VariantProps<typeof valueVariants> {
+    VariantProps<typeof toneVariants> {
   /** Short all-caps label, e.g. "ACTIVE TRIGGERS". Rendered in tracked small caps. */
   label: string;
   /** The headline figure. Monospaced so a column of cards aligns digit-for-digit. */
@@ -47,16 +44,10 @@ export interface StatCardProps
   /** Supporting line under the value: a comparison, a breakdown, or a caveat. */
   detail?: string;
   /** Tone for the detail line alone, when it carries the signal rather than the value. */
-  detailTone?: 'default' | 'error' | 'healthy';
+  detailTone?: StatCardTone;
   /** Icon rendered top-right, e.g. `<Icon name="activity" size="xs" />`. */
   icon?: React.ReactNode;
 }
-
-const detailToneClass: Record<string, string> = {
-  default: 'text-subtle',
-  error: 'text-status-error',
-  healthy: 'text-status-healthy',
-};
 
 /**
  * StatCard
@@ -85,11 +76,17 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
       <div className="flex items-center justify-between">
         {/* The same overline recipe as SectionLabel and the DataGrid header. */}
         <span className={cn(sectionLabelVariants())}>{label}</span>
-        {icon != null && <span className={cn(iconVariants({ tone }))}>{icon}</span>}
+        {icon != null && (
+          <span className={cn('inline-flex shrink-0 text-subtle', toneVariants({ tone }))}>
+            {icon}
+          </span>
+        )}
       </div>
-      <div className={cn('mt-[11px]', valueVariants({ tone }))}>{value}</div>
+      <div className={cn('mt-[11px]', VALUE_CLASSES, toneVariants({ tone }))}>{value}</div>
       {detail != null && (
-        <div className={cn('mt-1 text-[11px]', detailToneClass[detailTone])}>{detail}</div>
+        <div className={cn('mt-1 text-[11px] text-subtle', toneVariants({ tone: detailTone }))}>
+          {detail}
+        </div>
       )}
     </div>
   ),

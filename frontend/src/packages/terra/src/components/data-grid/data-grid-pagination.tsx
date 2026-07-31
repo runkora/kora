@@ -6,6 +6,8 @@ import { Icon } from '../icon';
 import { NativeSelect } from '../native-select';
 import { DataGridFooter } from './data-grid';
 
+/** @tier 1 — Zero Orbit domain knowledge. The standard paging footer for a DataGrid. */
+
 export interface DataGridPaginationProps extends React.HTMLAttributes<HTMLDivElement> {
   /** First visible row, 1-based. 0 when the list is empty. */
   from: number;

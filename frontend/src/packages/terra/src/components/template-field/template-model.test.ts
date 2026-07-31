@@ -14,6 +14,7 @@ import {
   parseTemplate,
   readModelFromDom,
   renderPreview,
+  replaceSelection,
   retokenize,
   serialize,
   serializeToken,
@@ -207,6 +208,32 @@ describe('delete operations', () => {
 
   it('is a no-op for a collapsed range', () => {
     expect(deleteRange('abcd', 2, 2)).toEqual({ value: 'abcd', caret: 2 });
+  });
+});
+
+describe('replaceSelection', () => {
+  it('inserts at a collapsed selection', () => {
+    expect(replaceSelection('ab', 1, 1, 'X')).toEqual({ value: 'aXb', caret: 2 });
+  });
+
+  it('replaces the selected range', () => {
+    expect(replaceSelection('abcd', 1, 3, 'X')).toEqual({ value: 'aXd', caret: 2 });
+  });
+
+  it('accepts a reversed selection', () => {
+    expect(replaceSelection('abcd', 3, 1, 'X')).toEqual({ value: 'aXd', caret: 2 });
+  });
+
+  it('removes a token the selection covers, snapping partial coverage out', () => {
+    expect(replaceSelection('a{{ x }}b', 2, 9, 'X')).toEqual({ value: 'aX', caret: 2 });
+  });
+
+  it('canonicalises an insertion that completes a token', () => {
+    expect(replaceSelection('{{a}', 4, 4, '}')).toEqual({ value: '{{ a }}', caret: 7 });
+  });
+
+  it('inserts a newline over a selection, as the Enter key does', () => {
+    expect(replaceSelection('ab', 0, 2, '\n')).toEqual({ value: '\n', caret: 1 });
   });
 });
 

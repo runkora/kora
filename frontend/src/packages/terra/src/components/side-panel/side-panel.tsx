@@ -6,6 +6,8 @@ import { cn } from '../../utils';
 import { Heading, Text } from '../typography';
 import { Icon } from '../icon';
 
+/** @tier 1 — Zero Orbit domain knowledge. A slide-over panel from the right edge of the viewport. */
+
 // ── Size lookup ───────────────────────────────────────────────────────────────
 // Full string literals required — Tailwind v4 static scanner cannot handle
 // dynamic class construction.

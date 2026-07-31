@@ -2,6 +2,8 @@ import * as React from 'react';
 import { cn } from '../../utils';
 import { sectionLabelVariants } from '../section-label';
 
+/** @tier 1 — Zero Orbit domain knowledge. A fixed-column list surface: header row plus body rows. */
+
 /**
  * DataGrid
  *
@@ -127,16 +129,10 @@ export interface DataGridRowProps extends React.HTMLAttributes<HTMLDivElement> {
   onClick?: React.MouseEventHandler<HTMLDivElement>;
   /** Accessible label for a clickable row, e.g. "Open pr-review". */
   rowLabel?: string;
-  /**
-   * @deprecated The last row's border is now derived by `DataGrid` in CSS, so
-   * nothing needs to be told which row is last. Still honoured — passing
-   * `last` hides the bottom border as before — but new code should omit it.
-   */
-  last?: boolean;
 }
 
 const DataGridRow = React.forwardRef<HTMLDivElement, DataGridRowProps>(
-  ({ onClick, rowLabel, last = false, className, children, ...props }, ref) => {
+  ({ onClick, rowLabel, className, children, ...props }, ref) => {
     const { columns, columnGap } = React.useContext(DataGridContext);
     const clickable = onClick !== undefined;
     return (
@@ -161,7 +157,6 @@ const DataGridRow = React.forwardRef<HTMLDivElement, DataGridRowProps>(
         }
         className={cn(
           'grid items-center border-b border-border-subtle px-4 py-3',
-          last && 'border-b-0',
           clickable &&
             'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
           className,
