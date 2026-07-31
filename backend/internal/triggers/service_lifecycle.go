@@ -21,7 +21,7 @@ type triggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	UpdateTrigger(ctx context.Context, t *Trigger) error
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
@@ -348,7 +348,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if req.Enabled != nil {
 		applyEnabledFields(t, *req.Enabled)
 	}
-	if err = s.repo.UpdateTrigger(ctx, t); err != nil {
+	if err = s.repo.UpdateTrigger(ctx, t, req.Enabled != nil); err != nil {
 		return nil, err
 	}
 	if req.Enabled != nil {

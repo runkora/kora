@@ -84,7 +84,12 @@ type TriggerStore interface {
 	// scheduler evaluates, across all tenants: enabled plus auto-paused, on the
 	// same reasoning as ListMatchableTriggersForSource.
 	ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error)
-	UpdateTrigger(ctx context.Context, t *Trigger) error
+	// UpdateTrigger persists the mutable fields of a trigger. writeEnablement
+	// gates the enabled / auto_paused_at columns: an edit that did not touch
+	// enablement (a rename, a filter change) passes false so it cannot write
+	// back the stale enabled/auto_paused_at it read at the start of the request
+	// and silently revert a concurrent auto-pause.
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 }
 

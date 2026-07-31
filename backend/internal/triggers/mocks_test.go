@@ -240,13 +240,21 @@ func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Tr
 // matchable mirrors the SQL predicate `enabled = true OR auto_paused_at IS NOT NULL`.
 func matchable(t *Trigger) bool { return t.Enabled || t.AutoPausedAt != nil }
 
-func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger) error {
+func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.triggers[t.ID]; !ok {
+	stored, ok := m.triggers[t.ID]
+	if !ok {
 		return ErrTriggerNotFound
 	}
 	cp := *t
+	if !writeEnablement {
+		// Mirror the SQL: an edit that did not touch enablement leaves the
+		// stored enabled/auto_paused_at alone rather than writing back the
+		// snapshot the caller read at the start.
+		cp.Enabled = stored.Enabled
+		cp.AutoPausedAt = stored.AutoPausedAt
+	}
 	m.triggers[t.ID] = &cp
 	return nil
 }

@@ -318,7 +318,7 @@ func (r *postgresRepository) ListMatchableScheduledTriggers(ctx context.Context)
 		  AND  `+matchablePredicate)
 }
 
-func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) error {
+func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error {
 	condJSON, err := json.Marshal(t.MatchCondition)
 	if err != nil {
 		return fmt.Errorf("marshal match condition: %w", err)
@@ -331,17 +331,26 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger) erro
 	// trigger clears the marker in the service, and leaving that unpersisted
 	// meant a re-enabled trigger stayed paused as far as admission was
 	// concerned — enabled in the console, refusing every fire.
+	//
+	// But only when this edit actually toggled enablement (writeEnablement).
+	// An edit that did not — a rename, a filter change — carries the enabled
+	// and auto_paused_at it read at the start of the request, and writing that
+	// stale pair back would revert an auto-pause that landed in between. The
+	// CASE keeps the write conditional inside one static statement rather than
+	// building two.
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE triggers
 		SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
-		       kind_config = $5, enabled = $6, dedupe_enabled = $7, autopause_enabled = $8,
+		       kind_config = $5, dedupe_enabled = $7, autopause_enabled = $8,
 		       max_parallel = $9, overflow = $10, max_queue_depth = $11, timeout_seconds = $12,
-		       auto_paused_at = $13, updated_at = now()
+		       enabled = CASE WHEN $16 THEN $6 ELSE enabled END,
+		       auto_paused_at = CASE WHEN $16 THEN $13 ELSE auto_paused_at END,
+		       updated_at = now()
 		WHERE  id = $14 AND tenant_id = $15
 	`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
 		t.DedupeEnabled, t.AutopauseEnabled,
 		t.MaxParallel, t.Overflow, t.MaxQueueDepth,
-		t.TimeoutSeconds, t.AutoPausedAt, t.ID, t.TenantID)
+		t.TimeoutSeconds, t.AutoPausedAt, t.ID, t.TenantID, writeEnablement)
 	if err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}
@@ -432,7 +441,7 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 	_, err := r.pool.Exec(ctx, `
 		UPDATE trigger_deliveries d
 		SET    status = CASE WHEN d.status IN ('duplicate', 'missed') THEN d.status ELSE $1 END,
-		       trigger_id = COALESCE($2, d.trigger_id), run_id = $3, error = $4
+		       trigger_id = COALESCE($2, d.trigger_id), run_id = COALESCE($3, d.run_id), error = $4
 		WHERE  d.id = $5
 	`, status, triggerID, runID, errMsg, id)
 	if err != nil {
@@ -1052,11 +1061,20 @@ func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID str
 // admissions can interleave between a trim and its insert and the depth can
 // briefly exceed the ceiling; the next admission trims it back. Bounding the
 // backlog is the guarantee, not bounding it to the exact row.
+//
+// The outer DELETE repeats claimed_at IS NULL rather than trusting the
+// subquery's copy of it, for the same reason ClaimPending re-checks its own
+// predicate: under READ COMMITTED a concurrent claim can lock and stamp a row
+// after the subquery selected it, and the EvalPlanQual recheck only re-tests
+// the outer WHERE. Without the outer predicate the just-claimed row is deleted
+// anyway, giving one fire both a 'dropped' (evicted) outcome here and a live
+// worker's 'dispatched' — the self-contradicting history the queue avoids.
 func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error) {
 	offset := max(depth-1, 0)
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
-		WHERE  id IN (
+		WHERE  claimed_at IS NULL
+		  AND  id IN (
 		    SELECT id FROM trigger_pending_deliveries
 		    WHERE  trigger_id = $1 AND claimed_at IS NULL
 		    ORDER  BY enqueued_at DESC

@@ -152,7 +152,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	}
 
 	tr.Enabled = false
-	if err := r.UpdateTrigger(ctx, tr); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	if got, _ := r.ListMatchableTriggersForSource(ctx, s.ID); len(got) != 0 {
@@ -174,7 +174,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	// by admission forever while showing as enabled.
 	tr.Enabled = true
 	tr.AutoPausedAt = nil
-	if err := r.UpdateTrigger(ctx, tr); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
 		t.Fatalf("UpdateTrigger(re-enable): %v", err)
 	}
 	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); got.AutoPausedAt != nil {
@@ -182,7 +182,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	}
 
 	tr.Enabled = false
-	if err := r.UpdateTrigger(ctx, tr); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
 		t.Fatalf("UpdateTrigger(disable): %v", err)
 	}
 
@@ -1089,7 +1089,7 @@ func TestPostgres_DrainOrphanedPending(t *testing.T) {
 	live := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 	off := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 	off.Enabled = false
-	if err := r.UpdateTrigger(ctx, off); err != nil {
+	if err := r.UpdateTrigger(ctx, off, true); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -1502,4 +1502,131 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestPostgres_UpdateDeliveryOutcome_PreservesRunID covers the fan-out case
+// where one trigger dispatches (setting the delivery's run_id) and a later
+// trigger on the same delivery fails. The failure records no run, and must not
+// null the run link the successful dispatch already wrote.
+func TestPostgres_UpdateDeliveryOutcome_PreservesRunID(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, ProviderDeliveryID: "gh-runid", EventType: "pull_request", Status: StatusVerified}
+	if inserted, err := r.InsertDelivery(ctx, d); err != nil || !inserted {
+		t.Fatalf("insert: inserted=%v err=%v", inserted, err)
+	}
+
+	// Trigger A dispatches: the delivery gets its run link.
+	run := "run-A"
+	if err := r.UpdateDeliveryOutcome(ctx, d.ID, StatusDispatched, &s.ID, &run, nil); err != nil {
+		t.Fatalf("dispatch outcome: %v", err)
+	}
+
+	// Trigger B, on the same delivery, fails to start: no run id, an error.
+	msg := "start run: boom"
+	if err := r.UpdateDeliveryOutcome(ctx, d.ID, StatusFailed, nil, nil, &msg); err != nil {
+		t.Fatalf("failure outcome: %v", err)
+	}
+
+	got, err := r.GetDelivery(ctx, tenant, d.ID)
+	if err != nil {
+		t.Fatalf("get delivery: %v", err)
+	}
+	if got.RunID == nil || *got.RunID != run {
+		t.Errorf("run_id = %v, want it preserved as %q after a later trigger's failure", got.RunID, run)
+	}
+}
+
+// TestPostgres_TrimPending_LeavesAConcurrentlyClaimedRow forces the READ
+// COMMITTED race the outer claimed_at IS NULL predicate defends against: a
+// worker claims a row after TrimPending's subquery has selected it but before
+// the DELETE reaches it. Without the outer predicate the just-claimed row is
+// deleted anyway, giving one fire both a 'dropped' (evicted) and a live
+// worker's 'dispatched'.
+func TestPostgres_TrimPending_LeavesAConcurrentlyClaimedRow(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
+
+	// Three waiting rows, inserted oldest-first. TrimPending(depth=2) orders by
+	// enqueued_at DESC and offsets depth-1=1, so it targets the two OLDEST
+	// (oldest and middle) for eviction. We claim the oldest under an
+	// uncommitted transaction so it is still claimed_at IS NULL in the trim's
+	// snapshot but locked, forcing the DELETE to block and then re-check.
+	oldest := newPending(tenant, tr.ID)
+	if err := r.EnqueuePending(ctx, oldest); err != nil {
+		t.Fatalf("enqueue oldest: %v", err)
+	}
+	for range 2 {
+		if err := r.EnqueuePending(ctx, newPending(tenant, tr.ID)); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
+
+	// A worker's claim on the oldest row, held open so the trim blocks on it.
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin claim tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		`UPDATE trigger_pending_deliveries SET claimed_at = now() WHERE id = $1`, oldest.ID); err != nil {
+		t.Fatalf("claim oldest: %v", err)
+	}
+
+	trimErr := make(chan error, 1)
+	go func() {
+		_, err := r.TrimPending(ctx, tr.ID, 2)
+		trimErr <- err
+	}()
+
+	// Wait until the trim's DELETE is actually blocked on the claimed row,
+	// rather than sleeping a guessed interval — otherwise the trim could finish
+	// (excluding the row via its own snapshot) before the claim commits and the
+	// EPQ path we are testing never runs.
+	waitForBlockedLock(t, r.pool)
+
+	// Commit the claim: the trim unblocks and re-checks the now-claimed row.
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit claim: %v", err)
+	}
+	if err := <-trimErr; err != nil {
+		t.Fatalf("TrimPending: %v", err)
+	}
+
+	// The claimed row must survive: the worker that claimed it will dispatch and
+	// release it; the trim must not have deleted it out from under that worker.
+	var alive bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM trigger_pending_deliveries WHERE id = $1)`, oldest.ID).Scan(&alive); err != nil {
+		t.Fatalf("check survival: %v", err)
+	}
+	if !alive {
+		t.Error("TrimPending deleted a row a concurrent worker had already claimed")
+	}
+}
+
+// waitForBlockedLock blocks until some backend is waiting on a lock, the signal
+// that the concurrent DELETE has reached the claimed row and parked.
+func waitForBlockedLock(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var blocked int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_locks WHERE NOT granted`).Scan(&blocked); err != nil {
+			t.Fatalf("poll pg_locks: %v", err)
+		}
+		if blocked > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the trim DELETE to block on the claimed row")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

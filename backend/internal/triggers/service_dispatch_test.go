@@ -358,7 +358,7 @@ func TestWorker_CollectsFiresWhoseTriggerCanNoLongerRunThem(t *testing.T) {
 	ids := enqueue(t, svc, deps, trig, 1)
 	disabled := trig
 	disabled.Enabled = false
-	if err := deps.repo.UpdateTrigger(ctx, &disabled); err != nil {
+	if err := deps.repo.UpdateTrigger(ctx, &disabled, true); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 

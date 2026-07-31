@@ -648,3 +648,37 @@ func TestListTriggers_FilterByKind(t *testing.T) {
 		t.Errorf("unknown kind should be ErrValidation, got %v", err)
 	}
 }
+
+// A rename that lands while the platform is auto-pausing the same trigger must
+// not write the stale enabled/auto_paused_at it read at the start back over the
+// pause. Regression for the unlocked read-modify-write that reverted a
+// concurrent AutoPause.
+func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	tr := mustTrigger(t, deps.triggers, src.ID, map[string][]string{"action": {"opened"}}, "p")
+
+	// The trigger the rename read is enabled; the platform auto-pauses it in the
+	// window between that read and the write.
+	if err := deps.repo.AutoPause(context.Background(), tr.ID); err != nil {
+		t.Fatalf("auto-pause: %v", err)
+	}
+
+	// A rename carries no enabled flag, so it must leave enablement alone.
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+		Name: admissionPtr("renamed"),
+	}); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID)
+	if stored.Enabled {
+		t.Error("a rename must not re-enable a trigger the platform just auto-paused")
+	}
+	if stored.AutoPausedAt == nil {
+		t.Error("a rename must not clear a concurrent auto_paused_at")
+	}
+	if stored.Name != "renamed" {
+		t.Errorf("the rename itself should still apply, got %q", stored.Name)
+	}
+}

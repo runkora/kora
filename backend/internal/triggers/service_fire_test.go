@@ -234,7 +234,7 @@ func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
 		{Name: "env", Type: InputTypeText, Required: true},
 		{Name: "ticket", Type: InputTypeText, Required: true},
 	}}
-	if err := deps.repo.UpdateTrigger(context.Background(), stored); err != nil {
+	if err := deps.repo.UpdateTrigger(context.Background(), stored, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
