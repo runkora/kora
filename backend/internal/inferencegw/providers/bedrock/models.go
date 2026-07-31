@@ -362,13 +362,16 @@ func normaliseAPIName(canonicalID, name string) string {
 		}
 		break
 	}
-	// For the openai.* namespace, AWS sometimes returns raw lowercase slugs
-	// (e.g. "gpt-oss-120b"). Title-case and apply acronym uppercasing so
-	// the result is consistent with properly-named models. We only do this
-	// when the name looks like a raw slug (no spaces), to avoid re-casing
-	// names that AWS already provides in correct form ("GPT OSS Safeguard 120B").
-	if strings.HasPrefix(base, "openai.") && !strings.Contains(name, " ") {
-		name = applyAcronyms(titleCaseSlug(name))
+	// AWS sometimes returns a raw lowercase slug as ModelName with no spaces
+	// (e.g. "gpt-oss-120b", "qwen3-coder-30b-a3b-instruct"). Title-case it so
+	// the display name is readable. Names that AWS already provides with spaces
+	// ("GPT OSS Safeguard 120B", "DeepSeek V3.2") are unaffected.
+	if !strings.Contains(name, " ") {
+		name = titleCaseSlug(name)
+	}
+	// For openai.* models, additionally upcase known acronyms (GPT, OSS).
+	if strings.HasPrefix(base, "openai.") {
+		name = applyAcronyms(name)
 	}
 	return name
 }

@@ -36,6 +36,8 @@ func TestBuildProviderModel_DisplayNameNormalisation(t *testing.T) {
 		// openai.*: no AWS name — fallback path must apply acronym upcase.
 		{"openai.gpt-oss-120b", "", "GPT OSS 120b"},
 		{"openai.gpt-5.4", "", "GPT 5.4"},
+		// Qwen: AWS returns a raw lowercase slug — must title-case.
+		{"qwen.qwen3-coder-30b-a3b-instruct-v1:0", "qwen3-coder-30b-a3b-instruct", "Qwen3 Coder 30b A3b Instruct"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.canonicalID, func(t *testing.T) {
