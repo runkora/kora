@@ -28,6 +28,14 @@ func TestBuildProviderModel_DisplayNameNormalisation(t *testing.T) {
 		{"amazon.nova-pro-v1:0", "Nova Pro", "Nova Pro"},
 		// No false-positive: model with no region ID prefix keeps "Global" in name.
 		{"acme.global-model-v1", "Global Model v1", "Global Model v1"},
+		// openai.*: AWS returns correct mixed-case name — must not be re-cased.
+		{"openai.gpt-oss-safeguard-120b", "GPT OSS Safeguard 120B", "GPT OSS Safeguard 120B"},
+		// openai.*: AWS returns a raw lowercase slug — title-case + acronym upcase.
+		{"openai.gpt-oss-120b-1:0", "gpt-oss-120b", "GPT OSS 120b"},
+		{"openai.gpt-oss-20b-1:0", "gpt-oss-20b", "GPT OSS 20b"},
+		// openai.*: no AWS name — fallback path must apply acronym upcase.
+		{"openai.gpt-oss-120b", "", "GPT OSS 120b"},
+		{"openai.gpt-5.4", "", "GPT 5.4"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.canonicalID, func(t *testing.T) {

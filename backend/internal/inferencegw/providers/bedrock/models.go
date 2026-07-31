@@ -79,6 +79,11 @@ func fallbackDisplayName(modelID string) string {
 			break
 		}
 	}
+	// For the openai.* namespace, apply acronym uppercasing so the fallback
+	// matches the canonical AWS-provided form (e.g. "GPT OSS 120B").
+	if strings.HasPrefix(base, "openai.") {
+		name = applyAcronyms(name)
+	}
 	return name
 }
 
@@ -307,6 +312,27 @@ var vendorDisplayPrefixes = map[string]string{
 	"deepseek.": "DeepSeek ",
 }
 
+// bedrockAcronyms are slug tokens that must be fully uppercased rather than
+// merely title-cased. Scoped to the openai.* namespace where AWS returns raw
+// lowercase slugs (e.g. "gpt-oss-120b") or the fallback derives a name from
+// the model ID.
+var bedrockAcronyms = map[string]bool{
+	"gpt": true,
+	"oss": true,
+}
+
+// applyAcronyms uppercases any space-separated word that appears in
+// bedrockAcronyms. Called after titleCaseSlug so "Gpt" → "GPT".
+func applyAcronyms(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		if bedrockAcronyms[strings.ToLower(w)] {
+			words[i] = strings.ToUpper(w)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 // normaliseAPIName cleans up the raw ModelName returned by the AWS API:
 //  1. Strips a leading region word ("US ", "Global ", etc.) that AWS injects
 //     when a model is accessible via cross-region profiles.
@@ -314,6 +340,8 @@ var vendorDisplayPrefixes = map[string]string{
 //     model ID namespace implies one.
 //  3. Replaces a vendor-name separator hyphen ("DeepSeek-V3") with a space
 //     ("DeepSeek V3") when the vendor prefix is immediately followed by "-".
+//  4. Uppercases known acronyms in the openai.* namespace where AWS sometimes
+//     returns raw lowercase slugs ("gpt-oss-120b" → "GPT OSS 120b").
 func normaliseAPIName(canonicalID, name string) string {
 	name = stripRegionDisplayPrefix(canonicalID, name)
 	base := stripRegionPrefix(canonicalID)
@@ -333,6 +361,14 @@ func normaliseAPIName(canonicalID, name string) string {
 			name = vendor + name
 		}
 		break
+	}
+	// For the openai.* namespace, AWS sometimes returns raw lowercase slugs
+	// (e.g. "gpt-oss-120b"). Title-case and apply acronym uppercasing so
+	// the result is consistent with properly-named models. We only do this
+	// when the name looks like a raw slug (no spaces), to avoid re-casing
+	// names that AWS already provides in correct form ("GPT OSS Safeguard 120B").
+	if strings.HasPrefix(base, "openai.") && !strings.Contains(name, " ") {
+		name = applyAcronyms(titleCaseSlug(name))
 	}
 	return name
 }
