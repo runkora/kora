@@ -3,24 +3,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { DeliveryDetail } from './delivery-detail';
 import type { DeliveryRow } from '../_types';
+import { makeDelivery } from '../_types/fixtures';
 
+/** The detail tests want a delivery that carried a payload and started a run. */
 function delivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
-  return {
+  return makeDelivery({
     id: 'd-1',
-    kind: 'webhook',
-    sourceId: 'src-1',
-    eventType: 'push',
-    status: 'dispatched',
     triggerId: 't1',
-    triggerName: 'gh-push',
-    runId: null,
-    error: null,
     payloadExcerpt: '{"ref":"refs/heads/main"}',
-    firedBy: null,
-    scheduledAt: null,
-    reason: null,
     payloadBytes: 512,
-    payloadPurged: false,
     receivedAt: '2026-07-28T09:00:00Z',
     runs: [
       {
@@ -33,7 +24,7 @@ function delivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
       },
     ],
     ...overrides,
-  };
+  });
 }
 
 /** A delivery whose outcome a replay could actually recover. */

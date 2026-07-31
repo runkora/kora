@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+// validReq is the minimal valid CreateTriggerRequest for a kind; tests take a
+// copy and mutate the one field under test. Webhook requests still need a
+// SourceID from the caller.
+func validReq(kind string) CreateTriggerRequest {
+	switch kind {
+	case KindScheduled:
+		return CreateTriggerRequest{
+			Kind: KindScheduled, Name: "nightly", AgentTypeID: "at-1", PromptTemplate: "p",
+			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"},
+		}
+	case KindManual:
+		return CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}
+	default:
+		return CreateTriggerRequest{Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p"}
+	}
+}
+
 func TestCreateTrigger_Success(t *testing.T) {
 	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
@@ -30,14 +47,17 @@ func TestCreateTrigger_Validation(t *testing.T) {
 	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{SourceID: src.ID, EventType: "pull_request", AgentTypeID: "a", AgentSlug: "s", PromptTemplate: "p"})
+	nameless := validReq(KindWebhook)
+	nameless.SourceID = src.ID
+	nameless.Name = ""
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nameless)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("missing name: got %v, want ErrValidation", err)
 	}
 
-	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: "nope", Name: "n", AgentTypeID: "a", AgentSlug: "s", EventType: "pull_request", PromptTemplate: "p",
-	})
+	sourceless := validReq(KindWebhook)
+	sourceless.SourceID = "nope"
+	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, sourceless)
 	if !errors.Is(err, ErrSourceNotFound) {
 		t.Errorf("missing source: got %v, want ErrSourceNotFound", err)
 	}
@@ -50,10 +70,10 @@ func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	deps.agents.atSlug = "real-slug"
 
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1",
-		AgentSlug: "attacker-controlled", EventType: "pull_request", PromptTemplate: "p",
-	})
+	req := validReq(KindWebhook)
+	req.SourceID = src.ID
+	req.AgentSlug = "attacker-controlled"
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -72,9 +92,10 @@ func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 	deps.agents.atStatus = http.StatusNotFound
 	grantsBefore := len(deps.policy.created) // the source's own grant already exists
 
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: src.ID, Name: "rev", AgentTypeID: "ghost", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
-	})
+	req := validReq(KindWebhook)
+	req.SourceID = src.ID
+	req.AgentTypeID = "ghost"
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("got %v, want ErrValidation for an unknown agent type", err)
 	}
@@ -94,9 +115,9 @@ func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	deps.agents.atTenant = "other-tenant"
 
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
-	})
+	req := validReq(KindWebhook)
+	req.SourceID = src.ID
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("got %v, want ErrValidation for a cross-tenant agent type", err)
 	}
@@ -123,9 +144,9 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 			deps.agents.atIdentityMode = tc.identityMode
 			grantsBefore := len(deps.policy.created)
 
-			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
-			})
+			req := validReq(KindWebhook)
+			req.SourceID = src.ID
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 			if !tc.wantErr {
 				if err != nil {
 					t.Fatalf("CreateTrigger: %v", err)
@@ -199,22 +220,18 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 	// decides them, not the storage layer, so the settings a caller reads back
 	// do not depend on which write path stored the row.
 	tests := []struct {
-		name         string
-		req          CreateTriggerRequest
+		kind         string
 		wantOverflow string
 	}{
-		{"webhook", CreateTriggerRequest{Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p"}, OverflowWait},
-		{"scheduled", CreateTriggerRequest{
-			Kind: KindScheduled, Name: "nightly", AgentTypeID: "at-1", PromptTemplate: "p",
-			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"},
-		}, OverflowReplace},
-		{"manual", CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}, OverflowRefuse},
+		{KindWebhook, OverflowWait},
+		{KindScheduled, OverflowReplace},
+		{KindManual, OverflowRefuse},
 	}
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.kind, func(t *testing.T) {
 			_, deps := newTestService(t)
-			req := tc.req
-			if req.Kind == "" || req.Kind == KindWebhook {
+			req := validReq(tc.kind)
+			if tc.kind == KindWebhook {
 				req.SourceID = mustSource(t, deps.sources).ID
 			}
 
@@ -230,7 +247,7 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 				t.Errorf("unset tuning fields should be written as the platform defaults: %+v", stored)
 			}
 			if stored.Overflow != tc.wantOverflow {
-				t.Errorf("Overflow = %q, want the %s default %q", stored.Overflow, tc.req.Kind, tc.wantOverflow)
+				t.Errorf("Overflow = %q, want the %s default %q", stored.Overflow, tc.kind, tc.wantOverflow)
 			}
 			if !stored.DedupeEnabled || !stored.AutopauseEnabled {
 				t.Errorf("dedupe=%v autopause=%v, want both armed by default", stored.DedupeEnabled, stored.AutopauseEnabled)
@@ -243,17 +260,17 @@ func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
 	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
-		AdmissionSettings: AdmissionSettings{
-			MaxParallel:      new(int16(2)),
-			Overflow:         new(OverflowRefuse),
-			MaxQueueDepth:    new(int16(7)),
-			TimeoutSeconds:   new(int16(45)),
-			DedupeEnabled:    new(false),
-			AutopauseEnabled: new(false),
-		},
-	})
+	req := validReq(KindWebhook)
+	req.SourceID = src.ID
+	req.AdmissionSettings = AdmissionSettings{
+		MaxParallel:      new(int16(2)),
+		Overflow:         new(OverflowRefuse),
+		MaxQueueDepth:    new(int16(7)),
+		TimeoutSeconds:   new(int16(45)),
+		DedupeEnabled:    new(false),
+		AutopauseEnabled: new(false),
+	}
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -290,23 +307,12 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 		{"timeout above ceiling", func(r *CreateTriggerRequest) { r.TimeoutSeconds = new(int16(601)) }},
 		{"unknown overflow", func(r *CreateTriggerRequest) { r.Overflow = new("drop") }},
 	}
-	kinds := []struct {
-		name string
-		base CreateTriggerRequest
-	}{
-		{"webhook", CreateTriggerRequest{Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p"}},
-		{"scheduled", CreateTriggerRequest{
-			Kind: KindScheduled, Name: "nightly", AgentTypeID: "at-1", PromptTemplate: "p",
-			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"},
-		}},
-		{"manual", CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}},
-	}
-	for _, k := range kinds {
+	for _, kind := range []string{KindWebhook, KindScheduled, KindManual} {
 		for _, s := range settings {
-			t.Run(k.name+"/"+s.name, func(t *testing.T) {
+			t.Run(kind+"/"+s.name, func(t *testing.T) {
 				_, deps := newTestService(t)
-				req := k.base
-				if req.Kind == "" || req.Kind == KindWebhook {
+				req := validReq(kind)
+				if kind == KindWebhook {
 					req.SourceID = mustSource(t, deps.sources).ID
 				}
 				s.apply(&req)
@@ -345,10 +351,8 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, deps := newTestService(t)
-			src := mustSource(t, deps.sources)
-			req := CreateTriggerRequest{
-				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
-			}
+			req := validReq(KindWebhook)
+			req.SourceID = mustSource(t, deps.sources).ID
 			tc.apply(&req)
 			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
@@ -590,16 +594,17 @@ func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
 	src := mustSource(t, deps.sources)
 
 	for _, tc := range []struct {
-		name string
-		req  CreateTriggerRequest
+		name  string
+		apply func(*CreateTriggerRequest)
 	}{
-		{"name", CreateTriggerRequest{Name: strings.Repeat("n", maxNameLen+1), SourceID: src.ID,
-			AgentTypeID: "at-1", PromptTemplate: "go"}},
-		{"prompt_template", CreateTriggerRequest{Name: "ok", SourceID: src.ID,
-			AgentTypeID: "at-1", PromptTemplate: strings.Repeat("p", maxPromptTemplateLen+1)}},
+		{"name", func(r *CreateTriggerRequest) { r.Name = strings.Repeat("n", maxNameLen+1) }},
+		{"prompt_template", func(r *CreateTriggerRequest) { r.PromptTemplate = strings.Repeat("p", maxPromptTemplateLen+1) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, tc.req); !errors.Is(err, ErrValidation) {
+			req := validReq(KindWebhook)
+			req.SourceID = src.ID
+			tc.apply(&req)
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
 				t.Fatalf("err = %v, want ErrValidation", err)
 			}
 		})

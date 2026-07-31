@@ -22,28 +22,16 @@ import {
   matchesStatusFilter,
   type DeliveryRow,
 } from './index';
+import { makeDelivery } from './fixtures';
 
+/** These tests want a bare arrival: verified, unnamed, at a known instant. */
 function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
-  return {
-    id: 'd1',
-    kind: 'webhook',
-    sourceId: 'src-1',
-    eventType: 'push',
+  return makeDelivery({
     status: 'verified',
-    triggerId: null,
     triggerName: null,
-    runId: null,
-    error: null,
-    payloadExcerpt: null,
-    firedBy: null,
-    scheduledAt: null,
-    reason: null,
-    payloadBytes: null,
-    payloadPurged: false,
     receivedAt: '2026-06-26T00:00:00Z',
-    runs: [],
     ...overrides,
-  };
+  });
 }
 
 describe('deliveryDetail priority chain', () => {

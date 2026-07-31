@@ -3,31 +3,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TriggerDrawer } from './trigger-drawer';
 import type { SourceRow, TriggerRow } from '../_types';
+import { makeTrigger } from '../_types/fixtures';
 
+/** The drawer tests want a stored condition and a template worth displaying. */
 function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
-  return {
-    id: 't1',
-    kind: 'webhook',
-    sourceId: 'src-1',
-    name: 'gh-push',
-    agentTypeId: 'at-1',
-    agentSlug: 'coder',
-    eventType: 'push',
+  return makeTrigger({
     matchCondition: { action: ['opened'] },
     promptTemplate: 'Review {{ push.branch }}',
-    enabled: true,
-    createdAt: '2026-07-01T00:00:00Z',
-    maxParallel: 4,
-    overflow: 'wait',
-    maxQueueDepth: 32,
-    timeoutSeconds: 30,
-    dedupeEnabled: true,
-    autopauseEnabled: true,
-    consecutiveFailures: 0,
-    autoPausedAt: null,
-    pendingCount: 0,
     ...overrides,
-  };
+  });
 }
 
 const SOURCES: SourceRow[] = [

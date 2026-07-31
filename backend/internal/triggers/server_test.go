@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,21 +32,64 @@ func withTenant(req *http.Request) *http.Request {
 	return req.WithContext(ctx)
 }
 
+// newRequest builds a request with path values applied. A nil body sends no
+// payload, []byte passes through raw, and anything else is JSON-encoded.
+func newRequest(t *testing.T, method, target string, pathVals map[string]string, body any) *http.Request {
+	t.Helper()
+	var rdr io.Reader
+	switch b := body.(type) {
+	case nil:
+	case []byte:
+		rdr = bytes.NewReader(b)
+	default:
+		raw, err := json.Marshal(b)
+		if err != nil {
+			t.Fatalf("marshal request body: %v", err)
+		}
+		rdr = bytes.NewReader(raw)
+	}
+	req := httptest.NewRequest(method, target, rdr)
+	for k, v := range pathVals {
+		req.SetPathValue(k, v)
+	}
+	return req
+}
+
+// invoke runs the handler and returns the recorder. Tests that must stay
+// unauthenticated (ingest, missing claims) use it directly, so the absence of
+// tenant claims is visible at the call site.
+func invoke(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	h(w, req)
+	return w
+}
+
+// call is the authenticated path: tenant claims injected, handler invoked.
+func call(t *testing.T, h http.HandlerFunc, method, target string, pathVals map[string]string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	return invoke(h, withTenant(newRequest(t, method, target, pathVals, body)))
+}
+
+// decode unmarshals the recorded response body into T.
+func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return v
+}
+
 func TestHandleCreateSource(t *testing.T) {
 	c, _, _ := newTestController(t)
-	raw, _ := json.Marshal(CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-sources", bytes.NewReader(raw)))
-	w := httptest.NewRecorder()
 
-	c.handleCreateSource(w, req)
+	w := call(t, c.handleCreateSource, http.MethodPost, "/trigger-sources", nil,
+		CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201 (body: %s)", w.Code, w.Body.String())
 	}
-	var resp SourceResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	resp := decode[SourceResponse](t, w)
 	if resp.Secret == "" || resp.WebhookPath == "" {
 		t.Errorf("expected one-time secret + webhook path, got %+v", resp)
 	}
@@ -53,11 +97,9 @@ func TestHandleCreateSource(t *testing.T) {
 
 func TestHandleCreateSource_ValidationError(t *testing.T) {
 	c, _, _ := newTestController(t)
-	raw, _ := json.Marshal(CreateSourceRequest{Provider: ProviderGitHub}) // no name
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-sources", bytes.NewReader(raw)))
-	w := httptest.NewRecorder()
 
-	c.handleCreateSource(w, req)
+	w := call(t, c.handleCreateSource, http.MethodPost, "/trigger-sources", nil,
+		CreateSourceRequest{Provider: ProviderGitHub}) // no name
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
@@ -68,17 +110,14 @@ func TestHandleListSources(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	mustSource(t, deps.sources)
 
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources", nil))
-	w := httptest.NewRecorder()
-	c.handleListSources(w, req)
+	w := call(t, c.handleListSources, http.MethodGet, "/trigger-sources", nil, nil)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var body struct {
+	body := decode[struct {
 		Sources []WebhookSource `json:"sources"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	}](t, w)
 	if len(body.Sources) != 1 {
 		t.Errorf("expected 1 source, got %d", len(body.Sources))
 	}
@@ -89,14 +128,11 @@ func TestHandleIngest_Accepted(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/"+src.ID, bytes.NewReader(body))
-	req.SetPathValue("sourceID", src.ID)
+	req := newRequest(t, http.MethodPost, "/webhooks/"+src.ID, map[string]string{"sourceID": src.ID}, body)
 	req.Header.Set("X-Hub-Signature-256", githubSig(src.Secret, body))
 	req.Header.Set("X-GitHub-Event", "pull_request")
 	req.Header.Set("X-GitHub-Delivery", "d-1")
-	w := httptest.NewRecorder()
-
-	c.handleIngest(w, req)
+	w := invoke(c.handleIngest, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (body: %s)", w.Code, w.Body.String())
@@ -113,22 +149,16 @@ func TestHandleIngest_BadSignatureIsIndistinguishableFromAnUnknownSource(t *test
 	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/"+src.ID, bytes.NewReader(body))
-	req.SetPathValue("sourceID", src.ID)
+	req := newRequest(t, http.MethodPost, "/webhooks/"+src.ID, map[string]string{"sourceID": src.ID}, body)
 	req.Header.Set("X-Hub-Signature-256", "sha256=bad")
 	req.Header.Set("X-GitHub-Event", "pull_request")
-	w := httptest.NewRecorder()
-
-	c.handleIngest(w, req)
+	w := invoke(c.handleIngest, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 (the same answer an unknown source gets)", w.Code)
 	}
 
-	unknown := httptest.NewRequest(http.MethodPost, "/webhooks/nope", bytes.NewReader(body))
-	unknown.SetPathValue("sourceID", "nope")
-	uw := httptest.NewRecorder()
-	c.handleIngest(uw, unknown)
+	uw := invoke(c.handleIngest, newRequest(t, http.MethodPost, "/webhooks/nope", map[string]string{"sourceID": "nope"}, body))
 	if uw.Body.String() != w.Body.String() {
 		t.Errorf("bad signature answered %q, unknown source answered %q; they must be identical",
 			w.Body.String(), uw.Body.String())
@@ -137,12 +167,8 @@ func TestHandleIngest_BadSignatureIsIndistinguishableFromAnUnknownSource(t *test
 
 func TestHandleIngest_UnknownSource(t *testing.T) {
 	c, _, _ := newTestController(t)
-	body := []byte(`{}`)
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/nope", bytes.NewReader(body))
-	req.SetPathValue("sourceID", "nope")
-	w := httptest.NewRecorder()
 
-	c.handleIngest(w, req)
+	w := invoke(c.handleIngest, newRequest(t, http.MethodPost, "/webhooks/nope", map[string]string{"sourceID": "nope"}, []byte(`{}`)))
 
 	// Missing source is reported as 404 (does not leak existence vs. disabled).
 	if w.Code != http.StatusNotFound {
@@ -154,7 +180,7 @@ func TestHandleCreateTrigger(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
 
-	raw, _ := json.Marshal(CreateTriggerRequest{
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, CreateTriggerRequest{
 		SourceID:       src.ID,
 		Name:           "review",
 		AgentTypeID:    "at-1",
@@ -162,10 +188,6 @@ func TestHandleCreateTrigger(t *testing.T) {
 		EventType:      "pull_request",
 		PromptTemplate: "Review {{ pr.number }}",
 	})
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers", bytes.NewReader(raw)))
-	w := httptest.NewRecorder()
-
-	c.handleCreateTrigger(w, req)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201 (body: %s)", w.Code, w.Body.String())
@@ -176,19 +198,13 @@ func TestHandleGetSource(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
 
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/"+src.ID, nil))
-	req.SetPathValue("id", src.ID)
-	w := httptest.NewRecorder()
-	c.handleGetSource(w, req)
+	w := call(t, c.handleGetSource, http.MethodGet, "/trigger-sources/"+src.ID, map[string]string{"id": src.ID}, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get: status = %d, want 200", w.Code)
 	}
 
 	// Unknown id → 404 via writeServiceError.
-	req = withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/nope", nil))
-	req.SetPathValue("id", "nope")
-	w = httptest.NewRecorder()
-	c.handleGetSource(w, req)
+	w = call(t, c.handleGetSource, http.MethodGet, "/trigger-sources/nope", map[string]string{"id": "nope"}, nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("get unknown: status = %d, want 404", w.Code)
 	}
@@ -198,11 +214,8 @@ func TestHandleUpdateAndDeleteSource(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
 
-	raw, _ := json.Marshal(UpdateSourceRequest{Enabled: new(false)})
-	req := withTenant(httptest.NewRequest(http.MethodPatch, "/trigger-sources/"+src.ID, bytes.NewReader(raw)))
-	req.SetPathValue("id", src.ID)
-	w := httptest.NewRecorder()
-	c.handleUpdateSource(w, req)
+	w := call(t, c.handleUpdateSource, http.MethodPatch, "/trigger-sources/"+src.ID,
+		map[string]string{"id": src.ID}, UpdateSourceRequest{Enabled: new(false)})
 	if w.Code != http.StatusOK {
 		t.Fatalf("update: status = %d, want 200", w.Code)
 	}
@@ -210,10 +223,7 @@ func TestHandleUpdateAndDeleteSource(t *testing.T) {
 		t.Error("source should be disabled after update")
 	}
 
-	req = withTenant(httptest.NewRequest(http.MethodDelete, "/trigger-sources/"+src.ID, nil))
-	req.SetPathValue("id", src.ID)
-	w = httptest.NewRecorder()
-	c.handleDeleteSource(w, req)
+	w = call(t, c.handleDeleteSource, http.MethodDelete, "/trigger-sources/"+src.ID, map[string]string{"id": src.ID}, nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete: status = %d, want 204", w.Code)
 	}
@@ -225,44 +235,32 @@ func TestHandleTriggerLifecycle(t *testing.T) {
 	tr := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 
 	// List (filtered by agent_type_id).
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/triggers?agent_type_id=at-1", nil))
-	w := httptest.NewRecorder()
-	c.handleListTriggers(w, req)
+	w := call(t, c.handleListTriggers, http.MethodGet, "/triggers?agent_type_id=at-1", nil, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list: status = %d, want 200", w.Code)
 	}
-	var listBody struct {
+	listBody := decode[struct {
 		Triggers []Trigger `json:"triggers"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &listBody)
+	}](t, w)
 	if len(listBody.Triggers) != 1 {
 		t.Errorf("expected 1 trigger, got %d", len(listBody.Triggers))
 	}
 
 	// Get.
-	req = withTenant(httptest.NewRequest(http.MethodGet, "/triggers/"+tr.ID, nil))
-	req.SetPathValue("id", tr.ID)
-	w = httptest.NewRecorder()
-	c.handleGetTrigger(w, req)
+	w = call(t, c.handleGetTrigger, http.MethodGet, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get: status = %d, want 200", w.Code)
 	}
 
 	// Update.
-	raw, _ := json.Marshal(UpdateTriggerRequest{Enabled: new(false)})
-	req = withTenant(httptest.NewRequest(http.MethodPatch, "/triggers/"+tr.ID, bytes.NewReader(raw)))
-	req.SetPathValue("id", tr.ID)
-	w = httptest.NewRecorder()
-	c.handleUpdateTrigger(w, req)
+	w = call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID,
+		map[string]string{"id": tr.ID}, UpdateTriggerRequest{Enabled: new(false)})
 	if w.Code != http.StatusOK {
 		t.Fatalf("update: status = %d, want 200", w.Code)
 	}
 
 	// Delete.
-	req = withTenant(httptest.NewRequest(http.MethodDelete, "/triggers/"+tr.ID, nil))
-	req.SetPathValue("id", tr.ID)
-	w = httptest.NewRecorder()
-	c.handleDeleteTrigger(w, req)
+	w = call(t, c.handleDeleteTrigger, http.MethodDelete, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete: status = %d, want 204", w.Code)
 	}
@@ -275,16 +273,13 @@ func TestHandleListDeliveries(t *testing.T) {
 		ID: "d1", TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusSkipped,
 	})
 
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-deliveries", nil))
-	w := httptest.NewRecorder()
-	c.handleListDeliveries(w, req)
+	w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries", nil, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var body struct {
+	body := decode[struct {
 		Deliveries []Delivery `json:"deliveries"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	}](t, w)
 	if len(body.Deliveries) != 1 {
 		t.Errorf("expected 1 delivery, got %d", len(body.Deliveries))
 	}
@@ -302,16 +297,13 @@ func TestHandleRedeliver(t *testing.T) {
 	}
 	drainPending(t, svc, deps.repo)
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-deliveries/"+fired.DeliveryID+"/redeliver", nil))
-	req.SetPathValue("id", fired.DeliveryID)
-	w := httptest.NewRecorder()
-	c.handleRedeliver(w, req)
+	w := call(t, c.handleRedeliver, http.MethodPost, "/trigger-deliveries/"+fired.DeliveryID+"/redeliver",
+		map[string]string{"id": fired.DeliveryID}, nil)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d (%s), want 202", w.Code, w.Body.String())
 	}
-	var body RedeliverResponse
-	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	body := decode[RedeliverResponse](t, w)
 	if body.RedeliveryOf != fired.DeliveryID {
 		t.Errorf("redelivery_of = %q, want %q", body.RedeliveryOf, fired.DeliveryID)
 	}
@@ -330,10 +322,8 @@ func TestHandleRedeliver_NotRedeliverable(t *testing.T) {
 		Status: StatusDispatched, ScheduledAt: &at,
 	})
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/trigger-deliveries/tick/redeliver", nil))
-	req.SetPathValue("id", "tick")
-	w := httptest.NewRecorder()
-	c.handleRedeliver(w, req)
+	w := call(t, c.handleRedeliver, http.MethodPost, "/trigger-deliveries/tick/redeliver",
+		map[string]string{"id": "tick"}, nil)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d (%s), want 400", w.Code, w.Body.String())
@@ -346,27 +336,22 @@ func TestHandleRetention_GetAndPut(t *testing.T) {
 	c, _, _ := newTestController(t)
 
 	// Unset: the inherited default, flagged as such.
-	w := httptest.NewRecorder()
-	c.handleGetRetention(w, withTenant(httptest.NewRequest(http.MethodGet, "/trigger-retention", nil)))
+	w := call(t, c.handleGetRetention, http.MethodGet, "/trigger-retention", nil, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET status = %d (%s), want 200", w.Code, w.Body.String())
 	}
-	var got RetentionSettings
-	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	got := decode[RetentionSettings](t, w)
 	if got.PayloadDays != DefaultPayloadRetentionDays || !got.IsDefault {
 		t.Errorf("GET body = %+v, want the inherited default", got)
 	}
 
-	raw, _ := json.Marshal(UpdateRetentionRequest{PayloadDays: 3})
-	w = httptest.NewRecorder()
-	c.handleSetRetention(w, withTenant(httptest.NewRequest(http.MethodPut, "/trigger-retention", bytes.NewReader(raw))))
+	w = call(t, c.handleSetRetention, http.MethodPut, "/trigger-retention", nil, UpdateRetentionRequest{PayloadDays: 3})
 	if w.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d (%s), want 200", w.Code, w.Body.String())
 	}
 
-	w = httptest.NewRecorder()
-	c.handleGetRetention(w, withTenant(httptest.NewRequest(http.MethodGet, "/trigger-retention", nil)))
-	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	w = call(t, c.handleGetRetention, http.MethodGet, "/trigger-retention", nil, nil)
+	got = decode[RetentionSettings](t, w)
 	if got.PayloadDays != 3 || got.IsDefault {
 		t.Errorf("GET after PUT = %+v, want 3 and not default", got)
 	}
@@ -376,10 +361,8 @@ func TestHandleRetention_GetAndPut(t *testing.T) {
 // violation surfacing as a 500.
 func TestHandleRetention_OutOfBounds(t *testing.T) {
 	c, _, _ := newTestController(t)
-	raw, _ := json.Marshal(UpdateRetentionRequest{PayloadDays: 365})
-	w := httptest.NewRecorder()
 
-	c.handleSetRetention(w, withTenant(httptest.NewRequest(http.MethodPut, "/trigger-retention", bytes.NewReader(raw))))
+	w := call(t, c.handleSetRetention, http.MethodPut, "/trigger-retention", nil, UpdateRetentionRequest{PayloadDays: 365})
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d (%s), want 400", w.Code, w.Body.String())
@@ -396,16 +379,13 @@ func TestHandleSourceEventTypes(t *testing.T) {
 		ProviderDeliveryID: "gh-1", EventType: "release", Status: StatusSkipped,
 	})
 
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/"+src.ID+"/event-types", nil))
-	req.SetPathValue("id", src.ID)
-	w := httptest.NewRecorder()
-	c.handleSourceEventTypes(w, req)
+	w := call(t, c.handleSourceEventTypes, http.MethodGet, "/trigger-sources/"+src.ID+"/event-types",
+		map[string]string{"id": src.ID}, nil)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
 	}
-	var got EventTypesResponse
-	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	got := decode[EventTypesResponse](t, w)
 	if len(got.Declared) == 0 {
 		t.Error("declared must list what the adapter models")
 	}
@@ -416,11 +396,9 @@ func TestHandleSourceEventTypes(t *testing.T) {
 
 func TestHandleSourceEventTypes_UnknownSource(t *testing.T) {
 	c, _, _ := newTestController(t)
-	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/nope/event-types", nil))
-	req.SetPathValue("id", "nope")
-	w := httptest.NewRecorder()
 
-	c.handleSourceEventTypes(w, req)
+	w := call(t, c.handleSourceEventTypes, http.MethodGet, "/trigger-sources/nope/event-types",
+		map[string]string{"id": "nope"}, nil)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
@@ -435,13 +413,8 @@ func TestHandleGetTrigger_PendingCountAlwaysPresent(t *testing.T) {
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 32)
 
 	get := func() (map[string]any, int) {
-		req := withTenant(httptest.NewRequest(http.MethodGet, "/triggers/"+trig.ID, nil))
-		req.SetPathValue("id", trig.ID)
-		w := httptest.NewRecorder()
-		c.handleGetTrigger(w, req)
-		var body map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &body)
-		return body, w.Code
+		w := call(t, c.handleGetTrigger, http.MethodGet, "/triggers/"+trig.ID, map[string]string{"id": trig.ID}, nil)
+		return decode[map[string]any](t, w), w.Code
 	}
 
 	body, code := get()
@@ -501,11 +474,8 @@ func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *m
 func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 	c, eval, _, _ := newFireController(t, false, nil)
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
-	req.SetPathValue("id", "trig-1")
-	w := httptest.NewRecorder()
-
-	c.handleFireTrigger(w, req)
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 — triggers:write must not imply fire", w.Code)
@@ -520,11 +490,8 @@ func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, errors.New("bundle unavailable"))
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
-	req.SetPathValue("id", "trig-1")
-	w := httptest.NewRecorder()
-
-	c.handleFireTrigger(w, req)
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 — an evaluator error must never become an allow", w.Code)
@@ -535,11 +502,8 @@ func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 	c, _, _ := newTestController(t) // built with a nil evaluator
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`))))
-	req.SetPathValue("id", "trig-1")
-	w := httptest.NewRecorder()
-
-	c.handleFireTrigger(w, req)
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 when no evaluator is configured", w.Code)
@@ -550,11 +514,8 @@ func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/triggers/trig-1/fire", bytes.NewReader([]byte(`{}`)))
-	req.SetPathValue("id", "trig-1")
-	w := httptest.NewRecorder()
-
-	c.handleFireTrigger(w, req)
+	w := invoke(c.handleFireTrigger, newRequest(t, http.MethodPost, "/triggers/trig-1/fire",
+		map[string]string{"id": "trig-1"}, []byte(`{}`)))
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 without claims", w.Code)
@@ -569,11 +530,8 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 	deps.minter.reset()
 
-	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/"+trig.ID+"/fire", bytes.NewReader([]byte(`{}`))))
-	req.SetPathValue("id", trig.ID)
-	w := httptest.NewRecorder()
-
-	c.handleFireTrigger(w, req)
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/"+trig.ID+"/fire",
+		map[string]string{"id": trig.ID}, []byte(`{}`))
 
 	if w.Code == http.StatusForbidden {
 		t.Fatalf("authorization should have passed, got 403")

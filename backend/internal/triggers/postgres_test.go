@@ -484,17 +484,7 @@ func TestPostgres_PendingStats(t *testing.T) {
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
 
-	tr := &Trigger{
-		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
-		Name: "stats", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
-	}
-	admissionDefaults(tr)
-	if err := r.CreateTrigger(ctx, tr); err != nil {
-		t.Fatalf("CreateTrigger: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = r.pool.Exec(ctx, `DELETE FROM trigger_pending_deliveries WHERE tenant_id = $1`, tenant)
-	})
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "stats", defaultMaxParallel)
 
 	before, err := r.PendingStats(ctx)
 	if err != nil {
@@ -502,9 +492,7 @@ func TestPostgres_PendingStats(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := r.EnqueuePending(ctx, &PendingDelivery{
-			ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
-		}); err != nil {
+		if err := r.EnqueuePending(ctx, newPending(tenant, tr.ID)); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
 		}
 	}
@@ -540,14 +528,7 @@ func TestPostgres_TriggerNameSurvivesDeletion(t *testing.T) {
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
 
-	tr := &Trigger{
-		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
-		Name: "PR reviewer", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p", Enabled: true,
-	}
-	admissionDefaults(tr)
-	if err := r.CreateTrigger(ctx, tr); err != nil {
-		t.Fatalf("CreateTrigger: %v", err)
-	}
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "PR reviewer", defaultMaxParallel)
 
 	d := &Delivery{
 		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
@@ -631,11 +612,11 @@ func admissionDefaults(t *Trigger) *Trigger {
 }
 
 // seedPendingTrigger stores an enabled trigger to hang pending rows off.
-func seedPendingTrigger(t *testing.T, r *postgresRepository, tenant, sourceID string, maxParallel int16) *Trigger {
+func seedPendingTrigger(t *testing.T, r *postgresRepository, tenant, sourceID, name string, maxParallel int16) *Trigger {
 	t.Helper()
 	tr := &Trigger{
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: sourceID,
-		Name: "pending", AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p",
+		Name: name, AgentTypeID: "at-1", AgentSlug: "a", PromptTemplate: "p",
 		Enabled: true,
 	}
 	admissionDefaults(tr)
@@ -649,15 +630,21 @@ func seedPendingTrigger(t *testing.T, r *postgresRepository, tenant, sourceID st
 	return tr
 }
 
+// newPending is the minimal queue row; everything else about a pending
+// delivery is context the queue never reads.
+func newPending(tenant, triggerID string) *PendingDelivery {
+	return &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: triggerID, DeliveryID: uuid.NewString()}
+}
+
 // The row a dead worker left behind: claimed, never dispatched, never released.
 // Nothing else in the system will ever give that fire a dispatch.
 func TestPostgres_ReclaimStalePending(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
-	p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	p := newPending(tenant, tr.ID)
 	if err := r.EnqueuePending(ctx, p); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
@@ -705,9 +692,9 @@ func TestPostgres_StrandedClaimReleasesItsSlot(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
 
-	stranded := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	stranded := newPending(tenant, tr.ID)
 	if err := r.EnqueuePending(ctx, stranded); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
@@ -720,7 +707,7 @@ func TestPostgres_StrandedClaimReleasesItsSlot(t *testing.T) {
 	}
 
 	// A second fire cannot be claimed: the ceiling is 1 and the claim holds it.
-	next := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	next := newPending(tenant, tr.ID)
 	if err := r.EnqueuePending(ctx, next); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
@@ -782,7 +769,7 @@ func TestPostgres_IdleRunDoesNotHoldAParallelSlot(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
 	runID := seedRun(t, r, tenant, "active")
 
 	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, ProviderDeliveryID: "gh-idle-1", Status: StatusVerified}
@@ -797,7 +784,7 @@ func TestPostgres_IdleRunDoesNotHoldAParallelSlot(t *testing.T) {
 		t.Fatalf("InsertDeliveryRun: %v", err)
 	}
 
-	waiting := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	waiting := newPending(tenant, tr.ID)
 	if err := r.EnqueuePending(ctx, waiting); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
@@ -833,8 +820,8 @@ func TestPostgres_TriggerPendingCount(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
-	other := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
+	other := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
 	got, err := r.GetTrigger(ctx, tenant, tr.ID)
 	if err != nil {
@@ -845,16 +832,12 @@ func TestPostgres_TriggerPendingCount(t *testing.T) {
 	}
 
 	for range 3 {
-		if err := r.EnqueuePending(ctx, &PendingDelivery{
-			ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
-		}); err != nil {
+		if err := r.EnqueuePending(ctx, newPending(tenant, tr.ID)); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
 		}
 	}
 	// Another trigger's backlog must not leak into this one's count.
-	if err := r.EnqueuePending(ctx, &PendingDelivery{
-		ID: uuid.NewString(), TenantID: tenant, TriggerID: other.ID, DeliveryID: uuid.NewString(),
-	}); err != nil {
+	if err := r.EnqueuePending(ctx, newPending(tenant, other.ID)); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
 
@@ -1046,9 +1029,9 @@ func TestPostgres_TouchPendingClaimResetsTheStaleWindow(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
-	p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	p := newPending(tenant, tr.ID)
 	if err := r.EnqueuePending(ctx, p); err != nil {
 		t.Fatalf("EnqueuePending: %v", err)
 	}
@@ -1075,10 +1058,10 @@ func TestPostgres_DrainPendingLeavesClaimedRows(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
-	waiting := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
-	claimed := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	waiting := newPending(tenant, tr.ID)
+	claimed := newPending(tenant, tr.ID)
 	for _, p := range []*PendingDelivery{claimed, waiting} {
 		if err := r.EnqueuePending(ctx, p); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
@@ -1103,15 +1086,15 @@ func TestPostgres_DrainOrphanedPending(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	live := seedPendingTrigger(t, r, tenant, s.ID, 4)
-	off := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	live := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
+	off := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 	off.Enabled = false
 	if err := r.UpdateTrigger(ctx, off); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
-	stays := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: live.ID, DeliveryID: uuid.NewString()}
-	goes := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: off.ID, DeliveryID: uuid.NewString()}
+	stays := newPending(tenant, live.ID)
+	goes := newPending(tenant, off.ID)
 	for _, p := range []*PendingDelivery{stays, goes} {
 		if err := r.EnqueuePending(ctx, p); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
@@ -1145,10 +1128,10 @@ func TestPostgres_TrimPendingLeavesRoomForTheIncomingFire(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
 	for range 5 {
-		p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+		p := newPending(tenant, tr.ID)
 		if err := r.EnqueuePending(ctx, p); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
 		}
@@ -1309,7 +1292,7 @@ func TestPostgres_EnqueueWithinCeiling_HoldsUnderConcurrency(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
 
 	// A start barrier, because without one the callers do not actually overlap:
 	// ten fast local queries run to completion in turn, the race never happens,
@@ -1322,9 +1305,7 @@ func TestPostgres_EnqueueWithinCeiling_HoldsUnderConcurrency(t *testing.T) {
 	for range callers {
 		wg.Go(func() {
 			<-start
-			ok, err := r.EnqueueWithinCeiling(ctx, &PendingDelivery{
-				ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString(),
-			}, 1)
+			ok, err := r.EnqueueWithinCeiling(ctx, newPending(tenant, tr.ID), 1)
 			if err != nil {
 				t.Errorf("EnqueueWithinCeiling: %v", err)
 				return
@@ -1367,11 +1348,11 @@ func TestPostgres_SupersedePendingReturnsWhatItDisplaced(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
 
 	var enqueued []string
 	for range 3 {
-		p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+		p := newPending(tenant, tr.ID)
 		if err := r.EnqueuePending(ctx, p); err != nil {
 			t.Fatalf("EnqueuePending: %v", err)
 		}
@@ -1409,15 +1390,15 @@ func TestPostgres_EnqueueWithinCeilingRefusesAtTheCeiling(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
 
-	first := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	first := newPending(tenant, tr.ID)
 	admitted, err := r.EnqueueWithinCeiling(ctx, first, 1)
 	if err != nil || !admitted {
 		t.Fatalf("first fire admitted = %v (%v), want true against an empty queue", admitted, err)
 	}
 
-	second := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	second := newPending(tenant, tr.ID)
 	admitted, err = r.EnqueueWithinCeiling(ctx, second, 1)
 	if err != nil {
 		t.Fatalf("EnqueueWithinCeiling: %v", err)
@@ -1442,7 +1423,7 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	s := seedSource(t, r, tenant)
-	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 
 	// newDelivery stores an arrival at the given status and returns its id.
 	newDelivery := func(t *testing.T, arrival string) string {
