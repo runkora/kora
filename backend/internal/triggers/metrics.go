@@ -50,12 +50,17 @@ type Metrics struct {
 	registration metric.Registration
 }
 
+// pendingStatsReader is the one read the queue-depth gauge takes.
+type pendingStatsReader interface {
+	PendingStats(ctx context.Context) (PendingStats, error)
+}
+
 // NewMetrics builds the instrument set on the given meter.
 //
 // repo is read by the queue-depth callback, which is why this takes one: an
 // observable gauge is only honest if it reports the queue as it is at collection
 // time rather than a counter the code remembered to keep updated.
-func NewMetrics(meter metric.Meter, repo PendingQueue, logger logging.Logger) (*Metrics, error) {
+func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logger) (*Metrics, error) {
 	m := &Metrics{}
 
 	var err error
