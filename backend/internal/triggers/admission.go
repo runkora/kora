@@ -141,9 +141,7 @@ type Admission struct {
 }
 
 // admissionStore is what admission touches: the queue it manages, and the two
-// outcome writes it makes when it refuses or displaces a fire. Fifteen methods
-// rather than the Repository union's fifty-six, so what admission may reach is
-// stated rather than implied.
+// outcome writes it makes when it refuses or displaces a fire.
 type admissionStore interface {
 	PendingQueue
 	outcomeStore

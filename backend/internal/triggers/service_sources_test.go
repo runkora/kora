@@ -107,9 +107,9 @@ func TestUpdateSource_DisableAndRotate(t *testing.T) {
 }
 
 func TestDeleteSource_CleansGrants(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	resp := mustSource(t, deps.sources)
-	mustTrigger(t, svc, resp.ID, nil, "review")
+	mustTrigger(t, deps.triggers, resp.ID, nil, "review")
 
 	if err := deps.sources.DeleteSource(context.Background(), testTenant, resp.ID); err != nil {
 		t.Fatalf("DeleteSource: %v", err)

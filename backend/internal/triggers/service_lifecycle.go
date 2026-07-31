@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,11 +15,52 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
+// triggerStore is what managing triggers touches: the triggers themselves, the
+// one source read a webhook trigger needs to find its principal, and the
+// failure counter that re-enabling clears.
+type triggerStore interface {
+	CreateTrigger(ctx context.Context, t *Trigger) error
+	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
+	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
+	UpdateTrigger(ctx context.Context, t *Trigger) error
+	DeleteTrigger(ctx context.Context, tenantID, id string) error
+	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
+	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+}
+
+// TriggerService owns a trigger's lifecycle: creating it with the identity and
+// grants it runs under, editing it, and deleting it.
+//
+// Its collaborators are the ones creation actually needs. A trigger is
+// provisioned with a principal and a grant (policy), resolves the agent it binds
+// by asking orbit-agents as that principal (minter, agents), and enabling or
+// disabling it moves work in the queue (admission).
+type TriggerService struct {
+	repo      triggerStore
+	policy    *policyclient.Client
+	agents    *agentsclient.Client
+	minter    TokenMinter
+	admission *Admission
+	logger    logging.Logger
+}
+
+// NewTriggerService constructs the trigger lifecycle half of Triggers.
+func NewTriggerService(
+	repo triggerStore,
+	policy *policyclient.Client,
+	agents *agentsclient.Client,
+	minter TokenMinter,
+	admission *Admission,
+	logger logging.Logger,
+) *TriggerService {
+	return &TriggerService{repo: repo, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
+}
+
 // ─── Triggers ─────────────────────────────────────────────────────────────────
 
 // CreateTrigger binds a source event (webhook), a cron schedule (scheduled), or
 // an explicit fire call (manual) to an agent.
-func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
+func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
 	kind := req.Kind
 	if kind == "" {
 		kind = KindWebhook // backward-compatible default
@@ -68,7 +110,7 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 // Cleanup failures are logged rather than returned: the caller's error is the
 // one that matters, and a leaked grant is an operational cleanup, not a reason
 // to tell the caller something different about their request.
-func (s *Service) rollbackGrants(ctx context.Context, triggerID string, grantIDs []string) {
+func (s *TriggerService) rollbackGrants(ctx context.Context, triggerID string, grantIDs []string) {
 	for _, id := range grantIDs {
 		if err := s.policy.DeleteGrant(ctx, id); err != nil {
 			s.logger.Error(ctx, "trigger create failed and grant cleanup failed",
@@ -85,7 +127,7 @@ func (s *Service) rollbackGrants(ctx context.Context, triggerID string, grantIDs
 // It is the one kind that does not provision a principal: the source already has
 // one, granted at source-creation time, and the trigger only adds the scopes for
 // the agent it binds. That is why it does not share createOwnedTrigger.
-func (s *Service) createWebhookTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (_ *Trigger, err error) {
+func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (_ *Trigger, err error) {
 	if err = validateWebhookTriggerCreate(req); err != nil {
 		return nil, err
 	}
@@ -157,7 +199,7 @@ func (s *Service) createWebhookTrigger(ctx context.Context, tenantID string, req
 // The two kinds differ only in which config field they carry, so they share one
 // function rather than one per kind. A per-kind strategy object would be
 // ceremony around a single varying assignment.
-func (s *Service) createOwnedTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest, kind string) (_ *Trigger, err error) {
+func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest, kind string) (_ *Trigger, err error) {
 	validate := validateManualTriggerCreate
 	if kind == KindScheduled {
 		validate = validateScheduledTriggerCreate
@@ -246,7 +288,7 @@ func (s *Service) createOwnedTrigger(ctx context.Context, tenantID string, req C
 //
 // Falls back to the in-memory trigger if the read fails: the trigger exists and
 // the create succeeded, so a failure here is a worse response, not a failure.
-func (s *Service) readBackTrigger(ctx context.Context, t *Trigger) *Trigger {
+func (s *TriggerService) readBackTrigger(ctx context.Context, t *Trigger) *Trigger {
 	stored, err := s.repo.GetTrigger(ctx, t.TenantID, t.ID)
 	if err != nil {
 		s.logger.Warn(ctx, "could not read back the created trigger; returning the requested values",
@@ -259,12 +301,12 @@ func (s *Service) readBackTrigger(ctx context.Context, t *Trigger) *Trigger {
 }
 
 // ListTriggers returns triggers for a tenant, optionally filtered by agent type.
-func (s *Service) ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
+func (s *TriggerService) ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
 	return s.repo.ListTriggers(ctx, tenantID, agentTypeID)
 }
 
 // GetTrigger returns a single trigger.
-func (s *Service) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
+func (s *TriggerService) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
 	return s.repo.GetTrigger(ctx, tenantID, id)
 }
 
@@ -273,7 +315,7 @@ func (s *Service) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger
 // delegated-agent check is needed here: CreateTrigger refuses delegated
 // bindings, agent identity_mode is immutable, so no existing trigger can ever
 // come to bind a delegated agent through an update.
-func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
+func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -371,7 +413,7 @@ func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
 }
 
 // DeleteTrigger removes a trigger and all its policy grants.
-func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error {
+func (s *TriggerService) DeleteTrigger(ctx context.Context, tenantID, id string) error {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return err
@@ -395,4 +437,80 @@ func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error 
 		}
 	}
 	return s.repo.DeleteTrigger(ctx, tenantID, id)
+}
+
+// afterEnabledChange runs the side effects of a toggle, AFTER the new state is
+// stored.
+//
+// Order is the whole point. Draining first and persisting second leaves a window
+// where the trigger is still enabled in the database with its backlog already
+// gone: a fire admitted in that window is enqueued against a trigger that is
+// about to be disabled, and nothing will ever claim it (claiming requires an
+// enabled trigger) or reap it (the stale-claim reaper only touches claimed
+// rows). Persisting first closes admission before the drain runs. The worker's
+// orphan sweep is the backstop for anything that still lands in between.
+func (s *TriggerService) afterEnabledChange(ctx context.Context, t Trigger, wasEnabled, enabled bool) {
+	if enabled {
+		if wasEnabled {
+			return
+		}
+		// Leaving the counter at the threshold would pause the trigger again on
+		// its very next failure, which is not what "turn it back on" means.
+		if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
+			s.logger.Error(ctx, "failed to clear failure count on re-enable",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+		return
+	}
+	// Anything still waiting would drain into a trigger the admin just turned
+	// off. Drop it visibly rather than silently.
+	if wasEnabled && s.admission != nil {
+		_, _ = s.admission.Drain(ctx, t, "the trigger was disabled while this fire was waiting")
+	}
+}
+
+// resolveAgentType looks up an agent type under a given SERVICE principal and
+// validates it belongs to the tenant. This prevents the caller from shaping an
+// arbitrary run-grant scope via a client-supplied slug.
+func (s *TriggerService) resolveAgentType(ctx context.Context, tenantID, principalID, displayName, agentTypeID string) (*agentsclient.AgentType, error) {
+	tok, err := s.minter.MintServiceToken(ctx, tenantID, principalID, displayName, sourceTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("mint token for agent-type resolution: %w", err)
+	}
+
+	// A policy grant just created for principalID (createScheduledTrigger,
+	// createManualTrigger) isn't visible to orbit-agents until its next OPA
+	// bundle poll (policy.bundlePollIntervalSecs, config/base.yaml) —
+	// self-signed and immediately used in the same request, it 403s until
+	// that poll runs. A pre-existing principal (createWebhookTrigger's own
+	// source, granted at source-creation time) has always had a propagated
+	// grant by the time it's used here, so this loop resolves on the first
+	// attempt for that path. ErrForbidden means "not visible yet" and is
+	// retried; ErrAgentTypeNotFound means "genuinely absent" and fails fast.
+	var at agentsclient.AgentType
+	backoff := agentTypeRetryInitialBackoff
+	deadline := time.Now().Add(agentTypeRetryBudget)
+	for {
+		at, err = s.agents.GetAgentType(ctx, tok, agentTypeID)
+		if err == nil {
+			return &at, nil
+		}
+		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) {
+			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+		}
+		if !errors.Is(err, agentsclient.ErrForbidden) || time.Now().Add(backoff).After(deadline) {
+			if errors.Is(err, agentsclient.ErrForbidden) {
+				return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+			}
+			return nil, fmt.Errorf("resolve agent type: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("resolve agent type: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
 }

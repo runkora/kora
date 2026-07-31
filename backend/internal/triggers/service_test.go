@@ -26,9 +26,9 @@ func mustSource(t *testing.T, sources *SourceService) *SourceResponse {
 	return resp
 }
 
-func mustTrigger(t *testing.T, svc *Service, sourceID string, cond map[string][]string, prompt string) *Trigger {
+func mustTrigger(t *testing.T, triggers *TriggerService, sourceID string, cond map[string][]string, prompt string) *Trigger {
 	t.Helper()
-	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID:       sourceID,
 		Name:           "rev",
 		AgentTypeID:    "at-1",
@@ -72,7 +72,7 @@ func dispatchSetup(t *testing.T, cond map[string][]string, prompt string) (*Serv
 	t.Helper()
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	mustTrigger(t, svc, src.ID, cond, prompt)
+	mustTrigger(t, deps.triggers, src.ID, cond, prompt)
 	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
 	delID := "deliv-x"
 	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
@@ -120,9 +120,9 @@ func enqueue(t *testing.T, svc *Service, deps *testDeps, trig Trigger, n int) []
 
 // mustWebhookTrigger stores a webhook trigger with dedupe on or off, which is
 // the setting that decides whether a repeat arrival is suppressed or re-run.
-func mustWebhookTrigger(t *testing.T, svc *Service, sourceID, name string, dedupe bool) *Trigger {
+func mustWebhookTrigger(t *testing.T, triggers *TriggerService, sourceID, name string, dedupe bool) *Trigger {
 	t.Helper()
-	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID:       sourceID,
 		Name:           name,
 		AgentTypeID:    "at-1",
@@ -138,9 +138,9 @@ func mustWebhookTrigger(t *testing.T, svc *Service, sourceID, name string, dedup
 }
 
 // mustManualTrigger stores a manual trigger with one declared input.
-func mustManualTrigger(t *testing.T, svc *Service) *Trigger {
+func mustManualTrigger(t *testing.T, triggers *TriggerService) *Trigger {
 	t.Helper()
-	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		Kind:           KindManual,
 		Name:           "deploy",
 		AgentTypeID:    "at-1",

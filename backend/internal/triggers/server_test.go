@@ -21,7 +21,7 @@ func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {
 	// A pass-through auth middleware: handler tests invoke handlers directly and
 	// inject claims, while the Boot smoke test needs a non-nil middleware to wrap.
 	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
-	c := NewController(svc, newTestSourceService(t, deps.repo, deps.policyClnt), passthrough, nil, nil, "", silentLogger())
+	c := NewController(svc, deps.sources, deps.triggers, passthrough, nil, nil, "", silentLogger())
 	return c, deps, svc
 }
 
@@ -220,9 +220,9 @@ func TestHandleUpdateAndDeleteSource(t *testing.T) {
 }
 
 func TestHandleTriggerLifecycle(t *testing.T) {
-	c, deps, svc := newTestController(t)
+	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
-	tr := mustTrigger(t, svc, src.ID, nil, "p")
+	tr := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 
 	// List (filtered by agent_type_id).
 	req := withTenant(httptest.NewRequest(http.MethodGet, "/triggers?agent_type_id=at-1", nil))
@@ -294,7 +294,7 @@ func TestHandleListDeliveries(t *testing.T) {
 // and the caller follows the new one to see what it did.
 func TestHandleRedeliver(t *testing.T) {
 	c, deps, svc := newTestController(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
 	if err != nil {
@@ -492,7 +492,7 @@ func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *m
 	svc, deps := newTestService(t)
 	eval := &mockEvaluator{allow: allow, err: evalErr}
 	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
-	return NewController(svc, newTestSourceService(t, deps.repo, deps.policyClnt), passthrough, eval, nil, "", silentLogger()), eval, deps, svc
+	return NewController(svc, deps.sources, deps.triggers, passthrough, eval, nil, "", silentLogger()), eval, deps, svc
 }
 
 // The regression this closes: holding triggers:write must not imply the ability
@@ -564,9 +564,9 @@ func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
 // With the scope held, the fire proceeds to the service. A non-manual trigger is
 // rejected there, which is enough to show authorization passed.
 func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
-	c, eval, deps, svc := newFireController(t, true, nil)
+	c, eval, deps, _ := newFireController(t, true, nil)
 	src := mustSource(t, deps.sources)
-	trig := mustTrigger(t, svc, src.ID, nil, "p")
+	trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 	deps.minter.reset()
 
 	req := withTenant(httptest.NewRequest(http.MethodPost, "/triggers/"+trig.ID+"/fire", bytes.NewReader([]byte(`{}`))))

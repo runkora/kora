@@ -44,6 +44,7 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 type Controller struct {
 	svc      *Service
 	sources  *SourceService
+	triggers *TriggerService
 	authMW   mw.Middleware
 	eval     policy.Evaluator
 	routes   []routescopes.RouteScope
@@ -55,8 +56,8 @@ type Controller struct {
 // middleware (supplied by the identity service); eval/routes/basePath drive
 // ScopeEnforcementMiddleware on the management routes, exactly as for identity's
 // own authenticated routes.
-func NewController(svc *Service, sources *SourceService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, sources: sources, authMW: authMW, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewController(svc *Service, sources *SourceService, triggers *TriggerService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
+	return &Controller{svc: svc, sources: sources, triggers: triggers, authMW: authMW, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 // GroupedBy returns "" — routes are registered with paths relative to the
@@ -264,7 +265,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.svc.CreateTrigger(ctx, tenantFromCtx(ctx), req)
+	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -274,7 +275,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	triggers, err := c.svc.ListTriggers(ctx, tenantFromCtx(ctx), r.URL.Query().Get("agent_type_id"))
+	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx), r.URL.Query().Get("agent_type_id"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -284,7 +285,7 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 
 func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	t, err := c.svc.GetTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	t, err := c.triggers.GetTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -299,7 +300,7 @@ func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.svc.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
+	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -309,7 +310,7 @@ func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if err := c.svc.DeleteTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id")); err != nil {
+	if err := c.triggers.DeleteTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id")); err != nil {
 		c.writeServiceError(w, r, err)
 		return
 	}

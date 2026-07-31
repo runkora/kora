@@ -92,7 +92,7 @@ func TestTickScheduled_AutoPaused_RecordsPaused(t *testing.T) {
 // the trigger — the fire happened, and an admin needs to see it did.
 func TestFireTrigger_AutoPaused_RecordsPausedAndRefuses(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 	if err := deps.repo.AutoPause(context.Background(), trig.ID); err != nil {
 		t.Fatalf("AutoPause: %v", err)
 	}
@@ -117,9 +117,9 @@ func TestFireTrigger_AutoPaused_RecordsPausedAndRefuses(t *testing.T) {
 // own error: the fix is a person turning it back on, not fixing failures.
 func TestFireTrigger_ManuallyDisabled_RecordsNothing(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 	enabled := false
-	if _, err := svc.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 
 	// The trigger that was missing when the event first arrived now exists —
 	// the usual reason someone replays a delivery.
-	trig := mustWebhookTrigger(t, svc, src.ID, "added-later", true)
+	trig := mustWebhookTrigger(t, deps.triggers, src.ID, "added-later", true)
 
 	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1")
 	if err != nil {
@@ -181,7 +181,7 @@ func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 // against the declaration as it stands now.
 func TestRedeliver_Manual_ReusesOriginalVariables(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 
 	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
@@ -215,7 +215,7 @@ func TestRedeliver_Manual_ReusesOriginalVariables(t *testing.T) {
 // A declaration that changed since the original fire is the current contract.
 func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
 	if err != nil {
@@ -247,7 +247,7 @@ func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
 // point — and admission records whatever it then decides.
 func TestRedeliver_Manual_AutoPausedRecordsPaused(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
 	if err != nil {
@@ -300,14 +300,14 @@ func TestRedeliver_Refusals(t *testing.T) {
 
 	t.Run("manually disabled trigger", func(t *testing.T) {
 		svc, deps := newTestService(t)
-		trig := mustManualTrigger(t, svc)
+		trig := mustManualTrigger(t, deps.triggers)
 		fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 			FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
 		if err != nil {
 			t.Fatalf("FireTrigger: %v", err)
 		}
 		enabled := false
-		if _, err := svc.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 			t.Fatalf("UpdateTrigger: %v", err)
 		}
 		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2"); !errors.Is(err, ErrNotRedeliverable) {
@@ -401,7 +401,7 @@ func TestRetention_ExplicitDefaultIsNotInherited(t *testing.T) {
 // A manual fire is a trigger start too, and carries the same link.
 func TestFireTrigger_StartRunCarriesTheBacklink(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 
 	fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
@@ -428,7 +428,7 @@ func TestFireTrigger_StartRunCarriesTheBacklink(t *testing.T) {
 func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	trig := mustWebhookTrigger(t, svc, src.ID, "PR reviewer", true)
+	trig := mustWebhookTrigger(t, deps.triggers, src.ID, "PR reviewer", true)
 	ctx := context.Background()
 
 	body := prBody("opened", "main")
@@ -449,7 +449,7 @@ func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
 
 	// Delete the trigger: the history must still name it. A join would return
 	// nothing here, which is the whole reason the name is captured.
-	if err := svc.DeleteTrigger(ctx, testTenant, trig.ID); err != nil {
+	if err := deps.triggers.DeleteTrigger(ctx, testTenant, trig.ID); err != nil {
 		t.Fatalf("DeleteTrigger: %v", err)
 	}
 	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
@@ -477,7 +477,7 @@ func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
 // once the trigger is gone.
 func TestDelivery_CapturesTriggerName(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 
 	if _, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{"env": "prod"}}); err != nil {
@@ -512,7 +512,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 32)
 	ctx := context.Background()
 
-	got, err := svc.GetTrigger(ctx, testTenant, trig.ID)
+	got, err := deps.triggers.GetTrigger(ctx, testTenant, trig.ID)
 	if err != nil {
 		t.Fatalf("GetTrigger: %v", err)
 	}
@@ -522,7 +522,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 
 	enqueue(t, svc, deps, trig, 3)
 
-	got, err = svc.GetTrigger(ctx, testTenant, trig.ID)
+	got, err = deps.triggers.GetTrigger(ctx, testTenant, trig.ID)
 	if err != nil {
 		t.Fatalf("GetTrigger: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 		t.Errorf("pending_count = %d, want 3 waiting", got.PendingCount)
 	}
 
-	listed, err := svc.ListTriggers(ctx, testTenant, "")
+	listed, err := deps.triggers.ListTriggers(ctx, testTenant, "")
 	if err != nil {
 		t.Fatalf("ListTriggers: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 	if _, err := deps.repo.ClaimPending(ctx, 1); err != nil {
 		t.Fatalf("ClaimPending: %v", err)
 	}
-	got, err = svc.GetTrigger(ctx, testTenant, trig.ID)
+	got, err = deps.triggers.GetTrigger(ctx, testTenant, trig.ID)
 	if err != nil {
 		t.Fatalf("GetTrigger: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 // the per-field reason, so "why did nothing happen?" has an answer.
 func TestFireTrigger_InvalidInput_RecordedAsFailedDelivery(t *testing.T) {
 	svc, deps := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	trig := mustManualTrigger(t, deps.triggers)
 
 	_, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
 		FireTriggerRequest{Variables: map[string]string{}})

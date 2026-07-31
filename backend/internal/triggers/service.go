@@ -77,9 +77,8 @@ type Service struct {
 	metrics   *Metrics // nil records nothing
 }
 
-// NewService constructs the Triggers service: ingest, dispatch, firing and the
-// trigger lifecycle. Webhook sources are SourceService's, which shares none of
-// this one's collaborators.
+// NewService constructs the delivery pipeline: verifying an inbound webhook,
+// firing a trigger, and dispatching what admission has queued.
 //
 // metrics may be nil, in which case nothing is recorded: instrumentation is
 // injected rather than reached for globally, so a caller that has not wired a
@@ -91,6 +90,7 @@ func NewService(
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
 	minter TokenMinter,
+	admission *Admission,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {

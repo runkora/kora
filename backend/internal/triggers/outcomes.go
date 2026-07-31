@@ -6,6 +6,12 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// outcomeStore is the two writes recording an outcome takes.
+type outcomeStore interface {
+	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
+	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
+}
+
 // outcomeRecorder writes the per-trigger outcome rows that make up a delivery's
 // fan-out, and keeps the delivery's own status derived from them.
 //
@@ -13,25 +19,12 @@ import (
 // once. That pairing is the audit spine (docs/adr/2026-06-20-extended-trigger-types.md,
 // Decision 3): a delivery's status is never set directly, it is always a
 // function of the outcomes recorded against it, so an outcome written without a
-// derive leaves a delivery reading as still in progress forever. Both the
-// service and admission record outcomes, and they used to maintain that
-// invariant separately, with different behavior.
+// derive leaves a delivery reading as still in progress forever. The service and
+// admission both record outcomes, and one type keeps that invariant for both.
 //
 // Failures are logged rather than returned throughout: the outcome row is a
 // record of something that already happened, and there is no caller who could
 // act on the error.
-// outcomeStore is the two writes recording an outcome takes, declared here by
-// the consumer rather than reached for from the twelve-method DeliveryStore.
-//
-// The narrower declaration is the point: it says in one place exactly what
-// writing an outcome touches, so widening it is a visible decision, and a fake
-// in a test implements two methods instead of twelve. *postgresRepository
-// satisfies it without being told.
-type outcomeStore interface {
-	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
-	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
-}
-
 type outcomeRecorder struct {
 	repo   outcomeStore
 	logger logging.Logger

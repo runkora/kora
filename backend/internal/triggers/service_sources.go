@@ -15,9 +15,7 @@ import (
 
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
-// sourceStore is the six methods managing webhook sources takes. Declared here
-// by the consumer rather than reaching for the whole Repository, so a fake in a
-// test implements six methods instead of fifty-odd.
+// sourceStore is the six methods managing webhook sources takes.
 type sourceStore interface {
 	CreateSource(ctx context.Context, s *WebhookSource) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
@@ -28,12 +26,11 @@ type sourceStore interface {
 }
 
 // SourceService owns webhook sources: the registration a tenant makes, the
-// SERVICE principal and grant behind it, and the signing secret it is
-// authenticated by.
+// SERVICE principal and grant behind it, and the signing secret inbound
+// deliveries are authenticated by.
 //
-// Separate from the rest of Triggers because it shares nothing with dispatch:
-// no queue, no admission, no agents client. What it can touch is its
-// constructor.
+// It holds no queue, no admission and no agents client, because registering a
+// source starts no work. Dispatch is Service's.
 type SourceService struct {
 	repo        sourceStore
 	registry    *Registry

@@ -220,35 +220,3 @@ func applyEnabledFields(t *Trigger, enabled bool) {
 	t.Enabled = enabled
 	t.AutoPausedAt = nil
 }
-
-// afterEnabledChange runs the side effects of a toggle, AFTER the new state is
-// stored.
-//
-// Order is the whole point. Draining first and persisting second leaves a window
-// where the trigger is still enabled in the database with its backlog already
-// gone: a fire admitted in that window is enqueued against a trigger that is
-// about to be disabled, and nothing will ever claim it (claiming requires an
-// enabled trigger) or reap it (the stale-claim reaper only touches claimed
-// rows). Persisting first closes admission before the drain runs. The worker's
-// orphan sweep is the backstop for anything that still lands in between.
-func (s *Service) afterEnabledChange(ctx context.Context, t Trigger, wasEnabled, enabled bool) {
-	if enabled {
-		if wasEnabled {
-			return
-		}
-		// Leaving the counter at the threshold would pause the trigger again on
-		// its very next failure, which is not what "turn it back on" means.
-		if err := s.repo.ResetConsecutiveFailures(ctx, t.ID); err != nil {
-			s.logger.Error(ctx, "failed to clear failure count on re-enable",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-		return
-	}
-	// Anything still waiting would drain into a trigger the admin just turned
-	// off. Drop it visibly rather than silently.
-	if wasEnabled && s.admission != nil {
-		_, _ = s.admission.Drain(ctx, t, "the trigger was disabled while this fire was waiting")
-	}
-}

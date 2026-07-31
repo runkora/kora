@@ -609,9 +609,10 @@ type testDeps struct {
 	agents     *agentsStub
 	minter     *fakeMinter
 	policyClnt *policyclient.Client
-	// sources is the sources half, sharing this harness's stubs. Separate from
-	// Service because it is a separate service now.
-	sources *SourceService
+	// The services a test may need alongside the pipeline, sharing this
+	// harness's stubs.
+	sources  *SourceService
+	triggers *TriggerService
 }
 
 // newTestSourceService builds the sources half against the same stubs. It takes
@@ -644,9 +645,11 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	minter := &fakeMinter{token: "minted-token"}
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
-	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, silentLogger(), nil)
+	admission := NewAdmission(repo, silentLogger())
+	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc)
+	deps.triggers = NewTriggerService(repo, pc, ac, minter, admission, silentLogger())
 	return svc, deps
 }
 

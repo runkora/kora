@@ -148,8 +148,8 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 func TestIngest_Duplicate_HonoursPerTriggerDedupe(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	dedupes := mustWebhookTrigger(t, svc, src.ID, "dedupes", true)
-	reruns := mustWebhookTrigger(t, svc, src.ID, "re-runs", false)
+	dedupes := mustWebhookTrigger(t, deps.triggers, src.ID, "dedupes", true)
+	reruns := mustWebhookTrigger(t, deps.triggers, src.ID, "re-runs", false)
 
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
@@ -225,8 +225,8 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	cond := map[string][]string{"action": {"opened"}}
-	mustTrigger(t, svc, src.ID, cond, "p1")
-	mustTrigger(t, svc, src.ID, cond, "p2")
+	mustTrigger(t, deps.triggers, src.ID, cond, "p1")
+	mustTrigger(t, deps.triggers, src.ID, cond, "p2")
 	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
 	delID := "deliv-multi"
 	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
@@ -278,7 +278,7 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 func TestDispatch_EmptyEventType_MatchesAnyEvent(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	if _, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID:       src.ID,
 		Name:           "catch-all",
 		AgentTypeID:    "at-1",
@@ -423,8 +423,8 @@ func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
 	src := mustSource(t, deps.sources)
 
 	// Two triggers on the same event; one has a condition this event fails.
-	mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "dispatches")
-	mustTrigger(t, svc, src.ID, map[string][]string{"pr.base_ref": {"never-matches"}}, "filtered")
+	mustTrigger(t, deps.triggers, src.ID, map[string][]string{"action": {"opened"}}, "dispatches")
+	mustTrigger(t, deps.triggers, src.ID, map[string][]string{"pr.base_ref": {"never-matches"}}, "filtered")
 
 	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
 	delID := "deliv-fanout"
@@ -567,7 +567,7 @@ func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
 func TestDispatch_AutoPausedTrigger_RecordsPaused(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	paused := mustWebhookTrigger(t, svc, src.ID, "paused", true)
+	paused := mustWebhookTrigger(t, deps.triggers, src.ID, "paused", true)
 	if err := deps.repo.AutoPause(context.Background(), paused.ID); err != nil {
 		t.Fatalf("AutoPause: %v", err)
 	}
@@ -595,9 +595,9 @@ func TestDispatch_AutoPausedTrigger_RecordsPaused(t *testing.T) {
 func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	off := mustWebhookTrigger(t, svc, src.ID, "off", true)
+	off := mustWebhookTrigger(t, deps.triggers, src.ID, "off", true)
 	enabled := false
-	if _, err := svc.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 

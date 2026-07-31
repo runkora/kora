@@ -160,6 +160,10 @@ func initController(
 
 	registry := triggers.NewRegistry()
 
+	// One admission controller, shared: it holds no per-caller state, and two
+	// instances deciding the same trigger's ceiling would be two answers.
+	admission := triggers.NewAdmission(repo, logger)
+
 	svc := triggers.NewService(
 		repo,
 		registry,
@@ -167,13 +171,23 @@ func initController(
 		policyClient,
 		agentsClient,
 		identityClient,
+		admission,
 		logger,
 		metrics,
 	)
 
-	// Sources are their own service: they share no collaborator with dispatch,
-	// so they take the six storage methods they use and nothing else.
-	//
+	// Creating a trigger provisions its principal and grant, then resolves the
+	// agent it binds by asking orbit-agents as that principal. Enabling or
+	// disabling one moves work already in the queue.
+	lifecycle := triggers.NewTriggerService(
+		repo,
+		policyClient,
+		agentsClient,
+		identityClient,
+		admission,
+		logger,
+	)
+
 	// The webhook path prefix is basePath + /webhooks/. Registered sources post
 	// to this address, so it must match the api VirtualService route.
 	sources := triggers.NewSourceService(
@@ -220,7 +234,7 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := mw.AuthMiddlewareWithRevocation(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, sources, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
+	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
 }
 
 // newSelfTokenSource returns a token func for the policy client that exchanges

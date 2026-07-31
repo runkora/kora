@@ -433,50 +433,6 @@ const (
 	grantPropagationWindow = 60 * time.Second
 )
 
-// resolveAgentType looks up an agent type under a given SERVICE principal and
-// validates it belongs to the tenant. This prevents the caller from shaping an
-// arbitrary run-grant scope via a client-supplied slug.
-func (s *Service) resolveAgentType(ctx context.Context, tenantID, principalID, displayName, agentTypeID string) (*agentsclient.AgentType, error) {
-	tok, err := s.minter.MintServiceToken(ctx, tenantID, principalID, displayName, sourceTokenTTL)
-	if err != nil {
-		return nil, fmt.Errorf("mint token for agent-type resolution: %w", err)
-	}
-
-	// A policy grant just created for principalID (createScheduledTrigger,
-	// createManualTrigger) isn't visible to orbit-agents until its next OPA
-	// bundle poll (policy.bundlePollIntervalSecs, config/base.yaml) —
-	// self-signed and immediately used in the same request, it 403s until
-	// that poll runs. A pre-existing principal (createWebhookTrigger's own
-	// source, granted at source-creation time) has always had a propagated
-	// grant by the time it's used here, so this loop resolves on the first
-	// attempt for that path. ErrForbidden means "not visible yet" and is
-	// retried; ErrAgentTypeNotFound means "genuinely absent" and fails fast.
-	var at agentsclient.AgentType
-	backoff := agentTypeRetryInitialBackoff
-	deadline := time.Now().Add(agentTypeRetryBudget)
-	for {
-		at, err = s.agents.GetAgentType(ctx, tok, agentTypeID)
-		if err == nil {
-			return &at, nil
-		}
-		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) {
-			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-		}
-		if !errors.Is(err, agentsclient.ErrForbidden) || time.Now().Add(backoff).After(deadline) {
-			if errors.Is(err, agentsclient.ErrForbidden) {
-				return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-			}
-			return nil, fmt.Errorf("resolve agent type: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("resolve agent type: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-	}
-}
-
 func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
 	if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, nil, nil, &msg); err != nil {
 		s.logger.Error(ctx, "failed to record failed delivery",

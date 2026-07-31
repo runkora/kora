@@ -10,9 +10,9 @@ import (
 )
 
 func TestCreateTrigger_Success(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	tr := mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "review {{ pr.number }}")
+	tr := mustTrigger(t, deps.triggers, src.ID, map[string][]string{"action": {"opened"}}, "review {{ pr.number }}")
 
 	stored := deps.repo.triggers[tr.ID]
 	if stored == nil {
@@ -27,15 +27,15 @@ func TestCreateTrigger_Success(t *testing.T) {
 }
 
 func TestCreateTrigger_Validation(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 
-	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{SourceID: src.ID, EventType: "pull_request", AgentTypeID: "a", AgentSlug: "s", PromptTemplate: "p"})
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{SourceID: src.ID, EventType: "pull_request", AgentTypeID: "a", AgentSlug: "s", PromptTemplate: "p"})
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("missing name: got %v, want ErrValidation", err)
 	}
 
-	_, err = svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: "nope", Name: "n", AgentTypeID: "a", AgentSlug: "s", EventType: "pull_request", PromptTemplate: "p",
 	})
 	if !errors.Is(err, ErrSourceNotFound) {
@@ -46,11 +46,11 @@ func TestCreateTrigger_Validation(t *testing.T) {
 func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 	// The grant scope and stored slug must come from the resolved agent type, not
 	// the client-supplied agent_slug — even when the client sends a different one.
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	deps.agents.atSlug = "real-slug"
 
-	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1",
 		AgentSlug: "attacker-controlled", EventType: "pull_request", PromptTemplate: "p",
 	})
@@ -67,12 +67,12 @@ func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 }
 
 func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	deps.agents.atStatus = http.StatusNotFound
 	grantsBefore := len(deps.policy.created) // the source's own grant already exists
 
-	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "ghost", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
 	})
 	if !errors.Is(err, ErrValidation) {
@@ -90,11 +90,11 @@ func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	// Defense in depth: an agent type reported under a different tenant must never
 	// bind, even if orbit-agents somehow returned it.
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	deps.agents.atTenant = "other-tenant"
 
-	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
 	})
 	if !errors.Is(err, ErrValidation) {
@@ -118,12 +118,12 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, deps := newTestService(t)
+			_, deps := newTestService(t)
 			src := mustSource(t, deps.sources)
 			deps.agents.atIdentityMode = tc.identityMode
 			grantsBefore := len(deps.policy.created)
 
-			tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
 			})
 			if !tc.wantErr {
@@ -154,12 +154,12 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 // ── Admission settings at create ────────────────────────────────────────────
 
 func TestUpdateTrigger_Admission(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	tr := mustTrigger(t, svc, src.ID, nil, "p")
+	tr := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 
 	// Applied when set, with create-time bounds.
-	upd, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	upd, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
 		AdmissionSettings: AdmissionSettings{
 			MaxParallel:    new(int16(2)),
 			Overflow:       new(OverflowRefuse),
@@ -175,7 +175,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 	}
 
 	// Omitted fields stay put on an unrelated PATCH.
-	renamed, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	renamed, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
 		Name: admissionPtr("renamed"),
 	})
 	if err != nil {
@@ -186,7 +186,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 	}
 
 	// Out-of-range rejected.
-	if _, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
 		AdmissionSettings: AdmissionSettings{MaxParallel: new(int16(99))},
 	}); err == nil {
 		t.Fatal("expected max_parallel out of range to be rejected")
@@ -212,13 +212,13 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, deps := newTestService(t)
+			_, deps := newTestService(t)
 			req := tc.req
 			if req.Kind == "" || req.Kind == KindWebhook {
 				req.SourceID = mustSource(t, deps.sources).ID
 			}
 
-			tr, err := svc.CreateTrigger(context.Background(), testTenant, req)
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 			if err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
@@ -240,10 +240,10 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 }
 
 func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 
-	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
 		AdmissionSettings: AdmissionSettings{
 			MaxParallel:      new(int16(2)),
@@ -304,7 +304,7 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 	for _, k := range kinds {
 		for _, s := range settings {
 			t.Run(k.name+"/"+s.name, func(t *testing.T) {
-				svc, deps := newTestService(t)
+				_, deps := newTestService(t)
 				req := k.base
 				if req.Kind == "" || req.Kind == KindWebhook {
 					req.SourceID = mustSource(t, deps.sources).ID
@@ -312,7 +312,7 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 				s.apply(&req)
 				grantsBefore := len(deps.policy.created) // the source's own grant, for webhooks
 
-				if _, err := svc.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
+				if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
 					t.Fatalf("got %v, want ErrValidation", err)
 				}
 				if len(deps.repo.triggers) != 0 {
@@ -344,13 +344,13 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, deps := newTestService(t)
+			_, deps := newTestService(t)
 			src := mustSource(t, deps.sources)
 			req := CreateTriggerRequest{
 				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
 			}
 			tc.apply(&req)
-			if _, err := svc.CreateTrigger(context.Background(), testTenant, req); err != nil {
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
 		})
@@ -358,13 +358,13 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 }
 
 func TestUpdateTrigger(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	tr := mustTrigger(t, svc, src.ID, nil, "old")
+	tr := mustTrigger(t, deps.triggers, src.ID, nil, "old")
 
 	enabled := false
 	newPrompt := "new prompt"
-	if _, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{Enabled: &enabled, PromptTemplate: &newPrompt}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{Enabled: &enabled, PromptTemplate: &newPrompt}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	got := deps.repo.triggers[tr.ID]
@@ -377,12 +377,12 @@ func TestUpdateTrigger(t *testing.T) {
 }
 
 func TestDeleteTrigger(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
-	tr := mustTrigger(t, svc, src.ID, nil, "p")
+	tr := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 	before := deps.policy.deletedCount()
 
-	if err := svc.DeleteTrigger(context.Background(), testTenant, tr.ID); err != nil {
+	if err := deps.triggers.DeleteTrigger(context.Background(), testTenant, tr.ID); err != nil {
 		t.Fatalf("DeleteTrigger: %v", err)
 	}
 	if _, ok := deps.repo.triggers[tr.ID]; ok {
@@ -507,11 +507,11 @@ func TestInputField_Validate(t *testing.T) {
 // UpdateTrigger accepts manual_config, so it has to apply it: a DTO field the
 // service silently ignores is a lie the console cannot see through.
 func TestUpdateTrigger_AppliesManualConfig(t *testing.T) {
-	svc, _ := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, deps.triggers)
 	ctx := context.Background()
 
-	updated, err := svc.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{
+	updated, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{
 		ManualConfig: &ManualConfig{Inputs: []InputField{
 			{Name: "env", Type: InputTypeChoice, Required: true, Choices: []string{"dev", "prod"}},
 		}},
@@ -534,8 +534,8 @@ func TestUpdateTrigger_AppliesManualConfig(t *testing.T) {
 // A declaration that could never be satisfied is refused at update time, when
 // the caller can still fix it, rather than at fire time when they cannot.
 func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
-	svc, _ := newTestService(t)
-	trig := mustManualTrigger(t, svc)
+	_, deps := newTestService(t)
+	trig := mustManualTrigger(t, deps.triggers)
 	ctx := context.Background()
 
 	bad := []struct {
@@ -552,14 +552,14 @@ func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
 	for _, tt := range bad {
 		t.Run(tt.name, func(t *testing.T) {
 			mc := tt.mc
-			if _, err := svc.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{ManualConfig: &mc}); !errors.Is(err, ErrValidation) {
+			if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{ManualConfig: &mc}); !errors.Is(err, ErrValidation) {
 				t.Errorf("err = %v, want ErrValidation", err)
 			}
 		})
 	}
 
 	// The stored declaration is untouched by a refused update.
-	stored, _ := svc.GetTrigger(ctx, testTenant, trig.ID)
+	stored, _ := deps.triggers.GetTrigger(ctx, testTenant, trig.ID)
 	if stored.ManualConfig == nil || stored.ManualConfig.Inputs[0].Type != InputTypeText {
 		t.Errorf("a refused update changed the stored declaration: %+v", stored.ManualConfig)
 	}
@@ -586,7 +586,7 @@ func TestDefaultOverflowForKind(t *testing.T) {
 // Free text a caller can store unbounded ends up rendered into every prompt the
 // trigger ever starts.
 func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 
 	for _, tc := range []struct {
@@ -599,7 +599,7 @@ func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
 			AgentTypeID: "at-1", PromptTemplate: strings.Repeat("p", maxPromptTemplateLen+1)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := svc.CreateTrigger(context.Background(), testTenant, tc.req); !errors.Is(err, ErrValidation) {
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, tc.req); !errors.Is(err, ErrValidation) {
 				t.Fatalf("err = %v, want ErrValidation", err)
 			}
 		})
