@@ -111,7 +111,15 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 
 	s.recordAccepted(ctx, src.ID)
 
-	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
+	// Fan out and enqueue BEFORE acknowledging. Returning 202 while the pending
+	// rows were still being written in a detached goroutine meant a pod that
+	// died in that window lost a fire the sender was told had been accepted, and
+	// a provider treats 2xx as delivered and does not retry. Doing it inline
+	// closes the window: a crash before the rows exist drops the connection with
+	// no 2xx, so the provider retries and dedup resolves it. Detached from the
+	// request context so a client that hangs up mid-enqueue cannot abort it, and
+	// bounded by fanOut's own dispatchTimeout.
+	s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
 
 	return IngestAccepted, nil
 }
@@ -199,7 +207,10 @@ func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapte
 	// dedupe_enabled is where a tenant makes it. The unique index stays as the
 	// storage-level guarantee (one original per provider delivery id); it cannot
 	// express a per-trigger choice, and this is the level that can.
-	go s.dispatchDuplicate(context.WithoutCancel(ctx), src, adapter, dup.ID, dup.EventType, body)
+	// Inline, before the duplicate is acknowledged, for the same durability
+	// reason as the original fan-out: a 2xx must not precede the enqueue it
+	// promises. Detached from the request context, bounded by dispatchTimeout.
+	s.dispatchDuplicate(context.WithoutCancel(ctx), src, adapter, dup.ID, dup.EventType, body)
 }
 
 // dispatch matches the delivery against the source's triggers and starts a run

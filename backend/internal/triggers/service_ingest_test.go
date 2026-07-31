@@ -749,3 +749,30 @@ func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
 		t.Errorf("call count = %d, want exactly one attempt", got)
 	}
 }
+
+// The fire is enqueued before Ingest acknowledges it, not in a detached
+// goroutine afterwards: returning 202 while the pending row was still being
+// written lost the fire if the pod died in that window, and a provider that
+// saw the 2xx would never retry. This asserts the pending row exists the
+// instant Ingest returns, with no waiting.
+func TestIngest_EnqueuesBeforeAcknowledging(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	trig := mustWebhookTrigger(t, deps.triggers, src.ID, "reviewer", true)
+
+	body := prBody("opened", "main")
+	outcome, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if outcome != IngestAccepted {
+		t.Fatalf("outcome = %v, want IngestAccepted", outcome)
+	}
+
+	// No waitFor: the enqueue is synchronous, so the durable pending row must
+	// already be there. Were it still deferred to a goroutine, this would be
+	// flaky — which is exactly the window a crash used to fall into.
+	if n := len(deps.repo.pendingFor(trig.ID)); n != 1 {
+		t.Errorf("pending rows the instant Ingest returned = %d, want 1: the fire must be durable before the 202", n)
+	}
+}
