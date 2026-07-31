@@ -1429,3 +1429,96 @@ func TestPostgres_EnqueueWithinCeilingRefusesAtTheCeiling(t *testing.T) {
 		t.Errorf("waiting = %d (%v), want 1: a refused fire must not leave a row", n, err)
 	}
 }
+
+// A delivery's status is derived from its fan-out, never set directly, so the
+// precedence in that one statement decides what every delivery reads as.
+//
+// Four cases, and the interesting ones are the last two. 'filtered' is not a
+// failure: a trigger that declined an event via its own match_condition worked
+// exactly as configured, so a delivery whose only outcomes are filtered is
+// 'skipped' rather than 'failed'. And an arrival-level verdict describes the
+// arrival rather than a fan-out, so re-deriving must not overwrite it.
+func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 4)
+
+	// newDelivery stores an arrival at the given status and returns its id.
+	newDelivery := func(t *testing.T, arrival string) string {
+		t.Helper()
+		d := &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: uuid.NewString(), Status: arrival,
+		}
+		if _, err := r.InsertDelivery(ctx, d); err != nil {
+			t.Fatalf("InsertDelivery: %v", err)
+		}
+		return d.ID
+	}
+	addRun := func(t *testing.T, deliveryID, status string) {
+		t.Helper()
+		if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+			ID: uuid.NewString(), TenantID: tenant, DeliveryID: deliveryID,
+			TriggerID: tr.ID, Status: status,
+		}); err != nil {
+			t.Fatalf("InsertDeliveryRun: %v", err)
+		}
+	}
+	derived := func(t *testing.T, deliveryID string) string {
+		t.Helper()
+		if err := r.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+			t.Fatalf("DeriveDeliveryStatus: %v", err)
+		}
+		got, err := r.GetDelivery(ctx, tenant, deliveryID)
+		if err != nil {
+			t.Fatalf("GetDelivery: %v", err)
+		}
+		return got.Status
+	}
+
+	t.Run("one dispatched outcome wins over failures", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusFailed)
+		addRun(t, id, RunStatusDispatched)
+		addRun(t, id, RunStatusDropped)
+		if got := derived(t, id); got != StatusDispatched {
+			t.Errorf("status = %q, want %q: something did run", got, StatusDispatched)
+		}
+	})
+
+	t.Run("failures with nothing dispatched are a failed delivery", func(t *testing.T) {
+		for _, bad := range []string{RunStatusFailed, RunStatusDenied, RunStatusDropped} {
+			id := newDelivery(t, StatusVerified)
+			addRun(t, id, bad)
+			if got := derived(t, id); got != StatusFailed {
+				t.Errorf("only %q outcome: status = %q, want %q", bad, got, StatusFailed)
+			}
+		}
+	})
+
+	t.Run("filtered is not a failure", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusFiltered)
+		if got := derived(t, id); got != StatusSkipped {
+			t.Errorf("status = %q, want %q: a trigger declining an event is not a failure", got, StatusSkipped)
+		}
+	})
+
+	t.Run("no outcomes at all is skipped", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		if got := derived(t, id); got != StatusSkipped {
+			t.Errorf("status = %q, want %q: nothing matched", got, StatusSkipped)
+		}
+	})
+
+	t.Run("an arrival verdict is not overwritten", func(t *testing.T) {
+		for _, arrival := range []string{StatusDuplicate, StatusMissed} {
+			id := newDelivery(t, arrival)
+			addRun(t, id, RunStatusDispatched)
+			if got := derived(t, id); got != arrival {
+				t.Errorf("status = %q, want %q kept: it describes the arrival, not the fan-out", got, arrival)
+			}
+		}
+	})
+}

@@ -72,11 +72,12 @@ func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	if out != IngestAccepted {
 		t.Errorf("outcome = %v, want IngestAccepted", out)
 	}
-	// Async dispatch records "skipped" since no trigger exists.
-	waitFor(t, func() bool {
-		d := deps.repo.lastDelivery()
-		return d != nil && d.Status == StatusSkipped
-	})
+	// The fan-out re-derives the delivery when it finishes, which is the signal
+	// that it ran at all. Nothing matched, so it recorded no outcomes.
+	waitFor(t, deps.repo.anyDerived)
+	if got := deps.repo.outcomeStatuses(deps.repo.lastDelivery().ID); len(got) != 0 {
+		t.Errorf("outcomes = %v, want none: no trigger exists", got)
+	}
 	if deps.agents.callCount() != 0 {
 		t.Error("no run should be started when nothing matches")
 	}
@@ -314,8 +315,8 @@ func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
 	if deps.agents.callCount() != 0 {
 		t.Error("event-type mismatch should not start a run")
 	}
-	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
-		t.Errorf("status = %q, want skipped", d.Status)
+	if got := deps.repo.outcomeStatuses(delID); len(got) != 0 {
+		t.Errorf("outcomes = %v, want none", got)
 	}
 }
 
@@ -330,8 +331,10 @@ func TestDispatch_ConditionMismatch_Skipped(t *testing.T) {
 	if deps.agents.callCount() != 0 {
 		t.Error("condition mismatch should not start a run")
 	}
-	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
-		t.Errorf("status = %q, want skipped", d.Status)
+	// A trigger that declined the event records that it declined, which is what
+	// keeps a filtered delivery distinguishable from one nothing listened for.
+	if got := deps.repo.outcomeStatuses(delID); len(got) != 1 || got[0] != RunStatusFiltered {
+		t.Errorf("outcomes = %v, want one %q", got, RunStatusFiltered)
 	}
 }
 
@@ -474,9 +477,9 @@ func TestDispatch_OnlyFiltered_IsSkippedNotFailed(t *testing.T) {
 	if len(runs) != 1 || runs[0].Status != RunStatusFiltered {
 		t.Fatalf("want one filtered outcome, got %+v", runs)
 	}
-	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
-		t.Errorf("delivery status = %q, want skipped — filtering is not a failure", d.Status)
-	}
+	// The delivery reading as skipped rather than failed is the derivation's
+	// job, asserted in TestPostgres_DeriveDeliveryStatus. What matters here is
+	// that the outcome recorded is 'filtered' and not a failure.
 }
 
 // An event no trigger is listening for produces no per-trigger rows at all.
@@ -492,8 +495,8 @@ func TestDispatch_UnmatchedEventType_RecordsNoTriggerOutcomes(t *testing.T) {
 	if runs := deps.repo.deliveryRunsFor(delID); len(runs) != 0 {
 		t.Errorf("want no per-trigger outcomes for an unlistened event, got %+v", runs)
 	}
-	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
-		t.Errorf("delivery status = %q, want skipped", d.Status)
+	if deps.repo.derivedCount(delID) == 0 {
+		t.Error("the delivery was never re-derived, so its status would stay 'verified'")
 	}
 }
 
@@ -605,7 +608,7 @@ func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	waitFor(t, func() bool { return deps.repo.lastDelivery().Status == StatusSkipped })
+	waitFor(t, deps.repo.anyDerived)
 
 	if runs := deps.repo.deliveryRunsFor(deps.repo.lastDelivery().ID); len(runs) != 0 {
 		t.Errorf("a manually disabled trigger recorded %+v, want nothing", runs)

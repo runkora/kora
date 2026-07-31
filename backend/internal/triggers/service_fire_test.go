@@ -54,6 +54,8 @@ func TestRecordMissedTick_DoesNotOverwriteARealFire(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("want the claimed minute to stay a single delivery, got %d", len(all))
 	}
+	// Seeded directly, not derived: the assertion is that RecordMissedTick left
+	// the claimed row alone rather than overwriting it with a missed tick.
 	if all[0].Status != StatusDispatched {
 		t.Errorf("status = %q, want the real fire preserved", all[0].Status)
 	}
@@ -144,7 +146,9 @@ func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	waitFor(t, func() bool { return deps.repo.lastDelivery().Status == StatusSkipped })
+	// Nothing listened for it yet, which is why it is worth replaying later. The
+	// re-derive is the signal the fan-out finished.
+	waitFor(t, deps.repo.anyDerived)
 	original := deps.repo.lastDelivery()
 
 	// The trigger that was missing when the event first arrived now exists —
@@ -172,8 +176,8 @@ func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 	if replay.ProviderDeliveryID != original.ProviderDeliveryID {
 		t.Error("a replay carries the original's provider delivery id")
 	}
-	if got := deps.repo.deliveryByID(original.ID); got.Status != StatusSkipped {
-		t.Errorf("original status = %q, want it untouched by the replay", got.Status)
+	if got := deps.repo.outcomeStatuses(original.ID); len(got) != 0 {
+		t.Errorf("original outcomes = %v, want none: the replay is its own delivery", got)
 	}
 }
 

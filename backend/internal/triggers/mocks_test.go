@@ -33,6 +33,9 @@ func silentLogger() logging.Logger { return logging.NewLoggerWithOutput(io.Disca
 // ── mockRepository ──────────────────────────────────────────────────────────
 
 type mockRepository struct {
+	// derived counts DeriveDeliveryStatus calls per delivery.
+	derived map[string]int
+
 	// refuseAdmission makes EnqueueWithinCeiling turn a fire away, so a test can
 	// assert what the service does with a refusal.
 	refuseAdmission bool
@@ -366,6 +369,28 @@ func (m *mockRepository) ListDeliveryRunsForDeliveries(_ context.Context, tenant
 }
 
 // deliveryRunsFor returns the recorded run rows for a delivery, for assertions.
+// outcomeStatuses is what a delivery's fan-out recorded, which is the service's
+// output. The delivery's own status is derived from these by SQL, so a service
+// test asserts what was recorded and leaves the derivation to
+// TestPostgres_DeriveDeliveryStatus.
+func (m *mockRepository) outcomeStatuses(deliveryID string) []string {
+	var out []string
+	for _, r := range m.deliveryRunsFor(deliveryID) {
+		out = append(out, r.Status)
+	}
+	return out
+}
+
+// hasOutcome reports whether the fan-out recorded this status for the delivery.
+func (m *mockRepository) hasOutcome(deliveryID, status string) bool {
+	for _, s := range m.outcomeStatuses(deliveryID) {
+		if s == status {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *mockRepository) deliveryRunsFor(deliveryID string) []DeliveryRun {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -684,45 +709,36 @@ func (m *mockRepository) InsertScheduledDelivery(_ context.Context, d *Delivery)
 	return true, nil
 }
 
-// DeriveDeliveryStatus mirrors the SQL: dispatched if any run dispatched,
-// failed if runs exist and none did, otherwise skipped. Arrival-level outcomes
-// (duplicate, missed) describe the arrival rather than a fan-out and are left
-// alone.
+// DeriveDeliveryStatus records that the service asked for a re-derive.
+//
+// It does not compute the status. Which outcome wins is a CASE expression, and
+// TestPostgres_DeriveDeliveryStatus asserts it against the database; repeating
+// the precedence here would only show this file agrees with itself. Counting the
+// calls is what a service test needs, because a derive is the signal that an
+// asynchronous fan-out has finished.
 func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Mirrors the SQL: 'filtered' is not a failure, so it does not make a
-	// delivery 'failed' — a trigger declining an event worked as configured.
-	var anyFailure, anyDispatched bool
-	for _, r := range m.deliveryRuns {
-		if r.DeliveryID != deliveryID {
-			continue
-		}
-		switch r.Status {
-		case RunStatusDispatched:
-			anyDispatched = true
-		case RunStatusFailed, RunStatusDenied, RunStatusDropped:
-			anyFailure = true
-		}
+	if m.derived == nil {
+		m.derived = map[string]int{}
 	}
-	for _, d := range m.deliveries {
-		if d.ID != deliveryID {
-			continue
-		}
-		if d.Status == StatusDuplicate || d.Status == StatusMissed {
-			return nil
-		}
-		switch {
-		case anyDispatched:
-			d.Status = StatusDispatched
-		case anyFailure:
-			d.Status = StatusFailed
-		default:
-			d.Status = StatusSkipped
-		}
-	}
+	m.derived[deliveryID]++
 	return nil
+}
+
+// derivedCount is how many times the service re-derived this delivery.
+func (m *mockRepository) derivedCount(deliveryID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.derived[deliveryID]
+}
+
+// anyDerived reports whether any delivery has been re-derived, for tests that
+// wait on an asynchronous fan-out without knowing the id up front.
+func (m *mockRepository) anyDerived() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.derived) > 0
 }
 
 func (m *mockRepository) RecordSourceRejection(_ context.Context, sourceID, reason string) error {
