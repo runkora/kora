@@ -364,7 +364,6 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
       [applyEdit, disabled],
     );
 
-    /** Remember the caret so the picker knows where to insert after blur. */
     /**
      * Highlights the pill the caret is touching. The caret itself is a thin
      * bar that visually merges with a pill border; the ring answers both
@@ -380,6 +379,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
       });
     }, []);
 
+    /** Remember the caret so the picker knows where to insert after blur. */
     const rememberCaret = React.useCallback(() => {
       const root = editorRef.current;
       if (!root) return;

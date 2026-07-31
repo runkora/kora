@@ -7,7 +7,7 @@
  * and the prompt builder: if they disagreed, one of them would be lying.
  *
  * The vocabulary mirrors `backend/internal/triggers/adapter_github.go`,
- * `adapter_alertmanager.go`, and the scheduler's injected vars in `service.go`.
+ * `adapter_alertmanager.go`, and the scheduler's injected vars in `service_fire.go`.
  * Nothing here is invented — a token absent from those files never resolves.
  */
 

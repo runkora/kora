@@ -215,7 +215,7 @@ func TestAutoPause_RespectsOptOut(t *testing.T) {
 	}
 }
 
-// ─── Auto-pause is visible, manual disable is not ────────────────────────────
+// ─── Unknown trigger name stays honest ───────────────────────────────────────
 
 // The one case where the name is genuinely unknown stays honest: a fire whose
 // trigger could not be read records the id and no name, rather than inventing
@@ -300,7 +300,7 @@ func TestWorker_DoesNotReclaimALiveClaim(t *testing.T) {
 	}
 }
 
-// ─── Per-trigger pending count (US-005) ──────────────────────────────────────
+// ─── Drain vs live claims ────────────────────────────────────────────────────
 
 // Draining a trigger must not delete a row a worker is dispatching right now:
 // the drain and the live worker would each record an outcome, and one fire would

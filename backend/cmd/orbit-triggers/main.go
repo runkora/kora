@@ -3,7 +3,7 @@
 //
 // It serves inbound webhook ingestion, the trigger management API, the manual
 // fire endpoint, and runs the cron scheduler for time-driven triggers. All four
-// kinds feed one shared pipeline that records a delivery, matches it against the
+// surfaces feed one shared pipeline that records a delivery, matches it against the
 // triggers that care, authorizes each match, and starts a run under the
 // trigger's own SERVICE principal.
 //

@@ -694,6 +694,8 @@ export interface Trigger {
    * failure, which the console shows differently from one a person turned off.
    */
   auto_paused_at?: string;
+  /** Deliveries admitted and queued for this trigger, not yet started. */
+  pending_count?: number;
 }
 
 /** Request body for POST /api/triggers. */
@@ -778,6 +780,8 @@ export interface TriggerDelivery {
   source_id?: string;
   /** The matched trigger (all kinds). */
   trigger_id?: string;
+  /** Denormalised name of the matched trigger, so a feed can name it without a lookup. */
+  trigger_name?: string;
   provider_delivery_id?: string;
   event_type?: string;
   /**
@@ -816,6 +820,8 @@ export interface TriggerDeliveryRun {
   id: string;
   delivery_id: string;
   trigger_id: string;
+  /** Denormalised name of this entry's trigger. */
+  trigger_name?: string;
   /** Present when the run started; absent when the dispatch failed. */
   run_id?: string;
   /**

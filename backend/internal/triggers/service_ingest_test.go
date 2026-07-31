@@ -559,10 +559,7 @@ func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
 	}
 }
 
-// ─── Phase 2: manual trigger input declaration ───────────────────────────────
-//
-// One declaration drives the console form and the API, so what a user is shown
-// and what the API accepts cannot drift.
+// ─── Auto-pause is visible, manual disable is not ────────────────────────────
 
 // An auto-paused webhook trigger stays visible in the delivery history: its
 // fires are recorded as paused. With enabled = false alone it was

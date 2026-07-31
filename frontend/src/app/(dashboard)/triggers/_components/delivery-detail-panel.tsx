@@ -1,8 +1,14 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. One delivery's payload and outcome in a side
- * panel, shared by the platform Deliveries tab and the agent page so the two
- * surfaces cannot drift. */
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the panel speaks in delivery outcomes and replay
+ * semantics, Triggers vocabulary that does not belong in `src/components/`.
+ *
+ * One delivery's payload and outcome in a side panel, shared by the platform
+ * Deliveries tab and the agent page so the two surfaces cannot drift.
+ */
 
 import { Button, Icon, SidePanel, SidePanelBody, SidePanelHeader, Stack, Text } from '@orbit/terra';
 import { StatusBadge } from '@orbit/components';

@@ -1,5 +1,10 @@
 /**
- * @tier 3 — triggers-scoped. Where inbound webhooks arrive.
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the derivation is a Triggers routing fact, and
+ * only trigger surfaces ever show an ingest endpoint.
+ *
+ * Where inbound webhooks arrive.
  *
  * The inbound path is owned by the source, so every surface that shows an
  * endpoint (wizard step, success screen, drawer, created-trigger result) is

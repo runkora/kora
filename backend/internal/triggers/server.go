@@ -90,6 +90,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
+//	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
 //
 // Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
 // handler because RouteScope cannot express a path-dependent scope):

@@ -5,15 +5,14 @@ import { cva } from 'class-variance-authority';
  *
  * One recipe shared by `SettingRow`, `ToggleRow` and `DangerZone` so a settings
  * pane made of all three reads as a single stack rather than three competing row
- * treatments. It lived in three near-identical copies before; they had already
- * drifted by a pixel, which is exactly the failure mode this prevents.
+ * treatments. One recipe, because near-identical copies drift by a pixel, which
+ * is exactly the failure this prevents.
  *
  * `tone` covers the only real divergence: the danger row is the same geometry in
  * error tint. `interactive` adds what a row needs when the row itself is the
  * control (full width, left-aligned text, a focus ring).
  *
- * Type sizes here are on the defined scale (12px label, 11px description)
- * rather than the half-pixel values the rows originally carried.
+ * Type sizes here are on the defined scale (12px label, 11px description).
  */
 const settingsRowSurfaceVariants = cva(['flex', 'items-center', 'rounded-md', 'border'], {
   variants: {

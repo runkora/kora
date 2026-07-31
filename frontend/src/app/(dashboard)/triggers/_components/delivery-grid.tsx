@@ -1,7 +1,14 @@
-/** @tier 3 — triggers-scoped. The delivery list: one row per arrival, and what
- * the platform did with it. */
-
 'use client';
+
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the grid renders delivery statuses, fan-out and
+ * dispatch latency, Triggers vocabulary that promotion would spread into
+ * `src/components/`.
+ *
+ * The delivery list: one row per arrival, and what the platform did with it.
+ */
 
 import { useState } from 'react';
 import {

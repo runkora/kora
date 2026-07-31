@@ -4,6 +4,7 @@ import { cn } from '../../utils';
 
 /** @tier 1 — Zero Orbit domain knowledge. A row of mutually exclusive filters on one track. */
 
+/** The recessed track the options sit on. */
 const segmentedControlVariants = cva([
   'inline-flex',
   'gap-1',
@@ -14,6 +15,7 @@ const segmentedControlVariants = cva([
   'p-[3px]',
 ]);
 
+/** One option on the track; `selected` lifts it onto an overlay surface. */
 const segmentedControlOptionVariants = cva(
   [
     'inline-flex',

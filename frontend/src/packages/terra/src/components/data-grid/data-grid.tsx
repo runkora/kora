@@ -23,9 +23,7 @@ import { sectionLabelVariants } from '../section-label';
  *
  * ```tsx
  * <DataGrid columns="1fr 168px 148px 74px">
- *   <DataGridHeader>
- *     <span>Trigger</span><span>Fires</span><span>Agent</span><span>Enabled</span>
- *   </DataGridHeader>
+ *   <DataGridHeader cells={['Trigger', 'Fires', 'Agent', 'Enabled']} />
  *   {rows.map(r => (
  *     <DataGridRow key={r.id} onClick={() => open(r)}>…</DataGridRow>
  *   ))}

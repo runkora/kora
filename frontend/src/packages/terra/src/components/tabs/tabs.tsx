@@ -138,8 +138,8 @@ export interface TabsTriggerProps extends React.ComponentPropsWithoutRef<
 > {
   /**
    * Optional leading icon, rendered at `size="xs"` before the label. When set,
-   * the trigger switches to an inline-flex row with a 6 px gap; without it the
-   * trigger renders exactly as before.
+   * the trigger switches to an inline-flex row with a 6 px gap; icon-less
+   * triggers are unaffected.
    *
    * ```tsx
    * <TabsTrigger value="settings" icon="settings">Settings</TabsTrigger>
@@ -175,7 +175,7 @@ const TabsTrigger = React.forwardRef<
         '-mb-px',
         // Size — padding, height, and type scale
         TRIGGER_SIZE[size],
-        // Icon row — only when a leading icon is present so plain triggers render as before
+        // Icon row — only when a leading icon is present; icon-less triggers are unaffected
         icon && 'inline-flex items-center gap-1.5',
         // Typography
         'leading-none whitespace-nowrap select-none',

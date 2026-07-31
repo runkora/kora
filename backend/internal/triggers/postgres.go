@@ -37,9 +37,9 @@ func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFoun
 }
 
 // queryList runs a query and scans one T per row, closing rows and checking
-// rows.Err. The Query→Next→Scan→Err loop appeared ten times in this file with
-// hand-copied wrap messages that drifted; `what` names the rows once for all
-// three wraps. The SQL stays at each call site — this is a scan helper, not a
+// rows.Err. One implementation of the Query→Next→Scan→Err loop the list
+// queries otherwise each hand-copy; `what` names the rows once for all three
+// wraps. The SQL stays at each call site — this is a scan helper, not a
 // query builder.
 func queryList[T any](ctx context.Context, pool *pgxpool.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
 	rows, err := pool.Query(ctx, sql, args...)

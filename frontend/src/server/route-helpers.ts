@@ -46,8 +46,7 @@ export type AuthedHandler<TParams = Record<string, string>> = (
  * - Otherwise calls `handler(req, session, context)` with the validated session.
  * - An `ApiError` thrown by the handler (an upstream refusal surfaced by the
  *   typed server clients) becomes its own JSON response, code and status
- *   preserved. Handlers pass upstream verdicts through by not catching them;
- *   the catch-and-map block every route used to carry lives here once.
+ *   preserved. Handlers pass upstream verdicts through by not catching them.
  *
  * The proxy (src/proxy.ts) already redirects unauthenticated *page* requests
  * to /login. This guard covers the case where a BFF API route is called

@@ -4,9 +4,9 @@ package storage
 //
 // Every repository that stores an optional column reinvented these: the same
 // empty-to-NULL mapping appeared as nullableStr, nullableText, nullableInt,
-// nullableRunStr and nullableTime across five packages, each with its own name
-// and each having to remember which zero value meant "not recorded". Six
-// spellings of one idea is five chances to get it subtly different, so they live
+// nullableRunStr and nullableTime across four packages, each with its own name
+// and each having to remember which zero value meant "not recorded". Five
+// spellings of one idea is four chances to get it subtly different, so they live
 // here once.
 
 // NullIfZero returns nil for the zero value and a pointer to v otherwise, so a

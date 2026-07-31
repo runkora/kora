@@ -1,7 +1,8 @@
 /**
  * @tier 2 — App-level shared. The rich metric card: a headline figure with a
  * delta indicator, an optional breakdown table, and a "View all" footer link.
- * Used by dashboard home, model-gateway overview, and policy overview. Terra's
+ * Used by dashboard home, the agents page, policy overview, and model-gateway
+ * budgets. Terra's
  * `StatCard` is the other half of the division: a deliberately flat figure
  * tile for dense five-across rows, with none of these affordances.
  * @promote-to-tier-1 if: Orbit heading variants and delta colour semantics are removed

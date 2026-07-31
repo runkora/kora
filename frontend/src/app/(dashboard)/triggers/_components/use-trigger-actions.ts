@@ -1,10 +1,16 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The mutation callbacks behind every trigger
- * surface: fire, toggle, safety, edit, rotate, redeliver, delete. Owned here
- * once so the platform Triggers page and the agent page drive the same drawer
- * with the same behaviour, differing only in how they refresh and where they
- * put a page-level notice. */
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the hook is glue between the drawer and the
+ * triggers API, and moves with both.
+ *
+ * The mutation callbacks behind every trigger surface: fire, toggle, safety,
+ * edit, rotate, redeliver, delete. Owned here once so the platform Triggers
+ * page and the agent page drive the same drawer with the same behaviour,
+ * differing only in how they refresh and where they put a page-level notice.
+ */
 
 import { useCallback, useState } from 'react';
 import {

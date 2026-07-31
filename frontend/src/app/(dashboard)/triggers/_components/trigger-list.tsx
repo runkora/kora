@@ -1,6 +1,14 @@
-/** @tier 3 — triggers-scoped. The trigger list: one row per way work starts. */
-
 'use client';
+
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: every column renders the Triggers vocabulary
+ * (kinds, fleet stats, admission state) that promotion would drag into
+ * `src/components/`.
+ *
+ * The trigger list: one row per way work starts.
+ */
 
 import { useState } from 'react';
 import {

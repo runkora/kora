@@ -506,7 +506,7 @@ func TestInputField_Validate(t *testing.T) {
 	}
 }
 
-// ─── Phase 2: missed scheduled fires ─────────────────────────────────────────
+// ─── Editable manual input declaration ─────────────────────────────────────────
 
 // UpdateTrigger accepts manual_config, so it has to apply it: a DTO field the
 // service silently ignores is a lie the console cannot see through.
@@ -569,7 +569,7 @@ func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
 	}
 }
 
-// ─── Trigger ↔ run backlink (US-004) ─────────────────────────────────────────
+// ─── Per-kind overflow defaults ─────────────────────────────────────────
 
 // Each kind gets the overflow behavior that suits it.
 func TestDefaultOverflowForKind(t *testing.T) {

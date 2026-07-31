@@ -16,8 +16,10 @@
  * Offsets are always offsets into the **serialized** string. A token occupies
  * the full width of its serialization (`{{ pr.title }}` is 14 offsets) but the
  * caret may only rest on its two boundaries — never inside it. `snapOffset`
- * enforces that invariant, and every function that accepts an offset applies
- * it, so callers can pass a raw browser offset without checking first.
+ * enforces that invariant, and the edit functions apply it to the offsets they
+ * accept, so callers can pass a raw browser offset without checking first.
+ * (`tokenEndingAt`/`tokenStartingAt` are exact-boundary queries and do not
+ * snap.)
  */
 
 /**
@@ -359,11 +361,6 @@ function isTextNode(node: Node): node is Text {
 }
 
 /**
- * The model text a DOM subtree stands for. Text nodes contribute verbatim,
- * pills contribute their canonical serialization, and a `<br>` contributes a
- * newline (browsers insert them even when we intercept Enter).
- */
-/**
  * Zero-width space used as a caret anchor. A contenteditable=false pill with
  * nothing after it is unreachable by arrow keys: the browser has no caret
  * position to give. The editor therefore keeps an anchor text node around
@@ -376,6 +373,11 @@ function stripAnchors(text: string): string {
   return text.split(CARET_ANCHOR).join('');
 }
 
+/**
+ * The model text a DOM subtree stands for. Text nodes contribute verbatim,
+ * pills contribute their canonical serialization, and a `<br>` contributes a
+ * newline (browsers insert them even when we intercept Enter).
+ */
 export function modelTextOf(node: Node): string {
   if (isTextNode(node)) return stripAnchors(node.nodeValue ?? '');
   if (isTokenPill(node)) return serializeToken(node.getAttribute('data-token') ?? '');

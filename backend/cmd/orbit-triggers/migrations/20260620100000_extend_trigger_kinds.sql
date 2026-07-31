@@ -6,7 +6,7 @@
 -- existing 'webhook' kind. source_id becomes nullable (scheduled/manual triggers
 -- have no webhook source). kind_config carries kind-specific fields (cron
 -- expression + timezone for scheduled; empty for others). principal_id and
--- grant_id on the trigger itself hold the SERVICE identity for scheduled/manual
+-- grant_id_svc on the trigger itself hold the SERVICE identity for scheduled/manual
 -- triggers (webhook triggers inherit their principal from webhook_sources).
 -- See docs/adr/2026-06-20-extended-trigger-types.md.
 

@@ -1,6 +1,6 @@
-/** @tier 3 — triggers-scoped. Fleet health at a glance, above the trigger list. */
-
 'use client';
+
+/** @tier 3 — triggers-scoped. Fleet health at a glance, above the trigger list. */
 
 import { Grid, Icon, StatCard } from '@orbit/terra';
 import type { DeliveryRow, TriggerRow } from '../_types';

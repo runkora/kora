@@ -14,8 +14,8 @@ const (
 	// startupBackoffBase is the first retry delay while the policy service
 	// comes up; subsequent retries double from here.
 	startupBackoffBase = 2 * time.Second
-	// startupBackoffCap bounds the doubling. Beyond this the periodic
-	// re-registration cadence is the recovery mechanism anyway.
+	// startupBackoffCap bounds the doubling, so retry latency stays bounded
+	// while the policy service comes up.
 	startupBackoffCap = 30 * time.Second
 )
 

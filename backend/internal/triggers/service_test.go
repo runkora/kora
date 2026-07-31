@@ -55,7 +55,7 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met within timeout")
 }
 
-// ── Sources ─────────────────────────────────────────────────────────────────
+// ── Shared helpers ─────────────────────────────────────────────────────────────────
 
 //go:fix inline
 func admissionPtr[T any](v T) *T { return new(v) }

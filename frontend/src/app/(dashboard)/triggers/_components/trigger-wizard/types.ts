@@ -83,7 +83,7 @@ export interface TriggerWizardProps {
   initialKind?: TriggerKind;
   agents: TriggerWizardAgent[];
   sources: TriggerWizardSource[];
-  /** Public base for webhook endpoints, e.g. "orbit.local.clearroute.io:8443". */
+  /** Public base for webhook endpoints, e.g. "api.orbit.local.clearroute.io:8443". */
   ingestHost: string;
   /**
    * Executes creation. The parent creates the source first when requested and

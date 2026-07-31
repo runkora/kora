@@ -5,9 +5,8 @@ import { cva } from 'class-variance-authority';
  *
  * Extracted here because `Toggle` is not the only thing that draws a switch —
  * `ToggleRow` renders the same control inside a row that is itself the button,
- * so it cannot nest an interactive `Toggle` and previously re-implemented the
- * track and knob 2px away from these. Both now draw from this recipe, so the
- * switch looks the same wherever it appears.
+ * so it cannot nest an interactive `Toggle`. Both draw from this one recipe, so
+ * the switch looks the same wherever it appears.
  *
  * These are presentation only. Whatever renders them owns the `role="switch"`,
  * `aria-checked` and the click handling.

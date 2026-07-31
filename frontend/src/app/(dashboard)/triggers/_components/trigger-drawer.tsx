@@ -1,6 +1,14 @@
-/** @tier 3 — triggers-scoped. Everything about one trigger, in one place. */
-
 'use client';
+
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the drawer is the deepest trigger-domain surface
+ * there is, and promoting it would carry the whole vocabulary into
+ * `src/components/`.
+ *
+ * Everything about one trigger, in one place.
+ */
 
 import { useCallback, useMemo, useState } from 'react';
 import {

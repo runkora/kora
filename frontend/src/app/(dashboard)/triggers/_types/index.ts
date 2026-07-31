@@ -1,7 +1,15 @@
-// ── Display-layer types for the Triggers feature ─────────────────────────────
-//
-// *Row types are the shapes consumed by the UI. The raw API shapes
-// (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`),
+ * which imports it across feature areas. Stays Tier 3 deliberately: this file IS
+ * the Triggers vocabulary, and promoting it would move the whole domain into
+ * `src/components/` for the sake of one consumer.
+ *
+ * Display-layer types for the Triggers feature.
+ *
+ * *Row types are the shapes consumed by the UI. The raw API shapes
+ * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
+ */
 
 import type { IconName } from '@orbit/terra';
 import type {
@@ -216,21 +224,15 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     autopauseEnabled: t.autopause_enabled ?? true,
     consecutiveFailures: t.consecutive_failures ?? 0,
     autoPausedAt: t.auto_paused_at ?? null,
-    // Read off a widened shape: the field is being added upstream, and
-    // defaulting to zero means the console can ship first and simply show
-    // nothing until the numbers start arriving.
-    pendingCount: (t as Trigger & { pending_count?: number }).pending_count ?? 0,
+    // Zero until the backend reports it, so a console deployed ahead of the
+    // API shows nothing rather than a wrong number.
+    pendingCount: t.pending_count ?? 0,
   };
 }
 
 export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
-  // Widened locally: trigger_name is being denormalised onto deliveries and
-  // their fan-out entries upstream, and reading it defensively lets the feed
-  // name triggers as soon as the field appears without a lockstep deploy.
-  const named = d as TriggerDelivery & {
-    trigger_name?: string;
-    runs?: { trigger_name?: string }[];
-  };
+  // trigger_name falls back to null, so a console deployed ahead of the API
+  // shows the id fallback rather than breaking; no lockstep deploy required.
   return {
     id: d.id,
     kind: d.kind,
@@ -238,7 +240,7 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     eventType: d.event_type ?? '',
     status: d.status,
     triggerId: d.trigger_id ?? null,
-    triggerName: named.trigger_name ?? null,
+    triggerName: d.trigger_name ?? null,
     runId: d.run_id ?? null,
     error: d.error ?? null,
     payloadExcerpt: d.payload_excerpt ?? null,
@@ -248,9 +250,9 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     payloadBytes: d.payload_bytes ?? null,
     payloadPurged: d.payload_purged ?? false,
     receivedAt: d.received_at,
-    runs: (d.runs ?? []).map((r, i) => ({
+    runs: (d.runs ?? []).map((r) => ({
       triggerId: r.trigger_id,
-      triggerName: named.runs?.[i]?.trigger_name ?? null,
+      triggerName: r.trigger_name ?? null,
       runId: r.run_id ?? null,
       status: r.status,
       error: r.error ?? null,
@@ -356,9 +358,9 @@ export function relativeTime(iso: string | null): string {
 }
 
 /**
- * The absolute time, spelled the same way everywhere it appears: hover titles,
- * the delivery panel, and the agent page. One formatter, so the same instant
- * cannot read differently on two surfaces.
+ * The absolute time for hover titles, the delivery panel, and the agent page:
+ * one formatter, so those surfaces spell the same instant the same way. The
+ * drawer's delivery history deliberately uses a different-grain formatter.
  */
 export function formatTimestampUtc(iso: string): string {
   if (!iso) return '—';

@@ -46,7 +46,8 @@ type Metrics struct {
 	// on the SDK's collection goroutine, not the job's.
 	purgeLastSuccess atomic.Int64
 
-	// registration keeps the observable callback alive and unregisterable.
+	// registration keeps the observable callback alive, and lets Close
+	// unregister it.
 	registration metric.Registration
 }
 

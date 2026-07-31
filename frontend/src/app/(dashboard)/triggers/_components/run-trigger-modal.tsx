@@ -1,7 +1,14 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The console form a manual trigger publishes:
- * the declared inputs, rendered for real, firing with their values. */
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
+ * Stays Tier 3 deliberately: the form is built from the trigger's declared
+ * inputs, a Triggers-domain contract that does not belong in `src/components/`.
+ *
+ * The console form a manual trigger publishes: the declared inputs, rendered
+ * for real, firing with their values.
+ */
 
 import { useState } from 'react';
 import {

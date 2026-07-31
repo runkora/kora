@@ -1,7 +1,7 @@
+'use client';
+
 /** @tier 3 — triggers-scoped. What one delivery actually did: the failure if
  * there was one, the payload that arrived, and the run it started. */
-
-'use client';
 
 import { useState } from 'react';
 import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/terra';

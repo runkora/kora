@@ -1,8 +1,15 @@
-// ── Triggers API — client-side BFF calls ──────────────────────────────────────
-//
-// All functions call the BFF routes under /api/trigger-sources, /api/triggers,
-// and /api/trigger-deliveries. They never throw — callers pattern-match on the
-// returned `error` field.
+/**
+ * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
+ * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`),
+ * which imports it across feature areas. Stays Tier 3 deliberately: every call
+ * here is a Triggers endpoint, and the file moves with the API it wraps.
+ *
+ * Triggers API — client-side BFF calls.
+ *
+ * All functions call the BFF routes under /api/trigger-sources, /api/triggers,
+ * and /api/trigger-deliveries. They never throw — callers pattern-match on the
+ * returned `error` field.
+ */
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {

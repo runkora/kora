@@ -11,7 +11,7 @@ import (
 // The split is documentation with teeth. Each component declares only the role
 // it needs — the Worker takes a PendingQueue, the retention job a
 // RetentionStore — so what a component may touch is visible in its constructor
-// rather than implied by a thirty-five-method surface, and a change of mind
+// rather than implied by a several-dozen-method surface, and a change of mind
 // about that shows up as a compile error.
 type Repository interface {
 	SourceStore
