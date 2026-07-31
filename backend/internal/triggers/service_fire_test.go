@@ -636,6 +636,47 @@ func TestRedeliver_IsBoundedPerOriginal(t *testing.T) {
 	}
 }
 
+// Replaying a replay must not reset the budget: the count is against the lineage
+// root, so a caller cannot walk down the chain to get unlimited replays of one
+// event.
+func TestRedeliver_BudgetCountsAgainstLineageRoot(t *testing.T) {
+	ctx := context.Background()
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(ctx, src.ID, sign(src.Secret, body), body); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	original := deps.repo.lastDelivery()
+
+	// The first replay produces a child, which must be pinned to the root, not
+	// to itself.
+	resp, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1")
+	if err != nil {
+		t.Fatalf("first replay: %v", err)
+	}
+	child, err := deps.repo.GetDelivery(ctx, testTenant, resp.DeliveryID)
+	if err != nil {
+		t.Fatalf("get child: %v", err)
+	}
+	if child.RedeliveryOf == nil || *child.RedeliveryOf != original.ID {
+		t.Fatalf("a replay must pin to the lineage root %s, got %v", original.ID, child.RedeliveryOf)
+	}
+
+	// Exhaust the rest of the budget against the original.
+	for i := 1; i < maxRedeliveriesPerOriginal; i++ {
+		if _, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1"); err != nil {
+			t.Fatalf("replay %d: %v", i, err)
+		}
+	}
+
+	// Replaying the child (a replay) must still be refused: it shares the root's
+	// budget rather than starting a fresh chain with a count of zero.
+	if _, err := svc.Redeliver(ctx, testTenant, child.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+		t.Errorf("replaying a replay must count against the root, got %v", err)
+	}
+}
+
 // Rotating a signing secret is what an operator does when the old one may be in
 // someone else's hands. Replaying a payload from before the rotation would
 // re-run, under the platform's authority, exactly what the rotation was meant to

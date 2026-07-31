@@ -22,10 +22,11 @@ const (
 // buildManualDelivery is the delivery row a manual fire produces, whether it
 // came from a person pressing fire or from a replay of one that already did.
 //
-// redeliveryOf is nil for an original fire and names the delivery being replayed
-// otherwise: that field is the whole difference between the two rows, and the
-// lineage is what keeps a replay from rewriting the history of the fire it came
-// from.
+// redeliveryOf is nil for an original fire and names the lineage ROOT when this
+// is a replay (Redeliver pins every replay to the root, so lineage stays flat):
+// that field is the whole difference between the two rows, and the lineage is
+// what keeps a replay from rewriting the history of the fire it came from and
+// what the replay budget counts against.
 func buildManualDelivery(tenantID string, t *Trigger, callerPrincipalID string, captured []byte, redeliveryOf *string) *Delivery {
 	triggerID := t.ID
 	return &Delivery{
@@ -267,15 +268,26 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkRedeliveryBudget(ctx, original.ID); err != nil {
+	// Every replay pins its lineage to the root, not to the delivery being
+	// replayed, so the budget counts replays of the one original however deep
+	// the caller reaches. Without this, replaying a replay starts a fresh chain
+	// whose child count is zero, and the endpoint becomes the unbounded run
+	// generator the budget exists to prevent. Lineage is kept flat (depth 1) by
+	// this pinning, so the root is the delivery's own id, or its parent when it
+	// is itself a replay.
+	rootID := original.ID
+	if original.RedeliveryOf != nil {
+		rootID = *original.RedeliveryOf
+	}
+	if err := s.checkRedeliveryBudget(ctx, rootID); err != nil {
 		return nil, err
 	}
 
 	switch original.Kind {
 	case KindWebhook:
-		return s.redeliverWebhook(ctx, tenantID, original, callerPrincipalID)
+		return s.redeliverWebhook(ctx, tenantID, original, rootID, callerPrincipalID)
 	case KindManual:
-		return s.redeliverManual(ctx, tenantID, original, callerPrincipalID)
+		return s.redeliverManual(ctx, tenantID, original, rootID, callerPrincipalID)
 	default:
 		// A scheduled tick is defined by the minute it was due. Replaying one
 		// would either collide with that minute's row or invent a fire that was
@@ -291,7 +303,7 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 // That is the point of the endpoint: the usual reason to replay is that the
 // cause was fixed, and replaying against the old configuration would replay the
 // failure with it.
-func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, original *Delivery, callerPrincipalID string) (*RedeliverResponse, error) {
+func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, original *Delivery, rootID, callerPrincipalID string) (*RedeliverResponse, error) {
 	if original.PayloadPurged || len(original.Payload) == 0 {
 		return nil, fmt.Errorf("%w: this delivery's payload is no longer stored, so there is nothing to replay", ErrNotRedeliverable)
 	}
@@ -335,7 +347,7 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 		Payload:            original.Payload,
 		PayloadBytes:       original.PayloadBytes,
 		FiredBy:            callerPrincipalID,
-		RedeliveryOf:       &original.ID,
+		RedeliveryOf:       &rootID,
 	}
 	if _, err := s.repo.InsertDelivery(ctx, dup); err != nil {
 		return nil, fmt.Errorf("record redelivery: %w", err)
@@ -343,13 +355,13 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 
 	s.logger.Info(ctx, "webhook delivery replayed",
 		logging.Field{Key: "delivery_id", Value: dup.ID},
-		logging.Field{Key: "redelivery_of", Value: original.ID},
+		logging.Field{Key: "redelivery_of", Value: rootID},
 		logging.Field{Key: "requested_by", Value: callerPrincipalID},
 	)
 
 	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, dup.ID, dup.EventType, dup.Payload)
 
-	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: original.ID}, nil
+	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: rootID}, nil
 }
 
 // redeliverManual replays a manual fire with the values it was given, validated
@@ -358,7 +370,7 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 // Revalidating is deliberate: a declaration that changed since the original fire
 // is the current contract, and quietly starting a run with values it no longer
 // accepts would be the same drift the declaration exists to prevent.
-func (s *Service) redeliverManual(ctx context.Context, tenantID string, original *Delivery, callerPrincipalID string) (*RedeliverResponse, error) {
+func (s *Service) redeliverManual(ctx context.Context, tenantID string, original *Delivery, rootID, callerPrincipalID string) (*RedeliverResponse, error) {
 	if original.TriggerID == nil {
 		return nil, fmt.Errorf("%w: this delivery records no trigger to re-run", ErrNotRedeliverable)
 	}
@@ -382,7 +394,7 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	}
 
 	captured := s.captureVariables(ctx, values)
-	dup := buildManualDelivery(tenantID, t, callerPrincipalID, captured, &original.ID)
+	dup := buildManualDelivery(tenantID, t, callerPrincipalID, captured, &rootID)
 	if _, err := s.repo.InsertDelivery(ctx, dup); err != nil {
 		return nil, fmt.Errorf("record redelivery: %w", err)
 	}
@@ -395,11 +407,11 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	s.logger.Info(ctx, "manual fire replayed",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "delivery_id", Value: dup.ID},
-		logging.Field{Key: "redelivery_of", Value: original.ID},
+		logging.Field{Key: "redelivery_of", Value: rootID},
 		logging.Field{Key: "requested_by", Value: callerPrincipalID},
 	)
 
-	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: original.ID}, nil
+	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: rootID}, nil
 }
 
 // maxRedeliveriesPerOriginal bounds how many times one delivery may be replayed.
