@@ -177,9 +177,11 @@ type PendingQueue interface {
 	// the longest dispatch a trigger may legitimately take, or this restarts
 	// work that is still running.
 	ReclaimStalePending(ctx context.Context, olderThan time.Duration) ([]string, error)
-	// SupersedePending removes everything waiting for a trigger, returning the
-	// displaced rows so the caller can record them.
-	SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error)
+	// SupersedeAndEnqueue atomically replaces a trigger's waiting backlog with
+	// one new fire: it displaces every unclaimed row (returning them so the
+	// caller records each as superseded) and enqueues the replacement in one
+	// transaction, under a lock on the trigger.
+	SupersedeAndEnqueue(ctx context.Context, p *PendingDelivery) ([]PendingDelivery, error)
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.

@@ -1040,12 +1040,58 @@ const occupancySQL = inFlightSQL + `
 	     WHERE  trigger_id = $1 AND claimed_at IS NULL)
 `
 
-// SupersedePending and DrainPending share one implementation: both remove
-// every waiting row. The two names stay at the interface because they carry
-// different intent — replace-on-overflow versus disable-and-drain — and the
-// delivery history records different reasons for each.
-func (r *postgresRepository) SupersedePending(ctx context.Context, triggerID string) ([]PendingDelivery, error) {
-	return r.deleteUnclaimedPending(ctx, triggerID, "supersede")
+// SupersedeAndEnqueue replaces a replace-overflow trigger's waiting backlog
+// with one new fire, atomically: it locks the trigger row, deletes every
+// unclaimed row (returning them so the caller records each as superseded), and
+// inserts the replacement, all in one transaction.
+//
+// The two guarantees are what a plain supersede-then-enqueue could not give.
+// The lock serializes concurrent replace fires on the same trigger, so two
+// cannot each supersede the other's nothing and both enqueue, leaving a "keep
+// only the newest" trigger holding two waiting rows. The single transaction
+// means a crash cannot commit the supersede — recording the displaced fires as
+// replaced — and then fail to enqueue the replacement that was supposed to
+// replace them.
+func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *PendingDelivery) ([]PendingDelivery, error) {
+	fieldsJSON, err := json.Marshal(p.Fields)
+	if err != nil {
+		return nil, fmt.Errorf("marshal pending fields: %w", err)
+	}
+
+	var superseded []PendingDelivery
+	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		var lockedID string
+		if err := tx.QueryRow(ctx,
+			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
+			return fmt.Errorf("lock trigger for supersede: %w", err)
+		}
+
+		rows, err := tx.Query(ctx, `
+			DELETE FROM trigger_pending_deliveries
+			WHERE  trigger_id = $1 AND claimed_at IS NULL
+			RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+		`, p.TriggerID)
+		if err != nil {
+			return fmt.Errorf("supersede pending deliveries: %w", err)
+		}
+		superseded, err = scanPending(rows)
+		// Close before the next query: pgx allows only one active result per
+		// connection, and the insert below runs on this same transaction.
+		rows.Close()
+		if err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, pendingInsertSQL,
+			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+			return fmt.Errorf("enqueue replacement: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, txErr
+	}
+	return superseded, nil
 }
 
 // TrimPending evicts the oldest waiting rows beyond depth, leaving room for the

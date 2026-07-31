@@ -972,10 +972,22 @@ func (m *mockRepository) ReleasePending(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRepository) SupersedePending(_ context.Context, triggerID string) ([]PendingDelivery, error) {
-	return m.removePending(func(p *pendingRow) bool {
-		return p.TriggerID == triggerID && !p.claimed
+// SupersedeAndEnqueue displaces the waiting rows and enqueues the replacement
+// under one lock. The mock does both under its own mutex, which is enough for a
+// service test to see the newest fire as the only one left; the transactional
+// and concurrency guarantees are TestPostgres_SupersedeAndEnqueue's.
+func (m *mockRepository) SupersedeAndEnqueue(_ context.Context, p *PendingDelivery) ([]PendingDelivery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	superseded := m.removePendingLocked(func(row *pendingRow) bool {
+		return row.TriggerID == p.TriggerID && !row.claimed
 	})
+	cp := *p
+	if cp.EnqueuedAt.IsZero() {
+		cp.EnqueuedAt = time.Now()
+	}
+	m.pending = append(m.pending, &pendingRow{PendingDelivery: cp})
+	return superseded, nil
 }
 
 // DrainPending mirrors the SQL: only WAITING rows go. A claimed row belongs to a
@@ -1041,6 +1053,12 @@ func (m *mockRepository) TrimPending(_ context.Context, triggerID string, depth 
 func (m *mockRepository) removePending(match func(*pendingRow) bool) ([]PendingDelivery, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.removePendingLocked(match), nil
+}
+
+// removePendingLocked is removePending's body, for callers that already hold
+// the mutex (SupersedeAndEnqueue does its delete and insert under one lock).
+func (m *mockRepository) removePendingLocked(match func(*pendingRow) bool) []PendingDelivery {
 	var removed []PendingDelivery
 	kept := m.pending[:0]
 	for _, p := range m.pending {
@@ -1051,7 +1069,7 @@ func (m *mockRepository) removePending(match func(*pendingRow) bool) ([]PendingD
 		kept = append(kept, p)
 	}
 	m.pending = kept
-	return removed, nil
+	return removed
 }
 
 // backdateClaim ages a row's claim, standing in for a worker that claimed it and

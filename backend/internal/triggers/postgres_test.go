@@ -1359,9 +1359,10 @@ func TestPostgres_SupersedePendingReturnsWhatItDisplaced(t *testing.T) {
 		enqueued = append(enqueued, p.DeliveryID)
 	}
 
-	displaced, err := r.SupersedePending(ctx, tr.ID)
+	replacement := newPending(tenant, tr.ID)
+	displaced, err := r.SupersedeAndEnqueue(ctx, replacement)
 	if err != nil {
-		t.Fatalf("SupersedePending: %v", err)
+		t.Fatalf("SupersedeAndEnqueue: %v", err)
 	}
 	if len(displaced) != 3 {
 		t.Fatalf("displaced %d rows, want all 3 so each can be recorded", len(displaced))
@@ -1375,8 +1376,39 @@ func TestPostgres_SupersedePendingReturnsWhatItDisplaced(t *testing.T) {
 			t.Errorf("delivery %s was removed from the queue but not returned", id)
 		}
 	}
-	if n, err := r.UnclaimedPendingCount(ctx, tr.ID); err != nil || n != 0 {
-		t.Errorf("waiting after supersede = %d (%v), want 0", n, err)
+	// Exactly the replacement remains: the supersede and the enqueue are one
+	// transaction, so the trigger is never left empty (supersede without its
+	// replacement) nor holding two.
+	if n, err := r.UnclaimedPendingCount(ctx, tr.ID); err != nil || n != 1 {
+		t.Errorf("waiting after supersede+enqueue = %d (%v), want 1 (the replacement)", n, err)
+	}
+}
+
+// Concurrent replace fires on one trigger must collapse to a single waiting row:
+// the FOR UPDATE on the trigger serializes them, so two cannot each supersede
+// the other's nothing and both enqueue.
+func TestPostgres_SupersedeAndEnqueue_SerializesConcurrentReplaces(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
+
+	const callers = 8
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Go(func() {
+			<-start
+			if _, err := r.SupersedeAndEnqueue(ctx, newPending(tenant, tr.ID)); err != nil {
+				t.Errorf("SupersedeAndEnqueue: %v", err)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	if n, err := r.UnclaimedPendingCount(ctx, tr.ID); err != nil || n != 1 {
+		t.Errorf("waiting after %d concurrent replaces = %d (%v), want exactly 1", callers, n, err)
 	}
 }
 

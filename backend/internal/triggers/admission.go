@@ -181,15 +181,18 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 
 	switch t.Overflow {
 	case OverflowReplace:
-		// Displace anything already waiting: if the previous fire has not run
-		// yet, the newest state is the one worth acting on.
-		superseded, err := a.repo.SupersedePending(ctx, t.ID)
+		// Displace anything already waiting and enqueue the replacement in one
+		// transaction: if the previous fire has not run yet, the newest state is
+		// the one worth acting on, and the supersede must not commit without the
+		// replacement it stands in for.
+		superseded, err := a.repo.SupersedeAndEnqueue(ctx, pending)
 		if err != nil {
-			return AdmitDropped, fmt.Errorf("supersede pending: %w", err)
+			return AdmitDropped, fmt.Errorf("supersede and enqueue: %w", err)
 		}
 		for _, s := range superseded {
 			a.recordOutcome(ctx, t, s.DeliveryID, RunStatusSuperseded, "replaced by a newer fire")
 		}
+		return AdmitEnqueued, nil
 
 	case OverflowRefuse:
 		// Checked and enqueued together, under one lock on the trigger.
