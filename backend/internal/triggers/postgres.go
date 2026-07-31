@@ -1233,22 +1233,28 @@ func (r *postgresRepository) UnclaimedPendingCount(ctx context.Context, triggerI
 	return n, nil
 }
 
-// TouchPendingClaim re-stamps a claim immediately before its dispatch begins.
+// TouchPendingClaims re-stamps the given claims, keeping a batch's still-waiting
+// rows inside the stale-claim window.
 //
 // A batch is claimed in one statement and dispatched one row at a time, each
-// bounded by the trigger's own timeout. Without this, the last row of a full
-// batch carries a claim stamped before the first row's dispatch even started,
-// which can be far older than the stale-claim window by the time it runs — and
-// another replica's reaper would take it back and dispatch it a second time,
-// mid-flight. Re-stamping makes the window mean what its name says: how long
-// THIS dispatch has been running.
-func (r *postgresRepository) TouchPendingClaim(ctx context.Context, id string) error {
+// bounded by the trigger's own timeout. Without re-stamping, a row waiting
+// behind slow dispatches carries a claim stamped before the first dispatch even
+// began — far older than the stale-claim window by the time its turn comes, so
+// another replica's reaper takes it back and dispatches it a second time,
+// mid-flight. The worker re-stamps the rows still ahead of it before each
+// dispatch; one dispatch is bounded below the window (timeout_seconds caps at
+// 600s, under the 900s window), so while the worker lives the whole remaining
+// batch stays inside it.
+func (r *postgresRepository) TouchPendingClaims(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	_, err := r.pool.Exec(ctx, `
 		UPDATE trigger_pending_deliveries SET claimed_at = now()
-		WHERE  id = $1 AND claimed_at IS NOT NULL
-	`, id)
+		WHERE  id = ANY($1) AND claimed_at IS NOT NULL
+	`, ids)
 	if err != nil {
-		return fmt.Errorf("re-stamp pending claim: %w", err)
+		return fmt.Errorf("re-stamp pending claims: %w", err)
 	}
 	return nil
 }

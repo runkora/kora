@@ -44,6 +44,8 @@ type mockRepository struct {
 	admissionErr error
 	// orphaned is what DrainOrphanedPending hands back.
 	orphaned []OrphanedPending
+	// touched records the id sets passed to TouchPendingClaims, in order.
+	touched [][]string
 
 	mu           sync.Mutex
 	sources      map[string]*WebhookSource
@@ -1015,15 +1017,29 @@ func (m *mockRepository) DrainOrphanedPending(_ context.Context, limit int) ([]O
 	return out, nil
 }
 
-func (m *mockRepository) TouchPendingClaim(_ context.Context, id string) error {
+func (m *mockRepository) TouchPendingClaims(_ context.Context, ids []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.touched = append(m.touched, append([]string(nil), ids...))
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
 	for _, p := range m.pending {
-		if p.ID == id && p.claimed {
+		if want[p.ID] && p.claimed {
 			p.claimedAt = time.Now()
 		}
 	}
 	return nil
+}
+
+// touchedBatches returns the id sets passed to TouchPendingClaims, in order, so
+// a test can assert the worker re-stamped the rows still waiting behind each
+// dispatch.
+func (m *mockRepository) touchedBatches() [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.touched
 }
 
 // TrimPending evicts the oldest rows beyond depth, matching the SQL's OFFSET on

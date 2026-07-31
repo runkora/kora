@@ -165,9 +165,11 @@ type PendingQueue interface {
 	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
 	// ReleasePending removes a claimed row once its dispatch has settled.
 	ReleasePending(ctx context.Context, id string) error
-	// TouchPendingClaim re-stamps a claim at the moment its dispatch starts, so
-	// the stale-claim window bounds one dispatch rather than a whole batch.
-	TouchPendingClaim(ctx context.Context, id string) error
+	// TouchPendingClaims re-stamps a set of claims, so the stale-claim window
+	// bounds one dispatch rather than a whole batch. The worker re-stamps the
+	// rows still waiting behind each dispatch, keeping them inside the window
+	// while it works through the batch serially.
+	TouchPendingClaims(ctx context.Context, ids []string) error
 	// ReclaimStalePending un-claims fires whose worker died mid-dispatch,
 	// returning the ids it took back so the caller can say so.
 	//

@@ -393,3 +393,27 @@ func TestWorker_ShutdownDoesNotStartNewDispatches(t *testing.T) {
 		t.Errorf("a shutting-down worker started %d runs, want 0: it must not take new work", n)
 	}
 }
+
+// The worker re-stamps the rows still waiting behind each dispatch, not just the
+// one it is about to run. A batch is claimed in one statement and dispatched
+// serially, so a row waiting behind a slow dispatch would otherwise keep its
+// original claim and age past the stale window, letting another replica reclaim
+// and double-dispatch it. Each dispatch should re-stamp the shrinking remainder.
+func TestWorker_ReStampsTheRemainingBatchBeforeEachDispatch(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	enqueue(t, svc, deps, trig, 3)
+
+	worker := NewWorker(svc, deps.repo, silentLogger())
+	worker.drain(context.Background())
+
+	batches := deps.repo.touchedBatches()
+	if len(batches) != 3 {
+		t.Fatalf("re-stamp calls = %d, want one before each of the 3 dispatches", len(batches))
+	}
+	// The remainder shrinks by one each dispatch: 3, then 2, then 1.
+	if len(batches[0]) != 3 || len(batches[1]) != 2 || len(batches[2]) != 1 {
+		t.Errorf("re-stamp batch sizes = %d/%d/%d, want 3/2/1 (the shrinking remainder)",
+			len(batches[0]), len(batches[1]), len(batches[2]))
+	}
+}

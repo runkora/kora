@@ -158,7 +158,8 @@ func (w *Worker) drain(ctx context.Context) {
 			logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
-	for _, p := range claimed {
+	for i := range claimed {
+		p := claimed[i]
 		// Once shutdown is signaled, stop taking new rows from the batch. The
 		// untouched ones keep their claim and the next tick — here or on
 		// another replica — picks them up. Only the row already in flight below
@@ -173,14 +174,20 @@ func (w *Worker) drain(ctx context.Context) {
 		// fire a second time. DispatchPending bounds its own StartRun, so this
 		// cannot hang indefinitely.
 		dctx := context.WithoutCancel(ctx)
-		// Re-stamp the claim as this row's dispatch begins. The batch was
-		// claimed in one statement, and dispatches run one after another, each
-		// up to the trigger's own timeout — so without this the last row of a
-		// full batch can carry a claim far older than the stale-claim window by
-		// the time it actually runs, and another replica's reaper would take it
-		// back and start the same fire a second time.
-		if err := w.repo.TouchPendingClaim(dctx, p.ID); err != nil {
-			w.logger.Error(dctx, "failed to re-stamp claim before dispatch",
+		// Re-stamp this row AND the rows still waiting behind it. The batch was
+		// claimed in one statement and dispatched serially, so a row waiting
+		// behind slow dispatches would otherwise carry a claim stamped before
+		// the first dispatch even began — old enough for another replica's
+		// reaper to reclaim it and start the same fire a second time. One
+		// dispatch is bounded below the stale-claim window, so re-stamping the
+		// remaining batch before each dispatch holds all of it inside the window
+		// while this worker lives.
+		remaining := make([]string, len(claimed)-i)
+		for j := i; j < len(claimed); j++ {
+			remaining[j-i] = claimed[j].ID
+		}
+		if err := w.repo.TouchPendingClaims(dctx, remaining); err != nil {
+			w.logger.Error(dctx, "failed to re-stamp claims before dispatch",
 				logging.Field{Key: "pending_id", Value: p.ID},
 				logging.Field{Key: "error", Value: err.Error()})
 		}

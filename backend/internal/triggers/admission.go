@@ -111,10 +111,10 @@ type OrphanedPending struct {
 // Fifteen minutes is chosen against the ceiling on how long ONE dispatch may
 // legitimately take: timeout_seconds is capped at 600 (ten minutes), so a claim
 // older than this cannot belong to a dispatch still in progress. That holds only
-// because the worker re-stamps each row's claim as its own dispatch begins
-// (Repository.TouchPendingClaim) — a batch is claimed in a single statement and
-// dispatched serially, so without the re-stamp the last row of a batch of
-// sixteen could carry a claim over two hours old while still being live work.
+// because the worker re-stamps the rows still waiting behind each dispatch
+// (Repository.TouchPendingClaims) — a batch is claimed in a single statement and
+// dispatched serially, so without the re-stamp a row waiting its turn could
+// carry a claim old enough to be reclaimed while still being live work.
 // The margin is deliberately generous: reclaiming a live dispatch would start
 // the same fire twice, which is worse than a stranded fire starting late.
 const StaleClaimWindow = 15 * time.Minute

@@ -1040,7 +1040,7 @@ func TestPostgres_TouchPendingClaimResetsTheStaleWindow(t *testing.T) {
 	}
 	backdateClaim(t, r, p.ID, StaleClaimWindow+time.Minute)
 
-	if err := r.TouchPendingClaim(ctx, p.ID); err != nil {
+	if err := r.TouchPendingClaims(ctx, []string{p.ID}); err != nil {
 		t.Fatalf("TouchPendingClaim: %v", err)
 	}
 	reclaimed, err := r.ReclaimStalePending(ctx, StaleClaimWindow)
@@ -1660,5 +1660,45 @@ func waitForBlockedLock(t *testing.T, pool *pgxpool.Pool) {
 			t.Fatal("timed out waiting for the trim DELETE to block on the claimed row")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A batch re-stamp keeps its rows out of the reaper's reach: the worker calls
+// this on the rows still waiting behind a dispatch so a slow batch cannot let
+// them age into a double-dispatch.
+func TestPostgres_TouchPendingClaims_FreshensTheWaitingBatch(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
+
+	var ids []string
+	for range 3 {
+		p := newPending(tenant, tr.ID)
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+		ids = append(ids, p.ID)
+	}
+
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil || len(claimed) != 3 {
+		t.Fatalf("ClaimPending = %d (%v), want 3", len(claimed), err)
+	}
+	// Age every claim to the edge of the stale window, as a slow batch would.
+	for _, p := range claimed {
+		backdateClaim(t, r, p.ID, StaleClaimWindow+time.Minute)
+	}
+
+	// Re-stamping the batch must lift all of them back inside the window.
+	if err := r.TouchPendingClaims(ctx, ids); err != nil {
+		t.Fatalf("TouchPendingClaims: %v", err)
+	}
+	reclaimed, err := r.ReclaimStalePending(ctx, StaleClaimWindow)
+	if err != nil {
+		t.Fatalf("ReclaimStalePending: %v", err)
+	}
+	if len(reclaimed) != 0 {
+		t.Errorf("re-stamped claims were reclaimed anyway: %d rows", len(reclaimed))
 	}
 }
