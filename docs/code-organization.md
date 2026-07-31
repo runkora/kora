@@ -22,6 +22,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
+| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
@@ -70,6 +71,7 @@ orbit/
 │   │   ├── orbit-mcp/                # platform-management MCP server (no DB)
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
 │   │   ├── orbit-agents/             # ... owns tables (migrations/)
+│   │   ├── orbit-triggers/           # ... owns tables (migrations/)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
@@ -261,6 +263,7 @@ Each binary under `backend/cmd/` has its own `main.go` and is otherwise independ
 - **`cmd/inference-gateway`**: the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
 - **`cmd/policy-service`** / **`cmd/policy-gateway`**: the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
 - **`cmd/orbit-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
+- **`cmd/orbit-triggers`**: the platform's front door for starting work; see [extended-trigger-types](adr/2026-06-20-extended-trigger-types.md).
 - **`cmd/identity-proxy`**: the `ext_proc` sidecar; see [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
 - **`cmd/operator`**: the Kubernetes operator; see [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md).
 

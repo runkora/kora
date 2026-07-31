@@ -59,16 +59,6 @@ func decodeUsageResponse(t *testing.T, w *httptest.ResponseRecorder) listUsageRe
 	return resp
 }
 
-// decodeAPIError decodes a generic error envelope for asserting 4xx/5xx shapes.
-func decodeAPIError(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
-	t.Helper()
-	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode error body: %v", err)
-	}
-	return body
-}
-
 // humanClaimsForHandler returns minimal PAT-agnostic claims for handler tests.
 func humanClaimsForHandler(tenantID, principalID string) *token.PlatformClaims {
 	return makeClaims(tenantID, principalID, token.PrincipalTypeHuman, "")

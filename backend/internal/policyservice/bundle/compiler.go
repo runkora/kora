@@ -48,14 +48,33 @@ var budgetRego string
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
 //
+// The plural "triggers:*" and singular "trigger:*" scopes are a deliberate
+// split, not a typo to be tidied up: triggers:read/triggers:write are
+// management scopes over the collection (list, create, edit, delete), while
+// trigger:fire is the covering form of the per-instance scope trigger:<id>:fire.
+// Renaming either to match the other would either make fire authority
+// collection-wide by accident or make management authority per-instance.
+//
+// Fire authority is granted via the covering scope "trigger:fire" rather than
+// one scope per trigger. A covering scope keeps the action and drops the path,
+// so trigger:fire covers every trigger:<id>:fire. An admin can therefore fire
+// any trigger and — because a caller can only grant scopes they hold — delegate
+// fire permission for a single trigger to someone else. Without it the
+// per-trigger scope would be enforceable but ungrantable.
+//
 // MCP access is granted via the covering scope mcp:use rather than a
 // per-server scope (mcp:orbit:use). Under the prefix-coverage hierarchy the
 // tool-gateway enforces (see internal/toolgateway/scopes.go), mcp:use covers
 // every mcp:<server>:<tool>:use, so an admin can use any MCP server — orbit,
 // github, and any server added later — without enumerating each one here.
+// Hardcoded, and it should not stay that way: every service that declares a new
+// scope has to remember to add it here by hand, in both roles, and nothing fails
+// if it is forgotten. The policy service already receives every declared scope
+// through /routes/register, so this is a second hand-maintained copy of
+// information it already has. See #167.
 var DefaultRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's

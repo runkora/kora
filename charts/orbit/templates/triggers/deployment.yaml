@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-triggers
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.triggers.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.triggers.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.triggers.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.triggers.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.triggers.labels" . | nindent 8 }}
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: orbit-triggers
+      annotations:
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Postgres is external to the mesh — bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+    spec:
+      serviceAccountName: orbit-triggers
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      containers:
+        - name: orbit-triggers
+          image: "{{ .Values.triggers.image.repository }}:{{ include "orbit.triggers.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.triggers.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.triggers.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.triggers.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.triggers.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.triggers.config.logFormat | quote }}
+          envFrom:
+            {{- if .Values.triggers.existingConfigMap }}
+            - configMapRef:
+                name: {{ .Values.triggers.existingConfigMap }}
+            {{- end }}
+            {{- if .Values.triggers.existingSecret }}
+            # Supplies ORBIT_TRIGGERS_ENCRYPTION_KEY, the at-rest key for webhook
+            # signing secrets. Without it the service falls back to an insecure
+            # local-dev key and logs a warning.
+            - secretRef:
+                name: {{ .Values.triggers.existingSecret }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8097
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8097
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8097
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.triggers.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true

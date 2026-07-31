@@ -1,261 +1,137 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Lists and authors webhook triggers that fire
- * THIS agent, and shows recent deliveries that targeted it. */
+/** @tier 3 — agents/[slug]-scoped. The Triggers page's own list, drawer,
+ * deliveries and wizard, scoped to THIS agent. This file owns the scoping and
+ * nothing else: every row, cell, tone, action and API call is the Triggers
+ * feature's, imported rather than reimplemented, so the two surfaces cannot
+ * drift. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { Alert, Badge, Button, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
-import type { TriggerFormValue } from '@orbit/components';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { Trigger, TriggerDelivery, WebhookSource } from '@orbit/shared/api';
+import { Alert, Button, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { ConfirmDialog, EmptyState } from '@orbit/components';
+import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
+import type {
+  TriggerCreateResult,
+  TriggerDraft,
+} from '../../../triggers/_components/trigger-wizard';
+import { TriggerList } from '../../../triggers/_components/trigger-list';
+import { TriggerDrawer } from '../../../triggers/_components/trigger-drawer';
+import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
+import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
+import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
+import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
+import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
+import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
+import {
+  listDeliveries,
+  listSources,
+  listTriggers,
+} from '../../../triggers/_services/triggers-api';
+import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
+import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
+import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-
-function statusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
-  switch (status) {
-    case 'dispatched':
-      return 'healthy';
-    case 'verified':
-    case 'skipped':
-      return 'degraded';
-    case 'failed':
-      return 'error';
-    default:
-      return 'unknown';
-  }
-}
-
-function formatTimestamp(iso: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
-}
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
+  const ingestHost = ingestHostFromWindow();
 
-  const [sources, setSources] = useState<WebhookSource[]>([]);
-  const [triggers, setTriggers] = useState<Trigger[]>([]);
-  const [deliveries, setDeliveries] = useState<TriggerDelivery[]>([]);
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [triggers, setTriggers] = useState<TriggerRow[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [formState, setFormState] = useState<{ trigger: TriggerFormValue | null } | null>(null);
-  const [deleteCandidate, setDeleteCandidate] = useState<Trigger | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [notice, setNotice] = useState<TriggerNotice | null>(null);
+  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
 
   const agentId = agent?.id ?? '';
 
-  const load = useCallback(async () => {
+  // Loading starts true and is only ever lowered: a reload after an action is
+  // a silent refresh of lists already on screen, not a page-level spinner.
+  const load = useCallback(() => {
     if (!agentId) return;
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const [srcRes, trgRes, delRes] = await Promise.all([
-        fetch(ApiRoute.triggerSources.list(), { cache: 'no-store' }),
-        fetch(ApiRoute.triggers.list(agentId), { cache: 'no-store' }),
-        fetch(ApiRoute.triggerDeliveries.list(), { cache: 'no-store' }),
-      ]);
-      if (srcRes.ok) setSources(((await srcRes.json()) as { data: WebhookSource[] }).data ?? []);
-      if (trgRes.ok) setTriggers(((await trgRes.json()) as { data: Trigger[] }).data ?? []);
-      if (delRes.ok)
-        setDeliveries(((await delRes.json()) as { data: TriggerDelivery[] }).data ?? []);
-      if (!trgRes.ok) setLoadError('Failed to load triggers.');
-    } catch {
-      setLoadError('Network error: could not load triggers.');
-    } finally {
-      setLoading(false);
-    }
+    void Promise.all([listSources(), listTriggers(agentId), listDeliveries()]).then(
+      ([src, trg, del]) => {
+        setSources(src.sources.map(toSourceRow));
+        setTriggers(trg.triggers.map(toTriggerRow));
+        setDeliveries(del.deliveries.map(toDeliveryRow));
+        // The triggers list is what this tab is for; the other two only
+        // decorate it, so their failures do not block the page.
+        setLoadError(trg.error);
+        setLoading(false);
+      },
+    );
   }, [agentId]);
 
   useEffect(() => {
-    void load();
+    load();
   }, [load]);
 
+  // The same actions the platform Triggers page performs, refreshing this
+  // page's lists and raising notices on its own Alert.
+  const {
+    startManualRun,
+    rotateSecret,
+    toggleTrigger,
+    updateSafety,
+    saveTriggerEdit,
+    redeliver,
+    firingId,
+    runFormTrigger,
+    setRunFormTrigger,
+    fireManualTrigger,
+    deleteCandidate,
+    setDeleteCandidate,
+    deleting,
+    deleteError,
+    confirmDelete,
+    closeDeleteDialog,
+  } = useTriggerActions({ refresh: load, notify: setNotice });
+
+  // The delivery log is platform-wide; this page shows the arrivals that
+  // reached THIS agent's triggers, whether as the matched trigger or as one
+  // row of a fan-out.
   const triggerIds = useMemo(() => new Set(triggers.map((t) => t.id)), [triggers]);
   const agentDeliveries = useMemo(
     () =>
-      deliveries
-        .filter(
-          (d) =>
-            (d.trigger_id && triggerIds.has(d.trigger_id)) ||
-            (d.runs ?? []).some((r) => triggerIds.has(r.trigger_id)),
-        )
-        .slice(0, 20),
+      deliveries.filter(
+        (d) =>
+          (d.triggerId !== null && triggerIds.has(d.triggerId)) ||
+          d.runs.some((r) => triggerIds.has(r.triggerId)),
+      ),
     [deliveries, triggerIds],
   );
+
   const sourceName = useMemo(() => {
     const map = new Map(sources.map((s) => [s.id, s.name]));
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
-  const toggleTrigger = useCallback(
-    async (t: Trigger) => {
-      await fetch(ApiRoute.triggers.detail(t.id), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !t.enabled }),
-      });
-      void load();
+  /**
+   * Creates from the wizard's draft, then reloads this page's lists.
+   *
+   * The orchestration is the Triggers page's, shared rather than reimplemented:
+   * a trigger created here is created exactly as one created there.
+   */
+  const createTriggerForAgent = useCallback(
+    async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
+      const result = await createFromWizardDraft(draft, { ingestHost });
+      if (result.ok) load();
+      return result;
     },
-    [load],
+    [ingestHost, load],
   );
 
-  const confirmDelete = useCallback(async () => {
-    if (!deleteCandidate) return;
-    setDeleting(true);
-    setDeleteError(null);
-    const res = await fetch(ApiRoute.triggers.delete(deleteCandidate.id), { method: 'DELETE' });
-    setDeleting(false);
-    if (!res.ok) {
-      setDeleteError('Failed to delete trigger.');
-      return;
-    }
-    setDeleteCandidate(null);
-    void load();
-  }, [deleteCandidate, load]);
-
-  const columns = useMemo<DataTableColumn<Trigger>[]>(
-    () => [
-      {
-        id: 'name',
-        header: 'Name',
-        locked: true,
-        sortable: true,
-        sortAccessor: (row) => row.name,
-        cell: (row) => (
-          <Stack gap="none">
-            <Text size="supporting" weight="emphasis">
-              {row.name}
-            </Text>
-            <Text size="caption" color="muted">
-              {sourceName(row.source_id)}
-            </Text>
-          </Stack>
-        ),
-      },
-      {
-        id: 'event',
-        header: 'Event',
-        cell: (row) => (
-          <Badge variant="elevated" size="sm">
-            {row.event_type}
-          </Badge>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        cell: (row) => (
-          <StatusBadge
-            status={row.enabled ? 'healthy' : 'unknown'}
-            label={row.enabled ? 'Enabled' : 'Disabled'}
-          />
-        ),
-      },
-      {
-        id: 'actions',
-        header: '',
-        locked: true,
-        width: '10rem',
-        cell: (row) => (
-          <Stack direction="horizontal" gap="tight" justify="end">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() =>
-                setFormState({
-                  trigger: {
-                    id: row.id,
-                    name: row.name,
-                    sourceId: row.source_id,
-                    agentTypeId: row.agent_type_id,
-                    agentSlug: row.agent_slug,
-                    eventType: row.event_type,
-                    matchCondition: row.match_condition ?? {},
-                    promptTemplate: row.prompt_template,
-                  },
-                })
-              }
-              aria-label={`Edit ${row.name}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => void toggleTrigger(row)}
-              aria-label={row.enabled ? `Disable ${row.name}` : `Enable ${row.name}`}
-            >
-              <Icon name={row.enabled ? 'eye-off' : 'eye'} size="2xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setDeleteCandidate(row)}
-              aria-label={`Delete ${row.name}`}
-            >
-              <Icon name="trash" size="2xs" />
-            </Button>
-          </Stack>
-        ),
-      },
-    ],
-    [sourceName, toggleTrigger],
-  );
-
-  const deliveryColumns = useMemo<DataTableColumn<TriggerDelivery>[]>(
-    () => [
-      {
-        id: 'received',
-        header: 'Received',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="caption">
-            {formatTimestamp(row.received_at)}
-          </Text>
-        ),
-      },
-      {
-        id: 'event',
-        header: 'Event',
-        cell: (row) => (
-          <Text size="caption" color="muted">
-            {row.event_type ?? '—'}
-          </Text>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        cell: (row) => <StatusBadge status={statusTone(row.status)} label={row.status} />,
-      },
-      {
-        id: 'detail',
-        header: 'Detail',
-        cell: (row) =>
-          (row.runs?.length ?? 0) > 1 ? (
-            <Text size="caption" color="muted">
-              {row.runs?.length} runs
-            </Text>
-          ) : row.run_id ? (
-            <Text mono size="caption">
-              run {row.run_id.slice(0, 8)}
-            </Text>
-          ) : (
-            <Text size="caption" color="muted">
-              {row.error ?? '—'}
-            </Text>
-          ),
-      },
-    ],
-    [],
-  );
+  // Read the open trigger back out of the live list rather than trusting the
+  // row captured when the drawer opened: saving a setting inside the panel
+  // reloads the lists, and a snapshot would show the value it had before.
+  const drawerRow =
+    drawerTrigger === null
+      ? null
+      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
 
   if (!agent) return null;
 
@@ -279,53 +155,32 @@ export function AgentTriggersTab() {
     );
   }
 
-  const agentOption = {
-    id: agent.id,
-    slug: agent.slug,
-    name: agent.name,
-    identityMode: agent.identityMode,
-  };
-
   return (
     <Stack gap="comfortable">
       <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
         <Stack gap="tight">
           <Heading variant="section">Triggers</Heading>
           <Text size="supporting" color="muted">
-            Run this agent automatically when a matching event arrives on a webhook source. Managed
-            by platform admins.
+            Everything that starts this agent automatically: webhooks, schedules and manual fires.
+            Managed by platform admins.
           </Text>
         </Stack>
-        <Button
-          size="sm"
-          onClick={() => setFormState({ trigger: null })}
-          disabled={sources.length === 0}
-        >
+        <Button size="sm" onClick={() => setWizardOpen(true)}>
           <Icon name="plus" size="xs" />
           New trigger
         </Button>
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
-
-      {sources.length === 0 && !loading && (
-        <Callout variant="info">
-          No webhook sources exist yet. Register one in{' '}
-          <Link href={APP_ROUTES.triggers}>Triggers</Link> before creating a trigger.
-        </Callout>
-      )}
+      {notice && <Alert variant={notice.ok ? 'info' : 'error'}>{notice.message}</Alert>}
 
       {!loading && triggers.length === 0 ? (
         <EmptyState
           icon="zap"
           title="No triggers for this agent"
-          description="Create a trigger to run this agent automatically from a webhook event."
+          description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
           action={
-            <Button
-              size="sm"
-              onClick={() => setFormState({ trigger: null })}
-              disabled={sources.length === 0}
-            >
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
               <Icon name="plus" size="xs" />
               New trigger
             </Button>
@@ -333,20 +188,13 @@ export function AgentTriggersTab() {
         />
       ) : (
         triggers.length > 0 && (
-          <DataTable
-            data={triggers}
-            columns={columns}
-            getRowKey={(row) => row.id}
-            noun="triggers"
-            searchPlaceholder="Search triggers…"
-            searchFn={(row, q) =>
-              row.name.toLowerCase().includes(q.toLowerCase()) ||
-              row.event_type.toLowerCase().includes(q.toLowerCase())
-            }
-            defaultSortId="name"
-            defaultSortDir="asc"
-            emptyMessage="No triggers."
-            filteredEmptyMessage="No triggers match your search."
+          <TriggerList
+            triggers={triggers}
+            deliveries={agentDeliveries}
+            sourceName={sourceName}
+            onOpen={setDrawerTrigger}
+            onToggle={(t) => void toggleTrigger(t)}
+            emptyMessage="No triggers for this agent."
           />
         )
       )}
@@ -354,29 +202,74 @@ export function AgentTriggersTab() {
       {agentDeliveries.length > 0 && (
         <Stack gap="snug">
           <Heading variant="section">Recent deliveries</Heading>
-          <DataTable
-            data={agentDeliveries}
-            columns={deliveryColumns}
-            getRowKey={(row) => row.id}
-            noun="deliveries"
-            emptyMessage="No deliveries."
+          <DeliveryGrid
+            deliveries={agentDeliveries}
+            sourceName={sourceName}
+            onOpen={setDetailDelivery}
+            emptyMessage="No deliveries for this agent yet."
           />
         </Stack>
       )}
 
-      {formState && (
-        <TriggerFormModal
-          key={formState.trigger?.id ?? 'create'}
-          open
-          trigger={formState.trigger}
-          sources={sources.map((s) => ({ id: s.id, name: s.name }))}
-          agents={[agentOption]}
-          lockedAgent={agentOption}
-          onClose={() => setFormState(null)}
-          onSaved={() => {
-            setFormState(null);
-            void load();
+      {/* The Triggers page's own drawer, so configuring a trigger here is the
+          same surface, byte for byte, as configuring it there. */}
+      <TriggerDrawer
+        trigger={drawerRow}
+        sources={sources}
+        deliveries={agentDeliveries}
+        ingestHost={ingestHost}
+        onClose={() => setDrawerTrigger(null)}
+        onToggleEnabled={(t) => {
+          setDrawerTrigger(null);
+          void toggleTrigger(t);
+        }}
+        onDelete={(t) => {
+          setDrawerTrigger(null);
+          setDeleteCandidate(t);
+        }}
+        onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
+        onEdit={saveTriggerEdit}
+        onRedeliver={redeliver}
+        onRotateSecret={rotateSecret}
+        onFire={startManualRun}
+        // Scoped to the trigger on screen: firing one trigger must not make
+        // another one's panel claim it is queueing.
+        firing={firingId === drawerRow?.id}
+      />
+
+      {detailDelivery !== null && (
+        <DeliveryDetailPanel
+          delivery={detailDelivery}
+          onClose={() => setDetailDelivery(null)}
+          onRedeliver={redeliver}
+          onOpenTrigger={(triggerId) => {
+            const owner = triggers.find((t) => t.id === triggerId);
+            setDetailDelivery(null);
+            if (owner !== undefined) setDrawerTrigger(owner);
           }}
+        />
+      )}
+
+      {wizardOpen && (
+        <TriggerWizard
+          agents={[
+            { id: agent.id, slug: agent.slug, name: agent.name, identityMode: agent.identityMode },
+          ]}
+          sources={sources.map((src) => ({ id: src.id, name: src.name, provider: src.provider }))}
+          ingestHost={ingestHost}
+          onCreate={createTriggerForAgent}
+          onClose={() => {
+            setWizardOpen(false);
+            load();
+          }}
+        />
+      )}
+
+      {runFormTrigger !== null && (
+        <RunTriggerModal
+          trigger={runFormTrigger}
+          onClose={() => setRunFormTrigger(null)}
+          onFire={(variables) => fireManualTrigger(runFormTrigger, variables)}
         />
       )}
 
@@ -388,10 +281,7 @@ export function AgentTriggersTab() {
         confirming={deleting}
         error={deleteError}
         onConfirm={() => void confirmDelete()}
-        onClose={() => {
-          setDeleteCandidate(null);
-          setDeleteError(null);
-        }}
+        onClose={closeDeleteDialog}
       />
     </Stack>
   );

@@ -33,6 +33,14 @@ var (
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrUnexpectedStatus is returned when orbit-agents returns an unexpected status.
 	ErrUnexpectedStatus = errors.New("unexpected status from orbit-agents")
+	// ErrUpstreamUnavailable is returned when orbit-agents itself failed rather
+	// than refusing the request: a 5xx, most commonly pod capacity exhaustion.
+	//
+	// Distinct from ErrUnexpectedStatus so a caller can tell "your request was
+	// wrong" from "the service is having a bad time". The two have opposite
+	// remedies, and a caller that counts failures against the requester needs to
+	// not count this one.
+	ErrUpstreamUnavailable = errors.New("orbit-agents unavailable")
 )
 
 // Client calls the orbit-agents control-plane API.
@@ -111,6 +119,20 @@ type StartRunRequest struct {
 	AgentTypeID      string `json:"agent_type_id"`
 	InitialMessage   string `json:"initial_message,omitempty"`
 	ProvisionSandbox bool   `json:"provision_sandbox,omitempty"`
+
+	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
+	// that started it, so a run detail can say "started by trigger X, delivery
+	// Y" rather than showing the trigger's SERVICE principal id and nothing
+	// else. Omitted for any other caller.
+	//
+	// orbit-agents accepts them only from a SERVICE principal: a run's record of
+	// why it exists is an audit claim, and one any caller could author about
+	// itself would be worth nothing. TriggerName is stored as given, a snapshot
+	// at start time, so a renamed or deleted trigger still reads as something a
+	// person recognizes.
+	TriggerID   string `json:"trigger_id,omitempty"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.
@@ -153,6 +175,9 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 	case http.StatusNotFound:
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrAgentTypeNotFound)
 	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }

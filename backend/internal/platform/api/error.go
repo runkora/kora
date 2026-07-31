@@ -86,6 +86,20 @@ func ForbiddenError(code, message string, details map[string]any) *APIError {
 	}
 }
 
+// TooManyRequestsError creates a 429 Too Many Requests error.
+//
+// Use it where the resource is healthy but temporarily at capacity and the
+// caller should retry, rather than InternalError, which tells the caller the
+// platform is broken when nothing is.
+func TooManyRequestsError(code, message string, details map[string]any) *APIError {
+	return &APIError{
+		Code:       code,
+		Message:    message,
+		Details:    details,
+		StatusCode: http.StatusTooManyRequests,
+	}
+}
+
 // ServiceUnavailableError creates a 503 Service Unavailable error
 func ServiceUnavailableError(code, message string, details map[string]any) *APIError {
 	return &APIError{
@@ -134,6 +148,13 @@ const (
 	// Use with ConflictError for duplicate creation attempts.
 	ErrCodeResourceExists = "resource_already_exists"
 
+	// ErrCodeConflict indicates the resource exists but its current state does
+	// not permit the requested action. Use with ConflictError where nothing is
+	// being created: a client branching on the code should be able to tell
+	// "there is already one of these" from "this one is not accepting that
+	// right now", and resource_already_exists cannot say the second.
+	ErrCodeConflict = "conflict"
+
 	// ErrCodeUnauthorized indicates the request lacks valid authentication credentials.
 	// Use with UnauthorizedError when authentication is missing or invalid.
 	ErrCodeUnauthorized = "unauthorized"
@@ -145,6 +166,10 @@ const (
 	// ErrCodeInvalidCredentials indicates the provided authentication credentials are incorrect.
 	// Use with UnauthorizedError for failed login attempts.
 	ErrCodeInvalidCredentials = "invalid_credentials" // #nosec G101 -- This is an error code constant, not a credential
+
+	// ErrCodeTooManyRequests indicates the caller should back off and retry.
+	// Use with TooManyRequestsError for rate limits and at-capacity resources.
+	ErrCodeTooManyRequests = "too_many_requests"
 
 	// Server errors (5xx)
 

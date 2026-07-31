@@ -102,10 +102,48 @@ func NewRunService(
 	}
 }
 
+// authorizeStart resolves the target agent type and decides whether this caller
+// may start a run of it at all: the type is theirs, its scope permits the start,
+// and the identity model allows this kind of principal to initiate it.
+//
+// Scoped to that one question deliberately. Whether the caller may also attach a
+// trigger to the run is a separate decision about a separate thing, made by
+// authorizeAttribution: this one gates the action, that one gates a label on an
+// action already permitted. Both run before the first write, so a refused start
+// leaves nothing behind.
+func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, error) {
+	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return nil, fmt.Errorf("get agent type: %w", err)
+	}
+	if at.TenantID != tenantID {
+		return nil, ErrNotFound
+	}
+	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
+		return nil, err
+	}
+
+	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
+	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
+	// of a delegated agent, because the run executes with THEIR authority.
+	if err = s.authorizeDelegatedStart(ctx, span, at.IsDelegated()); err != nil {
+		return nil, err
+	}
+	return at, nil
+}
+
 // StartRun creates a new run and assigns it to a pod. Tenant and created_by are
 // derived from the verified platform claims in ctx; request-body values are
-// ignored. Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
-// scope; the handler maps this to 404 to avoid leaking existence.
+// ignored.
+//
+// Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
+// scope. The handler maps that to 403, not 404 and not 500: a refusal is the
+// caller's answer, and orbit-triggers relies on being able to tell it apart
+// from a broken service — it retries a 403 while a freshly created trigger's
+// grant propagates into the policy bundle, which it cannot do if a refusal
+// reads as an internal error.
 func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started *Run, retErr error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",
@@ -134,26 +172,17 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
+	// Two separate questions, in order: may this caller start this agent, and
+	// may it also say a trigger is why.
+	at, err := s.authorizeStart(ctx, span, req, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return nil, fmt.Errorf("get agent type: %w", err)
-	}
-	if at.TenantID != tenantID {
-		return nil, ErrNotFound
-	}
-	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
 		return nil, err
 	}
-
-	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 6): only the person — a HUMAN or PAT principal — may start a run
-	// of a delegated agent, because the run executes with THEIR authority.
-	delegated := at.IdentityMode.OrDefault() == IdentityModeDelegated
-	if err = s.authorizeDelegatedStart(ctx, span, delegated); err != nil {
+	startedBy, err := s.authorizeAttribution(ctx, span, req)
+	if err != nil {
 		return nil, err
 	}
+	delegated := at.IsDelegated()
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	podOrdinal, err := s.providePod(ctx, span, at, namespace)
@@ -170,8 +199,14 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// Derived from the agent type (reads join it); carried on the response
 		// so run surfaces know the governance posture without a second lookup.
 		IdentityMode: at.IdentityMode.OrDefault(),
+		// Nil unless a trigger started this run, which is what its absence means
+		// everywhere downstream.
+		StartedBy: startedBy,
 	}
 	span.SetAttributes(attribute.String("run_id", run.ID))
+	if startedBy != nil {
+		span.SetAttributes(attribute.String("trigger_id", startedBy.TriggerID))
+	}
 
 	if err := s.repo.CreateRun(ctx, run); err != nil {
 		span.RecordError(err)

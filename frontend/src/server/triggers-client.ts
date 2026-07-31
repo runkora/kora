@@ -2,9 +2,12 @@ import 'server-only';
 import { config } from '@orbit/server/config';
 import { ApiError } from './client';
 import type {
+  SchedulePreviewResponse,
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerFireRequest,
+  TriggerFireResponse,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -19,10 +22,12 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * The Triggers feature is hosted by the identity service (the main control-plane
- * API, config.orbitApiUrl) — the only externally-reachable binary and the token
- * authority that mints each webhook source's identity. We forward the session
- * token; results are tenant-scoped from the token.
+ * The Triggers feature is served by orbit-triggers, the platform's front door for
+ * starting work. It is separate from identity so that unauthenticated,
+ * internet-reachable webhook ingestion does not share a process with the token
+ * authority; identity still mints each trigger's SERVICE token over the mesh.
+ * We forward the session token; results are tenant-scoped from the token.
+ * See docs/adr/2026-06-20-extended-trigger-types.md.
  */
 async function request<T>(
   path: string,
@@ -30,7 +35,7 @@ async function request<T>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T | undefined> {
   const { method = 'GET', body } = options;
-  const url = `${config.orbitApiUrl}/${path.replace(/^\//, '')}`;
+  const url = `${config.orbitTriggersUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
     method,
@@ -123,9 +128,59 @@ export async function deleteTrigger(accessToken: string, id: string): Promise<vo
   await request<void>(`/triggers/${id}`, accessToken, { method: 'DELETE' });
 }
 
+// POST /api/v1/triggers/:id/fire — fire a manual trigger. The run executes
+// under the trigger's own SERVICE principal, not the caller's identity.
+export async function fireTrigger(
+  accessToken: string,
+  id: string,
+  payload: TriggerFireRequest,
+): Promise<TriggerFireResponse | undefined> {
+  return request<TriggerFireResponse>(`/triggers/${id}/fire`, accessToken, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Deliveries
 // ---------------------------------------------------------------------------
+
+/**
+ * Response to POST /api/v1/trigger-deliveries/:id/redeliver.
+ *
+ * A replay is a new arrival that names the one it replays, so the caller gets a
+ * new id to follow. The original is never touched.
+ */
+export interface RedeliverResponse {
+  delivery_id: string;
+  redelivery_of: string;
+}
+
+// POST /api/v1/trigger-deliveries/:id/redeliver — replay a delivery (202).
+export async function redeliverDelivery(
+  accessToken: string,
+  id: string,
+): Promise<RedeliverResponse | undefined> {
+  return request<RedeliverResponse>(`/trigger-deliveries/${id}/redeliver`, accessToken, {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Schedule preview
+// ---------------------------------------------------------------------------
+
+// POST /api/v1/triggers/schedule-preview — the next few fires for a cron
+// expression, resolved by the same scheduler that will run it.
+export async function schedulePreview(
+  accessToken: string,
+  payload: { cron_expression: string; timezone: string },
+): Promise<SchedulePreviewResponse | undefined> {
+  return request<SchedulePreviewResponse>('/triggers/schedule-preview', accessToken, {
+    method: 'POST',
+    body: payload,
+  });
+}
 
 export async function listDeliveries(
   accessToken: string,

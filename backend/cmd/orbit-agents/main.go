@@ -122,20 +122,20 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 
 	// The identity client authenticates orbit-agents' own service-to-service
 	// calls: its mesh-attested exchange yields the SERVICE platform token used
-	// as the bearer for the policy client and for delegation revocation.
+	// as the bearer for the policy client and for delegation revocation. One
+	// cached token source serves both, so the exchange stays off the hot path.
 	var idClient *identityclient.Client
+	var selfToken func(context.Context) (string, error)
 	if cfg.Platform.IdentityServiceURL != "" {
 		idClient = identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+		selfToken = idClient.SelfTokenSource()
 	}
 
 	// Build a policy client for grant management at agent provision/deprovision time.
 	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
 	var pc *policyclient.Client
 	if cfg.Platform.PolicyServiceURL != "" && idClient != nil {
-		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, func(ctx context.Context) (string, error) {
-			tok, _, err := idClient.Exchange(ctx)
-			return tok, err
-		}, logger)
+		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 	}
 
 	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
@@ -212,10 +212,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Without an identity service URL the broker stays nil and delegated runs
 	// fail closed.
 	if idClient != nil {
-		broker := agents.NewDelegationBroker(idClient, func(ctx context.Context) (string, error) {
-			tok, _, err := idClient.Exchange(ctx)
-			return tok, err
-		}, cfg.Platform.TrustDomain, logger)
+		broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
 		runSvc.SetDelegationBroker(broker)
 		atSvc.SetDelegationBroker(broker)
 	}
@@ -305,7 +302,20 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
 		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
-		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: "agents:runs:write"},
+		// Starting a run is authenticated-only at the route layer, on the same
+		// reasoning as the agent-type writes above: the scope that governs it is
+		// per-agent (agents:runs:{slug}:write), and the slug comes from the agent
+		// type named in the request body — invisible to a static route map. The
+		// authoritative check is Authz.checkRun, run in RunService.authorizeStart
+		// before the first write, so a refused start still leaves nothing behind.
+		//
+		// A route-level agents:runs:write here would not narrow anything, it
+		// would widen: every principal allowed to start any run would need the
+		// parent scope, which prefix-covers every per-agent child. That is what
+		// made a webhook source's token able to start any agent in its tenant.
+		// The parent scope still covers the per-agent check for the admin roles
+		// that legitimately hold it.
+		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},

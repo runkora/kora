@@ -57,12 +57,37 @@ spec:
             host: orbit-tool-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
-    # ── Identity: OAuth, device/session/exchange, JWKS, inbound webhooks ────────
+    # ── Identity internal: never reachable from the edge ────────────────────────
+    # /api/v1/identity/internal/* is the in-mesh-only surface (today: the
+    # service-token mint used by orbit-triggers). It authenticates on the
+    # sidecar-attested XFCC identity, which an external caller cannot forge
+    # because Istio sanitises the header on ingress. This rule is belt-and-
+    # braces: the endpoint is powerful enough that it should be unreachable
+    # from outside by routing as well as by authentication. Must precede the
+    # /api/v1/identity/ rule below, which would otherwise match it.
+    - match:
+        - uri:
+            prefix: /api/v1/identity/internal/
+      directResponse:
+        status: 404
+        body:
+          string: '{"code":"not_found","message":"not found"}'
+    # ── Inbound webhooks → orbit-triggers ──────────────────────────────────────
+    # The path is unchanged from when triggers ran inside identity: every
+    # registered webhook source posts here, so only the destination moves.
+    # See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
+    - match:
+        - uri:
+            prefix: /api/v1/webhooks/
+      route:
+        - destination:
+            host: orbit-triggers.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80
+    # ── Identity: OAuth, device/session/exchange, JWKS ─────────────────────────
     - match:
         - uri:
             prefix: /api/v1/identity/
-        - uri:
-            prefix: /api/v1/webhooks/
       route:
         - destination:
             host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local

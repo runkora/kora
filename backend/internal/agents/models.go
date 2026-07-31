@@ -61,6 +61,17 @@ func (m IdentityMode) OrDefault() IdentityMode {
 	return m
 }
 
+// IsDelegated reports whether runs of this type execute with a person's
+// authority rather than the agent's own.
+//
+// A named predicate rather than the comparison spelled out at each site: it
+// decides who may start a run, whether a delegation is minted, and what the
+// sandbox is allowed to do, and an empty mode has to normalise to autonomous
+// every time. One spelling that cannot drift.
+func (t AgentType) IsDelegated() bool {
+	return t.IdentityMode.OrDefault() == IdentityModeDelegated
+}
+
 // ConnectivityMode is an agent type's outbound egress posture — the platform's
 // reachability gate for the agent's sandboxes. It compiles to egress:<host>:connect
 // scopes enforced at the sandbox OPA. See the egress-gateway ADR (Amendment
@@ -441,11 +452,32 @@ type Run struct {
 	// Decision 3). Nil for autonomous runs. orbit-agents revokes the issuance
 	// by this JTI when the run reaches a terminal state.
 	DelegationJTI *string `json:"delegation_jti,omitempty"`
-	// IdentityMode is the agent type's identity model, denormalised onto run
+	// IdentityMode is the agent type's identity model, denormalized onto run
 	// reads (repository queries join agent_types) so every run surface can show
 	// the governance posture — and attribute created_by accordingly — without a
 	// second lookup. Not a runs column.
 	IdentityMode IdentityMode `json:"identity_mode,omitempty"`
+	// StartedBy names the trigger that started this run, when one did. Nil for a
+	// run a person started, which is what its absence means on the wire.
+	//
+	// Without it a trigger-started run is attributable only to the trigger's
+	// SERVICE principal, which reads as an opaque id: the run detail could not
+	// answer "why did this happen?" at all. See the ADR on extended trigger
+	// types, US-004.
+	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
+}
+
+// StartedByTrigger is the run's backlink to the trigger and delivery that
+// started it.
+//
+// The name is a snapshot taken at start time, not a live lookup. A run is audit
+// history and outlives the trigger that started it, so a deleted trigger must
+// still read as something a person recognizes, and a later rename must not
+// rewrite what this run says happened.
+type StartedByTrigger struct {
+	TriggerID   string `json:"trigger_id"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
 // DeletedRun is one force-deleted run returned by DeleteRunsByAgentType: the

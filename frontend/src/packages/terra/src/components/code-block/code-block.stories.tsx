@@ -42,6 +42,15 @@ export const WithFilename: Story = {
   ),
 };
 
+/** `density="compact"` tightens padding and type for dense contexts. */
+export const Compact: Story = {
+  args: {
+    text: '{"action":"opened","number":108,"pull_request":{"number":108,"title":"Change 8","base":{"ref":"main"}},"repository":{"full_name":"clearroute/orbit"}}',
+    density: 'compact',
+    wrap: true,
+  },
+};
+
 /** `wrap` soft-wraps long prose-like content instead of scrolling horizontally. */
 export const Wrapped: Story = {
   args: {

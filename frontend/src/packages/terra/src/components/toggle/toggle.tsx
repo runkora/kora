@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { toggleKnobVariants, toggleTrackVariants } from './toggle-visuals';
 
 export interface ToggleProps {
   /** The controlled checked state. */
@@ -39,20 +40,14 @@ const Toggle = React.forwardRef<HTMLButtonElement, ToggleProps>(
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
         className={cn(
-          'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
-          'transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-          checked ? 'bg-accent' : 'bg-surface-elevated',
-          disabled && 'cursor-not-allowed opacity-40',
+          toggleTrackVariants({ checked, disabled }),
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+          !disabled && 'cursor-pointer',
           className,
         )}
         {...ariaProps}
       >
-        <span
-          className={cn(
-            'pointer-events-none inline-block h-4 w-4 rounded-full bg-foreground shadow transition-transform',
-            checked ? 'translate-x-4' : 'translate-x-0',
-          )}
-        />
+        <span data-slot="toggle-knob" className={cn(toggleKnobVariants({ checked }))} />
       </button>
     );
   },

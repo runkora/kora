@@ -239,7 +239,7 @@ func TestWatchTenantRegistry_BurstCoalesced(t *testing.T) {
 	// Fire 10 rapid writes within a tight window — all should be coalesced into
 	// at most 2 reloads (one debounce window's worth).
 	const writes = 10
-	for i := 0; i < writes; i++ {
+	for range writes {
 		writeRegistryFile(t, path)
 		time.Sleep(5 * time.Millisecond)
 	}

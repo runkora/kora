@@ -18,6 +18,7 @@
 #   DB_PASSWORD              Postgres password
 #   REDIS_PASSWORD           Redis password           (orbit-system only)
 #   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
+#   ORBIT_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
 #   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
@@ -81,6 +82,31 @@ if should_run "orbit-system"; then
     || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
     || fail "BFF_SESSION_SECRET must be at least 32 characters (got ${#BFF_SESSION_SECRET})"
+  # orbit-triggers refuses to start without this: it encrypts every webhook
+  # source's signing secret at rest, and there is deliberately no in-code
+  # fallback to boot without one.
+  #
+  # Generated and persisted here rather than failing, so a machine whose .env
+  # predates this key does not stop mid-`make up`. It cannot come from `make
+  # env`: the Makefile parses .env once at startup, so a key appended during the
+  # same run is invisible to this script's environment.
+  if [[ -z "${ORBIT_TRIGGERS_ENCRYPTION_KEY:-}" ]]; then
+    ENV_FILE="${REPO_ROOT}/.env"
+    if [[ -f "$ENV_FILE" ]] && grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE"; then
+      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(grep '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    else
+      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(openssl rand -base64 32)
+      {
+        printf '\n%s\n' "# At-rest key for webhook signing secrets, generated on first use."
+        printf '%s\n' "ORBIT_TRIGGERS_ENCRYPTION_KEY=${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
+      } >> "$ENV_FILE"
+      warn "generated ORBIT_TRIGGERS_ENCRYPTION_KEY into .env"
+      warn "webhook sources created before this used a built-in dev key and can no longer be decrypted; rotate their secrets"
+    fi
+    export ORBIT_TRIGGERS_ENCRYPTION_KEY
+  fi
+  [[ $(printf %s "${ORBIT_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
+    || fail "ORBIT_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
 fi
 
 ok "Prerequisites satisfied"
@@ -96,6 +122,7 @@ if should_run "orbit-system"; then
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
     --from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}"
     --from-file=ORBIT_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
+    --from-literal=ORBIT_TRIGGERS_ENCRYPTION_KEY="${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
   )
   if [[ -n "${ORBIT_OIDC_CLIENT_SECRET:-}" ]]; then
     IDENTITY_SECRET_ARGS+=(--from-literal=ORBIT_OIDC_CLIENT_SECRET="${ORBIT_OIDC_CLIENT_SECRET}")

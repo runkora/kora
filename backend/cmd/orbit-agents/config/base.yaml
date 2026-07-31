@@ -21,7 +21,13 @@ platform:
 
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
-  bundlePollIntervalSecs: 30
+  # Shorter than the platform default (30s): triggers.createScheduledTrigger /
+  # createManualTrigger mint a brand-new SERVICE principal and its grant, then
+  # immediately resolve the agent type through this bundle in the same
+  # request. A 30s poll window made that resolution fail every time; 3s bounds
+  # the wait to something a synchronous admin request can retry through (see
+  # resolveAgentType's bounded retry in internal/triggers/service.go).
+  bundlePollIntervalSecs: 3
 
 # Agent type draft reaper: sweep hourly, delete drafts untouched for 30 days.
 drafts:

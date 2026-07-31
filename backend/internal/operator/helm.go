@@ -122,32 +122,6 @@ func (h *HelmClient) InstallOrUpgrade(
 	return h.upgrade(ctx, cfg, releaseName, chrt, values)
 }
 
-// Status returns the current state of a named release.
-// Returns ErrReleaseNotFound if the release does not exist.
-func (h *HelmClient) Status(ctx context.Context, releaseName string) (*ReleaseState, error) {
-	cfg, err := h.actionConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("helm action config: %w", err)
-	}
-	rel, err := getRelease(cfg, releaseName)
-	if err != nil {
-		return nil, err
-	}
-	return releaseToState(rel), nil
-}
-
-// ReleaseExists returns true when a release with the given name exists.
-func (h *HelmClient) ReleaseExists(ctx context.Context, releaseName string) (bool, error) {
-	_, err := h.Status(ctx, releaseName)
-	if errors.Is(err, ErrReleaseNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 // Uninstall removes a named release. Returns nil when the release is absent.
 func (h *HelmClient) Uninstall(ctx context.Context, releaseName string) error {
 	cfg, err := h.actionConfig(ctx)

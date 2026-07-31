@@ -262,6 +262,8 @@ frontend:
     # URL of the Go identity service, reachable from inside the cluster.
     # Server-side only — never sent to the browser.
     orbitApiUrl: ""
+    # Base URL of orbit-triggers (webhook ingestion, trigger management API).
+    orbitTriggersUrl: ""
     # URL of the inference gateway service, reachable from inside the cluster.
     # Server-side only — never sent to the browser.
     inferenceGatewayUrl: ""
@@ -364,6 +366,62 @@ policyService:
 
   existingSecret: "orbit-secrets"
   existingConfigMap: "orbit-config"
+
+# -- Triggers service: the platform's front door for starting work.
+# Serves inbound webhook ingestion, the trigger management API, the manual fire
+# endpoint, and the cron scheduler. Deliberately separate from identity so that
+# unauthenticated, internet-reachable ingestion does not share a process with
+# the token authority. See docs/adr/2026-06-20-extended-trigger-types.md.
+triggers:
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-triggers"
+    tag: ""
+    pullPolicy: ""
+
+  # Safe to scale: each scheduler tick claims its delivery under a unique
+  # (trigger_id, scheduled_at) key before dispatching, so replicas do not
+  # double-fire a schedule.
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  config:
+    postgresSSLMode: "require"
+    postgresCaptureQueryText: "false"
+    otlpInsecure: "false"
+    logFormat: "json"
+
+  # orbit-secrets supplies ORBIT_TRIGGERS_ENCRYPTION_KEY (at-rest key for webhook
+  # signing secrets).
+  existingSecret: "orbit-secrets"
+  existingConfigMap: "orbit-config"
+
+  # Who may reach orbit-triggers at all, as an Istio AuthorizationPolicy.
+  #
+  # The service holds every source's signing secret and can start a run under any
+  # trigger's principal, and its own scope checks treat SYSTEM principals as
+  # unrestricted — so "any workload in the mesh may call it" is a larger surface
+  # than the feature needs. Two callers exist: the ingress gateway (inbound
+  # webhooks and the console's API calls) and the frontend BFF (server-side
+  # management calls).
+  #
+  # Rendered only when platform.spiffe.enabled. Add a principal here rather than
+  # disabling the policy when a new caller appears.
+  authorizationPolicy:
+    enabled: true
+    # SPIRE-issued identities use the platform's custom /system/<component> path.
+    systemPrincipals:
+      - frontend
+    # The Istio ingress gateway keeps a standard mesh identity, which does encode
+    # its namespace and service account.
+    meshPrincipals:
+      - "ns/istio-system/sa/gateway"
 
 # -- Policy Gateway configuration (PEP — Policy Enforcement Point).
 policyGateway:

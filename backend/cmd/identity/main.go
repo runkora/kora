@@ -12,7 +12,6 @@ import (
 	ic "github.com/clear-route/orbit/cmd/identity/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -21,7 +20,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/triggers"
 )
 
 func main() {
@@ -190,134 +188,14 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
-	// Triggers feature (docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md).
-	// Hosted here because identity is the only externally-reachable binary and the
-	// platform token authority — it mints each webhook source's identity in-process.
-	// The package is self-contained: it reaches orbit-agents via a typed client and
-	// mints SERVICE tokens via the identity service (the TokenMinter).
-	triggerCtrl, err := initTriggersController(ctx, logger, db, svc, policyClient, policyEval)
-	if err != nil {
-		return nil, err
-	}
-
-	// Publish the Triggers scope vocabulary (triggers:read / triggers:write) to
-	// the policy service so PATs and custom grants can reference them. Unlike the
-	// other services, identity has no identity-proxy sidecar, so it registers via
-	// the authenticated policy client (its own SystemToken → SYSTEM principal →
-	// global registration) rather than the routescopes client. Runs in the
-	// background with retries since the policy service / system token may not be
-	// ready at startup.
-	go registerTriggerScopes(ctx, logger, policyClient)
-
+	// Triggers moved to the orbit-triggers binary: inbound webhook ingestion is
+	// the platform's only unauthenticated, internet-reachable surface and must
+	// not share a process with the token authority. identity still mints each
+	// trigger's SERVICE token, now over the mesh via the internal service-token
+	// endpoint. See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
-		triggerCtrl,
 	}, nil
-}
-
-// initTriggersController wires the Triggers feature: the Postgres repository, the
-// source-adapter registry, the at-rest secret cipher, the orbit-agents client, and
-// the controller. The identity service doubles as the TokenMinter and the auth
-// middleware provider.
-func initTriggersController(
-	ctx context.Context,
-	logger logging.Logger,
-	db *storage.DB,
-	svc *identity.Service,
-	policyClient *policyclient.Client,
-	policyEval policy.Evaluator,
-) (api.Controller, error) {
-	cipherKey, devFallback, err := triggers.LoadCipherKey()
-	if err != nil {
-		return nil, fmt.Errorf("load triggers encryption key: %w", err)
-	}
-	if devFallback {
-		logger.Warn(ctx, "ORBIT_TRIGGERS_ENCRYPTION_KEY not set — using insecure local-dev key; set it in production")
-	}
-	cipher, err := triggers.NewSecretCipherFromKey(cipherKey)
-	if err != nil {
-		return nil, fmt.Errorf("init triggers cipher: %w", err)
-	}
-
-	agentsURL := os.Getenv("ORBIT_AGENTS_URL")
-	if agentsURL == "" {
-		agentsURL = "http://orbit-agents.orbit-system.svc"
-	}
-
-	repo := triggers.NewPostgresRepository(db.Pool())
-	agentsCli := agentsclient.NewClient(agentsURL, logger)
-	// Inbound webhook path prefix: /api/v1 (server base) + /webhooks/.
-	triggerSvc := triggers.NewService(repo, triggers.NewRegistry(), cipher, policyClient, agentsCli, svc, ic.Current.Server.BasePath+"/webhooks/", logger)
-
-	return triggers.NewController(triggerSvc, svc.AuthMiddleware(logger), policyEval, triggerRoutes(), ic.Current.Server.BasePath, logger), nil
-}
-
-// triggerRoutes returns the route→required-scope bindings for the Triggers
-// management API, consumed by ScopeEnforcementMiddleware. The public inbound
-// webhook endpoint is intentionally absent — it is HMAC-authenticated and
-// registered with mux.Handle so it never reaches the scope middleware.
-func triggerRoutes() []routescopes.RouteScope {
-	return []routescopes.RouteScope{
-		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/trigger-sources", Method: "GET", RequiredScope: "triggers:read"},
-		{PathPrefix: "/api/v1/trigger-sources", Method: "PATCH", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/trigger-sources", Method: "DELETE", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/triggers", Method: "POST", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
-		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
-		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
-	}
-}
-
-// triggerScopes declares the Triggers scope vocabulary so the policy service can
-// publish triggers:read / triggers:write into the vocabulary. Without these
-// declarations the scopes exist only as references (route bindings and the
-// reserved tenant-admin/platform-admin roles), so they cannot be granted
-// explicitly — e.g. PAT creation with triggers:read fails the vocabulary check.
-func triggerScopes() []routescopes.ScopeDeclaration {
-	return []routescopes.ScopeDeclaration{
-		{Scope: "triggers:read", ResourceType: "triggers", PathSegments: []string{}, Action: "read", Description: "View trigger sources, triggers, and delivery history"},
-		{Scope: "triggers:write", ResourceType: "triggers", PathSegments: []string{}, Action: "write", Description: "Create, edit, and delete trigger sources and triggers"},
-	}
-}
-
-// registerTriggerScopes publishes triggerRoutes()/triggerScopes() to the policy
-// service via the authenticated policy client, retrying with backoff until it
-// succeeds or ctx is canceled (the policy service or the system token may not be
-// ready at startup).
-func registerTriggerScopes(ctx context.Context, logger logging.Logger, pc *policyclient.Client) {
-	const maxAttempts = 15
-	maxBackoff := 30 * time.Second
-	backoff := 2 * time.Second
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := pc.RegisterRoutes(ctx, "identity", triggerRoutes(), triggerScopes()); err == nil {
-			logger.Info(ctx, "triggers scope vocabulary registered with policy service")
-			return
-		} else {
-			lastErr = err
-			logger.Warn(ctx, "trigger scope registration attempt failed, retrying",
-				logging.Field{Key: "attempt", Value: attempt},
-				logging.Field{Key: "error", Value: err.Error()})
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-	errStr := "unknown"
-	if lastErr != nil {
-		errStr = lastErr.Error()
-	}
-	logger.Error(ctx, "trigger scope registration gave up after max attempts",
-		logging.Field{Key: "attempts", Value: maxAttempts},
-		logging.Field{Key: "last_error", Value: errStr})
 }
 
 // identityRoutes returns the static route → required-scope bindings for the

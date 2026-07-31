@@ -57,6 +57,7 @@ spec:
 # - 8084:  orbit-policy-gateway
 # - 8095:  orbit-mcp (introspected east-west by the tool-gateway)
 # - 8096:  orbit-tool-gateway (catalog read by the BFF; health)
+# - 8097:  orbit-triggers (webhook ingestion, management API, health)
 # - 9090:  orbit-policy-gateway (gRPC ext_authz)
 # - 15006: Envoy inbound iptables redirect
 # - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
@@ -91,6 +92,8 @@ spec:
         - port: 8084
         - port: 8095
         - port: 8096
+        # orbit-triggers: webhook ingestion + management API.
+        - port: 8097
         - port: 9090
         - port: 15006
         - port: 15008
@@ -108,6 +111,10 @@ spec:
         - port: 8084
         - port: 8095
         - port: 8096
+        # orbit-triggers: the ingress side already allows 8097, and a one-sided
+        # allowance is an outage waiting for the first in-namespace caller —
+        # the frontend BFF reaching the triggers API is exactly that call.
+        - port: 8097
         - port: 9090
         - port: 15006
         - port: 15008
@@ -295,6 +302,9 @@ spec:
         - port: 8084
           protocol: TCP
         - port: 8096
+          protocol: TCP
+        # 8097: orbit-triggers — public webhook ingestion (/api/v1/webhooks on the api. host)
+        - port: 8097
           protocol: TCP
         - port: 9090
           protocol: TCP

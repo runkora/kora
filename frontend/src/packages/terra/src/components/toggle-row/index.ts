@@ -1,2 +1,2 @@
-export { ToggleRow } from './toggle-row';
-export type { ToggleRowProps } from './toggle-row';
+export { ToggleRow, toggleRowVariants } from './toggle-row';
+export type { ToggleRowProps, ToggleRowSwitchProps, ToggleRowControlProps } from './toggle-row';

@@ -1,0 +1,19 @@
+{{- if .Values.platform.spiffe.enabled }}
+# East-west callers need client mTLS pinned to the workload's SPIFFE identity,
+# otherwise in-mesh requests fail with cx_connect_fail.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-triggers-client-policy
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.triggers.labels" . | nindent 4 }}
+spec:
+  host: orbit-triggers.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "orbit.trustDomain" . }}/system/orbit-triggers"
+{{- end }}

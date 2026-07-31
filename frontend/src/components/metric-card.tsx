@@ -1,8 +1,10 @@
 /**
- * @tier 2 — App-level shared. Cross-feature; unifies StatCard (dashboard),
- * KPICard (model-gateway overview), and KPICard (policy overview) into one canonical
- * metric display component. Used by dashboard home, model-gateway overview, policy overview,
- * and all future feature overview pages.
+ * @tier 2 — App-level shared. The rich metric card: a headline figure with a
+ * delta indicator, an optional breakdown table, and a "View all" footer link.
+ * Used by dashboard home, the agents page, policy overview, and model-gateway
+ * budgets. Terra's
+ * `StatCard` is the other half of the division: a deliberately flat figure
+ * tile for dense five-across rows, with none of these affordances.
  * @promote-to-tier-1 if: Orbit heading variants and delta colour semantics are removed
  * and a second non-dashboard surface needs a metric display.
  */

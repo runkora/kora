@@ -26,6 +26,14 @@ export const config = {
   orbitApiUrl: requireEnv('ORBIT_API_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the triggers service (port 8097).
+   * Triggers moved out of identity into orbit-triggers, so trigger, source and
+   * delivery routes address it directly rather than via ORBIT_API_URL.
+   * Used exclusively by BFF API routes — never sent to the browser.
+   */
+  orbitTriggersUrl: requireEnv('ORBIT_TRIGGERS_URL').replace(/\/$/, ''),
+
+  /**
    * Base URL of the Go inference gateway (port 8081).
    * Used exclusively by BFF API routes — never sent to the browser.
    */

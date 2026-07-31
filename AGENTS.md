@@ -67,6 +67,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
 | Inference Gateway | `8081` |
 | Policy Service | `8083` |
 | Policy Gateway | `8084` |
+| Triggers | `8097` |
 | Session Manager | `8090` |
 
 (`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
@@ -169,6 +170,7 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 | `policy-service` | `cmd/policy-service/` | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083) |
 | `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
 | `orbit-agents` | `cmd/orbit-agents/` | Agent control plane: runs, sessions, event streaming, k8s orchestration |
+| `orbit-triggers` | `cmd/orbit-triggers/` | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097) |
 | `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
 | `operator` | `cmd/operator/` | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars |
 | `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls |
@@ -231,7 +233,24 @@ This describes what the backend test suite **actually is today**, and (separatel
 
 **What exists today:**
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **One Postgres-backed repository test**: `backend/internal/triggers/postgres_test.go`, gated on `ORBIT_TEST_DB_URL` and skipped when it's unset. It is currently the *only* test that talks to a real database.
+- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, currently in five packages:
+
+  | Package | File | Covers |
+  |---|---|---|
+  | `triggers` | `postgres_test.go` | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling |
+  | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
+  | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
+  | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
+  | `example` | `postgres_test.go` | the reference repository |
+
+  Run them against the docker-compose Postgres (after `make migrate-up`):
+
+  ```bash
+  ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+    go test ./... -run Postgres
+  ```
+
+  Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever its author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. **CI does not run these**, so a change to that SQL still needs them run locally.
 - **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
@@ -246,6 +265,11 @@ When implementing Orbit components:
 - **Credential Brokering**: Never expose raw credentials to agents; use scoped, temporary access
 - **Identity Context**: Carry identity context through the entire execution chain via `context.Context`
 - **Repository Pattern**: Define repository interfaces in feature packages, implement with PostgreSQL in the same package
+- **A component takes the interface it calls, never the union**: a feature's full `Repository` exists for wiring, so `main.go` can construct one thing. It must not appear as a parameter type. Each component declares the narrowest interface listing exactly the methods it uses, next to the component, unexported. The Postgres implementation satisfies them without being told.
+
+  This is the difference between a 15-line fake and a 1,200-line one, and it is why test-support files grow without bound: a constructor that asks for a 56-method union forces every test that builds it to implement all 56, whatever the test is about. `internal/triggers/outcomes.go` is the worked example: it writes outcome rows and calls two of `DeliveryStore`'s twelve methods, so it declares those two.
+
+  The pressure to take the union comes from a type that spans several concerns and therefore needs everything. When a component genuinely needs most of a union, that is the signal to split the component, not to widen the interface.
 - **Feature Independence**: Features must not import each other; share only through `internal/platform/`
 - **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`

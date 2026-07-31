@@ -290,12 +290,6 @@ func ValidateBaseHost(adapter, baseHost string) error {
 	return nil
 }
 
-// Known reports whether adapter has registered metadata.
-func Known(adapter string) bool {
-	_, ok := registry[adapter]
-	return ok
-}
-
 // Actions returns the adapter's grantable action vocabulary, or an empty
 // (non-nil) slice for an unknown adapter so JSON serializes as [] not null.
 func Actions(adapter string) []ActionMeta {

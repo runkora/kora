@@ -57,6 +57,12 @@ export interface RunRow {
   createdBy: string;
   /** Display name of the person who started the run (BFF-resolved), or null when unresolvable. */
   createdByName: string | null;
+  /** The trigger that started this run, when one did. */
+  startedByTrigger: {
+    triggerId: string;
+    triggerName: string | null;
+    deliveryId: string | null;
+  } | null;
   /** True when the owning agent is delegated — the run acted on the starter's behalf and is private to them. */
   delegated: boolean;
   startedAt: string | null;
@@ -124,6 +130,13 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
     state: r.state,
     createdBy: r.created_by,
     createdByName: r.created_by_name ?? null,
+    startedByTrigger: r.started_by
+      ? {
+          triggerId: r.started_by.trigger_id,
+          triggerName: r.started_by.trigger_name ?? null,
+          deliveryId: r.started_by.delivery_id ?? null,
+        }
+      : null,
     delegated: agent?.identityMode === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,

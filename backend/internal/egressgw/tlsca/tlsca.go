@@ -65,11 +65,6 @@ type IssuingCA struct {
 // Option configures an IssuingCA.
 type Option func(*IssuingCA)
 
-// WithLeafTTL overrides the default leaf certificate lifetime.
-func WithLeafTTL(d time.Duration) Option {
-	return func(c *IssuingCA) { c.ttl = d }
-}
-
 // New constructs an IssuingCA from PEM-encoded CA cert and private key. Both
 // arguments accept any number of PEM blocks; the first CERTIFICATE block is
 // used as the CA, and the first PRIVATE KEY block (RSA or EC) as its key.

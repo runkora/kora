@@ -39,15 +39,6 @@ export { LogoutButton } from './logout-button';
 /** Light/dark theme toggle via next-themes. */
 export { ThemeToggle } from './theme-toggle';
 
-/** Create/edit modal for a webhook trigger (event → agent + prompt template). */
-export { TriggerFormModal } from './trigger-form-modal';
-export type {
-  TriggerFormModalProps,
-  TriggerFormValue,
-  TriggerFormSource,
-  TriggerFormAgent,
-} from './trigger-form-modal';
-
 /** Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped). */
 export { DataTable } from './data-table';
 export type {

@@ -2,9 +2,7 @@ package triggers
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -13,7 +11,6 @@ import (
 	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 const (
@@ -26,15 +23,25 @@ const (
 	payloadExcerptBytes = 512
 )
 
-// sourceRunScopes are granted to every webhook source's principal so it may
-// reach the run endpoints at all (the route-level scope on POST /api/v1/runs)
-// and resolve agent types when a trigger is bound. The "agents:types:read" scope
-// lets CreateTrigger look up an agent type under the source's own (tenant-scoped)
-// identity to derive its canonical slug.
-var sourceRunScopes = []string{"agents:runs:read", "agents:runs:write", "agents:types:read"}
+// sourceRunScopes are granted to every source/trigger principal at provisioning
+// time, before any agent is bound. It is deliberately only the agent-type read:
+// CreateTrigger looks the agent type up under the principal's own
+// (tenant-scoped) identity to derive its canonical slug, and nothing else here
+// happens before a binding exists.
+//
+// The broad agents:runs:read/write pair is NOT granted. Scope hierarchy is by
+// prefix, so agents:runs:write covers every agents:runs:<slug>:write — granting
+// it would have made the per-agent narrowing in triggerRunScopes decorative, and
+// a leaked source token could start any agent in the tenant. The route scope on
+// POST /api/v1/runs is authenticated-only for exactly this reason (see
+// cmd/orbit-agents/main.go agentRoutes); the authoritative check is
+// orbit-agents' own per-slug Authz.checkRun.
+var sourceRunScopes = []string{"agents:types:read"}
 
-// triggerRunScopes are the per-agent run scopes a source principal needs to start
-// runs for a specific agent slug (the service-level checkRun in orbit-agents).
+// triggerRunScopes are the per-agent run scopes a source/trigger principal needs
+// to start runs for a specific agent slug. These are the ONLY run scopes a
+// trigger principal ever holds, so its blast radius is the one agent it is bound
+// to.
 func triggerRunScopes(slug string) []string {
 	return []string{"agents:runs:" + slug + ":read", "agents:runs:" + slug + ":write"}
 }
@@ -56,569 +63,363 @@ const (
 	IngestDuplicate
 )
 
-// Service implements the Triggers business logic.
-type Service struct {
-	repo        Repository
-	registry    *Registry
-	cipher      *secretCipher
-	policy      *policyclient.Client
-	agents      *agentsclient.Client
-	minter      TokenMinter
-	logger      logging.Logger
-	webhookBase string // external path prefix for inbound webhooks, incl trailing slash
+// pipelineStore is the storage a delivery passes through from arrival to
+// dispatch: recording it, finding the triggers that match, and the counters
+// auto-pause and retention keep.
+type pipelineStore interface {
+	// Recording an outcome and re-deriving the delivery, through outcomeRecorder.
+	outcomeStore
+
+	AutoPause(ctx context.Context, triggerID string) error
+	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
+	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
+	CountRedeliveries(ctx context.Context, originalID string) (int, error)
+	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
+	GetDeliveryByProviderID(ctx context.Context, sourceID, providerDeliveryID string) (*Delivery, error)
+	GetRetention(ctx context.Context, tenantID string) (days int, configured bool, err error)
+	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
+	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
+	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
+	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
+	RecordAccepted(ctx context.Context, sourceID string) error
+	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
+	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+	SetRetention(ctx context.Context, tenantID string, days int) error
+	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
 }
 
-// NewService constructs the Triggers service. webhookBase is the absolute path
-// prefix for inbound webhook URLs (e.g. "/api/v1/webhooks/").
+// Service implements the Triggers business logic.
+type Service struct {
+	repo      pipelineStore
+	registry  *Registry
+	cipher    *secretCipher
+	policy    *policyclient.Client
+	agents    *agentsclient.Client
+	minter    TokenMinter
+	admission *Admission
+	outcomes  outcomeRecorder
+	logger    logging.Logger
+	metrics   *Metrics // nil records nothing
+}
+
+// NewService constructs the delivery pipeline: verifying an inbound webhook,
+// firing a trigger, and dispatching what admission has queued.
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
 func NewService(
-	repo Repository,
+	repo pipelineStore,
 	registry *Registry,
 	cipher *secretCipher,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
 	minter TokenMinter,
-	webhookBase string,
+	admission *Admission,
 	logger logging.Logger,
+	metrics *Metrics,
 ) *Service {
 	return &Service{
-		repo:        repo,
-		registry:    registry,
-		cipher:      cipher,
-		policy:      policy,
-		agents:      agents,
-		minter:      minter,
-		logger:      logger,
-		webhookBase: webhookBase,
+		metrics:   metrics,
+		repo:      repo,
+		registry:  registry,
+		cipher:    cipher,
+		policy:    policy,
+		agents:    agents,
+		minter:    minter,
+		admission: admission,
+		outcomes:  outcomeRecorder{repo: repo, logger: logger},
+		logger:    logger,
 	}
 }
 
 // NewSecretCipherFromKey exposes secretCipher construction to the binary wiring.
 func NewSecretCipherFromKey(key []byte) (*secretCipher, error) { return newSecretCipher(key) }
 
-// WebhookPath returns the inbound webhook path for a source id.
-func (s *Service) WebhookPath(sourceID string) string { return s.webhookBase + sourceID }
+// ─── Payload retention ────────────────────────────────────────────────────────
 
-// ─── Sources ──────────────────────────────────────────────────────────────────
-
-// CreateSource registers a webhook source: it provisions a mapped SERVICE
-// principal with a policy grant for the generic run scopes, generates and
-// encrypts a signing secret, and persists the record. The raw secret and webhook
-// path are returned ONCE in the response.
-func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
-	}
-	if err := s.registry.validateProvider(req.Provider); err != nil {
-		return nil, err
-	}
-
-	id := uuid.NewString()
-	principalID := "trigger-source:" + id
-
-	secret, err := generateSecret()
+// GetRetention returns a tenant's payload retention window.
+//
+// A tenant who has never chosen one inherits the platform default, and says so:
+// is_default is the difference between "we picked 30" and "we picked nothing",
+// which decides whether a later change to the default moves this tenant.
+func (s *Service) GetRetention(ctx context.Context, tenantID string) (*RetentionSettings, error) {
+	days, configured, err := s.repo.GetRetention(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	ciphertext, err := s.cipher.encrypt(secret)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt signing secret: %w", err)
+	if !configured {
+		return &RetentionSettings{PayloadDays: DefaultPayloadRetentionDays, IsDefault: true}, nil
 	}
+	return &RetentionSettings{PayloadDays: days}, nil
+}
 
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
-	if err != nil {
-		return nil, fmt.Errorf("create source grant: %w", err)
+// SetRetention chooses how long this tenant's delivery payloads are kept.
+//
+// The window can only be shortened relative to the platform default. That
+// asymmetry is the point: retention is a promise about third-party payload data
+// the platform is holding, and a tenant extending it would raise the platform's
+// exposure rather than their own.
+func (s *Service) SetRetention(ctx context.Context, tenantID string, req UpdateRetentionRequest) (*RetentionSettings, error) {
+	if req.PayloadDays < MinPayloadRetentionDays || req.PayloadDays > DefaultPayloadRetentionDays {
+		return nil, fmt.Errorf("%w: payload_days must be between %d and %d",
+			ErrValidation, MinPayloadRetentionDays, DefaultPayloadRetentionDays)
 	}
-
-	src := &WebhookSource{
-		ID:               id,
-		TenantID:         tenantID,
-		Name:             name,
-		Provider:         req.Provider,
-		PrincipalID:      principalID,
-		GrantID:          &grantID,
-		Config:           req.Config,
-		Enabled:          true,
-		SecretCiphertext: ciphertext,
-	}
-	if err := s.repo.CreateSource(ctx, src); err != nil {
-		// Best-effort grant cleanup so a failed create leaves no orphaned grant.
-		if delErr := s.policy.DeleteGrant(ctx, grantID); delErr != nil {
-			s.logger.Error(ctx, "source create failed and grant cleanup failed",
-				logging.Field{Key: "source_id", Value: id},
-				logging.Field{Key: "grant_id", Value: grantID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
+	if err := s.repo.SetRetention(ctx, tenantID, req.PayloadDays); err != nil {
 		return nil, err
 	}
-
-	s.logger.Info(ctx, "webhook source created",
-		logging.Field{Key: "source_id", Value: id},
+	s.logger.Info(ctx, "payload retention updated",
 		logging.Field{Key: "tenant_id", Value: tenantID},
-		logging.Field{Key: "provider", Value: req.Provider},
+		logging.Field{Key: "payload_days", Value: req.PayloadDays},
 	)
-
-	return &SourceResponse{
-		WebhookSource: *redactSecret(src),
-		WebhookPath:   s.WebhookPath(id),
-		Secret:        secret,
-	}, nil
-}
-
-// ListSources returns all webhook sources for a tenant.
-func (s *Service) ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error) {
-	srcs, err := s.repo.ListSources(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range srcs {
-		srcs[i].SecretCiphertext = ""
-	}
-	return srcs, nil
-}
-
-// GetSource returns a single webhook source.
-func (s *Service) GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error) {
-	src, err := s.repo.GetSource(ctx, tenantID, id)
-	if err != nil {
-		return nil, err
-	}
-	return redactSecret(src), nil
-}
-
-// UpdateSource toggles enablement and optionally rotates the signing secret.
-func (s *Service) UpdateSource(ctx context.Context, tenantID, id string, req UpdateSourceRequest) (*SourceResponse, error) {
-	src, err := s.repo.GetSource(ctx, tenantID, id)
-	if err != nil {
-		return nil, err
-	}
-	if req.Enabled != nil {
-		src.Enabled = *req.Enabled
-	}
-	var rotated string
-	if req.RotateSecret {
-		secret, err := generateSecret()
-		if err != nil {
-			return nil, err
-		}
-		ciphertext, err := s.cipher.encrypt(secret)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt signing secret: %w", err)
-		}
-		src.SecretCiphertext = ciphertext
-		rotated = secret
-	}
-	if err := s.repo.UpdateSource(ctx, src); err != nil {
-		return nil, err
-	}
-	return &SourceResponse{
-		WebhookSource: *redactSecret(src),
-		WebhookPath:   s.WebhookPath(id),
-		Secret:        rotated,
-	}, nil
-}
-
-// DeleteSource removes a webhook source, its triggers (FK cascade), and all
-// policy grants attached to its mapped principal.
-func (s *Service) DeleteSource(ctx context.Context, tenantID, id string) error {
-	src, err := s.repo.GetSource(ctx, tenantID, id)
-	if err != nil {
-		return err
-	}
-	grants, err := s.policy.ListGrants(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID)
-	if err != nil {
-		s.logger.Error(ctx, "failed to list source grants for cleanup",
-			logging.Field{Key: "source_id", Value: id},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
-	for _, g := range grants {
-		if delErr := s.policy.DeleteGrant(ctx, g.ID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
-			s.logger.Error(ctx, "failed to delete source grant",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
-	}
-	return s.repo.DeleteSource(ctx, tenantID, id)
-}
-
-// ─── Triggers ─────────────────────────────────────────────────────────────────
-
-// CreateTrigger binds a source event to an agent. It grants the source's
-// principal the per-agent run scopes so the trigger-initiated run is authorized.
-func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
-	if err := validateTriggerCreate(req); err != nil {
-		return nil, err
-	}
-	src, err := s.repo.GetSource(ctx, tenantID, req.SourceID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve the agent type against orbit-agents under the source's own
-	// tenant-scoped identity instead of trusting the client-supplied slug. This
-	// (a) confirms the agent type exists and is owned by this tenant, and (b)
-	// derives the canonical slug. orbit-agents keys the run-authorization check on
-	// the resolved slug, so a client slug that disagreed with the real one would
-	// silently 403 every dispatch — and would let a triggers:write caller shape an
-	// arbitrary run-grant scope on the source principal. The canonical slug closes
-	// both gaps.
-	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
-	if err != nil {
-		return nil, fmt.Errorf("mint source token for agent-type resolution: %w", err)
-	}
-	at, err := s.agents.GetAgentType(ctx, tok, req.AgentTypeID)
-	if err != nil {
-		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) || errors.Is(err, agentsclient.ErrForbidden) {
-			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
-		}
-		return nil, fmt.Errorf("resolve agent type: %w", err)
-	}
-	if at.TenantID != tenantID {
-		// Defense in depth: orbit-agents already scopes the read to the token's
-		// tenant, so this is unreachable in practice — but never bind a trigger to
-		// an agent type across a tenant boundary.
-		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
-	}
-	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 6): a delegated agent acts on behalf of the person who runs it,
-	// so a run with no person behind it is impossible — orbit-agents refuses
-	// SERVICE-principal starts at run time, and binding is refused here first
-	// (the earlier, friendlier failure). identity_mode is immutable and the
-	// trigger's agent binding is immutable, so checking at create time makes
-	// "no trigger ever binds a delegated agent" an invariant; UpdateTrigger
-	// needs no counterpart.
-	if at.IdentityMode == agentsclient.IdentityModeDelegated {
-		return nil, fmt.Errorf("%w: agent type %q uses the delegated identity model: delegated agents cannot be bound to automated sources; only a person can start their runs", ErrValidation, req.AgentTypeID)
-	}
-
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(at.Slug), nil, false)
-	if err != nil {
-		return nil, fmt.Errorf("create trigger grant: %w", err)
-	}
-
-	t := &Trigger{
-		ID:             uuid.NewString(),
-		TenantID:       tenantID,
-		SourceID:       req.SourceID,
-		Name:           strings.TrimSpace(req.Name),
-		AgentTypeID:    at.ID,
-		AgentSlug:      at.Slug,
-		EventType:      req.EventType,
-		MatchCondition: req.MatchCondition,
-		PromptTemplate: req.PromptTemplate,
-		GrantID:        &grantID,
-		Enabled:        true,
-	}
-	if err := s.repo.CreateTrigger(ctx, t); err != nil {
-		if delErr := s.policy.DeleteGrant(ctx, grantID); delErr != nil {
-			s.logger.Error(ctx, "trigger create failed and grant cleanup failed",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "grant_id", Value: grantID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
-		return nil, err
-	}
-
-	s.logger.Info(ctx, "trigger created",
-		logging.Field{Key: "trigger_id", Value: t.ID},
-		logging.Field{Key: "source_id", Value: req.SourceID},
-		logging.Field{Key: "agent_slug", Value: at.Slug},
-	)
-	return t, nil
-}
-
-// ListTriggers returns triggers for a tenant, optionally filtered by agent type.
-func (s *Service) ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
-	return s.repo.ListTriggers(ctx, tenantID, agentTypeID)
-}
-
-// GetTrigger returns a single trigger.
-func (s *Service) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
-	return s.repo.GetTrigger(ctx, tenantID, id)
-}
-
-// UpdateTrigger edits the mutable fields of a trigger. The agent binding is
-// immutable (recreate to retarget) — which is also why no delegated-agent
-// check is needed here: CreateTrigger refuses delegated bindings, agent
-// identity_mode is immutable, so no existing trigger can ever come to bind a
-// delegated agent through an update.
-func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
-	t, err := s.repo.GetTrigger(ctx, tenantID, id)
-	if err != nil {
-		return nil, err
-	}
-	if req.Name != nil {
-		t.Name = strings.TrimSpace(*req.Name)
-	}
-	if req.EventType != nil {
-		t.EventType = *req.EventType
-	}
-	if req.MatchCondition != nil {
-		t.MatchCondition = req.MatchCondition
-	}
-	if req.PromptTemplate != nil {
-		t.PromptTemplate = *req.PromptTemplate
-	}
-	if req.Enabled != nil {
-		t.Enabled = *req.Enabled
-	}
-	if err := s.repo.UpdateTrigger(ctx, t); err != nil {
-		return nil, err
-	}
-	return t, nil
-}
-
-// DeleteTrigger removes a trigger and its per-agent run grant.
-func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error {
-	t, err := s.repo.GetTrigger(ctx, tenantID, id)
-	if err != nil {
-		return err
-	}
-	if t.GrantID != nil {
-		if delErr := s.policy.DeleteGrant(ctx, *t.GrantID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
-			s.logger.Error(ctx, "failed to delete trigger grant",
-				logging.Field{Key: "trigger_id", Value: id},
-				logging.Field{Key: "grant_id", Value: *t.GrantID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		}
-	}
-	return s.repo.DeleteTrigger(ctx, tenantID, id)
-}
-
-// ListDeliveries returns recent deliveries for a tenant, each with its full
-// per-trigger run fan-out attached (one batched query, no N+1).
-func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
-	deliveries, err := s.repo.ListDeliveries(ctx, tenantID, filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(deliveries) == 0 {
-		return deliveries, nil
-	}
-	ids := make([]string, len(deliveries))
-	for i := range deliveries {
-		ids[i] = deliveries[i].ID
-	}
-	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
-	if err != nil {
-		return nil, fmt.Errorf("attach delivery runs: %w", err)
-	}
-	for i := range deliveries {
-		deliveries[i].Runs = runs[deliveries[i].ID]
-	}
-	return deliveries, nil
-}
-
-// ─── Ingest ───────────────────────────────────────────────────────────────────
-
-// Ingest verifies an inbound delivery, records it, and queues asynchronous
-// dispatch. It returns IngestAccepted for a new, verified delivery and
-// IngestDuplicate for a redelivery. Signature/visibility failures are returned as
-// sentinel errors and produce no delivery row (so unauthenticated callers cannot
-// flood the audit log).
-func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestOutcome, error) {
-	src, err := s.repo.GetSourceByID(ctx, sourceID)
-	if err != nil {
-		return 0, err
-	}
-	if !src.Enabled {
-		return 0, ErrSourceDisabled
-	}
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
-		return 0, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
-	}
-
-	secret, err := s.cipher.decrypt(src.SecretCiphertext)
-	if err != nil {
-		return 0, fmt.Errorf("decrypt signing secret: %w", err)
-	}
-
-	if verifyErr := adapter.Verify(secret, headers, body); verifyErr != nil {
-		return 0, ErrSignatureInvalid
-	}
-
-	deliveryID := adapter.DeliveryID(headers, body)
-	if deliveryID == "" {
-		// Replay protection keys entirely on the provider delivery id via the
-		// partial unique index on trigger_deliveries. The id is not part of the
-		// authenticated payload for every provider (GitHub carries it in an
-		// unsigned header; Alertmanager derives it from body content), so a
-		// captured-and-replayed delivery whose id was stripped or unparseable
-		// would otherwise re-dispatch unbounded. Reject fail-closed.
-		return 0, ErrMissingDeliveryID
-	}
-	eventType := adapter.EventType(headers, body)
-
-	delivery := &Delivery{
-		ID:                 uuid.NewString(),
-		TenantID:           src.TenantID,
-		SourceID:           src.ID,
-		ProviderDeliveryID: deliveryID,
-		EventType:          eventType,
-		Status:             StatusVerified,
-		PayloadExcerpt:     truncate(body, payloadExcerptBytes),
-	}
-	inserted, err := s.repo.InsertDelivery(ctx, delivery)
-	if err != nil {
-		return 0, err
-	}
-	if !inserted {
-		s.logger.Info(ctx, "duplicate webhook delivery ignored",
-			logging.Field{Key: "source_id", Value: src.ID},
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-		)
-		return IngestDuplicate, nil
-	}
-
-	// Dispatch asynchronously so the provider receives a fast 2xx. The detached
-	// context keeps trace/log correlation but is independent of the request's
-	// cancellation, which fires as soon as we respond.
-	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
-
-	return IngestAccepted, nil
-}
-
-// dispatch matches the delivery against the source's enabled triggers and starts
-// a run for each match under the source's mapped identity, recording the outcome.
-func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter SourceAdapter, deliveryID, eventType string, body []byte) {
-	ctx, cancel := context.WithTimeout(ctx, dispatchTimeout)
-	defer cancel()
-
-	fields := adapter.Fields(eventType, body)
-
-	triggers, err := s.repo.ListEnabledTriggersForSource(ctx, src.ID)
-	if err != nil {
-		s.recordFailure(ctx, deliveryID, fmt.Sprintf("list triggers: %v", err))
-		return
-	}
-
-	var matched []Trigger
-	for _, t := range triggers {
-		if t.EventType == eventType && matchesCondition(t.MatchCondition, fields) {
-			matched = append(matched, t)
-		}
-	}
-	if len(matched) == 0 {
-		if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusSkipped, nil, nil, nil); err != nil {
-			s.logger.Error(ctx, "failed to record skipped delivery", logging.Field{Key: "delivery_id", Value: deliveryID}, logging.Field{Key: "error", Value: err.Error()})
-		}
-		return
-	}
-
-	// A delivery may match multiple triggers and start a run for each. Every
-	// attempt is recorded individually in trigger_delivery_runs (the authoritative
-	// 1→N audit record); trigger_deliveries keeps a delivery-level summary whose
-	// trigger_id/run_id point at the first successful dispatch.
-	var dispatched bool
-	var lastErr error
-	for _, t := range matched {
-		runID, err := s.startRunForTrigger(ctx, src, t, fields)
-		if err != nil {
-			lastErr = err
-			s.logger.Error(ctx, "trigger dispatch failed",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "delivery_id", Value: deliveryID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			msg := err.Error()
-			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusFailed, nil, &msg)
-			continue
-		}
-		s.logger.Info(ctx, "trigger started run",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-		)
-		rID := runID
-		s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
-		if !dispatched {
-			dispatched = true
-			tID := t.ID
-			if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &tID, &rID, nil); err != nil {
-				s.logger.Error(ctx, "failed to record dispatched delivery", logging.Field{Key: "delivery_id", Value: deliveryID}, logging.Field{Key: "error", Value: err.Error()})
-			}
-		}
-	}
-	if !dispatched {
-		msg := "no run started"
-		if lastErr != nil {
-			msg = lastErr.Error()
-		}
-		s.recordFailure(ctx, deliveryID, msg)
-	}
-}
-
-// startRunForTrigger renders the prompt, mints a JIT SERVICE token for the
-// source's identity, and starts a run via the agent control plane.
-func (s *Service) startRunForTrigger(ctx context.Context, src WebhookSource, t Trigger, fields map[string]string) (string, error) {
-	prompt := renderTemplate(t.PromptTemplate, fields)
-
-	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
-	if err != nil {
-		return "", fmt.Errorf("mint source token: %w", err)
-	}
-	run, err := s.agents.StartRun(ctx, tok, agentsclient.StartRunRequest{
-		AgentTypeID:    t.AgentTypeID,
-		InitialMessage: prompt,
-	})
-	if err != nil {
-		return "", fmt.Errorf("start run: %w", err)
-	}
-	return run.ID, nil
-}
-
-func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
-	if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, nil, nil, &msg); err != nil {
-		s.logger.Error(ctx, "failed to record failed delivery",
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
-}
-
-// recordDeliveryRun persists one matched-trigger dispatch outcome. Best-effort:
-// a failure to write the audit row is logged but never aborts dispatch.
-func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, triggerID, status string, runID, errMsg *string) {
-	dr := &DeliveryRun{
-		ID:         uuid.NewString(),
-		TenantID:   tenantID,
-		DeliveryID: deliveryID,
-		TriggerID:  triggerID,
-		RunID:      runID,
-		Status:     status,
-		Error:      errMsg,
-	}
-	if err := s.repo.InsertDeliveryRun(ctx, dr); err != nil {
-		s.logger.Error(ctx, "failed to record delivery run",
-			logging.Field{Key: "delivery_id", Value: deliveryID},
-			logging.Field{Key: "trigger_id", Value: triggerID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
+	return &RetentionSettings{PayloadDays: req.PayloadDays}, nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-func validateTriggerCreate(req CreateTriggerRequest) error {
+// Admission bounds. The ceilings are deliberately low: these settings exist to
+// protect the platform from a trigger that fires faster than its agent runs, and
+// a caller who needs more parallelism than this wants more triggers, not a
+// bigger number here. maxParallelCeiling matches the triggers_max_parallel_check
+// constraint in the admission_control migration — validating against a looser
+// bound here would turn a caller's mistake into a database error.
+const (
+	minParallel        int16 = 1
+	maxParallelCeiling int16 = 16
+	minQueueDepth      int16 = 1
+	maxQueueDepth      int16 = 500
+	minTimeoutSeconds  int16 = 5
+	maxTimeoutSeconds  int16 = 600
+)
+
+// What a trigger gets when the caller tunes nothing. These are business policy,
+// so they live here beside the bounds rather than in the storage layer: a create
+// writes them explicitly, and the matching column defaults in the migration are
+// only a backstop for rows this service did not write.
+//
+// The default overflow is per kind (DefaultOverflowForKind) because it is the
+// one setting where the right answer depends on what fired.
+const (
+	defaultMaxParallel    int16 = 4
+	defaultMaxQueueDepth  int16 = 32
+	defaultTimeoutSeconds int16 = 30
+)
+
+// Text bounds on what a trigger stores.
+//
+// Both columns are unbounded TEXT, so without these an authenticated caller can
+// write a row of any size and, in the template's case, have it rendered into
+// every prompt the trigger ever starts. The numbers are chosen to be invisible
+// to real use: a name is a label a person reads in a list, and eight kilobytes
+// of prompt is far past the point where a template is doing templating.
+const (
+	maxNameLen           = 128
+	maxPromptTemplateLen = 8 << 10 // 8 KiB
+)
+
+// validateTextBounds checks the free-text fields of a create or update. Applied
+// identically to both, so a value that could not be created cannot be edited in
+// either.
+func validateTextBounds(name, promptTemplate string) error {
+	if len(name) > maxNameLen {
+		return fmt.Errorf("%w: name must be %d characters or fewer", ErrValidation, maxNameLen)
+	}
+	if len(promptTemplate) > maxPromptTemplateLen {
+		return fmt.Errorf("%w: prompt_template must be %d bytes or fewer", ErrValidation, maxPromptTemplateLen)
+	}
+	return nil
+}
+
+// Validate checks the settings against the platform bounds. Nil fields are
+// unset and always valid.
+//
+// One implementation for create and update deliberately: a value that could not
+// be created must not be reachable by editing.
+func (a AdmissionSettings) Validate() error {
+	if a.Overflow != nil {
+		switch *a.Overflow {
+		case OverflowWait, OverflowReplace, OverflowRefuse:
+		default:
+			return fmt.Errorf("%w: overflow must be one of %q, %q or %q", ErrValidation, OverflowWait, OverflowReplace, OverflowRefuse)
+		}
+	}
+	if err := inRange("max_parallel", a.MaxParallel, minParallel, maxParallelCeiling); err != nil {
+		return err
+	}
+	if err := inRange("max_queue_depth", a.MaxQueueDepth, minQueueDepth, maxQueueDepth); err != nil {
+		return err
+	}
+	return inRange("timeout_seconds", a.TimeoutSeconds, minTimeoutSeconds, maxTimeoutSeconds)
+}
+
+// applyTo copies the settings the caller actually sent onto a trigger. An unset
+// field leaves whatever the trigger already carries: the platform default on a
+// create, the stored value on an update.
+func (a AdmissionSettings) applyTo(t *Trigger) {
+	if a.MaxParallel != nil {
+		t.MaxParallel = *a.MaxParallel
+	}
+	if a.Overflow != nil {
+		t.Overflow = *a.Overflow
+	}
+	if a.MaxQueueDepth != nil {
+		t.MaxQueueDepth = *a.MaxQueueDepth
+	}
+	if a.TimeoutSeconds != nil {
+		t.TimeoutSeconds = *a.TimeoutSeconds
+	}
+	if a.DedupeEnabled != nil {
+		t.DedupeEnabled = *a.DedupeEnabled
+	}
+	if a.AutopauseEnabled != nil {
+		t.AutopauseEnabled = *a.AutopauseEnabled
+	}
+}
+
+// validateAdmissionCreate checks the free text and admission settings of a
+// create request. It is called from each kind's validate* function so that a bad
+// value is rejected before any principal or grant is provisioned: a rejected
+// create must leave nothing behind.
+func validateAdmissionCreate(req CreateTriggerRequest) error {
+	if err := validateTextBounds(strings.TrimSpace(req.Name), req.PromptTemplate); err != nil {
+		return err
+	}
+	return req.Validate()
+}
+
+// applyAdmissionUpdate validates and applies a PATCH's admission tuning, with
+// exactly the create-time bounds. Omitted fields leave the stored value alone.
+func applyAdmissionUpdate(t *Trigger, req UpdateTriggerRequest) error {
+	// applyTriggerEdits has already copied the request's text onto t, so the
+	// bounds are checked against what would actually be stored — an omitted
+	// field keeps the stored value and is checked against that.
+	if err := validateTextBounds(t.Name, t.PromptTemplate); err != nil {
+		return err
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	req.applyTo(t)
+	return nil
+}
+
+func inRange(field string, v *int16, lo, hi int16) error {
+	if v == nil {
+		return nil
+	}
+	if *v < lo || *v > hi {
+		return fmt.Errorf("%w: %s must be between %d and %d", ErrValidation, field, lo, hi)
+	}
+	return nil
+}
+
+// applyAdmissionCreate writes a freshly built trigger's admission settings:
+// every platform default first, then whatever the caller chose over the top.
+//
+// The row is fully determined here rather than half here and half in the
+// storage layer. Defaulting is business policy, and a create that writes zeros
+// for the repository to interpret means the settings a caller reads back depend
+// on which write path stored them.
+func applyAdmissionCreate(t *Trigger, req CreateTriggerRequest) error {
+	if err := validateAdmissionCreate(req); err != nil {
+		return err
+	}
+	t.MaxParallel = defaultMaxParallel
+	t.Overflow = DefaultOverflowForKind(t.Kind)
+	t.MaxQueueDepth = defaultMaxQueueDepth
+	t.TimeoutSeconds = defaultTimeoutSeconds
+	t.DedupeEnabled = true
+	t.AutopauseEnabled = true
+
+	req.applyTo(t)
+	return nil
+}
+
+// validateCommonTriggerCreate checks what every kind requires — a name, an
+// agent binding, a prompt — plus the free-text bounds and admission settings.
+// Each kind's validator adds only its own clause on top, so a new common
+// requirement is one edit here, not one per kind.
+func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
 		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.SourceID == "":
-		return fmt.Errorf("%w: source_id is required", ErrValidation)
 	case req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	// agent_slug is intentionally not required: it is resolved server-side from
-	// agent_type_id (see CreateTrigger). Any client-supplied value is ignored.
-	case req.EventType == "":
-		return fmt.Errorf("%w: event_type is required", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
+	}
+	return validateAdmissionCreate(req)
+}
+
+func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	// An empty event_type is legal and means "any event this source emits";
+	// dispatch treats '' as match-all.
+	if req.SourceID == "" {
+		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
+	}
+	return nil
+}
+
+func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	if req.ScheduleConfig == nil {
+		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
+	}
+	return validateScheduleConfig(req.ScheduleConfig)
+}
+
+func validateManualTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	return validateManualInputs(req.ManualConfig)
+}
+
+// validateManualInputs checks an input declaration is usable before it is
+// stored. A declaration that could never be satisfied is caught here rather than
+// at fire time, when the caller has no way to fix it. Shared by create and
+// update so the two cannot drift.
+func validateManualInputs(mc *ManualConfig) error {
+	if mc == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, f := range mc.Inputs {
+		if err := f.Validate(); err != nil {
+			return err
+		}
+		if seen[f.Name] {
+			return fmt.Errorf("%w: input %q is declared more than once", ErrValidation, f.Name)
+		}
+		seen[f.Name] = true
+	}
+	return nil
+}
+
+func validateScheduleConfig(sc *ScheduleConfig) error {
+	if sc == nil {
+		return fmt.Errorf("%w: schedule_config is required", ErrValidation)
+	}
+	if strings.TrimSpace(sc.CronExpression) == "" {
+		return fmt.Errorf("%w: schedule_config.cron_expression is required", ErrValidation)
+	}
+	if strings.TrimSpace(sc.Timezone) == "" {
+		return fmt.Errorf("%w: schedule_config.timezone is required", ErrValidation)
+	}
+	// Parse the expression in its timezone. An unparseable cron previously
+	// stored fine and then silently never fired, which is the worst failure
+	// mode available: the trigger looks healthy and does nothing.
+	if _, _, err := ParseSchedule(sc); err != nil {
+		return err
 	}
 	return nil
 }
@@ -633,7 +434,70 @@ func truncate(b []byte, n int) string {
 	if len(b) <= n {
 		return string(b)
 	}
-	// Trim back to a rune boundary so the excerpt never ends mid-codepoint and
-	// re-serializes as valid UTF-8 in the deliveries API response.
 	return strings.ToValidUTF8(string(b[:n]), "")
+}
+
+// maxPayloadBytes caps what is stored per delivery. An oversized payload is
+// truncated and flagged, never rejected: the trigger should still fire, and a
+// sender must not be able to break its own automation by sending a large body.
+const maxPayloadBytes = 1 << 20 // 1 MiB
+
+// capturePayload returns the body to persist, bounded by maxPayloadBytes.
+func capturePayload(body []byte) []byte {
+	if len(body) > maxPayloadBytes {
+		return body[:maxPayloadBytes]
+	}
+	return body
+}
+
+// recordSourceRejection counts an inbound request that failed authentication.
+//
+// Best-effort by design: the caller is already being refused, and failing to
+// increment a counter must not change that outcome or slow the refusal down.
+func (s *Service) recordSourceRejection(ctx context.Context, sourceID, reason string) {
+	if err := s.repo.RecordSourceRejection(ctx, sourceID, reason); err != nil {
+		s.logger.Error(ctx, "failed to record source rejection",
+			logging.Field{Key: "source_id", Value: sourceID},
+			logging.Field{Key: "reason", Value: reason},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// RecordMissedTick records a scheduled fire that was due while the platform was
+// down, without running it.
+//
+// The record is the point: previously a missed fire left nothing at all, so
+// "did my nightly job run?" was unanswerable after an outage. The same unique
+// (trigger_id, scheduled_at) key that stops replicas double-firing also stops
+// this from racing a real fire for the same minute.
+func (s *Service) RecordMissedTick(ctx context.Context, t Trigger, scheduledAt time.Time) {
+	minute := scheduledAtMinute(scheduledAt)
+	triggerID := t.ID
+	reason := "platform was not running when this fire was due; catch-up is off for this trigger"
+
+	inserted, err := s.repo.InsertScheduledDelivery(ctx, &Delivery{
+		ID:          uuid.NewString(),
+		TenantID:    t.TenantID,
+		TriggerID:   &triggerID,
+		TriggerName: t.Name,
+		Kind:        KindScheduled,
+		Status:      StatusMissed,
+		ScheduledAt: &minute,
+		Reason:      &reason,
+	})
+	if err != nil {
+		s.logger.Error(ctx, "failed to record missed scheduled fire",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "scheduled_at", Value: minute},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if inserted {
+		s.logger.Info(ctx, "recorded missed scheduled fire",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "scheduled_at", Value: minute},
+		)
+	}
 }
