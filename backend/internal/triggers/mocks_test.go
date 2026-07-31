@@ -381,11 +381,6 @@ func (m *mockRepository) outcomeStatuses(deliveryID string) []string {
 	return out
 }
 
-// hasOutcome reports whether the fan-out recorded this status for the delivery.
-func (m *mockRepository) hasOutcome(deliveryID, status string) bool {
-	return slices.Contains(m.outcomeStatuses(deliveryID), status)
-}
-
 func (m *mockRepository) deliveryRunsFor(deliveryID string) []DeliveryRun {
 	m.mu.Lock()
 	defer m.mu.Unlock()

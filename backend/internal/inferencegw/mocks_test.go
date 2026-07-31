@@ -170,7 +170,6 @@ func (m *mockInferenceUsageRepository) GetPrincipalRoles(_ context.Context, tena
 // f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
 //
 //go:fix inline
-func f64Ptr(f float64) *float64 { return new(f) }
 
 // ── mockPricingCatalogRepository ─────────────────────────────────────────────
 
