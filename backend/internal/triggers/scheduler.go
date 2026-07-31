@@ -123,7 +123,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if firesAt(sched, loc, now) {
 			tick := ScheduledTick{Trigger: t, ScheduledAt: now}
 			// Dispatch each trigger in its own goroutine so one slow trigger
-			// does not delay others. The service's dispatchTimeout bounds each.
+			// does not delay others. Detached from the tick's context so an
+			// acknowledged fire is not lost to shutdown mid-enqueue.
 			go s.svc.TickScheduled(context.WithoutCancel(ctx), tick)
 			continue
 		}

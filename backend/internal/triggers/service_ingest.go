@@ -291,7 +291,7 @@ func (s *Service) fanOut(
 	// survives a restart instead of vanishing between the two.
 	var queued int
 	for _, t := range matched {
-		if s.admit(ctx, t, deliveryID, fields) {
+		if admitted, _ := s.admit(ctx, t, deliveryID, fields); admitted {
 			queued++
 		}
 	}

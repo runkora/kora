@@ -657,3 +657,25 @@ func TestRedeliver_RefusesAPayloadOlderThanTheCurrentSecret(t *testing.T) {
 		t.Errorf("replay after rotation = %v, want ErrNotRedeliverable", err)
 	}
 }
+
+// A database fault during admission is a platform failure, not backpressure.
+// FireTrigger must surface it as a 5xx-mapping error, never ErrTriggerAtCapacity
+// (429 "busy, retry") — retrying a fire that failed because Postgres was down
+// just fails again.
+func TestFireTrigger_AdmissionInfraError_IsNotReportedAsCapacity(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := mustManualTrigger(t, deps.triggers)
+	deps.repo.admissionErr = errors.New("connection refused")
+
+	_, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+		FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+	if err == nil {
+		t.Fatal("an admission infrastructure error must surface as an error")
+	}
+	if errors.Is(err, ErrTriggerAtCapacity) || errors.Is(err, ErrTriggerAutoPaused) {
+		t.Errorf("an infra error must not read as a capacity/pause refusal, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("the underlying fault should be wrapped, got %v", err)
+	}
+}

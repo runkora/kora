@@ -13,9 +13,17 @@ import (
 //
 // Returns true when the fire was queued and will dispatch. Everything goes
 // through the queue, so a fire the platform acknowledged survives a restart.
-func (s *Service) admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) bool {
+// admit runs one matched trigger through admission and records the outcome when
+// it is not queued. It returns whether the fire was queued, and — separately —
+// a non-nil error ONLY when admission failed for an infrastructure reason (a
+// database or transaction fault). A genuine ceiling refusal or a paused trigger
+// is (false, nil): the fire was handled, just not queued. Keeping the two apart
+// is what lets a synchronous caller answer a manual fire with 429 "busy, retry"
+// for a real refusal and 500 for an infrastructure fault, rather than telling a
+// caller to retry a fire that failed because Postgres was down.
+func (s *Service) admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (bool, error) {
 	if s.admission == nil {
-		return false
+		return false, nil
 	}
 	result, err := s.admission.Admit(ctx, t, deliveryID, fields)
 	if err != nil {
@@ -31,17 +39,17 @@ func (s *Service) admit(ctx context.Context, t Trigger, deliveryID string, field
 			TriggerID: t.ID, TriggerName: t.Name,
 			Status: RunStatusDropped, Error: new(err.Error()),
 		})
-		return false
+		return false, err
 	}
 	if result == AdmitEnqueued {
-		return true
+		return true, nil
 	}
 	s.outcomes.insert(ctx, &DeliveryRun{
 		TenantID: t.TenantID, DeliveryID: deliveryID,
 		TriggerID: t.ID, TriggerName: t.Name,
 		Status: result.RunStatus(), Error: new(admissionReason(result)),
 	})
-	return false
+	return false, nil
 }
 
 // admissionReason explains a non-admitted outcome in the terms an admin needs.

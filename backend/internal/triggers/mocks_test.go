@@ -39,6 +39,9 @@ type mockRepository struct {
 	// refuseAdmission makes EnqueueWithinCeiling turn a fire away, so a test can
 	// assert what the service does with a refusal.
 	refuseAdmission bool
+	// admissionErr makes EnqueueWithinCeiling fail with an infrastructure error,
+	// so a test can tell a refusal apart from a database fault.
+	admissionErr error
 	// orphaned is what DrainOrphanedPending hands back.
 	orphaned []OrphanedPending
 
@@ -906,6 +909,9 @@ func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) e
 func (m *mockRepository) EnqueueWithinCeiling(_ context.Context, p *PendingDelivery, _ int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.admissionErr != nil {
+		return false, m.admissionErr
+	}
 	if m.refuseAdmission {
 		return false, nil
 	}

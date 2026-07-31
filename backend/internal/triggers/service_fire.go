@@ -52,12 +52,13 @@ func buildManualDelivery(tenantID string, t *Trigger, callerPrincipalID string, 
 //
 // Reports whether the fire was queued. What to tell the caller about a refusal
 // differs by path and stays with the caller.
-func (s *Service) admitOrDerive(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) bool {
-	if s.admit(ctx, t, deliveryID, fields) {
-		return true
+func (s *Service) admitOrDerive(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (bool, error) {
+	admitted, err := s.admit(ctx, t, deliveryID, fields)
+	if admitted {
+		return true, nil
 	}
 	s.outcomes.derive(ctx, deliveryID)
-	return false
+	return false, err
 }
 
 // FireTrigger fires a manual trigger on behalf of callerPrincipalID.
@@ -135,10 +136,16 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	// Manual triggers default to refusing rather than waiting: a person is
 	// standing there, and an immediate "not now" is more use than silent
 	// queueing behind work they cannot see.
-	if !s.admitOrDerive(ctx, *t, deliveryID, fields) {
-		// The fire is recorded either way; the error says which refusal it was,
-		// because the fixes differ — wait a moment, versus deal with the
-		// failures that paused the trigger.
+	admitted, admitErr := s.admitOrDerive(ctx, *t, deliveryID, fields)
+	if admitErr != nil {
+		// Admission failed for an infrastructure reason. This is a 5xx, not the
+		// caller's fault, and must not read as "busy, retry" — retrying a fire
+		// that failed because the database was down just fails again.
+		return nil, fmt.Errorf("admit manual fire: %w", admitErr)
+	}
+	if !admitted {
+		// A genuine refusal. The error says which, because the fixes differ:
+		// wait a moment, versus deal with the failures that paused the trigger.
 		if t.AutoPausedAt != nil {
 			return nil, ErrTriggerAutoPaused
 		}
@@ -204,7 +211,7 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 
 	// Scheduled triggers default to replacing what is waiting: if the previous
 	// tick has not run yet, the newest one is the state worth acting on.
-	if !s.admitOrDerive(ctx, t, deliveryID, fields) {
+	if admitted, _ := s.admitOrDerive(ctx, t, deliveryID, fields); !admitted {
 		return
 	}
 
@@ -383,7 +390,7 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	// Unlike FireTrigger, a refusal here is not returned as an error: the replay
 	// was accepted and recorded, and what admission then decided is in the
 	// delivery history the caller is already looking at.
-	s.admitOrDerive(ctx, *t, dup.ID, varFields(values))
+	_, _ = s.admitOrDerive(ctx, *t, dup.ID, varFields(values))
 
 	s.logger.Info(ctx, "manual fire replayed",
 		logging.Field{Key: "trigger_id", Value: t.ID},
