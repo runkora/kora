@@ -72,8 +72,10 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 
-// Wait blocks until the loop has exited, so shutdown does not cut a dispatch in
-// half.
+// Wait blocks until the drain loop has exited or the grace context expires. A
+// dispatch already in flight when shutdown was signaled runs to completion on
+// its own detached context (see drain), so the loop returns without cutting it;
+// rows not yet started keep their claim for the next tick.
 func (w *Worker) Wait(ctx context.Context) {
 	select {
 	case <-w.stopped:
@@ -157,20 +159,34 @@ func (w *Worker) drain(ctx context.Context) {
 		return
 	}
 	for _, p := range claimed {
+		// Once shutdown is signaled, stop taking new rows from the batch. The
+		// untouched ones keep their claim and the next tick — here or on
+		// another replica — picks them up. Only the row already in flight below
+		// must be allowed to finish.
+		if ctx.Err() != nil {
+			return
+		}
+		// A dispatch that has begun runs to completion on a context detached
+		// from shutdown cancellation, the same way ingest detaches its fan-out.
+		// Cutting it after StartRun had landed would leave the outcome unwritten
+		// and the row still claimed, and a later reaper would start the same
+		// fire a second time. DispatchPending bounds its own StartRun, so this
+		// cannot hang indefinitely.
+		dctx := context.WithoutCancel(ctx)
 		// Re-stamp the claim as this row's dispatch begins. The batch was
 		// claimed in one statement, and dispatches run one after another, each
 		// up to the trigger's own timeout — so without this the last row of a
 		// full batch can carry a claim far older than the stale-claim window by
 		// the time it actually runs, and another replica's reaper would take it
 		// back and start the same fire a second time.
-		if err := w.repo.TouchPendingClaim(ctx, p.ID); err != nil {
-			w.logger.Error(ctx, "failed to re-stamp claim before dispatch",
+		if err := w.repo.TouchPendingClaim(dctx, p.ID); err != nil {
+			w.logger.Error(dctx, "failed to re-stamp claim before dispatch",
 				logging.Field{Key: "pending_id", Value: p.ID},
 				logging.Field{Key: "error", Value: err.Error()})
 		}
-		w.svc.DispatchPending(ctx, p)
-		if err := w.repo.ReleasePending(ctx, p.ID); err != nil {
-			w.logger.Error(ctx, "failed to release claimed delivery",
+		w.svc.DispatchPending(dctx, p)
+		if err := w.repo.ReleasePending(dctx, p.ID); err != nil {
+			w.logger.Error(dctx, "failed to release claimed delivery",
 				logging.Field{Key: "pending_id", Value: p.ID},
 				logging.Field{Key: "error", Value: err.Error()})
 		}

@@ -372,3 +372,24 @@ func TestWorker_CollectsFiresWhoseTriggerCanNoLongerRunThem(t *testing.T) {
 		t.Fatalf("outcomes = %+v, want one 'dropped' so the work is visibly accounted for", runs)
 	}
 }
+
+// Once shutdown is signalled the worker must stop taking new rows from a batch:
+// starting them would race the process exit, and the untouched claims are
+// picked up on the next tick or by another replica. (A dispatch already in
+// flight finishes on its own detached context, which the ingest-side pattern
+// covers.)
+func TestWorker_ShutdownDoesNotStartNewDispatches(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	enqueue(t, svc, deps, trig, 3)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // shutdown already signalled before this drain runs
+
+	worker := NewWorker(svc, deps.repo, silentLogger())
+	worker.drain(ctx)
+
+	if n := deps.agents.callCount(); n != 0 {
+		t.Errorf("a shutting-down worker started %d runs, want 0: it must not take new work", n)
+	}
+}
