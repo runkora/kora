@@ -43,9 +43,12 @@ func titleCaseSlug(s string) string {
 // when the API did not return a ModelName. Strips any region prefix and known
 // provider namespace, then title-cases the result and strips trailing ":N"
 // version suffixes. For unknown namespaces, strips at the last "." to avoid
-// leaking the vendor prefix into the display name.
+// leaking the vendor prefix into the display name. For namespaces in
+// vendorDisplayPrefixes, the canonical vendor word is prepended so the result
+// is consistent with API-provided names (e.g. "deepseek.v3.1" → "DeepSeek V3.1").
 func fallbackDisplayName(modelID string) string {
-	slug := stripRegionPrefix(modelID)
+	base := stripRegionPrefix(modelID)
+	slug := base
 	// Strip known provider namespace prefix (e.g. "xai.", "anthropic.", "amazon.").
 	stripped := false
 	for _, ns := range knownNamespacePrefixes {
@@ -66,7 +69,17 @@ func fallbackDisplayName(modelID string) string {
 	if i := strings.LastIndex(slug, ":"); i >= 0 {
 		slug = slug[:i]
 	}
-	return titleCaseSlug(slug)
+	name := titleCaseSlug(slug)
+	// Prepend vendor display prefix for namespaces that require it, so that
+	// models with no API name are consistent with those that have one
+	// (e.g. "deepseek.v3.1" with no ModelName → "DeepSeek V3.1").
+	for ns, vendor := range vendorDisplayPrefixes {
+		if strings.HasPrefix(base, ns) && !strings.HasPrefix(name, vendor) {
+			name = vendor + name
+			break
+		}
+	}
+	return name
 }
 
 // stripRegionPrefix removes any known cross-region prefix from a model ID,

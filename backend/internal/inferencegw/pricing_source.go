@@ -61,6 +61,7 @@ type liteLLMEntry struct {
 var liteLLMProviderToOrbit = map[string]ProviderName{
 	"bedrock":                    ProviderBedrock,
 	"bedrock_converse":           ProviderBedrock,
+	"bedrock_mantle":             ProviderBedrock,
 	"vertex_ai":                  ProviderVertexAI,
 	"vertex_ai-text-models":      ProviderVertexAI,
 	"vertex_ai-chat-models":      ProviderVertexAI,
@@ -252,6 +253,7 @@ func bedrockBareAlias(modelID string) string {
 func stripProviderPrefix(key string) string {
 	prefixes := []string{
 		"bedrock/",
+		"bedrock_mantle/",
 		"vertex_ai/",
 		"vertex_ai-text-models/",
 		"vertex_ai-chat-models/",
