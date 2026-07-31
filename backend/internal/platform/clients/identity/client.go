@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -169,6 +170,40 @@ func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, 
 	)
 
 	return parsed.AccessToken, tokenExpiry, nil
+}
+
+// SelfTokenSource returns a token func that exchanges this pod's SVID for a
+// platform token via Exchange, caching it until shortly before expiry.
+//
+// The exchange is a network call on the mesh, so caching keeps it off the hot
+// path; the early refresh margin avoids handing out a token that expires
+// mid-request. Safe for concurrent use — callers such as the policy client
+// invoke it from concurrent request handlers.
+//
+// Each call returns an independent cache; construct one source per binary and
+// share it between the components that need a self token.
+func (c *Client) SelfTokenSource() func(context.Context) (string, error) {
+	const refreshMargin = 30 * time.Second
+
+	var (
+		mu     sync.Mutex
+		cached string
+		expiry time.Time
+	)
+	return func(ctx context.Context) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if cached != "" && time.Now().Before(expiry.Add(-refreshMargin)) {
+			return cached, nil
+		}
+		tok, exp, err := c.Exchange(ctx)
+		if err != nil {
+			return "", fmt.Errorf("exchange SVID for platform token: %w", err)
+		}
+		cached, expiry = tok, exp
+		return cached, nil
+	}
 }
 
 // ── Delegation issuer endpoints (docs/adr/2026-07-23-delegated-agent-identity.md) ──

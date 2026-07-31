@@ -122,20 +122,20 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 
 	// The identity client authenticates orbit-agents' own service-to-service
 	// calls: its mesh-attested exchange yields the SERVICE platform token used
-	// as the bearer for the policy client and for delegation revocation.
+	// as the bearer for the policy client and for delegation revocation. One
+	// cached token source serves both, so the exchange stays off the hot path.
 	var idClient *identityclient.Client
+	var selfToken func(context.Context) (string, error)
 	if cfg.Platform.IdentityServiceURL != "" {
 		idClient = identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+		selfToken = idClient.SelfTokenSource()
 	}
 
 	// Build a policy client for grant management at agent provision/deprovision time.
 	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
 	var pc *policyclient.Client
 	if cfg.Platform.PolicyServiceURL != "" && idClient != nil {
-		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, func(ctx context.Context) (string, error) {
-			tok, _, err := idClient.Exchange(ctx)
-			return tok, err
-		}, logger)
+		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 	}
 
 	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
@@ -212,10 +212,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Without an identity service URL the broker stays nil and delegated runs
 	// fail closed.
 	if idClient != nil {
-		broker := agents.NewDelegationBroker(idClient, func(ctx context.Context) (string, error) {
-			tok, _, err := idClient.Exchange(ctx)
-			return tok, err
-		}, cfg.Platform.TrustDomain, logger)
+		broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
 		runSvc.SetDelegationBroker(broker)
 		atSvc.SetDelegationBroker(broker)
 	}

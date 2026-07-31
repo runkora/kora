@@ -27,17 +27,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
-	"google.golang.org/grpc/credentials"
 
 	tc "github.com/clear-route/orbit/cmd/orbit-triggers/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
@@ -95,12 +88,15 @@ func realMain() error {
 	}
 
 	// Publish the Triggers scope vocabulary so the policy service can validate
-	// triggers:read / triggers:write when they are granted. Best-effort and
-	// retried in the background: the policy service may still be starting.
-	go registerScopes(ctx, logger, policyClient)
-	// Then keep it published: the policy service's registration store is in
-	// memory, so its restart would otherwise leave us silently unregistered.
-	go runRegistrationLoop(ctx, logger, policyClient, tc.Current.ReregistrationInterval())
+	// triggers:read / triggers:write when they are granted, and keep it
+	// published across policy-service restarts. Registration goes through the
+	// authenticated policy client rather than the anonymous routescopes client:
+	// /routes/register requires a bearer token, which the client obtains by
+	// exchanging this pod's SVID.
+	go routescopes.KeepRegistered(ctx, logger, "orbit-triggers", tc.Current.ReregistrationInterval(),
+		func(ctx context.Context) error {
+			return policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
+		})
 
 	run(ctx, logger, initServer(ctx, logger, controller))
 	return nil
@@ -132,7 +128,7 @@ func initController(
 
 	policyClient := policyclient.NewClient(
 		tc.Current.Policy.PolicyServiceInternalURL,
-		newSelfTokenSource(identityClient),
+		identityClient.SelfTokenSource(),
 		logger,
 	)
 
@@ -237,37 +233,6 @@ func initController(
 	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
 }
 
-// newSelfTokenSource returns a token func for the policy client that exchanges
-// this pod's SVID for a platform token, caching it until shortly before expiry.
-//
-// The exchange is a network call on the mesh, so caching keeps it off the hot
-// path; the early refresh margin avoids handing out a token that expires
-// mid-request.
-func newSelfTokenSource(identityClient *identityclient.Client) func(context.Context) (string, error) {
-	const refreshMargin = 30 * time.Second
-
-	// Guarded: the policy client calls this from concurrent request handlers.
-	var (
-		mu     sync.Mutex
-		cached string
-		expiry time.Time
-	)
-	return func(ctx context.Context) (string, error) {
-		mu.Lock()
-		defer mu.Unlock()
-
-		if cached != "" && time.Now().Before(expiry.Add(-refreshMargin)) {
-			return cached, nil
-		}
-		tok, exp, err := identityClient.Exchange(ctx)
-		if err != nil {
-			return "", fmt.Errorf("exchange SVID for platform token: %w", err)
-		}
-		cached, expiry = tok, exp
-		return cached, nil
-	}
-}
-
 // routeScopes binds each management route to the scope it requires.
 //
 // The fire endpoint shares the POST /api/v1/triggers prefix with trigger
@@ -310,66 +275,6 @@ func scopeDeclarations() []routescopes.ScopeDeclaration {
 	}
 }
 
-// registerScopes publishes the route table and vocabulary to the policy service,
-// retrying with backoff while it comes up. Registration is idempotent.
-//
-// It goes through the authenticated policy client rather than the anonymous
-// routescopes client: /routes/register requires a bearer token, which the
-// client obtains by exchanging this pod's SVID.
-func registerScopes(ctx context.Context, logger logging.Logger, policyClient *policyclient.Client) {
-	const (
-		maxAttempts = 10
-		baseDelay   = 2 * time.Second
-	)
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations()); err == nil {
-			logger.Info(ctx, "triggers scope vocabulary registered with policy service")
-			return
-		} else {
-			logger.Warn(ctx, "trigger scope registration attempt failed, retrying",
-				logging.Field{Key: "attempt", Value: attempt},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Duration(attempt) * baseDelay):
-		}
-	}
-
-	logger.Error(ctx, "trigger scope registration gave up after max attempts")
-}
-
-// runRegistrationLoop re-registers routes and scopes on a fixed cadence, so a
-// policy-service restart does not leave this service unregistered.
-//
-// Registration lives in the policy service's memory. Registering once at startup
-// therefore holds only until that pod restarts, after which nothing re-publishes
-// our route table and every scope we declare is unknown to it. Matches the
-// inference gateway and tool gateway, which self-heal the same way for the same
-// reason. Registration is idempotent, so a tick that changes nothing costs one
-// call.
-func runRegistrationLoop(ctx context.Context, logger logging.Logger, policyClient *policyclient.Client, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations()); err != nil {
-				logger.Warn(ctx, "periodic trigger scope re-registration failed",
-					logging.Field{Key: "error", Value: err.Error()})
-				continue
-			}
-			logger.Debug(ctx, "trigger scope vocabulary re-registered")
-		}
-	}
-}
-
 func initObservability(ctx context.Context) (func(), error) {
 	shutdown, err := observability.Setup(ctx, observability.Config{
 		ServiceName:     tc.Current.Observability.ServiceName,
@@ -390,60 +295,23 @@ func initObservability(ctx context.Context) (func(), error) {
 }
 
 // initMeter sets up the OpenTelemetry metrics pipeline for this binary and
-// returns the meter the Triggers instruments are built on.
-//
-// It deliberately mirrors observability.Setup's exporter selection, including
-// its priority order — an explicit OTLP endpoint always wins, and everything
-// else gets a provider that records nothing — so metrics and traces are
-// configured by the same two settings and cannot end up pointing at different
-// collectors.
-//
-// It lives here rather than in internal/platform/observability because that
-// package is traces-only today and is shared by every binary; adding a metrics
-// pipeline to it changes the runtime behavior of twelve other services at once.
-// This is the first service to need metrics, and the shape it proves out here is
-// what should be lifted into the platform package when the second one does.
+// returns the meter the Triggers instruments are built on. The pipeline is
+// the platform's: exporter selection lives in observability.SetupMetrics, so
+// metrics and traces are configured by the same two settings and cannot end
+// up pointing at different collectors.
 func initMeter(ctx context.Context) (metric.Meter, func(), error) {
-	res, err := resource.New(ctx, resource.WithAttributes(
-		semconv.ServiceName(tc.Current.Observability.ServiceName),
-		semconv.ServiceVersion(tc.Current.App.Version),
-		semconv.DeploymentEnvironment(config.Environment()),
-	))
+	meter, shutdown, err := observability.SetupMetrics(ctx, observability.Config{
+		ServiceName:    tc.Current.Observability.ServiceName,
+		ServiceVersion: tc.Current.App.Version,
+		Environment:    config.Environment(),
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create metrics resource: %w", err)
+		return nil, nil, err
 	}
-
-	endpoint := observability.DefaultConfig.OTLPEndpoint
-	if endpoint == "" {
-		// No collector configured: a provider with no reader records nothing and
-		// exports nothing. The instruments still exist, so no call site needs a
-		// nil check and nothing is written to pod logs.
-		mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res))
-		otel.SetMeterProvider(mp)
-		return mp.Meter(tc.Current.Observability.ServiceName), func() { _ = mp.Shutdown(context.Background()) }, nil
-	}
-
-	opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
-	if observability.DefaultConfig.OTLPInsecure {
-		opts = append(opts, otlpmetricgrpc.WithInsecure())
-	} else {
-		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")))
-	}
-	exporter, err := otlpmetricgrpc.New(ctx, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create OTLP metric exporter: %w", err)
-	}
-
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
-	)
-	otel.SetMeterProvider(mp)
-
-	return mp.Meter(tc.Current.Observability.ServiceName), func() {
+	return meter, func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.ShutdownTimeout())
 		defer cancel()
-		if err := mp.Shutdown(shutdownCtx); err != nil {
+		if err := shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
 		}
 	}, nil

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
@@ -107,7 +106,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context), error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
 	// Register factories for every supported provider. Each factory reads its
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
@@ -182,7 +181,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
-	register := initScopeRegistration(ctx, logger, router)
+	register := initScopeRegistration(logger, router)
 
 	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
 	go pricingCache.Start(ctx)
@@ -210,12 +209,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 }
 
 // initScopeRegistration wires the policy-service scope vocabulary for the
-// inference gateway. It registers once immediately (in a background goroutine,
-// since the routescopes client retries until the identity-proxy sidecar is
-// ready) and installs a hook on the router so the vocabulary is re-synced
-// whenever GET /v1/models refreshes the catalog. It returns the register
-// function so the caller can drive the periodic self-heal loop.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) {
+// inference gateway. It installs a hook on the router so the vocabulary is
+// re-synced whenever GET /v1/models refreshes the catalog, and returns the
+// register function; the caller hands it to routescopes.KeepRegistered, which
+// owns the initial registration and the periodic self-heal loop.
+func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) error {
 	// WithInitialDelay(0): the default 15s startup grace (waiting for the
 	// identity-proxy sidecar) would be added to *every* Register call, including
 	// each periodic self-heal tick and catalog-refresh — pure latency that
@@ -224,7 +222,7 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 	// the client's own retry-with-backoff, so no upfront delay is needed.
 	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
 
-	register := func(registerCtx context.Context) {
+	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
 		// Drop routes whose RequiredScope is empty — those are
@@ -233,9 +231,9 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 		// when Layer 1 sidecar enforcement is enabled in the future.
 		scopedRoutes := filterScopedRoutes(inferenceRoutes())
 		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
-			logger.Warn(registerCtx, "route re-registration failed",
-				logging.Field{Key: "error", Value: fmt.Errorf("register routes: %w", err).Error()})
+			return fmt.Errorf("register routes: %w", err)
 		}
+		return nil
 	}
 
 	// The hook fires whenever GET /v1/models refreshes the catalog, long after
@@ -248,7 +246,6 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
 		}
 	})
-	go register(ctx)
 
 	return register
 }
@@ -331,7 +328,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context), error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, register, err := initControllers(ctx, logger, db, redis)
@@ -357,7 +354,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context)) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -368,7 +365,9 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 		}
 	}()
 
-	go runRegistrationLoop(runCtx, register, igc.Current.Policy.ReregistrationInterval(), logger)
+	// Register now and keep the registration alive across policy-service
+	// restarts; the shared helper owns the retry and re-registration cadence.
+	go routescopes.KeepRegistered(runCtx, logger, "inference-gateway", igc.Current.Policy.ReregistrationInterval(), register)
 
 	<-runCtx.Done()
 	logger.Info(ctx, "Shutting down inference gateway...")
@@ -381,22 +380,4 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	}
 
 	logger.Info(ctx, "Inference gateway shutdown complete")
-}
-
-// runRegistrationLoop periodically re-registers the inference gateway routes
-// and catalog scopes with the policy service. This self-heals the in-memory
-// registration store after a policy-service restart. Matches the cadence of
-// the tool-gateway re-introspection loop (5-minute default).
-func runRegistrationLoop(ctx context.Context, register func(context.Context), interval time.Duration, logger logging.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			logger.Debug(ctx, "periodic route re-registration tick")
-			register(ctx)
-		}
-	}
 }
