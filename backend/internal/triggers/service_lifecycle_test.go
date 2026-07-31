@@ -610,3 +610,41 @@ func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
 		})
 	}
 }
+
+func TestListTriggers_FilterByKind(t *testing.T) {
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	webhook := mustTrigger(t, deps.triggers, src.ID, map[string][]string{"action": {"opened"}}, "review {{ pr.number }}")
+	manual := mustManualTrigger(t, deps.triggers)
+	ctx := context.Background()
+
+	// No kind: both are returned.
+	all, err := deps.triggers.ListTriggers(ctx, testTenant, "", "")
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("want 2 triggers unfiltered, got %d", len(all))
+	}
+
+	// kind=manual returns only the manual trigger; a webhook kind excludes it.
+	manuals, err := deps.triggers.ListTriggers(ctx, testTenant, "", KindManual)
+	if err != nil {
+		t.Fatalf("list manual: %v", err)
+	}
+	if len(manuals) != 1 || manuals[0].ID != manual.ID {
+		t.Fatalf("kind=manual should return only %s, got %v", manual.ID, manuals)
+	}
+	webhooks, err := deps.triggers.ListTriggers(ctx, testTenant, "", KindWebhook)
+	if err != nil {
+		t.Fatalf("list webhook: %v", err)
+	}
+	if len(webhooks) != 1 || webhooks[0].ID != webhook.ID {
+		t.Fatalf("kind=webhook should return only %s, got %v", webhook.ID, webhooks)
+	}
+
+	// An unknown kind is a validation error, not a silent empty list.
+	if _, err := deps.triggers.ListTriggers(ctx, testTenant, "", "nonsense"); !errors.Is(err, ErrValidation) {
+		t.Errorf("unknown kind should be ErrValidation, got %v", err)
+	}
+}

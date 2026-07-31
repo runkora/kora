@@ -316,13 +316,24 @@ func runStatusForDispatchError(err error) string {
 // this trigger, as opposed to something about the platform underneath it.
 //
 // Auto-pause is a statement that a trigger is broken, and undoing it costs a
-// human a manual re-enable. A 5xx from orbit-agents is not that statement: pod
-// capacity exhaustion fails every trigger in the tenant at once, and counting it
-// would pause the whole estate during a blip and leave someone re-enabling each
-// one by hand. The delivery is still recorded as failed either way; this governs
-// only whether it moves the trigger toward being disabled.
+// human a manual re-enable, so only a failure intrinsic to the trigger counts:
+// a genuine authorization denial (a revoked grant, past the grant-propagation
+// retry), or the agent type it binds having been deleted. Retrying either is
+// futile and the failure is the trigger's own, so pausing stops the noise.
+//
+// Everything else is a platform condition that pausing cannot fix, and is
+// matched by exclusion rather than by name: orbit-agents unreachable (a raw
+// transport error) or erroring (5xx), a dispatch that timed out, shutdown
+// canceling the call, or a token the identity service could not mint. Each of
+// those fails every trigger in the tenant at once, so counting them would pause
+// the whole estate during a blip and leave someone re-enabling each one by
+// hand. An allowlist rather than a blocklist because the platform faults have
+// no common sentinel (a connection refused is an arbitrary net error), and the
+// harm worth avoiding is the wrongful mass-pause: an unrecognized error stays
+// visible as a failed delivery without moving the trigger toward disabled.
 func countsTowardAutoPause(err error) bool {
-	return !errors.Is(err, agentsclient.ErrUpstreamUnavailable)
+	return errors.Is(err, agentsclient.ErrForbidden) ||
+		errors.Is(err, agentsclient.ErrAgentTypeNotFound)
 }
 
 // runPrincipal resolves whose identity a trigger's run executes under.

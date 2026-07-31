@@ -289,9 +289,31 @@ func (s *TriggerService) readBackTrigger(ctx context.Context, t *Trigger) *Trigg
 	return stored
 }
 
-// ListTriggers returns triggers for a tenant, optionally filtered by agent type.
-func (s *TriggerService) ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error) {
-	return s.repo.ListTriggers(ctx, tenantID, agentTypeID)
+// ListTriggers returns triggers for a tenant, optionally filtered by agent type
+// and by kind. An unknown kind is rejected rather than silently matching
+// nothing, so a caller misspelling ?kind= learns why instead of seeing an empty
+// list and concluding they have no triggers.
+func (s *TriggerService) ListTriggers(ctx context.Context, tenantID, agentTypeID, kind string) ([]Trigger, error) {
+	triggers, err := s.repo.ListTriggers(ctx, tenantID, agentTypeID)
+	if err != nil {
+		return nil, err
+	}
+	if kind == "" {
+		return triggers, nil
+	}
+	if kind != KindWebhook && kind != KindScheduled && kind != KindManual {
+		return nil, fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, kind)
+	}
+	// Filtered here rather than in the query: kind is a low-cardinality
+	// post-filter over a tenant's small trigger list, so it does not earn
+	// another conditional in the SQL builder next to agent_type_id.
+	filtered := make([]Trigger, 0, len(triggers))
+	for _, t := range triggers {
+		if t.Kind == kind {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered, nil
 }
 
 // GetTrigger returns a single trigger.

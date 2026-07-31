@@ -534,7 +534,7 @@ func TestTrigger_PendingCount(t *testing.T) {
 		t.Errorf("pending_count = %d, want 3 waiting", got.PendingCount)
 	}
 
-	listed, err := deps.triggers.ListTriggers(ctx, testTenant, "")
+	listed, err := deps.triggers.ListTriggers(ctx, testTenant, "", "")
 	if err != nil {
 		t.Fatalf("ListTriggers: %v", err)
 	}

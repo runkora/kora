@@ -275,7 +275,8 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx), r.URL.Query().Get("agent_type_id"))
+	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx),
+		r.URL.Query().Get("agent_type_id"), r.URL.Query().Get("kind"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

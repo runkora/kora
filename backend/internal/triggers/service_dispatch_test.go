@@ -12,9 +12,10 @@ import (
 
 // errTriggerSideFailure stands for a dispatch failure that says something about
 // the trigger rather than about the platform, which is what auto-pause counts.
-// A platform fault is covered separately by
-// TestAutoPause_IgnoresUpstreamUnavailable.
-var errTriggerSideFailure = errors.New("dispatch failed")
+// A revoked grant is the archetype: it denies this trigger and no other, past
+// the propagation retry, and retrying it is futile. Platform faults are covered
+// separately by TestAutoPause_IgnoresPlatformFaults.
+var errTriggerSideFailure = fmt.Errorf("start run: %w", agentsclient.ErrForbidden)
 
 // The ADR's headline example: one at a time, replace what is waiting, three
 // overlapping fires. Exactly one further run, and the displaced fires are
@@ -174,28 +175,44 @@ func TestAutoPause_SuccessResetsTheCount(t *testing.T) {
 	}
 }
 
-// A platform fault is not the trigger's fault. orbit-agents running out of pod
-// capacity fails every trigger in the tenant at once; pausing them all would
-// turn a transient blip into an estate-wide manual re-enable.
-func TestAutoPause_IgnoresUpstreamUnavailable(t *testing.T) {
-	svc, deps := newTestService(t)
-	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
-
-	for range autoPauseThreshold * 2 {
-		svc.noteFailure(context.Background(), trig,
-			fmt.Errorf("start run: %w", agentsclient.ErrUpstreamUnavailable))
+// A platform fault is not the trigger's fault, and none of its forms may move a
+// trigger toward auto-pause: orbit-agents erroring (5xx) or unreachable (a raw
+// transport error), a dispatch that timed out, shutdown cancelling the call, or
+// a token the identity service could not mint. Each fails every trigger in the
+// tenant at once, so counting any of them would turn a transient blip into an
+// estate-wide manual re-enable. The transport, timeout, cancel and mint cases
+// arrive as errors with no shared sentinel, which is why the classifier is an
+// allowlist: only a named trigger-side fault counts, everything else does not.
+func TestAutoPause_IgnoresPlatformFaults(t *testing.T) {
+	platformFaults := map[string]error{
+		"upstream 5xx":      fmt.Errorf("start run: %w", agentsclient.ErrUpstreamUnavailable),
+		"transport error":   errors.New("start run: dial tcp: connection refused"),
+		"dispatch timeout":  fmt.Errorf("start run: %w", context.DeadlineExceeded),
+		"shutdown cancel":   fmt.Errorf("start run: %w", context.Canceled),
+		"token mint failed": errors.New("mint trigger token: identity unavailable"),
 	}
 
-	stored, err := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
-	if err != nil {
-		t.Fatalf("get trigger: %v", err)
-	}
-	if !stored.Enabled {
-		t.Error("a platform fault should not auto-pause the trigger")
-	}
-	if stored.ConsecutiveFailures != 0 {
-		t.Errorf("consecutive_failures = %d, want 0: a platform fault says nothing about this trigger",
-			stored.ConsecutiveFailures)
+	for name, fault := range platformFaults {
+		t.Run(name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+
+			for range autoPauseThreshold * 2 {
+				svc.noteFailure(context.Background(), trig, fault)
+			}
+
+			stored, err := deps.repo.GetTrigger(context.Background(), testTenant, trig.ID)
+			if err != nil {
+				t.Fatalf("get trigger: %v", err)
+			}
+			if !stored.Enabled {
+				t.Error("a platform fault should not auto-pause the trigger")
+			}
+			if stored.ConsecutiveFailures != 0 {
+				t.Errorf("consecutive_failures = %d, want 0: a platform fault says nothing about this trigger",
+					stored.ConsecutiveFailures)
+			}
+		})
 	}
 }
 
