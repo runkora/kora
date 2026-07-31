@@ -1,44 +1,39 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. The Triggers page's own list, deliveries and
- * wizard, scoped to THIS agent. This file owns the scoping and nothing else:
- * every row, cell, tone and API call is the Triggers feature's, imported rather
- * than reimplemented, so the two surfaces cannot drift. */
+/** @tier 3 — agents/[slug]-scoped. The Triggers page's own list, drawer,
+ * deliveries and wizard, scoped to THIS agent. This file owns the scoping and
+ * nothing else: every row, cell, tone, action and API call is the Triggers
+ * feature's, imported rather than reimplemented, so the two surfaces cannot
+ * drift. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Alert, Button, Heading, Icon, Stack, Text } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { ConfirmDialog, EmptyState } from '@orbit/components';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,
   TriggerDraft,
 } from '../../../triggers/_components/trigger-wizard';
 import { TriggerList } from '../../../triggers/_components/trigger-list';
+import { TriggerDrawer } from '../../../triggers/_components/trigger-drawer';
+import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
 import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
 import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
+import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
+import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
 import {
   listDeliveries,
   listSources,
   listTriggers,
-  redeliverDelivery,
-  updateTrigger,
 } from '../../../triggers/_services/triggers-api';
-import {
-  toDeliveryRow,
-  toSourceRow,
-  toTriggerRow,
-  toTriggerUpdateRequest,
-} from '../../../triggers/_types';
+import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
-import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
-  const router = useRouter();
   const ingestHost = ingestHostFromWindow();
 
   const [sources, setSources] = useState<SourceRow[]>([]);
@@ -48,7 +43,8 @@ export function AgentTriggersTab() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<TriggerNotice | null>(null);
+  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
 
   const agentId = agent?.id ?? '';
@@ -74,6 +70,27 @@ export function AgentTriggersTab() {
     load();
   }, [load]);
 
+  // The same actions the platform Triggers page performs, refreshing this
+  // page's lists and raising notices on its own Alert.
+  const {
+    startManualRun,
+    rotateSecret,
+    toggleTrigger,
+    updateSafety,
+    saveTriggerEdit,
+    redeliver,
+    firingId,
+    runFormTrigger,
+    setRunFormTrigger,
+    fireManualTrigger,
+    deleteCandidate,
+    setDeleteCandidate,
+    deleting,
+    deleteError,
+    confirmDelete,
+    closeDeleteDialog,
+  } = useTriggerActions({ refresh: load, notify: setNotice });
+
   // The delivery log is platform-wide; this page shows the arrivals that
   // reached THIS agent's triggers, whether as the matched trigger or as one
   // row of a fan-out.
@@ -93,19 +110,6 @@ export function AgentTriggersTab() {
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
-  const toggleTrigger = useCallback(
-    async (t: TriggerRow) => {
-      setActionError(null);
-      const result = await updateTrigger(t.id, toTriggerUpdateRequest({ enabled: !t.enabled }));
-      if (result.error) {
-        setActionError(`${t.name}: ${result.error}`);
-        return;
-      }
-      load();
-    },
-    [load],
-  );
-
   /**
    * Creates from the wizard's draft, then reloads this page's lists.
    *
@@ -121,14 +125,13 @@ export function AgentTriggersTab() {
     [ingestHost, load],
   );
 
-  const redeliver = useCallback(
-    async (row: DeliveryRow): Promise<{ deliveryId: string | null; error: string | null }> => {
-      const result = await redeliverDelivery(row.id);
-      if (result.error === null) load();
-      return result;
-    },
-    [load],
-  );
+  // Read the open trigger back out of the live list rather than trusting the
+  // row captured when the drawer opened: saving a setting inside the panel
+  // reloads the lists, and a snapshot would show the value it had before.
+  const drawerRow =
+    drawerTrigger === null
+      ? null
+      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
 
   if (!agent) return null;
 
@@ -169,7 +172,7 @@ export function AgentTriggersTab() {
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
-      {actionError && <Alert variant="error">{actionError}</Alert>}
+      {notice && <Alert variant={notice.ok ? 'info' : 'error'}>{notice.message}</Alert>}
 
       {!loading && triggers.length === 0 ? (
         <EmptyState
@@ -189,10 +192,7 @@ export function AgentTriggersTab() {
             triggers={triggers}
             deliveries={agentDeliveries}
             sourceName={sourceName}
-            // Configuring a trigger lives in the Triggers page drawer, which
-            // owns every field. This page creates and lists; opening a row
-            // goes to the editor rather than forking a second one here.
-            onOpen={() => router.push(APP_ROUTES.triggers)}
+            onOpen={setDrawerTrigger}
             onToggle={(t) => void toggleTrigger(t)}
             emptyMessage="No triggers for this agent."
           />
@@ -211,11 +211,42 @@ export function AgentTriggersTab() {
         </Stack>
       )}
 
+      {/* The Triggers page's own drawer, so configuring a trigger here is the
+          same surface, byte for byte, as configuring it there. */}
+      <TriggerDrawer
+        trigger={drawerRow}
+        sources={sources}
+        deliveries={agentDeliveries}
+        ingestHost={ingestHost}
+        onClose={() => setDrawerTrigger(null)}
+        onToggleEnabled={(t) => {
+          setDrawerTrigger(null);
+          void toggleTrigger(t);
+        }}
+        onDelete={(t) => {
+          setDrawerTrigger(null);
+          setDeleteCandidate(t);
+        }}
+        onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
+        onEdit={saveTriggerEdit}
+        onRedeliver={redeliver}
+        onRotateSecret={rotateSecret}
+        onFire={startManualRun}
+        // Scoped to the trigger on screen: firing one trigger must not make
+        // another one's panel claim it is queueing.
+        firing={firingId === drawerRow?.id}
+      />
+
       {detailDelivery !== null && (
         <DeliveryDetailPanel
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          onOpenTrigger={(triggerId) => {
+            const owner = triggers.find((t) => t.id === triggerId);
+            setDetailDelivery(null);
+            if (owner !== undefined) setDrawerTrigger(owner);
+          }}
         />
       )}
 
@@ -233,6 +264,25 @@ export function AgentTriggersTab() {
           }}
         />
       )}
+
+      {runFormTrigger !== null && (
+        <RunTriggerModal
+          trigger={runFormTrigger}
+          onClose={() => setRunFormTrigger(null)}
+          onFire={(variables) => fireManualTrigger(runFormTrigger, variables)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!deleteCandidate}
+        title="Delete trigger"
+        description={`Permanently delete "${deleteCandidate?.name ?? ''}"? It will stop firing runs for this agent.`}
+        confirmLabel="Delete trigger"
+        confirming={deleting}
+        error={deleteError}
+        onConfirm={() => void confirmDelete()}
+        onClose={closeDeleteDialog}
+      />
     </Stack>
   );
 }

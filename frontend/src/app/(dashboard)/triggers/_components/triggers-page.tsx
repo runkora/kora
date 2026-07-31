@@ -21,24 +21,18 @@ import {
   Text,
 } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
-import {
-  deleteTrigger,
-  fireTrigger,
-  redeliverDelivery,
-  updateSource,
-  updateTrigger,
-} from '../_services/triggers-api';
 import { createFromWizardDraft } from '../_services/create-from-wizard';
+import { useTriggerActions } from './use-trigger-actions';
+import type { TriggerNotice } from './use-trigger-actions';
 import { DeliveryDetailPanel } from './delivery-detail-panel';
 import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
 import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
-import type { TriggerEditPatch } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { deliveryTriggerLabel, matchesStatusFilter, toTriggerUpdateRequest } from '../_types';
+import { deliveryTriggerLabel, matchesStatusFilter } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
@@ -75,9 +69,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [deleteTrg, setDeleteTrg] = useState<TriggerRow | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   // The platform Deliveries tab is not scoped to one trigger, so a row opens
   // its own panel rather than the owning trigger's drawer: the question being
@@ -198,47 +189,29 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     </Stack>
   );
 
-  const [firingId, setFiringId] = useState<string | null>(null);
-  /** Manual trigger whose input form is open. */
-  const [runFormTrigger, setRunFormTrigger] = useState<TriggerRow | null>(null);
-  const [fireResult, setFireResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
-  const fireManualTrigger = useCallback(
-    async (row: TriggerRow, variables?: Record<string, string>): Promise<string | null> => {
-      setFiringId(row.id);
-      setFireResult(null);
-      const result = await fireTrigger(row.id, variables);
-      setFiringId(null);
-      if (result.error !== null) {
-        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
-        return result.error;
-      }
-      // The fire is durably queued and the run starts moments later, so there
-      // is no run to name yet. Reporting one here would mean starting the run
-      // before acknowledging, which is what loses fires on a restart.
-      setFireResult({ ok: true, message: `${row.name}: queued. The run starts shortly.` });
-      // The delivery exists now; refresh so the drawer's Deliveries tab shows it.
-      router.refresh();
-      return null;
-    },
-    [router],
-  );
-
-  /**
-   * Running a manual trigger goes through its declared form when it has one;
-   * a trigger with no inputs fires directly. The same declaration validates
-   * the API call, so the form cannot drift from what /fire accepts.
-   */
-  const startManualRun = useCallback(
-    (row: TriggerRow) => {
-      if ((row.manualInputs ?? []).length > 0) {
-        setRunFormTrigger(row);
-        return;
-      }
-      void fireManualTrigger(row);
-    },
-    [fireManualTrigger],
-  );
+  // Every mutation this page can perform, shared with the agent page's
+  // Triggers tab so the two surfaces drive the same drawer identically.
+  const refresh = useCallback(() => router.refresh(), [router]);
+  const {
+    fireManualTrigger,
+    startManualRun,
+    rotateSecret,
+    toggleTrigger,
+    updateSafety,
+    saveTriggerEdit,
+    redeliver,
+    firingId,
+    runFormTrigger,
+    setRunFormTrigger,
+    deleteCandidate,
+    setDeleteCandidate,
+    deleting,
+    deleteError,
+    confirmDelete,
+    closeDeleteDialog,
+  } = useTriggerActions({ refresh, notify: setFireResult });
 
   /**
    * Executes the wizard's draft: the source first when one was asked for, then
@@ -254,83 +227,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     [router, ingestHost],
   );
 
-  /** Rotates a webhook trigger's source secret; the drawer shows it once. */
-  const rotateSecret = useCallback(async (row: TriggerRow): Promise<string | null> => {
-    const result = await updateSource(row.sourceId, { rotate_secret: true });
-    if (result.error || !result.source?.secret) {
-      setFireResult({
-        ok: false,
-        message: `${row.name}: ${result.error ?? 'rotation returned no secret'}`,
-      });
-      return null;
-    }
-    return result.source.secret;
-  }, []);
-
-  const toggleTrigger = useCallback(
-    async (row: TriggerRow) => {
-      const result = await updateTrigger(row.id, toTriggerUpdateRequest({ enabled: !row.enabled }));
-      if (result.error) {
-        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
-        return;
-      }
-      router.refresh();
-    },
-    [router],
-  );
-
-  /**
-   * Persists a safety setting from the drawer.
-   *
-   * The drawer stays open: these are settings a reader adjusts while looking at
-   * the trigger, not an action that finishes with it, so closing the panel
-   * underneath them would lose their place.
-   */
-  const updateSafety = useCallback(
-    async (row: TriggerRow, patch: Partial<TriggerRow>) => {
-      const result = await updateTrigger(row.id, toTriggerUpdateRequest(patch));
-      if (result.error) {
-        setFireResult({ ok: false, message: `${row.name}: ${result.error}` });
-        return;
-      }
-      router.refresh();
-    },
-    [router],
-  );
-
-  /**
-   * Persists a correction made in the drawer.
-   *
-   * Unlike the safety controls, this resolves with the failure rather than
-   * raising a page-level notice: the drawer keeps the edit on screen next to
-   * the reason, so nothing typed is lost to a rejected save.
-   */
-  const saveTriggerEdit = useCallback(
-    async (row: TriggerRow, patch: TriggerEditPatch): Promise<string | null> => {
-      const result = await updateTrigger(row.id, toTriggerUpdateRequest(patch));
-      if (result.error) return result.error;
-      router.refresh();
-      return null;
-    },
-    [router],
-  );
-
-  /**
-   * Replays a delivery.
-   *
-   * The refresh follows the call so the new arrival shows up in the list; the
-   * result is handed back to the caller, which reports it beside the delivery
-   * rather than as a page-level notice.
-   */
-  const redeliver = useCallback(
-    async (row: DeliveryRow): Promise<{ deliveryId: string | null; error: string | null }> => {
-      const result = await redeliverDelivery(row.id);
-      if (result.error === null) router.refresh();
-      return result;
-    },
-    [router],
-  );
-
   // Read the open trigger back out of the live list rather than trusting the
   // row captured when the drawer opened: saving a setting inside the panel
   // refreshes the page data, and a snapshot would leave the control showing
@@ -339,20 +235,6 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     drawerTrigger === null
       ? null
       : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
-
-  const confirmDeleteTrigger = useCallback(async () => {
-    if (!deleteTrg) return;
-    setDeleting(true);
-    setDeleteError(null);
-    const result = await deleteTrigger(deleteTrg.id);
-    setDeleting(false);
-    if (result.error) {
-      setDeleteError(result.error);
-      return;
-    }
-    setDeleteTrg(null);
-    router.refresh();
-  }, [deleteTrg, router]);
 
   return (
     <Stack gap="comfortable">
@@ -451,7 +333,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         }}
         onDelete={(t) => {
           setDrawerTrigger(null);
-          setDeleteTrg(t);
+          setDeleteCandidate(t);
         }}
         onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onEdit={saveTriggerEdit}
@@ -488,17 +370,14 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
 
       {/* Delete confirmations */}
       <ConfirmDialog
-        open={!!deleteTrg}
+        open={!!deleteCandidate}
         title="Delete trigger"
-        description={`Permanently delete "${deleteTrg?.name ?? ''}"? It will stop firing runs.`}
+        description={`Permanently delete "${deleteCandidate?.name ?? ''}"? It will stop firing runs.`}
         confirmLabel="Delete trigger"
         confirming={deleting}
         error={deleteError}
-        onConfirm={() => void confirmDeleteTrigger()}
-        onClose={() => {
-          setDeleteTrg(null);
-          setDeleteError(null);
-        }}
+        onConfirm={() => void confirmDelete()}
+        onClose={closeDeleteDialog}
       />
     </Stack>
   );
