@@ -48,10 +48,10 @@ func TestAdmission_Refuse_DropsAtCeiling(t *testing.T) {
 	svc, deps := newTestService(t)
 	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
 
-	// Occupy the only slot with a dispatched run.
-	deps.repo.deliveryRuns = append(deps.repo.deliveryRuns, &DeliveryRun{
-		ID: "r1", TenantID: testTenant, DeliveryID: "prior", TriggerID: trig.ID, Status: RunStatusDispatched,
-	})
+	// The store is at the ceiling and turns the fire away. Whether it refuses at
+	// the right moment is the statement's business, covered against Postgres;
+	// what matters here is what the service does with the refusal.
+	deps.repo.refuseAdmission = true
 
 	ids := enqueue(t, svc, deps, trig, 1)
 

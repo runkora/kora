@@ -33,6 +33,12 @@ func silentLogger() logging.Logger { return logging.NewLoggerWithOutput(io.Disca
 // ── mockRepository ──────────────────────────────────────────────────────────
 
 type mockRepository struct {
+	// refuseAdmission makes EnqueueWithinCeiling turn a fire away, so a test can
+	// assert what the service does with a refusal.
+	refuseAdmission bool
+	// orphaned is what DrainOrphanedPending hands back.
+	orphaned []OrphanedPending
+
 	mu           sync.Mutex
 	sources      map[string]*WebhookSource
 	triggers     map[string]*Trigger
@@ -877,31 +883,18 @@ func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) e
 	return nil
 }
 
-// EnqueueWithinCeiling mirrors the SQL: the count and the insert happen under
-// one lock, so two concurrent admissions cannot both pass the check. Holding
-// m.mu across both is what makes this the same guarantee the row lock gives.
-func (m *mockRepository) EnqueueWithinCeiling(_ context.Context, p *PendingDelivery, maxParallel int) (bool, error) {
+// EnqueueWithinCeiling admits unless the test has said the store refuses.
+//
+// A stub rather than a reimplementation of the occupancy count: what a service
+// test has to show is that a refusal is recorded as a dropped outcome, and for
+// that the refusal only needs to happen. Whether the real statement refuses at
+// the right moment is TestPostgres_EnqueueWithinCeilingRefusesAtTheCeiling's.
+func (m *mockRepository) EnqueueWithinCeiling(_ context.Context, p *PendingDelivery, _ int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	occupied := 0
-	for _, r := range m.deliveryRuns {
-		if r.TriggerID == p.TriggerID && r.Status == RunStatusDispatched {
-			occupied++
-		}
-	}
-	for _, q := range m.pending {
-		if q.TriggerID != p.TriggerID {
-			continue
-		}
-		if !q.claimed || time.Since(q.claimedAt) < StaleClaimWindow {
-			occupied++
-		}
-	}
-	if occupied >= maxParallel {
+	if m.refuseAdmission {
 		return false, nil
 	}
-
 	cp := *p
 	if cp.EnqueuedAt.IsZero() {
 		cp.EnqueuedAt = time.Now()
@@ -910,25 +903,15 @@ func (m *mockRepository) EnqueueWithinCeiling(_ context.Context, p *PendingDeliv
 	return true, nil
 }
 
-// ClaimPending mirrors the SQL: oldest unclaimed first, only for triggers under
-// their ceiling.
+// ClaimPending hands back the oldest waiting rows, up to limit.
+//
+// It does not model the ceiling or the enabled check the real statement applies:
+// which rows are claimable is decided by SQL, and asserting it here would only
+// confirm this file agrees with itself. TestPostgres_StrandedClaimReleasesItsSlot
+// and its neighbours cover that against the database.
 func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDelivery, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	inFlight := map[string]int{}
-	for _, r := range m.deliveryRuns {
-		if r.Status == RunStatusDispatched {
-			inFlight[r.TriggerID]++
-		}
-	}
-	// Claimed rows hold a slot, but only within the reaper's window: a claim
-	// older than that belongs to a worker that died.
-	for _, p := range m.pending {
-		if p.claimed && time.Since(p.claimedAt) < StaleClaimWindow {
-			inFlight[p.TriggerID]++
-		}
-	}
 
 	var out []PendingDelivery
 	for _, p := range m.pending {
@@ -938,20 +921,8 @@ func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDe
 		if p.claimed {
 			continue
 		}
-		t, ok := m.triggers[p.TriggerID]
-		if !ok || !t.Enabled {
-			continue
-		}
-		ceiling := int(t.MaxParallel)
-		if ceiling <= 0 {
-			ceiling = 4
-		}
-		if inFlight[p.TriggerID] >= ceiling {
-			continue
-		}
 		p.claimed = true
 		p.claimedAt = time.Now()
-		inFlight[p.TriggerID]++
 		out = append(out, p.PendingDelivery)
 	}
 	return out, nil
@@ -993,40 +964,22 @@ func (m *mockRepository) DrainPending(_ context.Context, triggerID string) ([]Pe
 	return m.removePending(func(p *pendingRow) bool { return p.TriggerID == triggerID && !p.claimed })
 }
 
-// DrainOrphanedPending mirrors the SQL: waiting rows whose trigger is gone or
-// switched off.
+// DrainOrphanedPending returns whatever the test has staged as orphaned.
+//
+// Which waiting rows count as orphaned is a query over triggers that no longer
+// exist or are switched off, and TestPostgres_DrainOrphanedPending covers it.
+// The worker's job, which is what a service test is about, is to record what it
+// is handed.
 func (m *mockRepository) DrainOrphanedPending(_ context.Context, limit int) ([]OrphanedPending, error) {
 	m.mu.Lock()
-	type meta struct {
-		name   string
-		exists bool
+	defer m.mu.Unlock()
+	if len(m.orphaned) > limit {
+		out := m.orphaned[:limit]
+		m.orphaned = m.orphaned[limit:]
+		return out, nil
 	}
-	orphans := map[string]meta{}
-	for _, p := range m.pending {
-		if p.claimed || len(orphans) >= limit {
-			continue
-		}
-		t, ok := m.triggers[p.TriggerID]
-		if ok && t.Enabled {
-			continue
-		}
-		md := meta{exists: ok}
-		if ok {
-			md.name = t.Name
-		}
-		orphans[p.ID] = md
-	}
-	m.mu.Unlock()
-
-	removed, err := m.removePending(func(p *pendingRow) bool { _, ok := orphans[p.ID]; return ok })
-	if err != nil {
-		return nil, err
-	}
-	out := make([]OrphanedPending, 0, len(removed))
-	for _, p := range removed {
-		md := orphans[p.ID]
-		out = append(out, OrphanedPending{PendingDelivery: p, TriggerName: md.name, TriggerExists: md.exists})
-	}
+	out := m.orphaned
+	m.orphaned = nil
 	return out, nil
 }
 
