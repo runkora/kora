@@ -18,6 +18,8 @@ func TestBuildProviderModel_DisplayNameNormalisation(t *testing.T) {
 		// Cohere: AWS injects a region word into the ModelName.
 		{"us.cohere.embed-v4:0", "US Cohere Embed v4", "Cohere Embed v4"},
 		{"global.cohere.embed-v4:0", "Global Cohere Embed v4", "Cohere Embed v4"},
+		// apac.* must strip "APAC " not "AP " (apac. and ap. both prefix-match apac.*).
+		{"apac.anthropic.claude-3-haiku-20240307-v1:0", "APAC Claude 3 Haiku", "Claude 3 Haiku"},
 		// DeepSeek: AWS returns empty ModelName — fallback must still produce vendor prefix.
 		{"deepseek.v3.1", "", "DeepSeek V3.1"},
 		// DeepSeek: AWS uses a hyphen separator after the vendor name.

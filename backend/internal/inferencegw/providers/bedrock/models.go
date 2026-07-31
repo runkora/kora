@@ -276,19 +276,18 @@ func computeCapabilities(canonicalID string, outputMods []inferencegw.Modality) 
 	return caps
 }
 
-// regionDisplayPrefixMap maps each known cross-region model ID prefix to the
-// corresponding word AWS prepends to the ModelName. Used to strip the region
-// word from display names only when the model ID confirms the model is actually
-// a cross-region profile — preventing false-positive matches on model names
-// that happen to start with "Global", "AU", etc.
-var regionDisplayPrefixMap = map[string]string{
-	"us.":     "US ",
-	"eu.":     "EU ",
-	"ap.":     "AP ",
-	"jp.":     "JP ",
-	"au.":     "AU ",
-	"apac.":   "APAC ",
-	"global.": "Global ",
+// regionDisplayPrefixes maps each known cross-region model ID prefix to the
+// corresponding word AWS prepends to the ModelName. Ordered longest-first so
+// "apac." is checked before "ap." — both are prefixes of "apac.*" IDs and a
+// map iteration would non-deterministically match the wrong one.
+var regionDisplayPrefixes = []struct{ idPfx, namePfx string }{
+	{"apac.", "APAC "},
+	{"global.", "Global "},
+	{"us.", "US "},
+	{"eu.", "EU "},
+	{"ap.", "AP "},
+	{"jp.", "JP "},
+	{"au.", "AU "},
 }
 
 // stripRegionDisplayPrefix removes a leading AWS region word from an
@@ -296,9 +295,9 @@ var regionDisplayPrefixMap = map[string]string{
 // cross-region profile. Without the ID check, short prefixes like "AU " or
 // "Global " could false-positive on legitimate model names.
 func stripRegionDisplayPrefix(canonicalID, name string) string {
-	for idPfx, namePfx := range regionDisplayPrefixMap {
-		if strings.HasPrefix(canonicalID, idPfx) && strings.HasPrefix(name, namePfx) {
-			return name[len(namePfx):]
+	for _, e := range regionDisplayPrefixes {
+		if strings.HasPrefix(canonicalID, e.idPfx) && strings.HasPrefix(name, e.namePfx) {
+			return name[len(e.namePfx):]
 		}
 	}
 	return name
