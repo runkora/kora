@@ -1355,3 +1355,77 @@ func TestPostgres_EnqueueWithinCeiling_HoldsUnderConcurrency(t *testing.T) {
 		t.Errorf("waiting fires = %d, want 1: a refused caller must not have left a row", n)
 	}
 }
+
+// Replace keeps only the newest waiting fire, and hands back the ones it
+// displaced so their outcomes can be recorded.
+//
+// Returning the rows is the part worth pinning: a DELETE that reported only a
+// count would leave the displaced fires with no outcome, and a fire the platform
+// accepted and then dropped silently is the one thing the delivery history is
+// there to prevent.
+func TestPostgres_SupersedePendingReturnsWhatItDisplaced(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+
+	var enqueued []string
+	for range 3 {
+		p := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+		enqueued = append(enqueued, p.DeliveryID)
+	}
+
+	displaced, err := r.SupersedePending(ctx, tr.ID)
+	if err != nil {
+		t.Fatalf("SupersedePending: %v", err)
+	}
+	if len(displaced) != 3 {
+		t.Fatalf("displaced %d rows, want all 3 so each can be recorded", len(displaced))
+	}
+	seen := map[string]bool{}
+	for _, d := range displaced {
+		seen[d.DeliveryID] = true
+	}
+	for _, id := range enqueued {
+		if !seen[id] {
+			t.Errorf("delivery %s was removed from the queue but not returned", id)
+		}
+	}
+	if n, err := r.UnclaimedPendingCount(ctx, tr.ID); err != nil || n != 0 {
+		t.Errorf("waiting after supersede = %d (%v), want 0", n, err)
+	}
+}
+
+// Refuse turns a fire away at the ceiling and leaves no row behind, so the
+// sender's 429 and the queue agree.
+//
+// Waiting fires count toward the ceiling as well as running ones: in-flight
+// alone sees only what a worker has already picked up, and the worker polls on
+// an interval.
+func TestPostgres_EnqueueWithinCeilingRefusesAtTheCeiling(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, 1)
+
+	first := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	admitted, err := r.EnqueueWithinCeiling(ctx, first, 1)
+	if err != nil || !admitted {
+		t.Fatalf("first fire admitted = %v (%v), want true against an empty queue", admitted, err)
+	}
+
+	second := &PendingDelivery{ID: uuid.NewString(), TenantID: tenant, TriggerID: tr.ID, DeliveryID: uuid.NewString()}
+	admitted, err = r.EnqueueWithinCeiling(ctx, second, 1)
+	if err != nil {
+		t.Fatalf("EnqueueWithinCeiling: %v", err)
+	}
+	if admitted {
+		t.Error("second fire was admitted at max_parallel=1 with one already waiting")
+	}
+	if n, err := r.UnclaimedPendingCount(ctx, tr.ID); err != nil || n != 1 {
+		t.Errorf("waiting = %d (%v), want 1: a refused fire must not leave a row", n, err)
+	}
+}

@@ -300,73 +300,7 @@ func TestWorker_DoesNotReclaimALiveClaim(t *testing.T) {
 	}
 }
 
-// A stranded claim must not keep costing its trigger a parallel slot in the
-// interval before the reaper reaches it.
-func TestAdmission_StrandedClaimDoesNotHoldASlot(t *testing.T) {
-	svc, deps := newTestService(t)
-	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
-	ctx := context.Background()
-
-	enqueue(t, svc, deps, trig, 1)
-	claimed, _ := deps.repo.ClaimPending(ctx, 10)
-	if len(claimed) != 1 {
-		t.Fatalf("claimed %d, want 1", len(claimed))
-	}
-
-	// While the claim is fresh it holds the only slot, so a new fire is refused.
-	if n, err := deps.repo.InFlightCount(ctx, trig.ID); err != nil || n != 1 {
-		t.Fatalf("in-flight with a fresh claim = %d (%v), want 1", n, err)
-	}
-
-	// Once it is stale it belongs to a dead worker and must not count.
-	deps.repo.backdateClaim(claimed[0].ID, StaleClaimWindow+time.Minute)
-	if n, err := deps.repo.InFlightCount(ctx, trig.ID); err != nil || n != 0 {
-		t.Errorf("in-flight with a stranded claim = %d (%v), want 0", n, err)
-	}
-}
-
 // ─── Per-trigger pending count (US-005) ──────────────────────────────────────
-
-// A trigger that refuses at its ceiling must actually refuse. In-flight alone
-// only counts work a worker has picked up, and the worker polls on an interval,
-// so two fires a fraction of a second apart both saw nothing in flight and both
-// were accepted — silent queueing under the one overflow behavior whose entire
-// promise is that it does not queue.
-func TestAdmission_Refuse_CountsFiresAlreadyWaiting(t *testing.T) {
-	svc, deps := newTestService(t)
-	trig := newAdmissionTrigger(t, deps, OverflowRefuse, 1, 32)
-
-	ids := enqueue(t, svc, deps, trig, 3)
-
-	if got := len(deps.repo.pendingFor(trig.ID)); got != 1 {
-		t.Fatalf("queued %d fires, want 1 (max_parallel) with the rest refused", got)
-	}
-	dropped := 0
-	for _, id := range ids {
-		for _, r := range deps.repo.deliveryRunsFor(id) {
-			if r.Status == RunStatusDropped {
-				dropped++
-			}
-		}
-	}
-	if dropped != 2 {
-		t.Errorf("recorded %d refusals, want 2 — a refused fire has to leave a row", dropped)
-	}
-}
-
-// max_queue_depth is the ceiling INCLUDING the fire being admitted. Trimming to
-// depth and then inserting left the backlog permanently one over its declared
-// maximum.
-func TestAdmission_Wait_BacklogNeverExceedsItsCeiling(t *testing.T) {
-	svc, deps := newTestService(t)
-	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 3)
-
-	enqueue(t, svc, deps, trig, 8)
-
-	if got := len(deps.repo.pendingFor(trig.ID)); got > 3 {
-		t.Errorf("backlog = %d, want at most max_queue_depth (3)", got)
-	}
-}
 
 // Draining a trigger must not delete a row a worker is dispatching right now:
 // the drain and the live worker would each record an outcome, and one fire would

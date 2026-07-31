@@ -981,26 +981,6 @@ func (m *mockRepository) ReleasePending(_ context.Context, id string) error {
 	return nil
 }
 
-// InFlightCount mirrors the SQL: dispatched fan-out rows, plus pendings a
-// worker has claimed — but only claims fresh enough to belong to a live worker.
-// A stranded claim must not keep costing the trigger a parallel slot.
-func (m *mockRepository) InFlightCount(_ context.Context, triggerID string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	n := 0
-	for _, r := range m.deliveryRuns {
-		if r.TriggerID == triggerID && r.Status == RunStatusDispatched {
-			n++
-		}
-	}
-	for _, p := range m.pending {
-		if p.TriggerID == triggerID && p.claimed && time.Since(p.claimedAt) < StaleClaimWindow {
-			n++
-		}
-	}
-	return n, nil
-}
-
 func (m *mockRepository) SupersedePending(_ context.Context, triggerID string) ([]PendingDelivery, error) {
 	return m.removePending(func(p *pendingRow) bool {
 		return p.TriggerID == triggerID && !p.claimed
@@ -1048,18 +1028,6 @@ func (m *mockRepository) DrainOrphanedPending(_ context.Context, limit int) ([]O
 		out = append(out, OrphanedPending{PendingDelivery: p, TriggerName: md.name, TriggerExists: md.exists})
 	}
 	return out, nil
-}
-
-func (m *mockRepository) UnclaimedPendingCount(_ context.Context, triggerID string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	n := 0
-	for _, p := range m.pending {
-		if p.TriggerID == triggerID && !p.claimed {
-			n++
-		}
-	}
-	return n, nil
 }
 
 func (m *mockRepository) TouchPendingClaim(_ context.Context, id string) error {
