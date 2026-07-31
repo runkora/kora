@@ -63,9 +63,38 @@ const (
 	IngestDuplicate
 )
 
+// pipelineStore is the storage a delivery passes through from arrival to
+// dispatch: recording it, finding the triggers that match, and the counters
+// auto-pause and retention keep.
+type pipelineStore interface {
+	// Recording an outcome and re-deriving the delivery, through outcomeRecorder.
+	outcomeStore
+
+	AutoPause(ctx context.Context, triggerID string) error
+	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
+	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
+	CountRedeliveries(ctx context.Context, originalID string) (int, error)
+	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
+	GetDeliveryByProviderID(ctx context.Context, sourceID, providerDeliveryID string) (*Delivery, error)
+	GetRetention(ctx context.Context, tenantID string) (days int, configured bool, err error)
+	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
+	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
+	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
+	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
+	RecordAccepted(ctx context.Context, sourceID string) error
+	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
+	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+	SetRetention(ctx context.Context, tenantID string, days int) error
+	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
+}
+
 // Service implements the Triggers business logic.
 type Service struct {
-	repo      Repository
+	repo      pipelineStore
 	registry  *Registry
 	cipher    *secretCipher
 	policy    *policyclient.Client
@@ -84,7 +113,7 @@ type Service struct {
 // injected rather than reached for globally, so a caller that has not wired a
 // meter gets exactly the behavior it had before.
 func NewService(
-	repo Repository,
+	repo pipelineStore,
 	registry *Registry,
 	cipher *secretCipher,
 	policy *policyclient.Client,
@@ -102,7 +131,7 @@ func NewService(
 		policy:    policy,
 		agents:    agents,
 		minter:    minter,
-		admission: NewAdmission(repo, logger),
+		admission: admission,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},
 		logger:    logger,
 	}

@@ -13,9 +13,6 @@ import {
   SegmentedControl,
   Heading,
   Icon,
-  SidePanel,
-  SidePanelBody,
-  SidePanelHeader,
   Stack,
   Tabs,
   TabsContent,
@@ -23,7 +20,7 @@ import {
   TabsTrigger,
   Text,
 } from '@orbit/terra';
-import { ConfirmDialog, StatusBadge } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
 import {
   deleteTrigger,
   fireTrigger,
@@ -32,7 +29,7 @@ import {
   updateTrigger,
 } from '../_services/triggers-api';
 import { createFromWizardDraft } from '../_services/create-from-wizard';
-import { DeliveryDetail } from './delivery-detail';
+import { DeliveryDetailPanel } from './delivery-detail-panel';
 import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
@@ -41,12 +38,7 @@ import { TriggerDrawer } from './trigger-drawer';
 import type { TriggerEditPatch } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import {
-  deliveryStatusTone,
-  deliveryTriggerLabel,
-  matchesStatusFilter,
-  toTriggerUpdateRequest,
-} from '../_types';
+import { deliveryTriggerLabel, matchesStatusFilter, toTriggerUpdateRequest } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
@@ -56,13 +48,6 @@ interface TriggersPageProps {
   deliveries: DeliveryRow[];
   agents: AgentOption[];
   error: string | null;
-}
-
-function formatTimestamp(iso: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
 
 const DELIVERY_STATUS_OPTIONS = [
@@ -438,46 +423,19 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         </TabsContent>
       </Tabs>
 
-      {/* One delivery's payload and outcome, drawer-free: the row was clicked
-          to ask what this arrival did, not to configure anything. */}
+      {/* One delivery's payload and outcome. Opening the trigger swaps the
+          panel for the owning trigger's drawer. */}
       {detailDelivery !== null && (
-        <SidePanel open onClose={() => setDetailDelivery(null)} size="md">
-          <SidePanelHeader
-            density="compact"
-            title={detailDelivery.eventType || detailDelivery.kind}
-            description={`Delivery ${detailDelivery.id}`}
-          />
-          <SidePanelBody padding="compact">
-            <Stack gap="comfortable">
-              <Stack direction="horizontal" align="center" gap="cozy">
-                <StatusBadge
-                  status={deliveryStatusTone(detailDelivery.status)}
-                  label={detailDelivery.status}
-                />
-                <Text size="caption" color="muted">
-                  {formatTimestamp(detailDelivery.receivedAt)}
-                </Text>
-              </Stack>
-              <DeliveryDetail delivery={detailDelivery} onRedeliver={redeliver} />
-              {detailDelivery.triggerId !== null && (
-                <Stack direction="horizontal" justify="end">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => {
-                      const owner = triggers.find((t) => t.id === detailDelivery.triggerId);
-                      setDetailDelivery(null);
-                      if (owner !== undefined) setDrawerTrigger(owner);
-                    }}
-                  >
-                    Open trigger
-                    <Icon name="arrow-right" size="2xs" />
-                  </Button>
-                </Stack>
-              )}
-            </Stack>
-          </SidePanelBody>
-        </SidePanel>
+        <DeliveryDetailPanel
+          delivery={detailDelivery}
+          onClose={() => setDetailDelivery(null)}
+          onRedeliver={redeliver}
+          onOpenTrigger={(triggerId) => {
+            const owner = triggers.find((t) => t.id === triggerId);
+            setDetailDelivery(null);
+            if (owner !== undefined) setDrawerTrigger(owner);
+          }}
+        />
       )}
 
       {/* Modals */}

@@ -9,7 +9,9 @@ import type {
   SchedulePreviewResponse,
   Trigger,
   TriggerCreateRequest,
+  TriggerDelivery,
   TriggerUpdateRequest,
+  WebhookSource,
   WebhookSourceCreateRequest,
   WebhookSourceResponse,
   WebhookSourceUpdateRequest,
@@ -50,6 +52,35 @@ function json(method: string, payload: unknown): RequestInit {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   };
+}
+
+// ── Lists ─────────────────────────────────────────────────────────────────────
+//
+// Read the same envelopes the platform Triggers page is served, so any surface
+// that lists triggers goes through one client and one error shape. A missing
+// list resolves to `[]` alongside the error, never `null`: callers render the
+// empty frame and the message, not a crash.
+
+export async function listSources(): Promise<{ sources: WebhookSource[]; error: string | null }> {
+  const res = await send<WebhookSource[]>(ApiRoute.triggerSources.list(), { cache: 'no-store' });
+  return { sources: res.data ?? [], error: res.error };
+}
+
+export async function listTriggers(
+  agentTypeId?: string,
+): Promise<{ triggers: Trigger[]; error: string | null }> {
+  const res = await send<Trigger[]>(ApiRoute.triggers.list(agentTypeId), { cache: 'no-store' });
+  return { triggers: res.data ?? [], error: res.error };
+}
+
+export async function listDeliveries(): Promise<{
+  deliveries: TriggerDelivery[];
+  error: string | null;
+}> {
+  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.list(), {
+    cache: 'no-store',
+  });
+  return { deliveries: res.data ?? [], error: res.error };
 }
 
 // ── Sources ─────────────────────────────────────────────────────────────────

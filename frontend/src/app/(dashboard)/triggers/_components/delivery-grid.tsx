@@ -22,6 +22,7 @@ import {
   deliveryDuration,
   deliverySummary,
   deliveryTriggerIdentity,
+  formatTimestampUtc,
   relativeTime,
   shortId,
 } from '../_types';
@@ -47,13 +48,6 @@ interface DeliveryGridProps {
  * rest, because it is the only cell whose content has no natural length.
  */
 const COLUMNS = '118px minmax(0, 1.1fr) 148px 96px 76px minmax(0, 1.3fr)';
-
-/** The absolute time, for the row's title attribute. */
-function absoluteTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
-}
 
 /**
  * Where this arrival came from, one line under the trigger.
@@ -170,7 +164,7 @@ export function DeliveryGrid({
               </Stack>
 
               {/* Received: relative, one line, with the exact time on hover. */}
-              <Text size="supporting" color="muted" title={absoluteTime(d.receivedAt)}>
+              <Text size="supporting" color="muted" title={formatTimestampUtc(d.receivedAt)}>
                 {relativeTime(d.receivedAt)}
               </Text>
 

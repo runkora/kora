@@ -355,6 +355,18 @@ export function relativeTime(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+/**
+ * The absolute time, spelled the same way everywhere it appears: hover titles,
+ * the delivery panel, and the agent page. One formatter, so the same instant
+ * cannot read differently on two surfaces.
+ */
+export function formatTimestampUtc(iso: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+}
+
 /** Maps a delivery status to a StatusBadge tone. */
 export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
   switch (status) {
