@@ -196,3 +196,47 @@ describe('read-only callers', () => {
     expect(screen.queryByRole('button', { name: /Add filter/ })).toBeNull();
   });
 });
+
+describe('ephemeral state is scoped to the open trigger', () => {
+  it('does not carry a rotated secret from one trigger into the next', async () => {
+    const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
+    const { rerender } = render(
+      <TriggerDrawer
+        trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+
+    // Rotate A's secret: arm, then confirm. The revealed secret then shows.
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Break the old secret?' }));
+    expect(await screen.findByText('secret-for-A')).toBeTruthy();
+
+    // Reopening on a different trigger must not inherit A's revealed secret: B
+    // shows the placeholder and the Rotate button, never A's live secret.
+    rerender(
+      <TriggerDrawer
+        trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+
+    expect(screen.queryByText('secret-for-A')).toBeNull();
+    expect(screen.getByText('shown once at creation')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+  });
+});

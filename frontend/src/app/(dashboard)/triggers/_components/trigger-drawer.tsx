@@ -375,6 +375,22 @@ export function TriggerDrawer({
   });
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
+  // The edit sections above key their drafts on editKey; this ephemeral UI
+  // state does not, and the drawer instance outlives a close (both pages render
+  // it unconditionally and it only hides itself when trigger is null). Reset it
+  // during render when the trigger changes, the way the lists reset paging, so
+  // a reopened drawer never shows the last trigger's revealed secret, armed
+  // rotation, open schedule, or expanded delivery.
+  const [stateKey, setStateKey] = useState(editKey);
+  if (stateKey !== editKey) {
+    setStateKey(editKey);
+    setExpanded(null);
+    setRotateArmed(false);
+    setRotating(false);
+    setRotatedSecret(null);
+    setScheduleOpen(false);
+  }
+
   const zones = useMemo(() => {
     const base = timezoneOptions(resolveBrowserZone());
     const current = storedSchedule.timezone;
