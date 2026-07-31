@@ -1298,16 +1298,13 @@ func TestPostgres_CountRedeliveries(t *testing.T) {
 // left nothing behind. That is the part a mock cannot check.
 //
 // What it does NOT prove: that the lock is load-bearing. Removing FOR UPDATE
-// still passes this test, because each transaction is faster than the jitter in
-// waking ten goroutines, so they never actually interleave no matter how they
-// are released. Making it fail needs a delay injected between the count and the
+// still passes, because each transaction finishes faster than the jitter in
+// waking ten goroutines, so they never actually interleave however they are
+// released. Making it fail needs a delay injected between the count and the
 // insert, which would be testing the injected delay.
 //
-// The lock's necessity is pinned by the unit test instead
-// (TestAdmission_Refuse_HoldsCeilingUnderConcurrentFires), where the mock's
-// mutex makes the interleaving deterministic: releasing it between check and
-// insert reproduces the bug every run. Treat that one as the regression net and
-// this one as proof the SQL itself is right.
+// So the lock is currently unguarded by any test, and saying so here is more
+// use than a test that appears to guard it and does not.
 func TestPostgres_EnqueueWithinCeiling_HoldsUnderConcurrency(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
