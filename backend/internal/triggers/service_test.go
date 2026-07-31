@@ -17,9 +17,9 @@ func prBody(action, baseRef string) []byte {
 		"repository":{"full_name":"acme/widgets"},"sender":{"login":"bob"}}`, action, baseRef)
 }
 
-func mustSource(t *testing.T, svc *Service) *SourceResponse {
+func mustSource(t *testing.T, sources *SourceService) *SourceResponse {
 	t.Helper()
-	resp, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
+	resp, err := sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
 	if err != nil {
 		t.Fatalf("CreateSource: %v", err)
 	}
@@ -71,7 +71,7 @@ func sign(secret string, body []byte) http.Header {
 func dispatchSetup(t *testing.T, cond map[string][]string, prompt string) (*Service, *testDeps, WebhookSource, string) {
 	t.Helper()
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	mustTrigger(t, svc, src.ID, cond, prompt)
 	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
 	delID := "deliv-x"

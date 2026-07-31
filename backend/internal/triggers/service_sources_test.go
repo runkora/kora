@@ -9,8 +9,8 @@ import (
 )
 
 func TestCreateSource_Success(t *testing.T) {
-	svc, deps := newTestService(t)
-	resp := mustSource(t, svc)
+	_, deps := newTestService(t)
+	resp := mustSource(t, deps.sources)
 
 	if resp.Secret == "" {
 		t.Error("expected one-time secret in response")
@@ -49,20 +49,20 @@ func TestCreateSource_Success(t *testing.T) {
 }
 
 func TestCreateSource_Validation(t *testing.T) {
-	svc, _ := newTestService(t)
-	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Provider: ProviderGitHub}); !errors.Is(err, ErrValidation) {
+	_, deps := newTestService(t)
+	if _, err := deps.sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Provider: ProviderGitHub}); !errors.Is(err, ErrValidation) {
 		t.Errorf("empty name: got %v, want ErrValidation", err)
 	}
-	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "x", Provider: "gitlab"}); !errors.Is(err, ErrUnknownProvider) {
+	if _, err := deps.sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "x", Provider: "gitlab"}); !errors.Is(err, ErrUnknownProvider) {
 		t.Errorf("unknown provider: got %v, want ErrUnknownProvider", err)
 	}
 }
 
 func TestCreateSource_GrantCleanupOnRepoFailure(t *testing.T) {
-	svc, deps := newTestService(t)
+	_, deps := newTestService(t)
 	deps.repo.createSourceErr = errors.New("db down")
 
-	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub}); err == nil {
+	if _, err := deps.sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub}); err == nil {
 		t.Fatal("expected error when persistence fails")
 	}
 	if deps.policy.deletedCount() != 1 {
@@ -71,9 +71,9 @@ func TestCreateSource_GrantCleanupOnRepoFailure(t *testing.T) {
 }
 
 func TestListSources_RedactsSecret(t *testing.T) {
-	svc, _ := newTestService(t)
-	mustSource(t, svc)
-	list, err := svc.ListSources(context.Background(), testTenant)
+	_, deps := newTestService(t)
+	mustSource(t, deps.sources)
+	list, err := deps.sources.ListSources(context.Background(), testTenant)
 	if err != nil {
 		t.Fatalf("ListSources: %v", err)
 	}
@@ -86,18 +86,18 @@ func TestListSources_RedactsSecret(t *testing.T) {
 }
 
 func TestUpdateSource_DisableAndRotate(t *testing.T) {
-	svc, deps := newTestService(t)
-	resp := mustSource(t, svc)
+	_, deps := newTestService(t)
+	resp := mustSource(t, deps.sources)
 
 	disabled := false
-	if _, err := svc.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{Enabled: &disabled}); err != nil {
+	if _, err := deps.sources.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{Enabled: &disabled}); err != nil {
 		t.Fatalf("UpdateSource disable: %v", err)
 	}
 	if deps.repo.sources[resp.ID].Enabled {
 		t.Error("source should be disabled")
 	}
 
-	rot, err := svc.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{RotateSecret: true})
+	rot, err := deps.sources.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{RotateSecret: true})
 	if err != nil {
 		t.Fatalf("UpdateSource rotate: %v", err)
 	}
@@ -108,10 +108,10 @@ func TestUpdateSource_DisableAndRotate(t *testing.T) {
 
 func TestDeleteSource_CleansGrants(t *testing.T) {
 	svc, deps := newTestService(t)
-	resp := mustSource(t, svc)
+	resp := mustSource(t, deps.sources)
 	mustTrigger(t, svc, resp.ID, nil, "review")
 
-	if err := svc.DeleteSource(context.Background(), testTenant, resp.ID); err != nil {
+	if err := deps.sources.DeleteSource(context.Background(), testTenant, resp.ID); err != nil {
 		t.Fatalf("DeleteSource: %v", err)
 	}
 	if _, ok := deps.repo.sources[resp.ID]; ok {
@@ -128,8 +128,8 @@ func TestDeleteSource_CleansGrants(t *testing.T) {
 // Declared is what the platform models; observed is what this source has
 // actually sent. Neither alone answers "why does my trigger never fire".
 func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
-	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	ctx := context.Background()
 
 	// One modeled event and one the adapter does not model, both delivered.
@@ -146,7 +146,7 @@ func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
 		ProviderDeliveryID: "gh-blank", Status: StatusSkipped,
 	})
 
-	got, err := svc.SourceEventTypes(ctx, testTenant, src.ID)
+	got, err := deps.sources.SourceEventTypes(ctx, testTenant, src.ID)
 	if err != nil {
 		t.Fatalf("SourceEventTypes: %v", err)
 	}
@@ -161,10 +161,10 @@ func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
 // A source with no history reports empty lists, not null: the console renders a
 // list either way.
 func TestSourceEventTypes_NoHistory(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 
-	got, err := svc.SourceEventTypes(context.Background(), testTenant, src.ID)
+	got, err := deps.sources.SourceEventTypes(context.Background(), testTenant, src.ID)
 	if err != nil {
 		t.Fatalf("SourceEventTypes: %v", err)
 	}
@@ -177,10 +177,10 @@ func TestSourceEventTypes_NoHistory(t *testing.T) {
 }
 
 func TestSourceEventTypes_TenantScoped(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 
-	if _, err := svc.SourceEventTypes(context.Background(), "t-other", src.ID); !errors.Is(err, ErrSourceNotFound) {
+	if _, err := deps.sources.SourceEventTypes(context.Background(), "t-other", src.ID); !errors.Is(err, ErrSourceNotFound) {
 		t.Errorf("cross-tenant = %v, want ErrSourceNotFound", err)
 	}
 }

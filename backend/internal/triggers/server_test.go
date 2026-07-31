@@ -21,7 +21,7 @@ func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {
 	// A pass-through auth middleware: handler tests invoke handlers directly and
 	// inject claims, while the Boot smoke test needs a non-nil middleware to wrap.
 	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
-	c := NewController(svc, passthrough, nil, nil, "", silentLogger())
+	c := NewController(svc, newTestSourceService(t, deps.repo, deps.policyClnt), passthrough, nil, nil, "", silentLogger())
 	return c, deps, svc
 }
 
@@ -65,8 +65,8 @@ func TestHandleCreateSource_ValidationError(t *testing.T) {
 }
 
 func TestHandleListSources(t *testing.T) {
-	c, _, svc := newTestController(t)
-	mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	mustSource(t, deps.sources)
 
 	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources", nil))
 	w := httptest.NewRecorder()
@@ -85,8 +85,8 @@ func TestHandleListSources(t *testing.T) {
 }
 
 func TestHandleIngest_Accepted(t *testing.T) {
-	c, _, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/"+src.ID, bytes.NewReader(body))
@@ -109,8 +109,8 @@ func TestHandleIngest_Accepted(t *testing.T) {
 // give away. The reason is still recorded against the source, where the tenant
 // that owns it can see it.
 func TestHandleIngest_BadSignatureIsIndistinguishableFromAnUnknownSource(t *testing.T) {
-	c, _, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/"+src.ID, bytes.NewReader(body))
@@ -151,8 +151,8 @@ func TestHandleIngest_UnknownSource(t *testing.T) {
 }
 
 func TestHandleCreateTrigger(t *testing.T) {
-	c, _, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 
 	raw, _ := json.Marshal(CreateTriggerRequest{
 		SourceID:       src.ID,
@@ -173,8 +173,8 @@ func TestHandleCreateTrigger(t *testing.T) {
 }
 
 func TestHandleGetSource(t *testing.T) {
-	c, _, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 
 	req := withTenant(httptest.NewRequest(http.MethodGet, "/trigger-sources/"+src.ID, nil))
 	req.SetPathValue("id", src.ID)
@@ -195,8 +195,8 @@ func TestHandleGetSource(t *testing.T) {
 }
 
 func TestHandleUpdateAndDeleteSource(t *testing.T) {
-	c, deps, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 
 	raw, _ := json.Marshal(UpdateSourceRequest{Enabled: new(false)})
 	req := withTenant(httptest.NewRequest(http.MethodPatch, "/trigger-sources/"+src.ID, bytes.NewReader(raw)))
@@ -220,8 +220,8 @@ func TestHandleUpdateAndDeleteSource(t *testing.T) {
 }
 
 func TestHandleTriggerLifecycle(t *testing.T) {
-	c, _, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, svc := newTestController(t)
+	src := mustSource(t, deps.sources)
 	tr := mustTrigger(t, svc, src.ID, nil, "p")
 
 	// List (filtered by agent_type_id).
@@ -269,8 +269,8 @@ func TestHandleTriggerLifecycle(t *testing.T) {
 }
 
 func TestHandleListDeliveries(t *testing.T) {
-	c, deps, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
 		ID: "d1", TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusSkipped,
 	})
@@ -389,8 +389,8 @@ func TestHandleRetention_OutOfBounds(t *testing.T) {
 // ─── Event catalog ─────────────────────────────────────────────────────────
 
 func TestHandleSourceEventTypes(t *testing.T) {
-	c, deps, svc := newTestController(t)
-	src := mustSource(t, svc)
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
 	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
 		ID: "d1", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
 		ProviderDeliveryID: "gh-1", EventType: "release", Status: StatusSkipped,
@@ -492,7 +492,7 @@ func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *m
 	svc, deps := newTestService(t)
 	eval := &mockEvaluator{allow: allow, err: evalErr}
 	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
-	return NewController(svc, passthrough, eval, nil, "", silentLogger()), eval, deps, svc
+	return NewController(svc, newTestSourceService(t, deps.repo, deps.policyClnt), passthrough, eval, nil, "", silentLogger()), eval, deps, svc
 }
 
 // The regression this closes: holding triggers:write must not imply the ability
@@ -565,7 +565,7 @@ func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
 // rejected there, which is enough to show authorization passed.
 func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	c, eval, deps, svc := newFireController(t, true, nil)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	trig := mustTrigger(t, svc, src.ID, nil, "p")
 	deps.minter.reset()
 

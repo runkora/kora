@@ -158,18 +158,31 @@ func initController(
 		metrics = nil
 	}
 
-	// Inbound webhook path prefix: basePath + /webhooks/. Registered sources
-	// post to this address, so it must match the api VirtualService route.
+	registry := triggers.NewRegistry()
+
 	svc := triggers.NewService(
 		repo,
-		triggers.NewRegistry(),
+		registry,
 		cipher,
 		policyClient,
 		agentsClient,
 		identityClient,
-		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
 		metrics,
+	)
+
+	// Sources are their own service: they share no collaborator with dispatch,
+	// so they take the six storage methods they use and nothing else.
+	//
+	// The webhook path prefix is basePath + /webhooks/. Registered sources post
+	// to this address, so it must match the api VirtualService route.
+	sources := triggers.NewSourceService(
+		repo,
+		registry,
+		cipher,
+		policyClient,
+		tc.Current.Server.BasePath+"/webhooks/",
+		logger,
 	)
 
 	// The delivery worker is what actually starts runs. Every fire is durably
@@ -207,7 +220,7 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := mw.AuthMiddlewareWithRevocation(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
+	return triggers.NewController(svc, sources, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
 }
 
 // newSelfTokenSource returns a token func for the policy client that exchanges

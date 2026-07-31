@@ -65,21 +65,21 @@ const (
 
 // Service implements the Triggers business logic.
 type Service struct {
-	repo        Repository
-	registry    *Registry
-	cipher      *secretCipher
-	policy      *policyclient.Client
-	agents      *agentsclient.Client
-	minter      TokenMinter
-	admission   *Admission
-	outcomes    outcomeRecorder
-	logger      logging.Logger
-	metrics     *Metrics // nil records nothing
-	webhookBase string   // external path prefix for inbound webhooks, incl trailing slash
+	repo      Repository
+	registry  *Registry
+	cipher    *secretCipher
+	policy    *policyclient.Client
+	agents    *agentsclient.Client
+	minter    TokenMinter
+	admission *Admission
+	outcomes  outcomeRecorder
+	logger    logging.Logger
+	metrics   *Metrics // nil records nothing
 }
 
-// NewService constructs the Triggers service. webhookBase is the absolute path
-// prefix for inbound webhook URLs (e.g. "/api/v1/webhooks/").
+// NewService constructs the Triggers service: ingest, dispatch, firing and the
+// trigger lifecycle. Webhook sources are SourceService's, which shares none of
+// this one's collaborators.
 //
 // metrics may be nil, in which case nothing is recorded: instrumentation is
 // injected rather than reached for globally, so a caller that has not wired a
@@ -91,22 +91,20 @@ func NewService(
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
 	minter TokenMinter,
-	webhookBase string,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {
 	return &Service{
-		metrics:     metrics,
-		repo:        repo,
-		registry:    registry,
-		cipher:      cipher,
-		policy:      policy,
-		agents:      agents,
-		minter:      minter,
-		admission:   NewAdmission(repo, logger),
-		outcomes:    outcomeRecorder{repo: repo, logger: logger},
-		logger:      logger,
-		webhookBase: webhookBase,
+		metrics:   metrics,
+		repo:      repo,
+		registry:  registry,
+		cipher:    cipher,
+		policy:    policy,
+		agents:    agents,
+		minter:    minter,
+		admission: NewAdmission(repo, logger),
+		outcomes:  outcomeRecorder{repo: repo, logger: logger},
+		logger:    logger,
 	}
 }
 
@@ -114,8 +112,6 @@ func NewService(
 func NewSecretCipherFromKey(key []byte) (*secretCipher, error) { return newSecretCipher(key) }
 
 // WebhookPath returns the inbound webhook path for a source id.
-func (s *Service) WebhookPath(sourceID string) string { return s.webhookBase + sourceID }
-
 // ─── Payload retention ────────────────────────────────────────────────────────
 
 // GetRetention returns a tenant's payload retention window.

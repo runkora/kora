@@ -139,7 +139,7 @@ func TestFireTrigger_ManuallyDisabled_RecordsNothing(t *testing.T) {
 // triggers as they are configured now.
 func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
 		t.Fatalf("Ingest: %v", err)
@@ -318,7 +318,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 
 	t.Run("purged payload", func(t *testing.T) {
 		svc, deps := newTestService(t)
-		src := mustSource(t, svc)
+		src := mustSource(t, deps.sources)
 		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
 			ID: "purged", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
 			ProviderDeliveryID: "gh-1", Status: StatusDispatched, PayloadPurged: true,
@@ -427,7 +427,7 @@ func TestFireTrigger_StartRunCarriesTheBacklink(t *testing.T) {
 // is a console showing an orphaned id.
 func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	trig := mustWebhookTrigger(t, svc, src.ID, "PR reviewer", true)
 	ctx := context.Background()
 
@@ -615,7 +615,7 @@ func TestInputProblemSummary_IsCompactAndSorted(t *testing.T) {
 // platform does not re-verify. Unbounded, the endpoint is a run generator.
 func TestRedeliver_IsBoundedPerOriginal(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
 		t.Fatalf("Ingest: %v", err)
@@ -638,14 +638,14 @@ func TestRedeliver_IsBoundedPerOriginal(t *testing.T) {
 // render unusable.
 func TestRedeliver_RefusesAPayloadOlderThanTheCurrentSecret(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
 	original := deps.repo.lastDelivery()
 
-	if _, err := svc.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{RotateSecret: true}); err != nil {
+	if _, err := deps.sources.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{RotateSecret: true}); err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
 

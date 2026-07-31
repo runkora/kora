@@ -15,11 +15,62 @@ import (
 
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
+// sourceStore is the six methods managing webhook sources takes. Declared here
+// by the consumer rather than reaching for the whole Repository, so a fake in a
+// test implements six methods instead of fifty-odd.
+type sourceStore interface {
+	CreateSource(ctx context.Context, s *WebhookSource) error
+	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
+	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	UpdateSource(ctx context.Context, s *WebhookSource) error
+	DeleteSource(ctx context.Context, tenantID, id string) error
+	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
+}
+
+// SourceService owns webhook sources: the registration a tenant makes, the
+// SERVICE principal and grant behind it, and the signing secret it is
+// authenticated by.
+//
+// Separate from the rest of Triggers because it shares nothing with dispatch:
+// no queue, no admission, no agents client. What it can touch is its
+// constructor.
+type SourceService struct {
+	repo        sourceStore
+	registry    *Registry
+	cipher      *secretCipher
+	policy      *policyclient.Client
+	logger      logging.Logger
+	webhookBase string
+}
+
+// NewSourceService constructs the sources half of Triggers. webhookBase is the
+// absolute path prefix for inbound webhook URLs.
+func NewSourceService(
+	repo sourceStore,
+	registry *Registry,
+	cipher *secretCipher,
+	policy *policyclient.Client,
+	webhookBase string,
+	logger logging.Logger,
+) *SourceService {
+	return &SourceService{
+		repo:        repo,
+		registry:    registry,
+		cipher:      cipher,
+		policy:      policy,
+		logger:      logger,
+		webhookBase: webhookBase,
+	}
+}
+
+// WebhookPath is the absolute path a source's provider posts to.
+func (s *SourceService) WebhookPath(sourceID string) string { return s.webhookBase + sourceID }
+
 // CreateSource registers a webhook source: it provisions a mapped SERVICE
 // principal with a policy grant for the generic run scopes, generates and
 // encrypts a signing secret, and persists the record. The raw secret and webhook
 // path are returned ONCE in the response.
-func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
+func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
@@ -90,7 +141,7 @@ func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateS
 //
 // Falls back to the in-memory source if the read fails: the source exists and
 // the create succeeded, so a failure here is a worse response, not a failure.
-func (s *Service) readBackSource(ctx context.Context, src *WebhookSource) *WebhookSource {
+func (s *SourceService) readBackSource(ctx context.Context, src *WebhookSource) *WebhookSource {
 	stored, err := s.repo.GetSource(ctx, src.TenantID, src.ID)
 	if err != nil {
 		s.logger.Warn(ctx, "could not read back the created source; returning the requested values",
@@ -103,7 +154,7 @@ func (s *Service) readBackSource(ctx context.Context, src *WebhookSource) *Webho
 }
 
 // ListSources returns all webhook sources for a tenant.
-func (s *Service) ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error) {
+func (s *SourceService) ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error) {
 	srcs, err := s.repo.ListSources(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -115,7 +166,7 @@ func (s *Service) ListSources(ctx context.Context, tenantID string) ([]WebhookSo
 }
 
 // GetSource returns a single webhook source.
-func (s *Service) GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error) {
+func (s *SourceService) GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -124,7 +175,7 @@ func (s *Service) GetSource(ctx context.Context, tenantID, id string) (*WebhookS
 }
 
 // UpdateSource toggles enablement and optionally rotates the signing secret.
-func (s *Service) UpdateSource(ctx context.Context, tenantID, id string, req UpdateSourceRequest) (*SourceResponse, error) {
+func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, req UpdateSourceRequest) (*SourceResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -161,7 +212,7 @@ func (s *Service) UpdateSource(ctx context.Context, tenantID, id string, req Upd
 
 // DeleteSource removes a webhook source, its triggers (FK cascade), and all
 // policy grants attached to its mapped principal.
-func (s *Service) DeleteSource(ctx context.Context, tenantID, id string) error {
+func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) error {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
 		return err
@@ -193,7 +244,7 @@ func (s *Service) DeleteSource(ctx context.Context, tenantID, id string) error {
 // an admin whose trigger never fires is usually looking at an event type that
 // never arrived, and an event that arrives but is not declared is the signal
 // that the adapter should grow a case for it.
-func (s *Service) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
+func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, sourceID)
 	if err != nil {
 		return nil, err

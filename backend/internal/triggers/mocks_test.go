@@ -604,10 +604,26 @@ func (as *agentsStub) callCount() int {
 // ── test wiring ─────────────────────────────────────────────────────────────
 
 type testDeps struct {
-	repo   *mockRepository
-	policy *policyStub
-	agents *agentsStub
-	minter *fakeMinter
+	repo       *mockRepository
+	policy     *policyStub
+	agents     *agentsStub
+	minter     *fakeMinter
+	policyClnt *policyclient.Client
+	// sources is the sources half, sharing this harness's stubs. Separate from
+	// Service because it is a separate service now.
+	sources *SourceService
+}
+
+// newTestSourceService builds the sources half against the same stubs. It takes
+// a sourceStore, so a test that only exercises sources can pass any six-method
+// fake rather than the whole mockRepository.
+func newTestSourceService(t *testing.T, repo sourceStore, policy *policyclient.Client) *SourceService {
+	t.Helper()
+	cipher, err := newSecretCipher(testCipherKey)
+	if err != nil {
+		t.Fatalf("newSecretCipher: %v", err)
+	}
+	return NewSourceService(repo, NewRegistry(), cipher, policy, "/api/v1/webhooks/", silentLogger())
 }
 
 func newTestService(t *testing.T) (*Service, *testDeps) {
@@ -628,8 +644,10 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	minter := &fakeMinter{token: "minted-token"}
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
-	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, "/api/v1/webhooks/", silentLogger(), nil)
-	return svc, &testDeps{repo: repo, policy: ps, agents: as, minter: minter}
+	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, silentLogger(), nil)
+	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
+	deps.sources = newTestSourceService(t, repo, pc)
+	return svc, deps
 }
 
 // InsertScheduledDelivery mirrors the Postgres unique (trigger_id, scheduled_at)

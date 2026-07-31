@@ -43,6 +43,7 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 // api.Controller mounted by the identity binary alongside the identity controller.
 type Controller struct {
 	svc      *Service
+	sources  *SourceService
 	authMW   mw.Middleware
 	eval     policy.Evaluator
 	routes   []routescopes.RouteScope
@@ -54,8 +55,8 @@ type Controller struct {
 // middleware (supplied by the identity service); eval/routes/basePath drive
 // ScopeEnforcementMiddleware on the management routes, exactly as for identity's
 // own authenticated routes.
-func NewController(svc *Service, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, authMW: authMW, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewController(svc *Service, sources *SourceService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
+	return &Controller{svc: svc, sources: sources, authMW: authMW, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 // GroupedBy returns "" — routes are registered with paths relative to the
@@ -202,7 +203,7 @@ func (c *Controller) handleCreateSource(w http.ResponseWriter, r *http.Request) 
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	resp, err := c.svc.CreateSource(ctx, tenantFromCtx(ctx), req)
+	resp, err := c.sources.CreateSource(ctx, tenantFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -212,7 +213,7 @@ func (c *Controller) handleCreateSource(w http.ResponseWriter, r *http.Request) 
 
 func (c *Controller) handleListSources(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	sources, err := c.svc.ListSources(ctx, tenantFromCtx(ctx))
+	sources, err := c.sources.ListSources(ctx, tenantFromCtx(ctx))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -222,7 +223,7 @@ func (c *Controller) handleListSources(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleGetSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	src, err := c.svc.GetSource(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	src, err := c.sources.GetSource(ctx, tenantFromCtx(ctx), r.PathValue("id"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -237,7 +238,7 @@ func (c *Controller) handleUpdateSource(w http.ResponseWriter, r *http.Request) 
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	resp, err := c.svc.UpdateSource(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
+	resp, err := c.sources.UpdateSource(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -247,7 +248,7 @@ func (c *Controller) handleUpdateSource(w http.ResponseWriter, r *http.Request) 
 
 func (c *Controller) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if err := c.svc.DeleteSource(ctx, tenantFromCtx(ctx), r.PathValue("id")); err != nil {
+	if err := c.sources.DeleteSource(ctx, tenantFromCtx(ctx), r.PathValue("id")); err != nil {
 		c.writeServiceError(w, r, err)
 		return
 	}
@@ -429,7 +430,7 @@ func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleSourceEventTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	resp, err := c.svc.SourceEventTypes(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	resp, err := c.sources.SourceEventTypes(ctx, tenantFromCtx(ctx), r.PathValue("id"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

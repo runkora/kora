@@ -17,10 +17,10 @@ func TestIngest_SourceNotFound(t *testing.T) {
 }
 
 func TestIngest_Disabled(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	disabled := false
-	_, _ = svc.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{Enabled: &disabled})
+	_, _ = deps.sources.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{Enabled: &disabled})
 
 	body := prBody("opened", "main")
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); !errors.Is(err, ErrSourceDisabled) {
@@ -30,7 +30,7 @@ func TestIngest_Disabled(t *testing.T) {
 
 func TestIngest_SignatureInvalid_NoRow(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	h := http.Header{"X-Hub-Signature-256": {"sha256=bad"}, "X-Github-Event": {"pull_request"}}
 
@@ -47,7 +47,7 @@ func TestIngest_MissingDeliveryID_NoRow(t *testing.T) {
 	// fail-closed: the id is the sole dedup key and is not covered by the
 	// signature, so accepting it would re-open the replay hole.
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 	h.Del("X-Github-Delivery")
@@ -62,7 +62,7 @@ func TestIngest_MissingDeliveryID_NoRow(t *testing.T) {
 
 func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
 	out, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body)
@@ -87,7 +87,7 @@ func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 // and the repeats used to leave nothing at all.
 func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 
@@ -147,7 +147,7 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 // is the level that can.
 func TestIngest_Duplicate_HonoursPerTriggerDedupe(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	dedupes := mustWebhookTrigger(t, svc, src.ID, "dedupes", true)
 	reruns := mustWebhookTrigger(t, svc, src.ID, "re-runs", false)
 
@@ -223,7 +223,7 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	// Two triggers match the same delivery: every run must be recorded in the
 	// join table, and ListDeliveries must surface the full fan-out on the delivery.
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	cond := map[string][]string{"action": {"opened"}}
 	mustTrigger(t, svc, src.ID, cond, "p1")
 	mustTrigger(t, svc, src.ID, cond, "p2")
@@ -277,7 +277,7 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 // renders it as "any event" and dispatch must make that label true.
 func TestDispatch_EmptyEventType_MatchesAnyEvent(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	if _, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID:       src.ID,
 		Name:           "catch-all",
@@ -420,7 +420,7 @@ func TestDispatch_MintError_Failed(t *testing.T) {
 // first success.
 func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 
 	// Two triggers on the same event; one has a condition this event fails.
 	mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "dispatches")
@@ -504,7 +504,7 @@ func TestDispatch_UnmatchedEventType_RecordsNoTriggerOutcomes(t *testing.T) {
 // source instead — which still tells an admin their signing secret is wrong.
 func TestIngest_InvalidSignature_CountsOnSourceWithoutCreatingDelivery(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 
 	before := len(deps.repo.allDeliveries())
 
@@ -537,7 +537,7 @@ func TestIngest_InvalidSignature_CountsOnSourceWithoutCreatingDelivery(t *testin
 // rather than inserting, so volume is fixed no matter what an attacker sends.
 func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 
 	for range 25 {
 		_, _ = svc.Ingest(context.Background(), src.ID, http.Header{
@@ -566,7 +566,7 @@ func TestIngest_RepeatedRejections_DoNotGrowAnyTable(t *testing.T) {
 // indistinguishable from a trigger that had been deleted.
 func TestDispatch_AutoPausedTrigger_RecordsPaused(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	paused := mustWebhookTrigger(t, svc, src.ID, "paused", true)
 	if err := deps.repo.AutoPause(context.Background(), paused.ID); err != nil {
 		t.Fatalf("AutoPause: %v", err)
@@ -594,7 +594,7 @@ func TestDispatch_AutoPausedTrigger_RecordsPaused(t *testing.T) {
 // A trigger a person turned off records nothing. That silence was asked for.
 func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	off := mustWebhookTrigger(t, svc, src.ID, "off", true)
 	enabled := false
 	if _, err := svc.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
@@ -644,8 +644,8 @@ func TestDispatch_StartRunCarriesTheBacklink(t *testing.T) {
 // A captured, correctly-signed body replays forever if the only dedup key is a
 // header the sender controls. The body is the part they cannot rewrite.
 func TestIngest_RefusesAReplayedBodyUnderAFreshDeliveryID(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
 	h := sign(src.Secret, body)
@@ -665,8 +665,8 @@ func TestIngest_RefusesAReplayedBodyUnderAFreshDeliveryID(t *testing.T) {
 // the same id. That is an ordinary duplicate, and the replay window must not
 // turn it into a refusal.
 func TestIngest_AGenuineRetryIsStillADuplicateNotAReplay(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 
@@ -686,8 +686,8 @@ func TestIngest_AGenuineRetryIsStillADuplicateNotAReplay(t *testing.T) {
 // through: five rejections against a million is noise, five against five is a
 // signing secret that is simply wrong.
 func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	body := prBody("opened", "main")
 
 	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
@@ -698,7 +698,7 @@ func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
 		t.Fatalf("bad signature = %v, want ErrSignatureInvalid", err)
 	}
 
-	stored, err := svc.GetSource(context.Background(), testTenant, src.ID)
+	stored, err := deps.sources.GetSource(context.Background(), testTenant, src.ID)
 	if err != nil {
 		t.Fatalf("GetSource: %v", err)
 	}

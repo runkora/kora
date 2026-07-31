@@ -11,7 +11,7 @@ import (
 
 func TestCreateTrigger_Success(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	tr := mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "review {{ pr.number }}")
 
 	stored := deps.repo.triggers[tr.ID]
@@ -27,8 +27,8 @@ func TestCreateTrigger_Success(t *testing.T) {
 }
 
 func TestCreateTrigger_Validation(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 
 	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{SourceID: src.ID, EventType: "pull_request", AgentTypeID: "a", AgentSlug: "s", PromptTemplate: "p"})
 	if !errors.Is(err, ErrValidation) {
@@ -47,7 +47,7 @@ func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 	// The grant scope and stored slug must come from the resolved agent type, not
 	// the client-supplied agent_slug — even when the client sends a different one.
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	deps.agents.atSlug = "real-slug"
 
 	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
@@ -68,7 +68,7 @@ func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 
 func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	deps.agents.atStatus = http.StatusNotFound
 	grantsBefore := len(deps.policy.created) // the source's own grant already exists
 
@@ -91,7 +91,7 @@ func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	// Defense in depth: an agent type reported under a different tenant must never
 	// bind, even if orbit-agents somehow returned it.
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	deps.agents.atTenant = "other-tenant"
 
 	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
@@ -119,7 +119,7 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, deps := newTestService(t)
-			src := mustSource(t, svc)
+			src := mustSource(t, deps.sources)
 			deps.agents.atIdentityMode = tc.identityMode
 			grantsBefore := len(deps.policy.created)
 
@@ -154,8 +154,8 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 // ── Admission settings at create ────────────────────────────────────────────
 
 func TestUpdateTrigger_Admission(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 	tr := mustTrigger(t, svc, src.ID, nil, "p")
 
 	// Applied when set, with create-time bounds.
@@ -215,7 +215,7 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 			svc, deps := newTestService(t)
 			req := tc.req
 			if req.Kind == "" || req.Kind == KindWebhook {
-				req.SourceID = mustSource(t, svc).ID
+				req.SourceID = mustSource(t, deps.sources).ID
 			}
 
 			tr, err := svc.CreateTrigger(context.Background(), testTenant, req)
@@ -241,7 +241,7 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 
 func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 
 	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
 		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
@@ -307,7 +307,7 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 				svc, deps := newTestService(t)
 				req := k.base
 				if req.Kind == "" || req.Kind == KindWebhook {
-					req.SourceID = mustSource(t, svc).ID
+					req.SourceID = mustSource(t, deps.sources).ID
 				}
 				s.apply(&req)
 				grantsBefore := len(deps.policy.created) // the source's own grant, for webhooks
@@ -344,8 +344,8 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, _ := newTestService(t)
-			src := mustSource(t, svc)
+			svc, deps := newTestService(t)
+			src := mustSource(t, deps.sources)
 			req := CreateTriggerRequest{
 				SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", EventType: "pull_request", PromptTemplate: "p",
 			}
@@ -359,7 +359,7 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 
 func TestUpdateTrigger(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	tr := mustTrigger(t, svc, src.ID, nil, "old")
 
 	enabled := false
@@ -378,7 +378,7 @@ func TestUpdateTrigger(t *testing.T) {
 
 func TestDeleteTrigger(t *testing.T) {
 	svc, deps := newTestService(t)
-	src := mustSource(t, svc)
+	src := mustSource(t, deps.sources)
 	tr := mustTrigger(t, svc, src.ID, nil, "p")
 	before := deps.policy.deletedCount()
 
@@ -586,8 +586,8 @@ func TestDefaultOverflowForKind(t *testing.T) {
 // Free text a caller can store unbounded ends up rendered into every prompt the
 // trigger ever starts.
 func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
-	svc, _ := newTestService(t)
-	src := mustSource(t, svc)
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
 
 	for _, tc := range []struct {
 		name string
