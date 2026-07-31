@@ -38,7 +38,22 @@ type Scheduler struct {
 	logger  logging.Logger
 	metrics *Metrics // nil records nothing
 	c       *cron.Cron
+	// sem bounds how many trigger dispatches/reconciles run at once. See spawn.
+	sem chan struct{}
 }
+
+const (
+	// schedulerMaxConcurrent bounds the per-tick dispatch/reconcile goroutines.
+	// A tenant with many scheduled triggers — or a database stall that makes
+	// each one slow — must not let a tick that fires every minute pile up
+	// goroutines, and pooled connections, without limit.
+	schedulerMaxConcurrent = 16
+	// schedulerOpTimeout bounds one scheduled dispatch or reconcile. Detached
+	// from shutdown (an acknowledged tick still enqueues) but not from time: a
+	// stalled query gives up and frees its slot rather than holding a goroutine
+	// and a connection forever, which is what let a stall compound each minute.
+	schedulerOpTimeout = 30 * time.Second
+)
 
 // NewScheduler creates a Scheduler. It does not start immediately; call Start.
 // metrics may be nil.
@@ -48,10 +63,47 @@ func NewScheduler(svc *Service, repo scheduleStore, logger logging.Logger, metri
 		repo:    repo,
 		logger:  logger,
 		metrics: metrics,
+		sem:     make(chan struct{}, schedulerMaxConcurrent),
 		// SecondOptional adds an optional leading seconds field; without it,
-		// standard 5-field cron is parsed correctly.
-		c: cron.New(cron.WithLocation(time.UTC)),
+		// standard 5-field cron is parsed correctly. SkipIfStillRunning drops a
+		// tick that fires while the previous one is still draining rather than
+		// overlapping them, so a slow pass cannot stack tick goroutines on top
+		// of the work goroutines spawn already bounds.
+		c: cron.New(
+			cron.WithLocation(time.UTC),
+			cron.WithChain(cron.SkipIfStillRunning(cron.DiscardLogger)),
+		),
 	}
+}
+
+// spawn runs fn in a bounded goroutine on a context detached from shutdown
+// cancellation but capped at schedulerOpTimeout.
+//
+// The bound is the whole point: without it, a tick that fires every minute
+// spawns one goroutine per scheduled trigger, and under a database stall each
+// blocks on its query forever while the next minute spawns another full batch —
+// an unbounded pile of goroutines and pooled connections that also outlives
+// shutdown. The semaphore caps concurrency; the timeout frees a slot a stalled
+// query would otherwise hold indefinitely; the detach keeps an acknowledged
+// tick enqueuing across shutdown, now with a ceiling on how long it may take.
+//
+// Returns without spawning if ctx is already canceled or is canceled while
+// waiting for a slot, so shutdown does not block on a wedged tick.
+func (s *Scheduler) spawn(ctx context.Context, fn func(context.Context)) {
+	if ctx.Err() != nil {
+		return
+	}
+	select {
+	case s.sem <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	go func() {
+		defer func() { <-s.sem }()
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), schedulerOpTimeout)
+		defer cancel()
+		fn(opCtx)
+	}()
 }
 
 // Start registers a job that fires every minute, evaluates scheduled triggers,
@@ -122,16 +174,17 @@ func (s *Scheduler) tick(ctx context.Context) {
 		}
 		if firesAt(sched, loc, now) {
 			tick := ScheduledTick{Trigger: t, ScheduledAt: now}
-			// Dispatch each trigger in its own goroutine so one slow trigger
-			// does not delay others. Detached from the tick's context so an
-			// acknowledged fire is not lost to shutdown mid-enqueue.
-			go s.svc.TickScheduled(context.WithoutCancel(ctx), tick)
+			// Dispatch each trigger in its own bounded goroutine so one slow
+			// trigger does not delay others. spawn detaches it from shutdown so
+			// an acknowledged fire still enqueues, while bounding concurrency
+			// and time.
+			s.spawn(ctx, func(opCtx context.Context) { s.svc.TickScheduled(opCtx, tick) })
 			continue
 		}
 		// Not due now, but a fire may have been missed while the platform was
 		// down. Reconcile the recent past so a missed fire leaves a record
 		// instead of vanishing.
-		go s.reconcileMissed(context.WithoutCancel(ctx), t, sched, loc, now)
+		s.spawn(ctx, func(opCtx context.Context) { s.reconcileMissed(opCtx, t, sched, loc, now) })
 	}
 }
 
