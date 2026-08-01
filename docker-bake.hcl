@@ -95,6 +95,21 @@ target "orbit-agents" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-agents:${IMAGE_TAG}"]
 }
 
+target "orbit-triggers" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "orbit-triggers"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "orbit-triggers"
+    "org.opencontainers.image.description" = "Orbit triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-triggers:${IMAGE_TAG}"]
+}
+
 target "orbit-shell" {
   inherits = ["_backend-default"]
   args = {
@@ -207,6 +222,7 @@ group "default" {
   targets = [
     "backend-images",
     "orbit-agents",
+    "orbit-triggers",
     "orbit-shell",
     "orbit-mcp",
     "orbit-runtime-mcp",
