@@ -80,6 +80,12 @@ target "orbit-agents" {
     "localhost:5001/orbit-agents:${GIT_SHA}",
   ]
 }
+target "orbit-triggers" {
+  tags = [
+    "localhost:5001/orbit-triggers:latest",
+    "localhost:5001/orbit-triggers:${GIT_SHA}",
+  ]
+}
 target "orbit-shell" {
   tags = [
     "localhost:5001/orbit-shell:latest",
@@ -129,6 +135,7 @@ group "local-platform" {
     "orbit-policy-gateway",
     "orbit-egress-gateway",
     "orbit-agents",
+    "orbit-triggers",
     "orbit-frontend",
     "orbit-mcp",
     "orbit-tool-gateway",
