@@ -88,7 +88,8 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
         <CodeBlock
           text={`export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=anthropic/claude-haiku-4-5
-export ANTHROPIC_DEFAULT_OPUS_MODEL=anthropic/claude-opus-4-7`}
+export ANTHROPIC_DEFAULT_OPUS_MODEL=anthropic/claude-opus-4-7
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`}
           filename="~/.zshrc"
         />
         <Text size="caption" color="subtle">
