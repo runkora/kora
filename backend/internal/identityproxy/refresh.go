@@ -19,7 +19,7 @@ import (
 //  1. A background poll goroutine that wakes every Config.PollInterval and
 //     re-exchanges if the token is within Config.RefreshThreshold of expiry.
 //  2. A go-spiffe X509Context callback that fires on every SVID rotation,
-//     immediately invalidating the cache and triggering a re-exchange.
+//     triggering a re-exchange that atomically replaces the cached token.
 //
 // Both strategies write to the shared TokenCache via the tokenExchanger.
 //
@@ -70,10 +70,10 @@ func (r *Refresher) Run(ctx context.Context) {
 	}
 }
 
-// OnSVIDRotation returns a go-spiffe X509ContextWatcher that invalidates the
-// cache and triggers a re-exchange whenever the SPIRE Agent delivers a new SVID.
-// The watcher's callbacks must return promptly — heavy work is done in a new
-// goroutine so the go-spiffe callback goroutine is not blocked.
+// OnSVIDRotation returns a go-spiffe X509ContextWatcher that triggers a
+// re-exchange whenever the SPIRE Agent delivers a new SVID. The watcher's
+// callbacks must return promptly — heavy work is done in a new goroutine so the
+// go-spiffe callback goroutine is not blocked.
 func (r *Refresher) OnSVIDRotation(ctx context.Context) workloadapi.X509ContextWatcher {
 	return &svidWatcher{refresher: r, ctx: ctx}
 }
@@ -147,11 +147,21 @@ type svidWatcher struct {
 }
 
 // OnX509ContextUpdate is called by go-spiffe whenever a new SVID arrives.
-// We invalidate the cache immediately so no stale token is served, then
-// re-exchange in the background so the callback returns promptly.
+// We re-exchange in the background so the callback returns promptly; the new
+// token atomically replaces the cached one via cache.Set when it arrives.
+//
+// We deliberately do NOT invalidate the cache first. SVID rotation is periodic
+// key rotation of the same workload identity — not an identity change or
+// revocation — and the platform JWT carries its own independent expiry, so the
+// currently cached token stays valid across a rotation (and if it has in fact
+// expired, cache.Get already reports the cache empty). Clearing it eagerly opened
+// a brief window where the cache was empty; handleRequestHeaders then forwarded
+// requests with NO Authorization header (ext_proc is failure_mode_allow), OPA
+// fail-closed denied them for lack of an egress scope, and the sandbox Envoy
+// reset the connection — surfacing to agents as intermittent "Connection reset
+// by peer" on git clone and other egress. Keep the valid token until the swap.
 func (w *svidWatcher) OnX509ContextUpdate(_ *workloadapi.X509Context) {
-	w.refresher.logger.Info(w.ctx, "SVID rotated — invalidating token cache and re-exchanging")
-	w.refresher.cache.Invalidate()
+	w.refresher.logger.Info(w.ctx, "SVID rotated — re-exchanging platform token (serving current token until replaced)")
 	go w.refresher.exchangeWithBackoff(w.ctx)
 }
 
