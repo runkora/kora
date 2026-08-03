@@ -137,6 +137,40 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}
 }
 
+// TestTriggerToolsUseTriggersBackend guards the fix for the trigger tools
+// 404ing in dev: they must call the orbit-triggers backend, not identity. The
+// trigger-sources/triggers/deliveries endpoints moved out of the identity binary
+// into orbit-triggers; wiring them to b.Identity sent every trigger tool to a
+// service that no longer serves the path (a plain 404).
+func TestTriggerToolsUseTriggersBackend(t *testing.T) {
+	var gotPath string
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sources":[]}`))
+	}))
+	defer triggers.Close()
+
+	// Identity fails the test if a trigger tool falls back to it.
+	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("trigger tool hit identity backend at %s; must use the triggers backend", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer identity.Close()
+
+	srv := NewServer(Backends{Identity: identity.URL, Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "triggers.sources.list", "arguments": map[string]any{}})
+
+	if gotPath != "/api/v1/trigger-sources" {
+		t.Errorf("triggers.sources.list hit %q, want /api/v1/trigger-sources on the triggers backend", gotPath)
+	}
+}
+
 // TestConnectorsDiscoveryAndForwarding covers the connectors surface: the
 // agents.connectors discovery tool hits the connections catalog, and agents.create
 // forwards the nested connectors + connectivity intent for the backend to compile.
@@ -442,7 +476,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"policy.vocabulary.list": "platform:grants:read", "policy.vocabulary.get": "platform:grants:read",
 		"budgets.tenant.get": "platform:budgets:read", "budgets.tenant.set": "platform:budgets:write",
 		"budgets.tenant.delete": "platform:budgets:write", "budgets.principals.status": "platform:budgets:read",
-		// identity  /api/v1/{trigger-sources,triggers,trigger-deliveries}  → triggers:{read,write}
+		// triggers  /api/v1/{trigger-sources,triggers,trigger-deliveries}  → triggers:{read,write}
 		"triggers.sources.list": "triggers:read", "triggers.sources.get": "triggers:read",
 		"triggers.sources.create": "triggers:write", "triggers.sources.update": "triggers:write",
 		"triggers.sources.delete": "triggers:write", "triggers.list": "triggers:read",

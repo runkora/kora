@@ -27,6 +27,7 @@ type Config struct {
 		Policy      string `yaml:"policy"`
 		Inference   string `yaml:"inference"`
 		Identity    string `yaml:"identity"`
+		Triggers    string `yaml:"triggers"`
 		ToolGateway string `yaml:"toolGateway"`
 	} `yaml:"backends"`
 

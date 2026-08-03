@@ -11,10 +11,12 @@ import (
 )
 
 // registerTriggerTools wires the triggers domain: webhook sources, the triggers
-// that fire agent runs off them, and the delivery history. Served by the identity
-// binary. Reads require triggers:read, writes triggers:write.
+// that fire agent runs off them, and the delivery history. Served by the
+// orbit-triggers binary (these endpoints moved out of identity; pointing them at
+// b.Identity made every trigger tool 404). Reads require triggers:read, writes
+// triggers:write.
 func registerTriggerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
-	base := b.Identity + "/api/v1"
+	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
 	triggers := base + "/triggers"
 
