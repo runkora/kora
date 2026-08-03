@@ -244,8 +244,9 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("claude start: %w", err)
 	}
 
-	r.cfg.Logger.Info(ctx, "Claude subprocess started",
+	r.cfg.Logger.Info(ctx, "agent subprocess started",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
 		logging.Field{Key: "pid", Value: r.cmd.Process.Pid},
 		logging.Field{Key: "model", Value: r.cfg.Model},
 		logging.Field{Key: "bare", Value: r.cfg.Bare},
@@ -393,14 +394,16 @@ func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
 		if line == "" {
 			continue
 		}
-		r.cfg.Logger.Error(ctx, "Claude subprocess stderr",
+		r.cfg.Logger.Error(ctx, "agent subprocess stderr",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "line", Value: line},
 		)
 	}
 	if err := scanner.Err(); err != nil {
-		r.cfg.Logger.Error(ctx, "Claude stderr scan error",
+		r.cfg.Logger.Error(ctx, "agent stderr scan error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
@@ -437,14 +440,16 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		r.cfg.Logger.Error(ctx, "Claude stdout scan error",
+		r.cfg.Logger.Error(ctx, "agent stdout scan error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
 
-	r.cfg.Logger.Info(ctx, "Claude subprocess exited",
+	r.cfg.Logger.Info(ctx, "agent subprocess exited",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
 	)
 }
 
@@ -466,8 +471,9 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			r.capturedSessionID = w.SessionID
 			r.sessionIDMu.Unlock()
 		}
-		r.cfg.Logger.Info(ctx, "Claude system event",
+		r.cfg.Logger.Info(ctx, "agent system event",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "subtype", Value: w.Subtype},
 			logging.Field{Key: "session_id", Value: w.SessionID},
 		)
@@ -504,15 +510,16 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 		}
 		msg := w.Result
 		if msg == "" {
-			msg = fmt.Sprintf("Claude exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
+			msg = fmt.Sprintf("agent exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
 		}
-		r.cfg.Logger.Error(ctx, "Claude error result",
+		r.cfg.Logger.Error(ctx, "agent error result",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "subtype", Value: w.Subtype},
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
-		code := "claude_error"
+		code := "agent_error"
 		if budgetHit || isBudgetExceededMessage(msg) {
 			// The inference gateway rejected the run's LLM calls with 403
 			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
@@ -535,8 +542,9 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	}
 
 	textLen := r.textBuf.Len()
-	r.cfg.Logger.Info(ctx, "Claude turn complete",
+	r.cfg.Logger.Info(ctx, "agent turn complete",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
 		logging.Field{Key: "stop_reason", Value: w.StopReason},
 		logging.Field{Key: "text_len", Value: textLen},
 		logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
@@ -553,8 +561,9 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 		if msg == "" {
 			msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
 		}
-		r.cfg.Logger.Error(ctx, "Claude empty turn — possible inference error",
+		r.cfg.Logger.Error(ctx, "agent empty turn — possible inference error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "claude-code"},
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
@@ -577,8 +586,9 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 // it would arm the idle timer and the session must tear down instead (the
 // drain loop closes it on this run_error and transitions the run).
 func (r *ClaudeRunner) emitBudgetExhaustedTurn(ctx context.Context, w claudeOutputWrapper) {
-	r.cfg.Logger.Error(ctx, "Claude turn truncated by budget rejection",
+	r.cfg.Logger.Error(ctx, "agent turn truncated by budget rejection",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
 		logging.Field{Key: "stop_reason", Value: w.StopReason},
 		logging.Field{Key: "text_len", Value: r.textBuf.Len()},
 	)
