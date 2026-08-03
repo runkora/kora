@@ -31,6 +31,7 @@ type Backends struct {
 	Policy      string
 	Inference   string
 	Identity    string
+	Triggers    string
 	ToolGateway string
 }
 

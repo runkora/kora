@@ -52,6 +52,7 @@ func realMain() error {
 		Policy:      omc.Current.Backends.Policy,
 		Inference:   omc.Current.Backends.Inference,
 		Identity:    omc.Current.Backends.Identity,
+		Triggers:    omc.Current.Backends.Triggers,
 		ToolGateway: omc.Current.Backends.ToolGateway,
 	}, jc)
 
