@@ -338,8 +338,8 @@ func TestSVIDWatcher_OnX509ContextUpdate_KeepsValidTokenUntilSwap(t *testing.T) 
 	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 	watcher := r.OnSVIDRotation(context.Background())
 
-	// Simulate a SVID rotation (nil context is fine since svidWatcher only
-	// reads the X509Context for SVID material, which we don't use).
+	// Simulate a SVID rotation. Passing nil is safe: OnX509ContextUpdate ignores
+	// its X509Context argument entirely.
 	watcher.OnX509ContextUpdate(nil)
 
 	// Wait until the background re-exchange is in flight (blocked in Exchange).

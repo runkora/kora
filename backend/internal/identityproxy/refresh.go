@@ -150,16 +150,16 @@ type svidWatcher struct {
 // We re-exchange in the background so the callback returns promptly; the new
 // token atomically replaces the cached one via cache.Set when it arrives.
 //
-// We deliberately do NOT invalidate the cache first. The current token is still
-// valid — SVID rotation is periodic key rotation of the same workload identity,
-// not an identity change or revocation, and the platform JWT carries its own
-// independent expiry (~7.5 min of headroom remains at a rotation, for a 15 min
-// token and a half-life rotation). Clearing it opened a sub-second window where
-// the cache was empty; handleRequestHeaders then forwarded requests with NO
-// Authorization header (ext_proc is failure_mode_allow), OPA fail-closed denied
-// them for lack of an egress scope, and the sandbox Envoy reset the connection.
-// Agents saw this as intermittent "Connection reset by peer" on git clone and
-// other egress. Keeping the valid token until the swap removes that window.
+// We deliberately do NOT invalidate the cache first. SVID rotation is periodic
+// key rotation of the same workload identity — not an identity change or
+// revocation — and the platform JWT carries its own independent expiry, so the
+// currently cached token stays valid across a rotation (and if it has in fact
+// expired, cache.Get already reports the cache empty). Clearing it eagerly opened
+// a brief window where the cache was empty; handleRequestHeaders then forwarded
+// requests with NO Authorization header (ext_proc is failure_mode_allow), OPA
+// fail-closed denied them for lack of an egress scope, and the sandbox Envoy
+// reset the connection — surfacing to agents as intermittent "Connection reset
+// by peer" on git clone and other egress. Keep the valid token until the swap.
 func (w *svidWatcher) OnX509ContextUpdate(_ *workloadapi.X509Context) {
 	w.refresher.logger.Info(w.ctx, "SVID rotated — re-exchanging platform token (serving current token until replaced)")
 	go w.refresher.exchangeWithBackoff(w.ctx)
