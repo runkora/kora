@@ -417,10 +417,10 @@ func TestPricingFromModelPricing_AllFields(t *testing.T) {
 	if got == nil {
 		t.Fatal("pricingFromModelPricing returned nil, want non-nil")
 	}
-	if got.EffectiveInputCostPer1M != 3.0 {
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
 		t.Errorf("EffectiveInputCostPer1M = %v, want 3.0", got.EffectiveInputCostPer1M)
 	}
-	if got.EffectiveOutputCostPer1M != 15.0 {
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 15.0 {
 		t.Errorf("EffectiveOutputCostPer1M = %v, want 15.0", got.EffectiveOutputCostPer1M)
 	}
 	if got.ImageInputCost != 0.001 {
@@ -561,10 +561,10 @@ func TestVmEffectivePricing_PicksLowestCost(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
-	if got.EffectiveInputCostPer1M != 1.0 {
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 1.0 {
 		t.Errorf("EffectiveInputCostPer1M = %v, want 1.0 (cheap-model)", got.EffectiveInputCostPer1M)
 	}
-	if got.EffectiveOutputCostPer1M != 5.0 {
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 5.0 {
 		t.Errorf("EffectiveOutputCostPer1M = %v, want 5.0 (cheap-model)", got.EffectiveOutputCostPer1M)
 	}
 }
@@ -596,7 +596,39 @@ func TestVmEffectivePricing_SkipsDisabledRoutes(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
-	if got.EffectiveInputCostPer1M != 3.0 {
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
 		t.Errorf("EffectiveInputCostPer1M = %v, want 3.0 (disabled cheap route ignored)", got.EffectiveInputCostPer1M)
+	}
+}
+
+func TestVmEffectivePricing_NonTokenOnly_NilsTokenFields(t *testing.T) {
+	t.Parallel()
+	// A non-token-only route must not emit zero token prices — they must be nil
+	// so the JSON omits them, keeping the API contract clean.
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
+		},
+	}
+	pricingIdx := buildPricingIndex([]ModelPricing{
+		{
+			Provider:       ProviderBedrock,
+			ModelID:        "image-model",
+			ImageInputCost: 0.001,
+		},
+	})
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
+	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	if got == nil {
+		t.Fatal("expected non-nil for non-token-only model")
+	}
+	if !got.NonTokenOnly {
+		t.Error("NonTokenOnly = false, want true")
+	}
+	if got.EffectiveInputCostPer1M != nil {
+		t.Errorf("EffectiveInputCostPer1M = %v, want nil (must be omitted from JSON for non-token-only models)", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M != nil {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want nil (must be omitted from JSON for non-token-only models)", got.EffectiveOutputCostPer1M)
 	}
 }

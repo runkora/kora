@@ -152,10 +152,10 @@ func TestVmEffectivePricing(t *testing.T) {
 			if got == nil {
 				t.Fatal("expected non-nil result")
 			}
-			if got.EffectiveInputCostPer1M != tc.wantInput {
+			if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != tc.wantInput {
 				t.Errorf("input: want %v, got %v", tc.wantInput, got.EffectiveInputCostPer1M)
 			}
-			if got.EffectiveOutputCostPer1M != tc.wantOutput {
+			if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != tc.wantOutput {
 				t.Errorf("output: want %v, got %v", tc.wantOutput, got.EffectiveOutputCostPer1M)
 			}
 		})

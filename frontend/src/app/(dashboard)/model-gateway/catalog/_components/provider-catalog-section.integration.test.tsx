@@ -5,7 +5,7 @@
  * through the exported ProviderCatalogSection with controlled props.
  */
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import type { ProviderModel } from '../_types/catalog';
@@ -104,11 +104,10 @@ describe('NonTokenPricingRows', () => {
         ]}
       />,
     );
-    // Open the detail overlay by clicking the row (the table renders the model)
-    // The non-token rows are only shown in the detail overlay, so we need to
-    // verify the data is present in the component tree.
-    // The EffectivePriceCell shows no em-dash for non-token-only (just an icon).
-    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    // Open the detail overlay by clicking the row.
+    fireEvent.click(screen.getByText('test-model'));
+    // The overlay renders NonTokenPricingRows — assert the label is present.
+    expect(await screen.findByText('Image input')).toBeInTheDocument();
   });
 
   it('renders audio pricing rows when audio costs are set', async () => {
@@ -124,7 +123,9 @@ describe('NonTokenPricingRows', () => {
         ]}
       />,
     );
-    // The non-token indicator should not show em-dash — just a muted info icon.
-    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    // Open the detail overlay by clicking the row.
+    fireEvent.click(screen.getByText('test-model'));
+    expect(await screen.findByText('Audio input /1M')).toBeInTheDocument();
+    expect(await screen.findByText('Audio output /1M')).toBeInTheDocument();
   });
 });

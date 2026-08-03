@@ -50,9 +50,9 @@ export interface ToolScopeDefinition {
 
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
-  /** Effective per-1M token input cost (absent when model has no token pricing). */
+  /** Effective per-1M token input cost (0 for free-tier; absent only when non_token_only). */
   effective_input_cost_per_1m?: number;
-  /** Effective per-1M token output cost (absent when model has no token pricing). */
+  /** Effective per-1M token output cost (0 for free-tier; absent only when non_token_only). */
   effective_output_cost_per_1m?: number;
   cache_read_cost_per_1m?: number;
   cache_write_cost_per_1m?: number;

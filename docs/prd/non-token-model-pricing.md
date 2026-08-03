@@ -1,6 +1,6 @@
 # Non-Token Model Pricing — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-07-16  
 **Last Updated:** 2026-07-16  
 

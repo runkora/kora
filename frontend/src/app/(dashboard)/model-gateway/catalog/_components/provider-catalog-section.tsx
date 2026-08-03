@@ -93,7 +93,7 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
   const tokenPricing = hasTokenPricing(pricing);
   const nonTokenPricing = hasNonTokenPricing(pricing);
 
-  if (!tokenPricing) {
+  if (!tokenPricing && nonTokenPricing) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>

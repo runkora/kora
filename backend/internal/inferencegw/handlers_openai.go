@@ -156,24 +156,25 @@ func (c *Controller) handleChatCompletionsStream(
 // Token fields reflect the lowest-cost enabled route. Non-token fields carry
 // the raw per-unit costs for models where token pricing is absent or
 // supplemented by another billing dimension.
-// All fields use omitempty so the struct is nil-equivalent when all are zero —
-// pricing is absent from the response for models with no cost data at all.
+// Token fields use *float64 so explicit zero (free-tier) is preserved in JSON;
+// omitempty on a *float64 pointer omits only nil, not zero.
+// Non-token fields use float64+omitempty — they are genuinely absent when zero.
 // NonTokenOnly is true when the VM has no token-priced routes and the pricing
 // was sourced from non-token dimensions only.
 type modelObjectPricing struct {
-	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m,omitempty"`
-	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m,omitempty"`
-	CacheReadCostPer1M       float64 `json:"cache_read_cost_per_1m,omitempty"`
-	CacheWriteCostPer1M      float64 `json:"cache_write_cost_per_1m,omitempty"`
-	ImageInputCost           float64 `json:"image_input_cost,omitempty"`
-	ImageOutputCost          float64 `json:"image_output_cost,omitempty"`
-	RequestInputCost         float64 `json:"request_input_cost,omitempty"`
-	RequestOutputCost        float64 `json:"request_output_cost,omitempty"`
-	SecondInputCost          float64 `json:"second_input_cost,omitempty"`
-	SecondOutputCost         float64 `json:"second_output_cost,omitempty"`
-	AudioInputCostPer1M      float64 `json:"audio_input_cost_per_1m,omitempty"`
-	AudioOutputCostPer1M     float64 `json:"audio_output_cost_per_1m,omitempty"`
-	NonTokenOnly             bool    `json:"non_token_only,omitempty"`
+	EffectiveInputCostPer1M  *float64 `json:"effective_input_cost_per_1m,omitempty"`
+	EffectiveOutputCostPer1M *float64 `json:"effective_output_cost_per_1m,omitempty"`
+	CacheReadCostPer1M       float64  `json:"cache_read_cost_per_1m,omitempty"`
+	CacheWriteCostPer1M      float64  `json:"cache_write_cost_per_1m,omitempty"`
+	ImageInputCost           float64  `json:"image_input_cost,omitempty"`
+	ImageOutputCost          float64  `json:"image_output_cost,omitempty"`
+	RequestInputCost         float64  `json:"request_input_cost,omitempty"`
+	RequestOutputCost        float64  `json:"request_output_cost,omitempty"`
+	SecondInputCost          float64  `json:"second_input_cost,omitempty"`
+	SecondOutputCost         float64  `json:"second_output_cost,omitempty"`
+	AudioInputCostPer1M      float64  `json:"audio_input_cost_per_1m,omitempty"`
+	AudioOutputCostPer1M     float64  `json:"audio_output_cost_per_1m,omitempty"`
+	NonTokenOnly             bool     `json:"non_token_only,omitempty"`
 }
 
 // modelObject is the unified /v1/models response shape supporting both OpenAI and Anthropic clients.
@@ -345,9 +346,11 @@ func hasNonTokenPricing(p ModelPricing) bool {
 // returns a non-nil value. Only call it when the cache lookup succeeded — i.e.
 // when the bool return of PricingCache.Price() (or a map lookup) was true.
 func pricingFromModelPricing(p ModelPricing) *modelObjectPricing {
+	inp := p.InputCostPerMillion
+	out := p.OutputCostPerMillion
 	return &modelObjectPricing{
-		EffectiveInputCostPer1M:  p.InputCostPerMillion,
-		EffectiveOutputCostPer1M: p.OutputCostPerMillion,
+		EffectiveInputCostPer1M:  &inp,
+		EffectiveOutputCostPer1M: &out,
 		CacheReadCostPer1M:       p.CacheReadCostPerMillion,
 		CacheWriteCostPer1M:      p.CacheWriteCostPerMillion,
 		ImageInputCost:           p.ImageInputCost,
@@ -414,6 +417,8 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPri
 		}
 		out := pricingFromModelPricing(p)
 		out.NonTokenOnly = true
+		out.EffectiveInputCostPer1M = nil
+		out.EffectiveOutputCostPer1M = nil
 		return out
 	}
 	return nil

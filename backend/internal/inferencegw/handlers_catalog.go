@@ -509,7 +509,8 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 
 // vmCatalogPricing returns the effective pricing for a virtual model.
 // First pass: finds the enabled route with the lowest combined effective token
-// cost from the pricing map.
+// cost from the pricing map. Routes with zero token pricing but non-token dims
+// are deferred to the second pass (they are non-token-only models, not free-tier).
 // If no token-priced route exists, second pass: picks the first enabled route
 // with any non-token cost data and returns it with NonTokenOnly: true.
 // Returns nil when no enabled route has any pricing data at all.
@@ -539,6 +540,10 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 	}
 
 	// No token-priced route — fall back to non-token data if available.
+	// First-match is intentional: non-token dims are not comparable across
+	// routes (images vs seconds vs requests), so cost-based selection is
+	// meaningless. Routes are ordered by Priority, so first-match respects
+	// the operator's intent.
 	for _, route := range vm.Routes {
 		if !route.Enabled {
 			continue
