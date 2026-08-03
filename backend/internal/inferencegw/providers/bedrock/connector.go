@@ -134,9 +134,10 @@ func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, 
 //   - anthropicClient: Anthropic Messages API on Bedrock for Claude models
 //   - mantleClient: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/v1) for OpenAI
 //     models (e.g. openai.gpt-oss-120b) hosted by AWS. Supports ChatCompletion and Responses API.
-//   - mantleGPT5Client: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/openai/v1) for the
-//     proprietary GPT-5.x family.  AWS serves this family on /openai/v1 — a distinct path from the
-//     /v1 path used by all other Mantle models.  These models support only the Responses API.
+//   - mantleOpenAIV1Client: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/openai/v1) for
+//     models served on the /openai/v1 path (GPT-5.x, xAI Grok). AWS serves these on /openai/v1,
+//     distinct from the /v1 path used by all other Mantle models. These models support only the
+//     Responses API.
 //
 // ChatCompletion/ChatCompletionStream dispatch to anthropicClient for Anthropic models,
 // mantleClient for Mantle models, and openaiClient for everything else.
@@ -147,21 +148,21 @@ func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, 
 // mantleModelIDs is populated at ListModels time; before it is populated, Mantle model
 // requests fall through to openaiClient, fail, and the router's failover advances to
 // the next target (same cold-start behavior as all provider model caches).
-// GPT-5.x models follow the same cold-start pattern — inferBackendID maps them to
-// backendMantleGPT5 even before the registry is warm.
+// GPT-5.x and xAI Grok follow the same cold-start pattern — inferBackendID maps them to
+// backendMantleOpenAIV1 even before the registry is warm.
 type Connector struct {
-	providerName     inferencegw.ProviderName
-	openaiClient     *openai.Client
-	mantleClient     *openai.Client
-	mantleGPT5Client *openai.Client
-	anthropicClient  *anthropic.Client
-	anthropicBridge  *bridge.AnthropicResponsesBridge
-	openAIBridge     *bridge.ChatCompletionsResponsesBridge
-	bedrockClient    *bedrockSDK.Client
-	runtimeClient    *bedrockruntimeSDK.Client
-	region           string // AWS region; used to prefer regionally-matching inference profiles
-	logger           logging.Logger
-	modelRegistry    atomic.Pointer[map[string]backendID]
+	providerName         inferencegw.ProviderName
+	openaiClient         *openai.Client
+	mantleClient         *openai.Client
+	mantleOpenAIV1Client *openai.Client
+	anthropicClient      *anthropic.Client
+	anthropicBridge      *bridge.AnthropicResponsesBridge
+	openAIBridge         *bridge.ChatCompletionsResponsesBridge
+	bedrockClient        *bedrockSDK.Client
+	runtimeClient        *bedrockruntimeSDK.Client
+	region               string // AWS region; used to prefer regionally-matching inference profiles
+	logger               logging.Logger
+	modelRegistry        atomic.Pointer[map[string]backendID]
 }
 
 // New constructs a Bedrock Connector from a validated Config.
@@ -212,15 +213,15 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 		)),
 	)
 
-	// Bedrock Mantle /openai/v1 endpoint — GPT-5.x models exclusively.
+	// Bedrock Mantle /openai/v1 endpoint — GPT-5.x and xAI Grok models.
 	// AWS model cards state these models live on /openai/v1, "different from the
 	// /v1 path used by other models on the responses endpoint".  Chat Completions
 	// returns 400; only the Responses API works here.
-	mantleGPT5Endpoint := fmt.Sprintf("https://bedrock-mantle.%s.api.aws/openai/v1", cfg.Region)
-	mantleGPT5Client := openai.NewClient(
-		openaiopt.WithBaseURL(mantleGPT5Endpoint),
+	mantleOpenAIV1Endpoint := fmt.Sprintf("https://bedrock-mantle.%s.api.aws/openai/v1", cfg.Region)
+	mantleOpenAIV1Client := openai.NewClient(
+		openaiopt.WithBaseURL(mantleOpenAIV1Endpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.bedrock-mantle-gpt5", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("orbit.bedrock-mantle-openai-v1", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -239,17 +240,17 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	runtimeClient := bedrockruntimeSDK.NewFromConfig(awsCfg)
 
 	return &Connector{
-		providerName:     providerName,
-		openaiClient:     &openaiClient,
-		mantleClient:     &mantleClient,
-		mantleGPT5Client: &mantleGPT5Client,
-		anthropicClient:  &anthropicClient,
-		anthropicBridge:  bridge.NewAnthropicResponsesBridge(&anthropicClient, providerName, logger),
-		openAIBridge:     bridge.NewChatCompletionsResponsesBridge(&openaiClient, providerName, logger),
-		bedrockClient:    bedrockClient,
-		runtimeClient:    runtimeClient,
-		region:           cfg.Region,
-		logger:           logger,
+		providerName:         providerName,
+		openaiClient:         &openaiClient,
+		mantleClient:         &mantleClient,
+		mantleOpenAIV1Client: &mantleOpenAIV1Client,
+		anthropicClient:      &anthropicClient,
+		anthropicBridge:      bridge.NewAnthropicResponsesBridge(&anthropicClient, providerName, logger),
+		openAIBridge:         bridge.NewChatCompletionsResponsesBridge(&openaiClient, providerName, logger),
+		bedrockClient:        bedrockClient,
+		runtimeClient:        runtimeClient,
+		region:               cfg.Region,
+		logger:               logger,
 	}, nil
 }
 
@@ -336,10 +337,10 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 	registry := make(map[string]backendID, len(models))
 	for _, m := range models {
 		if mantleIDs[m.ModelID] {
-			// GPT-5.x models share the Mantle credentials but require the
+			// GPT-5.x and xAI Grok share the Mantle credentials but require the
 			// /openai/v1 path — give them their own backend ID.
-			if isGPT5Model(m.ModelID) {
-				registry[m.ModelID] = backendMantleGPT5
+			if isMantleOpenAIV1Model(m.ModelID) {
+				registry[m.ModelID] = backendMantleOpenAIV1
 			} else {
 				registry[m.ModelID] = backendMantle
 			}
