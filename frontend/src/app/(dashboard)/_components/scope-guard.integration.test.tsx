@@ -4,8 +4,9 @@
  * Strategy:
  * - `./permissions-provider` is vi.mock'd so `useSession` returns controllable
  *   session state without needing a live PermissionsProvider or MSW.
- * - Tests verify: null render while loading, children when scope is held,
- *   forbidden message when scope is absent, and exact-match semantics.
+ * - Tests verify: optimistic children render while loading, children when
+ *   scope is held, forbidden message when scope is absent, and exact-match
+ *   semantics.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
@@ -34,10 +35,10 @@ function renderGuard(scope: string) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ScopeGuard', () => {
-  it('renders null while the session is not yet loaded', () => {
+  it('renders children optimistically while the session is not yet loaded', () => {
     vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: false });
-    const { container } = renderGuard('platform:grants:read');
-    expect(container).toBeEmptyDOMElement();
+    renderGuard('platform:grants:read');
+    expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
 
   it('renders children when the principal holds the required scope', () => {

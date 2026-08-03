@@ -22,6 +22,10 @@ export default async function MyUsagePage() {
     );
   }
 
+  // Only the analytics query depends on preferences (the default period), so
+  // the PAT and budget fetches start immediately rather than waiting behind it.
+  const patsPromise = listPATsFromIdentity(session.accessToken);
+  const budgetPromise = fetchPersonalBudgetFromGateway(session.accessToken);
   const preferences = await getPreferences(session.accessToken);
   const days = toDays(preferences.myUsage.defaultPeriod);
 
@@ -30,8 +34,8 @@ export default async function MyUsagePage() {
       days,
       granularity: 'daily',
     }),
-    listPATsFromIdentity(session.accessToken),
-    fetchPersonalBudgetFromGateway(session.accessToken),
+    patsPromise,
+    budgetPromise,
   ]);
 
   return (

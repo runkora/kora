@@ -16,7 +16,13 @@ import { useSession } from './permissions-provider';
 export function ScopeGuard({ scope, children }: { scope: string; children: ReactNode }) {
   const { scopes, loaded } = useSession();
 
-  if (!loaded) return null;
+  // Optimistic while the session loads: enforcement lives at the API layer
+  // (the server-rendered content behind this guard was fetched under the
+  // user's own token), so hiding it here only blanks the page — including
+  // the route's loading.tsx skeleton — until the client session fetch
+  // resolves. Render children and swap to Forbidden only on a confirmed
+  // missing scope.
+  if (!loaded) return <>{children}</>;
 
   if (!hasScope(scopes, scope)) {
     return (
