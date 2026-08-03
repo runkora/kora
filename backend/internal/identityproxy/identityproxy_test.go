@@ -93,17 +93,6 @@ func TestTokenCache_SetGet(t *testing.T) {
 	}
 }
 
-func TestTokenCache_Invalidate(t *testing.T) {
-	c := NewTokenCache()
-	c.Set("tok", time.Now().Add(5*time.Minute))
-	c.Invalidate()
-
-	_, _, ok := c.Get()
-	if ok {
-		t.Fatal("expected ok=false after Invalidate")
-	}
-}
-
 func TestTokenCache_IsExpiringSoon_True(t *testing.T) {
 	c := NewTokenCache()
 	// Token expires in 30 s — within the 60 s threshold.
@@ -316,11 +305,36 @@ func TestRefresher_Run_StopsOnCtxCancel(t *testing.T) {
 
 // ── svidWatcher ───────────────────────────────────────────────────────────────
 
-func TestSVIDWatcher_OnX509ContextUpdate_InvalidatesAndRefreshes(t *testing.T) {
+// gatedExchanger blocks inside Exchange until release is closed, signalling on
+// entered when the call is reached. It lets a test observe the cache state while
+// a re-exchange is in flight.
+type gatedExchanger struct {
+	entered chan struct{}
+	release chan struct{}
+	token   string
+}
+
+func (g *gatedExchanger) Exchange(_ context.Context) (string, time.Time, error) {
+	close(g.entered)
+	<-g.release
+	return g.token, time.Now().Add(5 * time.Minute), nil
+}
+
+// TestSVIDWatcher_OnX509ContextUpdate_KeepsValidTokenUntilSwap guards the
+// regression fixed here: on SVID rotation the cache must keep serving the still
+// valid token until the re-exchange atomically replaces it. Any empty window
+// would let handleRequestHeaders forward requests with no Authorization header,
+// which OPA fail-closed denies — surfacing to agents as intermittent
+// "Connection reset by peer" on git clone and other egress.
+func TestSVIDWatcher_OnX509ContextUpdate_KeepsValidTokenUntilSwap(t *testing.T) {
 	cache := NewTokenCache()
 	cache.Set("old-token", time.Now().Add(5*time.Minute))
 
-	exc := &stubExchanger{token: "new-token"}
+	exc := &gatedExchanger{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+		token:   "new-token",
+	}
 	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 	watcher := r.OnSVIDRotation(context.Background())
 
@@ -328,12 +342,24 @@ func TestSVIDWatcher_OnX509ContextUpdate_InvalidatesAndRefreshes(t *testing.T) {
 	// reads the X509Context for SVID material, which we don't use).
 	watcher.OnX509ContextUpdate(nil)
 
-	// Cache is invalidated synchronously; repopulation happens in a goroutine.
-	// Poll until the new token appears (max 2 s).
+	// Wait until the background re-exchange is in flight (blocked in Exchange).
+	select {
+	case <-exc.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("re-exchange was never triggered by SVID rotation")
+	}
+
+	// While the new token is being minted, the cache must still serve the valid
+	// old token — never an empty window.
+	if tok, _, ok := cache.Get(); !ok || tok != "old-token" {
+		t.Fatalf("cache must keep serving the valid token during re-exchange, got tok=%q ok=%v", tok, ok)
+	}
+
+	// Let the exchange complete; the new token atomically replaces the old.
+	close(exc.release)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		tok, _, ok := cache.Get()
-		if ok && tok == "new-token" {
+		if tok, _, ok := cache.Get(); ok && tok == "new-token" {
 			return // success
 		}
 		time.Sleep(10 * time.Millisecond)
