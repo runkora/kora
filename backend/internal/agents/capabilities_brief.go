@@ -65,5 +65,11 @@ func renderCapabilitiesBrief(access *EffectiveAccess) string {
 		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
 	}
 
+	b.WriteString("\n## Working with git repositories\n")
+	b.WriteString("When cloning a repository, **never run `git init` if the clone fails** — a locally initialized repo shares no history with the remote and will produce an unmergeable orphan branch. Instead:\n")
+	b.WriteString("1. Retry the clone (with backoff) until it succeeds. Transient `connection reset by peer` errors during sandbox startup resolve on their own.\n")
+	b.WriteString("2. Before branching, committing, or pushing, verify the working copy is a real clone: `git remote get-url origin` must succeed and `git fetch origin` must be able to reach the base branch.\n")
+	b.WriteString("3. If `git clone` keeps failing after retries, surface the error — do not fall back to `git init`.\n")
+
 	return b.String()
 }
