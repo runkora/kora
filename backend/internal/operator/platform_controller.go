@@ -2,9 +2,11 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -407,29 +409,19 @@ func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, versions *c
 }
 
 func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	// The SPIRE and identity-proxy sidecar injection templates are Orbit's
-	// internal wiring between its components. They are generated from the
-	// OrbitPlatform CR — the user should never need to write or maintain them.
-	istioValues := map[string]any{
-		"meshConfig": map[string]any{
-			"trustDomain": p.Spec.TrustDomain,
-			"defaultConfig": map[string]any{
-				"discoveryAddress": "istiod.istio-system.svc:15012",
-			},
-		},
-		"sidecarInjectorWebhook": map[string]any{
-			"templates": map[string]any{
-				"spire": buildSpireInjectionTemplate(),
-				"identity-proxy": buildIdentityProxyInjectionTemplate(
-					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
-				),
-				"opa-policy": buildOPAPolicyInjectionTemplate(r.OPAImage, r.OPALogLevel),
-			},
-		},
+	if p.Spec.MeshJWTValidation.Enabled {
+		if err := r.ensureMeshJWKSConfigMap(ctx, p); err != nil {
+			return fmt.Errorf("ensure mesh JWKS configmap: %w", err)
+		}
+	}
+
+	istioValues, err := buildIstiodValues(p, r.OPAImage, r.OPALogLevel)
+	if err != nil {
+		return err
 	}
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
-	_, err := helm.InstallOrUpgrade(ctx,
+	_, err = helm.InstallOrUpgrade(ctx,
 		"istiod",
 		"istiod",
 		"https://istio-release.storage.googleapis.com/charts",
@@ -444,44 +436,270 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 	return nil
 }
 
+// buildIstiodValues renders the Helm values for the istiod release. Pure
+// (no cluster calls) so the pinned constraints below can be asserted by
+// unit test without a live Helm/Kubernetes backend (see docs/adr/2026-08-04-devenv-mode-platform-support.md, F-2, F-3, F-4):
+//
+//   - ENABLE_NATIVE_SIDECARS is pinned "false" under the chart's FLAT
+//     top-level `env:` key (`.Values.pilot.env` is never read for istiod's
+//     own Deployment).
+//   - meshConfig.discoverySelectors excludes orbit.io/role=devenv
+//     namespaces, but only for host installs (p.Spec.SPIRE.Enabled) — an
+//     in-vcluster istiod has no business discovering devenv namespaces at
+//     all and must not carry this selector.
+//   - MeshJWTValidation, when enabled, sets JWT_RULE (YAML-escaped via
+//     helmDoubleQuotedScalarEscape) with a mandatory non-empty audiences
+//     list, plus the jwks-mirror sidecar's volume/initContainer.
+func buildIstiodValues(p *OrbitPlatform, opaImage, opaLogLevel string) (map[string]any, error) {
+	// The SPIRE and identity-proxy sidecar injection templates are Orbit's
+	// internal wiring between its components. They are generated from the
+	// OrbitPlatform CR — the user should never need to write or maintain them.
+	meshConfig := map[string]any{
+		"trustDomain": p.Spec.TrustDomain,
+		"defaultConfig": map[string]any{
+			"discoveryAddress": "istiod.istio-system.svc:15012",
+		},
+	}
+	// The host's istiod runs a namespace controller that copies the
+	// istio-ca-root-cert ConfigMap into every namespace it discovers —
+	// cluster-wide by default. A dev environment's flattened host namespace
+	// hosts its OWN independent istiod, inside its own vcluster, publishing a
+	// ConfigMap under the exact same name — so without this exclusion the
+	// host's istiod clobbers it with the HOST's root, which cannot validate
+	// the dev environment's own istiod's serving certificate.
+	// p.Spec.SPIRE.Enabled is false only for in-vcluster installs — this only
+	// ever applies to the host's own istiod, which has no business
+	// discovering devenv namespaces at all.
+	if p.Spec.SPIRE.Enabled {
+		meshConfig["discoverySelectors"] = []map[string]any{
+			{
+				"matchExpressions": []map[string]any{
+					{"key": "orbit.io/role", "operator": "NotIn", "values": []string{"devenv"}},
+				},
+			},
+		}
+	}
+	// istiod's own container env goes under the chart's FLAT top-level `env:`
+	// key — the deployment template's env-rendering block ranges over
+	// .Values.env directly. `.Values.pilot.env` is only referenced by the
+	// chart's injection-template files and by the umbrella-chart
+	// compatibility profiles, never by istiod's own Deployment, so values
+	// placed there silently never reach the pilot process.
+	istiodEnv := map[string]any{
+		// Istio's "Compatibility" auto-detection silently switches
+		// istio-proxy from a `containers` entry to a native-sidecar
+		// `initContainers` entry based on the target API server's reported
+		// Kubernetes version. buildSpireInjectionTemplate() and
+		// buildIdentityProxyInjectionTemplate() patch `containers` only, so
+		// that switch produces an invalid pod. Orbit already solves sidecar
+		// startup ordering itself via holdApplicationUntilProxyStarts, so
+		// native sidecars buy nothing here — pin this off so injection is
+		// deterministic regardless of what version string any given
+		// cluster reports.
+		"ENABLE_NATIVE_SIDECARS": "false",
+	}
+	istioValues := map[string]any{
+		"meshConfig": meshConfig,
+		"env":        istiodEnv,
+		"sidecarInjectorWebhook": map[string]any{
+			"templates": map[string]any{
+				"spire": buildSpireInjectionTemplate(),
+				"identity-proxy": buildIdentityProxyInjectionTemplate(
+					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
+				),
+				"opa-policy": buildOPAPolicyInjectionTemplate(opaImage, opaLogLevel),
+			},
+		},
+	}
+	// Dev-environment installs: this istiod's mesh workloads are host pods
+	// carrying HOST-signed bound ServiceAccount tokens, which the default
+	// KubeJWTAuthenticator (TokenReview against the VIRTUAL apiserver) can
+	// never validate. JWT_RULE prepends a pure public-key JWT authenticator
+	// for the host issuer instead; the JWKS it validates against is served
+	// from pod loopback by a credential-less static-file sidecar, because
+	// istiod's own JWKS fetch can attach neither a bearer token nor a custom
+	// CA and the host's JWKS endpoint requires authentication. The issuer
+	// and JWKS content arrive on the CR spec, fetched by whatever provisions
+	// the environment.
+	if p.Spec.MeshJWTValidation.Enabled {
+		// An enabled rule with no issuer/JWKS would render a JWT_RULE that
+		// can never authenticate anything — istiod would then reject every
+		// mesh sidecar's XDS connection, which fails far away from this
+		// clearly-wrong CR spec. Reject it here instead of rendering it.
+		if p.Spec.MeshJWTValidation.Issuer == "" || p.Spec.MeshJWTValidation.JWKS == "" {
+			return nil, fmt.Errorf("meshJWTValidation.enabled is true but issuer/jwks is empty — both are required")
+		}
+		jwtRule, err := json.Marshal(map[string]any{
+			"issuer":   p.Spec.MeshJWTValidation.Issuer,
+			"jwks_uri": meshJWKSMirrorURL,
+			// Mesh sidecars' bootstrap tokens carry the stock Istio audience
+			// ("istio-ca", global.sds.token.aud — unmodified by any Orbit
+			// injection template). JWT_RULE's authenticator rejects EVERY
+			// token when its expected-audiences list is empty, so this must
+			// be set explicitly despite being an optional field.
+			"audiences": []string{"istio-ca"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal JWT_RULE: %w", err)
+		}
+		// The istiod chart's own env-rendering (templates/deployment.yaml)
+		// interpolates values with zero escaping: `value: "{{ $val }}"`. A
+		// raw JSON string dropped into that template breaks the rendered
+		// YAML outright the moment it contains a `"`. Pre-escaping with the
+		// same backslash/quote rules as a YAML double-quoted scalar (a
+		// strict subset of Go's escaping, since json.Marshal never emits
+		// other control characters) makes the chart's own naive quoting
+		// produce valid YAML that decodes back to this exact string.
+		istiodEnv["JWT_RULE"] = helmDoubleQuotedScalarEscape(string(jwtRule))
+		istioValues["volumes"] = []map[string]any{
+			{
+				"name": "mesh-jwks",
+				"configMap": map[string]any{
+					"name":     meshJWKSConfigMapName,
+					"optional": true,
+				},
+			},
+		}
+		// A Kubernetes-native sidecar (initContainers + restartPolicy:
+		// Always — GA on every cluster this runs on) serving the mounted
+		// JWKS file over loopback. Loopback-only bind: nothing outside the
+		// istiod pod can reach it, and istiod's fetch of it needs no TLS
+		// and no credential.
+		istioValues["initContainers"] = []map[string]any{
+			{
+				"name":          "jwks-mirror",
+				"image":         meshJWKSMirrorImage,
+				"restartPolicy": "Always",
+				"command": []string{
+					"httpd", "-f", "-p", meshJWKSMirrorListen, "-h", "/served",
+				},
+				"volumeMounts": []map[string]any{
+					{"name": "mesh-jwks", "mountPath": "/served", "readOnly": true},
+				},
+			},
+		}
+	}
+	return istioValues, nil
+}
+
+const (
+	// meshJWKSConfigMapName holds the external issuer's JWKS document
+	// (spec.meshJWTValidation.jwks) in istiod's own namespace, mounted into
+	// the jwks-mirror sidecar. Public key material only.
+	meshJWKSConfigMapName = "orbit-mesh-jwks"
+
+	// meshJWKSConfigMapKey is the ConfigMap data key — and therefore the
+	// filename busybox httpd serves, so it must match the path component of
+	// meshJWKSMirrorURL.
+	meshJWKSConfigMapKey = "jwks"
+
+	// meshJWKSMirrorListen binds the mirror to pod loopback only: reachable
+	// by istiod (same network namespace), unreachable from anywhere else.
+	meshJWKSMirrorListen = "127.0.0.1:8899"
+
+	// meshJWKSMirrorURL is where istiod's JWT_RULE authenticator fetches the
+	// JWKS — plaintext loopback, so no credential or CA trust is needed on
+	// istiod's side (it has no way to supply either; see MeshJWTValidationSpec).
+	meshJWKSMirrorURL = "http://" + meshJWKSMirrorListen + "/" + meshJWKSConfigMapKey
+
+	// meshJWKSMirrorImage only needs a static-file HTTP server (busybox
+	// httpd). Pinned like the chart versions; not an Orbit image, so
+	// spec.imageRegistry does not apply.
+	meshJWKSMirrorImage = "busybox:1.36"
+)
+
+// helmDoubleQuotedScalarEscape escapes a string for embedding inside the
+// istiod chart's unescaped `value: "{{ $val }}"` env template. Backslashes
+// are escaped first so a literal backslash already in the input isn't
+// mistaken for the start of one of these escapes once quotes are escaped
+// next — the same ordering strconv.Quote uses, restricted to the two
+// characters YAML's double-quoted scalar and this input can actually
+// contain (json.Marshal never emits raw control characters).
+func helmDoubleQuotedScalarEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
+// ensureMeshJWKSConfigMap creates or updates the ConfigMap backing the
+// jwks-mirror sidecar from spec.meshJWTValidation.jwks. Runs before the
+// istiod Helm install in reconcileIstiod, so the mounted content exists by
+// the time the istiod pod first starts; istio-base has already created the
+// istio-system namespace by then.
+func (r *PlatformReconciler) ensureMeshJWKSConfigMap(ctx context.Context, p *OrbitPlatform) error {
+	data := map[string]string{meshJWKSConfigMapKey: p.Spec.MeshJWTValidation.JWKS}
+
+	existing := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: meshJWKSConfigMapName, Namespace: "istio-system"}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		desired := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: meshJWKSConfigMapName, Namespace: "istio-system"},
+			Data:       data,
+		}
+		if createErr := r.Create(ctx, desired); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create ConfigMap %q: %w", meshJWKSConfigMapName, createErr)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("get ConfigMap %q: %w", meshJWKSConfigMapName, err)
+	default:
+		if maps.Equal(existing.Data, data) {
+			return nil
+		}
+		existing.Data = data
+		if updateErr := r.Update(ctx, existing); updateErr != nil {
+			return fmt.Errorf("update ConfigMap %q: %w", meshJWKSConfigMapName, updateErr)
+		}
+		return nil
+	}
+}
+
+// buildGatewayValues renders the Istio ingress gateway chart's Helm values.
+// Kept pure (no cluster calls) so the pinned constraint below can be
+// asserted by unit test without a live Helm/Kubernetes backend (see
+// docs/adr/2026-08-04-devenv-mode-platform-support.md, F-6):
+//
+//   - The gateway is wired to SPIRE via the sidecar-injection template
+//     mechanism (podAnnotations["inject.istio.io/templates"]), not the
+//     gateway chart's own raw env/volumes values.
+//   - The "spire" template is included UNCONDITIONALLY, on both host and
+//     in-vcluster installs. An in-vcluster gateway (SPIRE.Enabled=false)
+//     still has a real SPIRE agent to request an SVID from: identity there
+//     is host-provided via the host's SPIFFE CSI socket, synced into the
+//     vcluster exactly like every other in-vcluster workload's —
+//     SPIRE.Enabled only gates whether THIS cluster runs its own
+//     spire-server/spire-agent, not whether the CSI-synced socket exists.
+//     Gating "spire" off here leaves the gateway trusting only istiod's
+//     self-signed root while every other SPIRE-injected in-vcluster
+//     workload trusts SPIRE's — two non-overlapping PKI hierarchies with no
+//     common root, so every browser-facing route into a dev environment
+//     503s: "CERTIFICATE_VERIFY_FAILED: unable to get local issuer
+//     certificate". Including "spire" unconditionally, so the gateway
+//     shares the SAME real SPIRE-issued cert and root as its peers, is what
+//     fixes it.
+func buildGatewayValues(serviceType string) map[string]any {
+	return map[string]any{
+		"service": map[string]any{
+			"type": serviceType,
+		},
+		"podAnnotations": map[string]any{
+			"sidecar.istio.io/inject":   "true",
+			"inject.istio.io/templates": "gateway,spire",
+			"prometheus.io/port":        "15020",
+			"prometheus.io/scrape":      "true",
+			"prometheus.io/path":        "/stats/prometheus",
+		},
+	}
+}
+
 func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
 	serviceType := p.Spec.Gateway.ServiceType
 	if serviceType == "" {
 		serviceType = "LoadBalancer"
 	}
 
-	// Wire the Istio ingress gateway to SPIRE so it shares the same CA root as
-	// all orbit-system sidecar proxies. Without this the gateway uses istiod's
-	// self-signed CA while sidecars use SPIRE's CA, causing TLS verify failures
-	// on every inbound route (CERTIFICATE_VERIFY_FAILED / SAN mismatch).
-	//
-	// The SPIFFE CSI volume is already present in the cluster (installed by the
-	// spire chart); we just need to mount it and tell pilot-agent to use it.
-	gatewayValues := map[string]any{
-		"service": map[string]any{
-			"type": serviceType,
-		},
-		"env": map[string]any{
-			"PILOT_CERT_PROVIDER":    "spire",
-			"SPIFFE_ENDPOINT_SOCKET": "unix:///run/secrets/workload-spiffe-uds/socket",
-		},
-		"volumes": []map[string]any{
-			{
-				"name": "workload-socket",
-				"csi": map[string]any{
-					"driver":   "csi.spiffe.io",
-					"readOnly": true,
-				},
-			},
-		},
-		"volumeMounts": []map[string]any{
-			{
-				"name":      "workload-socket",
-				"mountPath": "/run/secrets/workload-spiffe-uds",
-				"readOnly":  true,
-			},
-		},
-	}
+	gatewayValues := buildGatewayValues(serviceType)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -511,6 +729,16 @@ func (r *PlatformReconciler) reconcileOrbitPlatform(ctx context.Context, p *Orbi
 			"system":  "orbit-system",
 			"tenants": r.tenantNamespaces(ctx),
 		},
+		// Gates the orbit-platform chart's ClusterSPIFFEID templates
+		// (charts/orbit-platform/templates/clusterSpiffeIDs.yaml). A
+		// SPIRE-disabled (devenv-mode) install has no in-vcluster SPIRE
+		// controller manager to satisfy them — rendering them there is not
+		// merely inert, it is a Helm install that waits forever for a CRD
+		// (spire.spiffe.io/v1alpha1) that doesn't exist in-vcluster (see
+		// docs/adr/2026-08-04-devenv-mode-platform-support.md, F-1).
+		"spire": map[string]any{
+			"enabled": p.Spec.SPIRE.Enabled,
+		},
 	})
 	// Merge any raw values from the CR spec (highest priority).
 	platformValues = mergeMaps(platformValues, p.Spec.PlatformValues)
@@ -527,6 +755,38 @@ func (r *PlatformReconciler) reconcileOrbitPlatform(ctx context.Context, p *Orbi
 		return fmt.Errorf("install/upgrade orbit-platform: %w", err)
 	}
 	return nil
+}
+
+// buildOrbitPlatformSpiffeValues renders the "orbit" chart's
+// platform.spiffe.* values (reconcileOrbit). Kept pure, mirroring
+// buildGatewayValues/buildIstiodValues, so the distinction below can be
+// asserted by unit test without a live Helm/Kubernetes backend (see
+// docs/adr/2026-08-04-devenv-mode-platform-support.md, F-1 values
+// distinction):
+//
+//   - enabled means "workloads carry SPIFFE identities and the chart's
+//     DestinationRules must pin their SANs" — true when this cluster runs
+//     SPIRE itself, and equally true on a dev-environment install, where
+//     identity is HOST-provided and every SVID is prefixed /devenv/<id>.
+//     Without the DRs, Istio falls back to the standard ns/sa SAN
+//     convention and rejects every SPIRE-issued custom SAN with a 503.
+//   - spireEnabled is deliberately NOT the same expression as enabled: it
+//     must reflect whether SPIRE itself is actually issuing this install's
+//     certs, not merely whether this is a devenv install. A SPIRE-disabled
+//     devenv install still has DevEnvironmentID set, so enabled is still
+//     true — the chart still needs to pin something — but every workload's
+//     real cert comes from the in-vcluster istiod's own default CA instead,
+//     in istiod's default ns/sa SAN shape, not the SPIRE-style
+//     devenv-prefixed path. Checking only the SPIRE-style path
+//     unconditionally would leave orbit-opa-gateway's own bundle-fetch
+//     AuthorizationPolicy permanently unmatchable on every SPIRE-disabled
+//     install (see orbit.workloadPrincipals, charts/orbit/templates/_helpers.tpl).
+func buildOrbitPlatformSpiffeValues(p *OrbitPlatform) map[string]any {
+	return map[string]any{
+		"enabled":      p.Spec.SPIRE.Enabled || p.Spec.DevEnvironmentID != "",
+		"devEnvID":     p.Spec.DevEnvironmentID,
+		"spireEnabled": p.Spec.SPIRE.Enabled,
+	}
 }
 
 func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatform) error {
@@ -558,9 +818,7 @@ func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatfor
 			"namespaces": map[string]any{
 				"system": "orbit-system",
 			},
-			"spiffe": map[string]any{
-				"enabled": p.Spec.SPIRE.Enabled,
-			},
+			"spiffe": buildOrbitPlatformSpiffeValues(p),
 		},
 	})
 
