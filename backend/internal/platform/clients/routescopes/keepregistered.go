@@ -19,6 +19,17 @@ const (
 	startupBackoffCap = 30 * time.Second
 )
 
+// reregisterInterval is the steady-state cadence, and it is deliberately not
+// configurable. It answers a platform question, "how long may a service's
+// routes stay missing after the policy service restarts", and the answer is the
+// same for every binary because the bundle they are all missing from is the
+// same bundle. A per-service setting would only be a way for them to disagree,
+// which is exactly what the backoff constants above exist to prevent.
+//
+// A var rather than a const so tests can tick without waiting five minutes.
+// Nothing outside this package can reach it.
+var reregisterInterval = 5 * time.Minute
+
 // KeepRegistered keeps a service's route table and scope vocabulary published
 // to the policy service for the life of ctx. Blocks; run it in a goroutine.
 //
@@ -33,7 +44,9 @@ const (
 // register is the one call that publishes this service's routes and scopes,
 // whatever client it goes through: the anonymous routescopes client, or the
 // authenticated policy client for services whose registration needs a bearer.
-func KeepRegistered(ctx context.Context, logger logging.Logger, service string, interval time.Duration, register func(context.Context) error) {
+//
+// The cadence is not a parameter: see [reregisterInterval].
+func KeepRegistered(ctx context.Context, logger logging.Logger, service string, register func(context.Context) error) {
 	// Startup phase: retry until the first success. There is no attempt cap —
 	// an unregistered service rejects every scoped request, so giving up is
 	// never better than trying again.
@@ -64,7 +77,7 @@ func KeepRegistered(ctx context.Context, logger logging.Logger, service string, 
 
 	// Steady state: re-register on a fixed cadence to self-heal after a
 	// policy-service restart.
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(reregisterInterval)
 	defer ticker.Stop()
 	for {
 		select {

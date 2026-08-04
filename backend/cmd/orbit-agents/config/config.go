@@ -89,10 +89,6 @@ type PolicyConfig struct {
 	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
-	// PolicyRegistrationConfig carries the shared cadence on which orbit-agents
-	// re-registers its route+scope vocabulary, to self-heal after a
-	// policy-service restart drops its in-memory registration store.
-	config.PolicyRegistrationConfig `yaml:",squash"`
 }
 
 // DraftsConfig configures the agent type draft reaper. Abandoned drafts are

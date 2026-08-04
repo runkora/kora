@@ -188,7 +188,7 @@ func realMain() error {
 		}
 	})
 	go connRegistry.Watch(ctx)
-	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, egc.Current.Policy.ReregistrationInterval(), registerScopes)
+	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, registerScopes)
 
 	go func() {
 		logger.Info(ctx, "Starting CONNECT server", logging.Field{Key: "addr", Value: connectSrv.Addr})

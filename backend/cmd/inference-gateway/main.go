@@ -383,7 +383,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	go routescopes.KeepRegistered(runCtx, logger, "inference-gateway", igc.Current.Policy.ReregistrationInterval(), register)
+	go routescopes.KeepRegistered(runCtx, logger, "inference-gateway", register)
 
 	<-runCtx.Done()
 	logger.Info(ctx, "Shutting down inference gateway...")

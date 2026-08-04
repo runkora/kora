@@ -101,7 +101,7 @@ func realMain() error {
 	// platform:* vocabulary unpublished for the life of the process with
 	// nothing but one log line to show for it. The periodic tick then costs one
 	// in-process call and keeps the recovery behavior uniform across services.
-	go routescopes.KeepRegistered(ctx, logger, "policy-service", psc.Current.Policy.ReregistrationInterval(),
+	go routescopes.KeepRegistered(ctx, logger, "policy-service",
 		func(ctx context.Context) error {
 			return svc.RegisterRoutes(ctx, "policy-service", "", selfRegisteredRoutes(), selfRegisteredScopes())
 		})

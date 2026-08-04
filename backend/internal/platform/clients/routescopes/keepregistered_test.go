@@ -12,6 +12,19 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// withInterval sets the steady-state cadence for the duration of one test.
+//
+// The cadence is not a parameter in production (see reregisterInterval): it is
+// one platform-wide value, so a test that needs the ticker to actually fire has
+// to reach the package variable. These tests do not run in parallel, so the
+// swap is safe.
+func withInterval(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := reregisterInterval
+	reregisterInterval = d
+	t.Cleanup(func() { reregisterInterval = prev })
+}
+
 // testRoutes and testScopes are the minimal valid payload; no test here is
 // about their contents, only about how often they are sent.
 var (
@@ -32,8 +45,8 @@ func TestKeepRegisteredTicks(t *testing.T) {
 		return nil
 	}
 
-	interval := 20 * time.Millisecond
-	go KeepRegistered(ctx, logging.NewLogger(), "test-service", interval, register)
+	withInterval(t, 20*time.Millisecond)
+	go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
 
 	// Poll until the loop has registered at startup and ticked at least twice.
 	// The bound is generous so a slow or loaded CI runner cannot flake on
@@ -50,9 +63,9 @@ func TestKeepRegisteredTicks(t *testing.T) {
 	// Cancel and assert the loop stops. Wait a few intervals for any in-flight
 	// tick to settle, snapshot the count, then confirm it does not advance.
 	cancel()
-	time.Sleep(5 * interval)
+	time.Sleep(5 * reregisterInterval)
 	stopped := calls.Load()
-	time.Sleep(5 * interval)
+	time.Sleep(5 * reregisterInterval)
 	if got := calls.Load(); got != stopped {
 		t.Errorf("registration kept firing after context cancel: had %d, now %d", stopped, got)
 	}
@@ -73,7 +86,7 @@ func TestKeepRegisteredRetriesStartup(t *testing.T) {
 		return nil
 	}
 
-	go KeepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
+	go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
 
 	// The first retry delay is startupBackoffBase (2s), so allow well past it.
 	// Interval is an hour: reaching 2 calls proves the retry came from the
@@ -136,7 +149,8 @@ func TestKeepRegisteredRetriesThroughClient(t *testing.T) {
 		return client.Register(ctx, "test-service", testRoutes, testScopes)
 	}
 
-	go KeepRegistered(t.Context(), logging.NewLogger(), "test-service", 20*time.Millisecond, register)
+	withInterval(t, 20*time.Millisecond)
+	go KeepRegistered(t.Context(), logging.NewLogger(), "test-service", register)
 
 	// The startup retry, then ticks. Reaching 4 within the bound means neither
 	// layer is adding seconds of delay to a call.
@@ -162,7 +176,7 @@ func TestKeepRegisteredStopsDuringStartupBackoff(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		KeepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
+		KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
 		close(done)
 	}()
 

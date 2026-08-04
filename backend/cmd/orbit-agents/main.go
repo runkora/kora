@@ -62,7 +62,7 @@ func realMain() error {
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
 	if register := initScopeRegistration(logger, repo, atSvc); register != nil {
-		go routescopes.KeepRegistered(ctx, logger, "orbit-agents", agentsConfig.Current.Policy.ReregistrationInterval(), register)
+		go routescopes.KeepRegistered(ctx, logger, "orbit-agents", register)
 	}
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)

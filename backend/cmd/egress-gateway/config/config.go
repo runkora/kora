@@ -46,10 +46,6 @@ type Config struct {
 		// PolicyServiceInternalURL is the base URL for the policy-service
 		// route+scope registration endpoint.
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
-		// PolicyRegistrationConfig carries the shared cadence on which the
-		// gateway re-publishes its route+scope vocabulary, to self-heal after a
-		// policy-service restart drops its in-memory registration store.
-		config.PolicyRegistrationConfig `yaml:",squash"`
 	} `yaml:"policy"`
 
 	// Secrets describes where the gateway reads tenant CA material and

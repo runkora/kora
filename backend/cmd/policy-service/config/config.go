@@ -42,13 +42,6 @@ type Config struct {
 		FrontendHost string `yaml:"frontendHost"`
 	} `yaml:"bundle"`
 
-	// Policy carries the shared cadence on which the policy service re-registers
-	// its OWN routes and platform scope vocabulary. The registration is an
-	// in-process call, but the scope upserts hit Postgres, so a database blip at
-	// boot would otherwise leave the platform:* vocabulary unpublished for the
-	// life of the process.
-	Policy config.PolicyRegistrationConfig `yaml:"policy"`
-
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`

@@ -31,10 +31,6 @@ type PolicyConfig struct {
 	// Used for route registration at startup.
 	// e.g. http://orbit-policy-service.orbit-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
-	// PolicyRegistrationConfig carries the shared re-registration cadence that
-	// keeps the gateway's routes and catalog scopes published across
-	// policy-service restarts.
-	config.PolicyRegistrationConfig `yaml:",squash"`
 }
 
 // BundlePollInterval returns the configured poll interval, defaulting to 30s.
