@@ -29,6 +29,10 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 		"## Sandbox",
 		"mcp__runtime__provision_sandbox",
 		"do not create a sandbox proactively",
+		"## Working with git repositories",
+		"never run `git init` if the clone fails",
+		"Retry the clone (with backoff)",
+		"verify the working copy is a real clone",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)
