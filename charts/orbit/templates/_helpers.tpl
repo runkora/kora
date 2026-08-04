@@ -84,6 +84,84 @@ Sourced from global.trustDomain so it stays consistent with orbit-platform.
 {{- end }}
 
 {{/*
+The base of every chart-pinned SPIFFE identity (DestinationRule SANs):
+spiffe://<trustDomain>, plus an optional /devenv/<id> segment on Orbit
+dev-environment installs, where identity is host-provided and every SVID is
+path-scoped under the environment's ID. platform.spiffe.devEnvID is set by
+the operator on in-vcluster installs only — never by hand, and never on a
+host install. orbit.spiffePrincipalBase is the same value without the
+scheme, for AuthorizationPolicy principals (Istio prepends spiffe:// itself).
+See docs/adr/2026-08-04-devenv-mode-platform-support.md.
+*/}}
+{{- define "orbit.spiffeIDBase" -}}
+spiffe://{{ include "orbit.spiffePrincipalBase" . }}
+{{- end }}
+
+{{- define "orbit.spiffePrincipalBase" -}}
+{{- include "orbit.trustDomain" . }}{{- with .Values.platform.spiffe.devEnvID }}/devenv/{{ . }}{{- end }}
+{{- end }}
+
+{{/*
+The principal(s) to use when checking (not pinning) a SPECIFIC workload's
+own identity — e.g. an AuthorizationPolicy's source.principals/
+notPrincipals — as opposed to orbit.spiffeIDBase/spiffePrincipalBase above,
+which describe the trust-domain-wide base every DestinationRule SAN is
+pinned against. Renders a YAML list (one or more "- ..." lines); the caller
+splices it directly into a notPrincipals/principals block.
+
+Why more than one candidate: platform.spiffe.enabled (and devEnvID) being
+set does NOT by itself mean this workload's cert reliably carries ONE
+predictable shape. On an in-vcluster dev-environment install with SPIRE
+disabled on the OrbitPlatform CR itself (platform.spiffe.spireEnabled:
+false — Orbit's OWN in-vcluster chart doesn't run SPIRE or render its own
+ClusterSPIFFEID templates), the environment provisioner's OWN, entirely
+separate host-side identity mechanism (host ClusterSPIFFEIDs matching any
+pod with a stable spiffe.io/component label, attested by the HOST's real
+SPIRE agent since every synced pod is a real host pod) can STILL grant a
+genuine SPIRE-issued SVID in the usual
+{trustDomain}/devenv/{id}/system/{component} shape — spireEnabled on this
+install and "does this pod actually get a SPIRE cert" are orthogonal
+questions once a devenv provisioner with its own host-SPIRE mechanism is in
+the picture. Confirmed live (see docs/adr/2026-08-04-devenv-mode-platform-support.md,
+Decision 4), across repeated fresh provisions of the identical workload, its
+actual cert SAN was NOT stable — it was observed as the SPIRE-style devenv
+path on one provision and as istiod's own default per-ServiceAccount
+fallback path on another, with no code change in between. This is a genuine
+race between the host SPIRE agent's CSI-driver-delivered SVID and istiod's
+own cert issuance at pod startup, not a deterministic either/or — so BOTH
+plausible shapes are exempted rather than picking one and leaving the other
+to intermittently 403.
+
+The istiod-fallback shape is deliberately NOT reconstructed field-by-field
+(e.g. as {trustDomain}/ns/{someNamespace}/sa/{sa}): which namespace appears
+depends on the provisioner's own sync/translation layer and is NOT this
+chart's to know — hardcoding a specific downstream repo's host-namespace
+naming convention here would wire Orbit's own chart to a naming choice made
+by whatever operator happens to be running the environment, the wrong
+coupling direction for a chart with callers beyond one provisioner.
+Matching on a suffix wildcard (a leading "*" followed by
+/sa/<serviceAccount>-x-<systemNamespace>-x-vcluster) needs only what this
+chart already knows about itself (its own ServiceAccount name and its own
+in-vcluster namespace, orbit.systemNamespace) and sidesteps the coupling
+entirely. Istio's principal matching supports exactly one wildcard, at
+either end of the string (prefix match "foo*" or suffix match "*foo") —
+never in the middle — which is why the namespace segment can't be pinned
+down further than "*" here.
+
+Call this with the component name used in the SPIRE-style path (e.g.
+"opa-gateway") and the k8s ServiceAccount name used on the istiod-fallback
+path (e.g. "orbit-opa-gateway") — the two are deliberately allowed to
+differ, since the SPIRE-style path is chosen by convention while the
+ServiceAccount name is chosen by the chart's own templates.
+*/}}
+{{- define "orbit.workloadPrincipals" -}}
+- "{{ include "orbit.spiffePrincipalBase" .root }}/system/{{ .component }}"
+{{- if not .spireEnabled }}
+- "*/sa/{{ .serviceAccount }}-x-{{ include "orbit.systemNamespace" .root }}-x-vcluster"
+{{- end }}
+{{- end }}
+
+{{/*
 The orbit-system namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}

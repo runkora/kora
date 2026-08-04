@@ -300,9 +300,26 @@ platform:
     tenants: []
 
   # SPIFFE configuration for DestinationRule SAN validation.
-  # Operator injects this from spec.spire.enabled in the OrbitPlatform CR.
+  # Operator injects this from spec.spire.enabled / spec.devEnvironmentID in
+  # the OrbitPlatform CR (see buildOrbitPlatformSpiffeValues).
   spiffe:
     enabled: true
+    # Whether SPIRE is actually the thing issuing workload certs (as
+    # opposed to platform.spiffe.enabled, which just means "pin custom SANs
+    # at all"). Distinct because a dev-environment install sets
+    # platform.spiffe.enabled: true (devEnvID is set) while still running
+    # with SPIRE fully disabled in-vcluster — istiod's own default CA
+    # issues certs there instead, in a different SAN shape. Operator
+    # injects this from spec.spire.enabled directly (never derived from
+    # devEnvID) — see orbit.workloadPrincipals (_helpers.tpl).
+    spireEnabled: true
+    # Marks this install as a dev environment and carries its ID —
+    # workload SVIDs are path-scoped under /devenv/{devEnvID}/ instead of
+    # the bare host-trust-domain shape (orbit.spiffePrincipalBase,
+    # _helpers.tpl). Empty on a host install. Never set this manually:
+    # whatever is provisioning the environment sets it via Helm values
+    # when installing this chart (e.g. from OrbitPlatform.spec.devEnvironmentID).
+    devEnvID: ""
 
 # -- NetworkPolicy toggle.
 # Should match the value used in the orbit-platform chart.

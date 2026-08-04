@@ -11,6 +11,13 @@
 # requests (which Rego would pass through anyway). authz_gateway.rego retains
 # the :authority check as a secondary guard in case Envoy routing changes.
 #
+# A dev environment's own app-ingress traffic rides this SAME frontendHost
+# vhost (path-prefixed by environment ID, rather than a devenv-only host of
+# its own) — so it already inherits this bypass for free. No separate
+# devenv-specific carve-out here; this is F-9's stability requirement (see
+# docs/adr/2026-08-04-devenv-mode-platform-support.md) — no code change, just
+# don't break this bypass.
+#
 # Health checks and OIDC/JWKS discovery are bypassed by Rego.
 #
 # failure_mode_allow: false — fail-closed (zero trust). If OPA is unreachable
