@@ -59,7 +59,11 @@ func realMain() error {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
-	initScopeRegistration(ctx, logger, repo, atSvc)
+	// Register now and keep the registration alive across policy-service
+	// restarts; the shared helper owns the retry and re-registration cadence.
+	if register := initScopeRegistration(logger, repo, atSvc); register != nil {
+		go routescopes.KeepRegistered(ctx, logger, "orbit-agents", agentsConfig.Current.Policy.ReregistrationInterval(), register)
+	}
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
@@ -231,37 +235,56 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
 
+// agentTypeSlugLister is the single repository method scope registration needs:
+// the slugs that expand into the per-agent-type scope vocabulary.
+type agentTypeSlugLister interface {
+	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
+}
+
 // initScopeRegistration wires the policy-service scope vocabulary for orbit-agents.
-// It registers static route→scope bindings and per-agent-type vocabulary entries,
-// re-registering whenever an agent type is created or deleted.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.AgentTypeRepository, atSvc *agents.AgentTypeService) {
+// It installs a hook on the agent type service so the vocabulary is re-synced
+// whenever an agent type is created or deleted, and returns the register
+// function; the caller hands it to routescopes.KeepRegistered, which owns the
+// initial registration and the periodic self-heal loop. A nil return means no
+// policy service is configured (local dev) and there is nothing to register.
+func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
 	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
-		return
+		return nil
 	}
-	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
+	// WithInitialDelay(0): the default 15s startup grace (waiting for the
+	// identity-proxy sidecar) would be added to *every* Register call, including
+	// each periodic self-heal tick and every agent-type write — pure latency
+	// that delays recovery after a policy-service restart. The very first
+	// registration races the sidecar coming up, but that is already covered by
+	// the client's own retry-with-backoff, so no upfront delay is needed.
+	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
 
-	register := func() {
-		slugs, err := repo.ListAllAgentTypeSlugs(ctx)
+	register := func(registerCtx context.Context) error {
+		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)
 		if err != nil {
-			logger.Error(ctx, "list agent type slugs for scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			return
+			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		// Drop routes whose RequiredScope is empty — those are
-		// "authenticated-only" and enforced locally (ScopeEnforcementMiddleware
-		// passes them through after auth; the service layer holds the real
-		// check). Registering them with empty scopes would deny everyone when
-		// Layer 1 sidecar enforcement is enabled in the future.
-		if err := client.Register(ctx, "orbit-agents", filterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
-			logger.Error(ctx, "route scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
+		if err := client.Register(registerCtx, "orbit-agents", routescopes.FilterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
+			return fmt.Errorf("register routes: %w", err)
 		}
+		return nil
 	}
 
-	atSvc.SetAgentTypeHook(func() { go register() })
-	go register()
+	// The hook fires whenever an agent type is written, long after startup. Use
+	// a fresh context.Background() rather than capturing the startup ctx, which
+	// by then may be stale/canceled. Racing a self-heal tick is harmless: the
+	// policy service's registration endpoint is idempotent.
+	atSvc.SetAgentTypeHook(func() {
+		go func() {
+			if err := register(context.Background()); err != nil {
+				logger.Error(context.Background(), "route scope registration failed",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}()
+	})
+
+	return register
 }
 
 // agentRoutes returns the static route→scope bindings for orbit-agents.
@@ -280,8 +303,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// is visible to a static route map. The authoritative check lives in
 		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
 		// routes are excluded from policy-service registration (see
-		// filterScopedRoutes), the established pattern for locally enforced
-		// routes.
+		// routescopes.FilterScopedRoutes), the established pattern for locally
+		// enforced routes.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
@@ -321,21 +344,6 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
 	}
-}
-
-// filterScopedRoutes returns the subset of routes that require a non-empty
-// scope. Used to exclude "authenticated-only" routes from policy-service
-// registration; those are enforced by the local ScopeEnforcementMiddleware
-// (pass-through after auth) plus the service-layer check that owns them.
-// Mirrors cmd/inference-gateway.
-func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
-	out := make([]routescopes.RouteScope, 0, len(in))
-	for _, r := range in {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // agentScopes builds the full scope declaration list from the current agent type slugs.

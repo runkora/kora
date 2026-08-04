@@ -28,6 +28,10 @@ policy:
   # the wait to something a synchronous admin request can retry through (see
   # resolveAgentType's bounded retry in internal/triggers/service.go).
   bundlePollIntervalSecs: 3
+  # Re-publish the route table and scope vocabulary every 5 minutes. The policy
+  # service holds registrations in memory, so without this a policy-service
+  # restart leaves every agents:* route unregistered and Layer 1 denies it.
+  reregistrationIntervalSecs: 300
 
 # Agent type draft reaper: sweep hourly, delete drafts untouched for 30 days.
 drafts:

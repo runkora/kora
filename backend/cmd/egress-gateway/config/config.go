@@ -46,6 +46,10 @@ type Config struct {
 		// PolicyServiceInternalURL is the base URL for the policy-service
 		// route+scope registration endpoint.
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
+		// ReregistrationIntervalSecs is how often the gateway re-publishes its
+		// route+scope vocabulary to the policy service, to self-heal after a
+		// policy-service restart drops its in-memory registration store.
+		ReregistrationIntervalSecs int `yaml:"reregistrationIntervalSecs"`
 	} `yaml:"policy"`
 
 	// Secrets describes where the gateway reads tenant CA material and
@@ -90,6 +94,15 @@ func (c *Config) BundlePollInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(c.Policy.BundlePollIntervalSecs) * time.Second
+}
+
+// ReregistrationInterval returns how often to re-publish routes and scopes,
+// defaulting to 5 minutes to match the other platform services.
+func (c *Config) ReregistrationInterval() time.Duration {
+	if c.Policy.ReregistrationIntervalSecs <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.Policy.ReregistrationIntervalSecs) * time.Second
 }
 
 // Current holds non-secret configuration for the egress-gateway.

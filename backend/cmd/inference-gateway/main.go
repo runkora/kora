@@ -225,11 +225,7 @@ func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEng
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		// Drop routes whose RequiredScope is empty — those are
-		// "authenticated-only" and enforced locally by ScopeEnforcementMiddleware,
-		// not by OPA. Registering them with empty scopes would deny everyone
-		// when Layer 1 sidecar enforcement is enabled in the future.
-		scopedRoutes := filterScopedRoutes(inferenceRoutes())
+		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
 		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
@@ -241,7 +237,7 @@ func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEng
 	// startup ctx, which by then may be stale/canceled.
 	router.SetCatalogUpdateHook(func(catalogScopes []inferencegw.CatalogScope) {
 		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := filterScopedRoutes(inferenceRoutes())
+		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
 		if err := client.Register(context.Background(), "inference-gateway", scopedRoutes, scopeDecls); err != nil {
 			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
 		}
@@ -250,26 +246,13 @@ func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEng
 	return register
 }
 
-// filterScopedRoutes returns the subset of routes that require a non-empty
-// scope. Used to exclude "authenticated-only" routes from policy-service
-// registration; those are enforced by the local ScopeEnforcementMiddleware.
-func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
-	out := make([]routescopes.RouteScope, 0, len(in))
-	for _, r := range in {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // inferenceRoutes returns the static route->scope bindings for the inference gateway.
 //
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
-// passes them through after AuthMiddleware. They are filtered out by the
-// policy registration in registerRoutes.
+// passes them through after AuthMiddleware. They are filtered out of the
+// policy registration by routescopes.FilterScopedRoutes.
 //
 // Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
 // the more-specific (sub-path) entry over the broader prefix for the same

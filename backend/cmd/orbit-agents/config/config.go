@@ -89,6 +89,10 @@ type PolicyConfig struct {
 	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
+	// ReregistrationIntervalSecs is how often orbit-agents re-registers its
+	// route+scope vocabulary with the policy service, to self-heal after a
+	// policy-service restart drops its in-memory registration store.
+	ReregistrationIntervalSecs int `yaml:"reregistrationIntervalSecs"`
 }
 
 // DraftsConfig configures the agent type draft reaper. Abandoned drafts are
@@ -124,6 +128,15 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(c.BundlePollIntervalSecs) * time.Second
+}
+
+// ReregistrationInterval returns how often to re-register routes and scopes,
+// defaulting to 5 minutes to match the other platform services.
+func (c *PolicyConfig) ReregistrationInterval() time.Duration {
+	if c.ReregistrationIntervalSecs <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.ReregistrationIntervalSecs) * time.Second
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.
