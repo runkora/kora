@@ -65,6 +65,12 @@ spec:
               value: {{ .Values.agents.config.logFormat | quote }}
             - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
               value: {{ .Values.agents.config.sessionManagerPostgresSSLMode | quote }}
+            # Gates the per-agent AuthorizationPolicy that restricts each agent
+            # pod's session-manager port to the orbit-agents SPIFFE principal.
+            # Requires SPIFFE: without attested identities no source matches the
+            # rule and every session call is denied.
+            - name: ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED
+              value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
           {{- if or .Values.agents.existingConfigMap .Values.agents.existingSecret }}
           envFrom:
             {{- if .Values.agents.existingConfigMap }}

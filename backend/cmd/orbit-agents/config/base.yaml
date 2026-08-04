@@ -42,3 +42,7 @@ agents:
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   sessionManager:
     postgresSSLMode: require
+    # Restricts each agent pod's session-manager port to the orbit-agents
+    # SPIFFE principal at the mesh layer. Overridden per-deployment by
+    # ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED; requires SPIFFE.
+    authorizationPolicyEnabled: true

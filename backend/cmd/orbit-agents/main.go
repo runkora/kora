@@ -146,22 +146,26 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
-		SessionManagerImage:       cfg.Agents.SessionManagerImage,
-		SandboxImage:              cfg.Agents.SandboxImage,
-		SandboxGRPCPort:           int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
-		GitAuthorName:             cfg.Agents.SandboxGitAuthorName,
-		GitAuthorEmail:            cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
-		TrustDomain:               cfg.Platform.TrustDomain,
-		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
-		ManifestOverrides:         manifestOverrides,
+		SessionManagerImage:        cfg.Agents.SessionManagerImage,
+		SandboxImage:               cfg.Agents.SandboxImage,
+		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
+		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
+		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		TrustDomain:                cfg.Platform.TrustDomain,
+		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
+		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		ManifestOverrides:          manifestOverrides,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	repo := agents.NewPostgresRepository(db.Pool())
-	sm := smclient.NewClient(logger)
+	// The session-manager on each agent pod authenticates its caller and checks
+	// the principal is orbit-agents, so the same self-token source that bears
+	// the policy client's calls bears these.
+	sm := smclient.NewClient(logger, selfToken)
 	pubsub := agents.NewPubSub()
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())

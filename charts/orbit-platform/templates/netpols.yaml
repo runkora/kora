@@ -158,11 +158,20 @@ spec:
         - port: 15008
           protocol: TCP
 ---
-# Allow orbit-system pods to reach session-manager pods in tenant namespaces.
+# Allow orbit-agents to reach session-manager pods in tenant namespaces.
 # orbit-agents calls the session-manager HTTP API (port 8090) on each agent
 # pod to create, message, and terminate Claude Code subprocesses.
 # Cilium eBPF enforces NetworkPolicy before iptables redirect, so we must
 # allow the actual application port (8090) on the egress side.
+#
+# orbit-agents is the ONLY component with a reason to open this path: that API
+# can start, message, interrupt, and kill any run on any agent pod in any
+# tenant. An empty podSelector granted it to every pod in orbit-system, which
+# made any compromised platform service one hop from hijacking every run.
+#
+# app=orbit-agents is the orbit chart's agents selector label
+# (charts/orbit/templates/_helpers.tpl "orbit.agents.selectorLabels"); a rename
+# there without a matching change here silently breaks every run.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -171,7 +180,9 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app: orbit-agents
   policyTypes:
     - Egress
   egress:

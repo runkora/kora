@@ -18,6 +18,7 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 func main() {
@@ -95,6 +96,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
 	}
 
+	// The session-control API can start, message, interrupt, and kill any run
+	// on this pod, so it is authenticated. Disabling auth is possible for
+	// running the binary bare outside a cluster, but never silently: it is an
+	// explicit opt-out and it says so at boot.
+	var verifier *token.Verifier
+	if cfg.Auth.Enabled {
+		verifier = token.NewVerifierFromConfig(ctx, token.LoadConfig())
+	} else {
+		logger.Warn(ctx, "Session-manager authentication is DISABLED; the session API is open to any caller that can reach this pod")
+	}
+
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
@@ -110,7 +122,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		OpenCodeDefaultModel: cfg.OpenCode.DefaultModel,
 		InferenceGatewayURL:  cfg.InferenceGateway.URL,
 		ToolGatewayURL:       cfg.ToolGateway.URL,
-	}, registry)
+	}, registry, verifier, cfg.Auth.ExpectedCaller)
 
 	return apiServer.Server(
 		ctx,

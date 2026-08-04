@@ -79,6 +79,12 @@ type Config struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
 			// Should be "require" in production and "disable" for local dev.
 			PostgresSSLMode string `yaml:"postgresSSLMode"`
+			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
+			// beside each agent StatefulSet restricting its session-manager
+			// port to the orbit-agents principal. Requires SPIFFE/mTLS, so the
+			// chart sets it from platform.spiffe.enabled AND
+			// agents.authorizationPolicy.enabled.
+			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
 		} `yaml:"sessionManager"`
 	} `yaml:"agents"`
 }
@@ -142,6 +148,9 @@ var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
 	if v := os.Getenv("ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE"); v != "" {
 		cfg.Agents.SessionManager.PostgresSSLMode = v
+	}
+	if v := os.Getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
+		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
 	}
 	return cfg
 }()
