@@ -95,6 +95,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
+- [The Sandbox is the Agent Execution Boundary](2026-08-04-agent-sandbox-execution-boundary.md) — `Proposed` · 2026-08-04
 - [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted` · 2026-06-04
@@ -249,4 +250,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Accepted | — |
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
+| 2026-08-04 | [The Sandbox is the Agent Execution Boundary](2026-08-04-agent-sandbox-execution-boundary.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
