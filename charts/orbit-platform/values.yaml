@@ -23,6 +23,14 @@
 global:
   trustDomain: "cluster.local"
 
+# -- Whether SPIRE is deployed in this cluster. When false (e.g. a dev
+# environment vcluster with host-provided identity), the ClusterSPIFFEID CRD
+# does not exist here and must not be templated: workload identity comes
+# from the host's own ClusterSPIFFEID scoped to the environment namespace
+# instead. Must match spec.spire.enabled on the OrbitPlatform CR.
+spire:
+  enabled: true
+
 # -- Orbit platform namespace configuration.
 # Controls which namespaces are created and their labels.
 namespaces:
