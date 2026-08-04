@@ -98,11 +98,10 @@ type DelegationManager struct {
 	sandboxMu    sync.RWMutex
 	sandboxRunID string
 
-	// baseCtx is the lifetime context for background delegation fetches. Fetches
-	// deliberately run OFF the ext_proc request context (which Envoy cancels at
-	// the ~200ms message_timeout) so they can actually complete; fetchTimeout
-	// bounds them instead. Both are test seams.
-	baseCtx      context.Context //nolint:containedctx // long-lived, mirrors the SVID watchers
+	// fetchTimeout bounds a single background delegation fetch. Fetches run OFF
+	// the ext_proc request context (which Envoy cancels at the ~200ms
+	// message_timeout) — on a fresh context.Background() — so they can actually
+	// complete; fetchTimeout is their only deadline.
 	fetchTimeout time.Duration
 
 	now func() time.Time // test seam
@@ -130,7 +129,6 @@ func NewDelegationManager(fetcher delegationFetcher, logger logging.Logger, cfg 
 		backoffInitial: backoffInitial,
 		backoffMax:     backoffMax,
 		entries:        make(map[string]*delegationEntry),
-		baseCtx:        context.Background(),
 		fetchTimeout:   defaultDelegationFetchTimeout,
 		now:            time.Now,
 	}
@@ -247,20 +245,25 @@ func (m *DelegationManager) startFetchLocked(runID string, e *delegationEntry, n
 		return
 	}
 	e.fetching = true
-	go m.fetchAsync(runID, e)
+	go m.fetchAsync(runID, e, now)
 }
 
 // fetchAsync performs the delegation retrieval off the request path and records
 // the outcome. Exactly one runs per entry at a time (guarded by e.fetching).
-func (m *DelegationManager) fetchAsync(runID string, e *delegationEntry) {
-	ctx, cancel := context.WithTimeout(m.baseCtx, m.fetchTimeout)
+//
+// now is captured at the spawn point (under the entry lock) rather than read
+// again here, so the recorded expiry/backoff is deterministic and does not race
+// a test clock advanced while the fetch is in flight. Real fetches complete in
+// well under a token lifetime, so anchoring to spawn time is immaterial.
+func (m *DelegationManager) fetchAsync(runID string, e *delegationEntry, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), m.fetchTimeout)
 	defer cancel()
 	tok, err := m.fetcher.GetDelegationForRun(ctx, runID)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.fetching = false
-	m.recordFetchLocked(runID, e, m.now(), tok, err)
+	m.recordFetchLocked(runID, e, now, tok, err)
 }
 
 // recordFetchLocked applies a completed fetch outcome to the entry. The entry
@@ -275,7 +278,7 @@ func (m *DelegationManager) recordFetchLocked(runID string, e *delegationEntry, 
 		e.noneUntil = time.Time{}
 		e.nextRetry = time.Time{}
 		e.backoff = 0
-		m.logger.Info(m.baseCtx, "delegation token cached for run",
+		m.logger.Info(context.Background(), "delegation token cached for run",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "expires_in_s", Value: tok.ExpiresIn},
 		)
@@ -302,7 +305,7 @@ func (m *DelegationManager) recordFetchLocked(runID string, e *delegationEntry, 
 			}
 		}
 		e.nextRetry = now.Add(e.backoff)
-		m.logger.Warn(m.baseCtx, "delegation token retrieval failed — attaching nothing (fail closed downstream)",
+		m.logger.Warn(context.Background(), "delegation token retrieval failed — attaching nothing (fail closed downstream)",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "retry_in_ms", Value: e.backoff.Milliseconds()},

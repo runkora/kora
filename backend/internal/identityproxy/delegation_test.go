@@ -416,6 +416,10 @@ func (b *blockingFetcher) GetDelegationForRun(ctx context.Context, runID string)
 	case <-b.release:
 		return &identityclient.DelegationToken{DelegationToken: "late", ExpiresIn: 3600, RunID: runID}, nil
 	case <-ctx.Done():
+		// ctx is the background fetch's own context (context.Background() +
+		// fetchTimeout, 5s), NOT the request deadline — so this only fires if the
+		// test forgets to release. It guards against a hung goroutine, never the
+		// request path.
 		return nil, ctx.Err()
 	}
 }
