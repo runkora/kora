@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -382,11 +383,29 @@ func (r *PostgresRepository) DeleteRunsByAgentType(ctx context.Context, agentTyp
 	return deleted, rows.Err()
 }
 
-func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
-	rows, err := r.pool.Query(ctx, `
+// podOccupancySQLList renders the pod-occupying run states as a SQL literal
+// list ('pending','starting',...). The states are inlined rather than bound as
+// a query parameter so the predicate stays textually identical to the partial
+// index idx_runs_active, which the planner needs to match it.
+func podOccupancySQLList() string {
+	states := PodOccupyingRunStates()
+	quoted := make([]string, len(states))
+	for i, s := range states {
+		quoted[i] = "'" + string(s) + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// activeRunsPerPodQuery counts the runs occupying each pod of an agent type.
+// Derived from RunState.OccupiesPod so the SQL can never drift from the states
+// the Go code treats as resident on a pod.
+var activeRunsPerPodQuery = fmt.Sprintf(`
 		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id=$1 AND state IN ('pending','starting','active','completing')
-		GROUP BY pod_ordinal`, agentTypeID)
+		WHERE agent_type_id=$1 AND state IN (%s)
+		GROUP BY pod_ordinal`, podOccupancySQLList())
+
+func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
+	rows, err := r.pool.Query(ctx, activeRunsPerPodQuery, agentTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("query active runs per pod: %w", err)
 	}
