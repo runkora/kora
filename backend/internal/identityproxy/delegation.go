@@ -53,6 +53,11 @@ const refreshFraction = 0.2
 // is cached before re-consulting identity.
 const defaultNegativeTTL = 5 * time.Minute
 
+// defaultDelegationFetchTimeout bounds a single background delegation fetch. It
+// is decoupled from — and far larger than — Envoy's ~200ms ext_proc budget, so
+// the fetch can complete off the request path and populate the cache.
+const defaultDelegationFetchTimeout = 5 * time.Second
+
 // delegationFetcher is the subset of the platform identity client used to
 // retrieve a run's delegation token. *identityclient.Client satisfies it; the
 // call authenticates by mesh-attested SPIFFE identity (XFCC), no bearer.
@@ -73,6 +78,8 @@ type delegationEntry struct {
 
 	nextRetry time.Time // backoff gate after a retrieval error
 	backoff   time.Duration
+
+	fetching bool // a background retrieval is in flight (dedups async fetches)
 }
 
 // DelegationManager owns the per-run delegation token cache and the two run
@@ -90,6 +97,12 @@ type DelegationManager struct {
 
 	sandboxMu    sync.RWMutex
 	sandboxRunID string
+
+	// fetchTimeout bounds a single background delegation fetch. Fetches run OFF
+	// the ext_proc request context (which Envoy cancels at the ~200ms
+	// message_timeout) — on a fresh context.Background() — so they can actually
+	// complete; fetchTimeout is their only deadline.
+	fetchTimeout time.Duration
 
 	now func() time.Time // test seam
 }
@@ -116,6 +129,7 @@ func NewDelegationManager(fetcher delegationFetcher, logger logging.Logger, cfg 
 		backoffInitial: backoffInitial,
 		backoffMax:     backoffMax,
 		entries:        make(map[string]*delegationEntry),
+		fetchTimeout:   defaultDelegationFetchTimeout,
 		now:            time.Now,
 	}
 }
@@ -148,6 +162,13 @@ func (m *DelegationManager) SetSandboxRunID(ctx context.Context, runID string) {
 		m.logger.Info(ctx, "sandbox run identity attested from SVID — attaching delegation on all egress",
 			logging.Field{Key: "run_id", Value: runID},
 		)
+		// Warm the delegation cache now, off the request path, so the run's very
+		// first egress request already has the token (or a confirmed negative)
+		// cached — the ~200ms ext_proc budget is far too small to fetch it inline.
+		e := m.entry(runID)
+		e.mu.Lock()
+		m.startFetchLocked(runID, e, m.now())
+		e.mu.Unlock()
 	}
 }
 
@@ -170,31 +191,37 @@ func (m *DelegationManager) entry(runID string) *delegationEntry {
 	return e
 }
 
-// tokenForRun returns the run's delegation token, consulting the cache and
-// fetching/refreshing as needed. ok=false means attach nothing: the run is
-// autonomous (negative-cached) or retrieval failed (fail closed downstream).
-func (m *DelegationManager) tokenForRun(ctx context.Context, runID string) (string, bool) {
+// tokenForRun returns the run's currently-cached delegation token WITHOUT ever
+// blocking on the network. ok=false means attach nothing this request: the run
+// is autonomous (negative-cached), the token is not fetched yet, or retrieval
+// is failing (fail closed downstream). A cache miss or near-expiry token kicks a
+// background fetch to populate/refresh the cache for subsequent requests.
+//
+// It is deliberately non-blocking: this runs inside Envoy's ext_proc header
+// phase, whose default message_timeout is ~200ms. A DB+mesh delegation fetch
+// routinely overran that, so Envoy failed open (failure_mode_allow) and
+// forwarded the request with NO ext_proc mutation — dropping the platform-JWT
+// Authorization header too, which the sandbox OPA then fail-closed denied,
+// surfacing as intermittent "connection reset by peer" on git clone. The
+// Authorization header is attached by handleRequestHeaders regardless of what we
+// return here, so a not-yet-cached delegation never costs the platform token.
+func (m *DelegationManager) tokenForRun(_ context.Context, runID string) (string, bool) {
 	e := m.entry(runID)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	now := m.now()
 
-	// Valid cached token: attach, refreshing proactively when the remaining
-	// lifetime drops below refreshFraction of the issued lifetime. A refresh
-	// failure keeps serving the still-valid cached token (the endpoint re-signs
-	// with a STABLE jti — revocation is enforced at the PEP, not here).
+	// Valid cached token: attach it. When it nears expiry, kick a background
+	// refresh but keep serving the still-valid token (the endpoint re-signs with
+	// a STABLE jti — revocation is enforced at the PEP, not here).
 	if e.token != "" && now.Before(e.exp) {
 		lifetime := e.exp.Sub(e.fetchedAt)
 		remaining := e.exp.Sub(now)
-		if lifetime > 0 && float64(remaining) < float64(lifetime)*refreshFraction && now.After(e.nextRetry) {
-			if !m.fetchLocked(ctx, runID, e, now) && e.token != "" && now.Before(e.exp) {
-				return e.token, true
-			}
+		if lifetime > 0 && float64(remaining) < float64(lifetime)*refreshFraction {
+			m.startFetchLocked(runID, e, now)
 		}
-		if e.token != "" {
-			return e.token, true
-		}
+		return e.token, true
 	}
 
 	// Negative cache: recently confirmed autonomous.
@@ -202,22 +229,46 @@ func (m *DelegationManager) tokenForRun(ctx context.Context, runID string) (stri
 		return "", false
 	}
 
-	// Backoff gate after a retrieval error.
-	if now.Before(e.nextRetry) {
-		return "", false
-	}
-
-	if m.fetchLocked(ctx, runID, e, now) && e.token != "" {
-		return e.token, true
-	}
+	// No usable cache: kick a background fetch (deduped + backoff-gated) and
+	// attach nothing this request.
+	m.startFetchLocked(runID, e, now)
 	return "", false
 }
 
-// fetchLocked calls identity for the run's token and updates the entry. The
-// entry mutex is held by the caller. Returns true when the entry now reflects
-// a definitive answer (token or confirmed-none), false on retrieval error.
-func (m *DelegationManager) fetchLocked(ctx context.Context, runID string, e *delegationEntry, now time.Time) bool {
+// startFetchLocked launches a single background delegation fetch for the run
+// unless one is already in flight or the post-error backoff gate is still
+// closed. The entry mutex is held by the caller. The fetch runs on the manager's
+// base context (NOT the request context, which Envoy cancels at the ext_proc
+// deadline) so it can complete and populate the cache.
+func (m *DelegationManager) startFetchLocked(runID string, e *delegationEntry, now time.Time) {
+	if e.fetching || now.Before(e.nextRetry) {
+		return
+	}
+	e.fetching = true
+	go m.fetchAsync(runID, e, now)
+}
+
+// fetchAsync performs the delegation retrieval off the request path and records
+// the outcome. Exactly one runs per entry at a time (guarded by e.fetching).
+//
+// now is captured at the spawn point (under the entry lock) rather than read
+// again here, so the recorded expiry/backoff is deterministic and does not race
+// a test clock advanced while the fetch is in flight. Real fetches complete in
+// well under a token lifetime, so anchoring to spawn time is immaterial.
+func (m *DelegationManager) fetchAsync(runID string, e *delegationEntry, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), m.fetchTimeout)
+	defer cancel()
 	tok, err := m.fetcher.GetDelegationForRun(ctx, runID)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.fetching = false
+	m.recordFetchLocked(runID, e, now, tok, err)
+}
+
+// recordFetchLocked applies a completed fetch outcome to the entry. The entry
+// mutex is held by the caller.
+func (m *DelegationManager) recordFetchLocked(runID string, e *delegationEntry, now time.Time, tok *identityclient.DelegationToken, err error) {
 	switch {
 	case err == nil:
 		e.token = tok.DelegationToken
@@ -227,11 +278,10 @@ func (m *DelegationManager) fetchLocked(ctx context.Context, runID string, e *de
 		e.noneUntil = time.Time{}
 		e.nextRetry = time.Time{}
 		e.backoff = 0
-		m.logger.Info(ctx, "delegation token cached for run",
+		m.logger.Info(context.Background(), "delegation token cached for run",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "expires_in_s", Value: tok.ExpiresIn},
 		)
-		return true
 
 	case errors.Is(err, identityclient.ErrDelegationNotFound):
 		// Autonomous run (or revoked issuance): cache the absence so the next
@@ -242,7 +292,6 @@ func (m *DelegationManager) fetchLocked(ctx context.Context, runID string, e *de
 		e.noneUntil = now.Add(m.negativeTTL)
 		e.nextRetry = time.Time{}
 		e.backoff = 0
-		return true
 
 	default:
 		// Retrieval error: do NOT attach (fail closed downstream); retry with
@@ -256,12 +305,11 @@ func (m *DelegationManager) fetchLocked(ctx context.Context, runID string, e *de
 			}
 		}
 		e.nextRetry = now.Add(e.backoff)
-		m.logger.Warn(ctx, "delegation token retrieval failed — attaching nothing (fail closed downstream)",
+		m.logger.Warn(context.Background(), "delegation token retrieval failed — attaching nothing (fail closed downstream)",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "retry_in_ms", Value: e.backoff.Milliseconds()},
 		)
-		return false
 	}
 }
 
