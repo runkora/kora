@@ -264,19 +264,12 @@ func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSv
 		return nil
 	}
 
-	// The hook fires whenever an agent type is written, long after startup. Use
-	// a fresh context.Background() rather than capturing the startup ctx, which
-	// by then may be stale/canceled. Racing a self-heal tick is harmless: the
-	// policy service's registration endpoint is idempotent.
-	atSvc.SetAgentTypeHook(func() {
-		go func() {
-			if err := register(context.Background()); err != nil {
-				logger.Error(context.Background(), "route scope registration failed",
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
-		}()
-	})
+	// The hook fires whenever an agent type is written, which changes the
+	// per-slug scopes and so has to be republished without waiting for the next
+	// tick. SetAgentTypeHook invokes it synchronously inside the write, so the
+	// callback must not block on a policy-service round trip; RepublishOnEvent
+	// guarantees that.
+	atSvc.SetAgentTypeHook(routescopes.RepublishOnEvent(logger, "orbit-agents", register))
 
 	return register
 }

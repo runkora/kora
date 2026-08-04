@@ -79,7 +79,7 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	conns := stubConnections{conns: []*credentials.Connection{
 		{Name: "public-docs", Adapter: "passthrough", TenantID: "acme"},
 	}}
-	_, register := initScopeRegistration(logging.NewLogger(), conns, testAdapters())
+	register := initScopeRegistration(logging.NewLogger(), conns, testAdapters())
 
 	if err := register(t.Context()); err != nil {
 		t.Fatalf("register: %v", err)

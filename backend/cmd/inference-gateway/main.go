@@ -226,16 +226,13 @@ func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEng
 		return nil
 	}
 
-	// The hook fires whenever GET /v1/models refreshes the catalog, long after
-	// startup. Use a fresh context.Background() rather than capturing the
-	// startup ctx, which by then may be stale/canceled.
-	router.SetCatalogUpdateHook(func(catalogScopes []inferencegw.CatalogScope) {
-		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
-		if err := client.Register(context.Background(), "inference-gateway", scopedRoutes, scopeDecls); err != nil {
-			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
-		}
-	})
+	// The hook fires whenever a catalog load adds or removes a model, so the
+	// per-model inference:<provider>:<model>:use scopes change and have to be
+	// republished without waiting for the next tick. It re-reads the catalog
+	// through register rather than using the CatalogScope argument: the router
+	// stores the snapshot before firing, so the two are the same value.
+	republish := routescopes.RepublishOnEvent(logger, "inference-gateway", register)
+	router.SetCatalogUpdateHook(func([]inferencegw.CatalogScope) { republish() })
 
 	return register
 }

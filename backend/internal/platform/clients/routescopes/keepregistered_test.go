@@ -12,19 +12,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// withInterval sets the steady-state cadence for the duration of one test.
-//
-// The cadence is not a parameter in production (see reregisterInterval): it is
-// one platform-wide value, so a test that needs the ticker to actually fire has
-// to reach the package variable. These tests do not run in parallel, so the
-// swap is safe.
-func withInterval(t *testing.T, d time.Duration) {
-	t.Helper()
-	prev := reregisterInterval
-	reregisterInterval = d
-	t.Cleanup(func() { reregisterInterval = prev })
-}
-
 // testRoutes and testScopes are the minimal valid payload; no test here is
 // about their contents, only about how often they are sent.
 var (
@@ -45,8 +32,8 @@ func TestKeepRegisteredTicks(t *testing.T) {
 		return nil
 	}
 
-	withInterval(t, 20*time.Millisecond)
-	go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
+	const interval = 20 * time.Millisecond
+	go keepRegistered(ctx, logging.NewLogger(), "test-service", interval, register)
 
 	// Poll until the loop has registered at startup and ticked at least twice.
 	// The bound is generous so a slow or loaded CI runner cannot flake on
@@ -63,9 +50,9 @@ func TestKeepRegisteredTicks(t *testing.T) {
 	// Cancel and assert the loop stops. Wait a few intervals for any in-flight
 	// tick to settle, snapshot the count, then confirm it does not advance.
 	cancel()
-	time.Sleep(5 * reregisterInterval)
+	time.Sleep(5 * interval)
 	stopped := calls.Load()
-	time.Sleep(5 * reregisterInterval)
+	time.Sleep(5 * interval)
 	if got := calls.Load(); got != stopped {
 		t.Errorf("registration kept firing after context cancel: had %d, now %d", stopped, got)
 	}
@@ -86,7 +73,7 @@ func TestKeepRegisteredRetriesStartup(t *testing.T) {
 		return nil
 	}
 
-	go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
+	go keepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
 
 	// The first retry delay is startupBackoffBase (2s), so allow well past it.
 	// Interval is an hour: reaching 2 calls proves the retry came from the
@@ -149,8 +136,7 @@ func TestKeepRegisteredRetriesThroughClient(t *testing.T) {
 		return client.Register(ctx, "test-service", testRoutes, testScopes)
 	}
 
-	withInterval(t, 20*time.Millisecond)
-	go KeepRegistered(t.Context(), logging.NewLogger(), "test-service", register)
+	go keepRegistered(t.Context(), logging.NewLogger(), "test-service", 20*time.Millisecond, register)
 
 	// The startup retry, then ticks. Reaching 4 within the bound means neither
 	// layer is adding seconds of delay to a call.
@@ -176,7 +162,7 @@ func TestKeepRegisteredStopsDuringStartupBackoff(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
+		keepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
 		close(done)
 	}()
 
@@ -195,4 +181,64 @@ func TestKeepRegisteredStopsDuringStartupBackoff(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("KeepRegistered did not return after context cancel during startup backoff")
 	}
+}
+
+// ── RepublishOnEvent ──────────────────────────────────────────────────────────
+
+// TestRepublishOnEventDoesNotBlockCaller is the property that made this helper
+// necessary: SetAgentTypeHook invokes its callback synchronously inside an
+// agent-type write, so a callback that waited on a policy-service round trip
+// would put that round trip on the write path.
+func TestRepublishOnEventDoesNotBlockCaller(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	register := func(context.Context) error {
+		close(entered)
+		<-release
+		return nil
+	}
+
+	republish := RepublishOnEvent(logging.NewLogger(), "test-service", register)
+
+	returned := make(chan struct{})
+	go func() {
+		republish()
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("republish callback blocked its caller while register was in flight")
+	}
+
+	// The work is still running: prove the callback returned early rather than
+	// because register had already finished.
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("register was never invoked")
+	}
+	close(release)
+}
+
+// TestRepublishOnEventSurvivesFailure pins that a failing republish is logged
+// and swallowed rather than panicking a hot path that has no way to handle it.
+// The periodic tick is the backstop.
+func TestRepublishOnEventFailureIsContained(t *testing.T) {
+	called := make(chan struct{})
+	register := func(context.Context) error {
+		close(called)
+		return errors.New("policy service down")
+	}
+
+	RepublishOnEvent(logging.NewLogger(), "test-service", register)()
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("register was never invoked")
+	}
+	// Give the goroutine a moment to finish handling the error.
+	time.Sleep(50 * time.Millisecond)
 }

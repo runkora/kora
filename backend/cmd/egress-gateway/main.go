@@ -124,7 +124,7 @@ func realMain() error {
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
 	// ── Scope publisher ──────────────────────────────────────────────────────
-	scopePub, registerScopes := initScopeRegistration(logger, connRegistry, registry)
+	registerScopes := initScopeRegistration(logger, connRegistry, registry)
 
 	// ── Admin/read HTTP server (health + read-only connections) ──────────────
 	// Served on its OWN plain-HTTP port (AdminHTTPPort), separate from the
@@ -178,14 +178,13 @@ func realMain() error {
 	// in memory, and an unregistered route is denied by Layer 1 enforcement.
 	// The reload hook and the self-heal loop may overlap; that is harmless,
 	// because the policy service's registration endpoint is idempotent.
-	connRegistry.OnReload(func(ctx context.Context) {
+	republish := routescopes.RepublishOnEvent(logger, egressgw.ServiceName, registerScopes)
+	connRegistry.OnReload(func(context.Context) {
 		// Drop every cached upstream transport so a rotated ca_cert (or any
 		// other Connection/Secret change) takes effect on the next forward
 		// without a gateway restart.
 		proxyHandler.Transports().Invalidate()
-		if err := scopePub.Publish(ctx, ""); err != nil {
-			logger.Error(ctx, "scope republish after registry reload failed", logging.Field{Key: "error", Value: err.Error()})
-		}
+		republish()
 	})
 	go connRegistry.Watch(ctx)
 	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, registerScopes)
@@ -219,15 +218,16 @@ func realMain() error {
 	return nil
 }
 
-// initScopeRegistration builds the connection-scope publisher and the register
-// function handed to routescopes.KeepRegistered. The publisher is returned too
-// because the registry-reload hook republishes through it directly.
-func initScopeRegistration(logger logging.Logger, conns credentials.ConnectionRepository, adapters *egressgw.AdapterRegistry) (*egressgw.ScopePublisher, func(context.Context) error) {
+// initScopeRegistration builds the register function that publishes this
+// gateway's connection:<name>:<action> vocabulary. It is the one entry point
+// for both the startup/self-heal loop and the registry-reload republish, so the
+// publisher itself never has to escape this function.
+func initScopeRegistration(logger logging.Logger, conns credentials.ConnectionRepository, adapters *egressgw.AdapterRegistry) func(context.Context) error {
 	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
 	pub := egressgw.NewScopePublisher(conns, adapters, client, logger)
 	// tenantID "" publishes the vocabulary for every connection in the mounted
 	// registry, which is the whole registry this gateway serves.
-	return pub, func(ctx context.Context) error { return pub.Publish(ctx, "") }
+	return func(ctx context.Context) error { return pub.Publish(ctx, "") }
 }
 
 func initObservability(ctx context.Context) (func(), error) {
