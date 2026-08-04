@@ -17,12 +17,5 @@ bundle:
   # frontend bypass is inactive, but the Envoy-level VirtualHost bypass still works.
   frontendHost: ""
 
-policy:
-  # Re-register the service's own routes and platform scope vocabulary every
-  # 5 minutes. The registration is in-process, but its scope upserts hit
-  # Postgres, so this is what turns a database blip at boot into a delay rather
-  # than a permanently unpublished vocabulary.
-  reregistrationIntervalSecs: 300
-
 observability:
   serviceName: "policy-service"

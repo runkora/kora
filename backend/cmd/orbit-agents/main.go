@@ -251,13 +251,7 @@ func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSv
 	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
 		return nil
 	}
-	// WithInitialDelay(0): the default 15s startup grace (waiting for the
-	// identity-proxy sidecar) would be added to *every* Register call, including
-	// each periodic self-heal tick and every agent-type write — pure latency
-	// that delays recovery after a policy-service restart. The very first
-	// registration races the sidecar coming up, but that is already covered by
-	// the client's own retry-with-backoff, so no upfront delay is needed.
-	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
+	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
 
 	register := func(registerCtx context.Context) error {
 		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)

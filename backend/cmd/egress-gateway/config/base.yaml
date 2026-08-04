@@ -19,11 +19,6 @@ policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
   policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
-  # Re-publish the connection scope vocabulary every 5 minutes. The policy
-  # service holds registrations in memory, so without this a policy-service
-  # restart leaves every connection:* scope unregistered until the next
-  # Connection CR change happens to trigger a republish.
-  reregistrationIntervalSecs: 300
 
 secrets:
   tenantCARoot: "/var/run/orbit/tenant-ca"

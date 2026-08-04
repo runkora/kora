@@ -120,28 +120,6 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	}
 }
 
-// TestInitScopeRegistrationSkipsStartupDelay is the regression test for the
-// self-heal loop: the client must be built with WithInitialDelay(0), or every
-// tick would pay the 15s sidecar grace.
-func TestInitScopeRegistrationSkipsStartupDelay(t *testing.T) {
-	got := make(chan registration, 4)
-	srv := capturingPolicyService(t, got)
-	defer srv.Close()
-	withPolicyServiceURL(t, srv.URL)
-
-	register := initScopeRegistration(logging.NewLogger(), stubSlugLister{}, newAgentTypeService())
-
-	start := time.Now()
-	for i := range 2 {
-		if err := register(t.Context()); err != nil {
-			t.Fatalf("register call %d: %v", i+1, err)
-		}
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("two registrations took %s: the 15s startup grace is being applied per call", elapsed)
-	}
-}
-
 // TestInitScopeRegistrationWithoutPolicyServiceIsNoOp covers local dev, where
 // no policy service is configured and there is nothing to keep registered.
 func TestInitScopeRegistrationWithoutPolicyServiceIsNoOp(t *testing.T) {

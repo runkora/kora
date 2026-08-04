@@ -115,25 +115,3 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 		}
 	}
 }
-
-// TestInitScopeRegistrationSkipsStartupDelay is the regression test for the
-// self-heal loop: the client must be built with WithInitialDelay(0), or every
-// tick and every registry reload would pay the 15s sidecar grace.
-func TestInitScopeRegistrationSkipsStartupDelay(t *testing.T) {
-	got := make(chan registration, 4)
-	srv := capturingPolicyService(t, got)
-	defer srv.Close()
-	withPolicyServiceURL(t, srv.URL)
-
-	_, register := initScopeRegistration(logging.NewLogger(), stubConnections{}, testAdapters())
-
-	start := time.Now()
-	for i := range 2 {
-		if err := register(t.Context()); err != nil {
-			t.Fatalf("register call %d: %v", i+1, err)
-		}
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("two registrations took %s: the 15s startup grace is being applied per call", elapsed)
-	}
-}

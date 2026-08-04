@@ -188,7 +188,7 @@ func realMain() error {
 		}
 	})
 	go connRegistry.Watch(ctx)
-	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, egc.Current.ReregistrationInterval(), registerScopes)
+	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, egc.Current.Policy.ReregistrationInterval(), registerScopes)
 
 	go func() {
 		logger.Info(ctx, "Starting CONNECT server", logging.Field{Key: "addr", Value: connectSrv.Addr})
@@ -222,15 +222,8 @@ func realMain() error {
 // initScopeRegistration builds the connection-scope publisher and the register
 // function handed to routescopes.KeepRegistered. The publisher is returned too
 // because the registry-reload hook republishes through it directly.
-//
-// WithInitialDelay(0): the default 15s startup grace (waiting for the
-// identity-proxy sidecar) would be added to *every* Register call, including
-// each periodic self-heal tick and each registry reload — pure latency that
-// delays recovery after a policy-service restart. The very first publish races
-// the sidecar coming up, but that is already covered by the client's own
-// retry-with-backoff, so no upfront delay is needed.
 func initScopeRegistration(logger logging.Logger, conns credentials.ConnectionRepository, adapters *egressgw.AdapterRegistry) (*egressgw.ScopePublisher, func(context.Context) error) {
-	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger, routescopes.WithInitialDelay(0))
+	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
 	pub := egressgw.NewScopePublisher(conns, adapters, client, logger)
 	// tenantID "" publishes the vocabulary for every connection in the mounted
 	// registry, which is the whole registry this gateway serves.

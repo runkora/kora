@@ -59,10 +59,10 @@ type Config struct {
 		// Kept short so a grant created alongside a trigger is visible to the
 		// next delivery rather than up to a poll interval later.
 		BundlePollIntervalSecs int `yaml:"bundlePollIntervalSecs"`
-		// ReregistrationIntervalSecs is how often this service re-registers its
-		// route+scope vocabulary with the policy service, to self-heal after a
+		// PolicyRegistrationConfig carries the shared cadence on which this
+		// service re-registers its route+scope vocabulary, to self-heal after a
 		// policy-service restart drops its in-memory registration store.
-		ReregistrationIntervalSecs int `yaml:"reregistrationIntervalSecs"`
+		config.PolicyRegistrationConfig `yaml:",squash"`
 	} `yaml:"policy"`
 
 	Observability struct {
@@ -81,15 +81,6 @@ func (c *Config) BundlePollInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(c.Policy.BundlePollIntervalSecs) * time.Second
-}
-
-// ReregistrationInterval returns how often to re-register routes and scopes,
-// defaulting to 5 minutes to match the inference gateway and tool gateway.
-func (c *Config) ReregistrationInterval() time.Duration {
-	if c.Policy.ReregistrationIntervalSecs <= 0 {
-		return 5 * time.Minute
-	}
-	return time.Duration(c.Policy.ReregistrationIntervalSecs) * time.Second
 }
 
 // Current holds non-secret configuration for orbit-triggers.

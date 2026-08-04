@@ -42,14 +42,12 @@ type Config struct {
 		FrontendHost string `yaml:"frontendHost"`
 	} `yaml:"bundle"`
 
-	Policy struct {
-		// ReregistrationIntervalSecs is how often the policy service re-registers
-		// its OWN routes and platform scope vocabulary. The registration is an
-		// in-process call, but the scope upserts hit Postgres, so a database blip
-		// at boot would otherwise leave the platform:* vocabulary unpublished for
-		// the life of the process.
-		ReregistrationIntervalSecs int `yaml:"reregistrationIntervalSecs"`
-	} `yaml:"policy"`
+	// Policy carries the shared cadence on which the policy service re-registers
+	// its OWN routes and platform scope vocabulary. The registration is an
+	// in-process call, but the scope upserts hit Postgres, so a database blip at
+	// boot would otherwise leave the platform:* vocabulary unpublished for the
+	// life of the process.
+	Policy config.PolicyRegistrationConfig `yaml:"policy"`
 
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
@@ -58,16 +56,6 @@ type Config struct {
 
 func (c *Config) ShutdownTimeout() time.Duration {
 	return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
-}
-
-// ReregistrationInterval returns how often to re-register the service's own
-// routes and scopes, defaulting to 5 minutes to match the other platform
-// services.
-func (c *Config) ReregistrationInterval() time.Duration {
-	if c.Policy.ReregistrationIntervalSecs <= 0 {
-		return 5 * time.Minute
-	}
-	return time.Duration(c.Policy.ReregistrationIntervalSecs) * time.Second
 }
 
 // Current holds non-secret configuration for the policy-service.
