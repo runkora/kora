@@ -171,6 +171,120 @@ func TestPrincipalFromSpiffeID_AgentPathUnchanged(t *testing.T) {
 	}
 }
 
+// ── devenv-prefixed SVIDs ─────────────────────────────────────────────────────
+//
+// docs/adr/2026-08-04-devenv-mode-platform-support.md (F-5) prefixes
+// dev-environment SVIDs with /devenv/{env-id} because environment workloads
+// are attested by the host SPIRE deployment. The extractor must strip the
+// prefix, lift the env-id into Claims, and otherwise parse identically to
+// the non-devenv shape.
+
+func TestPrincipalFromSpiffeID_DevenvSystemPathStrips(t *testing.T) {
+	p, err := principalFromSpiffeID("spiffe://orbit.test/devenv/spike-1/system/foo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Type != PrincipalTypeSystem {
+		t.Errorf("Type = %q, want %q", p.Type, PrincipalTypeSystem)
+	}
+	if p.DisplayName != "foo" {
+		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "foo")
+	}
+	if p.Claims["devenv_id"] != "spike-1" {
+		t.Errorf("Claims[devenv_id] = %q, want %q", p.Claims["devenv_id"], "spike-1")
+	}
+	if p.Claims["spiffe_path"] != "/devenv/spike-1/system/foo" {
+		t.Errorf("Claims[spiffe_path] = %q, want original path preserved", p.Claims["spiffe_path"])
+	}
+}
+
+func TestPrincipalFromSpiffeID_DevenvTenantAgentPathStrips(t *testing.T) {
+	const uri = "spiffe://orbit.test/devenv/spike-1/tenant/orbit-tenant-acme/agent/coder"
+	p, err := principalFromSpiffeID(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Type != PrincipalTypeAgent {
+		t.Errorf("Type = %q, want %q", p.Type, PrincipalTypeAgent)
+	}
+	if p.TenantID != "acme" {
+		t.Errorf("TenantID = %q, want %q", p.TenantID, "acme")
+	}
+	if p.DisplayName != "coder" {
+		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "coder")
+	}
+	if p.Claims["devenv_id"] != "spike-1" {
+		t.Errorf("Claims[devenv_id] = %q, want %q", p.Claims["devenv_id"], "spike-1")
+	}
+	if p.ID != uri {
+		t.Errorf("ID = %q, want %q (non-sandbox shape keeps the full URI as principal ID)", p.ID, uri)
+	}
+}
+
+func TestPrincipalFromSpiffeID_DevenvSandboxPathNormalizesToAgent(t *testing.T) {
+	const uri = "spiffe://orbit.test/devenv/spike-1/tenant/orbit-tenant-acme/agent/coder/sandbox/run-42"
+	p, err := principalFromSpiffeID(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	const wantAgentURI = "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder"
+	if p.ID != wantAgentURI {
+		t.Errorf("ID = %q, want %q (devenv prefix must not survive into the normalized agent ID)", p.ID, wantAgentURI)
+	}
+	if p.Claims["run_id"] != "run-42" {
+		t.Errorf("Claims[run_id] = %q, want %q", p.Claims["run_id"], "run-42")
+	}
+	if p.Claims["devenv_id"] != "spike-1" {
+		t.Errorf("Claims[devenv_id] = %q, want %q", p.Claims["devenv_id"], "spike-1")
+	}
+}
+
+func TestPrincipalFromSpiffeID_DevenvNeverParsesAsBareSystemOrTenant(t *testing.T) {
+	// A devenv-prefixed ID must always carry the devenv_id claim — it can
+	// never silently collapse into a principal indistinguishable from a
+	// bare system/tenant SVID, which is the property host authorization
+	// policy safety depends on.
+	for _, uri := range []string{
+		"spiffe://orbit.test/devenv/spike-1/system/foo",
+		"spiffe://orbit.test/devenv/spike-1/tenant/orbit-tenant-acme/agent/coder",
+	} {
+		p, err := principalFromSpiffeID(uri)
+		if err != nil {
+			t.Fatalf("unexpected error for %q: %v", uri, err)
+		}
+		if p.Claims["devenv_id"] == "" {
+			t.Errorf("%q: Claims[devenv_id] must be set for a devenv-prefixed SVID", uri)
+		}
+	}
+}
+
+func TestPrincipalFromSpiffeID_MalformedDevenvPath(t *testing.T) {
+	tests := []string{
+		"spiffe://orbit.test/devenv/spike-1",   // no principal path after the env id
+		"spiffe://orbit.test/devenv//system/x", // empty env id
+		"spiffe://orbit.test/devenv",           // no env id, no principal path
+	}
+	for _, uri := range tests {
+		if _, err := principalFromSpiffeID(uri); err == nil {
+			t.Errorf("%q: expected error for malformed devenv path", uri)
+		}
+	}
+}
+
+func TestPrincipalFromSpiffeID_NonDevenvPathUntouched(t *testing.T) {
+	// A path that merely starts with something other than "devenv" must
+	// parse exactly as before — stripDevEnvPrefix must be a no-op off the
+	// devenv-prefixed path.
+	const uri = "spiffe://orbit.test/system/foo"
+	p, err := principalFromSpiffeID(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := p.Claims["devenv_id"]; ok {
+		t.Errorf("Claims[devenv_id] must not be set for a non-devenv path; got %q", p.Claims["devenv_id"])
+	}
+}
+
 // ── XFCCPrincipalExtractor ────────────────────────────────────────────────────
 
 func TestXFCCPrincipalExtractor_Success(t *testing.T) {

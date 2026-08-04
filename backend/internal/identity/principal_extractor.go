@@ -91,6 +91,13 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 //	Service:      spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
 //	System:       spiffe://orbit.{instance-id}/system/{component-name}
 //
+// Dev environments (docs/adr/2026-08-04-devenv-mode-platform-support.md)
+// prefix any of the above with /devenv/{env-id}, e.g.
+// spiffe://orbit.{instance-id}/devenv/{env-id}/system/{component-name}. The
+// prefix is stripped before parsing and the env-id is lifted into
+// Claims["devenv_id"]; the resulting principal type/tenant/display-name are
+// otherwise identical to the non-devenv shape.
+//
 // Per-run sandbox SVIDs are normalized to the agent principal for
 // authorization (so an agent's existing grants apply to all of its runs)
 // while the run_id is lifted into Claims for attribution and audit. This is
@@ -116,18 +123,85 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	trustDomain := withoutScheme[:slashIdx]
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
-	// Parse tenant and principal type/ID from the path structure:
-	// /tenant/{tenant-id}/agent/{agent-id}
-	// /tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
-	// /tenant/{tenant-id}/service/{service-id}
-	// /system/{component-name}
-	var tenantID, displayName, runID string
-	var agentURI string // the URI used as the principal ID — strips /sandbox/{run-id} when present
-	var principalType PrincipalType
-
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	// Parse principal type and identifiers based on path structure
+	// Dev environments (docs/adr/2026-08-04-devenv-mode-platform-support.md)
+	// run under the host's trust domain with an extra /devenv/{env-id} path
+	// segment, since environment workloads are attested by the host SPIRE
+	// deployment rather than a per-environment one. Strip that segment up
+	// front and fall through to the unchanged system/tenant parsing below;
+	// the env-id is lifted into Claims so a devenv SVID can never parse into
+	// a principal that is claims-indistinguishable from a bare system/tenant
+	// one.
+	segments, devEnvID, err := stripDevEnvPrefix(segments, path)
+	if err != nil {
+		return nil, err
+	}
+
+	principalType, tenantID, displayName, runID, agentURI, err := parsePrincipalPath(segments, trustDomain, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the agent URI as the stable principal ID for sandbox SVIDs so OPA
+	// grants on the agent apply to every run; for all other shapes use the
+	// full SVID (which already is the agent/service URI).
+	principalID := spiffeID
+	if agentURI != "" {
+		principalID = agentURI
+	}
+
+	claims := map[string]string{
+		"spiffe_id":    spiffeID,
+		"trust_domain": trustDomain,
+		"spiffe_path":  path,
+	}
+	if runID != "" {
+		claims["run_id"] = runID
+	}
+	if devEnvID != "" {
+		claims["devenv_id"] = devEnvID
+	}
+
+	return &Principal{
+		ID:             principalID,
+		Type:           principalType,
+		TenantID:       tenantID,
+		DisplayName:    displayName,
+		IdentitySource: IdentitySourceAttested,
+		Claims:         claims,
+	}, nil
+}
+
+// stripDevEnvPrefix removes a leading "devenv/{env-id}" pair from segments,
+// if present, and returns the remaining segments plus the env-id. Returns an
+// error if a "devenv" segment is present but malformed (missing env-id, or no
+// principal path remains after it) — a devenv-prefixed SVID must never
+// silently fall through as if it had no prefix at all.
+func stripDevEnvPrefix(segments []string, path string) ([]string, string, error) {
+	if len(segments) == 0 || segments[0] != "devenv" {
+		return segments, "", nil
+	}
+	if len(segments) < 2 || segments[1] == "" {
+		return nil, "", fmt.Errorf("malformed devenv SPIFFE path: missing env id in %q", path)
+	}
+	devEnvID := segments[1]
+	rest := segments[2:]
+	if len(rest) == 0 {
+		return nil, "", fmt.Errorf("malformed devenv SPIFFE path: no principal path after devenv/%s in %q", devEnvID, path)
+	}
+	return rest, devEnvID, nil
+}
+
+// parsePrincipalPath parses the (post-devenv-stripping) path segments into a
+// principal type and its identifiers, per the shapes documented on
+// principalFromSpiffeID:
+//
+//	/system/{component-name}
+//	/tenant/{tenant-id}/agent/{agent-id}
+//	/tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
+//	/tenant/{tenant-id}/service/{service-id}
+func parsePrincipalPath(segments []string, trustDomain, path string) (principalType PrincipalType, tenantID, displayName, runID, agentURI string, err error) {
 	switch {
 	case len(segments) >= 2 && segments[0] == "system":
 		// System principals: /system/{component-name}
@@ -155,35 +229,10 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		case "service":
 			principalType = PrincipalTypeService
 		default:
-			return nil, fmt.Errorf("unknown principal type %q in SPIFFE path %q", segments[2], path)
+			return "", "", "", "", "", fmt.Errorf("unknown principal type %q in SPIFFE path %q", segments[2], path)
 		}
 	default:
-		return nil, fmt.Errorf("malformed SPIFFE path: expected /tenant/{id}/agent|service/{name} or /system/{name}, got %q", path)
+		return "", "", "", "", "", fmt.Errorf("malformed SPIFFE path: expected /tenant/{id}/agent|service/{name} or /system/{name}, got %q", path)
 	}
-
-	// Use the agent URI as the stable principal ID for sandbox SVIDs so OPA
-	// grants on the agent apply to every run; for all other shapes use the
-	// full SVID (which already is the agent/service URI).
-	principalID := spiffeID
-	if agentURI != "" {
-		principalID = agentURI
-	}
-
-	claims := map[string]string{
-		"spiffe_id":    spiffeID,
-		"trust_domain": trustDomain,
-		"spiffe_path":  path,
-	}
-	if runID != "" {
-		claims["run_id"] = runID
-	}
-
-	return &Principal{
-		ID:             principalID,
-		Type:           principalType,
-		TenantID:       tenantID,
-		DisplayName:    displayName,
-		IdentitySource: IdentitySourceAttested,
-		Claims:         claims,
-	}, nil
+	return principalType, tenantID, displayName, runID, agentURI, nil
 }
