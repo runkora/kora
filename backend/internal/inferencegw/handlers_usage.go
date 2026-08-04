@@ -33,12 +33,11 @@ type listUsageResponse struct {
 
 // Allowed values for each enum query parameter.
 var (
-	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic, DialectResponses}
-	usageStatuses = []UsageStatus{
-		UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
-		UsageStatusModelNotFound, UsageStatusAuthError, UsageStatusTimeout,
-		UsageStatusRoutingFailed,
-	}
+	apiDialects = []APIDialect{DialectOpenAI, DialectAnthropic, DialectResponses}
+	// usageStatuses is derived from the declared constants rather than
+	// re-listed: every status the gateway can write is a status a caller may
+	// filter on, so the two can never drift apart.
+	usageStatuses = AllUsageStatuses()
 )
 
 // usageParamBinder extracts a single query parameter from q and writes its
@@ -127,7 +126,7 @@ var usageParamBinders = []usageParamBinder{
 //	model_family — filter by model family (e.g. "claude")
 //	provider     — filter by provider name  (bedrock | vertexai | azure)
 //	api_dialect  — filter by API dialect    (openai | anthropic)
-//	status       — filter by status         (success | provider_error | policy_denied | auth_error | timeout | routing_failed)
+//	status       — filter by status         (any value in AllUsageStatuses)
 //	from         — lower bound on created_at (RFC3339)
 //	to           — upper bound on created_at (RFC3339)
 //	limit        — page size, default 20
