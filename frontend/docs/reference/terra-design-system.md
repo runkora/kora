@@ -599,6 +599,97 @@ import { PageLayout, Section } from '@orbit/terra';
 
 ---
 
+## Wizard (multi-step builder modal)
+
+Use `Wizard` inside a `Modal size="builder"` to build consistent multi-step configuration flows. `Wizard` is a compound component; all sub-components are accessed via the `Wizard` namespace.
+
+```tsx
+import { Modal, ModalAccessibleTitle, Wizard } from '@orbit/terra';
+
+<Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
+  <ModalAccessibleTitle>New agent</ModalAccessibleTitle>
+  <Wizard
+    rail={
+      <Wizard.Rail
+        label="Create agent"
+        steps={steps}           // { id, title, sub }[]
+        current={step}
+        maxVisited={maxVisited}
+        onGoTo={goTo}
+        footer={<InfoCard />}   // optional info card at the bottom of the rail
+      />
+    }
+    footer={
+      <Wizard.Footer
+        step={step}
+        totalSteps={steps.length}
+        onBack={step > 0 ? () => setStep(s => s - 1) : undefined}
+        onNext={() => setStep(s => s + 1)}
+        nextDisabled={!valid}
+        onSubmit={isLast ? handleSubmit : undefined}
+        submitLabel="Create trigger"
+        pending={submitting}
+        hint={!valid ? 'Name is required' : undefined}
+      />
+    }
+  >
+    <Wizard.Header
+      icon="zap"
+      title="New agent"
+      subtitle={draftId}        // optional subtitle chip
+      actions={<SaveControls />} // optional feature-specific controls
+      onClose={onClose}
+    />
+    {step === 0 && <Wizard.Step><StepIdentity /></Wizard.Step>}
+    {step === 4 && (
+      <Wizard.Step>
+        <Wizard.ReviewStep>
+          <Wizard.ReviewCard icon="user" title="Identity" onEdit={() => goTo(0)} rows={[...]} />
+          <Wizard.ReviewCard icon="bot" title="Behaviour" onEdit={() => goTo(1)} rows={[...]}>
+            {/* optional block-level content below rows, e.g. a multi-line prompt */}
+            <Stack gap="tight" paddingBlock="snug">
+              <Text as="span" size="caption" color="subtle">Prompt</Text>
+              <Text size="caption" mono preserveWhitespace>{promptTemplate}</Text>
+            </Stack>
+          </Wizard.ReviewCard>
+        </Wizard.ReviewStep>
+      </Wizard.Step>
+    )}
+  </Wizard>
+</Modal>
+```
+
+### Sub-component props
+
+**`Wizard`**: Root. Props: `rail` (`React.ReactElement<WizardRailProps>`, required), `footer` (`React.ReactElement<WizardFooterProps>`, required), `children`. Renders the header (extracted from children), a hairline `Progress` strip, and the two-column body (rail | content column + footer).
+
+**`Wizard.Header`**: Props: `icon` (`IconName`), `title`, `subtitle?`, `actions?` (arbitrary controls, e.g. save-status indicator + Save Draft button), `onClose`.
+
+**`Wizard.Rail`**: Props: `label` (eyebrow string), `steps` (`{ id, title, sub }[]`), `current`, `maxVisited`, `onGoTo`, `footer?`. Steps past `maxVisited` are disabled.
+
+**`Wizard.Step`**: Scrollable content region for one step. Wrap one per active step.
+
+**`Wizard.ReviewStep`**: Gap container for `Wizard.ReviewCard` children. Use inside `Wizard.Step` on review screens.
+
+**`Wizard.ReviewCard`**: Props: `icon` (`IconName`), `title`, `rows` (`{ label, value, mono? }[]`), `onEdit?` (renders Edit button), `children?` (block-level content below rows, separated by a `Separator`).
+
+**`Wizard.Footer`**: Props: `step`, `totalSteps`, `onBack?` (omit to hide Back), `backLabel?` (default `"Back"`), `onNext` (required), `nextDisabled?`, `onSubmit?` (swaps Continue to Submit on the final step), `submitLabel?` (default `"Create"`), `pending?` (disables both buttons), `pendingLabel?` (default `"Creating..."`), `hint?`.
+
+### Exported prop types
+
+```ts
+import type {
+  WizardProps,
+  WizardRailProps,
+  WizardRailStep,
+  WizardHeaderProps,
+  WizardFooterProps,
+  WizardReviewCardProps,
+} from '@orbit/terra';
+```
+
+---
+
 ## Theming (light & dark)
 
 Orbit ships a dark theme by default and a light theme. Theming is driven entirely
