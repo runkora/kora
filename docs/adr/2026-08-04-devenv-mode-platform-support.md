@@ -124,7 +124,7 @@ package chartrender
 func Render(t *testing.T, chartPath string, values map[string]any) map[string]*unstructured.Unstructured
 ```
 
-Requires `helm` on `PATH` (already a listed dev-tool dependency per `make setup`); no new binary or plugin. Tests using it live beside the code that owns each template, e.g. `charts/orbit-platform/templates/clusterspiffeids_test.go` calling `chartrender.Render(t, "../../charts/orbit-platform", values)`.
+Requires `helm` on `PATH` (already a listed dev-tool dependency per `make setup`); no new binary or plugin. Tests using it should live under `backend/` (since `make test` runs `go test ./...` from `backend/`) and reference charts via relative paths, e.g. `backend/internal/operator/chartrender/orbit_platform_clusterspiffeids_test.go` calling `chartrender.Render(t, "../../charts/orbit-platform", values)`.
 
 **Rationale:** this satisfies PRD's Should-Have ("`make check` fails on a devenv-mode regression, not just a live cluster run") for the chart layer specifically, at the smallest footprint that covers F-1, F-7, and F-2/F-3 (`discoverySelectors`/native-sidecars are already Go-unit-testable since `buildIstiodValues` is pure Go — `chartrender` is only needed for templates the Go layer doesn't render itself). It resolves PRD Open Question 3 in favor of "targeted Go-level assertions on rendered values," using `helm template` rather than `helm lint` (syntax only) to actually assert on output.
 
