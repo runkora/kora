@@ -46,7 +46,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 			// are registered with policy-service for Layer 1 enforcement.
 			fullPath := basePath + r.URL.Path
 
-			requiredScope, ok := resolveRequiredScope(routes, r.Method, fullPath)
+			requiredScope, ok := ResolveRequiredScope(routes, r.Method, fullPath)
 			if !ok {
 				logger.Warn(ctx, "scope enforcement: no route match — deny",
 					logging.Field{Key: "method", Value: r.Method},
@@ -148,12 +148,17 @@ func pathMatchesPrefix(path, prefix string) bool {
 	return path[len(prefix)] == '/'
 }
 
-// resolveRequiredScope mirrors authz.rego's _required_scope derivation.
+// ResolveRequiredScope mirrors authz.rego's _required_scope derivation.
 // Exact-method matches beat wildcard ("*") matches, and among matches of the same
 // kind the longest (most specific) PathPrefix wins — so resolution does not depend
 // on route-table ordering. Returns the matched scope and true; returns "", false
 // if no route matches the request.
-func resolveRequiredScope(routes []routescopes.RouteScope, method, path string) (string, bool) {
+//
+// Exported so a binary can assert what its own route table actually resolves to
+// without restating this rule. A test that reimplements it can agree with itself
+// while disagreeing with enforcement, which is the failure mode that let a route
+// silently inherit a broader prefix's scope in the first place.
+func ResolveRequiredScope(routes []routescopes.RouteScope, method, path string) (string, bool) {
 	var (
 		bestScope   string
 		bestLen     = -1

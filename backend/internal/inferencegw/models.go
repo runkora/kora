@@ -107,6 +107,24 @@ const (
 	UsageStatusCanceled       UsageStatus = "canceled"
 )
 
+// AllUsageStatuses lists every declared UsageStatus. It is the single source of
+// truth for status validation and mirrors the inference_usage.status CHECK
+// constraint, so a status the gateway can write is always a status a caller can
+// filter on. Add new statuses here when adding the constant.
+func AllUsageStatuses() []UsageStatus {
+	return []UsageStatus{
+		UsageStatusSuccess,
+		UsageStatusProviderError,
+		UsageStatusPolicyDenied,
+		UsageStatusModelNotFound,
+		UsageStatusBudgetExceeded,
+		UsageStatusAuthError,
+		UsageStatusTimeout,
+		UsageStatusRoutingFailed,
+		UsageStatusCanceled,
+	}
+}
+
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
 	ID                           string           `json:"id"`

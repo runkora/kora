@@ -80,6 +80,11 @@ var resourceCategories = map[string]string{
 	"jobs":                   "workloads",
 	"cronjobs":               "workloads",
 	"replicationcontrollers": "workloads",
+	// HorizontalPodAutoscalers size a workload's replica count, so they belong
+	// with the workload they scale rather than in a category of their own.
+	// VerticalPodAutoscalers are deliberately absent: they are a CRD
+	// (autoscaling.k8s.io), and this map covers built-in resources only.
+	"horizontalpodautoscalers": "workloads",
 
 	// config
 	"configmaps": "config",
