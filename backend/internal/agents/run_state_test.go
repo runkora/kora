@@ -1,7 +1,11 @@
 package agents
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -61,25 +65,64 @@ func TestRunStateOccupiesPod_UnknownState(t *testing.T) {
 	}
 }
 
-// TestAllRunStates_MatchesDeclaredConstants pins the declared set so a new
-// constant that is not added to AllRunStates is caught here rather than
-// slipping past the exhaustiveness test above.
+// TestAllRunStates_MatchesDeclaredConstants reads the RunState constants out of
+// models.go and requires AllRunStates to list exactly them.
+//
+// It parses the source rather than comparing against a literal because a
+// literal would be a third hand-maintained copy of the same set: a constant
+// added to models.go alone would leave AllRunStates, that literal and every
+// assertion above agreeing with each other and wrong together. Go cannot
+// enumerate a const block at runtime, so reading the declaration is what turns
+// the omission into a test failure instead of an over-subscribed pod later.
 func TestAllRunStates_MatchesDeclaredConstants(t *testing.T) {
 	t.Parallel()
 
-	want := []RunState{
-		"pending", "starting", "active", "idle",
-		"completing", "completed", "failed", "budget_exhausted",
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "models.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse models.go: %v", err)
 	}
 
-	got := AllRunStates()
-	if len(got) != len(want) {
-		t.Fatalf("AllRunStates() = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("AllRunStates()[%d] = %q, want %q", i, got[i], want[i])
+	var declared []RunState
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok {
+			return true
 		}
+		ident, ok := spec.Type.(*ast.Ident)
+		if !ok || ident.Name != "RunState" {
+			return true
+		}
+		for _, v := range spec.Values {
+			lit, ok := v.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			value, unquoteErr := strconv.Unquote(lit.Value)
+			if unquoteErr != nil {
+				t.Fatalf("unquote %s: %v", lit.Value, unquoteErr)
+			}
+			declared = append(declared, RunState(value))
+		}
+		return true
+	})
+
+	if len(declared) == 0 {
+		t.Fatal("found no RunState constants in models.go; this parser needs updating")
+	}
+
+	listed := make(map[RunState]bool, len(AllRunStates()))
+	for _, s := range AllRunStates() {
+		listed[s] = true
+	}
+	for _, s := range declared {
+		if !listed[s] {
+			t.Errorf("RunState %q is declared in models.go but missing from AllRunStates", s)
+		}
+		delete(listed, s)
+	}
+	for s := range listed {
+		t.Errorf("AllRunStates lists %q, which is not a declared RunState constant", s)
 	}
 }
 
