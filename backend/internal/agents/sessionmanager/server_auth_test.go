@@ -251,6 +251,19 @@ func TestIsLoopbackRequest(t *testing.T) {
 		{"10.42.0.7:1234", false},
 		{"", false},
 		{"not-an-address", false},
+
+		// Port-less forms exercise the SplitHostPort fallback. net/http always
+		// sets a host:port RemoteAddr for TCP, so these do not arise in
+		// practice, but the fallback exists and its behaviour is pinned here
+		// rather than assumed.
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"[::1]", true},
+
+		// Unparseable input must deny. The fallback hands the whole string to
+		// ParseAddr, and anything it rejects has to fail closed.
+		{"invalid::", false},
+		{"[::1]:notaport:extra", false},
 	}
 
 	for _, tc := range tests {

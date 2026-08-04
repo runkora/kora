@@ -111,6 +111,13 @@ func (c *Controller) GroupedBy() string { return "" }
 //   - Everything else — the session-control surface that can start, message,
 //     interrupt, and kill any run — requires a valid platform token AND that
 //     the token belongs to orbit-agents, the sole intended caller.
+//
+// A nil verifier skips the token check and the caller check together, and that
+// coupling is deliberate. requireExpectedCaller reads the identity the token
+// check establishes, so running it without a verifier would mean deciding
+// against unverified claims, which is worse than not deciding at all. Auth here
+// is one switch rather than two, and it is off only when the binary runs
+// outside a cluster.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		authed := next

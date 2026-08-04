@@ -165,6 +165,14 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// The session-manager on each agent pod authenticates its caller and checks
 	// the principal is orbit-agents, so the same self-token source that bears
 	// the policy client's calls bears these.
+	//
+	// selfToken is nil only when Platform.IdentityServiceURL is empty, which is
+	// the bare local-dev configuration above. That is the same condition under
+	// which session-manager runs with auth.enabled false, so an unauthenticated
+	// client never meets an authenticating server: in-cluster both are always
+	// set. If that ever stops holding, this client sends no bearer and every
+	// call 401s, which is the safe direction but an obscure failure, so the two
+	// switches should keep moving together.
 	sm := smclient.NewClient(logger, selfToken)
 	pubsub := agents.NewPubSub()
 
