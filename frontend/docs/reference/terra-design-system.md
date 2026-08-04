@@ -673,7 +673,7 @@ import { Modal, ModalAccessibleTitle, Wizard } from '@orbit/terra';
 
 **`Wizard.ReviewCard`**: Props: `icon` (`IconName`), `title`, `rows` (`{ label, value, mono? }[]`), `onEdit?` (renders Edit button), `children?` (block-level content below rows, separated by a `Separator`).
 
-**`Wizard.Footer`**: Props: `step`, `totalSteps`, `onBack?` (omit to hide Back), `backLabel?` (default `"Back"`), `onNext` (required), `nextDisabled?`, `onSubmit?` (swaps Continue to Submit on the final step), `submitLabel?` (default `"Create"`), `pending?` (disables both buttons), `pendingLabel?` (default `"Creating..."`), `hint?`.
+**`Wizard.Footer`**: Props: `step`, `totalSteps`, `onBack?` (omit to hide Back), `backLabel?` (default `"Back"`), `onNext` (required), `nextDisabled?`, `onSubmit?` (swaps Continue to Submit on the final step), `submitLabel?` (default `"Create"`), `pending?` (disables both buttons), `pendingLabel?` (default `"Creating…"`), `hint?`.
 
 ### Exported prop types
 

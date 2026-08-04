@@ -328,16 +328,10 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
 
     const childArray = React.Children.toArray(children);
     const header = childArray.find(
-      (child) =>
-        React.isValidElement(child) &&
-        (child.type as { displayName?: string }).displayName === 'WizardHeader',
+      (child) => React.isValidElement(child) && child.type === WizardHeader,
     );
     const body = childArray.filter(
-      (child) =>
-        !(
-          React.isValidElement(child) &&
-          (child.type as { displayName?: string }).displayName === 'WizardHeader'
-        ),
+      (child) => !(React.isValidElement(child) && child.type === WizardHeader),
     );
 
     return (
