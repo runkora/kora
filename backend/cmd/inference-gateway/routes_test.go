@@ -1,42 +1,21 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
-
-// resolveScope mirrors middleware.resolveRequiredScope (and the `_required_scope`
-// rule in bundle/authz.rego): segment-bounded prefix match, exact method beats
-// wildcard, longest matching prefix wins. It is reproduced here because the
-// middleware helper is unexported; the behaviour it models is documented on
-// ScopeEnforcementMiddleware.
-func resolveScope(t *testing.T, routes []routescopes.RouteScope, method, path string) string {
-	t.Helper()
-
-	best, bestLen := "", -1
-	for _, r := range routes {
-		if !strings.HasPrefix(path, r.PathPrefix) {
-			continue
-		}
-		if len(path) != len(r.PathPrefix) && !strings.HasSuffix(r.PathPrefix, "/") && path[len(r.PathPrefix)] != '/' {
-			continue
-		}
-		if r.Method == method && len(r.PathPrefix) > bestLen {
-			best, bestLen = r.RequiredScope, len(r.PathPrefix)
-		}
-	}
-	if bestLen < 0 {
-		t.Fatalf("no route matched %s %s", method, path)
-	}
-	return best
-}
 
 // TestInferenceRoutesUsageScopes pins the personal-vs-privileged split across the
 // /v1/usage tree. The tenant-wide agent-type reads aggregate spend for every
 // agent type in the tenant, so they require platform:analytics:read; the rest
 // are derived from the caller's own claims and need authentication only.
+//
+// It resolves through mw.ResolveRequiredScope, the function the enforcement
+// middleware itself calls, rather than a local reimplementation of the matching
+// rule. Restating the rule here would let this test agree with itself while
+// disagreeing with enforcement, and a route silently inheriting a broader
+// prefix's scope is the bug this table exists to catch.
 func TestInferenceRoutesUsageScopes(t *testing.T) {
 	routes := inferenceRoutes()
 
@@ -57,7 +36,11 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveScope(t, routes, "GET", tt.path); got != tt.scope {
+			got, ok := mw.ResolveRequiredScope(routes, "GET", tt.path)
+			if !ok {
+				t.Fatalf("no route matched GET %s", tt.path)
+			}
+			if got != tt.scope {
 				t.Errorf("GET %s: required scope = %q, want %q", tt.path, got, tt.scope)
 			}
 		})

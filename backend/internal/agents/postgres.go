@@ -399,6 +399,12 @@ func podOccupancySQLList() string {
 // activeRunsPerPodQuery counts the runs occupying each pod of an agent type.
 // Derived from RunState.OccupiesPod so the SQL can never drift from the states
 // the Go code treats as resident on a pod.
+//
+// Built at init rather than written as a constant on purpose. Spelling the
+// states out here would restore the hand-maintained list this change exists to
+// remove, and it would be the copy nothing checks: the predicate has to match
+// both OccupiesPod and the idx_runs_active partial index, and only generating
+// it keeps all three in step. Do not fold it back into a literal.
 var activeRunsPerPodQuery = fmt.Sprintf(`
 		SELECT pod_ordinal, COUNT(*) FROM runs
 		WHERE agent_type_id=$1 AND state IN (%s)

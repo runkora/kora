@@ -51,7 +51,7 @@ func TestResolveRequiredScope_ExactMethodBeatsWildcard(t *testing.T) {
 		{PathPrefix: "/api/v1/agent-types", Method: "*", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
 	}
-	got, ok := resolveRequiredScope(routes, "POST", "/api/v1/agent-types")
+	got, ok := ResolveRequiredScope(routes, "POST", "/api/v1/agent-types")
 	if !ok || got != "agents:types:write" {
 		t.Errorf("got (%q, %v), want (agents:types:write, true)", got, ok)
 	}
@@ -62,7 +62,7 @@ func TestResolveRequiredScope_WildcardFallback(t *testing.T) {
 		{PathPrefix: "/api/v1/agent-types", Method: "*", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
 	}
-	got, ok := resolveRequiredScope(routes, "GET", "/api/v1/agent-types")
+	got, ok := ResolveRequiredScope(routes, "GET", "/api/v1/agent-types")
 	if !ok || got != "agents:types:read" {
 		t.Errorf("got (%q, %v), want (agents:types:read, true)", got, ok)
 	}
@@ -72,7 +72,7 @@ func TestResolveRequiredScope_NoMatchDenies(t *testing.T) {
 	routes := []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
 	}
-	_, ok := resolveRequiredScope(routes, "GET", "/api/v1/unknown")
+	_, ok := ResolveRequiredScope(routes, "GET", "/api/v1/unknown")
 	if ok {
 		t.Errorf("expected no match for /api/v1/unknown, got match")
 	}
@@ -82,7 +82,7 @@ func TestResolveRequiredScope_PrefixMatch(t *testing.T) {
 	routes := []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: "agents:types:write"},
 	}
-	got, ok := resolveRequiredScope(routes, "PATCH", "/api/v1/agent-types/abc-123")
+	got, ok := ResolveRequiredScope(routes, "PATCH", "/api/v1/agent-types/abc-123")
 	if !ok || got != "agents:types:write" {
 		t.Errorf("got (%q, %v), want (agents:types:write, true)", got, ok)
 	}
@@ -94,14 +94,14 @@ func TestResolveRequiredScope_PrefixIsSegmentAnchored(t *testing.T) {
 	routes := []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
 	}
-	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs-export"); ok {
+	if got, ok := ResolveRequiredScope(routes, "GET", "/api/v1/runs-export"); ok {
 		t.Errorf("got (%q, %v) for sibling path, want no match", got, ok)
 	}
 	// The exact path and a sub-resource still match.
-	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs"); !ok || got != "agents:runs:read" {
+	if got, ok := ResolveRequiredScope(routes, "GET", "/api/v1/runs"); !ok || got != "agents:runs:read" {
 		t.Errorf("exact path: got (%q, %v), want (agents:runs:read, true)", got, ok)
 	}
-	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs/abc/events"); !ok || got != "agents:runs:read" {
+	if got, ok := ResolveRequiredScope(routes, "GET", "/api/v1/runs/abc/events"); !ok || got != "agents:runs:read" {
 		t.Errorf("sub-resource: got (%q, %v), want (agents:runs:read, true)", got, ok)
 	}
 }
@@ -114,7 +114,7 @@ func TestResolveRequiredScope_LongestMatchOrderIndependent(t *testing.T) {
 		{general, specific},
 		{specific, general},
 	} {
-		got, ok := resolveRequiredScope(routes, "GET", "/api/v1/analytics/me")
+		got, ok := ResolveRequiredScope(routes, "GET", "/api/v1/analytics/me")
 		if !ok || got != "" {
 			t.Errorf("got (%q, %v), want (\"\", true) — longest prefix should win", got, ok)
 		}
