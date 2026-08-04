@@ -1,5 +1,5 @@
-// Package routescopes provides the client for registering a service's route→scope
-// mappings and scope vocabulary with the policy service at startup.
+// Package routescopes publishes a service's route→scope mappings and scope
+// vocabulary to the policy service, and keeps them published.
 //
 // Each service declares which scopes are required to access its HTTP routes, and
 // declares the scopes it owns. The policy service upserts those scopes into the
@@ -11,21 +11,32 @@
 //   - SYSTEM principal  → global registration, compiled into every tenant bundle
 //   - SERVICE principal → tenant-scoped registration, compiled into that tenant's bundle only
 //
+// # Register through KeepRegistered, not once at startup
+//
+// The policy service holds route registrations in memory, so they are lost when
+// it restarts, and Layer 1 enforcement denies an unregistered path outright. A
+// service that registers once at boot is therefore one policy-service restart
+// away from having every scoped request denied, with nothing to recover it.
+// That is not hypothetical: it is what [issue #170] was.
+//
+// So [KeepRegistered] owns registration. Give it a register function; it retries
+// until the first success and then re-publishes on a fixed cadence. Call
+// [Client.Register] directly only from inside that function. Use
+// [RepublishOnEvent] when a domain event changes what the service publishes and
+// waiting for the next tick would leave the vocabulary stale.
+//
 // Usage:
 //
 //	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", logger)
-//	if err := client.Register(ctx, "inference-gateway",
-//	    []routescopes.RouteScope{
-//	        {PathPrefix: "/v1/inference/", Method: "POST", RequiredScope: "inference:invoke"},
-//	        {PathPrefix: "/v1/inference/", Method: "GET",  RequiredScope: "inference:list"},
-//	    },
-//	    []routescopes.ScopeDeclaration{
-//	        {Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Invoke any inference model"},
-//	        {Scope: "inference:list",   ResourceType: "inference", PathSegments: []string{}, Action: "list",   Description: "List inference models"},
-//	    },
-//	); err != nil {
-//	    logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+//	register := func(ctx context.Context) error {
+//	    return client.Register(ctx, "inference-gateway",
+//	        routescopes.FilterScopedRoutes(inferenceRoutes()),
+//	        inferenceScopes(),
+//	    )
 //	}
+//	go routescopes.KeepRegistered(ctx, logger, "inference-gateway", register)
+//
+// [issue #170]: https://github.com/clear-route/orbit/issues/170
 package routescopes
 
 import (
