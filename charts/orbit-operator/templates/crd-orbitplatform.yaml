@@ -80,6 +80,36 @@ spec:
                       description: Whether the operator installs and manages Istio.
                       type: boolean
                       default: true
+                meshJWTValidation:
+                  description: >
+                    Configures istiod's JWT_RULE authenticator for installs whose mesh
+                    workloads carry tokens signed by a DIFFERENT apiserver (dev
+                    environments). Set only on dev-environment installs; empty/disabled
+                    on a host install.
+                  type: object
+                  properties:
+                    enabled:
+                      description: Turns the JWT_RULE authenticator (and its JWKS-mirror
+                        sidecar) on for this install's istiod.
+                      type: boolean
+                      default: false
+                    issuer:
+                      description: The host cluster's OIDC issuer URL for bound
+                        ServiceAccount tokens, exactly as it appears in the tokens'
+                        iss claim.
+                      type: string
+                    jwks:
+                      description: The host issuer's JSON Web Key Set document, verbatim.
+                        Public key material only — never a credential.
+                      type: string
+                devEnvironmentID:
+                  description: >
+                    Marks this install as an ephemeral dev environment and carries its
+                    identifier. Workload SVIDs are path-scoped under
+                    /devenv/{devEnvironmentID}/ instead of the bare host-trust-domain
+                    shape. Leave empty for a normal host install. Set by whatever
+                    provisions the environment (vcluster-mcp); never set by hand.
+                  type: string
                 secrets:
                   description: References the pre-existing Secret with platform credentials.
                   type: object
