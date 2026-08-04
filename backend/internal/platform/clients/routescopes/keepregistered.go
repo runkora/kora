@@ -44,14 +44,6 @@ const reregisterInterval = 5 * time.Minute
 //
 // The cadence is not a parameter: see [reregisterInterval].
 func KeepRegistered(ctx context.Context, logger logging.Logger, service string, register func(context.Context) error) {
-	keepRegistered(ctx, logger, service, reregisterInterval, register)
-}
-
-// keepRegistered is KeepRegistered with the cadence injected, so tests can tick
-// without waiting five minutes. Taking it as an argument rather than reaching a
-// package variable keeps the loop free of shared mutable state: a test that
-// leaves a goroutine running cannot then race the next test's setup.
-func keepRegistered(ctx context.Context, logger logging.Logger, service string, interval time.Duration, register func(context.Context) error) {
 	// Startup phase: retry until the first success. There is no attempt cap —
 	// an unregistered service rejects every scoped request, so giving up is
 	// never better than trying again.
@@ -82,7 +74,7 @@ func keepRegistered(ctx context.Context, logger logging.Logger, service string, 
 
 	// Steady state: re-register on a fixed cadence to self-heal after a
 	// policy-service restart.
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(reregisterInterval)
 	defer ticker.Stop()
 	for {
 		select {

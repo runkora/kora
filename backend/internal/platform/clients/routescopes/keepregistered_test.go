@@ -19,45 +19,6 @@ var (
 	testScopes = []ScopeDeclaration{{Scope: "thing:read", ResourceType: "thing", PathSegments: []string{}, Action: "read"}}
 )
 
-// TestKeepRegisteredTicks verifies that after the initial registration the
-// register function is called on each ticker tick and stops cleanly when the
-// context is canceled.
-func TestKeepRegisteredTicks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var calls atomic.Int64
-	register := func(context.Context) error {
-		calls.Add(1)
-		return nil
-	}
-
-	const interval = 20 * time.Millisecond
-	go keepRegistered(ctx, logging.NewLogger(), "test-service", interval, register)
-
-	// Poll until the loop has registered at startup and ticked at least twice.
-	// The bound is generous so a slow or loaded CI runner cannot flake on
-	// scheduler delays — the test only asserts that the ticker fires
-	// repeatedly, not that it hits a wall-clock deadline.
-	deadline := time.Now().Add(2 * time.Second)
-	for calls.Load() < 3 {
-		if time.Now().After(deadline) {
-			t.Fatalf("expected at least 3 registration calls within 2s (20ms interval), got %d", calls.Load())
-		}
-		time.Sleep(time.Millisecond)
-	}
-
-	// Cancel and assert the loop stops. Wait a few intervals for any in-flight
-	// tick to settle, snapshot the count, then confirm it does not advance.
-	cancel()
-	time.Sleep(5 * interval)
-	stopped := calls.Load()
-	time.Sleep(5 * interval)
-	if got := calls.Load(); got != stopped {
-		t.Errorf("registration kept firing after context cancel: had %d, now %d", stopped, got)
-	}
-}
-
 // TestKeepRegisteredRetriesStartup verifies the startup phase keeps retrying a
 // failing registration rather than giving up, and settles into the periodic
 // phase once it succeeds.
@@ -73,7 +34,7 @@ func TestKeepRegisteredRetriesStartup(t *testing.T) {
 		return nil
 	}
 
-	go keepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
+	go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
 
 	// The first retry delay is startupBackoffBase (2s), so allow well past it.
 	// Interval is an hour: reaching 2 calls proves the retry came from the
@@ -114,10 +75,15 @@ func TestClientRegisterMakesOneAttemptPerCall(t *testing.T) {
 	}
 }
 
-// TestKeepRegisteredRetriesThroughClient wires the two halves together: the
-// client returns the failure immediately and KeepRegistered is what comes back
-// for another attempt. It also covers promptness — repeated registrations carry
-// no per-call delay, so the loop's cadence is the interval it was given.
+// TestKeepRegisteredRetriesThroughClient wires the two halves together over a
+// real HTTP round trip: the client returns the failure immediately, and
+// KeepRegistered is what comes back for another attempt.
+//
+// The time bound is the assertion that matters. The client used to apply a
+// 15-second startup delay inside every register call and retry 15 times before
+// returning, so a first attempt that failed could not have been followed by a
+// successful second one within seconds. Recovering this quickly is only
+// possible because neither layer adds a per-call delay any more.
 func TestKeepRegisteredRetriesThroughClient(t *testing.T) {
 	var attempts atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -136,14 +102,16 @@ func TestKeepRegisteredRetriesThroughClient(t *testing.T) {
 		return client.Register(ctx, "test-service", testRoutes, testScopes)
 	}
 
-	go keepRegistered(t.Context(), logging.NewLogger(), "test-service", 20*time.Millisecond, register)
+	go KeepRegistered(t.Context(), logging.NewLogger(), "test-service", register)
 
-	// The startup retry, then ticks. Reaching 4 within the bound means neither
-	// layer is adding seconds of delay to a call.
+	// One failure, one success. The bound is comfortably under the old 15s
+	// per-call delay and the client's old multi-attempt loop, so reaching two
+	// attempts here could not happen if either had survived. It is still well
+	// clear of the 2s startup backoff between them.
 	deadline := time.Now().Add(10 * time.Second)
-	for attempts.Load() < 4 {
+	for attempts.Load() < 2 {
 		if time.Now().After(deadline) {
-			t.Fatalf("expected at least 4 registration attempts within 10s, got %d", attempts.Load())
+			t.Fatalf("expected a retried registration to succeed within 10s, got %d attempts", attempts.Load())
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -162,7 +130,7 @@ func TestKeepRegisteredStopsDuringStartupBackoff(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		keepRegistered(ctx, logging.NewLogger(), "test-service", time.Hour, register)
+		KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
 		close(done)
 	}()
 
