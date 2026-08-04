@@ -299,7 +299,7 @@ Cross-referenced to `../vcluster`'s ADR numbering where a numbered finding exist
 
 ### Related Documents
 
-- `../vcluster`'s [Ephemeral Dev Environments MCP Server PRD](../../../vcluster/docs/prd/vcluster-mcp.md) and [architecture ADR](../../../vcluster/docs/adr/2026-07-21-vcluster-mcp-server-architecture.md) — the external consumer's own design and the source of every pinned finding this PRD formalizes Orbit's side of
+- `../vcluster`'s Ephemeral Dev Environments MCP Server PRD (`docs/prd/vcluster-mcp.md` in that repo) and architecture ADR (`docs/adr/2026-07-21-vcluster-mcp-server-architecture.md` in that repo) — the external consumer's own design and the source of every pinned finding this PRD formalizes Orbit's side of. Not linked: it's a separate repo, not checked out alongside this one in CI, so a relative markdown link here would never resolve
 - PR #143 (`feat/vcluster-mcp-devenv-chart-support`) — **closed and deleted**; the reactive fix set it contained is referenced throughout this document only as the historical record of the implementation journey that motivated it, and is replaced here with a designed, tested contract implemented fresh against `main`
 - The closed, superseded PR #113 (`feat/vcluster-design`) — Orbit's own earlier, in-repo attempt at dev-environment orchestration, since removed (`7a758b2`)
 
