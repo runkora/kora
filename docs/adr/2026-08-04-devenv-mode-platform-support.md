@@ -9,7 +9,7 @@
 
 ## Context
 
-`vcluster-mcp` (`../vcluster`) provisions a disposable, real Orbit install per dev environment by installing Orbit's own published charts inside a vcluster, with `spire.enabled=false` and `platform.spiffe.enabled=true` — identity is still real, just issued by the *host* cluster's SPIRE server instead of a SPIRE control plane running inside the vcluster. Orbit's only obligation in that flow is to boot correctly under those values; everything else (the CR, the reconciler, sleep/wake, ingress brokering) is `vcluster-mcp`'s.
+[`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp) provisions a disposable, real Orbit install per dev environment by installing Orbit's own published charts inside a vcluster, with `spire.enabled=false` and `platform.spiffe.enabled=true` — identity is still real, just issued by the *host* cluster's SPIRE server instead of a SPIRE control plane running inside the vcluster. Orbit's only obligation in that flow is to boot correctly under those values; everything else (the CR, the reconciler, sleep/wake, ingress brokering) is `vcluster-mcp`'s.
 
 That obligation was met once by PR #143 (`feat/vcluster-mcp-devenv-chart-support`), a 13-commit branch arrived at by running `vcluster-mcp`'s operator against a real k3d cluster and patching whatever broke — four separate times, all the same shape of bug: code that silently assumed SPIRE is always enabled. **That PR was closed and its branch deleted before merging.** It is used throughout this ADR only as the historical record of what broke and how it was fixed — none of its code exists on any branch today, so nothing below is a rebase; it is a fresh reimplementation informed by that record. `main` has none of this support. The PRD this ADR implements enumerates every Orbit-owned enforcement site that assumption touches (§ Requirements, F-1 through F-10) and requires each one to carry an automated test that runs with no cluster; this ADR decides *how* to rebuild and test that support from scratch.
 
@@ -222,7 +222,7 @@ No new runtime monitoring — this is a build-time/test-time contract, not a run
 ## References
 
 - [Devenv-Mode Platform Support PRD](../prd/devenv-mode-platform-support.md)
-- `../vcluster`'s own architecture ADR and PRD — the external consumer's design and the source of every pinned finding this ADR formalizes Orbit's side of (see PRD Appendix for exact paths)
+- [`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp)'s own architecture ADR and PRD — the external consumer's design and the source of every pinned finding this ADR formalizes Orbit's side of (see PRD Appendix for exact paths)
 - PR #143, `feat/vcluster-mcp-devenv-chart-support` — **closed and deleted**; referenced throughout this ADR only as the historical record of the implementation journey (what broke, and how it was fixed) that this ADR's Decisions and Implementation section reimplement from scratch, not a branch available to rebase or merge
 
 ---
