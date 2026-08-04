@@ -119,7 +119,20 @@ _path_run_id := m[0][1] if {
 	count(m) == 1
 }
 
+# The `default` is load-bearing — see authz.rego for the full rationale: an
+# absent run_id claim would otherwise leave every comparison below undefined,
+# and with it every `not _delegation_binding_failed` guard passing.
+default _delegation_run_id := ""
+
 _delegation_run_id := _layer1_delegation_claims.run_id
+
+# NO run binding on the token at all: malformed, since every minted delegation
+# carries run_id. Distinct from "run identity is not independently knowable
+# here", which stays allowed.
+_delegation_run_unbound if {
+	_is_delegated
+	_delegation_run_id == ""
+}
 
 _delegation_run_mismatch if {
 	_is_delegated
@@ -132,6 +145,11 @@ _delegation_run_mismatch if {
 	_delegation_run_id != ""
 	_claims.orbit.claims.run_id != _delegation_run_id
 }
+
+# Aggregate: the delegation failed a binding check and must not be honoured.
+_delegation_binding_failed if _delegation_run_mismatch
+
+_delegation_binding_failed if _delegation_run_unbound
 
 # ══ DELEGATION FAIL-CLOSED MARKER ═════════════════════════════════════════════
 #
@@ -403,7 +421,7 @@ allow if {
 # Authenticated principal — delegated.
 allow if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -439,7 +457,7 @@ reason := concat("", ["grant:", matched_grant_scope]) if {
 
 reason := concat("", ["delegation:", matched_grant_scope]) if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -474,14 +492,14 @@ reason := concat("", ["role:", min(matched_roles)]) if {
 
 reason := "deny:no_delegation_scope" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	not _delegation_scope_satisfied
 }
 
 reason := "deny:no_delegator_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	not delegator_covers_required_scope
@@ -489,7 +507,7 @@ reason := "deny:no_delegator_grant" if {
 
 reason := "deny:no_agent_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
 	not principal_has_required_scope
@@ -502,15 +520,30 @@ reason := "deny:delegation_run_mismatch" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
+	_claims
 	_is_delegated
 	_delegation_run_mismatch
 }
 
+# A delegation carrying no run_id claim at all — malformed, since every minted
+# delegation is bound to a run. Mutually exclusive with the mismatch reason
+# above (which requires a non-empty run_id).
+reason := "deny:delegation_run_unbound" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_claims
+	_is_delegated
+	_delegation_run_unbound
+}
+
+# An invalid platform token is reported ahead of any delegation-binding
+# failure; the binding reasons above require _claims, so the two are mutually
+# exclusive.
 reason := "deny:invalid_token" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
-	not _delegation_run_mismatch
 	not _claims
 }
 
@@ -518,7 +551,7 @@ reason := "deny:no_route_match" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_claims
 	not _required_scope
 }

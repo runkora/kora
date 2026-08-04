@@ -231,7 +231,31 @@ _path_run_id := m[0][1] if {
 	count(m) == 1
 }
 
+# The `default` is load-bearing. Without it, a delegation token carrying no
+# run_id claim leaves this rule UNDEFINED, and `undefined != ""` is itself
+# undefined rather than true — so both mismatch rules below go undefined,
+# _delegation_binding_failed goes undefined (falsy), and every
+# `not _delegation_binding_failed` guard passes. An unbound token would be
+# accepted on every run. Defaulting to "" makes the absence a definite value
+# the rules below can test.
+default _delegation_run_id := ""
+
 _delegation_run_id := _layer1_delegation_claims.run_id
+
+# NO run binding on the token at all. Every delegation the identity service
+# mints carries run_id (required at mint; NOT NULL on the issuance row), so an
+# absent claim means a malformed or hand-rolled token: enforce, never bypass.
+#
+# This is deliberately NOT the same condition as "run identity is not
+# independently knowable here" — a well-formed token on a request with no
+# /run/{run_id} prefix and no platform-token run_id claim stays allowed, per
+# ADR Decision 4 ("wherever run identity is independently attested or
+# asserted"). Conflating the two would deny legitimate unprefixed traffic.
+_delegation_run_unbound if {
+	_is_envoy
+	_is_delegated
+	_delegation_run_id == ""
+}
 
 _delegation_run_mismatch if {
 	_is_delegated
@@ -244,6 +268,12 @@ _delegation_run_mismatch if {
 	_delegation_run_id != ""
 	_layer1_claims.orbit.claims.run_id != _delegation_run_id
 }
+
+# Aggregate: the delegation failed a binding check and must not be honoured.
+# Every delegated allow path and every delegated reason rule guards on this.
+_delegation_binding_failed if _delegation_run_mismatch
+
+_delegation_binding_failed if _delegation_run_unbound
 
 # ══ INTERNAL PLATFORM BYPASS ════════════════════════════════════════════════
 #
@@ -326,7 +356,7 @@ allow if {
 # All principal types — delegated
 allow if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -535,7 +565,7 @@ allow if {
 allow if {
 	_is_connect
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_principal_egress_allows
 }
 
@@ -565,7 +595,7 @@ reason := concat("", ["egress:", _connect_host]) if {
 reason := concat("", ["egress_delegated:", _connect_host]) if {
 	_is_connect
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_principal_egress_allows
 }
 
@@ -577,7 +607,7 @@ reason := concat("", ["grant:", matched_grant_scope]) if {
 
 reason := concat("", ["delegation:", matched_grant_scope]) if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -617,14 +647,14 @@ reason := concat("", ["role:", min(matched_roles)]) if {
 
 reason := "deny:no_delegation_scope" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	not _delegation_scope_satisfied
 }
 
 reason := "deny:no_delegator_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	not delegator_covers_required_scope
@@ -632,7 +662,7 @@ reason := "deny:no_delegator_grant" if {
 
 reason := "deny:no_agent_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
 	not principal_has_required_scope
@@ -643,14 +673,28 @@ reason := "deny:no_agent_grant" if {
 # reason rule so complete-rule conflicts are impossible.
 reason := "deny:delegation_run_mismatch" if {
 	not _is_platform_internal_path
+	_layer1_claims
 	_is_delegated
 	_delegation_run_mismatch
 }
 
+# A delegation carrying no run_id claim at all — malformed, since every minted
+# delegation is bound to a run. Mutually exclusive with the mismatch reason
+# above (which requires a non-empty run_id), so the two can never conflict.
+reason := "deny:delegation_run_unbound" if {
+	not _is_platform_internal_path
+	_layer1_claims
+	_is_delegated
+	_delegation_run_unbound
+}
+
 # Layer 1-specific deny reasons
+# An invalid platform token is reported ahead of any delegation-binding
+# failure: nothing downstream was evaluated meaningfully without it. The two
+# are mutually exclusive — the binding reasons above require _layer1_claims —
+# so neither can conflict with the other.
 reason := "deny:invalid_token" if {
 	_is_envoy
-	not _delegation_run_mismatch
 	not _layer1_claims
 }
 
@@ -660,7 +704,7 @@ reason := "deny:invalid_token" if {
 reason := "deny:no_route_match" if {
 	_is_envoy
 	not _is_connect
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_layer1_claims
 	not _required_scope
 }

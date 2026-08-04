@@ -339,22 +339,15 @@ func TestGateway_DelegationRequired_UnmarkedAgentUnaffected(t *testing.T) {
 // applies the identical checks for Layer 2 (see platform/policy tests).
 // ═══════════════════════════════════════════════════════════════════════════
 
-// signDelegationJWTWithRunID signs a delegation token carrying the run_id
-// claim (not verified by OPA — io.jwt.decode only).
+// signDelegationJWTWithRunID signs a delegation token bound to a specific run.
 func signDelegationJWTWithRunID(t *testing.T, delegatorID, runID string) string {
 	t.Helper()
-	claims := jwt.MapClaims{
+	return signDelegationClaims(t, jwt.MapClaims{
 		"sub":                      delegatorID,
 		"scope":                    "",
 		"run_id":                   runID,
 		"delegator_principal_type": "HUMAN",
-	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	signed, err := tok.SignedString(getTestRSAKey())
-	if err != nil {
-		t.Fatalf("sign delegation JWT: %v", err)
-	}
-	return signed
+	})
 }
 
 // delegationRunBindingBundle compiles a bundle where the full delegated chain
@@ -435,6 +428,119 @@ func TestAuthz_Layer1_DelegationRunBinding_SandboxMode(t *testing.T) {
 			}
 			if reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+// A delegation token carrying NO run_id claim is bound to no run, and is
+// refused everywhere — including on requests where run identity is not
+// independently knowable, the one case a well-formed token is honoured on.
+//
+// Before the fix this was the inverse: an absent run_id left
+// _delegation_run_id undefined, `undefined != ""` is undefined rather than
+// true, so both mismatch rules went undefined, the aggregate went undefined
+// (falsy), and every `not _delegation_binding_failed` guard passed. A token
+// with no run binding was accepted on every run.
+func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	pq := delegationRunBindingBundle(t, jwksSrv.URL+"/jwks")
+	unbound := signDelegationJWTWithoutRunID(t, testDelegateID)
+
+	tests := []struct {
+		name         string
+		path         string
+		tokenRunID   string // platform-token run_id claim (sandbox mode)
+		delegation   string
+		wantAllow    bool
+		wantedReason string
+	}{
+		{"unbound token, no run identity anywhere", "/v1/messages", "", unbound, false, "deny:delegation_run_unbound"},
+		{"unbound token, path asserts a run", "/run/run-a/v1/messages", "", unbound, false, "deny:delegation_run_unbound"},
+		{"unbound token, sandbox token attests a run", "/v1/messages", "run-a", unbound, false, "deny:delegation_run_unbound"},
+		// Contrast: a well-formed token on a request with no independently
+		// known run identity is still honoured — the binding is simply not
+		// checkable there, which is a different condition entirely.
+		{"bound token, no run identity anywhere", "/v1/messages", "", signDelegationJWTWithRunID(t, testDelegateID, "run-a"), true, "delegation:inference:invoke"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			orbitExtra := map[string]any{}
+			if tc.tokenRunID != "" {
+				orbitExtra["claims"] = map[string]any{"run_id": tc.tokenRunID}
+			}
+			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, orbitExtra)
+			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
+				"authorization":            "Bearer " + mainJWT,
+				"x-orbit-delegation-token": tc.delegation,
+			})
+			if allow != tc.wantAllow {
+				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
+			}
+			if reason != tc.wantedReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantedReason)
+			}
+		})
+	}
+}
+
+// The unbound token must not reach the delegated EGRESS rule either: that rule
+// carries the same guard, and CONNECT never carries a run prefix, so it was
+// the widest of the bypassed paths.
+func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDeniedOnEgress(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	pq := compileAndPrepare(t, bundleOpts{
+		jwksURL: jwksSrv.URL + "/jwks",
+		grants:  []*grants.Grant{delegatedAgentGrant(testAgentID, "egress:api.github.com:connect")},
+	})
+
+	mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, nil)
+	allow, reason := evalLayer1Connect(t, pq, "api.github.com:443", map[string]string{
+		"authorization":            "Bearer " + mainJWT,
+		"x-orbit-delegation-token": signDelegationJWTWithoutRunID(t, testDelegateID),
+	})
+	if allow {
+		t.Error("expected deny: an unbound delegation must not satisfy the delegated egress rule")
+	}
+	if reason != "deny:delegation_run_unbound" {
+		t.Errorf("reason = %q, want deny:delegation_run_unbound", reason)
+	}
+}
+
+func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/unbound-agent"
+	delegatorID := "user-delegator-unbound"
+
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		jwksURL:   jwksSrv.URL + "/jwks",
+		tenantIDs: []string{testTenantID},
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
+			{PathPrefix: "/run/", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+		grants: map[string][]*grants.Grant{
+			testTenantID: {
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeAgent, PrincipalID: agentID, Scopes: []string{"inference:invoke"}, DelegationRequired: true},
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeHuman, PrincipalID: delegatorID, Scopes: []string{"inference:invoke"}},
+			},
+		},
+	})
+
+	mainJWT := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
+	unbound := signDelegationJWTWithoutRunID(t, delegatorID)
+
+	for _, path := range []string{"/v1/chat/completions", "/run/run-a/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			allow, reason := evalGateway(t, pq, "POST", path, map[string]string{
+				"authorization":            "Bearer " + mainJWT,
+				"x-orbit-delegation-token": unbound,
+			})
+			if allow {
+				t.Error("expected deny at the gateway for a delegation bound to no run")
+			}
+			if reason != "deny:delegation_run_unbound" {
+				t.Errorf("reason = %q, want deny:delegation_run_unbound", reason)
 			}
 		})
 	}
