@@ -34,7 +34,17 @@ _layer1_token := raw if {
 	raw := trim_prefix(auth, "Bearer ")
 }
 
-_layer1_claims := claims if {
+# The identity service's signing key, as a serialised JWK. Factored out of
+# _layer1_claims so the delegation token verifies against the same key without
+# a second fetch: http.send with identical parameters resolves from OPA's
+# inter-query cache (force_cache above), so this adds no network call.
+#
+# Use "cert" with the serialised JWK to work around the OPA 1.15.x "jwks" bug.
+# NOTE: jwks.keys[0] assumes a single signing key. If key rotation with two
+# simultaneous keys is needed, match on the JWT header "kid" claim instead —
+# `some key in jwks.keys` does not work reliably with io.jwt.decode_verify
+# in OPA 1.15.x (non-matching keys return undefined, killing the rule).
+_signing_jwk := json.marshal(jwks.keys[0]) if {
 	_is_envoy
 	resp := http.send({
 		"url":                          data.config.jwks_url,
@@ -43,14 +53,13 @@ _layer1_claims := claims if {
 		"force_cache_duration_seconds": 300,
 	})
 	jwks := json.unmarshal(resp.raw_body)
+}
+
+_layer1_claims := claims if {
+	_is_envoy
 	# io.jwt.decode_verify returns [valid, header, payload]; valid must be true.
-	# Use "cert" with the serialised JWK to work around the OPA 1.15.x "jwks" bug.
-	# NOTE: jwks.keys[0] assumes a single signing key. If key rotation with two
-	# simultaneous keys is needed, match on the JWT header "kid" claim instead —
-	# `some key in jwks.keys` does not work reliably with io.jwt.decode_verify
-	# in OPA 1.15.x (non-matching keys return undefined, killing the rule).
 	result := io.jwt.decode_verify(_layer1_token, {
-		"cert": json.marshal(jwks.keys[0]),
+		"cert": _signing_jwk,
 		"iss":  data.config.issuer,
 		"aud":  data.config.audience,
 	})
@@ -158,9 +167,12 @@ _required_scope := route.required_scope if {
 #          has already verified and parsed the delegation token via
 #          ParseDelegationToken (signature, issuer, audience, expiry).
 #
-# Layer 1: delegation token is read from the X-Orbit-Delegation-Token header.
-#          Signature verification is handled by the DelegationMiddleware before
-#          the request reaches OPA evaluation.
+# Layer 1: delegation token is read from the X-Orbit-Delegation-Token header
+#          and verified here against the same JWKS, issuer, and audience as the
+#          platform token — the identity service signs both with one key
+#          (signDelegationToken in internal/identity). DelegationMiddleware
+#          verifies it again in-process at the PEP; the policy no longer
+#          depends on that middleware running first.
 
 _is_delegated if {
 	not _is_envoy
@@ -172,14 +184,22 @@ _is_delegated if {
 	input.attributes.request.http.headers["x-orbit-delegation-token"] != ""
 }
 
-# Layer 1: parse delegation token header (parse only, no signature check)
+# Layer 1: verify and parse the delegation token header. Signature, expiry,
+# issuer, and audience are all checked, against the same key as the platform
+# token. A token that fails any of them leaves this rule undefined, which
+# denies the request (see _delegation_unverified below) rather than falling
+# back to the autonomous path.
 _layer1_delegation_claims := claims if {
 	_is_envoy
 	_is_delegated
 	raw := input.attributes.request.http.headers["x-orbit-delegation-token"]
-	# io.jwt.decode returns [header, payload, sig]; payload is index 1.
-	decoded := io.jwt.decode(raw)
-	claims := decoded[1]
+	result := io.jwt.decode_verify(raw, {
+		"cert": _signing_jwk,
+		"iss":  data.config.issuer,
+		"aud":  data.config.audience,
+	})
+	result[0] == true
+	claims := result[2]
 }
 
 _delegation_scopes := input.delegation_scopes if not _is_envoy
@@ -254,6 +274,10 @@ _delegation_run_id := _layer1_delegation_claims.run_id
 _delegation_run_unbound if {
 	_is_envoy
 	_is_delegated
+	# The token itself verified; it simply carries no run_id. A token that did
+	# not verify is _delegation_unverified instead, so the two reasons stay
+	# mutually exclusive.
+	_layer1_delegation_claims
 	_delegation_run_id == ""
 }
 
@@ -269,11 +293,24 @@ _delegation_run_mismatch if {
 	_layer1_claims.orbit.claims.run_id != _delegation_run_id
 }
 
-# Aggregate: the delegation failed a binding check and must not be honoured.
-# Every delegated allow path and every delegated reason rule guards on this.
+# The delegation header is present but the token did not verify: bad signature,
+# expired, wrong issuer, wrong audience, or not a JWT at all. Refused here so a
+# forged header can never reach the delegated allow path, and so the policy is
+# self-contained rather than trusting DelegationMiddleware to have run first.
+_delegation_unverified if {
+	_is_envoy
+	_is_delegated
+	not _layer1_delegation_claims
+}
+
+# Aggregate: the delegation could not be established or failed a binding check
+# and must not be honoured. Every delegated allow path and every delegated
+# reason rule guards on this.
 _delegation_binding_failed if _delegation_run_mismatch
 
 _delegation_binding_failed if _delegation_run_unbound
+
+_delegation_binding_failed if _delegation_unverified
 
 # ══ INTERNAL PLATFORM BYPASS ════════════════════════════════════════════════
 #
@@ -686,6 +723,16 @@ reason := "deny:delegation_run_unbound" if {
 	_layer1_claims
 	_is_delegated
 	_delegation_run_unbound
+}
+
+# The delegation token failed verification (signature, expiry, issuer, or
+# audience). Mutually exclusive with the two reasons above, which both require
+# a verified token.
+reason := "deny:invalid_delegation_token" if {
+	not _is_platform_internal_path
+	_layer1_claims
+	_is_delegated
+	_delegation_unverified
 }
 
 # Layer 1-specific deny reasons

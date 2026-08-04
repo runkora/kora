@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
@@ -145,15 +146,52 @@ func signDelegationJWTWithoutRunID(t *testing.T, delegatorID string) string {
 	})
 }
 
-// signDelegationClaims signs arbitrary delegation claims with the test key.
+// signDelegationClaims signs arbitrary delegation claims with the test key,
+// filling in the registered claims OPA now verifies (iss, aud, exp) unless the
+// caller set them. The identity service signs delegation tokens with the same
+// key, issuer, and audience as platform tokens (signDelegationToken in
+// internal/identity), which is what makes one JWKS enough for both.
 func signDelegationClaims(t *testing.T, claims jwt.MapClaims) string {
 	t.Helper()
+	return signDelegationClaimsWithKey(t, claims, getTestRSAKey())
+}
+
+// signDelegationClaimsWithKey signs with an explicit key so tests can present
+// a token signed by a key the JWKS does not publish.
+func signDelegationClaimsWithKey(t *testing.T, claims jwt.MapClaims, key *rsa.PrivateKey) string {
+	t.Helper()
+	if _, ok := claims["iss"]; !ok {
+		claims["iss"] = "orbit"
+	}
+	if _, ok := claims["aud"]; !ok {
+		claims["aud"] = jwt.ClaimStrings{"orbit-platform"}
+	}
+	if _, ok := claims["exp"]; !ok {
+		claims["exp"] = time.Now().Add(time.Hour).Unix()
+	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	signed, err := tok.SignedString(getTestRSAKey())
+	signed, err := tok.SignedString(key)
 	if err != nil {
 		t.Fatalf("sign delegation JWT: %v", err)
 	}
 	return signed
+}
+
+// otherRSAKey is a signing key the test JWKS never publishes — a forged token.
+var (
+	otherRSAKey     *rsa.PrivateKey
+	otherRSAKeyOnce sync.Once
+)
+
+func getOtherRSAKey() *rsa.PrivateKey {
+	otherRSAKeyOnce.Do(func() {
+		var err error
+		otherRSAKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic(err)
+		}
+	})
+	return otherRSAKey
 }
 
 func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.PreparedEvalQuery {

@@ -1,8 +1,10 @@
 package bundle_test
 
 import (
+	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
@@ -541,6 +543,164 @@ func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 			}
 			if reason != "deny:delegation_run_unbound" {
 				t.Errorf("reason = %q, want deny:delegation_run_unbound", reason)
+			}
+		})
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Delegation token verification: Layer 1 verifies the delegation token's
+// signature, expiry, issuer, and audience against the same JWKS as the
+// platform token (the identity service signs both with one key). Previously it
+// used io.jwt.decode, which parses without verifying anything, and relied on
+// DelegationMiddleware having run first.
+// ═══════════════════════════════════════════════════════════════════════════
+
+func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	pq := delegationRunBindingBundle(t, jwksSrv.URL+"/jwks")
+	mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, nil)
+
+	wellFormed := jwt.MapClaims{
+		"sub":                      testDelegateID,
+		"scope":                    "",
+		"run_id":                   "run-a",
+		"delegator_principal_type": "HUMAN",
+	}
+	clone := func(overrides jwt.MapClaims) jwt.MapClaims {
+		c := jwt.MapClaims{}
+		maps.Copy(c, wellFormed)
+		maps.Copy(c, overrides)
+		return c
+	}
+
+	tests := []struct {
+		name       string
+		token      string
+		wantAllow  bool
+		wantReason string
+	}{
+		{
+			name:       "correctly signed token allowed",
+			token:      signDelegationClaims(t, clone(nil)),
+			wantAllow:  true,
+			wantReason: "delegation:inference:invoke",
+		},
+		{
+			name:       "signed by an unpublished key",
+			token:      signDelegationClaimsWithKey(t, clone(nil), getOtherRSAKey()),
+			wantReason: "deny:invalid_delegation_token",
+		},
+		{
+			name:       "expired",
+			token:      signDelegationClaims(t, clone(jwt.MapClaims{"exp": time.Now().Add(-time.Hour).Unix()})),
+			wantReason: "deny:invalid_delegation_token",
+		},
+		{
+			name:       "wrong issuer",
+			token:      signDelegationClaims(t, clone(jwt.MapClaims{"iss": "not-orbit"})),
+			wantReason: "deny:invalid_delegation_token",
+		},
+		{
+			name:       "wrong audience",
+			token:      signDelegationClaims(t, clone(jwt.MapClaims{"aud": jwt.ClaimStrings{"someone-else"}})),
+			wantReason: "deny:invalid_delegation_token",
+		},
+		{
+			name:       "not a JWT at all",
+			token:      "not.a.jwt",
+			wantReason: "deny:invalid_delegation_token",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			allow, reason := evalLayer1(t, pq, "POST", "/run/run-a/v1/messages", map[string]string{
+				"authorization":            "Bearer " + mainJWT,
+				"x-orbit-delegation-token": tc.token,
+			})
+			if allow != tc.wantAllow {
+				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
+			}
+			if reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+// A forged delegation token must not fall back to the autonomous allow path
+// either: the agent's grant carries the fail-closed marker, so the request is
+// denied outright rather than proceeding on the agent's standing access.
+func TestAuthz_Layer1_ForgedDelegation_NoAutonomousFallback(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	pq := delegationRunBindingBundle(t, jwksSrv.URL+"/jwks")
+	mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, nil)
+	forged := signDelegationClaimsWithKey(t, jwt.MapClaims{
+		"sub":                      testDelegateID,
+		"scope":                    "",
+		"run_id":                   "run-a",
+		"delegator_principal_type": "HUMAN",
+	}, getOtherRSAKey())
+
+	allow, reason := evalLayer1(t, pq, "POST", "/v1/messages", map[string]string{
+		"authorization":            "Bearer " + mainJWT,
+		"x-orbit-delegation-token": forged,
+	})
+	if allow {
+		t.Error("expected deny: a forged delegation must not be honoured, nor fall back to autonomous access")
+	}
+	if reason != "deny:invalid_delegation_token" {
+		t.Errorf("reason = %q, want deny:invalid_delegation_token", reason)
+	}
+}
+
+func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/forged-agent"
+	delegatorID := "user-delegator-forged"
+
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		jwksURL:   jwksSrv.URL + "/jwks",
+		tenantIDs: []string{testTenantID},
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+		grants: map[string][]*grants.Grant{
+			testTenantID: {
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeAgent, PrincipalID: agentID, Scopes: []string{"inference:invoke"}, DelegationRequired: true},
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeHuman, PrincipalID: delegatorID, Scopes: []string{"inference:invoke"}},
+			},
+		},
+	})
+
+	mainJWT := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
+	claims := jwt.MapClaims{
+		"sub":                      delegatorID,
+		"scope":                    "",
+		"run_id":                   testDelegationRunID,
+		"delegator_principal_type": "HUMAN",
+	}
+
+	tests := []struct {
+		name       string
+		token      string
+		wantAllow  bool
+		wantReason string
+	}{
+		{"correctly signed", signDelegationClaims(t, maps.Clone(claims)), true, "delegation:inference:invoke"},
+		{"unpublished key", signDelegationClaimsWithKey(t, maps.Clone(claims), getOtherRSAKey()), false, "deny:invalid_delegation_token"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
+				"authorization":            "Bearer " + mainJWT,
+				"x-orbit-delegation-token": tc.token,
+			})
+			if allow != tc.wantAllow {
+				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
+			}
+			if reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
 			}
 		})
 	}
