@@ -369,6 +369,51 @@ func TestHandleListUsage_InvalidStatus_Returns400(t *testing.T) {
 	}
 }
 
+// TestHandleListUsage_AcceptsEveryDeclaredStatus guards against the status
+// filter drifting behind the declared UsageStatus constants: every status the
+// gateway can write (and the inference_usage CHECK constraint accepts) must be
+// a status a caller can filter on.
+func TestHandleListUsage_AcceptsEveryDeclaredStatus(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range AllUsageStatuses() {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			repo := newMockUsageRepo()
+			c := newUsageController(t, repo)
+
+			w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+				"status": string(status),
+			})
+
+			if w.Code != http.StatusOK {
+				t.Errorf("status=%s: got %d, want %d (body: %s)", status, w.Code, http.StatusOK, w.Body)
+			}
+		})
+	}
+}
+
+// TestAllUsageStatuses_MatchesDeclaredConstants pins the declared set so adding
+// a UsageStatus constant without adding it to AllUsageStatuses fails here.
+func TestAllUsageStatuses_MatchesDeclaredConstants(t *testing.T) {
+	t.Parallel()
+
+	want := []UsageStatus{
+		"success", "provider_error", "policy_denied", "model_not_found",
+		"budget_exceeded", "auth_error", "timeout", "routing_failed", "canceled",
+	}
+
+	got := AllUsageStatuses()
+	if len(got) != len(want) {
+		t.Fatalf("AllUsageStatuses: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("AllUsageStatuses[%d]: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 // ── GET /usage — repo / service errors ────────────────────────────────────────
 
 func TestHandleListUsage_RepoError_Returns500(t *testing.T) {
