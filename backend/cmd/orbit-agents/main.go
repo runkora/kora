@@ -128,17 +128,22 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// calls: its mesh-attested exchange yields the SERVICE platform token used
 	// as the bearer for the policy client and for delegation revocation. One
 	// cached token source serves both, so the exchange stays off the hot path.
-	var idClient *identityclient.Client
-	var selfToken func(context.Context) (string, error)
-	if cfg.Platform.IdentityServiceURL != "" {
-		idClient = identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
-		selfToken = idClient.SelfTokenSource()
+	// Required, not optional. Without it orbit-agents has no bearer for the
+	// policy client, no bearer for the session-manager API, and no delegation
+	// broker, so the process would come up having silently dropped three
+	// security controls. Local development runs in Kubernetes with a real
+	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
+	// so an empty value is a broken deployment, not a mode.
+	if cfg.Platform.IdentityServiceURL == "" {
+		return nil, nil, nil, nil, nil, fmt.Errorf("platform.identityServiceURL is required")
 	}
+	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+	selfToken := idClient.SelfTokenSource()
 
 	// Build a policy client for grant management at agent provision/deprovision time.
 	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
 	var pc *policyclient.Client
-	if cfg.Platform.PolicyServiceURL != "" && idClient != nil {
+	if cfg.Platform.PolicyServiceURL != "" {
 		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 	}
 
@@ -150,22 +155,26 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
-		SessionManagerImage:       cfg.Agents.SessionManagerImage,
-		SandboxImage:              cfg.Agents.SandboxImage,
-		SandboxGRPCPort:           int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
-		GitAuthorName:             cfg.Agents.SandboxGitAuthorName,
-		GitAuthorEmail:            cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
-		TrustDomain:               cfg.Platform.TrustDomain,
-		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
-		ManifestOverrides:         manifestOverrides,
+		SessionManagerImage:        cfg.Agents.SessionManagerImage,
+		SandboxImage:               cfg.Agents.SandboxImage,
+		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
+		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
+		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		TrustDomain:                cfg.Platform.TrustDomain,
+		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
+		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		ManifestOverrides:          manifestOverrides,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	repo := agents.NewPostgresRepository(db.Pool())
-	sm := smclient.NewClient(logger)
+	// The session-manager on each agent pod authenticates its caller and checks
+	// the principal is orbit-agents, so the same self-token source that bears
+	// the policy client's calls bears these.
+	sm := smclient.NewClient(logger, selfToken)
 	pubsub := agents.NewPubSub()
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())

@@ -53,5 +53,10 @@ inferenceGateway:
 toolGateway:
   url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
 
+# auth guards the session-control API (create/message/interrupt/close). Every
+# caller must present a platform token AND be the orbit-agents control plane;
+# see internal/agents/sessionmanager/server.go Middleware. /health stays open
+# for the kubelet readiness probe, and /internal/* is loopback-only because its
+# callers are in-pod child processes that hold no token.
 session:
   idleTimeoutSecs: 1200 # 20 minutes

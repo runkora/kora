@@ -10,7 +10,7 @@
 //
 // Usage:
 //
-//	c := sessionmanager.NewClient(logger)
+//	c := sessionmanager.NewClient(logger, identityClient.SelfTokenSource())
 //	url := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
 //	if err := c.CreateSession(ctx, url, sessionmanager.CreateSessionRequest{...}); err != nil {
 //	    return fmt.Errorf("create session: %w", err)
@@ -43,17 +43,39 @@ var (
 	ErrUnexpectedStatus = errors.New("unexpected status from session-manager")
 )
 
+// TokenFunc returns the caller's own platform token. orbit-agents supplies
+// identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
+// SYSTEM token named "orbit-agents" and caches it until expiry — the same
+// mechanism the policy client uses (internal/platform/clients/policy).
+type TokenFunc func(ctx context.Context) (string, error)
+
 // Client sends commands to a session-manager pod.
 type Client struct {
 	*httpclient.Base
+	tokenFunc TokenFunc
 }
 
 // NewClient creates a Client. The returned client is safe for concurrent use
 // and should be shared across calls — one Client per orbit-agents process.
-func NewClient(logger logging.Logger) *Client {
+//
+// tokenFunc authenticates every session-control call and is required. The
+// session-manager authenticates unconditionally, so a client without a token
+// source could only ever produce 401s.
+func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 	return &Client{
-		Base: httpclient.New(tracerName, logger, clientTimeout),
+		Base:      httpclient.New(tracerName, logger, clientTimeout),
+		tokenFunc: tokenFunc,
 	}
+}
+
+// authorize attaches the caller's platform token to the outbound request.
+func (c *Client) authorize(ctx context.Context, req *http.Request) error {
+	tok, err := c.tokenFunc(ctx)
+	if err != nil {
+		return fmt.Errorf("obtain platform token for session-manager call: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	return nil
 }
 
 // PodURL returns the base URL for a specific session-manager pod.
@@ -95,6 +117,9 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 		return fmt.Errorf("build create session request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if err = c.authorize(ctx, httpReq); err != nil {
+		return err
+	}
 
 	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.CreateSession", httpReq)
 	defer span.End()
@@ -126,6 +151,9 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string)
 		return fmt.Errorf("build send message request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if err = c.authorize(ctx, httpReq); err != nil {
+		return err
+	}
 
 	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.SendMessage", httpReq)
 	defer span.End()
@@ -152,6 +180,9 @@ func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) err
 	if err != nil {
 		return fmt.Errorf("build interrupt session request: %w", err)
 	}
+	if err = c.authorize(ctx, httpReq); err != nil {
+		return err
+	}
 
 	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.InterruptSession", httpReq)
 	defer span.End()
@@ -176,6 +207,9 @@ func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, podURL+"/session/"+runID, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("build close session request: %w", err)
+	}
+	if err = c.authorize(ctx, httpReq); err != nil {
+		return err
 	}
 
 	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.CloseSession", httpReq)

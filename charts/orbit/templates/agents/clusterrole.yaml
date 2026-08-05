@@ -23,3 +23,9 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # AuthorizationPolicies restricting each agent pod's session-manager port to
+  # the orbit-agents principal, created in the tenant namespace alongside the
+  # StatefulSet (internal/agents/k8s.go ensureAuthorizationPolicy).
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

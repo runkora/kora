@@ -18,6 +18,7 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 func main() {
@@ -95,6 +96,14 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
 	}
 
+	// The session-control API can start, message, interrupt, and kill any run on
+	// this pod, so it is always authenticated. There is no opt-out: local
+	// development runs in Kubernetes against a real identity service
+	// (docs/adr/2026-07-10-kubernetes-only-local-development.md), so a mode that
+	// serves this API unauthenticated would exist only to be switched on by
+	// mistake.
+	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
+
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
@@ -110,7 +119,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		OpenCodeDefaultModel: cfg.OpenCode.DefaultModel,
 		InferenceGatewayURL:  cfg.InferenceGateway.URL,
 		ToolGatewayURL:       cfg.ToolGateway.URL,
-	}, registry)
+	}, registry, verifier)
 
 	return apiServer.Server(
 		ctx,
