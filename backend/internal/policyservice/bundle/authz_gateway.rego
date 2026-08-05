@@ -25,7 +25,10 @@ _token := raw if {
 	raw := trim_prefix(api_key, "orb_")
 }
 
-_claims := claims if {
+# The identity service's signing key, as a serialised JWK. Factored out so the
+# delegation token verifies against the same key without a second fetch:
+# http.send with identical parameters resolves from OPA's inter-query cache.
+_signing_jwk := json.marshal(jwks.keys[0]) if {
 	resp := http.send({
 		"url":                          data.config.jwks_url,
 		"method":                       "GET",
@@ -33,8 +36,11 @@ _claims := claims if {
 		"force_cache_duration_seconds": 300,
 	})
 	jwks := json.unmarshal(resp.raw_body)
+}
+
+_claims := claims if {
 	result := io.jwt.decode_verify(_token, {
-		"cert": json.marshal(jwks.keys[0]),
+		"cert": _signing_jwk,
 		"iss":  data.config.issuer,
 		"aud":  data.config.audience,
 	})
@@ -73,9 +79,11 @@ _principal_roles := [] if {
 
 # ══ DELEGATION ════════════════════════════════════════════════════════════════
 #
-# Delegation at the gateway mirrors authz.rego Layer 1: parse the
-# X-Orbit-Delegation-Token header without signature verification (signature
-# is checked in-process by the delegatee service after OPA allows the request).
+# Delegation at the gateway mirrors authz.rego Layer 1: the
+# X-Orbit-Delegation-Token header is verified against the same JWKS, issuer,
+# and audience as the platform token (the identity service signs both with one
+# key). The delegatee service verifies it again in-process; the policy no
+# longer depends on that happening.
 
 _is_delegated if {
 	input.attributes.request.http.headers["x-orbit-delegation-token"] != ""
@@ -84,8 +92,13 @@ _is_delegated if {
 _layer1_delegation_claims := claims if {
 	_is_delegated
 	raw := input.attributes.request.http.headers["x-orbit-delegation-token"]
-	decoded := io.jwt.decode(raw)
-	claims := decoded[1]
+	result := io.jwt.decode_verify(raw, {
+		"cert": _signing_jwk,
+		"iss":  data.config.issuer,
+		"aud":  data.config.audience,
+	})
+	result[0] == true
+	claims := result[2]
 }
 
 # An empty scope claim means "no scopes" (v1 delegation tokens carry none —
@@ -119,7 +132,23 @@ _path_run_id := m[0][1] if {
 	count(m) == 1
 }
 
+# The `default` is load-bearing — see authz.rego for the full rationale: an
+# absent run_id claim would otherwise leave every comparison below undefined,
+# and with it every `not _delegation_binding_failed` guard passing.
+default _delegation_run_id := ""
+
 _delegation_run_id := _layer1_delegation_claims.run_id
+
+# NO run binding on the token at all: malformed, since every minted delegation
+# carries run_id. Distinct from "run identity is not independently knowable
+# here", which stays allowed.
+_delegation_run_unbound if {
+	_is_delegated
+	# The token verified and simply carries no run_id; a token that did not
+	# verify is _delegation_unverified instead.
+	_layer1_delegation_claims
+	_delegation_run_id == ""
+}
 
 _delegation_run_mismatch if {
 	_is_delegated
@@ -132,6 +161,21 @@ _delegation_run_mismatch if {
 	_delegation_run_id != ""
 	_claims.orbit.claims.run_id != _delegation_run_id
 }
+
+# The delegation header is present but the token did not verify: bad signature,
+# expired, wrong issuer, wrong audience, or not a JWT at all.
+_delegation_unverified if {
+	_is_delegated
+	not _layer1_delegation_claims
+}
+
+# Aggregate: the delegation could not be established or failed a binding check
+# and must not be honoured.
+_delegation_binding_failed if _delegation_run_mismatch
+
+_delegation_binding_failed if _delegation_run_unbound
+
+_delegation_binding_failed if _delegation_unverified
 
 # ══ DELEGATION FAIL-CLOSED MARKER ═════════════════════════════════════════════
 #
@@ -403,7 +447,7 @@ allow if {
 # Authenticated principal — delegated.
 allow if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -439,7 +483,7 @@ reason := concat("", ["grant:", matched_grant_scope]) if {
 
 reason := concat("", ["delegation:", matched_grant_scope]) if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -474,14 +518,14 @@ reason := concat("", ["role:", min(matched_roles)]) if {
 
 reason := "deny:no_delegation_scope" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	not _delegation_scope_satisfied
 }
 
 reason := "deny:no_delegator_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	not delegator_covers_required_scope
@@ -489,7 +533,7 @@ reason := "deny:no_delegator_grant" if {
 
 reason := "deny:no_agent_grant" if {
 	_is_delegated
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
 	not principal_has_required_scope
@@ -502,15 +546,42 @@ reason := "deny:delegation_run_mismatch" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
+	_claims
 	_is_delegated
 	_delegation_run_mismatch
 }
 
+# A delegation carrying no run_id claim at all — malformed, since every minted
+# delegation is bound to a run. Mutually exclusive with the mismatch reason
+# above (which requires a non-empty run_id).
+reason := "deny:delegation_run_unbound" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_claims
+	_is_delegated
+	_delegation_run_unbound
+}
+
+# The delegation token failed verification (signature, expiry, issuer, or
+# audience). Mutually exclusive with the two reasons above, which both require
+# a verified token.
+reason := "deny:invalid_delegation_token" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_claims
+	_is_delegated
+	_delegation_unverified
+}
+
+# An invalid platform token is reported ahead of any delegation-binding
+# failure; the binding reasons above require _claims, so the two are mutually
+# exclusive.
 reason := "deny:invalid_token" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
-	not _delegation_run_mismatch
 	not _claims
 }
 
@@ -518,7 +589,7 @@ reason := "deny:no_route_match" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
 	not _is_self_enforced_path
-	not _delegation_run_mismatch
+	not _delegation_binding_failed
 	_claims
 	not _required_scope
 }

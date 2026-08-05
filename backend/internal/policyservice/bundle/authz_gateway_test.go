@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
@@ -112,23 +113,85 @@ func signTestJWT(t *testing.T, principalType, tenantID, principalID string, orbi
 	return signed
 }
 
-// signDelegationJWT signs a delegation token (not verified by OPA — io.jwt.decode only).
+// testDelegationRunID is the run a well-formed test delegation token binds to
+// when the test is not about run binding. Requests in those tests carry no
+// /run/ prefix and no platform-token run_id, so the binding is not checkable
+// and the token is honoured — the "run identity unknown here" case.
+const testDelegationRunID = "run-test"
+
+// signDelegationJWT signs a well-formed delegation token: sub, scope, run_id,
+// and delegator_principal_type, exactly as the identity service mints them.
 // scopes is the space-separated scope string in the delegation token.
 // delegator_principal_type is always HUMAN, matching what the identity service
 // mints (PAT-minted delegations normalise to the person at issuance).
 func signDelegationJWT(t *testing.T, delegatorID string, scopes []string) string {
 	t.Helper()
-	claims := jwt.MapClaims{
+	return signDelegationClaims(t, jwt.MapClaims{
 		"sub":                      delegatorID,
 		"scope":                    strings.Join(scopes, " "),
+		"run_id":                   testDelegationRunID,
 		"delegator_principal_type": "HUMAN",
+	})
+}
+
+// signDelegationJWTWithoutRunID signs a delegation token carrying NO run_id
+// claim — bound to no run at all. The identity service never mints one, so it
+// stands in for a malformed or hand-rolled token.
+func signDelegationJWTWithoutRunID(t *testing.T, delegatorID string) string {
+	t.Helper()
+	return signDelegationClaims(t, jwt.MapClaims{
+		"sub":                      delegatorID,
+		"scope":                    "",
+		"delegator_principal_type": "HUMAN",
+	})
+}
+
+// signDelegationClaims signs arbitrary delegation claims with the test key,
+// filling in the registered claims OPA now verifies (iss, aud, exp) unless the
+// caller set them. The identity service signs delegation tokens with the same
+// key, issuer, and audience as platform tokens (signDelegationToken in
+// internal/identity), which is what makes one JWKS enough for both.
+func signDelegationClaims(t *testing.T, claims jwt.MapClaims) string {
+	t.Helper()
+	return signDelegationClaimsWithKey(t, claims, getTestRSAKey())
+}
+
+// signDelegationClaimsWithKey signs with an explicit key so tests can present
+// a token signed by a key the JWKS does not publish.
+func signDelegationClaimsWithKey(t *testing.T, claims jwt.MapClaims, key *rsa.PrivateKey) string {
+	t.Helper()
+	if _, ok := claims["iss"]; !ok {
+		claims["iss"] = "orbit"
+	}
+	if _, ok := claims["aud"]; !ok {
+		claims["aud"] = jwt.ClaimStrings{"orbit-platform"}
+	}
+	if _, ok := claims["exp"]; !ok {
+		claims["exp"] = time.Now().Add(time.Hour).Unix()
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	signed, err := tok.SignedString(getTestRSAKey())
+	signed, err := tok.SignedString(key)
 	if err != nil {
 		t.Fatalf("sign delegation JWT: %v", err)
 	}
 	return signed
+}
+
+// otherRSAKey is a signing key the test JWKS never publishes — a forged token.
+var (
+	otherRSAKey     *rsa.PrivateKey
+	otherRSAKeyOnce sync.Once
+)
+
+func getOtherRSAKey() *rsa.PrivateKey {
+	otherRSAKeyOnce.Do(func() {
+		var err error
+		otherRSAKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic(err)
+		}
+	})
+	return otherRSAKey
 }
 
 func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.PreparedEvalQuery {
