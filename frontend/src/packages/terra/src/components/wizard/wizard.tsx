@@ -327,21 +327,21 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
       ((footerEl.props.step + 1) / Math.max(1, footerEl.props.totalSteps)) * 100;
 
     const childArray = React.Children.toArray(children);
-    const header = childArray.find(
-      (child) => React.isValidElement(child) && child.type === WizardHeader,
-    );
-    const body = childArray.filter(
-      (child) => !(React.isValidElement(child) && child.type === WizardHeader),
-    );
+    const isHeader = (child: React.ReactNode) =>
+      React.isValidElement(child) &&
+      (child.type === WizardHeader ||
+        (child.type as { displayName?: string }).displayName === 'WizardHeader');
+    const header = childArray.find(isHeader);
+    const body = childArray.filter((child) => !isHeader(child));
 
     return (
-      <Stack ref={ref} data-slot="wizard" grow overflow="hidden">
+      <Stack ref={ref} data-slot="wizard" grow overflow="hidden" gap="none">
         {header}
         <Progress size="hairline" label="Wizard progress" value={progressValue} />
-        <Stack direction="horizontal" grow overflow="hidden">
+        <Stack direction="horizontal" grow overflow="hidden" gap="none">
           {rail}
           <Separator orientation="vertical" span="full" />
-          <Stack grow overflow="hidden">
+          <Stack grow overflow="hidden" gap="none">
             {body}
             <Separator span="full" />
             {footer}
