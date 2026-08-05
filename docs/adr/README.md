@@ -24,6 +24,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
+- [Platform Service Bootstrap](2026-08-05-platform-service-bootstrap.md) — `Proposed` · 2026-08-05
 
 ### Identity, Auth & Tokens
 
@@ -249,4 +250,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Accepted | — |
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
+| 2026-08-05 | [Platform Service Bootstrap](2026-08-05-platform-service-bootstrap.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
