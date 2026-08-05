@@ -8,13 +8,9 @@
 
 ---
 
-> **Revision note, 2026-08-05.** This PRD originally covered a much larger surface: `vcluster-mcp` installing a full nested Orbit replica inside every provisioned dev environment, with Orbit's charts/operator supporting a SPIRE-disabled "devenv mode." `vcluster-mcp` has since dropped that design entirely ([its PR #5](https://github.com/clear-route/vcluster-mcp/pull/5), "vanilla-vcluster/dedicated-ingress design," merged 2026-08-05) — a provisioned environment is now a **vanilla Kubernetes vcluster** with no Orbit software inside it at all, reachable through `vcluster-mcp`'s own dedicated ingress gateway, not Orbit's. **No in-vcluster Orbit payload means none of the original requirements (SPIRE-disabled identity, principal-extractor prefix parsing, shared-gateway `ext_authz` carve-outs) apply anymore.** What remains, and what this revision defines, is simpler: `vcluster-mcp`'s own operator and MCP server now run as ordinary workloads **in the same host Kubernetes cluster as Orbit's own platform install**, and that operator provisions vclusters into that same cluster. This PRD now covers what Orbit must guarantee so that coexistence is safe — nothing more. The companion ADR ([2026-08-04-devenv-mode-platform-support](../adr/2026-08-04-devenv-mode-platform-support.md)) covered the old, larger design and is superseded on that basis; a new ADR, scoped to this revision, is expected once the audit below either confirms no code change is needed or turns up a real gap.
-
----
-
 ## Executive Summary
 
-`vcluster-mcp` — a standalone, Orbit-independent MCP server and Kubernetes operator ([clear-route/vcluster-mcp](https://github.com/clear-route/vcluster-mcp)) — provisions disposable dev environments as vanilla vclusters (virtual Kubernetes clusters running as pods), and runs its own operator and MCP server as ordinary workloads, **in the same host Kubernetes cluster that Orbit's own platform is installed on**. Orbit is not installed inside those vclusters, is not asked to authenticate or authorize `vcluster-mcp`, and is not on the request path for anything it provisions. Orbit's only obligation is to **not get in the way**: its mesh, SPIRE identity issuance, admission webhook, and network policy surfaces must stay confined to the namespaces Orbit itself manages, so a second, independent control plane can run alongside it on the same cluster without either side touching the other's workloads. This PRD enumerates that boundary as an explicit, verified contract instead of an assumption.
+`vcluster-mcp` — a standalone, Orbit-independent MCP server and Kubernetes operator ([clear-route/vcluster-mcp](https://github.com/clear-route/vcluster-mcp)) — provisions ephemeral dev environments as vclusters (virtual Kubernetes clusters running as pods), and runs its own operator and MCP server as ordinary workloads in the **same host Kubernetes cluster as Orbit's own platform install**. It authenticates and authorizes itself independently of Orbit and is never on Orbit's request path. Orbit's obligation is to confirm and guarantee that its own cluster-scoped surfaces — mesh sidecar injection, SPIRE identity issuance, its admission webhook, and its network policy — stay confined to the namespaces Orbit itself manages, so that this second, independent control plane can run alongside it on the same cluster without either side touching the other's workloads. This PRD defines that coexistence boundary as an explicit, documented, and live-verified contract.
 
 ---
 
@@ -22,19 +18,18 @@
 
 ### Current State
 
-- Orbit has never run alongside a second, independent Kubernetes operator in the same cluster in a way anyone has verified. Its mesh (istiod), identity issuance (SPIRE `ClusterSPIFFEID` templates), admission control (`orbit-operator`'s pod-mutating webhook), and network policy are all real, cluster-scoped Kubernetes primitives — nothing today proves live that they leave a co-tenant's namespaces and pods alone.
-- That isolation is real today, but by convention rather than by a hard boundary: Istio sidecar injection and SPIRE attestation are opt-in per namespace, gated on labels Orbit itself sets (`istio-injection: enabled`, `spiffe.io/spire-managed: "true"`) only on `orbit-system` and its own tenant namespaces (`charts/orbit-platform/templates/namespaces.yaml`); the `orbit-operator` pod-mutating webhook is scoped to `namespaceSelector: {orbit.io/role: tenant}` (`charts/orbit-operator/templates/webhook.yaml`); Orbit's `NetworkPolicy` set is scoped entirely inside `orbit-system` (`charts/orbit-platform/templates/netpols.yaml`). Nothing enforces that a future change keeps these scoped this way, and nothing has verified live that a real co-tenant operator's namespaces are actually untouched.
-- `vcluster-mcp`'s earlier design tried to reuse Orbit's shared ingress gateway workload for its own dev-environment traffic and hit exactly the failure mode this PRD exists to prevent recurring elsewhere: Orbit's OPA `ext_authz` `EnvoyFilter` is `workloadSelector`-scoped to Orbit's own gateway pods and denies any vhost it doesn't explicitly exempt, so sharing that workload — even with fully separate `Gateway` objects — got every dev-environment vhost denied by default. `vcluster-mcp` fixed this on its own side by giving itself a **dedicated** ingress-gateway workload (Istio's own upstream `gateway` chart, no dependency on Orbit's chart). The fix that matters to Orbit is not to reproduce that shared-workload coupling anywhere else, not to build a carve-out for it.
+- Orbit's isolation from a co-tenant operator is real today but rests on convention rather than a hard boundary: Istio sidecar injection and SPIRE attestation are namespace-opt-in, gated on labels Orbit itself sets (`istio-injection: enabled`, `spiffe.io/spire-managed: "true"`) only on `orbit-system` and its own tenant namespaces (`charts/orbit-platform/templates/namespaces.yaml`); the `orbit-operator` pod-mutating webhook is scoped to `namespaceSelector: {orbit.io/role: tenant}` (`charts/orbit-operator/templates/webhook.yaml`); Orbit's `NetworkPolicy` set is scoped entirely inside `orbit-system` (`charts/orbit-platform/templates/netpols.yaml`). None of this has been verified against a real second operator actually sharing the cluster.
+- Orbit's OPA `ext_authz` ingress policy (`charts/orbit/templates/opa-gateway/envoyfilter.yaml`) is `workloadSelector`-scoped to Orbit's own gateway workload and denies any vhost it doesn't explicitly exempt. A workload sharing Orbit's ingress-gateway pods gets every vhost denied by default; `vcluster-mcp` runs its own dedicated ingress gateway specifically to avoid that, and this policy must stay scoped the way it is today for that separation to keep working.
 
 ### User Pain Points
 
-- A platform engineer or agent provisioning a dev environment today has no documented guarantee that doing so is safe to run on Orbit's own staging/host cluster rather than requiring a second, dedicated cluster purely to avoid unverified interference.
-- An Orbit maintainer changing mesh, SPIRE, admission-webhook, or network-policy code has no test or checklist telling them whether a change has widened one of those surfaces from namespace-scoped to effectively cluster-wide — the exact kind of regression that would only be discovered by a co-tenant operator failing live.
+- A platform engineer or agent provisioning a dev environment has no documented guarantee that doing so is safe to run on Orbit's own staging/host cluster.
+- An Orbit maintainer changing mesh, SPIRE, admission-webhook, or network-policy code has no checklist telling them whether a change has widened one of those surfaces from namespace-scoped to effectively cluster-wide — the kind of regression that would only surface as a co-tenant operator failing live.
 
 ### Business Impact
 
-- Running dev environments on a second, dedicated cluster purely for isolation duplicates infrastructure `vcluster-mcp`'s own architecture already avoids by targeting the shared host cluster (per its own ADR).
-- The one interference bug already found live (the shared-ingress-gateway `ext_authz` collision) shows this class of bug is real, not hypothetical, even though it was ultimately resolved without any Orbit-side change.
+- Running dev environments on Orbit's own shared host cluster, instead of a second dedicated cluster, avoids duplicating infrastructure.
+- Orbit's ingress `ext_authz` policy has already denied traffic for a workload sharing its gateway — this class of interference is real, not hypothetical, and the same could happen on any of Orbit's other cluster-scoped surfaces without warning.
 
 ---
 
@@ -42,27 +37,24 @@
 
 ### Primary Goals
 
-1. **Let `vcluster-mcp`'s operator and MCP server run as ordinary workloads in the same host cluster as Orbit**, with no onboarding, identity grant, or code change on Orbit's side — it is not an Orbit tenant, system component, or agent, and must not need to become one.
-2. **Let `vcluster-mcp` provision vanilla vclusters (and whatever pods a vcluster syncs down to the host cluster) in that same cluster** without Orbit's mesh, SPIRE identity issuance, admission webhook, or network policy ever matching them.
-3. **Make Orbit's isolation boundary explicit and documented**, not just an emergent property of today's label choices: name the reserved namespace labels (`orbit.io/role`, `istio-injection`, `spiffe.io/spire-managed`) any co-tenant operator must not set on its own namespaces, so the boundary is legible without reading Orbit's Go/chart source.
+1. **Let `vcluster-mcp`'s operator and MCP server run as ordinary workloads in the same host cluster as Orbit**, with no onboarding, identity grant, or code change on Orbit's side.
+2. **Let `vcluster-mcp` provision vclusters (and whatever pods a vcluster syncs down to the host cluster) in that same cluster** without Orbit's mesh, SPIRE identity issuance, admission webhook, or network policy ever matching them.
+3. **Make Orbit's isolation boundary explicit and documented**: name the reserved namespace labels (`orbit.io/role`, `istio-injection`, `spiffe.io/spire-managed`) a co-tenant operator must not set on its own namespaces, so the boundary is legible without reading Orbit's Go/chart source.
 4. **Verify live that this coexistence actually holds**: Orbit's own workloads stay healthy and `vcluster-mcp`'s workloads never pick up an Orbit-managed sidecar, identity, or policy, across multiple fresh provisions on a shared cluster.
-5. **Confirm no Orbit-side CRD, controller, chart, or identity extension is needed for dev environments** — that decision (`7a758b2`) stands; this PRD's job is coexistence, not orchestration.
 
 ### Success Metrics
 
-- Every cluster-scoped Orbit surface named in § Requirements (mesh injection, `ClusterSPIFFEID`, admission webhook, network policy, ingress `ext_authz`) is confirmed, by inspection and by a live run, to be scoped to namespaces Orbit itself manages — never cluster-wide.
-- A live run with `vcluster-mcp`'s operator and at least one provisioned vcluster running concurrently with Orbit's own platform install on one host cluster shows zero Orbit-managed sidecars, SPIFFE identities, or policies attached to any `vcluster-mcp`-owned namespace or pod, across three consecutive fresh provisions.
-- Orbit's own workloads show no restarts, no degraded health, and no policy denials attributable to `vcluster-mcp`'s presence on the same cluster, across that same run.
-- The reserved-label contract is written down in this repo (this PRD plus chart comments), not only inferable from reading `clusterSpiffeIDs.yaml`, `webhook.yaml`, and `netpols.yaml` directly.
+- Every cluster-scoped Orbit surface named in § Requirements (mesh injection, `ClusterSPIFFEID`, admission webhook, network policy, ingress `ext_authz`) is confirmed, by inspection and by a live run, to be scoped to namespaces Orbit itself manages.
+- A live run with `vcluster-mcp`'s operator and at least one provisioned vcluster running concurrently with Orbit's own platform install shows zero Orbit-managed sidecars, SPIFFE identities, or policies attached to any `vcluster-mcp`-owned namespace or pod, across three consecutive fresh provisions.
+- Orbit's own workloads show no restarts, degraded health, or policy denials attributable to `vcluster-mcp`'s presence, across that same run.
+- The reserved-label contract is written down in this repo, not only inferable from reading `clusterSpiffeIDs.yaml`, `webhook.yaml`, and `netpols.yaml` directly.
 
 ### Non-Goals
 
-- **No Orbit software runs inside a provisioned vcluster.** That design is superseded (see banner) and is not being revived by this revision.
-- **No shared ingress gateway between Orbit and `vcluster-mcp`.** `vcluster-mcp` now runs its own dedicated gateway; Orbit's obligation is only to not need to be asked for one.
-- **No SPIFFE identity, OPA grant, or Orbit tenant/system-component status for `vcluster-mcp`'s operator, MCP server, or the vclusters it creates.** It authenticates and authorizes itself independently (Passport OAuth, per its own architecture) and must not need anything from Orbit's identity model to operate.
-- **No change to Orbit's SPIRE-enabled, mesh-enabled behavior for its own tenants and system components.** This is entirely about confirming Orbit's existing boundary holds against a co-tenant, not changing how Orbit governs its own workloads.
-- **Not `vcluster-mcp`'s own CRD, reconciler, sleep/wake, kubeconfig brokering, or MCP tool surface** — entirely that repo's, per the decision already made and already implemented (commit `7a758b2` removed Orbit's own prior attempt at owning this).
-- **Not capacity planning or a quota/scheduling handshake between the two systems.** Both consuming the same node pool's finite compute is a real operational fact, not something either side's code needs to negotiate with the other about today (see § Risks). Flagged, not solved, here.
+- **Onboarding `vcluster-mcp` as an Orbit tenant, system component, or agent, or issuing it any SPIFFE identity or OPA grant.** It authenticates and authorizes itself independently (Passport OAuth, per its own architecture) and needs nothing from Orbit's identity or policy model.
+- **Any dev-environment provisioning orchestration, CRD, or controller in Orbit.** That belongs entirely to `vcluster-mcp`, per the decision already made and already implemented (commit `7a758b2`).
+- **A shared ingress gateway between Orbit and `vcluster-mcp`.** `vcluster-mcp` runs its own dedicated gateway.
+- **Capacity/quota coordination between the two systems' resource consumption on the shared node pool.** Both consuming the same node pool's finite compute is a real operational fact, tracked as a risk (§ Risks), not something this PRD's code needs to negotiate.
 
 ---
 
@@ -98,16 +90,16 @@
 
 ### High-Level Approach
 
-Treat "a second, independent operator and its workloads can safely share this cluster with Orbit" as an explicit, audited, and live-verified property — not an assumption resting on today's label choices happening to be namespace-scoped. Concretely: audit each of Orbit's cluster-scoped surfaces to confirm it only ever matches namespaces/pods Orbit itself creates and labels; write down the reserved labels a co-tenant must avoid; and run a live coexistence check with `vcluster-mcp`'s operator and a provisioned vcluster active alongside Orbit's own platform install. If the audit or the live run finds a surface that isn't actually scoped the way it looks (the kind of gap `vcluster-mcp` already found once, in the ingress `ext_authz` case, before fixing it entirely on its own side), fixing that gap in this repo is in scope; otherwise this work produces documentation and a verification gate, not new code.
+Audit each of Orbit's cluster-scoped surfaces to confirm it only ever matches namespaces/pods Orbit itself creates and labels; document the reserved labels a co-tenant must avoid; and run a live coexistence check with `vcluster-mcp`'s operator and a provisioned vcluster active alongside Orbit's own platform install. If the audit or the live run finds a surface that isn't actually scoped the way it looks, fix that specific surface; otherwise this work delivers documentation and a verification gate, not new code.
 
 ### Key Components
 
-- **Mesh injection.** Istio sidecar injection stays namespace-opt-in via `istio-injection: enabled`, set only on namespaces Orbit's own chart creates (`charts/orbit-platform/templates/namespaces.yaml`) — never a cluster-wide `discoverySelectors`/injection default that would sweep in a co-tenant's namespaces.
-- **SPIRE identity issuance.** The `ClusterSPIFFEID` templates in `charts/orbit-platform/templates/clusterSpiffeIDs.yaml` (`istio-gateway`, `istio-sidecar`, `orbit-system-component`, `orbit-tenant-service`, `orbit-tenant-agent`, `orbit-tenant-sandbox`) each key on `orbit.io/role` and/or a fixed system-namespace name — confirmed to never match a namespace Orbit didn't itself label.
-- **Admission control.** `orbit-operator`'s `aaa-orbit-agent-pod-mutator` `MutatingWebhookConfiguration` (`charts/orbit-operator/templates/webhook.yaml`) stays `namespaceSelector`-scoped to `orbit.io/role: tenant` — confirmed it can't fire on a co-tenant's pod creates.
-- **Network policy.** Orbit's `NetworkPolicy` set (`charts/orbit-platform/templates/netpols.yaml`) stays scoped inside `orbit-system`; nothing cluster-wide-default-deny that could catch a co-tenant's namespace.
-- **Ingress `ext_authz`.** Orbit's OPA `ext_authz` `EnvoyFilter` stays `workloadSelector`-scoped to Orbit's own gateway workload — a regression guard, not new work, since `vcluster-mcp` already worked around a version of this exact class of bug by not sharing that workload at all.
-- **Reserved-label contract.** `orbit.io/role`, `istio-injection`, and `spiffe.io/spire-managed` are Orbit-owned namespace labels; documented here as reserved so a co-tenant operator (`vcluster-mcp` or any future one) knows not to set them on its own namespaces.
+- **Mesh injection.** Istio sidecar injection stays namespace-opt-in via `istio-injection: enabled`, set only on namespaces Orbit's own chart creates (`charts/orbit-platform/templates/namespaces.yaml`) — never a cluster-wide default that would sweep in a co-tenant's namespaces.
+- **SPIRE identity issuance.** The `ClusterSPIFFEID` templates in `charts/orbit-platform/templates/clusterSpiffeIDs.yaml` (`istio-gateway`, `istio-sidecar`, `orbit-system-component`, `orbit-tenant-service`, `orbit-tenant-agent`, `orbit-tenant-sandbox`) each key on `orbit.io/role` and/or a fixed system-namespace name, and never match a namespace Orbit didn't itself label.
+- **Admission control.** `orbit-operator`'s `aaa-orbit-agent-pod-mutator` `MutatingWebhookConfiguration` (`charts/orbit-operator/templates/webhook.yaml`) stays `namespaceSelector`-scoped to `orbit.io/role: tenant`.
+- **Network policy.** Orbit's `NetworkPolicy` set (`charts/orbit-platform/templates/netpols.yaml`) stays scoped inside `orbit-system`.
+- **Ingress `ext_authz`.** Orbit's OPA `ext_authz` `EnvoyFilter` stays `workloadSelector`-scoped to Orbit's own gateway workload.
+- **Reserved-label contract.** `orbit.io/role`, `istio-injection`, and `spiffe.io/spire-managed` are Orbit-owned namespace labels, documented as reserved so a co-tenant operator (`vcluster-mcp` or any future one) knows not to set them on its own namespaces.
 
 ---
 
@@ -118,12 +110,11 @@ Treat "a second, independent operator and its workloads can safely share this cl
 - Auditing each cluster-scoped Orbit surface named above to confirm namespace-scoping holds as designed
 - Documenting the reserved-label contract in this repo
 - A live coexistence verification gate: `vcluster-mcp`'s operator plus a provisioned vcluster running concurrently with Orbit's own platform install on one host cluster, three consecutive fresh provisions, zero cross-interference either direction
-- Fixing any gap the audit or live run finds in the surfaces above (expected to be none, based on the audit already done for this revision — see § Dependencies)
+- Fixing any gap the audit or live run finds in the surfaces above
 
 ### Out of Scope
 
 - Any dev-environment provisioning orchestration, CRD, or controller in Orbit
-- Any Orbit software, chart, or identity inside a provisioned vcluster
 - A shared ingress gateway between Orbit and `vcluster-mcp`
 - Any identity, authentication, or authorization relationship between Orbit and `vcluster-mcp`'s operator or MCP server
 - Capacity/quota coordination between the two systems' resource consumption on the shared node pool
@@ -131,7 +122,7 @@ Treat "a second, independent operator and its workloads can safely share this cl
 
 ### Future Considerations
 
-- If shared-node-pool resource contention between Orbit and `vcluster-mcp`-provisioned vclusters becomes a real operational problem, a capacity/quota policy may need to be documented (which side reserves what) — not designed here, since there's no evidence yet that it's needed.
+- If shared-node-pool resource contention between Orbit and `vcluster-mcp`-provisioned vclusters becomes a real operational problem, a capacity/quota policy may need to be documented (which side reserves what).
 - An automated, low-cost assertion (short of a full live cluster) that a given namespace label/selector stays scoped the way this PRD documents, so a future Orbit change that widens one is caught in `make check` rather than only by a live co-tenant failing.
 
 ---
@@ -179,13 +170,13 @@ Treat "a second, independent operator and its workloads can safely share this cl
 
 ### Internal Dependencies
 
-- `charts/orbit-platform/templates/namespaces.yaml`, `clusterSpiffeIDs.yaml`, `netpols.yaml` — the mesh-injection, SPIRE-identity, and network-policy scoping already audited for this revision
-- `charts/orbit-operator/templates/webhook.yaml` — the admission-webhook scoping already audited for this revision
-- `charts/orbit/templates/opa-gateway/envoyfilter.yaml` — the ingress `ext_authz` scoping, already the site of the one interference bug `vcluster-mcp` found and fixed on its own side
+- `charts/orbit-platform/templates/namespaces.yaml`, `clusterSpiffeIDs.yaml`, `netpols.yaml` — the mesh-injection, SPIRE-identity, and network-policy scoping this PRD audits
+- `charts/orbit-operator/templates/webhook.yaml` — the admission-webhook scoping this PRD audits
+- `charts/orbit/templates/opa-gateway/envoyfilter.yaml` — the ingress `ext_authz` scoping this PRD audits, and the one surface that has already caused a real denial for a shared-workload scenario
 
 ### External Dependencies
 
-- **[`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp)** — the sole co-tenant this contract is verified against today. Its [PR #5](https://github.com/clear-route/vcluster-mcp/pull/5) (vanilla-vcluster/dedicated-ingress design) is the reference point for its current architecture; its own architecture decisions (CRD, auth model, dedicated ingress gateway) are inputs here, not renegotiated.
+- **[`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp)** — the co-tenant this contract is verified against. Its own dedicated ingress gateway and independent auth model (Passport OAuth) are inputs here, not renegotiated.
 - **A shared host cluster** running both Orbit's own platform install and `vcluster-mcp`'s operator (Orbit's own staging cluster or local dev stack) — the environment this coexistence contract targets.
 
 ---
@@ -196,7 +187,7 @@ Treat "a second, independent operator and its workloads can safely share this cl
 |------|--------|-------------|------------|
 | A future Orbit change widens one of the C-row selectors from namespace-scoped to effectively cluster-wide, with nothing catching it before a live co-tenant fails | Medium | Medium | Name the surfaces explicitly in this document (§ Requirements) so a PR touching one of them is reviewed against this contract; consider the P2 automated assertion if this recurs |
 | Shared node-pool resource contention between Orbit and `vcluster-mcp`-provisioned vclusters degrades either side's performance | Medium | Medium | Out of scope for code changes today (see Non-Goals); revisit as a Future Consideration if it becomes a real operational problem |
-| `vcluster-mcp`'s own design keeps moving (five PRs merged in three days as of this revision) — this contract could target a design already superseded again | Low | Medium | Pin this work to `vcluster-mcp` PR #5 as the reference point; treat any further design change there as a follow-up, not silent scope creep here |
+| `vcluster-mcp`'s own architecture continues to evolve, and this contract's assumptions about its ingress/auth model could drift out of date | Low | Medium | Confirm `vcluster-mcp`'s current architecture before running the live verification gate; treat any material change there as a follow-up, not silent scope creep here |
 
 ---
 
@@ -204,22 +195,22 @@ Treat "a second, independent operator and its workloads can safely share this cl
 
 ### Alternative 1: A dedicated second cluster for dev environments, avoiding the coexistence question entirely
 
-**Why not chosen:** Duplicates infrastructure that `vcluster-mcp`'s own architecture already avoids by targeting Orbit's shared host cluster (per its own ADR). The coexistence boundary this PRD documents already holds today by design (namespace-scoped, opt-in selectors); paying for a second cluster to avoid verifying that is disproportionate.
+**Why not chosen:** Duplicates infrastructure. The coexistence boundary this PRD documents already holds today by design (namespace-scoped, opt-in selectors); paying for a second cluster to avoid verifying that is disproportionate.
 
 ### Alternative 2: Orbit onboards `vcluster-mcp` as a system component or tenant, with its own SPIFFE identity and OPA grants
 
-**Why not chosen:** `vcluster-mcp` already has its own independent authentication (Passport OAuth) and doesn't call into Orbit's identity or policy model at all. Giving it Orbit-issued identity would be unnecessary coupling in the direction this PRD's Non-Goals explicitly reject — it needs Orbit to leave it alone, not to recognize it.
+**Why not chosen:** `vcluster-mcp` already has its own independent authentication and doesn't call into Orbit's identity or policy model at all. Giving it Orbit-issued identity would be unnecessary coupling — it needs Orbit to leave it alone, not to recognize it.
 
-### Alternative 3: Move dev-environment orchestration back into Orbit, so one team/repo owns the whole thing
+### Alternative 3: Move dev-environment orchestration into Orbit, so one team/repo owns the whole thing
 
-**Why not chosen:** Already decided against, and already implemented — `7a758b2` removed Orbit's prior attempt at exactly this. `vcluster-mcp`'s own ADR gives a specific, still-valid reason (no Orbit source-code dependency for an Orbit-independent provisioning control plane). Not reopened here.
+**Why not chosen:** Already decided against, and already implemented — commit `7a758b2` removed Orbit's prior attempt at exactly this, in favor of an Orbit-independent provisioning control plane with no dependency on Orbit's source. Not reopened here.
 
 ---
 
 ## Open Questions
 
 1. **Is namespace-label opt-in alone sufficient, or does Orbit's istiod need explicit `discoverySelectors` excluding non-Orbit namespaces** for control-plane scale/resource reasons even though injection itself is already opt-in?
-   - **Status:** Open — resolve via the audit/live run before writing a follow-up ADR, only if a gap is actually found
+   - **Status:** Open — resolve via the audit/live run, only if a gap is actually found
    - **Owner:** Francis Holt
 
 2. **Should the reserved-label contract (C-6) be enforced** (e.g., Orbit's operator logs or rejects if it observes `orbit.io/role: tenant` on a namespace it didn't create) **or stay documentation-only?**
@@ -236,9 +227,7 @@ Treat "a second, independent operator and its workloads can safely share this cl
 
 ### Related Documents
 
-- [`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp)'s own architecture ADR and PRD, and its [PR #5](https://github.com/clear-route/vcluster-mcp/pull/5) — the external consumer's current design (vanilla vclusters, dedicated ingress gateway, no in-vcluster Orbit payload) this revision is scoped against
-- The prior, superseded, much larger version of this PRD (in this file's own history) and its companion ADR ([2026-08-04-devenv-mode-platform-support](../adr/2026-08-04-devenv-mode-platform-support.md)) — covered installing a full Orbit replica inside every dev environment, a design `vcluster-mcp` has since dropped entirely
-- The closed, superseded PR #113 (`feat/vcluster-design`) — Orbit's own earlier, in-repo attempt at dev-environment orchestration, since removed (`7a758b2`)
+- [`vcluster-mcp`](https://github.com/clear-route/vcluster-mcp) — the co-tenant this contract is verified against; see its own docs for its ingress and auth architecture
 
 ### Glossary
 
