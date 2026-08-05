@@ -95,11 +95,23 @@ func TestCheckDelegationBinding(t *testing.T) {
 			wantReason: "",
 		},
 		{
-			name:       "delegation without run_id (forwards compat) — no run binding",
+			// A token bound to no run at all is refused wherever it is presented.
+			// Every minted delegation carries run_id, so an absent claim is a
+			// malformed token — not a licence to skip the binding check.
+			name:       "delegation without run_id — unbound, refused",
 			claims:     bindingAgentClaims(agent, "run-b"),
 			delegation: &DelegationClaims{Sub: "user-1", ActSub: agent},
 			runID:      "run-c",
-			wantReason: "",
+			wantReason: ReasonDelegationRunUnbound,
+		},
+		{
+			// Even where no run identity is independently known, an unbound
+			// token is refused: the two conditions are different, and only the
+			// "not checkable" case defers to policy.
+			name:       "delegation without run_id and no run identity anywhere — still refused",
+			claims:     bindingAgentClaims(agent, ""),
+			delegation: &DelegationClaims{Sub: "user-1", ActSub: agent},
+			wantReason: ReasonDelegationRunUnbound,
 		},
 	}
 

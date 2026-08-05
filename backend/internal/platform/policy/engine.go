@@ -269,6 +269,11 @@ const (
 	// or the stripped /run/{run_id} path prefix). A token lifted from one run
 	// is useless anywhere run identity is independently known.
 	ReasonDelegationRunMismatch = "deny:delegation_run_mismatch"
+	// ReasonDelegationRunUnbound — the delegation carries no run_id claim, so it
+	// is bound to no run at all. Every delegation the identity service mints
+	// carries one (required at mint; NOT NULL on the issuance row), so an absent
+	// claim means a malformed token and is refused rather than waved through.
+	ReasonDelegationRunUnbound = "deny:delegation_run_unbound"
 )
 
 // checkDelegationBinding rejects a delegation token presented outside the run
@@ -282,8 +287,11 @@ func checkDelegationBinding(input CheckInput) string {
 	if d.ActSub != "" && d.ActSub != input.Claims.Subject {
 		return ReasonDelegationActSubMismatch
 	}
+	// An unbound delegation is refused outright. Returning "" here would have
+	// skipped both binding checks below and let a run-less token be presented
+	// against any run — the Layer-2 twin of the rego undefined-comparison bypass.
 	if d.RunID == "" {
-		return ""
+		return ReasonDelegationRunUnbound
 	}
 	// Sandbox mode: the platform token carries the per-run SVID's run_id claim.
 	if tokenRunID := input.Claims.Orbit.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
