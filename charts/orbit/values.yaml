@@ -333,6 +333,23 @@ agents:
     logFormat: "json"
     sessionManagerPostgresSSLMode: "require"
 
+  # Restricts each agent pod's session-manager API (port 8090) to the
+  # orbit-agents SPIFFE principal at the mesh layer. That API can start,
+  # message, interrupt, and kill any run on the pod, and orbit-agents is its
+  # only caller, so mesh-wide reachability is a far larger surface than the
+  # feature needs.
+  #
+  # Unlike the other services here the policy is not a chart template: agent
+  # StatefulSets are created imperatively per agent type, in tenant namespaces,
+  # by orbit-agents (internal/agents/k8s.go), so the policy is created and
+  # deleted alongside them. This flag reaches that code as
+  # ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED.
+  #
+  # Applied only when platform.spiffe.enabled: without attested identities no
+  # source matches the rule and every session call is denied.
+  authorizationPolicy:
+    enabled: true
+
   existingSecret: "orbit-secrets"
   existingConfigMap: "orbit-config"
 

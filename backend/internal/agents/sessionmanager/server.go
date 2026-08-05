@@ -3,7 +3,9 @@ package sessionmanager
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ControllerConfig holds defaults that the controller applies to new sessions.
@@ -53,24 +56,146 @@ type ControllerConfig struct {
 // Controller implements the session-manager's internal HTTP API.
 // orbit-agents calls this API to create sessions, send messages, and
 // terminate runs. It is NOT exposed to external traffic.
+// expectedCaller is the SYSTEM principal permitted to drive sessions. Only
+// orbit-agents calls this API (internal/platform/clients/sessionmanager), so
+// this is a constant rather than configuration: there is no deployment in which
+// a different component should be able to start, message or kill a run, and a
+// config key for it would only be a way to widen that by accident.
+const expectedCaller = "orbit-agents"
+
 type Controller struct {
-	logger   logging.Logger
-	cfg      ControllerConfig
+	logger logging.Logger
+	cfg    ControllerConfig
+	// verifier validates the platform token on every session route. Always set:
+	// there is no unauthenticated mode.
+	verifier *token.Verifier
 	registry *Registry
 }
 
 // NewController creates a session-manager HTTP controller.
-func NewController(logger logging.Logger, cfg ControllerConfig, registry *Registry) *Controller {
+//
+// verifier is required. Authentication is not optional and has no off switch:
+// local development runs in Kubernetes with a real identity service
+// (docs/adr/2026-07-10-kubernetes-only-local-development.md), so there is no
+// configuration in which this API should answer an unauthenticated caller.
+func NewController(logger logging.Logger, cfg ControllerConfig, registry *Registry, verifier *token.Verifier) *Controller {
 	return &Controller{
 		logger:   logger,
 		cfg:      cfg,
+		verifier: verifier,
 		registry: registry,
 	}
 }
 
 func (c *Controller) GroupedBy() string { return "" }
 
-func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
+// Middleware authenticates the session-control API.
+//
+// Three route classes, three postures:
+//
+//   - GET /health is open. The StatefulSet's readiness probe hits it
+//     (internal/agents/k8s.go ensureStatefulSet) and the kubelet has no
+//     platform token to present. It exposes liveness and a session count only.
+//
+//   - /internal/* is open at the application layer but restricted to the pod's
+//     own loopback interface. Its only callers are orbit-runtime-mcp and
+//     orbit-shell, which are child processes of the Claude subprocess inside
+//     THIS container calling http://localhost:8090. They hold no platform
+//     token and cannot obtain one: the call never leaves the pod, so the
+//     identity-proxy ext_proc sidecar never sees it, and there is no inbound
+//     request to forward a bearer from. Loopback is therefore the only
+//     identity signal available. Off-pod traffic arrives through the Envoy
+//     inbound listener with a non-loopback source (Istio uses 127.0.0.6 for
+//     inbound passthrough, deliberately not matched here) and is rejected;
+//     the mesh AuthorizationPolicy rejects it a layer earlier.
+//
+//   - Everything else — the session-control surface that can start, message,
+//     interrupt, and kill any run — requires a valid platform token AND that
+//     the token belongs to orbit-agents, the sole intended caller.
+//
+// There is no unauthenticated mode. The token check and the caller check are
+// one decision, not two switches: requireExpectedCaller reads the identity the
+// token check establishes, so it can never run without it.
+func (c *Controller) Middleware() mw.MiddlewareHandler {
+	return func(next http.Handler) http.Handler {
+		authed := mw.MiddlewareChain(
+			mw.AuthMiddleware(c.verifier, c.logger),
+			mw.NewMiddleware(c.requireExpectedCaller),
+		)(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/health":
+				next.ServeHTTP(w, r)
+			case strings.HasPrefix(r.URL.Path, "/internal/"):
+				if !isLoopbackRequest(r) {
+					ctx := r.Context()
+					c.logger.Warn(ctx, "Rejected non-loopback call to session-manager internal route",
+						logging.Field{Key: "path", Value: r.URL.Path},
+						logging.Field{Key: "remote_addr", Value: r.RemoteAddr},
+					)
+					apiErr := api.ForbiddenError(api.ErrCodeForbidden, "internal routes are reachable only from within the agent pod", nil)
+					api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+					return
+				}
+				next.ServeHTTP(w, r)
+			default:
+				authed.ServeHTTP(w, r)
+			}
+		})
+	}
+}
+
+// requireExpectedCaller rejects any authenticated principal that is not the
+// orbit-agents control plane.
+//
+// AuthMiddleware alone is not enough. Every in-mesh component can obtain a
+// platform token, and the platform-wide convention is that a SYSTEM principal
+// is unrestricted by scope enforcement
+// (internal/platform/middleware/scope_enforce.go). Without a caller check, any
+// component's token would unlock every session route on every agent pod in
+// every tenant. The same reasoning drives the orbit-triggers
+// AuthorizationPolicy (charts/orbit/templates/triggers/authorizationpolicy.yaml).
+func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		claims, ok := token.ClaimsFromContext(ctx)
+		if !ok || claims.Orbit.PrincipalType != token.PrincipalTypeSystem || claims.Orbit.DisplayName != expectedCaller {
+			principalType, displayName := "", ""
+			if claims != nil {
+				principalType, displayName = string(claims.Orbit.PrincipalType), claims.Orbit.DisplayName
+			}
+			c.logger.Warn(ctx, "Rejected session-manager call from unexpected principal",
+				logging.Field{Key: "path", Value: r.URL.Path},
+				logging.Field{Key: "principal_type", Value: principalType},
+				logging.Field{Key: "display_name", Value: displayName},
+			)
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, "session-manager accepts requests only from the orbit-agents control plane", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLoopbackRequest reports whether the request originated on this pod's
+// loopback interface.
+//
+// Only 127.0.0.1 and ::1 count. Istio's inbound passthrough sources requests
+// from 127.0.0.6, which IS a loopback address by net.IP.IsLoopback but means
+// "arrived from off-pod through Envoy" — exactly the traffic these routes must
+// refuse — so the check is an explicit match, not IsLoopback.
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	return addr == netip.MustParseAddr("127.0.0.1") || addr == netip.MustParseAddr("::1")
+}
 
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
@@ -44,6 +45,17 @@ var destinationRuleGVR = schema.GroupVersionResource{
 	Resource: "destinationrules",
 }
 
+// sessionManagerPort is the port each agent pod's session-manager listens on.
+// Must match cmd/session-manager/config/base.yaml server.port and the podPort
+// in internal/platform/clients/sessionmanager.
+const sessionManagerPort = 8090
+
+var authorizationPolicyGVR = schema.GroupVersionResource{
+	Group:    "security.istio.io",
+	Version:  "v1beta1",
+	Resource: "authorizationpolicies",
+}
+
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
@@ -68,6 +80,12 @@ type K8sProvisionerConfig struct {
 	// ORBIT_MANIFEST__<Kind>__<name>__<path>=<value> env vars.
 	// Applied to each provisioned resource after the default manifest is built.
 	ManifestOverrides ManifestOverrides
+	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
+	// each agent StatefulSet restricting its session-manager port to the
+	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
+	// no source matches the rule and every call is denied, so the chart gates
+	// this on platform.spiffe.enabled (charts/orbit/templates/agents/deployment.yaml).
+	AuthorizationPolicyEnabled bool
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -172,6 +190,11 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 		span.SetStatus(codes.Error, "ensure destination rule")
 		return err
 	}
+	if err := p.ensureAuthorizationPolicy(ctx, at, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure authorization policy")
+		return err
+	}
 	return nil
 }
 
@@ -211,6 +234,9 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		},
 		func() error {
 			return p.deleteDestinationRule(ctx, at.Slug)
+		},
+		func() error {
+			return p.deleteAuthorizationPolicy(ctx, at.Slug, namespace)
 		},
 	}
 
@@ -1138,7 +1164,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 							Image:           p.cfg.SessionManagerImage,
 							ImagePullPolicy: corev1.PullAlways,
 							Ports: []corev1.ContainerPort{
-								{Name: "http", ContainerPort: 8090, Protocol: corev1.ProtocolTCP},
+								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
 							},
 							EnvFrom: []corev1.EnvFromSource{
 								{
@@ -1244,7 +1270,7 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 			ClusterIP: "None",
 			Selector:  labels,
 			Ports: []corev1.ServicePort{
-				{Name: "http", Port: 8090, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP},
+				{Name: "http", Port: sessionManagerPort, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP},
 			},
 		},
 	}
@@ -1352,7 +1378,7 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 					"portLevelSettings": []any{
 						map[string]any{
 							"port": map[string]any{
-								"number": int64(8090),
+								"number": int64(sessionManagerPort),
 							},
 							"tls": map[string]any{
 								"mode":            "ISTIO_MUTUAL",
@@ -1368,6 +1394,104 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 		Namespace(p.cfg.SystemNamespace).
 		Create(ctx, dr, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
+}
+
+// agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
+// agent StatefulSet.
+func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug + "-callers" }
+
+// ensureAuthorizationPolicy restricts who may reach an agent pod's
+// session-manager through the mesh.
+//
+// The session-manager API can start, message, interrupt, and kill any run on
+// the pod, and its only legitimate caller is orbit-agents
+// (internal/platform/clients/sessionmanager). The application now authenticates
+// that caller, but the mesh is the cheaper place to say it: the check runs in
+// the sidecar, before the request is ever seen by the application, and it holds
+// even if the application's own check regresses.
+//
+// It lives in the TENANT namespace, not orbit-system, because that is where the
+// agent pods run and an AuthorizationPolicy selects workloads in its own
+// namespace. The DestinationRule above is the mirror image — it configures the
+// CLIENT side (orbit-agents' outbound mTLS expectations) so it belongs in
+// orbit-system. Neither can be templated in a chart: the StatefulSet these
+// govern is created imperatively, per agent type, at provision time, so its
+// policy is created the same way and torn down with it.
+//
+// ALLOW, not DENY. A DENY listing the callers to exclude is a list that has to
+// be kept complete forever; an ALLOW listing the callers that exist fails
+// closed when something new appears, which is the direction this should fail in.
+//
+// The second rule keeps GET /health reachable from any source. The kubelet's
+// readiness probe carries no SPIFFE identity, and while Istio's probe rewrite
+// normally routes it via pilot-agent on 15020 (outside Envoy's RBAC listener),
+// making readiness depend on that rewrite staying enabled would trade a
+// security fix for an outage. /health returns liveness and a session count.
+//
+// NOTE: Istio prepends "spiffe://" when translating an AuthorizationPolicy to
+// Envoy RBAC. Principals are written WITHOUT the prefix — writing it produces
+// "spiffe://spiffe://..." in the generated rule and never matches.
+func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string) error {
+	if !p.cfg.AuthorizationPolicyEnabled {
+		return nil
+	}
+	ap := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "security.istio.io/v1beta1",
+			"kind":       "AuthorizationPolicy",
+			"metadata": map[string]any{
+				"name":      agentAuthorizationPolicyName(at.Slug),
+				"namespace": namespace,
+			},
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{"app": at.Slug},
+				},
+				"action": "ALLOW",
+				"rules": []any{
+					map[string]any{
+						"from": []any{
+							map[string]any{
+								"source": map[string]any{
+									"principals": []any{
+										fmt.Sprintf("%s/system/orbit-agents", p.cfg.TrustDomain),
+									},
+								},
+							},
+						},
+						"to": []any{
+							map[string]any{
+								"operation": map[string]any{
+									"ports": []any{strconv.Itoa(sessionManagerPort)},
+								},
+							},
+						},
+					},
+					map[string]any{
+						"to": []any{
+							map[string]any{
+								"operation": map[string]any{
+									"methods": []any{"GET"},
+									"paths":   []any{"/health"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := p.dynamicClient.Resource(authorizationPolicyGVR).
+		Namespace(namespace).
+		Create(ctx, ap, metav1.CreateOptions{})
+	return ignoreAlreadyExists(err)
+}
+
+func (p *K8sProvisioner) deleteAuthorizationPolicy(ctx context.Context, slug, namespace string) error {
+	err := p.dynamicClient.Resource(authorizationPolicyGVR).
+		Namespace(namespace).
+		Delete(ctx, agentAuthorizationPolicyName(slug), metav1.DeleteOptions{})
+	return ignoreNotFound(err)
 }
 
 func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug string) error {
