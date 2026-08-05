@@ -58,9 +58,9 @@ type Client struct {
 // NewClient creates a Client. The returned client is safe for concurrent use
 // and should be shared across calls — one Client per orbit-agents process.
 //
-// tokenFunc authenticates every session-control call. A nil tokenFunc sends no
-// Authorization header, which an authenticating session-manager rejects; it is
-// only useful for local dev against a session-manager with auth disabled.
+// tokenFunc authenticates every session-control call and is required. The
+// session-manager authenticates unconditionally, so a client without a token
+// source could only ever produce 401s.
 func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 	return &Client{
 		Base:      httpclient.New(tracerName, logger, clientTimeout),
@@ -70,9 +70,6 @@ func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 
 // authorize attaches the caller's platform token to the outbound request.
 func (c *Client) authorize(ctx context.Context, req *http.Request) error {
-	if c.tokenFunc == nil {
-		return nil
-	}
 	tok, err := c.tokenFunc(ctx)
 	if err != nil {
 		return fmt.Errorf("obtain platform token for session-manager call: %w", err)

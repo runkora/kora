@@ -92,20 +92,6 @@ type Config struct {
 		URL string `yaml:"url"`
 	} `yaml:"toolGateway"`
 
-	Auth struct {
-		// Enabled turns on platform-token authentication for the session
-		// routes. True everywhere in-cluster. Set false only to run the
-		// binary bare outside a cluster, where no JWKS endpoint exists.
-		Enabled bool `yaml:"enabled"`
-
-		// ExpectedCaller is the SYSTEM principal display name permitted to
-		// drive sessions. Only orbit-agents calls this API
-		// (internal/platform/clients/sessionmanager). Empty accepts any
-		// authenticated principal, which a SYSTEM token from any in-mesh
-		// component would satisfy — do not leave it empty in a cluster.
-		ExpectedCaller string `yaml:"expectedCaller"`
-	} `yaml:"auth"`
-
 	Session struct {
 		// IdleTimeoutSecs is how long a session may be idle (no message_stop
 		// followed by a new message) before it is automatically closed.

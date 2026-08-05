@@ -56,33 +56,34 @@ type ControllerConfig struct {
 // Controller implements the session-manager's internal HTTP API.
 // orbit-agents calls this API to create sessions, send messages, and
 // terminate runs. It is NOT exposed to external traffic.
+// expectedCaller is the SYSTEM principal permitted to drive sessions. Only
+// orbit-agents calls this API (internal/platform/clients/sessionmanager), so
+// this is a constant rather than configuration: there is no deployment in which
+// a different component should be able to start, message or kill a run, and a
+// config key for it would only be a way to widen that by accident.
+const expectedCaller = "orbit-agents"
+
 type Controller struct {
 	logger logging.Logger
 	cfg    ControllerConfig
-	// verifier validates the platform token on every session route. Nil
-	// disables authentication entirely and is only valid outside a cluster
-	// (local dev against a bare binary) — see Middleware.
+	// verifier validates the platform token on every session route. Always set:
+	// there is no unauthenticated mode.
 	verifier *token.Verifier
-	// expectedCaller is the SYSTEM principal permitted to drive sessions,
-	// matched against the token's display name. Empty disables the check.
-	expectedCaller string
-	registry       *Registry
+	registry *Registry
 }
 
 // NewController creates a session-manager HTTP controller.
 //
-// verifier authenticates the session routes. Pass nil ONLY for local
-// development outside the cluster; in-cluster it is always set, and a nil
-// verifier logs a loud warning at boot (see cmd/session-manager/main.go).
-// expectedCaller is the SYSTEM principal display name allowed to drive
-// sessions — "orbit-agents" in every deployment.
-func NewController(logger logging.Logger, cfg ControllerConfig, registry *Registry, verifier *token.Verifier, expectedCaller string) *Controller {
+// verifier is required. Authentication is not optional and has no off switch:
+// local development runs in Kubernetes with a real identity service
+// (docs/adr/2026-07-10-kubernetes-only-local-development.md), so there is no
+// configuration in which this API should answer an unauthenticated caller.
+func NewController(logger logging.Logger, cfg ControllerConfig, registry *Registry, verifier *token.Verifier) *Controller {
 	return &Controller{
-		logger:         logger,
-		cfg:            cfg,
-		verifier:       verifier,
-		expectedCaller: expectedCaller,
-		registry:       registry,
+		logger:   logger,
+		cfg:      cfg,
+		verifier: verifier,
+		registry: registry,
 	}
 }
 
@@ -112,21 +113,15 @@ func (c *Controller) GroupedBy() string { return "" }
 //     interrupt, and kill any run — requires a valid platform token AND that
 //     the token belongs to orbit-agents, the sole intended caller.
 //
-// A nil verifier skips the token check and the caller check together, and that
-// coupling is deliberate. requireExpectedCaller reads the identity the token
-// check establishes, so running it without a verifier would mean deciding
-// against unverified claims, which is worse than not deciding at all. Auth here
-// is one switch rather than two, and it is off only when the binary runs
-// outside a cluster.
+// There is no unauthenticated mode. The token check and the caller check are
+// one decision, not two switches: requireExpectedCaller reads the identity the
+// token check establishes, so it can never run without it.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
-		authed := next
-		if c.verifier != nil {
-			authed = mw.MiddlewareChain(
-				mw.AuthMiddleware(c.verifier, c.logger),
-				mw.NewMiddleware(c.requireExpectedCaller),
-			)(next)
-		}
+		authed := mw.MiddlewareChain(
+			mw.AuthMiddleware(c.verifier, c.logger),
+			mw.NewMiddleware(c.requireExpectedCaller),
+		)(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case r.URL.Path == "/health":
@@ -163,12 +158,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		if c.expectedCaller == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
 		claims, ok := token.ClaimsFromContext(ctx)
-		if !ok || claims.Orbit.PrincipalType != token.PrincipalTypeSystem || claims.Orbit.DisplayName != c.expectedCaller {
+		if !ok || claims.Orbit.PrincipalType != token.PrincipalTypeSystem || claims.Orbit.DisplayName != expectedCaller {
 			principalType, displayName := "", ""
 			if claims != nil {
 				principalType, displayName = string(claims.Orbit.PrincipalType), claims.Orbit.DisplayName

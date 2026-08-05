@@ -19,12 +19,11 @@ func okHandler(reached *bool) http.Handler {
 	})
 }
 
-func newAuthController(t *testing.T, verifier *token.Verifier, expectedCaller string) *Controller {
+func newAuthController(t *testing.T, verifier *token.Verifier) *Controller {
 	t.Helper()
 	return &Controller{
-		logger:         logging.NewLoggerWithOutput(io.Discard),
-		verifier:       verifier,
-		expectedCaller: expectedCaller,
+		logger:   logging.NewLoggerWithOutput(io.Discard),
+		verifier: verifier,
 	}
 }
 
@@ -41,7 +40,7 @@ func unreachableVerifier(t *testing.T) *token.Verifier {
 func TestMiddleware_HealthIsOpen(t *testing.T) {
 	// The StatefulSet readiness probe hits /health with no token. Locking it
 	// down would leave every agent pod permanently NotReady.
-	ctrl := newAuthController(t, unreachableVerifier(t), "orbit-agents")
+	ctrl := newAuthController(t, unreachableVerifier(t))
 
 	var reached bool
 	h := ctrl.Middleware()(okHandler(&reached))
@@ -58,7 +57,7 @@ func TestMiddleware_HealthIsOpen(t *testing.T) {
 }
 
 func TestMiddleware_SessionRoutesRejectUnauthenticated(t *testing.T) {
-	ctrl := newAuthController(t, unreachableVerifier(t), "orbit-agents")
+	ctrl := newAuthController(t, unreachableVerifier(t))
 
 	paths := []struct {
 		method string
@@ -90,7 +89,7 @@ func TestMiddleware_SessionRoutesRejectUnauthenticated(t *testing.T) {
 }
 
 func TestMiddleware_InternalRoutesAreLoopbackOnly(t *testing.T) {
-	ctrl := newAuthController(t, unreachableVerifier(t), "orbit-agents")
+	ctrl := newAuthController(t, unreachableVerifier(t))
 
 	tests := []struct {
 		name       string
@@ -128,36 +127,17 @@ func TestMiddleware_InternalRoutesAreLoopbackOnly(t *testing.T) {
 	}
 }
 
-func TestMiddleware_NilVerifierLeavesRoutesOpen(t *testing.T) {
-	// Documented escape hatch for running the binary outside a cluster. It is
-	// never taken in a deployment: cmd/session-manager/config/base.yaml sets
-	// auth.enabled true and main.go warns loudly when it is false.
-	ctrl := newAuthController(t, nil, "orbit-agents")
-
-	var reached bool
-	h := ctrl.Middleware()(okHandler(&reached))
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/session", http.NoBody))
-
-	if !reached {
-		t.Fatalf("nil verifier should not authenticate; status = %d", rec.Code)
-	}
-}
-
 // ── caller authorization ──────────────────────────────────────────────────────
 
 func TestRequireExpectedCaller(t *testing.T) {
 	tests := []struct {
-		name           string
-		expectedCaller string
-		claims         *token.PlatformClaims
-		wantReach      bool
-		wantStatus     int
+		name       string
+		claims     *token.PlatformClaims
+		wantReach  bool
+		wantStatus int
 	}{
 		{
-			name:           "orbit-agents system token is accepted",
-			expectedCaller: "orbit-agents",
+			name: "orbit-agents system token is accepted",
 			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
 				PrincipalType: token.PrincipalTypeSystem,
 				DisplayName:   "orbit-agents",
@@ -168,8 +148,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 		{
 			// The whole point of the check: every in-mesh component can mint a
 			// SYSTEM token, and scope enforcement treats SYSTEM as unrestricted.
-			name:           "another system component is rejected",
-			expectedCaller: "orbit-agents",
+			name: "another system component is rejected",
 			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
 				PrincipalType: token.PrincipalTypeSystem,
 				DisplayName:   "orbit-triggers",
@@ -177,8 +156,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:           "an agent's own token is rejected",
-			expectedCaller: "orbit-agents",
+			name: "an agent's own token is rejected",
 			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
 				PrincipalType: token.PrincipalTypeAgent,
 				DisplayName:   "orbit-agents",
@@ -186,8 +164,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:           "a human token is rejected",
-			expectedCaller: "orbit-agents",
+			name: "a human token is rejected",
 			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
 				PrincipalType: token.PrincipalTypeHuman,
 				DisplayName:   "dev@orbit.local",
@@ -195,26 +172,15 @@ func TestRequireExpectedCaller(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:           "missing claims are rejected",
-			expectedCaller: "orbit-agents",
-			claims:         nil,
-			wantStatus:     http.StatusForbidden,
-		},
-		{
-			name:           "empty expected caller disables the check",
-			expectedCaller: "",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
-				PrincipalType: token.PrincipalTypeService,
-				DisplayName:   "anything",
-			}},
-			wantReach:  true,
-			wantStatus: http.StatusOK,
+			name:       "missing claims are rejected",
+			claims:     nil,
+			wantStatus: http.StatusForbidden,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctrl := newAuthController(t, nil, tc.expectedCaller)
+			ctrl := newAuthController(t, nil)
 
 			var reached bool
 			h := ctrl.requireExpectedCaller(okHandler(&reached))

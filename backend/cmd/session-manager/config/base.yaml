@@ -58,9 +58,5 @@ toolGateway:
 # see internal/agents/sessionmanager/server.go Middleware. /health stays open
 # for the kubelet readiness probe, and /internal/* is loopback-only because its
 # callers are in-pod child processes that hold no token.
-auth:
-  enabled: true
-  expectedCaller: orbit-agents
-
 session:
   idleTimeoutSecs: 1200 # 20 minutes

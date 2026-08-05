@@ -104,17 +104,6 @@ func TestClient_TokenErrorFailsTheCall(t *testing.T) {
 }
 
 // A nil TokenFunc is the local-dev escape hatch and must not panic.
-func TestClient_NilTokenFuncSendsNoHeader(t *testing.T) {
-	srv, got := captureAuth(t, http.StatusCreated)
-	c := NewClient(logging.NewLoggerWithOutput(io.Discard), nil)
-
-	if err := c.CreateSession(context.Background(), srv.URL, CreateSessionRequest{RunID: "run-1"}); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	if *got != "" {
-		t.Errorf("Authorization = %q, want empty", *got)
-	}
-}
 
 func TestPodURL_TargetsTheSessionManagerPort(t *testing.T) {
 	got := PodURL("coder", 0, "orbit-tenant-acme")
