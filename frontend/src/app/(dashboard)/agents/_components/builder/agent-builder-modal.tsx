@@ -10,8 +10,6 @@ import {
   CardContent,
   Heading,
   Icon,
-  Modal,
-  ModalAccessibleTitle,
   Separator,
   Stack,
   StatusDot,
@@ -41,8 +39,17 @@ const WIZARD_STEPS = BUILDER_STEPS.map((s) => ({ id: s.key, title: s.title, sub:
 
 export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
   const builder = useAgentBuilderContext();
-  const { step, maxVisited, goTo, saveStatus, draftId, created, submitting, stepValid, createBlockers } =
-    builder;
+  const {
+    step,
+    maxVisited,
+    goTo,
+    saveStatus,
+    draftId,
+    created,
+    submitting,
+    stepValid,
+    createBlockers,
+  } = builder;
   const isLast = step === BUILDER_STEPS.length - 1;
 
   const saveIndicator =
@@ -59,48 +66,47 @@ export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
     ) : undefined;
 
   return (
-    <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
-      <ModalAccessibleTitle>New agent</ModalAccessibleTitle>
-
-      {created ? (
-        <Stack grow overflow="hidden">
-          <Wizard.Header icon="zap" title="New agent" onClose={onClose} />
-          <Separator span="full" />
-          <SuccessPanel onClose={onClose} />
-        </Stack>
-      ) : (
-        <Wizard
-          rail={
-            <Wizard.Rail
-              label="Create agent"
-              steps={WIZARD_STEPS}
-              current={step}
-              maxVisited={maxVisited}
-              onGoTo={goTo}
-              footer={<IdentityFirstInfo />}
-            />
-          }
-          footer={
-            <Wizard.Footer
-              step={step}
-              totalSteps={BUILDER_STEPS.length}
-              onBack={step > 0 ? builder.back : undefined}
-              onNext={builder.next}
-              nextDisabled={!stepValid || (isLast && createBlockers.length > 0)}
-              onSubmit={isLast ? () => void builder.submit() : undefined}
-              submitLabel="Create agent"
-              pending={submitting}
-              pendingLabel="Creating…"
-            />
-          }
-        >
-          <Wizard.Header
-            icon="zap"
-            title="New agent"
-            subtitle={draftId ?? undefined}
-            actions={saveIndicator}
-            onClose={onClose}
+    <Wizard
+      open
+      onClose={onClose}
+      icon="zap"
+      title="New agent"
+      subtitle={created ? undefined : (draftId ?? undefined)}
+      actions={created ? undefined : saveIndicator}
+      rail={
+        created ? undefined : (
+          <Wizard.Rail
+            label="Create agent"
+            steps={WIZARD_STEPS}
+            current={step}
+            maxVisited={maxVisited}
+            onGoTo={goTo}
+            footer={<IdentityFirstInfo />}
           />
+        )
+      }
+      footer={
+        created ? undefined : (
+          <Wizard.Footer
+            step={step}
+            totalSteps={BUILDER_STEPS.length}
+            onBack={step > 0 ? builder.back : undefined}
+            onNext={builder.next}
+            nextDisabled={!stepValid || (isLast && createBlockers.length > 0)}
+            onSubmit={isLast ? () => void builder.submit() : undefined}
+            submitLabel="Create agent"
+            pending={submitting}
+            pendingLabel="Creating…"
+          />
+        )
+      }
+    >
+      {created ? (
+        <Wizard.Step fullPage>
+          <SuccessPanel onClose={onClose} />
+        </Wizard.Step>
+      ) : (
+        <>
           {step === 0 && (
             <Wizard.Step>
               <StepIdentity />
@@ -126,9 +132,9 @@ export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
               <StepReview />
             </Wizard.Step>
           )}
-        </Wizard>
+        </>
       )}
-    </Modal>
+    </Wizard>
   );
 }
 

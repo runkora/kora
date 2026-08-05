@@ -3,7 +3,7 @@ export type {
   WizardProps,
   WizardRailProps,
   WizardRailStep,
-  WizardHeaderProps,
+  WizardStepProps,
   WizardFooterProps,
   WizardReviewCardProps,
 } from './wizard';

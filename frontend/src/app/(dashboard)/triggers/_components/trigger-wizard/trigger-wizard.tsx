@@ -10,9 +10,6 @@ import {
   CardContent,
   Heading,
   Icon,
-  Modal,
-  ModalAccessibleTitle,
-  Separator,
   Stack,
   Text,
   Wizard,
@@ -124,15 +121,50 @@ export function TriggerWizard({
   }, [definition, state, validation.valid, pending, isLast, step, onCreate]);
 
   const StepBody = currentStep?.Component;
+  const hasKind = definition !== null && state !== null;
 
   return (
-    <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
-      <ModalAccessibleTitle>New trigger</ModalAccessibleTitle>
-
+    <Wizard
+      open
+      onClose={onClose}
+      icon={definition?.icon ?? 'zap'}
+      title="New trigger"
+      subtitle={definition ? definition.id : undefined}
+      rail={
+        hasKind && !created ? (
+          <Wizard.Rail
+            label="New trigger"
+            steps={wizardSteps}
+            current={step}
+            maxVisited={maxVisited}
+            onGoTo={(i) => {
+              setStep(i);
+              setError(null);
+            }}
+            footer={<PolicyCheckedInfo />}
+          />
+        ) : undefined
+      }
+      footer={
+        hasKind && !created ? (
+          <Wizard.Footer
+            step={step}
+            totalSteps={steps.length}
+            onBack={handleBack}
+            backLabel={step === 0 ? 'Choose kind' : 'Back'}
+            onNext={() => void handleNext()}
+            nextDisabled={!validation.valid}
+            onSubmit={isLast ? () => void handleNext() : undefined}
+            submitLabel="Create trigger"
+            pending={pending}
+            pendingLabel="Creating…"
+            hint={!validation.valid ? validation.hint : undefined}
+          />
+        ) : undefined
+      }
+    >
       {created && definition && state ? (
-        <Stack grow overflow="hidden">
-          <Wizard.Header icon={definition.icon} title="New trigger" onClose={onClose} />
-          <Separator span="full" />
+        <Wizard.Step fullPage>
           <SuccessPanel
             definition={definition}
             state={state}
@@ -143,12 +175,10 @@ export function TriggerWizard({
             onClose={onClose}
             onCreateAnother={backToPicker}
           />
-        </Stack>
-      ) : !definition || !state ? (
+        </Wizard.Step>
+      ) : !hasKind ? (
         /* ── Phase one: choose what starts the run ─────────────────────────── */
-        <Stack grow overflow="hidden">
-          <Wizard.Header icon="zap" title="New trigger" onClose={onClose} />
-          <Separator span="full" />
+        <Wizard.Step fullPage>
           <Stack grow overflowY="auto" align="center">
             <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
               <Stack gap="snug">
@@ -161,68 +191,31 @@ export function TriggerWizard({
               <KindPicker onSelect={chooseKind} />
             </Stack>
           </Stack>
-        </Stack>
+        </Wizard.Step>
       ) : (
-        <Wizard
-          rail={
-            <Wizard.Rail
-              label="New trigger"
-              steps={wizardSteps}
-              current={step}
-              maxVisited={maxVisited}
-              onGoTo={(i) => {
-                setStep(i);
-                setError(null);
+        <Wizard.Step>
+          <Stack gap="snug">
+            <Heading variant="subsection">{currentStep?.railTitle}</Heading>
+            <Text size="supporting" color="muted">
+              {currentStep?.description}
+            </Text>
+          </Stack>
+          {StepBody && (
+            <StepBody
+              state={state}
+              patch={patch}
+              context={context}
+              definition={definition}
+              error={error}
+              onGoTo={(stepId) => {
+                const target = steps.findIndex((s) => s.id === stepId);
+                if (target >= 0 && target <= maxVisited) setStep(target);
               }}
-              footer={<PolicyCheckedInfo />}
             />
-          }
-          footer={
-            <Wizard.Footer
-              step={step}
-              totalSteps={steps.length}
-              onBack={handleBack}
-              backLabel={step === 0 ? 'Choose kind' : 'Back'}
-              onNext={() => void handleNext()}
-              nextDisabled={!validation.valid}
-              onSubmit={isLast ? () => void handleNext() : undefined}
-              submitLabel="Create trigger"
-              pending={pending}
-              pendingLabel="Creating…"
-              hint={!validation.valid ? validation.hint : undefined}
-            />
-          }
-        >
-          <Wizard.Header
-            icon={definition.icon ?? 'zap'}
-            title="New trigger"
-            subtitle={definition.id}
-            onClose={onClose}
-          />
-          <Wizard.Step>
-            <Stack gap="snug">
-              <Heading variant="subsection">{currentStep?.railTitle}</Heading>
-              <Text size="supporting" color="muted">
-                {currentStep?.description}
-              </Text>
-            </Stack>
-            {StepBody && (
-              <StepBody
-                state={state}
-                patch={patch}
-                context={context}
-                definition={definition}
-                error={error}
-                onGoTo={(stepId) => {
-                  const target = steps.findIndex((s) => s.id === stepId);
-                  if (target >= 0 && target <= maxVisited) setStep(target);
-                }}
-              />
-            )}
-          </Wizard.Step>
-        </Wizard>
+          )}
+        </Wizard.Step>
       )}
-    </Modal>
+    </Wizard>
   );
 }
 

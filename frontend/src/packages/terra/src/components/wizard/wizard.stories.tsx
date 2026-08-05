@@ -68,59 +68,73 @@ const IdentityFirstInfo = () => (
 
 export const Default: Story = {
   render: () => (
-    <div style={{ height: '600px', display: 'flex' }}>
-      <Wizard
-        rail={
-          <Wizard.Rail
-            label="Create agent"
-            steps={STEPS}
-            current={1}
-            maxVisited={2}
-            onGoTo={() => undefined}
-            footer={<IdentityFirstInfo />}
-          />
-        }
-        footer={
-          <Wizard.Footer
-            step={1}
-            totalSteps={STEPS.length}
-            onBack={() => undefined}
-            onNext={() => undefined}
-          />
-        }
-      >
-        <Wizard.Header
-          icon="zap"
-          title="New agent"
-          subtitle="draft · abc123"
-          onClose={() => undefined}
-        />
-        <Wizard.Step>
-          <Text size="supporting" color="muted">
-            Step content goes here.
-          </Text>
-        </Wizard.Step>
-      </Wizard>
-    </div>
-  ),
-};
-
-// ── Header variants ───────────────────────────────────────────────────────────
-
-export const HeaderSubtitleOnly: Story = {
-  render: () => (
-    <Wizard.Header
+    <Wizard
+      open
+      onClose={() => undefined}
       icon="zap"
       title="New agent"
       subtitle="draft · abc123"
-      onClose={() => undefined}
-    />
+      rail={
+        <Wizard.Rail
+          label="Create agent"
+          steps={STEPS}
+          current={1}
+          maxVisited={2}
+          onGoTo={() => undefined}
+          footer={<IdentityFirstInfo />}
+        />
+      }
+      footer={
+        <Wizard.Footer
+          step={1}
+          totalSteps={STEPS.length}
+          onBack={() => undefined}
+          onNext={() => undefined}
+        />
+      }
+    >
+      <Wizard.Step>
+        <Text size="supporting" color="muted">
+          Step content goes here.
+        </Text>
+      </Wizard.Step>
+    </Wizard>
   ),
 };
 
-export const HeaderWithActions: Story = {
+// ── Header variants (via Wizard props) ────────────────────────────────────────
+
+export const WithSubtitle: Story = {
   render: () => (
-    <Wizard.Header
+    <Wizard
+      open
+      onClose={() => undefined}
+      icon="zap"
+      title="New agent"
+      subtitle="draft · abc123"
+      rail={
+        <Wizard.Rail
+          label="Create agent"
+          steps={STEPS}
+          current={0}
+          maxVisited={0}
+          onGoTo={() => undefined}
+        />
+      }
+      footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
+    >
+      <Wizard.Step>
+        <Text size="supporting" color="muted">Step content.</Text>
+      </Wizard.Step>
+    </Wizard>
+  ),
+};
+
+export const WithActions: Story = {
+  render: () => (
+    <Wizard
+      open
+      onClose={() => undefined}
       icon="zap"
       title="New agent"
       subtitle="draft · abc123"
@@ -131,13 +145,47 @@ export const HeaderWithActions: Story = {
           </Text>
         </Stack>
       }
-      onClose={() => undefined}
-    />
+      rail={
+        <Wizard.Rail
+          label="Create agent"
+          steps={STEPS}
+          current={0}
+          maxVisited={0}
+          onGoTo={() => undefined}
+        />
+      }
+      footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
+    >
+      <Wizard.Step>
+        <Text size="supporting" color="muted">Step content.</Text>
+      </Wizard.Step>
+    </Wizard>
   ),
 };
 
-export const HeaderNoSubtitle: Story = {
-  render: () => <Wizard.Header icon="zap" title="New agent" onClose={() => undefined} />,
+// ── fullPage step ─────────────────────────────────────────────────────────────
+
+export const FullPageStep: Story = {
+  render: () => (
+    <Wizard open onClose={() => undefined} icon="zap" title="New agent">
+      <Wizard.Step fullPage>
+        <Stack grow align="center" justify="center" gap="comfortable" padding="loose">
+          <Icon
+            name="check-circle"
+            size="xl"
+            color="accent"
+            container
+            containerVariant="accent"
+            circle
+            label=""
+          />
+          <Text size="supporting" color="muted" align="center">
+            Full-page content — no rail or footer. Progress bar frozen.
+          </Text>
+        </Stack>
+      </Wizard.Step>
+    </Wizard>
+  ),
 };
 
 // ── Footer variants ───────────────────────────────────────────────────────────

@@ -42,11 +42,14 @@ Export `WizardRail`, `WizardStep`, and `WizardReviewCard` as independent Terra T
 
 ### Option B: A single compound component — `Wizard` (chosen)
 
-Export a single `Wizard` compound component with static sub-components: `Wizard.Header`, `Wizard.Rail`, `Wizard.Step`, `Wizard.ReviewStep`, and `Wizard.ReviewCard`. The `rail` prop on the root is typed as `React.ReactElement<WizardRailProps>`, making it a TypeScript error to omit or replace the rail with arbitrary content.
+Export a single `Wizard` compound component with static sub-components: `Wizard.Rail`, `Wizard.Step`, `Wizard.ReviewStep`, `Wizard.ReviewCard`, and `Wizard.Footer`. The `Wizard` root owns the `Modal` shell and renders the header internally from props (`open`, `onClose`, `icon`, `title`, `subtitle`, `actions`), making both the Modal boilerplate and the header private implementation details. The `rail` and `footer` props are optional to support fullPage steps that hide both. `Wizard.Step` accepts a `fullPage` prop: when active, rail and footer are hidden, the step fills the full modal body, and the progress bar displays a frozen value (last non-fullPage progress).
 
 **Pros:**
 - The names communicate intent at every use site: `<Wizard>`, `<Wizard.Rail>`, `<Wizard.ReviewCard>` — no ambiguity about what each piece is for.
 - A single import. A new wizard author reaches for one name, not three.
+- The `Modal` is no longer caller boilerplate that can be forgotten — it is owned by `Wizard`.
+- `WizardHeader` is private: it cannot be used outside `<Wizard>`, preventing the misuse pattern of placing a standalone header outside the wizard tree.
+- `Wizard.Step fullPage` brings pre-flow and post-flow screens (kind picker, success panels) inside the wizard, so header and progress bar are managed automatically for all phases.
 - The typed `rail` prop makes the structural contract machine-enforced rather than documented-but-optional.
 - Consistent with how Terra already structures compound components (`Card`/`CardHeader`/`CardContent`; `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`).
 
@@ -60,7 +63,7 @@ Export a single `Wizard` compound component with static sub-components: `Wizard.
 
 **Option B** — a single `Wizard` compound component.
 
-The compound component pattern matches Terra's existing API conventions and makes the relationship between the pieces unambiguous. The typed `rail` prop gives structural enforcement at the one boundary where omission would silently break the layout. `Wizard.Header` absorbs the shared header structure with an `actions` slot for feature-specific controls — the agent builder's save-status indicator and Save Draft button sit there; the trigger wizard passes nothing. `Wizard.Footer` absorbs the shared footer structure — Back button, step counter, Continue / Submit — with props for the variable parts: `onBack` (absent → hidden), `backLabel`, `onNext` (required), `nextDisabled`, `onSubmit` (overrides Continue with Submit on the final step), `submitLabel`, `pending` (disables both buttons), `pendingLabel`, and `hint`.
+The compound component pattern matches Terra's existing API conventions and makes the relationship between the pieces unambiguous. `Wizard` owns the `Modal size="builder"` shell and renders a private `WizardHeader` from its own `icon`, `title`, `subtitle`, and `actions` props — callers never construct a header manually. The typed `rail` prop (optional when a fullPage step is active) gives structural enforcement at the one boundary where omission would silently break the layout. `Wizard.Step` accepts a `fullPage` prop that fills the modal body with no rail or footer; the progress bar freezes at its last non-fullPage value, advancing again when a normal step is active. `Wizard.Footer` absorbs the shared footer structure — Back button, step counter, Continue / Submit — with props for the variable parts.
 
 ---
 
@@ -87,7 +90,7 @@ export interface WizardRailProps {
   label: string;
   /** Step metadata. `title`/`sub` normalise the agents `title`/`sub` and the
    *  triggers `railTitle`/`railSub` to a single consistent shape. */
-  steps: { id: string; title: string; sub: string; icon?: IconName }[];
+  steps: { id: string; title: string; sub: string }[];
   current: number;
   /** Highest step index reached; steps beyond it are disabled. */
   maxVisited: number;
@@ -96,24 +99,33 @@ export interface WizardRailProps {
   footer?: React.ReactNode;
 }
 
-export interface WizardHeaderProps {
+export interface WizardStepProps {
+  children: React.ReactNode;
+  /**
+   * When true, the step fills the full modal body with no rail or footer.
+   * Use for pre-flow (kind picker) and post-flow (success) phases.
+   * The progress bar displays a frozen value while any fullPage step is active.
+   */
+  fullPage?: boolean;
+}
+
+export interface WizardProps {
+  open: boolean;
+  onClose: () => void;
   icon: IconName;
   title: string;
   /** Subtitle chip — the agent builder passes the draft id; the trigger wizard
    *  passes the kind name. Omit when there is nothing meaningful to show. */
   subtitle?: string;
   /** Arbitrary controls between the subtitle and the close button — the agent
-   *  builder passes its save-status indicator and Save Draft button here; the
-   *  trigger wizard passes nothing. Optional. */
+   *  builder passes its save-status indicator here; the trigger wizard passes
+   *  nothing. Optional. */
   actions?: React.ReactNode;
-  onClose: () => void;
-}
-
-export interface WizardProps {
-  /** Must be a <Wizard.Rail> element. Typed to prevent passing arbitrary content. */
-  rail: React.ReactElement<WizardRailProps>;
-  /** The footer row. Pass <Wizard.Footer> with the caller's step handlers. */
-  footer: React.ReactElement<WizardFooterProps>;
+  /** Must be a <Wizard.Rail> element. Omit when the active step is fullPage. */
+  rail?: React.ReactElement<WizardRailProps>;
+  /** The footer row. Pass <Wizard.Footer> with the caller's step handlers.
+   *  Omit when the active step is fullPage. */
+  footer?: React.ReactElement<WizardFooterProps>;
   children: React.ReactNode;
 }
 
@@ -153,13 +165,13 @@ export interface WizardFooterProps {
 
 ### Sub-component anatomy
 
-**`Wizard`** (root) — Renders the two-column layout that both existing wizards share: the `rail` slot on the left, a `Separator orientation="vertical" span="full"`, and the content column on the right. The content column is `Stack grow overflow="hidden"` containing a scrollable body region and the `footer` slot separated by a `Separator span="full"`. The hairline `Progress` strip sits between `Wizard.Header` and the two-column body — rendered by the root immediately below the header.
+**`Wizard`** (root) — Owns the `Modal size="builder" dismissOnOutsideClick={false}` shell and `ModalAccessibleTitle`. Renders a private `WizardHeader` from its own props. The hairline `Progress` strip sits below the header. When the active step has `fullPage`, only the progress bar and full-body step content render — rail and footer are hidden. Otherwise renders the two-column layout: `rail` on the left, a `Separator orientation="vertical" span="full"`, and the content column on the right. The progress bar displays a frozen value while any fullPage step is active, resuming live calculation when a normal step is active.
 
-**`Wizard.Header`** — The header row: `height="header"`, horizontal `Stack`, icon container + title + optional subtitle chip + `Stack grow` + optional `actions` slot + close button. The `actions` slot is where feature-specific header controls live — the agent builder passes its save-status `StatusDot`/label and Save Draft button; the trigger wizard passes nothing. The structure is identical between both wizards; only the `subtitle` content and `actions` content differ.
+**`Wizard.Header`** (private) — The header row: `height="header"`, horizontal `Stack`, icon container + title + optional subtitle chip + `Stack grow` + optional `actions` slot + close button. Not exported; not usable outside `<Wizard>`.
 
 **`Wizard.Rail`** — The vertical step navigator. Renders an `<Eyebrow>` from the `label` prop at the top. Derives `StepDot` state (`pending | current | complete`) from each step's index relative to `current`. Renders the step number or a check icon inside `StepDot size="lg"`. Connects dots with `StepConnector complete={i < current}`. Steps past `maxVisited` receive `disabled`. `aria-current="step"` on the active entry. The `footer` slot renders below a `Stack grow` spacer, matching both current info-card placements.
 
-**`Wizard.Step`** — Absorbs both layout layers that both wizards apply today: an outer `Stack grow overflowY="auto" align="center"` scroll wrapper, and an inner `Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed"` content constraint. Callers render one `<Wizard.Step>` at a time based on their own step state.
+**`Wizard.Step`** — Scrollable content region for a single step. Without `fullPage`: outer `Stack grow overflowY="auto" align="center"` scroll wrapper, inner `Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed"` content constraint. With `fullPage`: `Stack grow overflow="hidden"` that fills the full modal body; rail, separator, and footer are not rendered while this step is active. Callers render one `<Wizard.Step>` at a time based on their own step state.
 
 **`Wizard.ReviewStep`** — A `Stack gap="cozy"` wrapping `Wizard.ReviewCard` children — the gap value both review screens use between groups.
 
@@ -178,9 +190,10 @@ Each sub-component carries a `data-slot` attribute for structural targeting, con
 | Sub-component | `data-slot` value |
 |---|---|
 | `Wizard` (root) | `"wizard"` |
-| `Wizard.Header` | `"wizard-header"` |
+| `Wizard.Header` (private) | `"wizard-header"` |
 | `Wizard.Rail` | `"wizard-rail"` |
 | `Wizard.Step` | `"wizard-step"` |
+| `Wizard.Step fullPage` | `"wizard-step-full"` |
 | `Wizard.ReviewStep` | `"wizard-review-step"` |
 | `Wizard.ReviewCard` | `"wizard-review-card"` |
 | `Wizard.Footer` | `"wizard-footer"` |
@@ -211,8 +224,9 @@ The `StepRail` component in the agents feature reads step state from `useAgentBu
 
 `wizard.stories.tsx` includes:
 
-- **Default** — A full `<Wizard>` with `<Wizard.Header>`, three steps, a complete rail, a content area showing a `<Wizard.Step>`, and a `<Wizard.Footer>`.
-- **Header variants** — `<Wizard.Header>` with subtitle only; with subtitle and an `actions` slot (the save-status + button from the agent builder); with neither.
+- **Default** — A full `<Wizard>` with `open`, `icon`, `title`, `subtitle`, a complete rail, a content area showing a `<Wizard.Step>`, and a `<Wizard.Footer>`.
+- **WithSubtitle / WithActions** — `<Wizard>` with `subtitle` only; with `subtitle` and an `actions` slot (the save-status indicator from the agent builder).
+- **FullPageStep** — `<Wizard>` with a single `<Wizard.Step fullPage>` showing a centered success-panel layout; progress bar frozen at 0%.
 - **Footer variants** — `<Wizard.Footer>` at step 0 with Back hidden; mid-flow with Back and Continue; final step with Submit and a `pending` state; with a `hint` string shown.
 - **Review screen** — A `<Wizard.ReviewStep>` with three `<Wizard.ReviewCard>` instances, one with an `onEdit` callback and one with a `children` prompt block.
 - **Rail states** — `<Wizard.Rail>` standalone with `label="Create agent"` showing step 0 (all pending), step 2 (two complete, one current, rest pending), and final step (all complete).
@@ -222,7 +236,7 @@ All stories carry `tags: ['autodocs']`.
 
 ### Exports
 
-`wizard/index.ts` re-exports `Wizard` and the prop types `WizardProps`, `WizardRailProps`, `WizardHeaderProps`, `WizardFooterProps`, `WizardReviewCardProps`. `src/packages/terra/src/index.ts` gains the barrel re-export. `frontend/docs/reference/component-placement.md` and `frontend/docs/reference/terra-design-system.md` are updated in the same change.
+`wizard/index.ts` re-exports `Wizard` and the prop types `WizardProps`, `WizardRailProps`, `WizardStepProps`, `WizardFooterProps`, `WizardReviewCardProps`. `WizardHeaderProps` is not exported — `WizardHeader` is a private implementation detail. `src/packages/terra/src/index.ts` gains the barrel re-export. `frontend/docs/reference/component-placement.md` and `frontend/docs/reference/terra-design-system.md` are updated in the same change.
 
 ---
 
@@ -231,6 +245,9 @@ All stories carry `tags: ['autodocs']`.
 **Good**
 
 - The wizard pattern is now API, not convention. A third wizard author imports `Wizard` from Terra and the structure is immediately clear.
+- The `Modal` shell is owned by `Wizard` — callers cannot forget to wrap in it, or use the wrong size.
+- `WizardHeader` is private — it cannot be placed outside the wizard tree, which was an easy mistake to make when managing multi-phase wizards (kind picker, success panels) before `fullPage` existed.
+- `Wizard.Step fullPage` brings pre-flow and post-flow phases inside the wizard. Progress bar, header, and modal are all managed automatically for all phases — no manual `Wizard.Header + Separator` in callers.
 - The step rail, review card, and footer implementations are consolidated. Design changes to the motif propagate to all wizards from one file.
 - The typed `rail` prop catches structural mistakes at compile time rather than at runtime.
 - Row property naming is normalised across both wizards — no more `k`/`v` vs `key`/`value` divergence.

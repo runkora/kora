@@ -68,14 +68,15 @@ Orbit's builder-modal pattern is now established as the right shape for multi-st
 **So that** I can compose a consistent multi-step builder without reconstructing the pattern, and the names alone communicate what each piece is for.
 
 **Acceptance Criteria:**
-- [ ] `Wizard.Header` accepts `icon`, `title`, optional `subtitle` chip, optional `actions` slot, and `onClose` — rendering the shared header structure used by both wizards.
+- [ ] `Wizard` accepts `open`, `onClose`, `icon`, `title`, optional `subtitle` chip, optional `actions` slot — rendering the shared header structure internally.
 - [ ] `Wizard` renders the two-column chrome (rail slot, content column, footer slot) with the hairline progress strip, matching the visual output of both existing wizards.
+- [ ] `Wizard.Step` accepts a `fullPage` prop. When active, rail and footer are not rendered, the step fills the full modal body, and the progress bar displays a frozen value.
 - [ ] `Wizard.Footer` accepts `onNext` (required), `onBack`, `backLabel`, `nextDisabled`, `onSubmit`, `submitLabel`, `pending` (disables both buttons), `pendingLabel`, `hint`, `step`, and `totalSteps` — rendering the shared footer layout used by both wizards.
 - [ ] `Wizard.Rail` accepts a `steps` array and renders the `StepDot`/`StepConnector`/ghost-tile-button rail, including disabled-past-`maxVisited` state and a `footer` slot for the info card.
-- [ ] `Wizard.Step` renders a scrollable content region — one rendered per active step.
+- [ ] `Wizard.Step` without `fullPage` renders a scrollable content region — one rendered per active step.
 - [ ] `Wizard.ReviewStep` renders the review screen layout: a stack of `Wizard.ReviewCard` components.
 - [ ] `Wizard.ReviewCard` renders a `Card` with icon, title, optional Edit action, key/value rows with `Separator` dividers, and an optional `children` slot for block-level content.
-- [ ] TypeScript enforces that `Wizard` receives a `rail` prop typed as `Wizard.Rail`.
+- [ ] TypeScript enforces that `Wizard` receives a `rail` prop typed as `Wizard.Rail` (optional, not required when fullPage step is active).
 - [ ] All sub-components have co-located Storybook stories with autodocs.
 - [ ] The Terra reference doc (`frontend/docs/reference/terra-design-system.md`) and component placement doc (`frontend/docs/reference/component-placement.md`) are updated in the same change.
 
@@ -96,10 +97,16 @@ Orbit's builder-modal pattern is now established as the right shape for multi-st
 
 ### Component API
 
-A single compound component exported as `Wizard`, with static sub-components that make the structure self-documenting and the wizard-specific intent visible at every use site.
+A single compound component exported as `Wizard`, with static sub-components that make the structure self-documenting and the wizard-specific intent visible at every use site. `Wizard` owns the `Modal` shell and renders its header internally from props.
 
 ```tsx
 <Wizard
+  open
+  onClose={onClose}
+  icon="zap"
+  title="New agent"
+  subtitle={draftId}
+  actions={<SaveControls />}
   rail={
     <Wizard.Rail
       label="New agent"
@@ -124,13 +131,6 @@ A single compound component exported as `Wizard`, with static sub-components tha
     />
   }
 >
-  <Wizard.Header
-    icon="zap"
-    title="New agent"
-    subtitle={draftId}
-    actions={<SaveControls />}
-    onClose={onClose}
-  />
   {step === 0 && <Wizard.Step><StepIdentity /></Wizard.Step>}
   {step === 4 && (
     <Wizard.ReviewStep>
@@ -138,24 +138,25 @@ A single compound component exported as `Wizard`, with static sub-components tha
       <Wizard.ReviewCard icon="bot" title="Behaviour" onEdit={() => goTo(1)} rows={[...]} />
     </Wizard.ReviewStep>
   )}
+  {created && (
+    <Wizard.Step fullPage>
+      <SuccessPanel onClose={onClose} />
+    </Wizard.Step>
+  )}
 </Wizard>
 ```
 
-**`Wizard`** — Root. Renders `Wizard.Header`, the hairline `Progress` strip, and the two-column body: `Wizard.Rail` on the left (via the `rail` prop, typed as `React.ReactElement<WizardRailProps>`), a vertical separator, and the scrollable content column on the right. The `footer` slot accepts a `Wizard.Footer` element.
+**`Wizard`** — Root. Owns the `Modal size="builder"` shell. Renders its own header from `icon`, `title`, `subtitle`, and `actions` props. The progress bar sits below the header; when a `fullPage` step is active, the bar freezes at its last non-fullPage value. When no fullPage step is active, renders the two-column body: `Wizard.Rail` on the left (via the `rail` prop, typed as `React.ReactElement<WizardRailProps>`), a vertical separator, and the scrollable content column on the right. The `footer` slot accepts a `Wizard.Footer` element.
 
-**`Wizard.Header`** — The shared header row: icon, title, optional subtitle chip, `Stack grow`, optional `actions` slot, close button. The agent builder passes `subtitle={draftId}` and its save-status controls in `actions`; the trigger wizard passes `subtitle={definition.id}` and no `actions`.
+**`Wizard.Rail`** — The left step navigator. `label` (eyebrow string), `steps: { id, title, sub }[]`, `current`, `maxVisited`, `onGoTo`, `footer` slot. Derives `StepDot` state from step position relative to `current`. Steps past `maxVisited` are disabled.
 
-**`Wizard.Rail`** — The left step navigator. `label` (eyebrow string), `steps: { id, title, sub, icon? }[]`, `current`, `maxVisited`, `onGoTo`, `footer` slot. Derives `StepDot` state from step position relative to `current`. Steps past `maxVisited` are disabled.
-
-**`Wizard.Step`** — A scrollable content region for a single step. Wraps its children in the correct `overflowY="auto"` and `minWidth/maxWidth="document"` constraints.
+**`Wizard.Step`** — A scrollable content region for a single step. Without `fullPage`: wraps children in the correct `overflowY="auto"` and `minWidth/maxWidth="document"` constraints. With `fullPage`: fills the full modal body with no rail, separator, or footer; progress bar freezes while this step is active.
 
 **`Wizard.ReviewStep`** — The review screen layout. A `Stack` of `Wizard.ReviewCard` children with appropriate gap.
 
 **`Wizard.ReviewCard`** — A single review group: `icon`, `title`, `rows: { label, value, mono? }[]`, optional `onEdit` (renders an Edit button when present), optional `children` for block-level content. Maps to `Card > CardHeader > CardContent > key/value rows`.
 
 **`Wizard.Footer`** — The sticky footer row shared by both wizards: Back button, grow spacer, optional validation hint, step counter, and a Continue / Submit primary action. `onNext` is required; `onSubmit` overrides it with a Submit button on the final step. `pending` disables both the Back button and the primary action. Other variable parts: `onBack` (omit to hide Back), `backLabel` (defaults to `"Back"`), `nextDisabled`, `submitLabel` (defaults to `"Create"`), `pendingLabel` (defaults to `"Creating…"`), and `hint`. The trigger wizard's `"Choose kind"` back label and the agent builder's hidden-at-step-0 Back button both map cleanly to this interface.
-
-The `rail` prop is typed as `React.ReactElement<WizardRailProps>` rather than `React.ReactNode`, making it a TypeScript error to omit the rail or pass arbitrary content in its place. The "1 or more steps" constraint is not compiler-enforced — steps are rendered one at a time by the caller — but the sub-component names make the required structure unambiguous.
 
 ### Migration
 
