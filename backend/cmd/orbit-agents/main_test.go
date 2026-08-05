@@ -120,15 +120,6 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	}
 }
 
-// TestInitScopeRegistrationWithoutPolicyServiceIsNoOp covers local dev, where
-// no policy service is configured and there is nothing to keep registered.
-func TestInitScopeRegistrationWithoutPolicyServiceIsNoOp(t *testing.T) {
-	withPolicyServiceURL(t, "")
-	if register := initScopeRegistration(logging.NewLogger(), stubSlugLister{}, newAgentTypeService()); register != nil {
-		t.Fatal("expected no register function when no policy service is configured")
-	}
-}
-
 // TestAgentRoutesFilterDropsOnlyUnscopedRoutes guards the route table itself:
 // the authenticated-only writes must stay out of the policy registration, and
 // every read route must stay in.

@@ -61,9 +61,7 @@ func realMain() error {
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	if register := initScopeRegistration(logger, repo, atSvc); register != nil {
-		go routescopes.KeepRegistered(ctx, logger, "orbit-agents", register)
-	}
+	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
@@ -140,12 +138,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	// Build a policy client for grant management at agent provision/deprovision time.
-	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
-	var pc *policyclient.Client
-	if cfg.Platform.PolicyServiceURL != "" {
-		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
+	// Required for the same reason as the identity service. An empty value used
+	// to mean "skip grant management", so agent types would provision with no
+	// grants written, and initScopeRegistration returned nil, so this service
+	// never published its routes. Under fail-closed Layer 1 enforcement an
+	// unregistered route denies every request, so a blank string took out both
+	// grant management and the entire agents API, silently.
+	if cfg.Platform.PolicyServiceURL == "" {
+		return nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
 	}
+	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
 	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
 	for _, key := range malformedOverrideKeys {
@@ -254,12 +256,8 @@ type agentTypeSlugLister interface {
 // It installs a hook on the agent type service so the vocabulary is re-synced
 // whenever an agent type is created or deleted, and returns the register
 // function; the caller hands it to routescopes.KeepRegistered, which owns the
-// initial registration and the periodic self-heal loop. A nil return means no
-// policy service is configured (local dev) and there is nothing to register.
+// initial registration and the periodic self-heal loop.
 func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
-	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
-		return nil
-	}
 	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
 
 	register := func(registerCtx context.Context) error {
