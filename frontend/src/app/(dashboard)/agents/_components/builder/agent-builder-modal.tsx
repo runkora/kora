@@ -41,44 +41,33 @@ const WIZARD_STEPS = BUILDER_STEPS.map((s) => ({ id: s.key, title: s.title, sub:
 
 export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
   const builder = useAgentBuilderContext();
-  const {
-    step,
-    maxVisited,
-    goTo,
-    saveStatus,
-    draftId,
-    created,
-    submitting,
-    stepValid,
-    createBlockers,
-  } = builder;
+  const { step, maxVisited, goTo, saveStatus, draftId, created, submitting, stepValid, createBlockers } =
+    builder;
   const isLast = step === BUILDER_STEPS.length - 1;
 
-  const saveControls = !created ? (
-    <>
-      {(draftId || saveStatus !== 'unsaved') && (
-        <Stack direction="horizontal" align="center" gap="snug">
-          <StatusDot
-            size="sm"
-            status={saveStatus === 'error' ? 'error' : saveStatus === 'saved' ? 'healthy' : 'idle'}
-          />
-          <Text as="span" size="caption" color="subtle">
-            {SAVE_LABEL[saveStatus]}
-          </Text>
-        </Stack>
-      )}
-      <Button variant="secondary" size="sm" onClick={builder.saveNow}>
-        Save draft
-      </Button>
-    </>
-  ) : undefined;
+  const saveIndicator =
+    draftId || saveStatus !== 'unsaved' ? (
+      <Stack direction="horizontal" align="center" gap="snug">
+        <StatusDot
+          size="sm"
+          status={saveStatus === 'error' ? 'error' : saveStatus === 'saved' ? 'healthy' : 'idle'}
+        />
+        <Text as="span" size="caption" color="subtle">
+          {SAVE_LABEL[saveStatus]}
+        </Text>
+      </Stack>
+    ) : undefined;
 
   return (
     <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
       <ModalAccessibleTitle>New agent</ModalAccessibleTitle>
 
       {created ? (
-        <SuccessPanel onClose={onClose} />
+        <Stack grow overflow="hidden">
+          <Wizard.Header icon="zap" title="New agent" onClose={onClose} />
+          <Separator span="full" />
+          <SuccessPanel onClose={onClose} />
+        </Stack>
       ) : (
         <Wizard
           rail={
@@ -108,8 +97,8 @@ export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
           <Wizard.Header
             icon="zap"
             title="New agent"
-            subtitle={draftId ? `draft · ${draftId}` : 'draft'}
-            actions={saveControls}
+            subtitle={draftId ?? undefined}
+            actions={saveIndicator}
             onClose={onClose}
           />
           {step === 0 && (

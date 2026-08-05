@@ -12,6 +12,7 @@ import {
   Icon,
   Modal,
   ModalAccessibleTitle,
+  Separator,
   Stack,
   Text,
   Wizard,
@@ -129,28 +130,36 @@ export function TriggerWizard({
       <ModalAccessibleTitle>New trigger</ModalAccessibleTitle>
 
       {created && definition && state ? (
-        <SuccessPanel
-          definition={definition}
-          state={state}
-          context={context}
-          triggerId={created.triggerId}
-          endpoint={created.endpoint}
-          secret={created.secret}
-          onClose={onClose}
-          onCreateAnother={backToPicker}
-        />
+        <Stack grow overflow="hidden">
+          <Wizard.Header icon={definition.icon} title="New trigger" onClose={onClose} />
+          <Separator span="full" />
+          <SuccessPanel
+            definition={definition}
+            state={state}
+            context={context}
+            triggerId={created.triggerId}
+            endpoint={created.endpoint}
+            secret={created.secret}
+            onClose={onClose}
+            onCreateAnother={backToPicker}
+          />
+        </Stack>
       ) : !definition || !state ? (
         /* ── Phase one: choose what starts the run ─────────────────────────── */
-        <Stack grow overflowY="auto" align="center">
-          <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
-            <Stack gap="snug">
-              <Heading variant="subsection">New trigger</Heading>
-              <Text size="supporting" color="muted">
-                Choose what starts it. Every trigger names one target and is policy-checked before
-                it fires.
-              </Text>
+        <Stack grow overflow="hidden">
+          <Wizard.Header icon="zap" title="New trigger" onClose={onClose} />
+          <Separator span="full" />
+          <Stack grow overflowY="auto" align="center">
+            <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
+              <Stack gap="snug">
+                <Heading variant="subsection">New trigger</Heading>
+                <Text size="supporting" color="muted">
+                  Choose what starts it. Every trigger names one target and is policy-checked before
+                  it fires.
+                </Text>
+              </Stack>
+              <KindPicker onSelect={chooseKind} />
             </Stack>
-            <KindPicker onSelect={chooseKind} />
           </Stack>
         </Stack>
       ) : (
