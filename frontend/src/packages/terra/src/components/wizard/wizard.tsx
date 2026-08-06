@@ -208,22 +208,24 @@ WizardRail.displayName = 'WizardRail';
  * Pass `fullPage` to fill the entire modal body with no rail or footer —
  * use for pre-flow (kind picker) and post-flow (success) phases.
  */
-const WizardStep = React.forwardRef<HTMLDivElement, WizardStepProps>(({ children, fullPage }, ref) => {
-  if (fullPage) {
+const WizardStep = React.forwardRef<HTMLDivElement, WizardStepProps>(
+  ({ children, fullPage }, ref) => {
+    if (fullPage) {
+      return (
+        <Stack ref={ref} data-slot="wizard-step-full" grow overflow="hidden">
+          {children}
+        </Stack>
+      );
+    }
     return (
-      <Stack ref={ref} data-slot="wizard-step-full" grow overflow="hidden">
-        {children}
+      <Stack ref={ref} data-slot="wizard-step" grow overflowY="auto" align="center">
+        <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
+          {children}
+        </Stack>
       </Stack>
     );
-  }
-  return (
-    <Stack ref={ref} data-slot="wizard-step" grow overflowY="auto" align="center">
-      <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
-        {children}
-      </Stack>
-    </Stack>
-  );
-});
+  },
+);
 WizardStep.displayName = 'WizardStep';
 
 /** Gap container for a stack of Wizard.ReviewCard children. Used inside Wizard.Step on review screens. */

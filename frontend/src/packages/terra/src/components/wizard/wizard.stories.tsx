@@ -124,7 +124,9 @@ export const WithSubtitle: Story = {
       footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
     >
       <Wizard.Step>
-        <Text size="supporting" color="muted">Step content.</Text>
+        <Text size="supporting" color="muted">
+          Step content.
+        </Text>
       </Wizard.Step>
     </Wizard>
   ),
@@ -157,7 +159,9 @@ export const WithActions: Story = {
       footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
     >
       <Wizard.Step>
-        <Text size="supporting" color="muted">Step content.</Text>
+        <Text size="supporting" color="muted">
+          Step content.
+        </Text>
       </Wizard.Step>
     </Wizard>
   ),
