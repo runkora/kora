@@ -240,7 +240,6 @@ export const FooterWithHint: Story = {
       onBack={() => undefined}
       onNext={() => undefined}
       nextDisabled
-      hint="Name is required before continuing"
     />
   ),
 };

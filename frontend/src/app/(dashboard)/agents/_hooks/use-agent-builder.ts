@@ -48,9 +48,21 @@ export type SaveStatus = 'unsaved' | 'saving' | 'saved' | 'error';
 export const BUILDER_STEPS = [
   { key: 'identity', title: 'Identity', sub: 'Name & owner', icon: 'user' },
   { key: 'behaviour', title: 'Behaviour', sub: 'Prompt & model', icon: 'bot' },
-  { key: 'tools', title: 'Tools & access', sub: 'Servers & scopes', icon: 'wrench' },
+  {
+    key: 'tools',
+    title: 'Tools & access',
+    shortTitle: 'Tools',
+    sub: 'Servers & scopes',
+    icon: 'wrench',
+  },
   { key: 'guardrails', title: 'Guardrails', sub: 'Limits & policy', icon: 'shield' },
-  { key: 'review', title: 'Review & create', sub: 'Confirm & create', icon: 'rocket' },
+  {
+    key: 'review',
+    title: 'Review & create',
+    shortTitle: 'Review',
+    sub: 'Confirm & create',
+    icon: 'rocket',
+  },
 ] as const;
 
 export interface BuilderFields {

@@ -35,7 +35,12 @@ const SAVE_LABEL: Record<string, string> = {
   error: 'Save failed',
 };
 
-const WIZARD_STEPS = BUILDER_STEPS.map((s) => ({ id: s.key, title: s.title, sub: s.sub }));
+const WIZARD_STEPS = BUILDER_STEPS.map((s) => ({
+  id: s.key,
+  title: s.title,
+  shortTitle: 'shortTitle' in s ? (s.shortTitle as string) : undefined,
+  sub: s.sub,
+}));
 
 export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
   const builder = useAgentBuilderContext();

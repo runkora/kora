@@ -73,7 +73,6 @@ describe('TriggerWizard step phase', () => {
   it('holds Continue closed until the step validates', () => {
     renderWizard('webhook');
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByText('Give the trigger a name.')).toBeTruthy();
   });
 });
 

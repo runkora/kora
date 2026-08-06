@@ -12,6 +12,7 @@ import { Modal, ModalAccessibleTitle } from '../modal/modal';
 import { Progress } from '../progress/progress';
 import { Separator } from '../separator/separator';
 import { StepConnector } from '../step-dot/step-connector';
+import { Show } from '../show/show';
 import { StepDot } from '../step-dot/step-dot';
 import { Text } from '../typography/typography';
 import type { IconName } from '../icon/icon';
@@ -21,6 +22,8 @@ import type { IconName } from '../icon/icon';
 export interface WizardRailStep {
   id: string;
   title: string;
+  /** Abbreviated label for the mobile horizontal rail. Falls back to `title` when omitted. */
+  shortTitle?: string;
   sub: string;
 }
 
@@ -61,8 +64,6 @@ export interface WizardFooterProps {
   pending?: boolean;
   /** @default "Creating…" */
   pendingLabel?: string;
-  /** Validation hint shown between the step counter and the primary action. */
-  hint?: string;
 }
 
 export interface WizardReviewCardProps {
@@ -112,25 +113,31 @@ const WizardHeader = React.forwardRef<HTMLDivElement, WizardHeaderProps>(
       align="center"
       gap="cozy"
       height="header"
-      paddingInline="comfortable"
       shrink={false}
+      className="pl-4"
     >
       <Icon name={icon} size="sm" container containerVariant="accent" label="" />
-      <Stack direction="horizontal" align="baseline" gap="snug">
-        <Text as="span" size="supporting" weight="heavy">
-          {title}
-        </Text>
-        {subtitle && (
-          <Text as="span" size="micro" mono color="subtle">
-            {subtitle}
-          </Text>
-        )}
-      </Stack>
+      <Text as="span" size="supporting" weight="heavy">
+        {title}
+      </Text>
       <Stack grow />
-      {actions}
-      <Button variant="ghost" size="icon-sm" aria-label={`Close ${title}`} onClick={onClose}>
-        <Icon name="close" />
-      </Button>
+      {subtitle && (
+        <Text as="span" size="micro" mono color="subtle">
+          {subtitle}
+        </Text>
+      )}
+      <Stack direction="horizontal" align="stretch" gap="none" className="h-full">
+        {actions}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Close ${title}`}
+          onClick={onClose}
+          className="h-full w-auto aspect-square rounded-none lg:rounded-tr-xl"
+        >
+          <Icon name="close" />
+        </Button>
+      </Stack>
     </Stack>
   ),
 );
@@ -201,6 +208,63 @@ const WizardRail = React.forwardRef<HTMLDivElement, WizardRailProps>(
 WizardRail.displayName = 'WizardRail';
 
 /**
+ * Horizontal step rail for narrow viewports. Renders step dots in a row with
+ * horizontal connectors between them and labels beneath. The outer element
+ * scrolls horizontally when steps overflow the screen width.
+ * Rendered automatically by WizardRoot below the lg breakpoint.
+ */
+const WizardMobileRail = ({ steps, current, maxVisited, onGoTo }: WizardRailProps) => (
+  <Stack
+    data-slot="wizard-mobile-rail"
+    direction="horizontal"
+    overflow="auto"
+    shrink={false}
+    paddingBlock="comfortable"
+    paddingInline="comfortable"
+    gap="none"
+    className="overflow-y-hidden !px-2 lg:!px-4"
+  >
+    <Stack direction="horizontal" align="center" gap="none" className="min-w-full justify-center">
+      {steps.map((s, i) => {
+        const done = i < current;
+        const isCurrent = i === current;
+        return (
+          <React.Fragment key={s.id}>
+            <Stack
+              align="center"
+              gap="tight"
+              shrink={false}
+              className="flex-1 min-w-[4rem] max-w-[6rem]"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={i > maxVisited}
+                onClick={() => onGoTo(i)}
+                aria-current={isCurrent ? 'step' : undefined}
+              >
+                <StepDot size="lg" state={done ? 'complete' : isCurrent ? 'current' : 'pending'}>
+                  {done ? <Icon name="check" size="xs" /> : i + 1}
+                </StepDot>
+              </Button>
+              <Text
+                as="span"
+                size="micro"
+                color={isCurrent || done ? 'foreground' : 'subtle'}
+                align="center"
+              >
+                {s.shortTitle ?? s.title}
+              </Text>
+            </Stack>
+            {i < steps.length - 1 && <StepConnector orientation="horizontal" complete={done} />}
+          </React.Fragment>
+        );
+      })}
+    </Stack>
+  </Stack>
+);
+
+/**
  * Scrollable content region for a single step. Wraps children in the
  * overflowY="auto" scroll layer and the document-width constraint.
  * Render one per active step based on caller step state.
@@ -219,7 +283,13 @@ const WizardStep = React.forwardRef<HTMLDivElement, WizardStepProps>(
     }
     return (
       <Stack ref={ref} data-slot="wizard-step" grow overflowY="auto" align="center">
-        <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
+        <Stack
+          minWidth={{ lg: 'document' }}
+          maxWidth={{ lg: 'document' }}
+          padding="loose"
+          gap="relaxed"
+          className="w-full lg:w-auto !px-4 lg:!px-8"
+        >
           {children}
         </Stack>
       </Stack>
@@ -296,7 +366,6 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
       submitLabel = 'Create',
       pending,
       pendingLabel = 'Creating…',
-      hint,
     },
     ref,
   ) => (
@@ -305,37 +374,76 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
       data-slot="wizard-footer"
       direction="horizontal"
       align="center"
-      gap="comfortable"
       padding="comfortable"
       paddingInline="relaxed"
       shrink={false}
+      className="lg:py-[--spacing-comfortable] py-[--spacing-relaxed] gap-3 lg:gap-[--spacing-comfortable] !px-4 lg:!px-6"
     >
-      {onBack && (
-        <Button variant="secondary" onClick={onBack} disabled={pending}>
-          <Icon name="chevron-left" />
-          {backLabel}
-        </Button>
-      )}
-      <Stack grow />
-      {hint && (
-        <Text as="span" size="caption" color="subtle">
-          {hint}
+      {/* Mobile: one-third back cell */}
+      <Stack grow className="basis-0 lg:hidden">
+        {onBack && (
+          <Button
+            variant="secondary"
+            size="lg"
+            responsiveSize="xl"
+            onClick={onBack}
+            disabled={pending}
+          >
+            <Icon name="chevron-left" />
+            {backLabel}
+          </Button>
+        )}
+      </Stack>
+
+      {/* Desktop: back button */}
+      <Show above="lg">
+        {onBack && (
+          <Button variant="secondary" onClick={onBack} disabled={pending}>
+            <Icon name="chevron-left" />
+            {backLabel}
+          </Button>
+        )}
+      </Show>
+
+      {/* Desktop: grow spacer pushes right-side group to the right */}
+      <Stack grow className="hidden lg:flex" />
+
+      {/* Mobile: two-thirds continue cell; Desktop: step count + continue grouped right */}
+      <Stack
+        direction="horizontal"
+        align="center"
+        gap="comfortable"
+        className="basis-0 [flex-grow:2] lg:[flex-grow:0] lg:basis-auto"
+      >
+        <Text as="span" size="caption" color="subtle" align="center" className="hidden lg:block">
+          Step {step + 1} of {totalSteps}
         </Text>
-      )}
-      <Text as="span" size="caption" color="subtle">
-        Step {step + 1} of {totalSteps}
-      </Text>
-      {onSubmit ? (
-        <Button onClick={onSubmit} disabled={pending || nextDisabled}>
-          {pending ? pendingLabel : submitLabel}
-          <Icon name="rocket" />
-        </Button>
-      ) : (
-        <Button onClick={onNext} disabled={pending || nextDisabled}>
-          {pending ? pendingLabel : 'Continue'}
-          <Icon name="arrow-right" />
-        </Button>
-      )}
+        <Stack className="flex-1 lg:flex-none">
+          {onSubmit ? (
+            <Button
+              fullWidth
+              size="md"
+              responsiveSize="xl"
+              onClick={onSubmit}
+              disabled={pending || nextDisabled}
+            >
+              {pending ? pendingLabel : submitLabel}
+              <Icon name="rocket" />
+            </Button>
+          ) : (
+            <Button
+              fullWidth
+              size="md"
+              responsiveSize="xl"
+              onClick={onNext}
+              disabled={pending || nextDisabled}
+            >
+              {pending ? pendingLabel : 'Continue'}
+              <Icon name="arrow-right" />
+            </Button>
+          )}
+        </Stack>
+      </Stack>
     </Stack>
   ),
 );
@@ -394,13 +502,33 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
               {children}
             </Stack>
           ) : (
-            <Stack direction="horizontal" grow overflow="hidden" gap="none">
-              {rail}
-              <Separator orientation="vertical" span="full" />
-              <Stack grow overflow="hidden" gap="none">
-                {children}
-                <Separator span="full" />
-                {footer}
+            <Stack grow overflow="hidden" gap="none">
+              {rail && (
+                <Show below="lg">
+                  <WizardMobileRail {...(rail as React.ReactElement<WizardRailProps>).props} />
+                  <Separator span="full" />
+                </Show>
+              )}
+              <Stack
+                direction={{ base: 'vertical', lg: 'horizontal' }}
+                grow
+                overflow="hidden"
+                gap="none"
+              >
+                {rail && (
+                  // `contents` makes the wrapper transparent to flex layout so
+                  // the rail and vertical separator are direct flex children of
+                  // the row — required for the separator's h-full to resolve.
+                  <Stack className="hidden lg:contents" gap="none">
+                    {rail}
+                    <Separator orientation="vertical" span="full" />
+                  </Stack>
+                )}
+                <Stack grow overflow="hidden" gap="none">
+                  {children}
+                  <Separator span="full" />
+                  {footer}
+                </Stack>
               </Stack>
             </Stack>
           )}

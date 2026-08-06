@@ -150,7 +150,6 @@ export function TriggerWizard({
             submitLabel="Create trigger"
             pending={pending}
             pendingLabel="Creating…"
-            hint={!validation.valid ? validation.hint : undefined}
           />
         ) : undefined
       }
