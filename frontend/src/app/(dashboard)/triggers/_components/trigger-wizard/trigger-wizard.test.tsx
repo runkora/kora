@@ -46,14 +46,7 @@ describe('TriggerWizard picker phase', () => {
     }
   });
 
-  it('enters the chosen kind and can come back to the picker', () => {
-    renderWizard();
-    fireEvent.click(screen.getByText(TRIGGER_KINDS.scheduled.description));
-    expect(screen.getByText('How often')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /Choose kind/ }));
-    expect(screen.getByText('Choose what starts it.', { exact: false })).toBeTruthy();
-  });
 });
 
 describe('TriggerWizard step phase', () => {

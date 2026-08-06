@@ -5,7 +5,7 @@
  * Everything kind-specific comes from the registry in ./kinds. */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
+import { Alert, Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
@@ -143,7 +143,6 @@ export function TriggerWizard({
             step={step}
             totalSteps={steps.length}
             onBack={handleBack}
-            backLabel={step === 0 ? 'Choose kind' : 'Back'}
             onNext={() => void handleNext()}
             nextDisabled={!validation.valid}
             onSubmit={isLast ? () => void handleNext() : undefined}
@@ -171,7 +170,12 @@ export function TriggerWizard({
         /* ── Phase one: choose what starts the run ─────────────────────────── */
         <Wizard.Step fullPage>
           <Stack grow overflowY="auto" align="center">
-            <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
+            <Stack
+              minWidth={{ lg: 'document' }}
+              maxWidth={{ lg: 'document' }}
+              padding="loose"
+              gap="relaxed"
+            >
               <Stack gap="snug">
                 <Heading variant="subsection">New trigger</Heading>
                 <Text size="supporting" color="muted">
@@ -203,6 +207,12 @@ export function TriggerWizard({
                 if (target >= 0 && target <= maxVisited) setStep(target);
               }}
             />
+          )}
+          {!validation.valid && validation.hint && (
+            <Alert variant="error">
+              <Icon name="alert-circle" size="xs" label="" />
+              <Text size="caption" color="muted">{validation.hint}</Text>
+            </Alert>
           )}
         </Wizard.Step>
       )}
