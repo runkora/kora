@@ -424,7 +424,13 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
         gap="comfortable"
         className={`basis-0 lg:[flex-grow:0] lg:basis-auto${onBack ? ' [flex-grow:2]' : ' [flex-grow:1]'}`}
       >
-        <Text as="span" size="caption" color="subtle" align="center" className="hidden lg:block whitespace-nowrap">
+        <Text
+          as="span"
+          size="caption"
+          color="subtle"
+          align="center"
+          className="hidden lg:block whitespace-nowrap"
+        >
           Step {step + 1} of {totalSteps}
         </Text>
         <Stack className="flex-1 lg:flex-none">
@@ -470,7 +476,22 @@ WizardFooter.displayName = 'WizardFooter';
  * bar freezes at its last non-fullPage value.
  */
 const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
-  ({ open, onClose, icon, title, subtitle, actions, rail, footer, hint, hintVariant = 'error', children }, ref) => {
+  (
+    {
+      open,
+      onClose,
+      icon,
+      title,
+      subtitle,
+      actions,
+      rail,
+      footer,
+      hint,
+      hintVariant = 'error',
+      children,
+    },
+    ref,
+  ) => {
     const [frozenProgress, setFrozenProgress] = React.useState(0);
 
     const childArray = React.Children.toArray(children);
@@ -541,7 +562,9 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
                         size="xs"
                         label=""
                       />
-                      <Text size="caption" color="muted">{hint}</Text>
+                      <Text size="caption" color="muted">
+                        {hint}
+                      </Text>
                     </Alert>
                   )}
                   {children}

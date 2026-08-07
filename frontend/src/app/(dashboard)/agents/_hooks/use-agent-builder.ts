@@ -526,7 +526,8 @@ export function useAgentBuilder(params: {
   const stepHint = useMemo((): string | undefined => {
     if (step === 0) {
       if (fields.name.trim().length <= 1) return 'Enter a display name of at least two characters.';
-      if (!SLUG_RE.test(fields.slug)) return 'Slug must be lowercase letters, digits, and hyphens only.';
+      if (!SLUG_RE.test(fields.slug))
+        return 'Slug must be lowercase letters, digits, and hyphens only.';
     }
     if (step === 1) {
       if (!fields.modelId) return 'Choose a model before continuing.';
