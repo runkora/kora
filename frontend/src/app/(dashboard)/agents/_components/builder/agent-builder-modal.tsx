@@ -53,6 +53,7 @@ export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
     created,
     submitting,
     stepValid,
+    stepHint,
     createBlockers,
   } = builder;
   const isLast = step === BUILDER_STEPS.length - 1;
@@ -78,6 +79,8 @@ export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
       title="New agent"
       subtitle={created ? undefined : (draftId ?? undefined)}
       actions={created ? undefined : saveIndicator}
+      hint={created ? undefined : stepHint}
+      hintVariant={step === 0 ? 'error' : 'warning'}
       rail={
         created ? undefined : (
           <Wizard.Rail

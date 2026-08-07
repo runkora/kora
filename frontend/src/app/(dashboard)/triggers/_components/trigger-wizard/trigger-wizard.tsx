@@ -5,7 +5,7 @@
  * Everything kind-specific comes from the registry in ./kinds. */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
+import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
@@ -122,6 +122,8 @@ export function TriggerWizard({
       icon={definition?.icon ?? 'zap'}
       title="New trigger"
       subtitle={definition ? definition.id : undefined}
+      hint={validation.hint}
+      hintVariant={validation.valid ? 'warning' : 'error'}
       rail={
         hasKind && !created ? (
           <Wizard.Rail
@@ -207,12 +209,6 @@ export function TriggerWizard({
                 if (target >= 0 && target <= maxVisited) setStep(target);
               }}
             />
-          )}
-          {!validation.valid && validation.hint && (
-            <Alert variant="error">
-              <Icon name="alert-circle" size="xs" label="" />
-              <Text size="caption" color="muted">{validation.hint}</Text>
-            </Alert>
           )}
         </Wizard.Step>
       )}

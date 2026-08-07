@@ -3,6 +3,7 @@
 /** @tier 1 — Zero Orbit domain knowledge. Multi-step builder modal chrome: rail, step, review card, footer. */
 
 import * as React from 'react';
+import { Alert } from '../alert/alert';
 import { Button } from '../button/button';
 import { Card, CardContent, CardHeader } from '../card/card';
 import { Eyebrow } from '../eyebrow/eyebrow';
@@ -99,6 +100,14 @@ export interface WizardProps {
   rail?: React.ReactElement<WizardRailProps>;
   /** Pass <Wizard.Footer> with the caller's step handlers. Omit when the active step is fullPage. */
   footer?: React.ReactElement<WizardFooterProps>;
+  /**
+   * Validation hint text. When set, renders a fixed banner above the step content (below the mobile
+   * rail or the header on desktop). Pass `hintVariant` to control the colour: `'error'` (default,
+   * red) when the step is invalid; `'warning'` (amber) when the step is valid but advisory.
+   */
+  hint?: string;
+  /** @default 'error' */
+  hintVariant?: 'error' | 'warning';
   children: React.ReactNode;
 }
 
@@ -379,9 +388,9 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
       shrink={false}
       className="lg:py-[--spacing-comfortable] py-[--spacing-relaxed] gap-3 lg:gap-[--spacing-comfortable] !px-4 lg:!px-6"
     >
-      {/* Mobile: one-third back cell */}
-      <Stack grow className="basis-0 lg:hidden">
-        {onBack && (
+      {/* Mobile: one-third back cell — omitted entirely when there is no back action */}
+      {onBack && (
+        <Stack grow className="basis-0 lg:hidden">
           <Button
             variant="secondary"
             size="lg"
@@ -392,8 +401,8 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
             <Icon name="chevron-left" />
             {backLabel}
           </Button>
-        )}
-      </Stack>
+        </Stack>
+      )}
 
       {/* Desktop: back button */}
       <Show above="lg">
@@ -408,14 +417,14 @@ const WizardFooter = React.forwardRef<HTMLDivElement, WizardFooterProps>(
       {/* Desktop: grow spacer pushes right-side group to the right */}
       <Stack grow className="hidden lg:flex" />
 
-      {/* Mobile: two-thirds continue cell; Desktop: step count + continue grouped right */}
+      {/* Mobile: two-thirds continue cell (full-width when no back); Desktop: step count + continue grouped right */}
       <Stack
         direction="horizontal"
         align="center"
         gap="comfortable"
-        className="basis-0 [flex-grow:2] lg:[flex-grow:0] lg:basis-auto"
+        className={`basis-0 lg:[flex-grow:0] lg:basis-auto${onBack ? ' [flex-grow:2]' : ' [flex-grow:1]'}`}
       >
-        <Text as="span" size="caption" color="subtle" align="center" className="hidden lg:block">
+        <Text as="span" size="caption" color="subtle" align="center" className="hidden lg:block whitespace-nowrap">
           Step {step + 1} of {totalSteps}
         </Text>
         <Stack className="flex-1 lg:flex-none">
@@ -461,7 +470,7 @@ WizardFooter.displayName = 'WizardFooter';
  * bar freezes at its last non-fullPage value.
  */
 const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
-  ({ open, onClose, icon, title, subtitle, actions, rail, footer, children }, ref) => {
+  ({ open, onClose, icon, title, subtitle, actions, rail, footer, hint, hintVariant = 'error', children }, ref) => {
     const [frozenProgress, setFrozenProgress] = React.useState(0);
 
     const childArray = React.Children.toArray(children);
@@ -525,6 +534,16 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
                   </Stack>
                 )}
                 <Stack grow overflow="hidden" gap="none">
+                  {hint && (
+                    <Alert variant={hintVariant} className="rounded-none border-x-0 border-t-0">
+                      <Icon
+                        name={hintVariant === 'warning' ? 'triangle-alert' : 'alert-circle'}
+                        size="xs"
+                        label=""
+                      />
+                      <Text size="caption" color="muted">{hint}</Text>
+                    </Alert>
+                  )}
                   {children}
                   <Separator span="full" />
                   {footer}

@@ -45,8 +45,6 @@ describe('TriggerWizard picker phase', () => {
       expect(screen.getByText(planned.title)).toBeTruthy();
     }
   });
-
-
 });
 
 describe('TriggerWizard step phase', () => {

@@ -128,6 +128,7 @@ export interface AgentBuilderStateShape {
   submitError: string | null;
   created: AgentTypeRow | null;
   stepValid: boolean;
+  stepHint: string | undefined;
   createBlockers: string[];
   setField: <K extends keyof BuilderFields>(key: K, value: BuilderFields[K]) => void;
   setName: (name: string) => void;
@@ -522,6 +523,18 @@ export function useAgentBuilder(params: {
     return true;
   }, [step, fields.name, fields.slug]);
 
+  const stepHint = useMemo((): string | undefined => {
+    if (step === 0) {
+      if (fields.name.trim().length <= 1) return 'Enter a display name of at least two characters.';
+      if (!SLUG_RE.test(fields.slug)) return 'Slug must be lowercase letters, digits, and hyphens only.';
+    }
+    if (step === 1) {
+      if (!fields.modelId) return 'Choose a model before continuing.';
+      if (!fields.systemPrompt.trim()) return 'Add system instructions before continuing.';
+    }
+    return undefined;
+  }, [step, fields.name, fields.slug, fields.modelId, fields.systemPrompt]);
+
   const createBlockers = useMemo(() => {
     const blockers: string[] = [];
     if (!(fields.name.trim().length > 1)) blockers.push('Identity needs a display name.');
@@ -588,6 +601,7 @@ export function useAgentBuilder(params: {
     submitError,
     created,
     stepValid,
+    stepHint,
     createBlockers,
     setField,
     setName,
