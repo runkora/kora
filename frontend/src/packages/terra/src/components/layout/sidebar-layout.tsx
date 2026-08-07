@@ -75,33 +75,29 @@ function buildGridTemplateColumns(width: SidebarWidth, position: 'start' | 'end'
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-const Main = React.forwardRef<HTMLDivElement, SidebarLayoutMainProps>(({ children, ...rest }, ref) => (
-  <div ref={ref} data-slot="sidebar-layout-main" {...rest}>
-    {children}
-  </div>
-));
+const Main = React.forwardRef<HTMLDivElement, SidebarLayoutMainProps>(
+  ({ children, ...rest }, ref) => (
+    <div ref={ref} data-slot="sidebar-layout-main" {...rest}>
+      {children}
+    </div>
+  ),
+);
 Main.displayName = 'SidebarLayout.Main';
 
-const Sidebar = React.forwardRef<HTMLDivElement, SidebarLayoutSidebarProps>(({ children, ...rest }, ref) => (
-  <div ref={ref} data-slot="sidebar-layout-sidebar" {...rest}>
-    {children}
-  </div>
-));
+const Sidebar = React.forwardRef<HTMLDivElement, SidebarLayoutSidebarProps>(
+  ({ children, ...rest }, ref) => (
+    <div ref={ref} data-slot="sidebar-layout-sidebar" {...rest}>
+      {children}
+    </div>
+  ),
+);
 Sidebar.displayName = 'SidebarLayout.Sidebar';
 
 // ── Root component ────────────────────────────────────────────────────────────
 
 const SidebarLayoutRoot = React.forwardRef<HTMLDivElement, SidebarLayoutProps>(
   (
-    {
-      sidebarWidth,
-      sidebarPosition = 'end',
-      gap,
-      align = 'start',
-      style,
-      children,
-      ...rest
-    },
+    { sidebarWidth, sidebarPosition = 'end', gap, align = 'start', style, children, ...rest },
     ref,
   ) => {
     const gridStyle: React.CSSProperties = {

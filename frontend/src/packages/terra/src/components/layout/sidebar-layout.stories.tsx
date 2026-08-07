@@ -170,7 +170,14 @@ export const StringWidth: Story = {
 /** Sticky sidebar — apply `position: sticky` to the inner Stack, not the layout shell. */
 export const StickySidebar: Story = {
   render: () => (
-    <div style={{ height: 400, overflow: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)' }}>
+    <div
+      style={{
+        height: 400,
+        overflow: 'auto',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
       <SidebarLayout sidebarWidth="detail-panel" gap="relaxed" align="start">
         <SidebarLayout.Main>
           <div
