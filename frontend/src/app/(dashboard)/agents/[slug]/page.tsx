@@ -32,6 +32,12 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
         (p) => p.principal_type === 'AGENT' && p.principal_id.endsWith(`/agent/${slug}`),
       ) ?? null;
     tenantCap = budgets.data.tenant_cap ?? null;
+  } else if (budgets && budgets.status !== 403) {
+    // 403 is expected for callers without platform:budgets:read; anything else
+    // is an unexpected service failure — log it so it surfaces in server logs.
+    console.error(
+      `[AgentDetailPage] budgets fetch failed (${budgets.status}): ${budgets.message}`,
+    );
   }
 
   const initialAgent = result?.ok ? result.agent : null;
