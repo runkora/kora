@@ -393,23 +393,36 @@ export function DataTable<TData>({
     setPage(0);
   }
 
-  // Reset page when filters/search change
-  const prevFilterKeyRef = React.useRef<string>('');
-  const filterKey = searchQuery + JSON.stringify(clientFilters);
-  if (filterKey !== prevFilterKeyRef.current) {
-    prevFilterKeyRef.current = filterKey;
-    if (page !== 0) setPage(0);
-  }
+  // Reset page to 0 when search query or client-side column filters change.
+  // Serialise Set values by sorting their entries so the key changes reliably
+  // when selections toggle (JSON.stringify renders Sets as `{}` always).
+  const filterKey = React.useMemo(() => {
+    const setEntries = Object.entries(clientFilters)
+      .map(([colId, sel]) => `${colId}:${[...sel].sort().join(',')}`)
+      .join('|');
+    return `${searchQuery}||${setEntries}`;
+  }, [searchQuery, clientFilters]);
+
+  const prevFilterKeyRef = React.useRef(filterKey);
+  React.useEffect(() => {
+    if (filterKey !== prevFilterKeyRef.current) {
+      prevFilterKeyRef.current = filterKey;
+      setPage(0);
+    }
+  }, [filterKey]);
 
   // ── Derived row data ────────────────────────────────────────────────────────
 
   const allRows = table.getRowModel().rows;
 
-  // Clamp page to valid range when data shrinks (e.g. a filter upstream
-  // reduces the row count making the current page index out of range).
+  // Clamp page to valid range when data shrinks (e.g. a prop-driven filter
+  // upstream reduces the row count, making the current page out of range).
+  // Use a layout effect so we never call setState during render.
   const safePageCount = pagination ? Math.max(1, Math.ceil(allRows.length / pageSize)) : 1;
   const safePage = Math.min(page, safePageCount - 1);
-  if (safePage !== page) setPage(safePage);
+  React.useLayoutEffect(() => {
+    if (safePage !== page) setPage(safePage);
+  }, [safePage, page]);
 
   const paginatedRows = React.useMemo(() => {
     if (!pagination) return allRows;
@@ -455,7 +468,11 @@ export function DataTable<TData>({
 
   return (
     <DataTableCtx.Provider value={{ gridTemplateColumns }}>
-      <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
+      <div
+        role="table"
+        aria-label={noun}
+        className="overflow-hidden rounded-lg border border-border-subtle bg-surface"
+      >
         {/* Toolbar */}
         <DataTableToolbar
           searchQuery={searchQuery}
@@ -521,7 +538,7 @@ export function DataTable<TData>({
                       : undefined
                   }
                   className={cn(
-                    'grid items-center border-b border-border-subtle px-4 py-3',
+                    'group grid items-center border-b border-border-subtle px-4 py-3',
                     // Remove bottom border from the last row (same CSS trick as DataGrid)
                     '[&:not(:has(~[role=row]))]:border-b-0',
                     clickable &&
@@ -596,7 +613,7 @@ function DataTableToolbar({
   onColumnToggle,
   actions,
 }: ToolbarProps) {
-  const hasRight = columnItems.length > 0;
+  const hasRight = true; // always show count; toggle button is conditional within
   return (
     <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
       {hasSearch && (
