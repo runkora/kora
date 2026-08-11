@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Badge, Button, Icon, Stack, Text } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
@@ -115,7 +115,7 @@ export function ModelsTab() {
         id: 'favourite',
         header: '',
         locked: true,
-        width: '2.5rem',
+        gridWidth: '2.5rem',
         cell: (row) => {
           const isFav = favourites.has(row.id);
           return (
@@ -213,7 +213,7 @@ export function ModelsTab() {
         id: 'actions',
         header: '',
         locked: true,
-        width: '2.5rem',
+        gridWidth: '2.5rem',
         cell: (row) => (
           <Button
             variant="ghost"
@@ -240,7 +240,7 @@ export function ModelsTab() {
         onSelect={setSelectedModel}
       />
 
-      <DataTable
+      <SmartTable
         tableId="gatewayModels"
         data={models}
         columns={columns}

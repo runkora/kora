@@ -7,17 +7,11 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  DataTable,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableEmpty,
-  TableHead,
-  TableHeader,
-  TableRoot,
-  TableRow,
   Text,
 } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
 import { DAILY_SPEND, type DailySpendRow } from '../../_data/mock';
 import { TableControls, type Granularity, type Period } from './table-controls';
 import { aggregateByWeek, aggregateByMonth, filterByPeriod } from './utils/table-utils';
@@ -54,6 +48,52 @@ function buildRows(data: DailySpendRow[], granularity: Granularity, period: Peri
   }));
 }
 
+const COLUMNS: DataTableColumn<SpendRow>[] = [
+  {
+    id: 'period',
+    header: 'Period',
+    gridWidth: '1fr',
+    cell: (row) => (
+      <Text size="supporting" mono>
+        {row.period}
+      </Text>
+    ),
+  },
+  {
+    id: 'total',
+    header: 'Total',
+    gridWidth: '120px',
+    align: 'right',
+    cell: (row) => (
+      <Text size="supporting" mono tabular weight="emphasis" align="end">
+        {fmtCost(row.totalUsd)}
+      </Text>
+    ),
+  },
+  {
+    id: 'prompt',
+    header: 'Prompt',
+    gridWidth: '120px',
+    align: 'right',
+    cell: (row) => (
+      <Text size="supporting" mono tabular color="muted" align="end">
+        {fmtCost(row.promptUsd)}
+      </Text>
+    ),
+  },
+  {
+    id: 'output',
+    header: 'Output',
+    gridWidth: '120px',
+    align: 'right',
+    cell: (row) => (
+      <Text size="supporting" mono tabular color="muted" align="end">
+        {fmtCost(row.outputUsd)}
+      </Text>
+    ),
+  },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SpendTable() {
@@ -79,66 +119,12 @@ export function SpendTable() {
         </Stack>
       </CardHeader>
       <CardContent flush>
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Period</TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Total
-                  </Stack>
-                </TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Prompt
-                  </Stack>
-                </TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Output
-                  </Stack>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableEmpty colSpan={4} message="No data for selected period." />
-              ) : (
-                rows.map((row) => (
-                  <TableRow key={row.period}>
-                    <TableCell>
-                      <Text size="supporting" mono>
-                        {row.period}
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="horizontal" justify="end">
-                        <Text size="supporting" mono tabular weight="emphasis">
-                          {fmtCost(row.totalUsd)}
-                        </Text>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="horizontal" justify="end">
-                        <Text size="supporting" mono tabular color="muted">
-                          {fmtCost(row.promptUsd)}
-                        </Text>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="horizontal" justify="end">
-                        <Text size="supporting" mono tabular color="muted">
-                          {fmtCost(row.outputUsd)}
-                        </Text>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableRoot>
+        <DataTable
+          data={rows}
+          columns={COLUMNS}
+          getRowKey={(row) => row.period}
+          emptyMessage="No data for selected period."
+        />
       </CardContent>
     </Card>
   );

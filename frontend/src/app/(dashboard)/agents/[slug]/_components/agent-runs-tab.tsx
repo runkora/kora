@@ -196,7 +196,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         id: 'actions',
         header: '',
         locked: true,
-        width: '8rem',
+        gridWidth: '8rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="snug">
             <Button

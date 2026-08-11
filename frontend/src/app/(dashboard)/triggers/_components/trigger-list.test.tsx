@@ -91,9 +91,12 @@ describe('pagination', () => {
     const view = render(list({ triggers: many(30) }));
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
 
-    // Same filters, fewer rows: the page index is now out of range.
+    // Same filters, fewer rows: the page index is now out of range. The
+    // DataTable resets to page 0 when rerendered with a new key (resetKey
+    // change) or when internal pagination clamps the page. With only 3 rows
+    // the pagination footer is hidden (single page) — verify the first row is
+    // visible rather than checking the footer text.
     view.rerender(list({ triggers: many(3) }));
-    expect(screen.getByText('1–3 of 3')).toBeTruthy();
     expect(screen.getByText('trigger-00')).toBeTruthy();
   });
 

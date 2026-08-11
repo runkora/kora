@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
@@ -135,7 +135,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         id: 'chevron',
         header: '',
         locked: true,
-        width: '2.5rem',
+        gridWidth: '2.5rem',
         cell: () => <Icon name="chevron-right" color="muted" />,
       },
     ],
@@ -143,7 +143,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
   );
 
   return (
-    <DataTable
+    <SmartTable
       tableId="catalogVirtualModels"
       data={models}
       columns={columns}

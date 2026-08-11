@@ -2,7 +2,7 @@
 
 /**
  * @tier 2 — Orbit-domain-aware: reads and writes `preferences.tables.columns`
- * via `usePreferences()`. Used by: model-gateway, policy, catalog.
+ * via `usePreferences()`. Used by: model-gateway, policy, catalog, analytics.
  *
  * USAGE SCOPE: Requires `<PreferencesProvider>` in the ancestor tree, which is
  * only mounted in `(dashboard)/layout.tsx`. Do not use this component outside
@@ -14,31 +14,41 @@
  *
  * Every table that uses this wrapper gets preference-backed column visibility
  * with no additional wiring — Terra has no awareness of preferences.
+ *
+ * ## SmartTable vs DataTable decision tree
+ *
+ * ```
+ * Are you building inside (dashboard)/ (authenticated shell)?
+ * ├── No  → use DataTable from @orbit/terra
+ * └── Yes → Does this table need column visibility persisted per user?
+ *           ├── No  → use DataTable from @orbit/terra
+ *           └── Yes → use SmartTable from @orbit/components  ← default choice
+ * ```
  */
 
-import { DataTable as TerraDataTable } from '@orbit/terra';
-import type { DataTableProps as TerraDataTableProps } from '@orbit/terra';
-
+import { DataTable } from '@orbit/terra';
+import type { DataTableProps } from '@orbit/terra';
 import { usePreferences } from '../app/(dashboard)/_preferences/preferences-context';
 
-// Re-export for convenience so callers only need one import.
+// Re-export column and filter types for caller convenience — one import covers all.
 export type { DataTableColumn } from '@orbit/terra';
 export type {
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
+  DataTableFilterOption,
 } from '@orbit/terra';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-export interface DataTableProps<TData> extends TerraDataTableProps<TData> {
+export interface SmartTableProps<TData> extends DataTableProps<TData> {
   /** Stable identifier for this table — keys the column visibility preference. */
   tableId: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function DataTable<TData>({ tableId, ...rest }: DataTableProps<TData>) {
+export function SmartTable<TData>({ tableId, ...rest }: SmartTableProps<TData>) {
   const { preferences, updatePreferences } = usePreferences();
   const storedVisibility = preferences.tables.columns[tableId] ?? {};
 
@@ -62,7 +72,7 @@ export function DataTable<TData>({ tableId, ...rest }: DataTableProps<TData>) {
   }
 
   return (
-    <TerraDataTable
+    <DataTable
       {...rest}
       // initialColumnVisibility is a mount-time seed only. Preference changes
       // made in another tab are not reflected until the page reloads.

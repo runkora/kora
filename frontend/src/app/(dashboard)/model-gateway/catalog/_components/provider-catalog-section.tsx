@@ -15,7 +15,7 @@ import {
   Text,
   Toggle,
 } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
@@ -523,7 +523,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
 
   return (
     <>
-      <DataTable
+      <SmartTable
         tableId="catalogProviders"
         data={localModels}
         columns={columns}

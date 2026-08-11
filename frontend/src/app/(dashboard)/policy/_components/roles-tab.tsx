@@ -26,7 +26,7 @@ import {
   ToggleRow,
   PageSectionHeader,
 } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
@@ -406,7 +406,7 @@ function RoleTable({
         id: 'actions',
         header: '',
         locked: true,
-        width: '5rem',
+        gridWidth: '5rem',
         cell: (r) => {
           const isReserved = RESERVED_ROLES.has(r.role);
           if (isReserved || (!onEdit && !onDelete)) return null;
@@ -447,7 +447,7 @@ function RoleTable({
   );
 
   return (
-    <DataTable
+    <SmartTable
       tableId="policyRoles"
       data={roles}
       columns={columns}

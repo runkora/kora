@@ -123,7 +123,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         id: 'actions',
         header: '',
         locked: true,
-        width: '5rem',
+        gridWidth: '5rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" justify="end">
             <Button

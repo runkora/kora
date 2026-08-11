@@ -206,7 +206,7 @@ export function AgentsPage() {
         id: 'actions',
         header: '',
         locked: true,
-        width: '6rem',
+        gridWidth: '6rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" onClick={(e) => e.stopPropagation()}>
             <Button

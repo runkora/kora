@@ -28,7 +28,7 @@ import {
   PageSectionHeader,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type {
   PATAttributionEntry,
@@ -613,7 +613,7 @@ function GrantTable({
         id: 'actions',
         header: '',
         locked: true,
-        width: '3rem',
+        gridWidth: '3rem',
         cell: (g) =>
           onDelete ? (
             <Button
@@ -634,7 +634,7 @@ function GrantTable({
   );
 
   return (
-    <DataTable
+    <SmartTable
       tableId="policyGrants"
       data={grants}
       columns={columns}

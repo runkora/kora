@@ -23,8 +23,6 @@ import {
   TableColumnHeader,
   // Utilities
   nextSortDir,
-  // Data table
-  DataTable,
 } from './index';
 import type { SortDir, TableColumnVisibility, TableColumnFilter } from './index';
 
@@ -560,74 +558,6 @@ export const Toolbar: Story = {
       </div>
     );
   },
-};
-
-// ── 11. DataTable ─────────────────────────────────────────────────────────────
-//
-// DataTable owns all sort, filter, and column-visibility state internally.
-// The consumer only declares column definitions and passes data — no useState
-// for sort direction, filter sets, or visible columns.
-
-export const FullTable: Story = {
-  name: 'DataTable — sort + filter + columns',
-  render: () => (
-    <div className="w-[720px]">
-      <DataTable
-        data={agents}
-        columns={[
-          {
-            id: 'id',
-            header: 'Agent ID',
-            locked: true,
-            sortable: true,
-            sortAccessor: (a) => a.id,
-            cell: (a) => <code>{a.id}</code>,
-          },
-          {
-            id: 'status',
-            header: 'Status',
-            filter: {
-              mode: 'client',
-              options: STATUS_OPTS,
-              filterFn: (a, selected) => selected.has(a.status),
-            },
-            cell: (a) => a.status,
-          },
-          {
-            id: 'tools',
-            header: 'Tools',
-            sortable: true,
-            sortAccessor: (a) => String(a.tools),
-            cell: (a) => a.tools,
-          },
-          {
-            id: 'uptime',
-            header: 'Uptime',
-            cell: (a) => a.uptime,
-          },
-          {
-            id: 'cpu',
-            header: 'CPU',
-            align: 'right',
-            sortable: true,
-            defaultVisible: false,
-            sortAccessor: (a) => a.cpu,
-            cell: (a) => a.cpu,
-          },
-        ]}
-        getRowKey={(a) => a.id}
-        noun="agents"
-        searchPlaceholder="Search agents…"
-        searchFn={(row, q) =>
-          row.id.toLowerCase().includes(q) || row.status.toLowerCase().includes(q)
-        }
-        defaultSortId="id"
-        defaultSortDir="asc"
-        emptyMessage="No agents found."
-        filteredEmptyMessage="No agents match your filters."
-      />
-    </div>
-  ),
 };
 
 // ── TableToolbarShell ─────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Callout, Stack, Text } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
@@ -324,7 +324,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         </Callout>
       )}
 
-      <DataTable
+      <SmartTable
         tableId="inferenceLogs"
         data={records}
         columns={columns}
