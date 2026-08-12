@@ -214,8 +214,13 @@ func TestAnthropicEventToOpenAIChunk_MessageStart(t *testing.T) {
 	if chunk.ID != "msg_stream" {
 		t.Errorf("ID = %q, want msg_stream", chunk.ID)
 	}
-	if chunk.Usage.PromptTokens != 20 {
-		t.Errorf("PromptTokens = %d, want 20", chunk.Usage.PromptTokens)
+	// Usage is deferred to message_delta; message_start chunk carries no token counts.
+	if chunk.Usage.PromptTokens != 0 {
+		t.Errorf("PromptTokens = %d, want 0 (deferred to message_delta)", chunk.Usage.PromptTokens)
+	}
+	// Input tokens are captured in state for emission in the combined usage chunk.
+	if s.InputTokens != 20 {
+		t.Errorf("state.InputTokens = %d, want 20", s.InputTokens)
 	}
 	if s.MessageID != "msg_stream" {
 		t.Errorf("state.MessageID = %q, want msg_stream", s.MessageID)
@@ -313,6 +318,7 @@ func TestAnthropicEventToOpenAIChunk_MessageDelta(t *testing.T) {
 	t.Parallel()
 	s := convert.NewAnthropicStreamState()
 	s.MessageID = "msg_1"
+	s.InputTokens = 20 // captured from message_start in real streams
 	ev := anthropic.MessageStreamEventUnion{
 		Type: "message_delta",
 		Delta: anthropic.MessageStreamEventUnionDelta{
@@ -324,8 +330,15 @@ func TestAnthropicEventToOpenAIChunk_MessageDelta(t *testing.T) {
 	if !ok {
 		t.Fatal("expected chunk for message_delta")
 	}
+	// message_delta emits the combined usage chunk with both prompt and completion.
+	if chunk.Usage.PromptTokens != 20 {
+		t.Errorf("PromptTokens = %d, want 20 (carried from state.InputTokens)", chunk.Usage.PromptTokens)
+	}
 	if chunk.Usage.CompletionTokens != 30 {
 		t.Errorf("CompletionTokens = %d, want 30", chunk.Usage.CompletionTokens)
+	}
+	if chunk.Usage.TotalTokens != 50 {
+		t.Errorf("TotalTokens = %d, want 50 (20+30)", chunk.Usage.TotalTokens)
 	}
 	if chunk.Choices[0].FinishReason != "stop" {
 		t.Errorf("FinishReason = %q, want stop", chunk.Choices[0].FinishReason)

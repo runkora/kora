@@ -389,6 +389,7 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 type AnthropicStreamState struct {
 	MessageID   string
 	Model       string
+	InputTokens int64           // captured from message_start; emitted in the message_delta usage chunk
 	toolCallIdx map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
 	nextTCIdx   int64
 }
@@ -410,14 +411,15 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 	case "message_start":
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
+		// Defer emitting usage to message_delta so the client sees a single final
+		// chunk with both prompt and completion tokens (matches standard OpenAI
+		// streaming behavior).
+		s.InputTokens = event.Message.Usage.InputTokens
 		return &openai.ChatCompletionChunk{
 			ID:      s.MessageID,
 			Object:  "chat.completion.chunk",
 			Model:   s.Model,
 			Choices: []openai.ChatCompletionChunkChoice{},
-			Usage: openai.CompletionUsage{
-				PromptTokens: event.Message.Usage.InputTokens,
-			},
 		}, true
 
 	case "content_block_start":
@@ -506,7 +508,9 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 				},
 			},
 			Usage: openai.CompletionUsage{
+				PromptTokens:     s.InputTokens,
 				CompletionTokens: event.Usage.OutputTokens,
+				TotalTokens:      s.InputTokens + event.Usage.OutputTokens,
 			},
 		}, true
 	}
