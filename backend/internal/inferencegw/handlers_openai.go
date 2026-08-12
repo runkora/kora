@@ -213,8 +213,9 @@ func toAnthropicModelsResponse(data []modelObject) anthropicModelsResponse {
 	}
 	resp := anthropicModelsResponse{Data: items, HasMore: false}
 	if len(items) > 0 {
-		resp.FirstID = &items[0].ID
-		resp.LastID = &items[len(items)-1].ID
+		first, last := items[0].ID, items[len(items)-1].ID
+		resp.FirstID = &first
+		resp.LastID = &last
 	}
 	return resp
 }
