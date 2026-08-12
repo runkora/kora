@@ -345,6 +345,62 @@ func TestAnthropicEventToOpenAIChunk_MessageDelta(t *testing.T) {
 	}
 }
 
+// TestAnthropicEventToOpenAIChunk_CombinedUsage verifies that the full
+// message_start → message_delta sequence surfaces all token counts, including
+// cache read tokens in PromptTokensDetails.CachedTokens (used by ccusage/OpenCode).
+func TestAnthropicEventToOpenAIChunk_CombinedUsage(t *testing.T) {
+	t.Parallel()
+	s := convert.NewAnthropicStreamState()
+
+	start := anthropic.MessageStreamEventUnion{
+		Type: "message_start",
+		Message: anthropic.Message{
+			ID:    "msg_1",
+			Model: "claude-sonnet-4-5",
+			Usage: anthropic.Usage{
+				InputTokens:              100,
+				CacheReadInputTokens:     40,
+				CacheCreationInputTokens: 60,
+			},
+		},
+	}
+	startChunk, ok := convert.AnthropicEventToOpenAIChunk(start, s)
+	if !ok {
+		t.Fatal("expected chunk for message_start")
+	}
+	// message_start should not carry usage; deferring to message_delta.
+	if startChunk.Usage.PromptTokens != 0 {
+		t.Errorf("message_start PromptTokens = %d, want 0 (deferred)", startChunk.Usage.PromptTokens)
+	}
+
+	delta := anthropic.MessageStreamEventUnion{
+		Type:  "message_delta",
+		Delta: anthropic.MessageStreamEventUnionDelta{StopReason: anthropic.StopReasonEndTurn},
+		Usage: anthropic.MessageDeltaUsage{OutputTokens: 50},
+	}
+	deltaChunk, ok := convert.AnthropicEventToOpenAIChunk(delta, s)
+	if !ok {
+		t.Fatal("expected chunk for message_delta")
+	}
+	if deltaChunk.Usage.PromptTokens != 100 {
+		t.Errorf("PromptTokens = %d, want 100", deltaChunk.Usage.PromptTokens)
+	}
+	if deltaChunk.Usage.CompletionTokens != 50 {
+		t.Errorf("CompletionTokens = %d, want 50", deltaChunk.Usage.CompletionTokens)
+	}
+	if deltaChunk.Usage.TotalTokens != 150 {
+		t.Errorf("TotalTokens = %d, want 150", deltaChunk.Usage.TotalTokens)
+	}
+	if deltaChunk.Usage.PromptTokensDetails.CachedTokens != 40 {
+		t.Errorf("CachedTokens = %d, want 40 (cache_read_input_tokens)", deltaChunk.Usage.PromptTokensDetails.CachedTokens)
+	}
+	// CacheCreationTokens propagate via state for the service layer to record in usage;
+	// they are not forwarded in the OpenAI chunk (no standard field).
+	if s.CacheCreationTokens != 60 {
+		t.Errorf("state.CacheCreationTokens = %d, want 60", s.CacheCreationTokens)
+	}
+}
+
 func TestAnthropicEventToOpenAIChunk_ContentBlockStop_Suppressed(t *testing.T) {
 	t.Parallel()
 	s := convert.NewAnthropicStreamState()

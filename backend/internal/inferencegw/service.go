@@ -405,7 +405,7 @@ func (s *Service) ChatCompletionStream(
 		defer span.End()
 		defer close(out)
 
-		promptTokens, completionTokens, totalTokens, cacheReadTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
+		promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheCreationTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
 
 		latencyMS := int(time.Since(start).Milliseconds())
 
@@ -429,7 +429,7 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -447,6 +447,7 @@ func (s *Service) ChatCompletionStream(
 			CompletionTokens:             completionTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
 			EstimatedCostUSD:             estimatedCost,
 			PriceUnknown:                 pricing.priceUnknown,
 			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -487,7 +488,7 @@ func drainOpenAIStream(
 	ctx context.Context,
 	upstream <-chan OpenAIStreamResult,
 	out chan<- OpenAIStreamResult,
-) (promptTokens, completionTokens, totalTokens, cacheReadTokens int, streamErr error) {
+) (promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheCreationTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -510,6 +511,7 @@ func drainOpenAIStream(
 				totalTokens += int(result.Chunk.Usage.TotalTokens)
 				cacheReadTokens += int(result.Chunk.Usage.PromptTokensDetails.CachedTokens)
 			}
+			cacheCreationTokens += int(result.CacheCreationTokens)
 			select {
 			case out <- result:
 			case <-ctx.Done():

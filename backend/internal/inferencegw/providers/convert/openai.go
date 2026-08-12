@@ -387,11 +387,13 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 // Anthropic SSE events into a sequence of OpenAI chat.completion.chunk objects.
 // Create one per stream with NewAnthropicStreamState.
 type AnthropicStreamState struct {
-	MessageID   string
-	Model       string
-	InputTokens int64           // captured from message_start; emitted in the message_delta usage chunk
-	toolCallIdx map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
-	nextTCIdx   int64
+	MessageID           string
+	Model               string
+	InputTokens         int64           // captured from message_start; emitted in the message_delta usage chunk
+	CacheReadTokens     int64           // cache_read_input_tokens from message_start
+	CacheCreationTokens int64           // cache_creation_input_tokens from message_start
+	toolCallIdx         map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
+	nextTCIdx           int64
 }
 
 // NewAnthropicStreamState initializes an AnthropicStreamState for a new stream.
@@ -415,6 +417,8 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 		// chunk with both prompt and completion tokens (matches standard OpenAI
 		// streaming behavior).
 		s.InputTokens = event.Message.Usage.InputTokens
+		s.CacheReadTokens = event.Message.Usage.CacheReadInputTokens
+		s.CacheCreationTokens = event.Message.Usage.CacheCreationInputTokens
 		return &openai.ChatCompletionChunk{
 			ID:      s.MessageID,
 			Object:  "chat.completion.chunk",
@@ -511,6 +515,9 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 				PromptTokens:     s.InputTokens,
 				CompletionTokens: event.Usage.OutputTokens,
 				TotalTokens:      s.InputTokens + event.Usage.OutputTokens,
+				PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+					CachedTokens: s.CacheReadTokens,
+				},
 			},
 		}, true
 	}

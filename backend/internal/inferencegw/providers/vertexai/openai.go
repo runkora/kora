@@ -148,7 +148,11 @@ func (c *Connector) claudeChatCompletionStream(ctx context.Context, params opena
 			eventCount++
 			event := stream.Current()
 			if chunk, ok := convert.AnthropicEventToOpenAIChunk(event, state); ok {
-				ch <- inferencegw.OpenAIStreamResult{Chunk: chunk}
+				result := inferencegw.OpenAIStreamResult{Chunk: chunk}
+				if event.Type == "message_delta" {
+					result.CacheCreationTokens = state.CacheCreationTokens
+				}
+				ch <- result
 			}
 		}
 		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {

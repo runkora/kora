@@ -28,9 +28,12 @@ type OpenAIConnector interface {
 // OpenAIStreamResult is one element emitted on a ChatCompletionStream channel.
 // On a mid-stream provider error Err is non-nil and Chunk is nil; callers must
 // check Err before using Chunk. The channel is always closed when the stream ends.
+// CacheCreationTokens is a side-channel for cache-write token counts that have no
+// standard OpenAI wire field; it is never serialized to the client.
 type OpenAIStreamResult struct {
-	Chunk *openai.ChatCompletionChunk
-	Err   error
+	Chunk               *openai.ChatCompletionChunk
+	Err                 error
+	CacheCreationTokens int64
 }
 
 // AnthropicStreamEvent wraps a raw Anthropic SDK stream event with an optional
