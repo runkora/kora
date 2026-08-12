@@ -138,6 +138,32 @@ func TestDrainOpenAIStream_ExtractsCacheReadTokens(t *testing.T) {
 	}
 }
 
+func TestDrainOpenAIStream_ExtractsCacheCreationTokens(t *testing.T) {
+	t.Parallel()
+	upstream := make(chan OpenAIStreamResult, 2)
+	out := make(chan OpenAIStreamResult, 2)
+
+	// CacheCreationTokens travels as a side-channel on OpenAIStreamResult (not in
+	// the OpenAI chunk wire format). Use two results to verify additive accumulation.
+	upstream <- OpenAIStreamResult{
+		Chunk:               &openai.ChatCompletionChunk{},
+		CacheCreationTokens: 60,
+	}
+	upstream <- OpenAIStreamResult{
+		Chunk:               &openai.ChatCompletionChunk{},
+		CacheCreationTokens: 15,
+	}
+	close(upstream)
+
+	_, _, _, _, cacheCreation, err := drainOpenAIStream(context.Background(), upstream, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cacheCreation != 75 {
+		t.Errorf("cacheCreationTokens = %d, want 75 (60+15 from two results)", cacheCreation)
+	}
+}
+
 // ─── drainResponsesStream ────────────────────────────────────────────────────
 
 func TestDrainResponsesStream_CompletesNormally(t *testing.T) {
