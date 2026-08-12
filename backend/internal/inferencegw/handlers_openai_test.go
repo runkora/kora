@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	openai "github.com/openai/openai-go/v3"
 )
@@ -198,5 +199,97 @@ func TestMarshalStreamChunk_UsageTotalTokens(t *testing.T) {
 	}
 	if usage["total_tokens"] != 15 {
 		t.Errorf("total_tokens = %d, want 15", usage["total_tokens"])
+	}
+}
+
+// ─── toAnthropicModelsResponse ────────────────────────────────────────────────
+
+func TestToAnthropicModelsResponse(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		input       []modelObject
+		wantLen     int
+		wantFirstID string // empty means expect nil
+		wantLastID  string // empty means expect nil
+	}{
+		{
+			name:  "empty",
+			input: []modelObject{},
+		},
+		{
+			name: "single",
+			input: []modelObject{
+				{ID: "model-a", DisplayName: "Model A", Created: 1700000000},
+			},
+			wantLen:     1,
+			wantFirstID: "model-a",
+			wantLastID:  "model-a",
+		},
+		{
+			name: "multiple",
+			input: []modelObject{
+				{ID: "model-a", DisplayName: "Model A", Created: 1700000000},
+				{ID: "model-b", DisplayName: "Model B", Created: 1700000001},
+				{ID: "model-c", DisplayName: "Model C", Created: 1700000002},
+			},
+			wantLen:     3,
+			wantFirstID: "model-a",
+			wantLastID:  "model-c",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			resp := toAnthropicModelsResponse(tc.input)
+
+			if len(resp.Data) != tc.wantLen {
+				t.Errorf("len(Data) = %d, want %d", len(resp.Data), tc.wantLen)
+			}
+			if resp.HasMore {
+				t.Errorf("HasMore = true, want false")
+			}
+
+			if tc.wantFirstID == "" {
+				if resp.FirstID != nil {
+					t.Errorf("FirstID = %q, want nil", *resp.FirstID)
+				}
+			} else if resp.FirstID == nil || *resp.FirstID != tc.wantFirstID {
+				got := "<nil>"
+				if resp.FirstID != nil {
+					got = *resp.FirstID
+				}
+				t.Errorf("FirstID = %q, want %q", got, tc.wantFirstID)
+			}
+
+			if tc.wantLastID == "" {
+				if resp.LastID != nil {
+					t.Errorf("LastID = %q, want nil", *resp.LastID)
+				}
+			} else if resp.LastID == nil || *resp.LastID != tc.wantLastID {
+				got := "<nil>"
+				if resp.LastID != nil {
+					got = *resp.LastID
+				}
+				t.Errorf("LastID = %q, want %q", got, tc.wantLastID)
+			}
+
+			for i, item := range resp.Data {
+				if item.Type != "model" {
+					t.Errorf("Data[%d].Type = %q, want \"model\"", i, item.Type)
+				}
+				if _, err := time.Parse(time.RFC3339, item.CreatedAt); err != nil {
+					t.Errorf("Data[%d].CreatedAt = %q: not valid RFC3339: %v", i, item.CreatedAt, err)
+				}
+				if item.ID != tc.input[i].ID {
+					t.Errorf("Data[%d].ID = %q, want %q", i, item.ID, tc.input[i].ID)
+				}
+				if item.DisplayName != tc.input[i].DisplayName {
+					t.Errorf("Data[%d].DisplayName = %q, want %q", i, item.DisplayName, tc.input[i].DisplayName)
+				}
+			}
+		})
 	}
 }

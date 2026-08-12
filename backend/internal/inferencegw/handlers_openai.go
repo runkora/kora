@@ -186,6 +186,39 @@ type modelObject struct {
 	Pricing          *modelObjectPricing `json:"pricing,omitempty"`
 }
 
+// anthropicModelsResponse is the Anthropic-compatible /v1/models response shape.
+type anthropicModelsResponse struct {
+	Data    []anthropicModelObject `json:"data"`
+	HasMore bool                   `json:"has_more"`
+	FirstID *string                `json:"first_id"`
+	LastID  *string                `json:"last_id"`
+}
+
+type anthropicModelObject struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   string `json:"created_at"` // RFC3339 UTC
+}
+
+func toAnthropicModelsResponse(data []modelObject) anthropicModelsResponse {
+	items := make([]anthropicModelObject, len(data))
+	for i, m := range data {
+		items[i] = anthropicModelObject{
+			Type:        "model",
+			ID:          m.ID,
+			DisplayName: m.DisplayName,
+			CreatedAt:   time.Unix(m.Created, 0).UTC().Format(time.RFC3339),
+		}
+	}
+	resp := anthropicModelsResponse{Data: items, HasMore: false}
+	if len(items) > 0 {
+		resp.FirstID = &items[0].ID
+		resp.LastID = &items[len(items)-1].ID
+	}
+	return resp
+}
+
 // pmKey is the composite key used to look up provider models by (provider, modelID).
 type pmKey struct {
 	provider ProviderName
@@ -407,6 +440,10 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	if r.Header.Get("anthropic-version") != "" {
+		api.JSON(ctx, w, c.logger, http.StatusOK, toAnthropicModelsResponse(data))
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, modelsResponse{
 		Object: "list",
 		Data:   data,
