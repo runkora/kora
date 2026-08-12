@@ -8,7 +8,6 @@ import { useRouter } from 'next/navigation';
 import {
   Alert,
   Button,
-  Input,
   NativeSelect,
   SegmentedControl,
   Heading,
@@ -32,7 +31,7 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { deliveryTriggerLabel, matchesStatusFilter } from '../_types';
+import { matchesStatusFilter } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
@@ -75,118 +74,24 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   // asked is "what did this delivery do", not "how is that trigger set up".
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
   const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
-  const [query, setQuery] = useState('');
-
-  // The grid renders the toolbar but owns none of it, so the page holds both the
-  // kind filter and the search and hands down the rows that survived them.
-  const visibleTriggers = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return triggers.filter(
-      (t) =>
-        (kindFilter === 'all' || t.kind === kindFilter) &&
-        (q === '' ||
-          t.name.toLowerCase().includes(q) ||
-          t.agentSlug.toLowerCase().includes(q) ||
-          t.eventType.toLowerCase().includes(q)),
-    );
-  }, [triggers, kindFilter, query]);
 
   // Filter by how a trigger starts. Triggers are the front door for starting
   // work, so the kind is the primary way to slice them, and the counts are part
   // of the answer rather than decoration.
-  const filterRow = (
-    <Stack direction="horizontal" align="center" justify="between" gap="cozy" grow>
-      <SegmentedControl
-        aria-label="Filter triggers by kind"
-        value={kindFilter}
-        onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
-        options={[
-          {
-            value: 'all',
-            label: 'All',
-            icon: <Icon name="layers" size="2xs" />,
-            count: triggers.length,
-          },
-          {
-            value: 'webhook',
-            label: 'Webhook',
-            icon: <Icon name="webhook" size="2xs" />,
-            count: triggers.filter((t) => t.kind === 'webhook').length,
-          },
-          {
-            value: 'scheduled',
-            label: 'Schedule',
-            icon: <Icon name="clock" size="2xs" />,
-            count: triggers.filter((t) => t.kind === 'scheduled').length,
-          },
-          {
-            value: 'manual',
-            label: 'Manual',
-            icon: <Icon name="play" size="2xs" />,
-            count: triggers.filter((t) => t.kind === 'manual').length,
-          },
-        ]}
-      />
-      <Stack direction="horizontal" gap="snug" align="center" grow justify="end">
-        <Stack grow maxWidth="search-field">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search triggers…"
-            aria-label="Search triggers"
-          />
-        </Stack>
-        <Button size="sm" onClick={() => setWizardOpen(true)}>
-          <Icon name="plus" size="xs" />
-          New trigger
-        </Button>
-      </Stack>
-    </Stack>
+  const visibleTriggers = useMemo(
+    () => (kindFilter === 'all' ? triggers : triggers.filter((t) => t.kind === kindFilter)),
+    [triggers, kindFilter],
   );
 
-  // ── Deliveries: status filter and search ─────────────────────────────────────
+  // ── Deliveries: status filter ─────────────────────────────────────────────────
   const [deliveryStatus, setDeliveryStatus] = useState('all');
-  const [deliveryQuery, setDeliveryQuery] = useState('');
 
-  const visibleDeliveries = useMemo(() => {
-    const q = deliveryQuery.trim().toLowerCase();
-    const selected = new Set([deliveryStatus]);
-    return deliveries.filter((d) => {
-      if (deliveryStatus !== 'all' && !matchesStatusFilter(d, selected)) return false;
-      if (q === '') return true;
-      // Searched over what the row actually shows, plus the id, so a delivery
-      // quoted in a log line can be found by pasting it in.
-      return [d.eventType, d.status, deliveryTriggerLabel(d), sourceName(d.sourceId), d.id].some(
-        (field) => field.toLowerCase().includes(q),
-      );
-    });
-  }, [deliveries, deliveryStatus, deliveryQuery, sourceName]);
-
-  const deliveryFilterRow = (
-    <Stack direction="horizontal" align="center" justify="between" gap="cozy" grow>
-      <Stack maxWidth="form-field">
-        <NativeSelect
-          aria-label="Filter deliveries by status"
-          value={deliveryStatus}
-          onChange={(e) => setDeliveryStatus(e.target.value)}
-        >
-          <option value="all">All statuses</option>
-          {DELIVERY_STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </Stack>
-      <Stack grow maxWidth="search-field">
-        <Input
-          value={deliveryQuery}
-          onChange={(e) => setDeliveryQuery(e.target.value)}
-          placeholder="Search deliveries…"
-          aria-label="Search deliveries"
-        />
-      </Stack>
-    </Stack>
+  const visibleDeliveries = useMemo(
+    () =>
+      deliveryStatus === 'all'
+        ? deliveries
+        : deliveries.filter((d) => matchesStatusFilter(d, new Set([deliveryStatus]))),
+    [deliveries, deliveryStatus],
   );
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
@@ -268,8 +173,46 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         <TabsContent value="triggers">
           <Stack gap="comfortable">
             <TriggerList
-              toolbar={filterRow}
-              resetKey={`${kindFilter}|${query.trim()}`}
+              quickFilters={
+                <SegmentedControl
+                  aria-label="Filter triggers by kind"
+                  value={kindFilter}
+                  onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
+                  options={[
+                    {
+                      value: 'all',
+                      label: 'All',
+                      icon: <Icon name="layers" size="2xs" />,
+                      count: triggers.length,
+                    },
+                    {
+                      value: 'webhook',
+                      label: 'Webhook',
+                      icon: <Icon name="webhook" size="2xs" />,
+                      count: triggers.filter((t) => t.kind === 'webhook').length,
+                    },
+                    {
+                      value: 'scheduled',
+                      label: 'Schedule',
+                      icon: <Icon name="clock" size="2xs" />,
+                      count: triggers.filter((t) => t.kind === 'scheduled').length,
+                    },
+                    {
+                      value: 'manual',
+                      label: 'Manual',
+                      icon: <Icon name="play" size="2xs" />,
+                      count: triggers.filter((t) => t.kind === 'manual').length,
+                    },
+                  ]}
+                />
+              }
+              toolbarActions={
+                <Button size="sm" onClick={() => setWizardOpen(true)}>
+                  <Icon name="plus" size="xs" />
+                  New trigger
+                </Button>
+              }
+              resetKey={kindFilter}
               triggers={visibleTriggers}
               deliveries={deliveries}
               sourceName={sourceName}
@@ -278,9 +221,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               emptyMessage={
                 triggers.length === 0
                   ? 'No triggers yet.'
-                  : query.trim() !== ''
-                    ? 'No triggers match this search.'
-                    : `No ${kindFilter} triggers.`
+                  : `No ${kindFilter === 'all' ? '' : kindFilter + ' '}triggers.`
               }
             />
           </Stack>
@@ -289,17 +230,28 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         {/* Deliveries */}
         <TabsContent value="deliveries">
           <DeliveryGrid
-            toolbar={deliveryFilterRow}
-            resetKey={`${deliveryStatus}|${deliveryQuery.trim()}`}
+            quickFilters={
+              <NativeSelect
+                aria-label="Filter deliveries by status"
+                value={deliveryStatus}
+                onChange={(e) => setDeliveryStatus(e.target.value)}
+              >
+                <option value="all">All statuses</option>
+                {DELIVERY_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+            resetKey={deliveryStatus}
             deliveries={visibleDeliveries}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage={
               deliveries.length === 0
                 ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : deliveryQuery.trim() !== ''
-                  ? 'No deliveries match this search.'
-                  : `No ${deliveryStatus} deliveries.`
+                : `No ${deliveryStatus === 'all' ? '' : deliveryStatus + ' '}deliveries.`
             }
           />
         </TabsContent>

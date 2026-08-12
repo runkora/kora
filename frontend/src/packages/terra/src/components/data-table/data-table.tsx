@@ -54,8 +54,7 @@
  * ```
  *
  * **Server-side** — manage page state externally, pass the current page slice
- * as `data`, and use `totalCount` so the toolbar count reflects the full set.
- * Render your own pagination controls beneath the table.
+ * as `data`. Render your own pagination controls beneath the table.
  *
  * **Server-side sort** — provide `onSortChange`; DataTable delegates reordering
  * to the consumer and disables client-side sort.
@@ -195,20 +194,18 @@ export interface DataTableProps<TData> {
 
   // Toolbar
   toolbarActions?: React.ReactNode;
+  /** Rendered left of the centered count — use for a section title. */
+  toolbarTitle?: React.ReactNode;
+  /** Rendered right of center, before the columns button and search. */
+  quickFilters?: React.ReactNode;
 
   // Empty / error states
   emptyMessage?: string;
   filteredEmptyMessage?: string;
   error?: React.ReactNode;
 
-  // Count display
+  // Pagination noun (shown in footer)
   noun?: string;
-  /**
-   * Override the total count shown in the toolbar.
-   * Use for server-paginated tables where `data` is a single page.
-   * Defaults to data.length.
-   */
-  totalCount?: number;
 
   /**
    * When provided, enables client-side pagination via an internal footer.
@@ -247,11 +244,12 @@ export function DataTable<TData>({
   initialColumnVisibility,
   onColumnVisibilityChange,
   toolbarActions,
+  toolbarTitle,
+  quickFilters,
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   error,
   noun = 'records',
-  totalCount,
   pagination,
 }: DataTableProps<TData>) {
   // ── State ───────────────────────────────────────────────────────────────────
@@ -459,7 +457,6 @@ export function DataTable<TData>({
     }));
 
   // Pagination window
-  const totalRows = totalCount ?? allRows.length;
   const pageCount = safePageCount;
   const from = pagination && allRows.length > 0 ? safePage * pageSize + 1 : 1;
   const to = pagination ? Math.min((safePage + 1) * pageSize, allRows.length) : allRows.length;
@@ -479,7 +476,6 @@ export function DataTable<TData>({
           onSearchChange={setSearchQuery}
           searchPlaceholder={searchPlaceholder}
           hasSearch={!!searchFn}
-          count={{ showing: allRows.length, total: totalRows, label: noun }}
           columnItems={toolbarColumnItems}
           onColumnToggle={(id) => {
             const col = table.getColumn(id);
@@ -489,6 +485,8 @@ export function DataTable<TData>({
             onColumnVisibilityChange?.(id, newVisible);
           }}
           actions={toolbarActions}
+          quickFilters={quickFilters}
+          title={toolbarTitle}
         />
 
         {/* Header row */}
@@ -597,10 +595,11 @@ interface ToolbarProps {
   onSearchChange: (v: string) => void;
   searchPlaceholder?: string;
   hasSearch: boolean;
-  count: { showing: number; total: number; label: string };
   columnItems: { id: string; label: string; visible: boolean }[];
   onColumnToggle: (id: string) => void;
   actions?: React.ReactNode;
+  quickFilters?: React.ReactNode;
+  title?: React.ReactNode;
 }
 
 function DataTableToolbar({
@@ -608,41 +607,41 @@ function DataTableToolbar({
   onSearchChange,
   searchPlaceholder,
   hasSearch,
-  count,
   columnItems,
   onColumnToggle,
   actions,
+  quickFilters,
+  title,
 }: ToolbarProps) {
-  const hasRight = true; // always show count; toggle button is conditional within
   return (
-    <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
-      {hasSearch && (
-        <div className="relative">
-          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-subtle">
-            <Icon name="search" size="2xs" />
+    <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3 min-h-[52px]">
+      {/* Left: optional title, then quick filters, then columns button */}
+      <div className="flex items-center gap-2">
+        {title}
+        {quickFilters}
+        {columnItems.length > 0 && (
+          <ColumnVisibilityToggle items={columnItems} onToggle={onColumnToggle} />
+        )}
+      </div>
+
+      {/* Right: search input then action buttons */}
+      <div className="ml-auto flex items-center gap-2">
+        {hasSearch && (
+          <div className="relative">
+            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-subtle">
+              <Icon name="search" size="2xs" />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder={searchPlaceholder ?? 'Search…'}
+              className="h-8 w-56 rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
+            />
           </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder ?? 'Search…'}
-            className="h-8 w-56 rounded-md border border-border bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-      )}
-
-      {actions}
-
-      {hasRight && (
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-sm text-subtle whitespace-nowrap">
-            Showing {count.showing.toLocaleString()} of {count.total.toLocaleString()} {count.label}
-          </span>
-          {columnItems.length > 0 && (
-            <ColumnVisibilityToggle items={columnItems} onToggle={onColumnToggle} />
-          )}
-        </div>
-      )}
+        )}
+        {actions}
+      </div>
     </div>
   );
 }
@@ -659,9 +658,10 @@ function ColumnVisibilityToggle({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated focus:outline-none focus:ring-1 focus:ring-accent"
+          aria-label="Toggle column visibility"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-sm text-foreground transition-colors hover:bg-surface-elevated focus:outline-none focus:ring-1 focus:ring-accent"
         >
-          <Icon name="settings" size="xs" />
+          <Icon name="settings-2" size="sm" />
           Columns
         </button>
       </PopoverTrigger>
@@ -722,7 +722,7 @@ function DataTableHeader<TData>({
     <div
       role="row"
       className={cn(
-        'grid items-center border-b border-border-subtle px-4 py-[9px]',
+        'relative grid items-center border-b border-border-subtle px-4 py-[9px]',
         sectionLabelVariants(),
       )}
       style={{ gridTemplateColumns, columnGap: '14px' }}

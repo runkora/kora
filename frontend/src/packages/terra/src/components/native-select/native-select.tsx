@@ -54,8 +54,10 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
         aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
-          // Layout & typography — matches Input height and padding
-          'flex h-9 w-full rounded-md px-3 py-1',
+          // Layout & typography — matches Input height and padding.
+          // pr-8 (32px) = pl-3 (12px) + ~20px for the native browser chevron,
+          // so the visible space to the right of the arrow matches the left margin.
+          'flex h-9 w-full rounded-md pl-3 pr-8 py-1',
           'text-sm text-foreground font-normal',
           'bg-surface-elevated border',
           // Border colour — normal vs error

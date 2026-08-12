@@ -166,6 +166,18 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
   ];
 }
 
+// ── Search ────────────────────────────────────────────────────────────────────
+
+function deliveryMatchesSearch(row: DeliveryDisplayRow, q: string): boolean {
+  return (
+    row.id.toLowerCase().includes(q) ||
+    row.eventType.toLowerCase().includes(q) ||
+    row.status.toLowerCase().includes(q) ||
+    (row.identity.kind !== 'none' && row.identity.label.toLowerCase().includes(q)) ||
+    row.arrivedVia.toLowerCase().includes(q)
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface DeliveryGridProps {
@@ -175,8 +187,8 @@ interface DeliveryGridProps {
   onOpen: (d: DeliveryRow) => void;
   /** Shown inside the frame when there are no rows. */
   emptyMessage: string;
-  /** Filters and search, rendered inside the grid's frame above the header. */
-  toolbar?: React.ReactNode;
+  /** Status filter or similar, rendered in the toolbar's right slot. */
+  quickFilters?: React.ReactNode;
   /**
    * Changes whenever the filters upstream change. A new value remounts the
    * DataTable, resetting all internal state including the current page.
@@ -189,7 +201,7 @@ export function DeliveryGrid({
   sourceName,
   onOpen,
   emptyMessage,
-  toolbar,
+  quickFilters,
   resetKey = '',
 }: DeliveryGridProps) {
   // Pre-compute per-row derived values once. Multiple cells reference the same
@@ -218,7 +230,9 @@ export function DeliveryGrid({
       emptyMessage={emptyMessage}
       onRowClick={onOpen}
       rowLabel={(row) => `View payload and outcome for delivery ${shortId(row.id)}`}
-      toolbarActions={toolbar}
+      searchFn={deliveryMatchesSearch}
+      searchPlaceholder="Search deliveries…"
+      quickFilters={quickFilters}
       pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
     />
   );

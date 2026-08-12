@@ -174,6 +174,16 @@ function makeColumns(
   ];
 }
 
+// ── Search ────────────────────────────────────────────────────────────────────
+
+function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
+  return (
+    row.name.toLowerCase().includes(q) ||
+    row.agentSlug.toLowerCase().includes(q) ||
+    row.eventType.toLowerCase().includes(q)
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface TriggerListProps {
@@ -185,12 +195,10 @@ interface TriggerListProps {
   onToggle: (t: TriggerRow) => void;
   /** Shown inside the frame when there are no rows. */
   emptyMessage: string;
-  /**
-   * Filters and search, rendered inside the grid's frame above the header.
-   * Keeping them in the frame means a filter that matches nothing cannot take
-   * its own escape hatch off screen.
-   */
-  toolbar?: React.ReactNode;
+  /** Segmented filter or similar, rendered in the toolbar's right slot. */
+  quickFilters?: React.ReactNode;
+  /** Action buttons (e.g. New trigger), rendered at the far right of the toolbar. */
+  toolbarActions?: React.ReactNode;
   /**
    * Changes whenever the filters upstream change. A new value remounts the
    * DataTable, resetting all internal state including the current page.
@@ -205,7 +213,8 @@ export function TriggerList({
   onOpen,
   onToggle,
   emptyMessage,
-  toolbar,
+  quickFilters,
+  toolbarActions,
   resetKey = '',
 }: TriggerListProps) {
   // Pre-compute per-row derived values once. Multiple cells reference the same
@@ -241,7 +250,10 @@ export function TriggerList({
       emptyMessage={emptyMessage}
       onRowClick={onOpen}
       rowLabel={(row) => `Open ${row.name}`}
-      toolbarActions={toolbar}
+      searchFn={triggerMatchesSearch}
+      searchPlaceholder="Search triggers…"
+      quickFilters={quickFilters}
+      toolbarActions={toolbarActions}
       pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
     />
   );

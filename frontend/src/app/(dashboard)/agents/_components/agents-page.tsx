@@ -15,6 +15,7 @@ import {
   Grid,
   Heading,
   Icon,
+  SegmentedControl,
   Separator,
   Stack,
   Text,
@@ -71,6 +72,7 @@ export function AgentsPage() {
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
 
   // ── Metric card computations ───────────────────────────────────────────────
 
@@ -133,6 +135,22 @@ export function AgentsPage() {
     }
     return counts;
   }, [recentRuns]);
+
+  // ── Identity filter (list view) ────────────────────────────────────────────
+
+  const identityCounts = useMemo(
+    () => ({
+      all: agentTypes.length,
+      autonomous: agentTypes.filter((a) => a.identityMode === 'autonomous').length,
+      delegated: agentTypes.filter((a) => a.identityMode === 'delegated').length,
+    }),
+    [agentTypes],
+  );
+
+  const filteredAgentTypes = useMemo(() => {
+    if (identityFilter === 'all') return agentTypes;
+    return agentTypes.filter((a) => a.identityMode === identityFilter);
+  }, [agentTypes, identityFilter]);
 
   // ── Table columns ─────────────────────────────────────────────────────────
 
@@ -436,7 +454,8 @@ export function AgentsPage() {
       ) : (
         /* ── List view ─────────────────────────────────────────────────────── */
         <DataTable
-          data={agentTypes}
+          key={identityFilter}
+          data={filteredAgentTypes}
           columns={columns}
           getRowKey={(row) => row.id}
           noun="agents"
@@ -444,6 +463,18 @@ export function AgentsPage() {
           searchFn={agentTypeMatchesSearch}
           defaultSortId="name"
           defaultSortDir="asc"
+          quickFilters={
+            <SegmentedControl
+              aria-label="Filter agents by identity mode"
+              value={identityFilter}
+              onChange={(v) => setIdentityFilter(v as typeof identityFilter)}
+              options={[
+                { value: 'all', label: 'All', count: identityCounts.all },
+                { value: 'autonomous', label: 'Autonomous', count: identityCounts.autonomous },
+                { value: 'delegated', label: 'Delegated', count: identityCounts.delegated },
+              ]}
+            />
+          }
           error={
             status === 'error' ? (
               <Stack align="center" paddingBlock="comfortable">

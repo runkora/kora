@@ -1,18 +1,13 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/terra';
+import { useState, useMemo } from 'react';
+import { Badge, Button, Icon, SegmentedControl, Stack, StatusDot, Text } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
-
-const STATUS_OPTIONS = [
-  { value: 'enabled', label: 'Enabled' },
-  { value: 'disabled', label: 'Disabled' },
-];
 
 interface VirtualModelsSectionProps {
   models: VirtualModel[];
@@ -62,6 +57,22 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
 };
 
 export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionProps) {
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+
+  const statusCounts = useMemo(
+    () => ({
+      all: models.length,
+      enabled: models.filter((m) => m.enabled).length,
+      disabled: models.filter((m) => !m.enabled).length,
+    }),
+    [models],
+  );
+
+  const filteredModels = useMemo(() => {
+    if (statusFilter === 'all') return models;
+    return models.filter((m) => (statusFilter === 'enabled') === m.enabled);
+  }, [models, statusFilter]);
+
   const columns = useMemo<DataTableColumn<VirtualModel>[]>(
     () => [
       {
@@ -120,11 +131,6 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'status',
         header: 'Status',
-        filter: {
-          mode: 'client',
-          options: STATUS_OPTIONS,
-          filterFn: (m, selected) => selected.has(m.enabled ? 'enabled' : 'disabled'),
-        },
         cell: (m) => (
           <Badge variant={m.enabled ? 'healthy' : 'muted'} shape="pill" size="sm" dot>
             {m.enabled ? 'Enabled' : 'Disabled'}
@@ -145,7 +151,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
   return (
     <SmartTable
       tableId="catalogVirtualModels"
-      data={models}
+      data={filteredModels}
       columns={columns}
       getRowKey={(m) => m.id}
       noun="virtual models"
@@ -156,6 +162,18 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       emptyMessage="No virtual models configured."
       filteredEmptyMessage="No virtual models match your filters."
       onRowClick={onSelect}
+      quickFilters={
+        <SegmentedControl
+          aria-label="Filter virtual models by status"
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+          options={[
+            { value: 'all', label: 'All', count: statusCounts.all },
+            { value: 'enabled', label: 'Enabled', count: statusCounts.enabled },
+            { value: 'disabled', label: 'Disabled', count: statusCounts.disabled },
+          ]}
+        />
+      }
       toolbarActions={
         <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
           <Icon name="plus" size="2xs" />

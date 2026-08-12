@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Icon, SegmentedControl, Stack, Text } from '@orbit/terra';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
@@ -21,6 +21,10 @@ function formatTokens(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }
+
+// ── Status groupings ──────────────────────────────────────────────────────────
+
+const ACTIVE_STATES = ['pending', 'starting', 'active', 'idle', 'completing'];
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -66,6 +70,26 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'failed'>(
+    'all',
+  );
+
+  const runCounts = useMemo(
+    () => ({
+      all: runs.length,
+      active: runs.filter((r) => ACTIVE_STATES.includes(r.state)).length,
+      completed: runs.filter((r) => r.state === 'completed').length,
+      failed: runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted').length,
+    }),
+    [runs],
+  );
+
+  const filteredRuns = useMemo(() => {
+    if (statusFilter === 'all') return runs;
+    if (statusFilter === 'active') return runs.filter((r) => ACTIVE_STATES.includes(r.state));
+    if (statusFilter === 'completed') return runs.filter((r) => r.state === 'completed');
+    return runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted');
+  }, [runs, statusFilter]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -250,12 +274,32 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         />
       ) : (
         <DataTable
-          data={runs}
+          data={filteredRuns}
           columns={columns}
           getRowKey={(row) => row.id}
           noun="runs"
           defaultSortId="started"
           defaultSortDir="desc"
+          searchFn={(row, q) =>
+            row.id.toLowerCase().includes(q) ||
+            (row.summary?.toLowerCase().includes(q) ?? false) ||
+            (row.createdByName?.toLowerCase().includes(q) ?? false) ||
+            row.createdBy.toLowerCase().includes(q)
+          }
+          searchPlaceholder="Search runs…"
+          quickFilters={
+            <SegmentedControl
+              aria-label="Filter runs by status"
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+              options={[
+                { value: 'all', label: 'All', count: runCounts.all },
+                { value: 'active', label: 'Active', count: runCounts.active },
+                { value: 'completed', label: 'Completed', count: runCounts.completed },
+                { value: 'failed', label: 'Failed', count: runCounts.failed },
+              ]}
+            />
+          }
           error={
             status === 'error' ? (
               <Stack align="center" paddingBlock="comfortable">

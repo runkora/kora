@@ -256,7 +256,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
             emptyMessage="No runs yet."
             defaultSortId="started"
             defaultSortDir="desc"
-            toolbarActions={
+            toolbarTitle={
               <Text size="supporting" weight="emphasis">
                 Recent Runs
               </Text>
