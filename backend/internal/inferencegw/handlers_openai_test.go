@@ -202,9 +202,9 @@ func TestMarshalStreamChunk_UsageTotalTokens(t *testing.T) {
 	}
 }
 
-// ─── toAnthropicModelsResponse ────────────────────────────────────────────────
+// ─── unified models response schema ──────────────────────────────────────────
 
-func TestToAnthropicModelsResponse(t *testing.T) {
+func TestModelsResponseUnifiedSchema(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -221,7 +221,14 @@ func TestToAnthropicModelsResponse(t *testing.T) {
 		{
 			name: "single",
 			input: []modelObject{
-				{ID: "model-a", DisplayName: "Model A", Created: 1700000000},
+				{
+					ID:          "model-a",
+					Object:      "model",
+					Type:        "model",
+					Created:     1700000000,
+					CreatedAt:   "2023-11-15T00:26:40Z",
+					DisplayName: "Model A",
+				},
 			},
 			wantLen:     1,
 			wantFirstID: "model-a",
@@ -230,9 +237,30 @@ func TestToAnthropicModelsResponse(t *testing.T) {
 		{
 			name: "multiple",
 			input: []modelObject{
-				{ID: "model-a", DisplayName: "Model A", Created: 1700000000},
-				{ID: "model-b", DisplayName: "Model B", Created: 1700000001},
-				{ID: "model-c", DisplayName: "Model C", Created: 1700000002},
+				{
+					ID:          "model-a",
+					Object:      "model",
+					Type:        "model",
+					Created:     1700000000,
+					CreatedAt:   "2023-11-15T00:26:40Z",
+					DisplayName: "Model A",
+				},
+				{
+					ID:          "model-b",
+					Object:      "model",
+					Type:        "model",
+					Created:     1700000001,
+					CreatedAt:   "2023-11-15T00:26:41Z",
+					DisplayName: "Model B",
+				},
+				{
+					ID:          "model-c",
+					Object:      "model",
+					Type:        "model",
+					Created:     1700000002,
+					CreatedAt:   "2023-11-15T00:26:42Z",
+					DisplayName: "Model C",
+				},
 			},
 			wantLen:     3,
 			wantFirstID: "model-a",
@@ -243,8 +271,23 @@ func TestToAnthropicModelsResponse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			resp := toAnthropicModelsResponse(tc.input)
 
+			resp := modelsResponse{
+				Object:  "list",
+				Data:    tc.input,
+				HasMore: false,
+			}
+			if len(tc.input) > 0 {
+				firstID := tc.input[0].ID
+				lastID := tc.input[len(tc.input)-1].ID
+				resp.FirstID = &firstID
+				resp.LastID = &lastID
+			}
+
+			// Verify OpenAI fields
+			if resp.Object != "list" {
+				t.Errorf("Object = %q, want \"list\"", resp.Object)
+			}
 			if len(resp.Data) != tc.wantLen {
 				t.Errorf("len(Data) = %d, want %d", len(resp.Data), tc.wantLen)
 			}
@@ -252,6 +295,7 @@ func TestToAnthropicModelsResponse(t *testing.T) {
 				t.Errorf("HasMore = true, want false")
 			}
 
+			// Verify Anthropic fields
 			if tc.wantFirstID == "" {
 				if resp.FirstID != nil {
 					t.Errorf("FirstID = %q, want nil", *resp.FirstID)
@@ -276,13 +320,25 @@ func TestToAnthropicModelsResponse(t *testing.T) {
 				t.Errorf("LastID = %q, want %q", got, tc.wantLastID)
 			}
 
+			// Verify each model object has both field sets
 			for i, item := range resp.Data {
+				// OpenAI fields
+				if item.Object != "model" {
+					t.Errorf("Data[%d].Object = %q, want \"model\"", i, item.Object)
+				}
+				if item.Created == 0 {
+					t.Errorf("Data[%d].Created = 0, want non-zero Unix timestamp", i)
+				}
+
+				// Anthropic fields
 				if item.Type != "model" {
 					t.Errorf("Data[%d].Type = %q, want \"model\"", i, item.Type)
 				}
 				if _, err := time.Parse(time.RFC3339, item.CreatedAt); err != nil {
 					t.Errorf("Data[%d].CreatedAt = %q: not valid RFC3339: %v", i, item.CreatedAt, err)
 				}
+
+				// Common fields
 				if item.ID != tc.input[i].ID {
 					t.Errorf("Data[%d].ID = %q, want %q", i, item.ID, tc.input[i].ID)
 				}
