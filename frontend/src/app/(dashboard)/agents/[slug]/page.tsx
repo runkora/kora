@@ -13,24 +13,29 @@ interface AgentDetailPageProps {
 export default async function AgentDetailPage({ params }: AgentDetailPageProps) {
   const { slug } = await params;
   const session = await getSession();
-  const result = isSessionValid(session)
-    ? await fetchAgentDetailFromBFF(slug, session.accessToken, session.tenantId)
-    : null;
+  const valid = isSessionValid(session);
+  const [result, budgets] = valid
+    ? await Promise.all([
+        fetchAgentDetailFromBFF(slug, session.accessToken, session.tenantId),
+        fetchBudgetPrincipalsFromGateway(session.accessToken),
+      ])
+    : [null, null];
 
   // The agent's budget usage comes from the budgets listing — its grant
   // ceilings joined with live spend. Best-effort: viewers without
   // platform:budgets:read simply see no budget card.
   let budget: BudgetPrincipalStatus | null = null;
   let tenantCap: TenantCapStatus | null = null;
-  if (isSessionValid(session)) {
-    const budgets = await fetchBudgetPrincipalsFromGateway(session.accessToken);
-    if (budgets.ok) {
-      budget =
-        budgets.data.data.find(
-          (p) => p.principal_type === 'AGENT' && p.principal_id.endsWith(`/agent/${slug}`),
-        ) ?? null;
-      tenantCap = budgets.data.tenant_cap ?? null;
-    }
+  if (budgets?.ok) {
+    budget =
+      budgets.data.data.find(
+        (p) => p.principal_type === 'AGENT' && p.principal_id.endsWith(`/agent/${slug}`),
+      ) ?? null;
+    tenantCap = budgets.data.tenant_cap ?? null;
+  } else if (budgets && budgets.status !== 403) {
+    // 403 is expected for callers without platform:budgets:read; anything else
+    // is an unexpected service failure — log it so it surfaces in server logs.
+    console.error(`[AgentDetailPage] budgets fetch failed (${budgets.status}): ${budgets.message}`);
   }
 
   const initialAgent = result?.ok ? result.agent : null;

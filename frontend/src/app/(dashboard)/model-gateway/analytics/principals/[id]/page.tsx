@@ -37,17 +37,18 @@ export default async function PrincipalUsagePage({ params }: PrincipalUsagePageP
     );
   }
 
+  // Only the usage query depends on preferences (the default period), so the
+  // identity resolution starts immediately rather than waiting behind it.
+  const usersPromise = fetchUsersByIDs(session.accessToken, [id]);
   const preferences = await getPreferences(session.accessToken);
   const days = toDays(preferences.analytics.defaultPeriod);
 
-  // Resolve identity and usage in parallel — independent calls, no data
-  // dependency between them.
   const [result, usersResult] = await Promise.all([
     fetchAnalyticsPrincipalByIdFromGateway(session.accessToken, id, {
       days,
       granularity: 'daily',
     }),
-    fetchUsersByIDs(session.accessToken, [id]),
+    usersPromise,
   ]);
 
   // Non-human principals (service accounts, PATs) won't resolve to an

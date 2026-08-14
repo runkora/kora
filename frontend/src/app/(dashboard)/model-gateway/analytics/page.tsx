@@ -32,6 +32,9 @@ export default async function AnalyticsPage({
     );
   }
 
+  // Only the analytics query depends on preferences (the default period), so
+  // the models fetch starts immediately rather than waiting behind it.
+  const modelsPromise = fetchModelsFromGateway(session.accessToken);
   const preferences = await getPreferences(session.accessToken);
   const days = toDays(preferences.analytics.defaultPeriod);
 
@@ -40,7 +43,7 @@ export default async function AnalyticsPage({
       days,
       granularity: 'daily',
     }),
-    fetchModelsFromGateway(session.accessToken),
+    modelsPromise,
   ]);
 
   return (

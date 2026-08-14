@@ -240,7 +240,7 @@ export type {
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
 
-export { Stack, Grid } from './components/layout';
+export { Stack, Grid, SidebarLayout } from './components/layout';
 export type {
   StackProps,
   StackDirection,
@@ -248,11 +248,16 @@ export type {
   StackJustify,
   GridProps,
   ColCount,
+  SidebarLayoutProps,
+  SidebarLayoutMainProps,
+  SidebarLayoutSidebarProps,
+  SidebarWidth,
   SpacingSize,
   Responsive,
   ContainerWidth,
   ContainerHeight,
   TextAlign,
+  SidebarWidthToken,
 } from './components/layout';
 
 export { List, ListItem } from './components/list';

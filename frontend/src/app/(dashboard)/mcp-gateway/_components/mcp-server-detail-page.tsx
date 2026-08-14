@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, Stack, Text } from '@orbit/terra';
+import { Icon, SidebarLayout, Stack, Text } from '@orbit/terra';
 import { EmptyState } from '@orbit/components';
 import {
   MCP_CLIENTS,
@@ -124,63 +124,65 @@ export function McpServerDetailPage({
       </Stack>
 
       {/* Two-column body */}
-      <Stack
-        style={{ display: 'grid', gridTemplateColumns: '1fr 372px', gap: 24, alignItems: 'start' }}
-      >
+      <SidebarLayout sidebarWidth="detail-panel" gap="relaxed" align="start">
         {/* Main — tools */}
-        <Stack gap="comfortable" style={{ minWidth: 0 }}>
-          <Stack direction="horizontal" align="baseline" justify="between">
-            <Text as="span" weight="strong" style={{ fontSize: 17 }}>
-              Tools
-            </Text>
-            <Text as="span" size="caption" color="subtle">
-              {tools.length} across {groups.length} domain{groups.length === 1 ? '' : 's'}
-            </Text>
-          </Stack>
-
-          {/* Whole-server grant */}
-          <Stack
-            direction="horizontal"
-            align="center"
-            style={{
-              gap: 12,
-              padding: '13px 16px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--color-accent-subtle)',
-              border: '1px solid var(--color-accent-border)',
-            }}
-          >
-            <Icon name="shield-check" color="accent" size="sm" />
-            <Stack grow gap="none" style={{ minWidth: 0 }}>
-              <Text as="span" mono size="caption" weight="strong" style={{ lineHeight: 1.5 }}>
-                {serverRollupScope(server.name)}
+        <SidebarLayout.Main>
+          <Stack gap="comfortable" style={{ minWidth: 0 }}>
+            <Stack direction="horizontal" align="baseline" justify="between">
+              <Text as="span" weight="strong" style={{ fontSize: 17 }}>
+                Tools
               </Text>
-              <Text
-                as="span"
-                size="caption"
-                color="muted"
-                style={{ marginTop: 2, lineHeight: 1.5 }}
-              >
-                Whole-server grant: allows every tool below
+              <Text as="span" size="caption" color="subtle">
+                {tools.length} across {groups.length} domain{groups.length === 1 ? '' : 's'}
               </Text>
             </Stack>
-          </Stack>
 
-          {groups.length === 0 ? (
-            <Text as="span" color="muted" style={{ fontSize: 13 }}>
-              No tools have been introspected for this server yet.
-            </Text>
-          ) : (
-            groups.map((g) => <DomainCard key={g.domain} group={g} />)
-          )}
-        </Stack>
+            {/* Whole-server grant */}
+            <Stack
+              direction="horizontal"
+              align="center"
+              style={{
+                gap: 12,
+                padding: '13px 16px',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--color-accent-subtle)',
+                border: '1px solid var(--color-accent-border)',
+              }}
+            >
+              <Icon name="shield-check" color="accent" size="sm" />
+              <Stack grow gap="none" style={{ minWidth: 0 }}>
+                <Text as="span" mono size="caption" weight="strong" style={{ lineHeight: 1.5 }}>
+                  {serverRollupScope(server.name)}
+                </Text>
+                <Text
+                  as="span"
+                  size="caption"
+                  color="muted"
+                  style={{ marginTop: 2, lineHeight: 1.5 }}
+                >
+                  Whole-server grant: allows every tool below
+                </Text>
+              </Stack>
+            </Stack>
+
+            {groups.length === 0 ? (
+              <Text as="span" color="muted" style={{ fontSize: 13 }}>
+                No tools have been introspected for this server yet.
+              </Text>
+            ) : (
+              groups.map((g) => <DomainCard key={g.domain} group={g} />)
+            )}
+          </Stack>
+        </SidebarLayout.Main>
 
         {/* Sidebar — connect + trust */}
-        <Stack gap="comfortable" style={{ position: 'sticky', top: 0 }}>
-          <ConnectCard slug={server.name} delegated={server.caller_identity === 'forward'} />
-          <TrustCard server={server} />
-        </Stack>
-      </Stack>
+        <SidebarLayout.Sidebar>
+          <Stack gap="comfortable" style={{ position: 'sticky', top: 0 }}>
+            <ConnectCard slug={server.name} delegated={server.caller_identity === 'forward'} />
+            <TrustCard server={server} />
+          </Stack>
+        </SidebarLayout.Sidebar>
+      </SidebarLayout>
     </Stack>
   );
 }
