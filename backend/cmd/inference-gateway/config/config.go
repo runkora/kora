@@ -31,10 +31,6 @@ type PolicyConfig struct {
 	// Used for route registration at startup.
 	// e.g. http://orbit-policy-service.orbit-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
-	// ReregistrationIntervalSecs is how often the gateway re-registers its
-	// route+scope vocabulary with the policy service to self-heal after a
-	// policy-service restart (its registration store is in-memory).
-	ReregistrationIntervalSecs int `yaml:"reregistrationIntervalSecs"`
 }
 
 // BundlePollInterval returns the configured poll interval, defaulting to 30s.
@@ -43,15 +39,6 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(c.BundlePollIntervalSecs) * time.Second
-}
-
-// ReregistrationInterval returns the configured re-registration interval,
-// defaulting to 5 minutes.
-func (c *PolicyConfig) ReregistrationInterval() time.Duration {
-	if c.ReregistrationIntervalSecs <= 0 {
-		return 5 * time.Minute
-	}
-	return time.Duration(c.ReregistrationIntervalSecs) * time.Second
 }
 
 // PricingConfig configures the static pricing cache.

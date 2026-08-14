@@ -40,8 +40,13 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // Publish builds the scope vocabulary from the current snapshots and registers
 // it. The destructive prune runs only when the keep-list is complete (registry
 // mounted + every server seen-or-retained); otherwise the publish is
-// Upsert-only. The routescopes client retries until the identity-proxy sidecar
-// is ready, so callers run Publish in a goroutine.
+// Upsert-only.
+//
+// One registration attempt per call: a failure (the identity-proxy sidecar not
+// yet holding a token, the policy service still starting) is returned to the
+// caller. The introspection cycle that drives Publish is itself the retry, so a
+// publish that fails is re-attempted on the next cycle rather than blocking
+// this one.
 func (p *Publisher) Publish(ctx context.Context) error {
 	servers := p.registry.Servers()
 	snapshots := p.introspector.Snapshot()

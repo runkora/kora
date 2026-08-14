@@ -124,11 +124,7 @@ func realMain() error {
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
 	// ── Scope publisher ──────────────────────────────────────────────────────
-	// Publishes the connection:<name>:<action> vocabulary from the mounted
-	// registry. There is no admin API (connections are GitOps CRs); the
-	// publisher runs at startup and on every registry reload.
-	scopeClient := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
-	scopePub := egressgw.NewScopePublisher(connRegistry, registry, scopeClient, logger)
+	registerScopes := initScopeRegistration(logger, connRegistry, registry)
 
 	// ── Admin/read HTTP server (health + read-only connections) ──────────────
 	// Served on its OWN plain-HTTP port (AdminHTTPPort), separate from the
@@ -175,25 +171,23 @@ func realMain() error {
 
 	// ── Scope vocabulary registration ────────────────────────────────────────
 	// Publish the full connection:<name>:<action> vocabulary at startup
-	// (ListByTenant("") returns every connection in the mounted registry), and
+	// (ListByTenant("") returns every connection in the mounted registry),
 	// republish on every registry reload (a Connection CR / Secret change
-	// re-aggregated by the operator). Runs in a goroutine because the
-	// routescopes client retries until the identity-proxy sidecar is ready.
-	connRegistry.OnReload(func(ctx context.Context) {
+	// re-aggregated by the operator), and republish on a fixed cadence so the
+	// vocabulary survives a policy-service restart — its registration store is
+	// in memory, and an unregistered route is denied by Layer 1 enforcement.
+	// The reload hook and the self-heal loop may overlap; that is harmless,
+	// because the policy service's registration endpoint is idempotent.
+	republish := routescopes.RepublishOnEvent(logger, egressgw.ServiceName, registerScopes)
+	connRegistry.OnReload(func(context.Context) {
 		// Drop every cached upstream transport so a rotated ca_cert (or any
 		// other Connection/Secret change) takes effect on the next forward
 		// without a gateway restart.
 		proxyHandler.Transports().Invalidate()
-		if err := scopePub.Publish(ctx, ""); err != nil {
-			logger.Error(ctx, "scope republish after registry reload failed", logging.Field{Key: "error", Value: err.Error()})
-		}
+		republish()
 	})
 	go connRegistry.Watch(ctx)
-	go func() {
-		if err := scopePub.Publish(ctx, ""); err != nil {
-			logger.Error(ctx, "startup scope registration failed", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}()
+	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, registerScopes)
 
 	go func() {
 		logger.Info(ctx, "Starting CONNECT server", logging.Field{Key: "addr", Value: connectSrv.Addr})
@@ -222,6 +216,18 @@ func realMain() error {
 
 	logger.Info(ctx, "Egress gateway shutdown complete")
 	return nil
+}
+
+// initScopeRegistration builds the register function that publishes this
+// gateway's connection:<name>:<action> vocabulary. It is the one entry point
+// for both the startup/self-heal loop and the registry-reload republish, so the
+// publisher itself never has to escape this function.
+func initScopeRegistration(logger logging.Logger, conns credentials.ConnectionRepository, adapters *egressgw.AdapterRegistry) func(context.Context) error {
+	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
+	pub := egressgw.NewScopePublisher(conns, adapters, client, logger)
+	// tenantID "" publishes the vocabulary for every connection in the mounted
+	// registry, which is the whole registry this gateway serves.
+	return func(ctx context.Context) error { return pub.Publish(ctx, "") }
 }
 
 func initObservability(ctx context.Context) (func(), error) {

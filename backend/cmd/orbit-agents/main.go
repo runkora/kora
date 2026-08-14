@@ -59,7 +59,9 @@ func realMain() error {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
-	initScopeRegistration(ctx, logger, repo, atSvc)
+	// Register now and keep the registration alive across policy-service
+	// restarts; the shared helper owns the retry and re-registration cadence.
+	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
@@ -136,12 +138,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	// Build a policy client for grant management at agent provision/deprovision time.
-	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
-	var pc *policyclient.Client
-	if cfg.Platform.PolicyServiceURL != "" {
-		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
+	// Required for the same reason as the identity service. An empty value used
+	// to mean "skip grant management", so agent types would provision with no
+	// grants written, and initScopeRegistration returned nil, so this service
+	// never published its routes. Under fail-closed Layer 1 enforcement an
+	// unregistered route denies every request, so a blank string took out both
+	// grant management and the entire agents API, silently.
+	if cfg.Platform.PolicyServiceURL == "" {
+		return nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
 	}
+	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
 	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
 	for _, key := range malformedOverrideKeys {
@@ -240,37 +246,39 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
 
+// agentTypeSlugLister is the single repository method scope registration needs:
+// the slugs that expand into the per-agent-type scope vocabulary.
+type agentTypeSlugLister interface {
+	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
+}
+
 // initScopeRegistration wires the policy-service scope vocabulary for orbit-agents.
-// It registers static route→scope bindings and per-agent-type vocabulary entries,
-// re-registering whenever an agent type is created or deleted.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.AgentTypeRepository, atSvc *agents.AgentTypeService) {
-	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
-		return
-	}
+// It installs a hook on the agent type service so the vocabulary is re-synced
+// whenever an agent type is created or deleted, and returns the register
+// function; the caller hands it to routescopes.KeepRegistered, which owns the
+// initial registration and the periodic self-heal loop.
+func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
 	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
 
-	register := func() {
-		slugs, err := repo.ListAllAgentTypeSlugs(ctx)
+	register := func(registerCtx context.Context) error {
+		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)
 		if err != nil {
-			logger.Error(ctx, "list agent type slugs for scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			return
+			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		// Drop routes whose RequiredScope is empty — those are
-		// "authenticated-only" and enforced locally (ScopeEnforcementMiddleware
-		// passes them through after auth; the service layer holds the real
-		// check). Registering them with empty scopes would deny everyone when
-		// Layer 1 sidecar enforcement is enabled in the future.
-		if err := client.Register(ctx, "orbit-agents", filterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
-			logger.Error(ctx, "route scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
+		if err := client.Register(registerCtx, "orbit-agents", routescopes.FilterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
+			return fmt.Errorf("register routes: %w", err)
 		}
+		return nil
 	}
 
-	atSvc.SetAgentTypeHook(func() { go register() })
-	go register()
+	// The hook fires whenever an agent type is written, which changes the
+	// per-slug scopes and so has to be republished without waiting for the next
+	// tick. SetAgentTypeHook invokes it synchronously inside the write, so the
+	// callback must not block on a policy-service round trip; RepublishOnEvent
+	// guarantees that.
+	atSvc.SetAgentTypeHook(routescopes.RepublishOnEvent(logger, "orbit-agents", register))
+
+	return register
 }
 
 // agentRoutes returns the static route→scope bindings for orbit-agents.
@@ -289,8 +297,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// is visible to a static route map. The authoritative check lives in
 		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
 		// routes are excluded from policy-service registration (see
-		// filterScopedRoutes), the established pattern for locally enforced
-		// routes.
+		// routescopes.FilterScopedRoutes), the established pattern for locally
+		// enforced routes.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
@@ -330,21 +338,6 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
 	}
-}
-
-// filterScopedRoutes returns the subset of routes that require a non-empty
-// scope. Used to exclude "authenticated-only" routes from policy-service
-// registration; those are enforced by the local ScopeEnforcementMiddleware
-// (pass-through after auth) plus the service-layer check that owns them.
-// Mirrors cmd/inference-gateway.
-func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
-	out := make([]routescopes.RouteScope, 0, len(in))
-	for _, r := range in {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // agentScopes builds the full scope declaration list from the current agent type slugs.

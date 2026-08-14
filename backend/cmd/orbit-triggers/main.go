@@ -93,7 +93,7 @@ func realMain() error {
 	// authenticated policy client rather than the anonymous routescopes client:
 	// /routes/register requires a bearer token, which the client obtains by
 	// exchanging this pod's SVID.
-	go routescopes.KeepRegistered(ctx, logger, "orbit-triggers", tc.Current.ReregistrationInterval(),
+	go routescopes.KeepRegistered(ctx, logger, "orbit-triggers",
 		func(ctx context.Context) error {
 			return policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
 		})

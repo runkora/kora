@@ -89,33 +89,22 @@ func realMain() error {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
 
-	// Self-register the policy service's own routes and platform scope vocabulary.
-	// Direct call — no HTTP round-trip needed since the service owns the store.
-	if err := svc.RegisterRoutes(ctx, "policy-service", "", []routes.RouteScope{
-		{PathPrefix: "/api/v1/policy/stats", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
-		{PathPrefix: "/api/v1/policy/grants", Method: "PATCH", RequiredScope: "platform:budgets:write"},
-		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
-		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "GET", RequiredScope: "platform:budgets:read"},
-		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
-		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
-		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
-		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
-		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
-	}, []routes.ScopeDeclaration{
-		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
-		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
-		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
-		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
-		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
-		{Scope: "platform:budgets:read", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "read", Description: "Read tenant budget assignments"},
-		{Scope: "platform:budgets:write", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "write", Description: "Manage tenant budget assignments on roles and grants"},
-	}); err != nil {
-		logger.Error(ctx, "policy-service self-registration failed", logging.Field{Key: "error", Value: err.Error()})
-	}
+	// Self-register the policy service's own routes and platform scope
+	// vocabulary, and keep re-registering.
+	//
+	// The call is direct — no HTTP round-trip, since the service owns the route
+	// store — so it goes through KeepRegistered rather than the routescopes
+	// client, and none of the client's sidecar-token concerns apply. The reason
+	// to use the shared helper anyway is its retry: the route store is
+	// in-memory and survives as long as the process, but the scope declarations
+	// are upserted into Postgres, so a database blip at boot used to leave the
+	// platform:* vocabulary unpublished for the life of the process with
+	// nothing but one log line to show for it. The periodic tick then costs one
+	// in-process call and keeps the recovery behavior uniform across services.
+	go routescopes.KeepRegistered(ctx, logger, "policy-service",
+		func(ctx context.Context) error {
+			return svc.RegisterRoutes(ctx, "policy-service", "", selfRegisteredRoutes(), selfRegisteredScopes())
+		})
 
 	// In-process policy evaluator for scope enforcement. The bundle endpoint is
 	// served by this same process; the evaluator polls it via loopback HTTP.
@@ -130,6 +119,42 @@ func realMain() error {
 
 	run(ctx, logger, server)
 	return nil
+}
+
+// selfRegisteredRoutes returns the route → scope bindings the policy service
+// publishes for itself into its own route store, from which they are compiled
+// into every tenant bundle for Layer 1 Envoy/OPA enforcement.
+func selfRegisteredRoutes() []routes.RouteScope {
+	return []routes.RouteScope{
+		{PathPrefix: "/api/v1/policy/stats", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "PATCH", RequiredScope: "platform:budgets:write"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "GET", RequiredScope: "platform:budgets:read"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
+	}
+}
+
+// selfRegisteredScopes returns the platform scope vocabulary the policy service
+// owns. Upserted into the vocabulary table on every registration so grants and
+// roles can reference these scopes.
+func selfRegisteredScopes() []routes.ScopeDeclaration {
+	return []routes.ScopeDeclaration{
+		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
+		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
+		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
+		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
+		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
+		{Scope: "platform:budgets:read", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "read", Description: "Read tenant budget assignments"},
+		{Scope: "platform:budgets:write", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "write", Description: "Manage tenant budget assignments on roles and grants"},
+	}
 }
 
 // policyServiceRoutes returns the route → required-scope table consumed by

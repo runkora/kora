@@ -24,10 +24,6 @@ policy:
   # Short: a trigger's run grant is created moments before its first delivery,
   # so a long poll interval shows up as a spurious first-fire denial.
   bundlePollIntervalSecs: 3
-  # Re-register routes and scopes on this cadence: the policy service holds
-  # registrations in memory, so a restart there silently drops ours until we
-  # publish them again. Matches the inference and tool gateways.
-  reregistrationIntervalSecs: 300
 
 observability:
   serviceName: orbit-triggers
