@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Badge, Button, Icon, Stack, Text } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { Badge, Button, Icon, SegmentedControl, Stack, Text } from '@orbit/terra';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
@@ -103,6 +103,23 @@ export function ModelsTab() {
   const { models, status, favourites, toggleFavourite, refresh } = useModelsContext();
 
   const [selectedModel, setSelectedModel] = useState<ModelRow | null>(null);
+  const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>(
+    'all',
+  );
+
+  const availabilityCounts = useMemo(
+    () => ({
+      all: models.length,
+      available: models.filter((m) => m.status === 'available').length,
+      unavailable: models.filter((m) => m.status === 'unavailable').length,
+    }),
+    [models],
+  );
+
+  const filteredModels = useMemo(() => {
+    if (availabilityFilter === 'all') return models;
+    return models.filter((m) => m.status === availabilityFilter);
+  }, [models, availabilityFilter]);
 
   const favouriteRows = useMemo(
     () => models.filter((m) => favourites.has(m.id)),
@@ -115,7 +132,7 @@ export function ModelsTab() {
         id: 'favourite',
         header: '',
         locked: true,
-        width: '2.5rem',
+        gridWidth: '2.5rem',
         cell: (row) => {
           const isFav = favourites.has(row.id);
           return (
@@ -213,7 +230,7 @@ export function ModelsTab() {
         id: 'actions',
         header: '',
         locked: true,
-        width: '2.5rem',
+        gridWidth: '2.5rem',
         cell: (row) => (
           <Button
             variant="ghost"
@@ -240,9 +257,9 @@ export function ModelsTab() {
         onSelect={setSelectedModel}
       />
 
-      <DataTable
+      <SmartTable
         tableId="gatewayModels"
-        data={models}
+        data={filteredModels}
         columns={columns}
         getRowKey={(row) => row.id}
         noun="models"
@@ -254,6 +271,18 @@ export function ModelsTab() {
         emptyMessage="No models available."
         filteredEmptyMessage="No models match your filters."
         onRowClick={setSelectedModel}
+        quickFilters={
+          <SegmentedControl
+            aria-label="Filter models by availability"
+            value={availabilityFilter}
+            onChange={(v) => setAvailabilityFilter(v as typeof availabilityFilter)}
+            options={[
+              { value: 'all', label: 'All', count: availabilityCounts.all },
+              { value: 'available', label: 'Available', count: availabilityCounts.available },
+              { value: 'unavailable', label: 'Unavailable', count: availabilityCounts.unavailable },
+            ]}
+          />
+        }
       />
 
       <ModelDetailModal model={selectedModel} onClose={() => setSelectedModel(null)} />

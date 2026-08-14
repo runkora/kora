@@ -1,99 +1,39 @@
 // Suspense fallback for the logs tab.
 //
-// Mirrors the DataTable layout (TableContainer > toolbar > table) so there is
-// no layout shift when data arrives. Also serves as the Suspense boundary
-// required by the client-side useSearchParams() call inside LogsTab.
+// Simple skeleton standing in for the DataTable while data loads. Also serves
+// as the Suspense boundary required by the client-side useSearchParams() call
+// inside LogsTab.
 
-import {
-  Skeleton,
-  Stack,
-  TableToolbarShell,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRoot,
-  TableRow,
-} from '@orbit/terra';
-
-function ToolbarSkeleton() {
-  return (
-    <TableToolbarShell>
-      <Stack direction="horizontal" align="center" justify="between" gap="comfortable" grow>
-        {/* Search input */}
-        <Skeleton shape="block" width="half" size="md" />
-        {/* Right side: count + columns toggle */}
-        <Stack direction="horizontal" align="center" gap="comfortable">
-          <Skeleton shape="line" width="quarter" size="xs" />
-          <Skeleton shape="block" width="quarter" size="md" />
-        </Stack>
-      </Stack>
-    </TableToolbarShell>
-  );
-}
-
-function TableRowSkeleton() {
-  return (
-    <TableRow>
-      <TableCell>
-        <Skeleton shape="line" width="three-quarters" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="half" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="three-quarters" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="block" width="quarter" size="xs" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="half" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="block" width="quarter" size="xs" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="half" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="half" size="sm" />
-      </TableCell>
-      <TableCell>
-        <Skeleton shape="line" width="quarter" size="sm" />
-      </TableCell>
-    </TableRow>
-  );
-}
+import { Card, CardContent, Skeleton, Stack } from '@orbit/terra';
 
 export default function LogsLoading() {
   return (
-    <TableContainer>
-      <ToolbarSkeleton />
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Request ID</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Key</TableHead>
-              <TableHead>Key status</TableHead>
-              <TableHead>Latency</TableHead>
-              <TableHead>Tokens in / out</TableHead>
-              <TableHead>Cost</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <TableRowSkeleton key={i} />
-            ))}
-          </TableBody>
-        </Table>
-      </TableRoot>
-    </TableContainer>
+    <Card column>
+      <CardContent flush padded>
+        <Stack gap="snug">
+          {/* Toolbar skeleton */}
+          <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
+            <Skeleton shape="block" width="half" size="md" />
+            <Stack direction="horizontal" align="center" gap="comfortable">
+              <Skeleton shape="line" width="quarter" size="xs" />
+              <Skeleton shape="block" width="quarter" size="md" />
+            </Stack>
+          </Stack>
+
+          {/* Row skeletons */}
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Stack key={i} direction="horizontal" align="center" gap="comfortable">
+              <Skeleton shape="line" width="three-quarters" size="sm" />
+              <Skeleton shape="line" width="half" size="sm" />
+              <Skeleton shape="line" width="three-quarters" size="sm" />
+              <Skeleton shape="block" width="quarter" size="xs" />
+              <Skeleton shape="line" width="half" size="sm" />
+              <Skeleton shape="line" width="half" size="sm" />
+              <Skeleton shape="line" width="quarter" size="sm" />
+            </Stack>
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }

@@ -92,7 +92,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         id: 'actions',
         header: '',
         locked: true,
-        width: '4rem',
+        gridWidth: '4rem',
         cell: (r) => {
           if (!canWrite || RESERVED_ROLES.has(r.role)) return null;
           return (

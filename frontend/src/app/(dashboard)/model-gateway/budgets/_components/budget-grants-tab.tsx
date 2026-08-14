@@ -115,7 +115,7 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
         id: 'actions',
         header: '',
         locked: true,
-        width: '4rem',
+        gridWidth: '4rem',
         cell: (g) => {
           if (!canWrite) return null;
           return (

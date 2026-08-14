@@ -29,13 +29,3 @@ export type {
   TableColumnFilter,
   TableColumnFilterOption,
 } from './table-column-header';
-
-// ─── Data table (TanStack-backed, fully opinionated) ─────────────────────────
-export { DataTable } from './data-table';
-export type {
-  DataTableProps,
-  DataTableColumn,
-  DataTableColumnFilter,
-  DataTableClientFilter,
-  DataTableServerFilter,
-} from './data-table';

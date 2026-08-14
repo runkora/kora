@@ -8,17 +8,11 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  DataTable,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableEmpty,
-  TableHead,
-  TableHeader,
-  TableRoot,
-  TableRow,
   Text,
 } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
 import { DAILY_REQUESTS, type DailyRequestRow } from '../../_data/mock';
 import { TableControls, type Granularity, type Period } from './table-controls';
 import { aggregateByWeek, aggregateByMonth, filterByPeriod } from './utils/table-utils';
@@ -59,6 +53,75 @@ function buildRows(
   }));
 }
 
+const COLUMNS: DataTableColumn<RequestRow>[] = [
+  {
+    id: 'period',
+    header: 'Period',
+    gridWidth: '1fr',
+    cell: (row) => (
+      <Text size="supporting" mono>
+        {row.period}
+      </Text>
+    ),
+  },
+  {
+    id: 'total',
+    header: 'Total',
+    gridWidth: '110px',
+    align: 'right',
+    cell: (row) => (
+      <Text size="supporting" mono tabular weight="emphasis" align="end">
+        {fmtNumCompact(row.total)}
+      </Text>
+    ),
+  },
+  {
+    id: 'successful',
+    header: 'Successful',
+    gridWidth: '110px',
+    align: 'right',
+    cell: (row) => (
+      <Text size="supporting" mono tabular color="status-healthy" align="end">
+        {fmtNumCompact(row.successful)}
+      </Text>
+    ),
+  },
+  {
+    id: 'errored',
+    header: 'Errored',
+    gridWidth: '110px',
+    align: 'right',
+    cell: (row) => (
+      <Text
+        size="supporting"
+        mono
+        tabular
+        color={row.errored > 0 ? 'status-error' : 'muted'}
+        align="end"
+      >
+        {fmtNumCompact(row.errored)}
+      </Text>
+    ),
+  },
+  {
+    id: 'errorRate',
+    header: 'Error rate',
+    gridWidth: '100px',
+    align: 'right',
+    cell: (row) => {
+      const errorRate = ((row.errored / row.total) * 100).toFixed(1);
+      const isHighError = row.errored / row.total > 0.05;
+      return (
+        <Stack direction="horizontal" justify="end">
+          <Badge variant={isHighError ? 'error' : 'healthy'} size="sm">
+            {errorRate}%
+          </Badge>
+        </Stack>
+      );
+    },
+  },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function RequestsTable() {
@@ -85,87 +148,12 @@ export function RequestsTable() {
         </Stack>
       </CardHeader>
       <CardContent flush>
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Period</TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Total
-                  </Stack>
-                </TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Successful
-                  </Stack>
-                </TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Errored
-                  </Stack>
-                </TableHead>
-                <TableHead>
-                  <Stack direction="horizontal" justify="end">
-                    Error rate
-                  </Stack>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableEmpty colSpan={5} message="No data for selected period." />
-              ) : (
-                rows.map((row) => {
-                  const errorRate = ((row.errored / row.total) * 100).toFixed(1);
-                  const isHighError = row.errored / row.total > 0.05;
-                  return (
-                    <TableRow key={row.period}>
-                      <TableCell>
-                        <Text size="supporting" mono>
-                          {row.period}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="horizontal" justify="end">
-                          <Text size="supporting" mono tabular weight="emphasis">
-                            {fmtNumCompact(row.total)}
-                          </Text>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="horizontal" justify="end">
-                          <Text size="supporting" mono tabular color="status-healthy">
-                            {fmtNumCompact(row.successful)}
-                          </Text>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="horizontal" justify="end">
-                          <Text
-                            size="supporting"
-                            mono
-                            tabular
-                            color={row.errored > 0 ? 'status-error' : 'muted'}
-                          >
-                            {fmtNumCompact(row.errored)}
-                          </Text>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="horizontal" justify="end">
-                          <Badge variant={isHighError ? 'error' : 'healthy'} size="sm">
-                            {errorRate}%
-                          </Badge>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </TableRoot>
+        <DataTable
+          data={rows}
+          columns={COLUMNS}
+          getRowKey={(row) => row.period}
+          emptyMessage="No data for selected period."
+        />
       </CardContent>
     </Card>
   );
