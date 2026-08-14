@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"io"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -219,7 +220,7 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility) ([]Run, error) {
+func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
 	if m.listRunsErr != nil {
 		return nil, m.listRunsErr
 	}
@@ -239,6 +240,18 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID strin
 		cp := *r
 		cp.IdentityMode = mode
 		out = append(out, cp)
+	}
+	// Mirror ORDER BY created_at DESC, id DESC LIMIT n. m.runs is a map, so the
+	// sort is what makes the truncation deterministic; id breaks ties because
+	// fixtures commonly share a timestamp.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID > out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -725,7 +738,7 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	return f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID)
+	return f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, 0)
 }
 
 func (f *testServiceFacade) TerminateRun(ctx context.Context, id string) error {

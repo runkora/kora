@@ -332,15 +332,41 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// ListRuns returns all runs the principal in ctx may read, optionally filtered
-// by agent type. Tenant is derived from ctx claims (never from a query string),
-// and the result is filtered by per-agent-type grants via authz.filterRuns.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, error) {
+// DefaultRunListLimit and MaxRunListLimit bound ListRuns. The endpoint backs a
+// newest-first activity list, and every row returned costs one policy candidate
+// in filterRuns, so an unbounded list ties page load to tenant history.
+const (
+	DefaultRunListLimit = 200
+	MaxRunListLimit     = 1000
+)
+
+// clampRunListLimit maps a caller-supplied limit onto the permitted range. A
+// non-positive limit means unspecified and takes the default.
+func clampRunListLimit(limit int) int {
+	if limit <= 0 {
+		return DefaultRunListLimit
+	}
+	if limit > MaxRunListLimit {
+		return MaxRunListLimit
+	}
+	return limit
+}
+
+// ListRuns returns the newest runs the principal in ctx may read, optionally
+// filtered by agent type and capped per clampRunListLimit. Tenant is derived
+// from ctx claims (never from a query string), and the result is filtered by
+// per-agent-type grants via authz.filterRuns.
+//
+// The cap applies before that filter, so a principal whose grants cover only
+// some agent types receives fewer than limit rows.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int) ([]Run, error) {
 	tenantID := tenantFromContext(ctx)
+	limit = clampRunListLimit(limit)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
 			attribute.String("agent_type_id", agentTypeID),
+			attribute.Int("limit", limit),
 		),
 	)
 	defer span.End()
@@ -348,7 +374,7 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, e
 	// agent's runs only where created_by matches their verified subject. The
 	// filter is applied inside the repository query — never by trimming the
 	// result in memory — so counts stay correct. Autonomous runs are unfiltered.
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx))
+	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx), limit)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")

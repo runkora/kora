@@ -397,8 +397,11 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
+	// An unparseable limit stays 0, which the service reads as unspecified and
+	// replaces with its default.
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	runs, err := c.runs.ListRuns(ctx, agentTypeID)
+	runs, err := c.runs.ListRuns(ctx, agentTypeID, limit)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)

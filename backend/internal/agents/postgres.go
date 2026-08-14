@@ -232,7 +232,7 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
-func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility) ([]Run, error) {
+func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
 	query := selectRun + ` WHERE r.tenant_id=$1`
 	args := []any{tenantID}
 	if agentTypeID != "" {
@@ -246,7 +246,13 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 		args = append(args, vis.Subject)
 		query += fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%d <> '' AND r.created_by = $%d))", len(args), len(args))
 	}
-	query += ` ORDER BY r.created_at DESC`
+	// id breaks created_at ties: without it the rows dropped by LIMIT at a tie
+	// boundary vary between executions of the same query.
+	query += ` ORDER BY r.created_at DESC, r.id DESC`
+	// Bounded so the row count cannot grow into the caller's per-row work: the
+	// authz filter behind this builds one policy candidate per row.
+	args = append(args, limit)
+	query += fmt.Sprintf(" LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
