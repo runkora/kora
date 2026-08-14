@@ -30,7 +30,7 @@ type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
-	// agent type, capped at limit rows. limit must be > 0.
+	// agent type. limit caps the row count; limit <= 0 returns every match.
 	// vis applies the delegated-run visibility rule INSIDE the query (Decision 6
 	// of docs/adr/2026-07-23-delegated-agent-identity.md): unless vis.SeeAll,
 	// runs of delegated agent types are returned only where created_by equals

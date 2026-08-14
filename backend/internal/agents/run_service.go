@@ -332,36 +332,19 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// DefaultRunListLimit and MaxRunListLimit bound ListRuns. The endpoint backs a
-// newest-first activity list, and every row returned costs one policy candidate
-// in filterRuns, so an unbounded list ties page load to tenant history.
-const (
-	DefaultRunListLimit = 200
-	MaxRunListLimit     = 1000
-)
-
-// clampRunListLimit maps a caller-supplied limit onto the permitted range. A
-// non-positive limit means unspecified and takes the default.
-func clampRunListLimit(limit int) int {
-	if limit <= 0 {
-		return DefaultRunListLimit
-	}
-	if limit > MaxRunListLimit {
-		return MaxRunListLimit
-	}
-	return limit
-}
-
-// ListRuns returns the newest runs the principal in ctx may read, optionally
-// filtered by agent type and capped per clampRunListLimit. Tenant is derived
-// from ctx claims (never from a query string), and the result is filtered by
-// per-agent-type grants via authz.filterRuns.
+// ListRuns returns the runs the principal in ctx may read, newest first,
+// optionally filtered by agent type. Tenant is derived from ctx claims (never
+// from a query string), and the result is filtered by per-agent-type grants via
+// authz.filterRuns.
 //
-// The cap applies before that filter, so a principal whose grants cover only
-// some agent types receives fewer than limit rows.
+// limit <= 0 returns every matching run. The UI presents this as a complete
+// activity history, so truncating server-side silently drops rows a caller
+// cannot tell are missing: filterRuns runs after the row cap, so the response
+// length never reveals whether more exist. A caller that wants a bound passes
+// one explicitly. See issue #209 for offset pagination with the visibility
+// filter pushed into the query, which is what makes a bound safe to default.
 func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int) ([]Run, error) {
 	tenantID := tenantFromContext(ctx)
-	limit = clampRunListLimit(limit)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),

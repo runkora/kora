@@ -222,6 +222,19 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // ---- Terra compound components in Server Components ----------------------
+  // Terra's entrypoint carries "use client", so a Server Component importing a
+  // composed component receives a client reference with none of the
+  // Object.assign sub-components attached: <SidebarLayout.Main> renders as
+  // undefined and React throws "Element type is invalid". Types do not catch
+  // this and jsdom tests do not reproduce it — neither has an RSC boundary.
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
+    rules: {
+      'local/no-terra-compound-in-server-component': 'error',
+    },
+  },
+
   // ---- Kebab-case filename enforcement ------------------------------------
   // ALL JavaScript and TypeScript source files under src/ must use kebab-case
   // filenames — this includes the Terra package and any future packages added

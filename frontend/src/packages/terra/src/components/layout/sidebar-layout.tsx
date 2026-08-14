@@ -75,23 +75,27 @@ function buildGridTemplateColumns(width: SidebarWidth, position: 'start' | 'end'
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-const Main = React.forwardRef<HTMLDivElement, SidebarLayoutMainProps>(
+// Exported by name as well as on the composed object: terra's entrypoint is a
+// 'use client' module, so a Server Component importing SidebarLayout receives a
+// client reference that carries no Object.assign properties, making
+// SidebarLayout.Main undefined at render. Server Components must import these.
+export const SidebarLayoutMain = React.forwardRef<HTMLDivElement, SidebarLayoutMainProps>(
   ({ children, ...rest }, ref) => (
     <div ref={ref} data-slot="sidebar-layout-main" {...rest}>
       {children}
     </div>
   ),
 );
-Main.displayName = 'SidebarLayout.Main';
+SidebarLayoutMain.displayName = 'SidebarLayout.Main';
 
-const Sidebar = React.forwardRef<HTMLDivElement, SidebarLayoutSidebarProps>(
+export const SidebarLayoutSidebar = React.forwardRef<HTMLDivElement, SidebarLayoutSidebarProps>(
   ({ children, ...rest }, ref) => (
     <div ref={ref} data-slot="sidebar-layout-sidebar" {...rest}>
       {children}
     </div>
   ),
 );
-Sidebar.displayName = 'SidebarLayout.Sidebar';
+SidebarLayoutSidebar.displayName = 'SidebarLayout.Sidebar';
 
 // ── Root component ────────────────────────────────────────────────────────────
 
@@ -120,6 +124,6 @@ SidebarLayoutRoot.displayName = 'SidebarLayout';
 // ── Composed export ───────────────────────────────────────────────────────────
 
 export const SidebarLayout = Object.assign(SidebarLayoutRoot, {
-  Main,
-  Sidebar,
+  Main: SidebarLayoutMain,
+  Sidebar: SidebarLayoutSidebar,
 });
