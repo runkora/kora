@@ -338,8 +338,8 @@ func TestDispatch_Result_NonSuccess_EmitsRunError(t *testing.T) {
 	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if payload.Code != "claude_error" {
-		t.Errorf("code = %q, want claude_error", payload.Code)
+	if payload.Code != "agent_error" {
+		t.Errorf("code = %q, want agent_error", payload.Code)
 	}
 	if payload.Message != "API error: 401 unauthorized" {
 		t.Errorf("message = %q, want 'API error: 401 unauthorized'", payload.Message)
@@ -750,7 +750,7 @@ func TestLogStderr_ScanError_IsLogged(t *testing.T) {
 	wg.Wait()
 
 	log := buf.String()
-	if !strings.Contains(log, "Claude stderr scan error") {
+	if !strings.Contains(log, "agent stderr scan error") {
 		t.Errorf("expected scan error to be logged; got: %s", log)
 	}
 	if !strings.Contains(log, "injected scan error") {
