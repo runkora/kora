@@ -1,4 +1,14 @@
-import { Card, CardContent, SidebarLayout, Skeleton, Stack } from '@orbit/terra';
+// Server Component: the sub-components are imported by name because terra is a
+// 'use client' entrypoint and SidebarLayout.Main does not survive that boundary.
+import {
+  Card,
+  CardContent,
+  SidebarLayout,
+  SidebarLayoutMain,
+  SidebarLayoutSidebar,
+  Skeleton,
+  Stack,
+} from '@orbit/terra';
 
 /**
  * The MCP server detail page fetches one server's metadata and tool catalog in
@@ -20,7 +30,7 @@ export default function McpServerDetailLoading() {
 
       {/* Body: tool catalog left, connect + trust sidebar right. */}
       <SidebarLayout sidebarWidth="detail-panel" gap="relaxed" align="start">
-        <SidebarLayout.Main>
+        <SidebarLayoutMain>
           <Stack gap="comfortable">
             <Skeleton shape="line" width="quarter" size="sm" />
             <Card column>
@@ -39,9 +49,9 @@ export default function McpServerDetailLoading() {
               </CardContent>
             </Card>
           </Stack>
-        </SidebarLayout.Main>
+        </SidebarLayoutMain>
 
-        <SidebarLayout.Sidebar>
+        <SidebarLayoutSidebar>
           <Stack gap="comfortable">
             <Card column inset border="subtle">
               <CardContent padded>
@@ -62,7 +72,7 @@ export default function McpServerDetailLoading() {
               </CardContent>
             </Card>
           </Stack>
-        </SidebarLayout.Sidebar>
+        </SidebarLayoutSidebar>
       </SidebarLayout>
     </Stack>
   );

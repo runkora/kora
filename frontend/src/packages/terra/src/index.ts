@@ -240,7 +240,13 @@ export type {
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
 
-export { Stack, Grid, SidebarLayout } from './components/layout';
+export {
+  Stack,
+  Grid,
+  SidebarLayout,
+  SidebarLayoutMain,
+  SidebarLayoutSidebar,
+} from './components/layout';
 export type {
   StackProps,
   StackDirection,

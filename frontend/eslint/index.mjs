@@ -12,6 +12,7 @@ import noTerraDisableComment from './rules/no-terra-disable-comment.mjs';
 import noDirectLucideImport from './rules/no-direct-lucide-import.mjs';
 import noInlineClipboardWrite from './rules/no-inline-clipboard-write.mjs';
 import noHardcodedColor from './rules/no-hardcoded-color.mjs';
+import noTerraCompoundInServerComponent from './rules/no-terra-compound-in-server-component.mjs';
 
 const localPlugin = {
   rules: {
@@ -29,6 +30,7 @@ const localPlugin = {
     'no-direct-lucide-import': noDirectLucideImport,
     'no-inline-clipboard-write': noInlineClipboardWrite,
     'no-hardcoded-color': noHardcodedColor,
+    'no-terra-compound-in-server-component': noTerraCompoundInServerComponent,
   },
 };
 

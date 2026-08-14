@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SidebarLayout } from './sidebar-layout';
+import { SidebarLayout, SidebarLayoutMain, SidebarLayoutSidebar } from './sidebar-layout';
 
 // ── resolveSidebarWidth + buildGridTemplateColumns (via rendered style) ────────
 
@@ -168,5 +168,38 @@ describe('SidebarLayout renders children', () => {
     );
     expect(screen.getByText('main content')).toBeInTheDocument();
     expect(screen.getByText('sidebar content')).toBeInTheDocument();
+  });
+});
+
+// ── RSC boundary ──────────────────────────────────────────────────────────────
+// The sub-components are reachable two ways on purpose. Client code uses the
+// composed form; a Server Component must use the named exports, because terra's
+// entrypoint carries 'use client' and Object.assign properties do not survive
+// that boundary — SidebarLayout.Main resolves to undefined and React throws
+// "Element type is invalid". jsdom has no RSC boundary, so these pin the export
+// surface; local/no-terra-compound-in-server-component enforces the usage rule.
+
+describe('SidebarLayout named sub-component exports', () => {
+  it('exports Main and Sidebar by name', () => {
+    expect(SidebarLayoutMain).toBeDefined();
+    expect(SidebarLayoutSidebar).toBeDefined();
+  });
+
+  it('keeps the composed properties pointing at the same components', () => {
+    expect(SidebarLayout.Main).toBe(SidebarLayoutMain);
+    expect(SidebarLayout.Sidebar).toBe(SidebarLayoutSidebar);
+  });
+
+  it('renders both columns through the named exports', () => {
+    const { container } = render(
+      <SidebarLayout sidebarWidth="detail-panel" gap="relaxed">
+        <SidebarLayoutMain>main</SidebarLayoutMain>
+        <SidebarLayoutSidebar>side</SidebarLayoutSidebar>
+      </SidebarLayout>,
+    );
+    expect(container.querySelector('[data-slot="sidebar-layout-main"]')?.textContent).toBe('main');
+    expect(container.querySelector('[data-slot="sidebar-layout-sidebar"]')?.textContent).toBe(
+      'side',
+    );
   });
 });

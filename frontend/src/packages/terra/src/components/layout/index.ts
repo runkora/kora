@@ -4,7 +4,7 @@ export type { StackProps, StackDirection, StackAlign, StackJustify } from './sta
 export { Grid } from './grid';
 export type { GridProps, ColCount } from './grid';
 
-export { SidebarLayout } from './sidebar-layout';
+export { SidebarLayout, SidebarLayoutMain, SidebarLayoutSidebar } from './sidebar-layout';
 export type {
   SidebarLayoutProps,
   SidebarLayoutMainProps,
