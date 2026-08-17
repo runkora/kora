@@ -128,7 +128,7 @@ This PRD defines the user experience and required outcomes. It does not choose h
 
 ### User Experience
 
-Marketplace appears under Control Plane. The experience is designed for finding, comparing, and reviewing packages. Package-management actions are not shown in the first release.
+Marketplace appears under Control Plane. The experience is designed for finding, and reviewing packages. Package-management actions are not shown in the first release.
 
 #### User Flow
 
