@@ -38,7 +38,6 @@ Today, users must search across different repositories and interpret package inf
 1. Give users searchable Marketplaces for skills and plugins.
 2. Show the Marketplace source on every search result and package page.
 3. Give every package a clear detail page with enough information for review.
-4. Help users compare package type, purpose, publisher, contents, package needs, framework support, checks, and health.
 5. Give a view of Marketplace sources.
 
 ### Success Metrics
@@ -46,7 +45,6 @@ Today, users must search across different repositories and interpret package inf
 - Every package page shows its purpose, publisher, Marketplace source, repository, licence, contents, package needs, framework support, checks, health, and last check time.
 - Every plugin page shows all plugin parts declared by the package.
 - Users in the agreed usability test can find a package, identify its source, and explain its package needs without leaving Orbit.
-- Users in the agreed usability test can compare two current packages and identify their main differences without leaving Orbit.
 - All acceptance tests confirm that users can see only Marketplace information allowed for their tenant and role.
 - The first release exposes no package install, update, remove, assignment, or run action.
 
@@ -64,7 +62,6 @@ The first release does not include:
 - Package use, success, token, cost, or duration reports.
 - A promise that one package works with every agent framework.
 - An agent telling a user that it cannot use a package.
-- Rebuilding missing package history by searching the complete Git history of a repository.
 - Choosing the backend, storage, deployment, refresh, caching, or service architecture. Those decisions belong in the ADR.
 
 ## User Stories
@@ -141,10 +138,9 @@ Marketplace appears under Control Plane. The experience is designed for finding,
     3. The user searches or applies filters.
     4. Orbit shows one page of matching results.
     5. Each result shows its name, type, summary, Marketplace.
-
 2. **Review a package**
     1. The user selects a skill or plugin.
-    2. The package page shows its description, publisher, source, repository, version, licence, files, package needs, framework support.
+    2. The package page shows its description, publisher, source, repository, licence, files, package needs, framework support.
     3. The user can view safe text previews and open the original source.
     4. For a plugin, the user can review all declared plugin parts.
     5. The page contains no package-management or agent action.
@@ -152,8 +148,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 ### Key Components
 
 - **Marketplace overview:** Search, filters, page-by-page results, and clear package summaries.
-- **Package details:** Source, publisher, versions, contents, package needs, framework support, checks, and health.
-- **Current package comparison:** A side-by-side comparison of the current versions of two packages of the same type.
+- **Package details:** Source, publisher, contents, package needs, framework support, checks, and health.
 - **Plugin contents:** A clear list of every declared skill, command, agent definition, setting, hook, helper, or service reference.
 - **Source status:** A read-only view of approved Marketplaces, freshness, package count, state, and errors.
 - **Access-aware experience:** Users see only information allowed for their tenant and role.
@@ -166,8 +161,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 - Approved global and tenant-only Marketplace sources.
 - Skills and plugins as separate package types.
 - Search, filters, sorting, and page-by-page results.
-- Links from known package versions to their exact GitHub commits when links are available.
-- Package pages with source, publisher, versions, files, plugin parts, package needs, framework support, checks.
+- Package pages with source, publisher, files, plugin parts, package needs, framework support, checks.
 - The Marketplace source shown on every result and package page.
 - Safe, read-only previews of supported text files.
 - Read-only source and freshness information for approved operators.
@@ -183,15 +177,11 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 - Automatic deployment of MCP servers or other workloads.
 - Package use, success, cost, token, or duration reporting.
 - Packages that add code to the Orbit frontend, backend, operator, or control plane.
-- Comparing packages of different types in one comparison.
-- A complete line-by-line comparison of every package file.
-- Searching the complete Git history to rebuild versions that are not listed by a source or already known to Orbit.
 
 ### Future Considerations
 
 - A separate product phase for package installation, update, rollback, removal, approval, and the history of package-management actions.
 - A separate product phase for adding approved packages to AgentTypes and agent runs.
-- Detailed line-by-line comparison of supported package text files.
 - Marketplace source management for approved operators.
 - Additional source providers and offline package sources.
 - Package adoption and trusted runtime-use reporting.
@@ -208,7 +198,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 - [ ] **FR-4:** Support text search, sorting, and filters for package type, Marketplace, category, framework support.
 - [ ] **FR-5:** Return results one page at a time and keep the user's filters while moving between pages.
 - [ ] **FR-6:** Show package name, type, summary, publisher, Marketplace source.
-- [ ] **FR-7:** Provide a package page showing purpose, publisher, Marketplace, repository, source revision, version, licence, files, package needs, framework support, checks.
+- [ ] **FR-7:** Provide a package page showing purpose, publisher, Marketplace, repository, source revision, licence, files, package needs, framework support, checks.
 - [ ] **FR-8:** Show all declared plugin parts on every plugin page.
 - [ ] **FR-9:** Show supported package text files as safe, read-only previews and provide a View source action.
 - [ ] **FR-10:** Show required and optional package needs separately and explain that they do not grant access.
@@ -217,9 +207,6 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 - [ ] **FR-13:** Provide an approved operator with a read-only Sources view showing source location, visibility, freshness, package count, state, and errors.
 - [ ] **FR-14:** Show clear states when Marketplace is empty, not configured, unavailable, pending, degraded, or showing old information.
 - [ ] **FR-15:** Marketplace content must not create or change Orbit pages, controls, scripts, or executable behaviour.
-- [ ] **FR-16:** Show the versions of one package that are known to Orbit, including version number, state, source revision, digest, release information, and check state when available.
-- [ ] **FR-17:** Link each known version to its exact GitHub commit when a link is available.
-- [ ] **FR-18:** Clearly explain when earlier package history is not known.
 - [ ] **FR-19:** Support multiple sources for the Marketplaces, instead of only from GitHub.
 
 ### Non-Functional Requirements
@@ -227,9 +214,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 #### Performance
 
 - Marketplace read requests must complete within 300 ms.
-- Tests must include at least 10,000 listed package versions.
 - Large result sets must not require the browser to load all Marketplace items at once.
-- Package comparison and version-history pages must meet the same agreed response-time target as other common Marketplace read requests.
 
 #### Security
 
@@ -268,7 +253,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 ### External Dependencies
 
 - **GitHub:** First-release locations for approved Marketplace sources.
-- **Package publishers:** Provide package descriptions, clear version numbers, source revisions, licences, contents, package needs, framework claims, and release notes when available.
+- **Package publishers:** Provide package descriptions, source revisions, licences, contents, package needs, and framework claims.
 - **Self-hosting environment:** Must allow the organisation to reach its approved source provider.
 
 ## Alternatives Considered
@@ -306,19 +291,15 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 1. **Which filters must appear by default?** Package type and Marketplace are required, the product team must confirm the first visible set of other filters.
     - **Status:** Open
     - **Owner:** Product Owner (TBD)
-
 2. **Which plugin-part types should the first release recognise?** The page may show a part without claiming Orbit can run it.
     - **Status:** Open
     - **Owner:** Product and Agent Runtime (TBD)
-
 3. **What proof is required before Orbit marks a publisher or source as verified?**
     - **Status:** Open
     - **Owner:** Security Review (TBD)
-
 4. **Will Orbit include an official global Marketplace?** The product must still provide a clear empty state if none is included.
     - **Status:** Open
     - **Owner:** Product Owner (TBD)
-
 5. **How fresh must Marketplace information be?** Product and operations must agree on the user-visible freshness expectation without choosing the technical refresh method in this PRD.
     - **Status:** Open
     - **Owner:** Product and Platform Operations (TBD)
@@ -335,9 +316,8 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 
 **Phase 2: User Experience Validation** (Target: TBD)
 
-- Create Marketplace overview, package detail, current-package comparison, version-history, source-status, and edge-state designs.
+- Create Marketplace overview, package detail, source-status, and edge-state designs.
 - Test the designs with tenant members, platform reviewers, and self-hosting operators.
-- Test whether users can compare two current packages and understand what changed between two versions of one package.
 - Confirm wording for package needs, publisher claims, checks and stale information.
 - Complete accessibility and responsive-design review.
 
@@ -350,7 +330,6 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 **Phase 4: First-Release Implementation and Validation** (Target: TBD)
 
 - Build the approved Marketplace experience according to the PRD and ADR.
-- Build and test current-package comparison and per-package version history.
 - Complete functional, security, tenant-isolation, performance, accessibility, and failure-state tests.
 - Run the agreed usability test and resolve blocking findings.
 - Release to a controlled group before general availability.
@@ -389,10 +368,6 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 - **Marketplace:** The Orbit area where approved users find and review skills and plugins.
 - **Marketplace source:** An approved location that provides Marketplace package information. A source can be global or tenant-only.
 - **Package:** One item in Marketplace. Its type is skill or plugin.
-- **Current version:** The package version that Marketplace currently lists as the main version.
-- **Package comparison:** A side-by-side view of the current versions of two packages of the same type.
-- **Version history:** The versions of one package that are known to Orbit.
-- **Change summary:** A list of known differences between two versions of the same package. It is not a complete line-by-line file comparison.
 - **Skill:** Instructions and supporting files that help an agent perform a task.
 - **Agent plugin:** A package that can contain skills and other declared agent parts.
 - **Plugin part:** A declared skill, command, agent definition, setting, hook, helper, or service reference inside a plugin.
