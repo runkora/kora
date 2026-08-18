@@ -70,6 +70,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) — `Accepted` · 2026-06-15
 - [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) — `Accepted` · 2026-06-22
 - [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) — `Accepted` · 2026-06-19
+- [Admin Inference Logs — Cross-Principal, Tenant-Scoped Usage Read](2026-08-18-admin-inference-logs.md) — `Proposed` · 2026-08-18
 
 ### Agents Control Plane & Execution
 
@@ -250,3 +251,4 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
+| 2026-08-18 | [Admin Inference Logs — Cross-Principal, Tenant-Scoped Usage Read](2026-08-18-admin-inference-logs.md) | Proposed | — |
