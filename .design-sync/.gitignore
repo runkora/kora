@@ -1,0 +1,8 @@
+# Transient, regenerated each build
+sb-reference/
+.cache/
+learnings/
+node_modules/
+
+# Build output (tracked at repo root)
+../ds-bundle/

@@ -1120,6 +1120,39 @@ frontend-storybook-terra: ## Start Terra-isolated Storybook (Terra package only,
 	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra storybook
 
 # ===========================================
+# Design System Sync
+# ===========================================
+
+REPO_ROOT := $(shell pwd)
+
+.PHONY: design-sync-setup
+design-sync-setup: ## Install design-sync driver dependencies (run once, or after .ds-sync changes)
+	@echo "$(COLOR_YELLOW)Installing design-sync driver dependencies...$(COLOR_RESET)"
+	@cd .ds-sync && npm install
+	@npx --prefix .ds-sync playwright install chromium
+	@echo "$(COLOR_GREEN)✓ design-sync-setup complete$(COLOR_RESET)"
+
+.PHONY: design-sync
+design-sync: ## Sync Terra components to Claude Design (requires make design-sync-setup)
+	@test -d .ds-sync/node_modules || (echo "$(COLOR_RED)✗ Run 'make design-sync-setup' first$(COLOR_RESET)" && exit 1)
+	@echo "$(COLOR_YELLOW)Building Terra package...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra build
+	@echo "$(COLOR_YELLOW)Compiling Terra CSS for design-sync bundle...$(COLOR_RESET)"
+	@node .design-sync/compile-css.mjs
+	@echo "$(COLOR_YELLOW)Building Storybook reference snapshot...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && npx storybook build \
+		-c src/packages/terra/.storybook \
+		-o $(REPO_ROOT)/.design-sync/sb-reference
+	@echo "$(COLOR_YELLOW)Running sync pipeline (build → validate → diff → upload)...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && node $(REPO_ROOT)/.ds-sync/resync.mjs \
+		--config $(REPO_ROOT)/.design-sync/config.json \
+		--node-modules $(REPO_ROOT)/frontend/node_modules \
+		--out $(REPO_ROOT)/ds-bundle \
+		--storybook-static $(REPO_ROOT)/.design-sync/sb-reference \
+		--remote $(REPO_ROOT)/.design-sync/.cache/remote-sync.json
+	@echo "$(COLOR_GREEN)✓ Design sync complete$(COLOR_RESET)"
+
+# ===========================================
 # Cleanup
 # ===========================================
 

@@ -1,0 +1,24 @@
+{
+  "projectId": "48926740-8f05-43f4-b94a-9ffeb5e8da96",
+  "shape": "storybook",
+  "storybookConfigDir": "frontend/src/packages/terra/.storybook",
+  "pkg": "@orbit/terra",
+  "globalName": "OrbitTerra",
+  "storybookStatic": ".design-sync/sb-reference",
+  "cssEntry": ".design-sync/_ds_bundle.css",
+  "fontImports": [
+    "https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap"
+  ],
+  "rootVars": {
+    "--font-geist-sans": "\"Geist\", ui-sans-serif, system-ui, sans-serif",
+    "--font-geist-mono": "\"Geist Mono\", ui-monospace, SFMono-Regular, Menlo, monospace"
+  },
+  "titleMap": {
+    "ComponentGrid": null,
+    "Tokens": null,
+    "Typography": null,
+    "ChatPrimitives": null,
+    "Chart": null
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
