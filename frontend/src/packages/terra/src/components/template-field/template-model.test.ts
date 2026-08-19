@@ -309,7 +309,8 @@ describe('readModelFromDom', () => {
 
 describe('domPositionToModelOffset', () => {
   const root = buildEditor(['Review ', { token: 'pr.title' }, ' on ']);
-  const [text0, pill, text1] = Array.from(root.childNodes);
+  const children = Array.from(root.childNodes);
+  const [text0, pill, text1] = children as unknown as [Node, Node, Node];
 
   it('maps an offset inside a leading text node', () => {
     expect(domPositionToModelOffset(root, text0, 0)).toBe(0);
@@ -359,7 +360,8 @@ describe('domPositionToModelOffset', () => {
 
 describe('modelOffsetToDom', () => {
   const root = buildEditor(['Review ', { token: 'pr.title' }, ' on ']);
-  const [text0, , text1] = Array.from(root.childNodes);
+  const children = Array.from(root.childNodes);
+  const [text0, , text1] = children as unknown as [Node, Node, Node];
 
   it('maps an offset inside the leading text node', () => {
     expect(modelOffsetToDom(root, 3)).toEqual({ node: text0, offset: 3 });
@@ -427,13 +429,13 @@ const CATALOG: TemplateCatalogEntry[] = [
 
 describe('catalog helpers', () => {
   it('takes an explicit group, else the token prefix', () => {
-    expect(groupNameFor(CATALOG[0])).toBe('Pull request');
-    expect(groupNameFor(CATALOG[2])).toBe('Repo');
+    expect(groupNameFor(CATALOG[0]!)).toBe('Pull request');
+    expect(groupNameFor(CATALOG[2]!)).toBe('Repo');
   });
 
   it('groups in first-seen order', () => {
     expect(groupCatalog(CATALOG).map((g) => g.name)).toEqual(['Pull request', 'Repo', 'Group']);
-    expect(groupCatalog(CATALOG)[0].entries).toHaveLength(2);
+    expect(groupCatalog(CATALOG)[0]!.entries).toHaveLength(2);
   });
 
   it('filters on token and description, case-insensitively', () => {

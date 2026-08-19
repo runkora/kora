@@ -267,7 +267,7 @@ export function DataTable<TData>({
     columnDefs.forEach((col) => {
       if (!col.locked) {
         if (initialColumnVisibility && col.id in initialColumnVisibility) {
-          vis[col.id] = initialColumnVisibility[col.id];
+          vis[col.id] = initialColumnVisibility[col.id] ?? true;
         } else {
           vis[col.id] = col.defaultVisible ?? true;
         }
@@ -355,7 +355,8 @@ export function DataTable<TData>({
         ? [{ id: columnId, desc: !existing.desc }]
         : [{ id: columnId, desc: false }];
       setSorting(next);
-      onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
+      const first = next[0];
+      if (first) onSortChange?.(first.id, first.desc ? 'desc' : 'asc');
     },
     [sorting, setSorting, onSortChange],
   );

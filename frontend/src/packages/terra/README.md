@@ -162,6 +162,7 @@ Each component lives in its own named folder under `src/components/`. The folder
 | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`                  | `@orbit/terra` | Radix Tooltip with Terra-token styling                                          |
 | `PageLayout`                                                                      | `@orbit/terra` | Root page wrapper: applies background, font, padding                            |
 | `Section`                                                                         | `@orbit/terra` | Content section with consistent vertical rhythm                                 |
+| `TemplateField`                                                                   | `@orbit/terra` | Structured template field editor                                                |
 | _(more added as features are built)_                                              |                |                                                                                 |
 
 ### Button variants

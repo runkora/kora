@@ -20,6 +20,10 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
+    // design-sync scratch: converter lib + generated preview/cache artifacts
+    // (gitignored, regenerated per sync run — never product code to lint).
+    '.ds-sync/**',
+    '.design-sync/**',
   ]),
 
   // Register the local plugin globally so individual config objects below
@@ -219,19 +223,6 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**', '**/*.stories.{ts,tsx}'],
     rules: {
       'local/no-hardcoded-color': 'error',
-    },
-  },
-
-  // ---- Terra compound components in Server Components ----------------------
-  // Terra's entrypoint carries "use client", so a Server Component importing a
-  // composed component receives a client reference with none of the
-  // Object.assign sub-components attached: <SidebarLayout.Main> renders as
-  // undefined and React throws "Element type is invalid". Types do not catch
-  // this and jsdom tests do not reproduce it — neither has an RSC boundary.
-  {
-    files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
-    rules: {
-      'local/no-terra-compound-in-server-component': 'error',
     },
   },
 

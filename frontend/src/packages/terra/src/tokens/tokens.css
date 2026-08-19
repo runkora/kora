@@ -35,18 +35,16 @@
  * as signals or pulses. The nervous-system metaphor guides every value here.
  */
 
-@import 'tailwindcss';
-
 /* ─── Theme seeds ─────────────────────────────────────────────────────────── */
 /* Override any of these five values to retheme the entire system.             */
 /* The four background steps (background → surface-overlay) are derived from  */
 /* --terra-bg-base via calc() offsets. All other steps are fixed lightness.   */
 :root {
   color-scheme: dark;
-  --terra-neutral-hue: 248;
-  --terra-neutral-chroma: 0.005;
-  --terra-accent-hue: 8;
-  --terra-accent-chroma: 0.17;
+  --terra-neutral-hue: 248; /* @kind other */
+  --terra-neutral-chroma: 0.005; /* @kind other */
+  --terra-accent-hue: 8; /* @kind color */
+  --terra-accent-chroma: 0.17; /* @kind color */
   --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
 
   /* Elevation offsets from --terra-bg-base; light mode flips their sign */
@@ -267,7 +265,7 @@
   --radius-full: 9999px; /* pills, status dots, avatars */
 
   /* Motion */
-  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
 }
 
 /* ─── OrbitalLoader keyframes ────────────────────────────────────────────── */

@@ -262,13 +262,17 @@ export const Paginated: Story = {
   name: 'Client-side pagination',
   render: () => {
     // Generate a longer dataset
-    const rows: AgentRow[] = Array.from({ length: 30 }, (_, i) => ({
-      id: `agent-${String(i + 1).padStart(2, '0')}`,
-      status: (['Running', 'Idle', 'Suspended'] as const)[i % 3],
-      tools: i % 6,
-      uptime: `${i}d ${i % 24}h`,
-      cost: +(i * 1.5).toFixed(2),
-    }));
+    const statuses: Array<'Running' | 'Idle' | 'Suspended'> = ['Running', 'Idle', 'Suspended'];
+    const rows: AgentRow[] = Array.from({ length: 30 }, (_, i) => {
+      const status = statuses[i % statuses.length];
+      return {
+        id: `agent-${String(i + 1).padStart(2, '0')}`,
+        status: status || 'Running',
+        tools: i % 6,
+        uptime: `${i}d ${i % 24}h`,
+        cost: +(i * 1.5).toFixed(2),
+      };
+    });
 
     return (
       <div className="w-[700px]">

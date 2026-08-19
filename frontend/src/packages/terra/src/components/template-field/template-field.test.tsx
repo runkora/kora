@@ -50,10 +50,11 @@ describe('TemplateField', () => {
     const editor = editorOf(container);
     const pills = editor.querySelectorAll('[data-slot="template-token"]');
     expect(pills).toHaveLength(1);
-    expect(pills[0]).toHaveAttribute('data-token', 'pr.title');
-    expect(pills[0]).toHaveAttribute('contenteditable', 'false');
+    const pill0 = pills[0] as HTMLElement;
+    expect(pill0).toHaveAttribute('data-token', 'pr.title');
+    expect(pill0).toHaveAttribute('contenteditable', 'false');
     // The pill shows the token only; the braces never reach the screen.
-    expect(pills[0].textContent).toBe('pr.title');
+    expect(pill0.textContent).toBe('pr.title');
     expect(editor.textContent).toBe('Review pr.title now');
   });
 
