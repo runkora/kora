@@ -2,14 +2,20 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Callout, SegmentedControl, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Callout, Icon, Stack, Text } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
-import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
+import {
+  getInferenceStatusVariant,
+  fmtInferenceStatus,
+  fmtPrincipalType,
+  resolvePrincipalDisplay,
+} from '../_utils';
 import { InferenceLogDetailModal } from './inference-log-detail-modal';
+import { LogsToolbar } from './logs-toolbar';
 
 // ── Status filter options ─────────────────────────────────────────────────────
 
@@ -31,8 +37,29 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
-  const { records, hasNextPage, hasPrevPage, pats, error, status, refresh, goNext, goPrev } =
-    useLogsContext();
+  const {
+    variant,
+    records,
+    hasNextPage,
+    hasPrevPage,
+    pats,
+    identities,
+    principalFilterId,
+    statusFilter,
+    modelFilter,
+    timeRange,
+    error,
+    status,
+    refresh,
+    setPrincipalFilter,
+    setStatusFilter,
+    setModelFilter,
+    setTimeRange,
+    goNext,
+    goPrev,
+  } = useLogsContext();
+
+  const isAdminView = variant === 'all';
 
   const searchParams = useSearchParams();
 
@@ -41,7 +68,6 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // this from searchParams; we own it here.
   const [activeKeyId, setActiveKeyId] = useState(selectedKeyId);
   const [selectedRecord, setSelectedRecord] = useState<InferenceUsageRecord | null>(null);
-  const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'success' | 'error'>('all');
 
   // Key filter changes update the URL for shareability (deep-links) and call
   // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
@@ -71,20 +97,19 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // PAT ID → full PAT record lookup for the Key status column cell.
   const patMap = useMemo(() => new Map(pats.map((p) => [p.id, p])), [pats]);
 
-  const outcomeCounts = useMemo(
-    () => ({
-      all: records.length,
-      success: records.filter((r) => r.status === 'success').length,
-      error: records.filter((r) => r.status !== 'success').length,
-    }),
-    [records],
-  );
-
-  const outcomeFilteredRecords = useMemo(() => {
-    if (outcomeFilter === 'all') return records;
-    if (outcomeFilter === 'success') return records.filter((r) => r.status === 'success');
-    return records.filter((r) => r.status !== 'success');
-  }, [records, outcomeFilter]);
+  // Distinct models present in the loaded record set, filtered server-side by
+  // raw model_id. Label prefers the virtual model ID (consumer-facing) so the
+  // option reads the same as the Model column. Like principalOptions below, this
+  // surfaces models from the loaded page(s) only — an accepted v1 limit until a
+  // tenant-wide model roster is wired in.
+  const modelOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of records) {
+      if (seen.has(r.model_id)) continue;
+      seen.set(r.model_id, r.virtual_model_id ?? r.model_id);
+    }
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [records]);
 
   const keyOptions = useMemo(
     () =>
@@ -94,6 +119,56 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       })),
     [pats],
   );
+
+  // Distinct principals present in the current record set, labelled via the
+  // shared resolver. Admin 'all' view only. This surfaces principals from the
+  // loaded page(s) rather than the full tenant roster — an accepted v1 limit:
+  // agents and PATs have no tenant-wide directory to enumerate from.
+  const principalOptions = useMemo(() => {
+    if (!isAdminView) return [];
+    const seen = new Map<string, string>();
+    for (const r of records) {
+      if (seen.has(r.principal_id)) continue;
+      const disp = resolvePrincipalDisplay(
+        r.principal_id,
+        r.principal_type,
+        identities[r.principal_id],
+      );
+      seen.set(r.principal_id, `${disp.primary} · ${fmtPrincipalType(r.principal_type)}`);
+    }
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [isAdminView, records, identities]);
+
+  // principal_id → principal_type, so toggling a principal filter can pass the
+  // matching type through to the narrowing query.
+  const principalTypeMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of records) m.set(r.principal_id, r.principal_type);
+    return m;
+  }, [records]);
+
+  // ── Principal column (admin 'all' view only) ────────────────────────────────
+  const principalColumn: DataTableColumn<InferenceUsageRecord> = {
+    id: 'principal',
+    header: 'Principal',
+    cell: (row) => {
+      const disp = resolvePrincipalDisplay(
+        row.principal_id,
+        row.principal_type,
+        identities[row.principal_id],
+      );
+      return (
+        <Stack gap="none">
+          <Text size="supporting" color="foreground">
+            {disp.primary}
+          </Text>
+          <Text size="caption" color="subtle">
+            {fmtPrincipalType(row.principal_type)}
+          </Text>
+        </Stack>
+      );
+    },
+  };
 
   const columns: DataTableColumn<InferenceUsageRecord>[] = [
     // Request ID — always visible, locked.
@@ -161,17 +236,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       ),
     },
 
-    // Status — client-side filter (no navigation required).
+    // Status — filtered server-side via the toolbar (spans all pages).
     {
       id: 'status',
       header: 'Status',
-      filter: {
-        mode: 'client',
-        options: STATUS_OPTIONS,
-        filterFn: (row, selected) => selected.has(row.status),
-      },
       cell: (row) => (
-        <Stack gap="tight">
+        <Stack gap="tight" align="start">
           <Badge variant={getInferenceStatusVariant(row.status)} size="sm">
             {fmtInferenceStatus(row.status)}
           </Badge>
@@ -321,6 +391,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     },
   ];
 
+  // Admin 'all' view surfaces the Principal column right after the Request ID,
+  // so cross-principal rows are attributable at a glance. The self-scoped 'me'
+  // view omits it — every row belongs to the caller. Rebuilt each render, like
+  // `columns` above.
+  const displayColumns = isAdminView ? [columns[0], principalColumn, ...columns.slice(1)] : columns;
+
   const deletedKeySelected = !!activeKeyId && status !== 'loading' && !patMap.has(activeKeyId);
 
   return (
@@ -341,9 +417,9 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       )}
 
       <SmartTable
-        tableId="inferenceLogs"
-        data={outcomeFilteredRecords}
-        columns={columns}
+        tableId={isAdminView ? 'inferenceLogsAll' : 'inferenceLogs'}
+        data={records}
+        columns={displayColumns}
         getRowKey={(row) => row.id}
         noun="requests"
         searchPlaceholder="Search request ID or model…"
@@ -351,7 +427,16 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
           row.id.toLowerCase().includes(q) ||
           row.model_id.toLowerCase().includes(q) ||
           (row.virtual_model_id?.toLowerCase().includes(q) ?? false) ||
-          (row.error_code?.toLowerCase().includes(q) ?? false)
+          (row.error_code?.toLowerCase().includes(q) ?? false) ||
+          (isAdminView &&
+            (row.principal_id.toLowerCase().includes(q) ||
+              resolvePrincipalDisplay(
+                row.principal_id,
+                row.principal_type,
+                identities[row.principal_id],
+              )
+                .primary.toLowerCase()
+                .includes(q)))
         }
         defaultSortId="date"
         defaultSortDir="desc"
@@ -359,15 +444,22 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         filteredEmptyMessage="No logs match your filters."
         onRowClick={setSelectedRecord}
         quickFilters={
-          <SegmentedControl
-            aria-label="Filter logs by outcome"
-            value={outcomeFilter}
-            onChange={(v) => setOutcomeFilter(v as typeof outcomeFilter)}
-            options={[
-              { value: 'all', label: 'All', count: outcomeCounts.all },
-              { value: 'success', label: 'Success', count: outcomeCounts.success },
-              { value: 'error', label: 'Error', count: outcomeCounts.error },
-            ]}
+          <LogsToolbar
+            disabled={status === 'loading'}
+            statusValue={statusFilter}
+            statusOptions={STATUS_OPTIONS}
+            onStatusChange={setStatusFilter}
+            showPrincipal={isAdminView}
+            principalValue={principalFilterId}
+            principalOptions={principalOptions}
+            onPrincipalChange={(val) =>
+              setPrincipalFilter(val, val ? (principalTypeMap.get(val) ?? null) : null)
+            }
+            modelValue={modelFilter}
+            modelOptions={modelOptions}
+            onModelChange={setModelFilter}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
           />
         }
         toolbarActions={
@@ -377,6 +469,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
             onClick={() => refresh(activeKeyId || undefined)}
             disabled={status === 'loading'}
           >
+            <Icon name="refresh-cw" size="sm" />
             {status === 'loading' ? 'Refreshing…' : 'Refresh'}
           </Button>
         }
@@ -384,10 +477,20 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
 
       {(hasPrevPage || hasNextPage) && (
         <Stack direction="horizontal" gap="tight" justify="end">
-          <Button variant="outline" size="sm" onClick={goPrev} disabled={!hasPrevPage}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={goPrev}
+            disabled={!hasPrevPage || status === 'loading'}
+          >
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={goNext} disabled={!hasNextPage}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={goNext}
+            disabled={!hasNextPage || status === 'loading'}
+          >
             Next
           </Button>
         </Stack>

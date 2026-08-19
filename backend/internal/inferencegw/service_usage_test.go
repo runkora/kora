@@ -174,6 +174,88 @@ func TestListUsage_RepoError_IsWrapped(t *testing.T) {
 	}
 }
 
+// ── ListUsageAll ──────────────────────────────────────────────────────────────
+
+func TestListUsageAll_NoClaims_ReturnsErrTokenParseFailed(t *testing.T) {
+	t.Parallel()
+	svc := newTestUsageService(t, newMockUsageRepo())
+	_, _, err := svc.ListUsageAll(context.Background(), InferenceUsageFilter{})
+	if !errors.Is(err, ErrTokenParseFailed) {
+		t.Errorf("error: got %v, want wrapping ErrTokenParseFailed", err)
+	}
+}
+
+// TestListUsageAll_ForcesTenantFromClaims_WidensToWholeTenant asserts the admin
+// read overwrites any caller-supplied TenantID with the verified claim and, when
+// no principal filter is given, leaves PrincipalID nil so the query spans the
+// whole tenant. It also pins IncludeDelegated off — an admin sees each row as
+// recorded, delegated agent rows attributed to the agent, not the delegator.
+func TestListUsageAll_ForcesTenantFromClaims_WidensToWholeTenant(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("tenant-X", "admin-Y", token.PrincipalTypeHuman, ""))
+
+	// A caller-supplied TenantID must be discarded in favour of the claim.
+	_, _, err := svc.ListUsageAll(ctx, InferenceUsageFilter{TenantID: "injected-tenant"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if repo.lastFilter.TenantID != "tenant-X" {
+		t.Errorf("TenantID passed to repo: got %q, want %q (from claims)", repo.lastFilter.TenantID, "tenant-X")
+	}
+	if repo.lastFilter.PrincipalID != nil {
+		t.Errorf("PrincipalID passed to repo: got %v, want nil (whole tenant)", repo.lastFilter.PrincipalID)
+	}
+	if repo.lastFilter.IncludeDelegated {
+		t.Error("IncludeDelegated: got true, want false (admin sees rows as recorded)")
+	}
+}
+
+// TestListUsageAll_ForeignPrincipalIDOnlyNarrowsWithinTenant is the security
+// invariant the ADR calls out: the caller-supplied principal_id can only narrow
+// within the tenant. The tenant predicate is always forced from the claim, so a
+// principal_id belonging to another tenant reaches the repository paired with
+// the caller's own tenant_id — the AND predicate yields no rows rather than a
+// cross-tenant leak.
+func TestListUsageAll_ForeignPrincipalIDOnlyNarrowsWithinTenant(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("tenant-X", "admin-Y", token.PrincipalTypeHuman, ""))
+
+	foreign := "principal-in-another-tenant"
+	_, _, err := svc.ListUsageAll(ctx, InferenceUsageFilter{PrincipalID: &foreign})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The principal_id is preserved as a narrowing filter, but the tenant is
+	// still forced from the claim — so the compound predicate is tenant-safe.
+	if repo.lastFilter.TenantID != "tenant-X" {
+		t.Errorf("TenantID passed to repo: got %q, want %q (forced from claim)", repo.lastFilter.TenantID, "tenant-X")
+	}
+	if repo.lastFilter.PrincipalID == nil || *repo.lastFilter.PrincipalID != foreign {
+		t.Errorf("PrincipalID passed to repo: got %v, want pointer to %q", repo.lastFilter.PrincipalID, foreign)
+	}
+}
+
+func TestListUsageAll_RepoError_IsWrapped(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.listErr = errors.New("db connection lost")
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("t1", "admin-1", token.PrincipalTypeHuman, ""))
+	_, _, err := svc.ListUsageAll(ctx, InferenceUsageFilter{})
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
 // ── UsageStats ────────────────────────────────────────────────────────────────
 
 func TestUsageStats_NoClaims_ReturnsErrTokenParseFailed(t *testing.T) {

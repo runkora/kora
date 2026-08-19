@@ -756,3 +756,105 @@ func TestHandleListUsage_BedrockAliasProvider_Accepted(t *testing.T) {
 		t.Errorf("filter.Provider = %v, want %q", repo.lastFilter.Provider, alias)
 	}
 }
+
+// ── GET /usage/all — admin cross-principal log ──────────────────────────────────
+
+// getUsageAll performs a GET /usage/all with the given query params and JWT
+// claims already injected into the request context (simulating AuthMiddleware;
+// the platform:analytics:read gate is enforced upstream at the route layer, so
+// the handler itself does not re-check it).
+func getUsageAll(
+	t *testing.T,
+	c *Controller,
+	claims *token.PlatformClaims,
+	params map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	q := url.Values{}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/usage/all?"+q.Encode(), nil)
+	req = req.WithContext(token.WithClaims(req.Context(), claims))
+	w := httptest.NewRecorder()
+	c.handleListUsageAll(w, req)
+	return w
+}
+
+func TestHandleListUsageAll_NoPrincipalFilter_SpansTenant(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.records = []InferenceUsageRecord{
+		{ID: "r1", TenantID: "t1", PrincipalID: "someone-else"},
+	}
+	c := newUsageController(t, repo)
+
+	w := getUsageAll(t, c, humanClaimsForHandler("t1", "admin-1"), nil)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+	// Tenant forced from claims; no principal narrowing → whole-tenant read.
+	if repo.lastFilter.TenantID != "t1" {
+		t.Errorf("TenantID: got %q, want %q", repo.lastFilter.TenantID, "t1")
+	}
+	if repo.lastFilter.PrincipalID != nil {
+		t.Errorf("PrincipalID: got %v, want nil (whole tenant)", repo.lastFilter.PrincipalID)
+	}
+	resp := decodeUsageResponse(t, w)
+	if len(resp.Data) != 1 || resp.Data[0].PrincipalID != "someone-else" {
+		t.Errorf("Data: got %+v, want one row for another principal", resp.Data)
+	}
+}
+
+func TestHandleListUsageAll_PrincipalIDFilter_PassedThrough(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsageAll(t, c, humanClaimsForHandler("t1", "admin-1"), map[string]string{
+		"principal_id": "target-user",
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+	if repo.lastFilter.PrincipalID == nil || *repo.lastFilter.PrincipalID != "target-user" {
+		t.Errorf("PrincipalID: got %v, want pointer to %q", repo.lastFilter.PrincipalID, "target-user")
+	}
+	// Tenant is still forced from claims even with a principal filter present.
+	if repo.lastFilter.TenantID != "t1" {
+		t.Errorf("TenantID: got %q, want %q (forced from claims)", repo.lastFilter.TenantID, "t1")
+	}
+}
+
+func TestHandleListUsageAll_PrincipalTypeFilter_PassedThrough(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsageAll(t, c, humanClaimsForHandler("t1", "admin-1"), map[string]string{
+		"principal_type": string(token.PrincipalTypeAgent),
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+	if repo.lastFilter.PrincipalType == nil || *repo.lastFilter.PrincipalType != string(token.PrincipalTypeAgent) {
+		t.Errorf("PrincipalType: got %v, want pointer to %q", repo.lastFilter.PrincipalType, token.PrincipalTypeAgent)
+	}
+}
+
+func TestHandleListUsageAll_InvalidPrincipalType_Returns400(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsageAll(t, c, humanClaimsForHandler("t1", "admin-1"), map[string]string{
+		"principal_type": "ROBOT",
+	})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
+	}
+}

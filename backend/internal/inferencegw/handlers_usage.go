@@ -374,3 +374,83 @@ func (c *Controller) handleListUsage(w http.ResponseWriter, r *http.Request) {
 		Limit:       filter.Limit,
 	})
 }
+
+// usagePrincipalTypes is the set of principal_type values a caller may filter
+// the admin log on. Derived from the canonical token constants so it cannot
+// drift from the identity model.
+var usagePrincipalTypes = []token.PrincipalType{
+	token.PrincipalTypeHuman,
+	token.PrincipalTypeAgent,
+	token.PrincipalTypeService,
+	token.PrincipalTypeSystem,
+	token.PrincipalTypePAT,
+}
+
+// parseAdminPrincipalFilter layers the admin-only principal filters onto an
+// already-parsed usage filter. principal_id narrows to one principal;
+// principal_type narrows to one kind (validated against the canonical set). It
+// is deliberately separate from parseUsageFilter so the self-scoped
+// GET /v1/usage stays byte-for-byte unchanged — on that path PrincipalID is
+// always forced to the caller and principal_type is never read.
+func parseAdminPrincipalFilter(q url.Values, f *InferenceUsageFilter) *api.APIError {
+	if raw := q.Get("principal_id"); raw != "" {
+		v := raw
+		f.PrincipalID = &v
+	}
+	if raw := q.Get("principal_type"); raw != "" {
+		pt := token.PrincipalType(raw)
+		if !slices.Contains(usagePrincipalTypes, pt) {
+			return api.BadRequestError("invalid_param",
+				"'principal_type' must be one of: "+joinEnumValues(usagePrincipalTypes), nil)
+		}
+		v := string(pt)
+		f.PrincipalType = &v
+	}
+	return nil
+}
+
+// handleListUsageAll handles GET /v1/usage/all — the tenant-wide, cross-principal
+// inference usage log backing the admin Logs view.
+//
+// TenantID is always sourced from the verified JWT claims by ListUsageAll and
+// cannot be overridden by a query parameter. The optional principal_id /
+// principal_type filters can only narrow within the tenant. The route requires
+// platform:analytics:read, enforced at route registration (see inferenceRoutes).
+func (c *Controller) handleListUsageAll(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	filter, apiErr, parseErr := parseUsageFilter(r.URL.Query())
+	if apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
+		return
+	}
+	if apiErr := parseAdminPrincipalFilter(r.URL.Query(), &filter); apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	records, hasNextPage, err := c.svc.ListUsageAll(ctx, filter)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
+
+	// Return an empty slice rather than null when there are no records.
+	if records == nil {
+		records = []InferenceUsageRecord{}
+	}
+
+	var nextCursor *string
+	if hasNextPage && len(records) > 0 {
+		last := records[len(records)-1]
+		s := last.CreatedAt.Format(time.RFC3339Nano) + "|" + last.ID
+		nextCursor = &s
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, listUsageResponse{
+		Data:        records,
+		HasNextPage: hasNextPage,
+		NextCursor:  nextCursor,
+		Limit:       filter.Limit,
+	})
+}

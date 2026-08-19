@@ -5,11 +5,16 @@ import { fetchUsageFromGateway } from '../../(dashboard)/model-gateway/_services
 import { listPATsFromIdentity } from '../../(dashboard)/model-gateway/_services/tokens-server';
 
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const key = req.nextUrl.searchParams.get('key') ?? undefined;
-  const cursor = req.nextUrl.searchParams.get('cursor') ?? undefined;
+  const sp = req.nextUrl.searchParams;
+  const key = sp.get('key') ?? undefined;
+  const cursor = sp.get('cursor') ?? undefined;
+  const status = sp.get('status') ?? undefined;
+  const modelId = sp.get('model_id') ?? undefined;
+  const from = sp.get('from') ?? undefined;
+  const to = sp.get('to') ?? undefined;
 
   const [usageResult, patsResult] = await Promise.all([
-    fetchUsageFromGateway(session.accessToken, { tokenId: key, cursor }),
+    fetchUsageFromGateway(session.accessToken, { tokenId: key, cursor, status, modelId, from, to }),
     listPATsFromIdentity(session.accessToken),
   ]);
 

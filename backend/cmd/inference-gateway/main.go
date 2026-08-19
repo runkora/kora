@@ -308,6 +308,12 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// cover "/v1/usage/agent-types"; both are listed.
 		{PathPrefix: "/v1/usage/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// GET /v1/usage/all is the tenant-wide, cross-principal inference log
+		// backing the admin Logs view. It aggregates rows across every principal
+		// in the tenant, so it requires platform:analytics:read — the same scope
+		// guarding the tenant-wide /v1/analytics reads above. Listed before
+		// /v1/usage so the more-specific path wins.
+		{PathPrefix: "/v1/usage/all", Method: "GET", RequiredScope: "platform:analytics:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

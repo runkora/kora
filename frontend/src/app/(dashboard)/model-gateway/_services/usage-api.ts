@@ -4,7 +4,7 @@
 // the Go backend directly (which is server-only via orbitClient).
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { InferenceUsageRecord } from '../_types';
+import type { InferenceUsageRecord, PrincipalIdentityMap } from '../_types';
 import type { PAT } from '@orbit/shared/api';
 
 export interface FetchUsageResult {
@@ -27,6 +27,10 @@ export interface FetchUsageResult {
 export async function fetchUsage(params?: {
   key?: string;
   cursor?: string;
+  status?: string;
+  model?: string;
+  from?: string;
+  to?: string;
 }): Promise<FetchUsageResult> {
   const empty = { records: [], hasNextPage: false, nextCursor: null, pats: [] };
 
@@ -59,6 +63,78 @@ export async function fetchUsage(params?: {
     hasNextPage: data.hasNextPage ?? false,
     nextCursor: data.nextCursor ?? null,
     pats: data.pats ?? [],
+    error: null,
+  };
+}
+
+// ── Admin: tenant-wide usage ────────────────────────────────────────────────
+
+/** Same as FetchUsageResult, plus the principal identity map the admin view
+ *  uses to render the Principal column without a per-row identity lookup. */
+export interface FetchAllUsageResult extends FetchUsageResult {
+  identities: PrincipalIdentityMap;
+}
+
+/**
+ * Fetch tenant-wide usage records from the admin BFF proxy (`GET /api/usage/all`).
+ *
+ * Backs the admin "All logs" view. Requires `platform:analytics:read`; the
+ * server always scopes rows to the caller's tenant from the verified JWT.
+ * `principalId` / `principalType` are optional narrowing filters that can only
+ * narrow *within* the tenant. `key` filters by a PAT UUID and `cursor` paginates.
+ *
+ * Returns a normalised result — never throws — so callers pattern-match on
+ * `error` instead of wrapping every call in try/catch.
+ */
+export async function fetchAllUsage(params?: {
+  key?: string;
+  cursor?: string;
+  principalId?: string;
+  principalType?: string;
+  status?: string;
+  model?: string;
+  from?: string;
+  to?: string;
+}): Promise<FetchAllUsageResult> {
+  const empty = {
+    records: [],
+    hasNextPage: false,
+    nextCursor: null,
+    pats: [],
+    identities: {},
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.usageAll.GET(params), { cache: 'no-store' });
+  } catch {
+    return { ...empty, error: 'Network error: could not reach the server.' };
+  }
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      // ignore parse errors; keep the status-code message
+    }
+    return { ...empty, error: message };
+  }
+
+  const data = (await res.json()) as {
+    records: InferenceUsageRecord[];
+    hasNextPage: boolean;
+    nextCursor: string | null;
+    pats: PAT[];
+    identities: PrincipalIdentityMap;
+  };
+  return {
+    records: data.records ?? [],
+    hasNextPage: data.hasNextPage ?? false,
+    nextCursor: data.nextCursor ?? null,
+    pats: data.pats ?? [],
+    identities: data.identities ?? {},
     error: null,
   };
 }

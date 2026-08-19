@@ -212,12 +212,59 @@ export const ApiRoute = {
    *       and an optional `cursor` for cursor-based pagination.
    */
   usage: {
-    GET: (params?: { key?: string; cursor?: string }): string => {
+    GET: (params?: {
+      key?: string;
+      cursor?: string;
+      status?: string;
+      model?: string;
+      from?: string;
+      to?: string;
+    }): string => {
       const qs = new URLSearchParams();
       if (params?.key) qs.set('key', params.key);
       if (params?.cursor) qs.set('cursor', params.cursor);
+      if (params?.status) qs.set('status', params.status);
+      if (params?.model) qs.set('model_id', params.model);
+      if (params?.from) qs.set('from', params.from);
+      if (params?.to) qs.set('to', params.to);
       const q = qs.toString();
       return q ? `${API_BASE}/usage?${q}` : `${API_BASE}/usage`;
+    },
+  },
+
+  /**
+   * `/api/usage/all`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/usage/all`, the
+   *       tenant-wide cross-principal inference log. Requires
+   *       `platform:analytics:read`; the BFF also enriches rows with principal
+   *       identity attribution. Accepts optional `key` (PAT UUID), `cursor`,
+   *       and `principalId` / `principalType` narrowing filters — all of which
+   *       only narrow *within* the caller's tenant (the tenant is forced from
+   *       the verified JWT server-side).
+   */
+  usageAll: {
+    GET: (params?: {
+      key?: string;
+      cursor?: string;
+      principalId?: string;
+      principalType?: string;
+      status?: string;
+      model?: string;
+      from?: string;
+      to?: string;
+    }): string => {
+      const qs = new URLSearchParams();
+      if (params?.key) qs.set('key', params.key);
+      if (params?.cursor) qs.set('cursor', params.cursor);
+      if (params?.principalId) qs.set('principal_id', params.principalId);
+      if (params?.principalType) qs.set('principal_type', params.principalType);
+      if (params?.status) qs.set('status', params.status);
+      if (params?.model) qs.set('model_id', params.model);
+      if (params?.from) qs.set('from', params.from);
+      if (params?.to) qs.set('to', params.to);
+      const q = qs.toString();
+      return q ? `${API_BASE}/usage/all?${q}` : `${API_BASE}/usage/all`;
     },
   },
 

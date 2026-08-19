@@ -2448,6 +2448,35 @@ func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([
 	return records, hasNextPage, nil
 }
 
+// ListUsageAll returns inference usage across every principal in the caller's
+// tenant. TenantID is always sourced from the verified JWT; PrincipalID is an
+// optional caller-supplied filter that can only narrow within the tenant. The
+// caller must carry platform:analytics:read — enforced at route registration,
+// mirroring Analytics(). Contrast ListUsage(), which forces PrincipalID to self.
+func (s *Service) ListUsageAll(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	// TenantID is always sourced from the verified JWT, never a query param, so
+	// the SQL predicate is self-sufficient for tenant isolation. PrincipalID is
+	// left as parsed from the query: nil = whole tenant, set = one principal.
+	// Because the tenant predicate stands alone, a foreign or bogus principal_id
+	// can only narrow within the tenant — it never crosses tenants, it simply
+	// matches no rows.
+	filter.TenantID = p.TenantID
+	// The admin log sees each row exactly as recorded: a delegated agent run
+	// stays attributed to the agent (principal_id = agent, delegator_id set),
+	// so IncludeDelegated stays off — contrast the personal ListUsage.
+	filter.IncludeDelegated = false
+
+	records, hasNextPage, err := s.usage.List(ctx, filter)
+	if err != nil {
+		return nil, false, fmt.Errorf("list usage all: %w", err)
+	}
+	return records, hasNextPage, nil
+}
+
 // UsageStats returns per-PAT aggregates (request count, last used) for the
 // authenticated principal. Scoping is always enforced from the verified JWT.
 func (s *Service) UsageStats(ctx context.Context) ([]TokenUsageStat, error) {

@@ -8,8 +8,8 @@
 
 import { createContext, useContext } from 'react';
 import { useLogs } from '../_hooks/use-logs';
-import type { LogsStateShape } from '../_hooks/use-logs';
-import type { InferenceUsageRecord } from '../_types';
+import type { LogsStateShape, LogsVariant } from '../_hooks/use-logs';
+import type { InferenceUsageRecord, PrincipalIdentityMap } from '../_types';
 import type { PAT } from '@orbit/shared/api';
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -19,29 +19,40 @@ const LogsContext = createContext<LogsStateShape | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 interface LogsProviderProps {
+  /** Surface this provider drives — self-scoped 'me' (default) or admin 'all'. */
+  variant?: LogsVariant;
   initialRecords: InferenceUsageRecord[];
   initialHasNextPage: boolean;
   initialNextCursor: string | null;
   initialPats: PAT[];
+  initialIdentities?: PrincipalIdentityMap;
   initialError: string | null;
+  /** Fetch page 1 on mount instead of trusting seeded data (admin 'all'). */
+  fetchOnMount?: boolean;
   children: React.ReactNode;
 }
 
 export function LogsProvider({
+  variant = 'me',
   initialRecords,
   initialHasNextPage,
   initialNextCursor,
   initialPats,
+  initialIdentities,
   initialError,
+  fetchOnMount,
   children,
 }: LogsProviderProps) {
-  const state = useLogs(
+  const state = useLogs({
+    variant,
     initialRecords,
     initialHasNextPage,
     initialNextCursor,
     initialPats,
+    initialIdentities,
     initialError,
-  );
+    fetchOnMount,
+  });
   return <LogsContext.Provider value={state}>{children}</LogsContext.Provider>;
 }
 

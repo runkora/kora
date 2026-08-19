@@ -1,7 +1,7 @@
 # Admin Inference Logs — Cross-Principal, Tenant-Scoped Usage Read
 
 **Date:** 2026-08-18
-**Status:** Proposed
+**Status:** Accepted
 **Deciders:** Qj Stout-Spykers, Platform Engineering
 **PRD:** [admin-inference-logs](../prd/admin-inference-logs.md)
 

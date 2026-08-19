@@ -25,6 +25,7 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 		scope string
 	}{
 		{name: "usage log is personal", path: "/v1/usage", scope: ""},
+		{name: "tenant-wide usage log requires analytics scope", path: "/v1/usage/all", scope: "platform:analytics:read"},
 		{name: "usage stats is personal", path: "/v1/usage/stats", scope: ""},
 		{name: "personal budget", path: "/v1/usage/budget", scope: ""},
 		{name: "run usage meter", path: "/v1/usage/run/run-123", scope: ""},

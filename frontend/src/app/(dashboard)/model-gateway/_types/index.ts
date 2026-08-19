@@ -231,6 +231,13 @@ export interface PrincipalIdentity {
   display_name: string | null;
 }
 
+/**
+ * Principal ID → identity attribution, keyed by raw principal ID. Built by the
+ * BFF (`GET /api/usage/all`) from the tenant user list so the admin Logs view
+ * can render human-friendly principal names without a per-row identity lookup.
+ */
+export type PrincipalIdentityMap = Record<string, PrincipalIdentity>;
+
 /** Budgets listing row enriched with identity attribution (BFF/RSC-side). */
 export interface BudgetPrincipalRow extends BudgetPrincipalStatus, PrincipalIdentity {}
 
