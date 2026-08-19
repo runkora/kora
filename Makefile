@@ -1125,16 +1125,15 @@ frontend-storybook-terra: ## Start Terra-isolated Storybook (Terra package only,
 
 REPO_ROOT := $(shell pwd)
 
-.PHONY: design-sync-setup
-design-sync-setup: ## Install design-sync driver dependencies (run once, or after .ds-sync changes)
+# Sentinel: rebuilt whenever package.json or lock file changes.
+.ds-sync/node_modules/.install-stamp: .ds-sync/package.json .ds-sync/package-lock.json
 	@echo "$(COLOR_YELLOW)Installing design-sync driver dependencies...$(COLOR_RESET)"
 	@cd .ds-sync && npm install
 	@npx --prefix .ds-sync playwright install chromium
-	@echo "$(COLOR_GREEN)✓ design-sync-setup complete$(COLOR_RESET)"
+	@touch $@
 
 .PHONY: design-sync
-design-sync: ## Sync Terra components to Claude Design (requires make design-sync-setup)
-	@test -d .ds-sync/node_modules || (echo "$(COLOR_RED)✗ Run 'make design-sync-setup' first$(COLOR_RESET)" && exit 1)
+design-sync: .ds-sync/node_modules/.install-stamp ## Sync Terra components to Claude Design
 	@echo "$(COLOR_YELLOW)Building Terra package...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra build
 	@echo "$(COLOR_YELLOW)Compiling Terra CSS for design-sync bundle...$(COLOR_RESET)"
