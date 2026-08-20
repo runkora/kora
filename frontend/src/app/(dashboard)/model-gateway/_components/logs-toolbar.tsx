@@ -37,7 +37,14 @@ interface FilterSelectProps {
   onSelect: (value: string | null) => void;
 }
 
-function FilterSelect({ ariaLabel, allLabel, value, options, disabled, onSelect }: FilterSelectProps) {
+function FilterSelect({
+  ariaLabel,
+  allLabel,
+  value,
+  options,
+  disabled,
+  onSelect,
+}: FilterSelectProps) {
   // NativeSelect is w-full by default; the wrapping Stack bounds it to a compact
   // toolbar width (matching the filter-rows-editor precedent) — width lives on
   // the layout element, never as className on the Terra component.
