@@ -20,7 +20,7 @@ Inbound work reaches an agent through the Backend API, and its outbound calls ar
 captured by in-platform egress brokers that perform token exchange and credential
 injection. Identity and Policy govern both humans and agents.
 
-![Orbit system context](docs/diagrams/d1-system-context.svg)
+![Orbit system context](docs/diagrams/system-context.svg)
 
 ## Deep dives
 

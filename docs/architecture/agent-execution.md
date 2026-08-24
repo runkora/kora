@@ -6,7 +6,7 @@ identity and egress paths around it are brokered so the agent never touches a
 credential. For the whole system, see the root
 [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
-![Agent pod anatomy](../diagrams/d2-agent-pod-anatomy.svg)
+![Agent pod anatomy](../diagrams/agent-pod-anatomy.svg)
 
 ## Two planes
 
