@@ -22,5 +22,10 @@ injection. Identity and Policy govern both humans and agents.
 
 ![Orbit system context](docs/diagrams/d1-system-context.svg)
 
-Diagrams are Excalidraw sources under [`docs/diagrams/`](docs/diagrams); see
+## Deep dives
+
+- [Agent execution](docs/architecture/agent-execution.md): pod topology,
+  per-run sandboxing, identity, and egress.
+
+Diagrams are Excalidraw sources under [`docs/diagrams/`](docs/diagrams). See
 [`tools/diagrams/README.md`](tools/diagrams/README.md) for how they render.
