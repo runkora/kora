@@ -963,6 +963,11 @@ test-coverage: test ## Run tests and generate HTML coverage report
 .PHONY: docs-check
 docs-check: ## Check docs for drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts)
 	@bash scripts/docs/check-docs.sh
+	@node tools/diagrams/check.mjs
+
+.PHONY: diagrams
+diagrams: ## Render architecture diagrams from Excalidraw sources (docs/diagrams/*.excalidraw -> *.svg)
+	@cd tools/diagrams && node export.mjs
 
 .PHONY: secrets
 secrets: ## Scan for secrets and leaked credentials (gitleaks)

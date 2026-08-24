@@ -1,0 +1,16 @@
+{
+  "name": "orbit-diagrams",
+  "private": true,
+  "type": "module",
+  "description": "Excalidraw source -> SVG export pipeline for architecture diagrams",
+  "scripts": {
+    "build": "node build.mjs",
+    "export": "node export.mjs",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@playwright/test": "^1.53.0",
+    "esbuild": "^0.23.0"
+  }
+}
