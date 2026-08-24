@@ -24,6 +24,12 @@ injection. Identity and Policy govern both humans and agents.
 
 ## Deep dives
 
+- [Identity](docs/architecture/identity.md): workload attestation, token exchange,
+  delegation.
+- [Policy](docs/architecture/policy.md): edge and in-service enforcement, before
+  the action.
+- [Connectivity](docs/architecture/connectivity.md): brokered egress and
+  just-in-time credentials.
 - [Agent execution](docs/architecture/agent-execution.md): pod topology,
   per-run sandboxing, identity, and egress.
 
