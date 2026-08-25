@@ -76,6 +76,70 @@ func TestValidateVirtualModelRequest_MissingFields(t *testing.T) {
 	}
 }
 
+func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
+	t.Parallel()
+	base := virtualModelRequest{
+		Family:      "anthropic",
+		Name:        "claude-sonnet-4-6",
+		DisplayName: "Claude Sonnet 4.6",
+		Strategy:    "priority",
+	}
+
+	cases := []struct {
+		name     string
+		mutate   func(*virtualModelRequest)
+		wantMsgs []string
+	}{
+		{
+			name:     "dot in name (issue 207 repro)",
+			mutate:   func(r *virtualModelRequest) { r.Name = "uk.claude-sonnet-4-6" },
+			wantMsgs: []string{`name "uk.claude-sonnet-4-6"`, `"."`, "must match"},
+		},
+		{
+			name:     "slash in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "foo/bar" },
+			wantMsgs: []string{`"/"`, "must match"},
+		},
+		{
+			name:     "uppercase in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "Claude" },
+			wantMsgs: []string{`"C"`, "must match"},
+		},
+		{
+			name:     "space in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "foo bar" },
+			wantMsgs: []string{`" "`, "must match"},
+		},
+		{
+			name:     "dot in family",
+			mutate:   func(r *virtualModelRequest) { r.Family = "an.thropic" },
+			wantMsgs: []string{`family "an.thropic"`, `"."`, "must match"},
+		},
+		{
+			name:     "name over 255 chars",
+			mutate:   func(r *virtualModelRequest) { r.Name = strings.Repeat("a", 256) },
+			wantMsgs: []string{"must match"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := base
+			tc.mutate(&req)
+			err := validateVirtualModelRequest(req)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantMsgs)
+			}
+			for _, want := range tc.wantMsgs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateVirtualModelRequest_RouteValidation(t *testing.T) {
 	t.Parallel()
 	base := virtualModelRequest{

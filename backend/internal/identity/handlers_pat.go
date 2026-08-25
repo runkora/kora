@@ -4,18 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 const maxAttributionIDs = 100
 
 const maxScopesPerPAT = 100
-
-var scopeNameRe = regexp.MustCompile(`^[a-z0-9:_-]{1,255}$`)
 
 // handleCreatePAT handles POST /identity/tokens.
 // Issues a new Personal Access Token for the authenticated caller.
@@ -73,10 +71,10 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, scope := range req.Scopes {
-		if !scopeNameRe.MatchString(scope) {
+		if !policy.IsValidScopeName(scope) {
 			api.ErrorResponse(ctx, w, c.logger,
 				api.ValidationError(api.ErrCodeInvalidField,
-					"scope names must match [a-z0-9:_-]{1,255}",
+					"scope names must match "+policy.ScopeNameGrammar,
 					map[string]any{"field": "scopes", "invalid": scope}), nil)
 			return
 		}
@@ -159,10 +157,10 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	for _, scope := range req.Scopes {
-		if !scopeNameRe.MatchString(scope) {
+		if !policy.IsValidScopeName(scope) {
 			api.ErrorResponse(ctx, w, c.logger,
 				api.ValidationError(api.ErrCodeInvalidField,
-					"scope names must match [a-z0-9:_-]{1,255}",
+					"scope names must match "+policy.ScopeNameGrammar,
 					map[string]any{"field": "scopes", "invalid": scope}), nil)
 			return
 		}

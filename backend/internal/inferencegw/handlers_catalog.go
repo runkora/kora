@@ -177,6 +177,10 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
 
+// handleCreateVirtualModel creates a virtual model. Both family and name must
+// match policy.ScopeNameGrammar — they are embedded into the policy scope
+// inference:{family}:{name}:use and must be scope-safe. Non-conforming values
+// return 400 naming the offending character(s).
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -247,6 +251,10 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
 }
 
+// handleUpdateVirtualModel updates a virtual model. Both family and name must
+// match policy.ScopeNameGrammar — they are embedded into the policy scope
+// inference:{family}:{name}:use and must be scope-safe. Non-conforming values
+// return 400 naming the offending character(s).
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -592,8 +600,20 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	if req.Family == "" {
 		return fmt.Errorf("family is required")
 	}
+	if !policy.IsValidScopeName(req.Family) {
+		return fmt.Errorf(
+			"family %q contains invalid character(s) %q; must match %s",
+			req.Family, string(policy.InvalidScopeNameChars(req.Family)), policy.ScopeNameGrammar,
+		)
+	}
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
+	}
+	if !policy.IsValidScopeName(req.Name) {
+		return fmt.Errorf(
+			"name %q contains invalid character(s) %q; must match %s",
+			req.Name, string(policy.InvalidScopeNameChars(req.Name)), policy.ScopeNameGrammar,
+		)
 	}
 	if req.DisplayName == "" {
 		return fmt.Errorf("display_name is required")
