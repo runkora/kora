@@ -600,20 +600,14 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	if req.Family == "" {
 		return fmt.Errorf("family is required")
 	}
-	if !policy.IsValidScopeName(req.Family) {
-		return fmt.Errorf(
-			"family %q contains invalid character(s) %q; must match %s",
-			req.Family, string(policy.InvalidScopeNameChars(req.Family)), policy.ScopeNameGrammar,
-		)
+	if err := validateScopeNameField("family", req.Family); err != nil {
+		return err
 	}
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if !policy.IsValidScopeName(req.Name) {
-		return fmt.Errorf(
-			"name %q contains invalid character(s) %q; must match %s",
-			req.Name, string(policy.InvalidScopeNameChars(req.Name)), policy.ScopeNameGrammar,
-		)
+	if err := validateScopeNameField("name", req.Name); err != nil {
+		return err
 	}
 	if req.DisplayName == "" {
 		return fmt.Errorf("display_name is required")
@@ -646,6 +640,26 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	}
 
 	return nil
+}
+
+// validateScopeNameField returns a descriptive error when value does not
+// satisfy policy.ScopeNameGrammar. It distinguishes character violations from
+// length-only violations so the 400 explains the actual constraint instead of
+// reporting invalid character(s) "" for oversize-but-otherwise-valid input.
+func validateScopeNameField(field, value string) error {
+	if policy.IsValidScopeName(value) {
+		return nil
+	}
+	if invalid := policy.InvalidScopeNameChars(value); len(invalid) > 0 {
+		return fmt.Errorf(
+			"%s %q contains invalid character(s) %q; must match %s",
+			field, value, string(invalid), policy.ScopeNameGrammar,
+		)
+	}
+	return fmt.Errorf(
+		"%s %q must be 1–255 characters and match %s",
+		field, value, policy.ScopeNameGrammar,
+	)
 }
 
 // validateRouteInput validates a single route entry within a virtual model request.

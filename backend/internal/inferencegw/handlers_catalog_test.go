@@ -3,6 +3,8 @@ package inferencegw
 import (
 	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // ─── validateVirtualModelRequest ─────────────────────────────────────────────
@@ -118,7 +120,12 @@ func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
 		{
 			name:     "name over 255 chars",
 			mutate:   func(r *virtualModelRequest) { r.Name = strings.Repeat("a", 256) },
-			wantMsgs: []string{"must match"},
+			wantMsgs: []string{`name "`, "must be 1–255 characters", policy.ScopeNameGrammar},
+		},
+		{
+			name:     "family over 255 chars",
+			mutate:   func(r *virtualModelRequest) { r.Family = strings.Repeat("a", 256) },
+			wantMsgs: []string{`family "`, "must be 1–255 characters", policy.ScopeNameGrammar},
 		},
 	}
 
@@ -129,7 +136,7 @@ func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
 			tc.mutate(&req)
 			err := validateVirtualModelRequest(req)
 			if err == nil {
-				t.Fatalf("expected error containing %q, got nil", tc.wantMsgs)
+				t.Fatalf("expected error containing %v, got nil", tc.wantMsgs)
 			}
 			for _, want := range tc.wantMsgs {
 				if !strings.Contains(err.Error(), want) {
