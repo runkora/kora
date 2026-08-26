@@ -118,14 +118,24 @@ func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
 			wantMsgs: []string{`family "an.thropic"`, `"."`, "must match"},
 		},
 		{
+			name:     "colon in family",
+			mutate:   func(r *virtualModelRequest) { r.Family = "an:thropic" },
+			wantMsgs: []string{`family "an:thropic"`, `":"`, "must match"},
+		},
+		{
+			name:     "colon in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "claude:sonnet" },
+			wantMsgs: []string{`name "claude:sonnet"`, `":"`, "must match"},
+		},
+		{
 			name:     "name over 255 chars",
 			mutate:   func(r *virtualModelRequest) { r.Name = strings.Repeat("a", 256) },
-			wantMsgs: []string{`name "`, "must be 1–255 characters", policy.ScopeNameGrammar},
+			wantMsgs: []string{`name "`, "must be 1–255 characters", policy.ScopeSegmentGrammar},
 		},
 		{
 			name:     "family over 255 chars",
 			mutate:   func(r *virtualModelRequest) { r.Family = strings.Repeat("a", 256) },
-			wantMsgs: []string{`family "`, "must be 1–255 characters", policy.ScopeNameGrammar},
+			wantMsgs: []string{`family "`, "must be 1–255 characters", policy.ScopeSegmentGrammar},
 		},
 	}
 

@@ -6,40 +6,42 @@ import (
 	"unicode/utf8"
 )
 
-// scopeNameCharClass is the inside of the character class that defines which
-// runes may appear in a policy scope name. Single source of truth —
-// ScopeNameGrammar and the invalid-char detector both derive from it, so
-// widening the allowed set only requires editing this constant.
-const scopeNameCharClass = "a-z0-9:_-"
+// scopeSegmentCharClass excludes ':' — segments are joined by ':' in a full
+// scope, so allowing it inside a segment would corrupt the scope hierarchy.
+const scopeSegmentCharClass = "a-z0-9_-"
 
-// ScopeNameGrammar is the source form of the regex a policy scope name must
-// match. Any user-supplied value that ends up in a scope (PAT scope, virtual
-// model family/name, …) must satisfy this grammar so the admission and
-// enforcement sides cannot drift.
+// ':' is prepended so the trailing '-' in scopeSegmentCharClass stays literal
+// instead of forming an accidental "_-:" range.
+const scopeNameCharClass = ":" + scopeSegmentCharClass
+
+// ScopeSegmentGrammar constrains a single scope segment (no ':') — e.g. the
+// virtual model family/name in "inference:{family}:{name}:use".
+const ScopeSegmentGrammar = "[" + scopeSegmentCharClass + "]{1,255}"
+
+// ScopeNameGrammar constrains a full, possibly multi-segment scope string
+// (e.g. a PAT scope).
 const ScopeNameGrammar = "[" + scopeNameCharClass + "]{1,255}"
 
 var (
-	scopeNameRe        = regexp.MustCompile("^" + ScopeNameGrammar + "$")
-	scopeNameInvalidRe = regexp.MustCompile("[^" + scopeNameCharClass + "]")
+	scopeSegmentRe        = regexp.MustCompile("^" + ScopeSegmentGrammar + "$")
+	scopeSegmentInvalidRe = regexp.MustCompile("[^" + scopeSegmentCharClass + "]")
+	scopeNameRe           = regexp.MustCompile("^" + ScopeNameGrammar + "$")
 )
 
-// IsValidScopeName reports whether s matches ScopeNameGrammar.
-func IsValidScopeName(s string) bool { return scopeNameRe.MatchString(s) }
+func IsValidScopeSegment(s string) bool { return scopeSegmentRe.MatchString(s) }
+func IsValidScopeName(s string) bool    { return scopeNameRe.MatchString(s) }
 
-// InvalidScopeNameChars returns the distinct characters in s that violate
-// ScopeNameGrammar, in first-seen order. Used to build error messages that
-// name the offending character(s). It derives its notion of "invalid" from
-// scopeNameCharClass, so it stays in sync with IsValidScopeName by
-// construction.
-func InvalidScopeNameChars(s string) []rune {
-	matches := scopeNameInvalidRe.FindAllString(s, -1)
+// InvalidScopeSegmentChars returns the distinct offending runes in first-seen
+// order, for building error messages that name what's wrong.
+func InvalidScopeSegmentChars(s string) []rune {
+	matches := scopeSegmentInvalidRe.FindAllString(s, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	seen := make(map[rune]struct{}, len(matches))
 	out := make([]rune, 0, len(matches))
 	for _, m := range matches {
-		// scopeNameInvalidRe matches exactly one rune, so decode it directly.
+		// scopeSegmentInvalidRe is a single-rune negated class, so each match is one rune.
 		r, _ := utf8.DecodeRuneInString(m)
 		if _, ok := seen[r]; ok {
 			continue

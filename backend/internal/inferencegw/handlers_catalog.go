@@ -177,10 +177,9 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
 
-// handleCreateVirtualModel creates a virtual model. Both family and name must
-// match policy.ScopeNameGrammar — they are embedded into the policy scope
-// inference:{family}:{name}:use and must be scope-safe. Non-conforming values
-// return 400 naming the offending character(s).
+// handleCreateVirtualModel creates a virtual model. Family and name are
+// embedded as segments in the policy scope inference:{family}:{name}:use,
+// so both must satisfy policy.ScopeSegmentGrammar (no ':').
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -251,10 +250,9 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
 }
 
-// handleUpdateVirtualModel updates a virtual model. Both family and name must
-// match policy.ScopeNameGrammar — they are embedded into the policy scope
-// inference:{family}:{name}:use and must be scope-safe. Non-conforming values
-// return 400 naming the offending character(s).
+// handleUpdateVirtualModel updates a virtual model. Family and name are
+// embedded as segments in the policy scope inference:{family}:{name}:use,
+// so both must satisfy policy.ScopeSegmentGrammar (no ':').
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -600,13 +598,13 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	if req.Family == "" {
 		return fmt.Errorf("family is required")
 	}
-	if err := validateScopeNameField("family", req.Family); err != nil {
+	if err := validateScopeSegmentField("family", req.Family); err != nil {
 		return err
 	}
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if err := validateScopeNameField("name", req.Name); err != nil {
+	if err := validateScopeSegmentField("name", req.Name); err != nil {
 		return err
 	}
 	if req.DisplayName == "" {
@@ -642,23 +640,22 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	return nil
 }
 
-// validateScopeNameField returns a descriptive error when value does not
-// satisfy policy.ScopeNameGrammar. It distinguishes character violations from
-// length-only violations so the 400 explains the actual constraint instead of
-// reporting invalid character(s) "" for oversize-but-otherwise-valid input.
-func validateScopeNameField(field, value string) error {
-	if policy.IsValidScopeName(value) {
+// validateScopeSegmentField distinguishes character violations from
+// length-only violations so a 400 doesn't report invalid character(s) ""
+// for oversize-but-otherwise-valid input.
+func validateScopeSegmentField(field, value string) error {
+	if policy.IsValidScopeSegment(value) {
 		return nil
 	}
-	if invalid := policy.InvalidScopeNameChars(value); len(invalid) > 0 {
+	if invalid := policy.InvalidScopeSegmentChars(value); len(invalid) > 0 {
 		return fmt.Errorf(
 			"%s %q contains invalid character(s) %q; must match %s",
-			field, value, string(invalid), policy.ScopeNameGrammar,
+			field, value, string(invalid), policy.ScopeSegmentGrammar,
 		)
 	}
 	return fmt.Errorf(
 		"%s %q must be 1–255 characters and match %s",
-		field, value, policy.ScopeNameGrammar,
+		field, value, policy.ScopeSegmentGrammar,
 	)
 }
 
