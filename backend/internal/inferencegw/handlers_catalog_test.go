@@ -113,6 +113,13 @@ func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
 			wantMsgs: []string{`" "`, "must match"},
 		},
 		{
+			// Locks in that regex-based rejection reports whole runes, not
+			// bytes, for multi-byte UTF-8 input.
+			name:     "multi-byte rune in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "café" },
+			wantMsgs: []string{`name "café"`, `"é"`, "must match"},
+		},
+		{
 			name:     "dot in family",
 			mutate:   func(r *virtualModelRequest) { r.Family = "an.thropic" },
 			wantMsgs: []string{`family "an.thropic"`, `"."`, "must match"},

@@ -10,9 +10,11 @@ import (
 // scope, so allowing it inside a segment would corrupt the scope hierarchy.
 const scopeSegmentCharClass = "a-z0-9_-"
 
-// ':' is prepended so the trailing '-' in scopeSegmentCharClass stays literal
-// instead of forming an accidental "_-:" range.
-const scopeNameCharClass = ":" + scopeSegmentCharClass
+// scopeNameCharClass is the segment class plus ':' as the segment separator.
+// The ':' is placed between the ranges and the standalone chars so the class
+// reads left-to-right as [a-z0-9:_-] — the conventional order — rather than
+// [:a-z0-9_-] which can be misread as POSIX character-class syntax.
+const scopeNameCharClass = "a-z0-9:_-"
 
 // ScopeSegmentGrammar constrains a single scope segment (no ':') — e.g. the
 // virtual model family/name in "inference:{family}:{name}:use".
@@ -41,7 +43,9 @@ func InvalidScopeSegmentChars(s string) []rune {
 	seen := make(map[rune]struct{}, len(matches))
 	out := make([]rune, 0, len(matches))
 	for _, m := range matches {
-		// scopeSegmentInvalidRe is a single-rune negated class, so each match is one rune.
+		// Go's regexp treats character classes as rune classes on UTF-8
+		// input, so each match is exactly one whole rune — never a partial
+		// byte. Covered by the "multi-byte rune in name" test case.
 		r, _ := utf8.DecodeRuneInString(m)
 		if _, ok := seen[r]; ok {
 			continue

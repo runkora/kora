@@ -179,7 +179,10 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 
 // handleCreateVirtualModel creates a virtual model. Family and name are
 // embedded as segments in the policy scope inference:{family}:{name}:use,
-// so both must satisfy policy.ScopeSegmentGrammar (no ':').
+// so each must be 1–255 characters from [a-z0-9_-] (see
+// policy.ScopeSegmentGrammar). ':' is rejected because it would corrupt
+// the scope hierarchy. Non-conforming values return 400 naming the
+// offending character(s).
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -252,7 +255,10 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 
 // handleUpdateVirtualModel updates a virtual model. Family and name are
 // embedded as segments in the policy scope inference:{family}:{name}:use,
-// so both must satisfy policy.ScopeSegmentGrammar (no ':').
+// so each must be 1–255 characters from [a-z0-9_-] (see
+// policy.ScopeSegmentGrammar). ':' is rejected because it would corrupt
+// the scope hierarchy. Non-conforming values return 400 naming the
+// offending character(s).
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
