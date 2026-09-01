@@ -106,6 +106,13 @@ func (c *Controller) handleListUsers(w http.ResponseWriter, r *http.Request) {
 				api.ValidationError(api.ErrCodeInvalidField, "limit must be a positive integer", map[string]any{"field": "limit"}), nil)
 			return
 		}
+		// Clamp visibly here (rather than relying on the repository's silent
+		// clamp) so the response's `limit` field reflects what was actually
+		// applied — callers requesting an out-of-range limit can tell they
+		// didn't get everything back in one page.
+		if l > maxUserProfileLimit {
+			l = maxUserProfileLimit
+		}
 		filter.Limit = l
 	}
 
