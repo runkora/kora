@@ -371,7 +371,7 @@ func TestPermissionsFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := permissionsFor(tc.action, tc.ceiling)
+			got := permissionsFor(tc.action, tc.ceiling, nil)
 			if len(got) != len(tc.want) {
 				t.Fatalf("permissionsFor(%q) = %v, want %v", tc.action, got, tc.want)
 			}
@@ -383,39 +383,277 @@ func TestPermissionsFor(t *testing.T) {
 		})
 	}
 
-	// The workflows permission is deliberately excluded from the umbrella's
-	// derived union — it appears only when the ceiling declares it.
-	if got := permissionsFor("repo:write", nil); got["workflows"] != "" {
-		t.Errorf("umbrella derived union must not include workflows, got %q", got["workflows"])
+	// Umbrella with nil installationPerms: only metadata:read is derived
+	// (the loop over installationPerms is a no-op). This ensures the umbrella
+	// never mints ungranted permissions when called without installation data.
+	if got := permissionsFor("repo:write", nil, nil); len(got) != 1 || got["metadata"] != "read" {
+		t.Errorf("umbrella with nil installationPerms should yield only metadata:read, got %v", got)
 	}
 
-	// secrets/dependabot_secrets and administration/repository_hooks are excluded
-	// from the umbrella union: requesting a permission the installation lacks
-	// broke every repo:read/repo:write (GraphQL) mint with a GitHub 422, and
-	// requesting admin when the App does hold it silently widened every GraphQL
-	// token to repo-admin. All stay reachable via an explicit admin action.
-	for _, action := range []string{"repo:read", "repo:write"} {
-		got := permissionsFor(action, nil)
-		for _, excluded := range []string{"secrets", "dependabot_secrets", "administration", "repository_hooks"} {
-			if _, present := got[excluded]; present {
-				t.Errorf("umbrella %q must not request %q, got %v", action, excluded, got)
-			}
-		}
-		// But it must still carry the category permissions a normal push/PR flow
-		// needs — the exclusion is surgical, not a blanket drop.
-		for _, want := range []string{"contents", "pull_requests", "issues", "actions", "checks", "statuses"} {
-			if _, present := got[want]; !present {
-				t.Errorf("umbrella %q should still request %q, got %v", action, want, got)
-			}
-		}
+	// Umbrella respects the installationPerms ceiling: a permission the
+	// installation does not have is omitted; a permission granted at a lower
+	// level than requested is capped.
+	instPerms := map[string]string{
+		"contents":      "write",
+		"pull_requests": "write",
+		"issues":        "read", // installation only has read; repo:write should be capped to read
+		"metadata":      "read",
+	}
+	got := permissionsFor("repo:write", nil, instPerms)
+	if got["contents"] != "write" {
+		t.Errorf("umbrella: contents should be write (installation grants write), got %q", got["contents"])
+	}
+	if got["issues"] != "read" {
+		t.Errorf("umbrella: issues should be read (installation only grants read), got %q", got["issues"])
+	}
+	if _, ok := got["statuses"]; ok {
+		t.Errorf("umbrella: statuses should be absent (installation does not grant it), got %q", got["statuses"])
+	}
+	if _, ok := got["administration"]; ok {
+		t.Errorf("umbrella: administration should be absent (not in installationPerms), got %v", got)
+	}
+	if got["metadata"] != "read" {
+		t.Errorf("umbrella: metadata:read must always be present, got %v", got)
+	}
+
+	// Umbrella with ceiling set returns ceiling verbatim (installationPerms is
+	// ignored when a ceiling is declared).
+	ceiling := map[string]string{"contents": "write", "metadata": "read"}
+	gotCeiling := permissionsFor("repo:write", ceiling, instPerms)
+	if len(gotCeiling) != 2 || gotCeiling["contents"] != "write" || gotCeiling["metadata"] != "read" {
+		t.Errorf("umbrella with ceiling must return ceiling verbatim, got %v", gotCeiling)
 	}
 
 	// The explicit admin action is unchanged — it still mints the full admin
 	// category (administration, repository_hooks, secrets, dependabot_secrets),
 	// so nothing that legitimately needs repo-admin or secrets loses it.
-	if got := permissionsFor("admin:read", nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" ||
+	if got := permissionsFor("admin:read", nil, nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" ||
 		got["administration"] != "read" || got["repository_hooks"] != "read" {
 		t.Errorf("admin:read must still grant the full admin category, got %v", got)
+	}
+
+	// Unknown level strings from GitHub (not "read"/"write"/"admin") must be
+	// skipped entirely — they must not appear in the minted permissions.
+	unknownLevelPerms := map[string]string{
+		"contents": "write",
+		"issues":   "unknown_level", // GitHub-invented future level, not in permissionLevels
+		"metadata": "read",
+	}
+	gotUnknown := permissionsFor("repo:write", nil, unknownLevelPerms)
+	if _, ok := gotUnknown["issues"]; ok {
+		t.Errorf("umbrella must skip permissions with unknown level, got issues=%q", gotUnknown["issues"])
+	}
+	if gotUnknown["contents"] != "write" {
+		t.Errorf("umbrella must still include known-level permissions, got contents=%q", gotUnknown["contents"])
+	}
+}
+
+// TestAdapter_Resolve_UmbrellaOmitsMissingPermission verifies that the repo:*
+// umbrella never requests a permission the App installation does not hold.
+// This is the core acceptance criterion from issue #160: when the installation
+// lacks a permission (e.g. statuses:write), the umbrella omits it from the mint
+// instead of requesting it and getting a GitHub 422.
+func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
+	var gotTokenBody ghclient.InstallationTokenRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/app/installations/"):
+			// GetInstallationPermissions: installation has statuses:read only,
+			// not statuses:write, and no checks permission at all.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"permissions": map[string]string{
+					"contents":      "write",
+					"pull_requests": "write",
+					"issues":        "write",
+					"statuses":      "read",
+					"metadata":      "read",
+				},
+			})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/access_tokens"):
+			_ = json.NewDecoder(r.Body).Decode(&gotTokenBody)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token":      "ghs_umbrella_tok",
+				"expires_at": "2026-07-29T13:00:00Z",
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
+
+	conn := credentials.Connection{
+		ID: "conn-1", TenantID: "acme", Name: "github",
+		Adapter:   credentials.AdapterGitHubApp,
+		SecretRef: "ref",
+		// No Permissions ceiling: umbrella should intersect with installation perms.
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "orbital"}),
+	}
+
+	_, err := adapter.Resolve(context.Background(), conn,
+		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "orbit"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	// statuses must be capped at "read" (installation only grants read).
+	if gotTokenBody.Permissions["statuses"] != "read" {
+		t.Errorf("statuses permission = %q, want capped at \"read\"", gotTokenBody.Permissions["statuses"])
+	}
+	// checks must be absent (installation does not grant it at all).
+	if _, ok := gotTokenBody.Permissions["checks"]; ok {
+		t.Errorf("checks permission must be absent (installation lacks it), got %q", gotTokenBody.Permissions["checks"])
+	}
+	// contents and pull_requests should be present at write.
+	if gotTokenBody.Permissions["contents"] != "write" {
+		t.Errorf("contents permission = %q, want \"write\"", gotTokenBody.Permissions["contents"])
+	}
+	if gotTokenBody.Permissions["pull_requests"] != "write" {
+		t.Errorf("pull_requests permission = %q, want \"write\"", gotTokenBody.Permissions["pull_requests"])
+	}
+	// metadata:read is always present.
+	if gotTokenBody.Permissions["metadata"] != "read" {
+		t.Errorf("metadata permission = %q, want \"read\"", gotTokenBody.Permissions["metadata"])
+	}
+}
+
+// TestAdapter_Resolve_UmbrellaPermissionsCached verifies the installation
+// permission set is cached and that the adapter fetches it at most once per
+// instPermsCacheTTL window regardless of how many mints are requested.
+func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
+	var instPermsCallCount int
+	// Two different tokens are returned so the credential cache never masks the
+	// second mint (the second token expires far in the future, after the clock
+	// advances, so only the credential for the first call is cached; the second
+	// call with different permissions needs a new credential).
+	var tokenCallCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/app/installations/"):
+			instPermsCallCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"permissions": map[string]string{"contents": "write", "metadata": "read"},
+			})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/access_tokens"):
+			tokenCallCount++
+			w.WriteHeader(http.StatusCreated)
+			// Expire 2 minutes from now so the credential stays cached within TTL test.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token":      "ghs_tok",
+				"expires_at": "2026-07-29T12:02:00Z",
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	adapter.now = func() time.Time { return now }
+
+	conn := credentials.Connection{
+		ID: "conn-1", TenantID: "acme", Name: "github",
+		Adapter:   credentials.AdapterGitHubApp,
+		SecretRef: "ref",
+		Config:    mustConfig(t, config{AppID: "1", InstallationID: 42}),
+	}
+	id := credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}
+
+	// First mint: calls GetInstallationPermissions once, then CreateInstallationToken.
+	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+		t.Fatalf("first Resolve: %v", err)
+	}
+	if instPermsCallCount != 1 {
+		t.Fatalf("expected 1 GetInstallationPermissions call after first mint, got %d", instPermsCallCount)
+	}
+	if tokenCallCount != 1 {
+		t.Fatalf("expected 1 token mint after first Resolve, got %d", tokenCallCount)
+	}
+
+	// Within instPermsCacheTTL and within credential TTL: both caches hit.
+	now = now.Add(30 * time.Second)
+	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+		t.Fatalf("second Resolve: %v", err)
+	}
+	if instPermsCallCount != 1 {
+		t.Errorf("installation permissions must be served from cache (within TTL); got %d calls", instPermsCallCount)
+	}
+
+	// Expire the credential cache but stay within instPermsCacheTTL.
+	// The credential expired at 12:02; now = 12:03 → credential cache miss,
+	// but instPermsCache still valid (TTL = 5min from 12:00 = expires 12:05).
+	now = now.Add(3 * time.Minute) // 12:03:30
+	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+		t.Fatalf("third Resolve (post credential expiry): %v", err)
+	}
+	// instPermsCallCount must still be 1: the installation permission TTL has not expired.
+	if instPermsCallCount != 1 {
+		t.Errorf("installation permissions must still be cached (within TTL); got %d calls, want 1", instPermsCallCount)
+	}
+	// But a new token must have been minted (credential cache expired).
+	if tokenCallCount != 2 {
+		t.Errorf("expected a fresh token mint after credential expiry; got %d token calls, want 2", tokenCallCount)
+	}
+}
+
+// TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions verifies
+// that when a connection has a declared Permissions ceiling, the umbrella mints
+// the ceiling verbatim without calling GetInstallationPermissions.
+func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *testing.T) {
+	var instPermsCallCount int
+	var gotTokenBody ghclient.InstallationTokenRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/app/installations/"):
+			instPermsCallCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"permissions": map[string]string{"contents": "write"},
+			})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/access_tokens"):
+			_ = json.NewDecoder(r.Body).Decode(&gotTokenBody)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token":      "ghs_tok",
+				"expires_at": "2026-07-29T14:00:00Z",
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
+
+	conn := credentials.Connection{
+		ID: "conn-1", TenantID: "acme", Name: "github",
+		Adapter:   credentials.AdapterGitHubApp,
+		SecretRef: "ref",
+		Config: mustConfig(t, config{
+			AppID: "1", InstallationID: 42,
+			Permissions: map[string]string{"contents": "write", "metadata": "read"},
+		}),
+	}
+
+	if _, err := adapter.Resolve(context.Background(), conn,
+		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if instPermsCallCount != 0 {
+		t.Errorf("GetInstallationPermissions must not be called when ceiling is declared, got %d calls", instPermsCallCount)
+	}
+	if gotTokenBody.Permissions["contents"] != "write" || gotTokenBody.Permissions["metadata"] != "read" {
+		t.Errorf("minted permissions = %v, want ceiling verbatim {contents:write, metadata:read}", gotTokenBody.Permissions)
 	}
 }
 
