@@ -24,6 +24,7 @@ injection. Identity and Policy govern both humans and agents.
 
 ## Deep dives
 
+- [Runtime topology](docs/architecture/runtime-topology.md): control plane, data plane, egress brokers, and the shared substrate.
 - [Identity](docs/architecture/identity.md): workload attestation, token exchange,
   delegation.
 - [Policy](docs/architecture/policy.md): edge and in-service enforcement, before

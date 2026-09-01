@@ -8,14 +8,14 @@ credential. For the whole system, see the root
 
 ![Agent pod anatomy](../diagrams/agent-pod-anatomy.svg)
 
-## Two planes
+## Control plane and tenant workloads
 
-Agent execution is split between the control plane and the tenant data plane.
+Agent execution is split between the control plane and tenant workloads.
 
 - **Control plane (`orbit-system`).** `orbit-agents` owns run and session
   lifecycle and provisions the Kubernetes workloads. `identity` issues platform
   tokens. The `egress-gateway` brokers external credentials.
-- **Tenant data plane (a per-tenant namespace).** The agent workload runs here. It
+- **Tenant workloads (a per-tenant namespace).** The agent workload runs here. It
   reaches the control-plane services from the namespace and never holds
   credentials itself.
 

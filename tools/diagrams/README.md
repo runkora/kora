@@ -19,6 +19,12 @@ make diagrams
   each source in headless Chromium, stamping the source sha256 into the SVG.
 - `make check` runs `check.mjs`: a pure sha compare that fails when an SVG is
   missing or stale. No browser is needed for the check, only for regeneration.
+- `preview.mjs` renders a source or SVG to a PNG at natural size for visual
+  review while drafting. It is a review aid, not part of `make check`.
+
+  ```bash
+  node tools/diagrams/preview.mjs docs/diagrams/<name>.excalidraw out.png
+  ```
 
 ## Setup (once)
 

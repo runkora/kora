@@ -27,6 +27,8 @@ sequenceDiagram
     M-->>A: result
 ```
 
+For the tool-gateway components, per-tool authorization, catalog, and scope registration, see [MCP tool gateway](mcp-tool-gateway.md).
+
 ## Connectors
 
 Connectors run as adapters inside the `egress-gateway`. Envoy forces every sandbox
