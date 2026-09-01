@@ -19,7 +19,7 @@ The tool-gateway is one image in two modes.
 
 ## Backends
 
-Backends are MCP servers declared as `MCPServer` custom resources. The operator aggregates every `MCPServer` across namespaces into the `servers.json` registry the gateway mounts and hot-reloads. `orbit-mcp` is the platform MCP server, registered globally, providing agent access to manage and set up the orbit platform. Each tenant MCP server is declared in the tenant's namespace, and the tool-gateway governs any custom or open source MCP with the same authorisation and scope registration. The proxy reaches each backend over streamable-http on the spire-mTLS mesh. The caller identity (platform JWT of the user) is forwarded to a backend only when that server opts in for `callerIdentity: forward` and is registered globally; these servers can act-on-behalf of the user by impersonation.
+Backends are MCP servers declared as `MCPServer` custom resources. The operator aggregates every `MCPServer` across namespaces into the `servers.json` registry the gateway mounts and hot-reloads. `orbit-mcp` is the platform MCP server, registered globally, providing agent access to manage and set up the orbit platform. Each tenant MCP server is declared in the tenant's namespace, and the tool-gateway governs any custom or open source MCP with the same authorisation and scope registration. The proxy reaches each backend over streamable-http on the spire-mTLS mesh. The caller identity (platform JWT of the user) is forwarded to a backend only when that server opts in for `callerIdentity: forward` and is registered globally. A forwarded token lets the backend act on behalf of the user by impersonation.
 
 ## ADRs
 
