@@ -2,7 +2,7 @@
 
 Thanks for your interest in Orbit, the control plane for AI agents, the agentic engineering platform that takes an agent from a developer's laptop to a secure, governed production deployment. This guide is the **human front door** for contributors. It covers how to get set up, the workflow we follow, and the bar your change must clear before it merges.
 
-For the exhaustive, machine-enforced engineering rules, **[`AGENTS.md`](AGENTS.md) is the canonical guide.** It documents every coding convention, every lint rule, and the rationale behind them. This document summarizes and points there; it does not duplicate it. Architecture lives in [`docs/`](docs/): start with the [architecture overview](docs/architecture.md), the [ADR index](docs/adr/README.md), and the [PRD index](docs/prd/README.md).
+For the exhaustive, machine-enforced engineering rules, **[`AGENTS.md`](AGENTS.md) is the canonical guide.** It documents every coding convention, every lint rule, and the rationale behind them. This document summarizes and points there; it does not duplicate it. Architecture lives in [`docs/`](docs/): start with the [architecture overview](ARCHITECTURE.md), the [ADR index](docs/adr/README.md), and the [PRD index](docs/prd/README.md).
 
 By contributing, you agree your work is licensed under the [Apache License 2.0](LICENSE).
 

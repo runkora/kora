@@ -1,6 +1,6 @@
 # Code Organization
 
-The canonical code organization for the Orbit backend. Build status for each capability lives in the [architecture overview](architecture.md); this document describes the layout.
+The canonical code organization and package layout for the Orbit backend.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -50,7 +50,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
-> `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files). Build status for each capability lives in the [architecture overview](architecture.md).
+> `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files).
 
 ---
 
@@ -146,7 +146,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 
 ### Feature layer (`internal/`)
 
-Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list and status. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages. That is expected and idiomatic, not a deviation.
+Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages. That is expected and idiomatic, not a deviation.
 
 ---
 

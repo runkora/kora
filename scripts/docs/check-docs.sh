@@ -7,7 +7,7 @@
 #   targets   Every `make <target>` named in a doc exists in the Makefile.
 #   binaries  The binary table and backend/cmd/ agree, in both directions.
 #   counts    No doc hardcodes "N binaries"/"N services".
-#   status    Build-status claims live only in docs/architecture.md.
+#   status    No build-status/roadmap claims in living docs (ADRs/PRDs exempt).
 #   prose     No em dashes in living docs. ADRs and PRDs are exempt: they are
 #             point-in-time records, not prose we keep rewriting.
 #
@@ -227,17 +227,16 @@ check_counts() {
 
 # ── status ───────────────────────────────────────────────────────────────────
 # "Designed but not yet built" is true until the day it ships, and then it is a
-# lie in however many files repeated it. Build status and roadmap claims live in
-# docs/architecture.md and nowhere else; everywhere else links to it. ADRs and
-# PRDs are exempt: they are point-in-time records by definition.
-STATUS_HOME="docs/architecture.md"
+# lie in however many files repeated it. Build status and roadmap claims stay out
+# of the living docs entirely. ADRs and PRDs are exempt: they are point-in-time
+# records by definition.
 check_status() {
-  head_ "Checking build-status claims live only in $STATUS_HOME..."
+  head_ "Checking for build-status claims in living docs..."
   local found=0
   while IFS= read -r file; do
     while IFS= read -r hit; do
       [ -z "$hit" ] && continue
-      fail "$file → '$hit' (build status belongs in $STATUS_HOME; link it instead)"
+      fail "$file → '$hit' (build status belongs in ADRs/PRDs, not living docs)"
       found=1
     done < <({
       # Prose claims.
@@ -249,8 +248,8 @@ check_status() {
       # Status markers wearing an emoji instead of a sentence.
       strip_fences < "$file" | grep -oE "⛔|🚧"
     } | sort -u)
-  done < <(md_files | grep -vE "^(docs/(adr|prd)/|\.claude/)" | grep -vx "$STATUS_HOME")
-  [ "$found" -eq 0 ] && ok "no build-status claims outside $STATUS_HOME"
+  done < <(md_files | grep -vE "^(docs/(adr|prd)/|\.claude/)")
+  [ "$found" -eq 0 ] && ok "no build-status claims in living docs"
 }
 
 # ── prose ────────────────────────────────────────────────────────────────────
