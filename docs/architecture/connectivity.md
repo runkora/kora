@@ -56,6 +56,8 @@ sequenceDiagram
     EG-->>A: response (agent never saw the credential)
 ```
 
+For the egress-gateway components, connection matching, and just-in-time credential brokering, see [Egress gateway](egress-gateway.md).
+
 ADRs: [scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md),
 [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md),
 [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md),
