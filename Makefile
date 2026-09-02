@@ -438,8 +438,8 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 up: dev-cluster migrate-up cluster-operator cluster-deploy ## Bring up everything: backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
-	@echo "  Frontend:          https://orbit.local.clearroute.io:8443"
-	@echo "  Inference gateway: https://api.orbit.local.clearroute.io:8443/v1"
+	@echo "  Dashboard:   https://orbit.local.clearroute.io"
+	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo ""
 	@echo "$(COLOR_BLUE)Next: 'make auth' for a token, 'make redeploy SERVICE=<name>' to iterate$(COLOR_RESET)"
 
@@ -696,8 +696,8 @@ cluster-operator: redeploy-platform-missing docker-pull-third-party ## Install t
 	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
-	@echo "  Frontend:          https://orbit.local.clearroute.io:8443"
-	@echo "  Inference gateway: https://api.orbit.local.clearroute.io:8443/v1"
+	@echo "  Dashboard:   https://orbit.local.clearroute.io"
+	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
@@ -930,6 +930,11 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		kill $$PF_PID 2>/dev/null || true; \
 		if [ $$STATUS -eq 0 ]; then echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"; fi; \
 		exit $$STATUS
+
+.PHONY: test-postgres
+test-postgres: migrate-up ## Postgres-backed repository tests against the local Postgres. Needs `make up`. Not run by CI or `make check`.
+	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && ORBIT_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
