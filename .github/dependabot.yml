@@ -1,7 +1,5 @@
 version: 2
 updates:
-  # Actions are pinned by commit SHA, so nothing updates them unless Dependabot does.
-  # One grouped PR a week bumps every action's SHA and version comment together.
   - package-ecosystem: github-actions
     directory: /
     schedule:
