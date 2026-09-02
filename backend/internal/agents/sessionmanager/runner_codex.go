@@ -617,7 +617,11 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 		return "", fmt.Errorf("InferenceGatewayURL must not be empty")
 	}
 	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
-	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
+	// Codex treats base_url as already containing the API version segment (its
+	// own default is "https://api.openai.com/v1") and appends "/responses" to
+	// it. Without the trailing /v1, requests are missing the version segment
+	// and are rejected by the gateway.
+	perRunURL := fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID)
 
 	codexHome := filepath.Join(workDir, ".codex")
 	if err := os.MkdirAll(codexHome, 0o700); err != nil {
