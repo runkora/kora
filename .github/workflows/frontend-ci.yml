@@ -19,6 +19,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
@@ -51,6 +52,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
@@ -85,7 +87,6 @@ jobs:
           path: frontend/coverage/unit/
           retention-days: 30
           if-no-files-found: ignore
-          fail_ci_if_error: false
 
       - name: Upload integration coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -95,7 +96,6 @@ jobs:
           path: frontend/coverage/integration/
           retention-days: 30
           if-no-files-found: ignore
-          fail_ci_if_error: false
 
   frontend-e2e:
     name: Frontend E2E Tests
@@ -104,6 +104,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
@@ -148,7 +149,6 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 30
           if-no-files-found: ignore
-          fail_ci_if_error: false
 
       - name: Upload test results
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -158,4 +158,3 @@ jobs:
           path: frontend/test-results/
           retention-days: 30
           if-no-files-found: ignore
-          fail_ci_if_error: false

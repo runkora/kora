@@ -1,46 +1,54 @@
-# Orbit Documentation
+# Documentation
 
-Orbit is the **control plane for AI agents**: the identity, policy, and coordination infrastructure for running autonomous agents safely at scale. This is the documentation home; start here.
+Use this index to find Orbit's guides, architecture, engineering reference, and decision records.
 
-## Start here
+## Guides
 
-New to the repo? Read these in order:
+- [Deployment](guides/deployment.md): install Orbit in a Kubernetes cluster.
+- [Local development](guides/local-development.md): set up the development environment and work against the local cluster.
+- [Troubleshooting](guides/troubleshooting.md): diagnose common failures in the local environment.
+- [Backend golden path](guides/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
+- [Policy and roles](guides/policy-and-roles.md): configure roles, grants, and route access.
+- [Frontend testing](guides/frontend-testing.md): run and write frontend tests.
 
-1. **[guides/day-one.md](guides/day-one.md)**: clone to a running change, backend and frontend
-2. **[../README.md](../README.md)**: what Orbit is, and the quick start
-3. **[../ARCHITECTURE.md](../ARCHITECTURE.md)**: the architecture overview and deep-dive pages
-4. **[code-organization.md](code-organization.md)**: how the backend is laid out (binaries, feature packages, conventions)
-5. **[guides/backend-golden-path.md](guides/backend-golden-path.md)**: add a backend feature end to end
-6. **[guides/local-development.md](guides/local-development.md)**: the full local environment reference
-7. **[../CONTRIBUTING.md](../CONTRIBUTING.md)**: the PRD → ADR → implement workflow and the quality gate
-8. **[../frontend/README.md](../frontend/README.md)**: run and develop the Next.js frontend
+## Architecture
 
-## Map
+The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole. The pages here go deeper into the three questions Orbit answers for every production agent.
 
-| Area | Docs |
-|------|------|
-| **Architecture & design** | [../ARCHITECTURE.md](../ARCHITECTURE.md) · [code-organization.md](code-organization.md) · [spiffe.md](spiffe.md) (SPIFFE/SPIRE in the mesh) |
-| **Decisions** | [Architecture Decision Records](adr/README.md) (the *why* behind everything) · [Product Requirements](prd/README.md) |
-| **Guides** | [Day one](guides/day-one.md) · [Backend golden path](guides/backend-golden-path.md) · [Local development](guides/local-development.md) · [Policy & roles](guides/policy-and-roles.md) · [Frontend testing](guides/frontend-testing.md) |
-| **Configuration** | [Config system](configuration/config.md) · [Secrets](configuration/secrets.md) |
-| **Observability** | [Overview](observability/README.md) · [Logging](observability/logging.md) · [Tracing](observability/tracing.md) · [Configuration](observability/configuration.md) |
-| **Frontend** | [frontend/README.md](../frontend/README.md) · [Terra & component docs](../frontend/docs/README.md) |
+### Who is this agent?
 
-## By subsystem
+- [Identity](architecture/identity.md): human and workload identity, OIDC, SPIFFE exchange, sessions, and platform tokens.
+- [Agent execution](architecture/agent-execution.md): how an agent run is attributed, scheduled, isolated, and observed.
 
-Each subsystem is described in [../ARCHITECTURE.md](../ARCHITECTURE.md). The design history lives in the ADR index.
+### What can it access?
 
-| Subsystem | What it is | Start with |
-|-----------|------------|------------|
-| **Identity & Auth** | OIDC federation, SPIFFE exchange, sessions, PATs, tenant registry | [identity](architecture/identity.md) · [ADRs](adr/README.md#identity-auth--tokens) |
-| **Policy & Authorization** | OPA-based PDP/PAP + PEP, route scopes, admin dashboard | [guides/policy-and-roles.md](guides/policy-and-roles.md) · [ADRs](adr/README.md#policy--authorization) |
-| **Inference Gateway** | Multi-provider, OpenAI/Anthropic-compatible LLM gateway | [Inference Gateway PRD](prd/inference-gateway.md) · [ADRs](adr/README.md#inference-gateway) |
-| **Agents Control Plane** | Agent runs, sessions, sandboxing, event streaming | [Agent Control Plane PRD](prd/agent-control-plane.md) · [ADRs](adr/README.md#agents-control-plane--execution) |
-| **Operator & Deployment** | Kubernetes operator, Helm/GitOps, service mesh | [ADRs](adr/README.md#service-mesh-operator--deployment) |
-| **Frontend** | Next.js app, BFF, Terra design system | [frontend/README.md](../frontend/README.md) · [ADRs](adr/README.md#frontend--design-system) |
+- [Policy](architecture/policy.md): the authorisation model and where policy is enforced.
+- [Policy plane](architecture/policy-plane.md): the policy services, bundles, and request path.
 
-## Conventions
+### How does it connect?
 
-- **ADRs** are named `YYYY-MM-DD-kebab-slug.md` (decision date + slug, no sequential number) and cited by slug; see the [ADR index](adr/README.md) and [`adr/template.md`](adr/template.md).
-- **PRDs** precede ADRs for new features; see the [PRD index](prd/README.md) and [`prd/template.md`](prd/template.md).
-- The full set of code conventions (enforced by lint) lives in [../AGENTS.md](../AGENTS.md).
+- [Connectivity](architecture/connectivity.md): the end-to-end connection model and credential brokering path.
+- [Egress gateway](architecture/egress-gateway.md): governed outbound traffic and just-in-time credential injection.
+- [MCP tool gateway](architecture/mcp-tool-gateway.md): tool discovery, policy enforcement, and execution.
+- [Inference gateway](architecture/inference-gateway.md): model-provider routing and the OpenAI- and Anthropic-compatible APIs.
+
+[Runtime topology](architecture/runtime-topology.md) maps these concerns onto the deployed services and namespaces. [SPIFFE and SPIRE](spiffe.md) covers the workload identity substrate in more detail.
+
+## Engineering reference
+
+- [Code organisation](code-organization.md): binaries, ports, feature packages, dependency boundaries, and repository structure.
+- [Configuration](configuration/config.md): typed service configuration and environment overlays.
+- [Secrets](configuration/secrets.md): secret sources, projection, and rotation responsibilities.
+- [Observability](observability/README.md): logging, tracing, and telemetry configuration.
+- [Frontend documentation](../frontend/docs/README.md): Terra, component placement, state patterns, and frontend conventions.
+- [Agent development guide](../AGENTS.md): the complete machine-enforced coding rules used by development agents.
+
+## Decision records
+
+Orbit uses a PRD to agree the problem and scope, then an ADR to record the technical decision before significant implementation begins.
+
+- [Product requirements](prd/README.md): accepted requirements and feature scope.
+- [Architecture decisions](adr/README.md): the technical decisions and their consequences.
+- [PRD template](prd/template.md) and [ADR template](adr/template.md): starting points for new records.
+
+ADRs are named `YYYY-MM-DD-kebab-slug.md` and cited by slug. Bug fixes and minor changes do not require a PRD or ADR. The full workflow is in [CONTRIBUTING.md](../CONTRIBUTING.md).
