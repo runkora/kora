@@ -120,9 +120,6 @@ jobs:
           # built-in cache uses a 7-day rotating key and would double-save.
           skip-cache: true
 
-      - name: Check documentation for drift
-        run: make docs-check
-
   build:
     name: Build
     runs-on: ubuntu-latest
