@@ -37,7 +37,12 @@ async function main() {
     await page.addScriptTag({ content: bundle });
     for (const src of files) {
       const raw = fs.readFileSync(src);
-      const scene = JSON.parse(raw.toString("utf8"));
+      let scene;
+      try {
+        scene = JSON.parse(raw.toString("utf8"));
+      } catch (e) {
+        throw new Error(`${path.basename(src)}: not valid Excalidraw JSON (${e.message})`);
+      }
       const svg = await page.evaluate(async (scene) => {
         const el = await window.__exportToSvg({
           elements: scene.elements,
@@ -51,6 +56,9 @@ async function main() {
         });
         return el.outerHTML;
       }, scene);
+      if (typeof svg !== "string" || !svg.startsWith("<svg")) {
+        throw new Error(`${path.basename(src)}: export produced no SVG`);
+      }
       const stamped = `<!-- ${STAMP}: ${sourceHash(raw)} -->\n${svg}\n`;
       const outPath = src.replace(/\.excalidraw$/, ".svg");
       fs.writeFileSync(outPath, stamped);

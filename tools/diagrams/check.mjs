@@ -23,7 +23,10 @@ for (const f of fs.readdirSync(diagramsDir)) {
     continue;
   }
   const want = hash(fs.readFileSync(src));
-  const m = fs.readFileSync(svg, "utf8").match(new RegExp(`${STAMP}: ([0-9a-f]{64})`));
+  // Anchored to the comment export.mjs writes, so diagram text cannot spoof it.
+  const m = fs
+    .readFileSync(svg, "utf8")
+    .match(new RegExp(`^<!-- ${STAMP}: ([0-9a-f]{64}) -->$`, "m"));
   if (!m) stale.push(`${path.basename(svg)} -> no ${STAMP} stamp`);
   else if (m[1] !== want) stale.push(`${path.basename(svg)} -> stale (source changed)`);
 }

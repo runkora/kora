@@ -1,6 +1,6 @@
 # Connectivity
 
-Agents in the orbit platform reach the outside world through MCP tools and through connectors. Each of these govern the egress from an agent in a different way and provide the agent different mechanisms to interact.
+Agents in the Orbit platform reach the outside world through MCP tools and through connectors. Each governs the egress from an agent in a different way and gives the agent a different mechanism to interact.
 
 ## MCP tools
 
