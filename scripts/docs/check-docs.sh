@@ -34,11 +34,10 @@ fail() { printf "%s\n" "  ${C_RED}✗${C_RESET} $*"; FAILURES=$((FAILURES + 1));
 ok()   { printf "%s\n" "${C_GREEN}✓${C_RESET} $*"; }
 head_() { printf "\n%s\n" "${C_YELLOW}$*${C_RESET}"; }
 
-# Markdown files we own. Excludes vendored/generated trees and the archive,
-# which is a deliberate record of what we used to believe.
+# Markdown files we own. Excludes vendored and generated trees.
 md_files() {
   git ls-files '*.md' \
-    | grep -vE '^(frontend/node_modules/|docs/archive/)' \
+    | grep -vE '^frontend/node_modules/' \
     | grep -vE '/(node_modules|dist|\.next)/'
 }
 

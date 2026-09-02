@@ -44,7 +44,3 @@ Each subsystem is described in [../ARCHITECTURE.md](../ARCHITECTURE.md). The des
 - **ADRs** are named `YYYY-MM-DD-kebab-slug.md` (decision date + slug, no sequential number) and cited by slug; see the [ADR index](adr/README.md) and [`adr/template.md`](adr/template.md).
 - **PRDs** precede ADRs for new features; see the [PRD index](prd/README.md) and [`prd/template.md`](prd/template.md).
 - The full set of code conventions (enforced by lint) lives in [../AGENTS.md](../AGENTS.md).
-
-## Archive
-
-Superseded and point-in-time working documents (retired PRDs, old design scratch, shipped implementation plans) live in [archive/](archive/), kept for history, not current guidance.
