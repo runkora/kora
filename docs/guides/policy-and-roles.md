@@ -376,4 +376,3 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 
 - [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
 - [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
-- [Policy Enforcement Redesign](../archive/policy-enforcement-redesign.md) (archived, superseded by [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md))
