@@ -25,14 +25,11 @@ injection. Identity and Policy govern both humans and agents.
 ## Deep dives
 
 - [Runtime topology](docs/architecture/runtime-topology.md): control plane, data plane, egress brokers, and the shared substrate.
-- [Identity](docs/architecture/identity.md): workload attestation, token exchange,
-  delegation.
-- [Policy](docs/architecture/policy.md): edge and in-service enforcement, before
-  the action.
-- [Connectivity](docs/architecture/connectivity.md): brokered egress and
-  just-in-time credentials.
-- [Agent execution](docs/architecture/agent-execution.md): pod topology,
-  per-run sandboxing, identity, and egress.
+- [Identity](docs/architecture/identity.md): workload attestation, token exchange, delegation.
+- [Policy](docs/architecture/policy.md): edge and in-service enforcement, before the action.
+- [Connectivity](docs/architecture/connectivity.md): brokered egress and just-in-time credentials.
+- [Inference gateway](docs/architecture/inference-gateway.md): model brokering, routing, budgets, and usage.
+- [Agent execution](docs/architecture/agent-execution.md): pod topology, per-run sandboxing, identity, and egress.
 
 Diagrams are Excalidraw sources under [`docs/diagrams/`](docs/diagrams). See
 [`tools/diagrams/README.md`](tools/diagrams/README.md) for how they render.

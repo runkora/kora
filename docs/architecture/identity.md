@@ -2,6 +2,8 @@
 
 Every principal in Orbit has one verifiable identity. Humans authenticate through their tenant's OIDC provider. An agent workload is attested by SPIRE and exchanges its SPIFFE SVID for an Orbit platform token, proving who it is without ever holding a long-lived secret.
 
+![Identity](../diagrams/identity.svg)
+
 ```mermaid
 sequenceDiagram
     autonumber
