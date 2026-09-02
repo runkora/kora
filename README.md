@@ -67,7 +67,7 @@ OpenTelemetry traces and metrics across every service, W3C trace propagation thr
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the architecture overview.
 
 ## Getting Started
 

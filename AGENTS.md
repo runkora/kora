@@ -14,7 +14,7 @@ Underneath, Orbit is established platform engineering applied to a new domain: S
 
 **These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
 
-Build status lives in [docs/architecture.md](docs/architecture.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
+The architecture overview is in [ARCHITECTURE.md](ARCHITECTURE.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
 
 ## Development Workflow
 

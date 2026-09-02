@@ -6,8 +6,6 @@ Orbit records every significant technical decision as an ADR. This index is the 
 
 **Status values:** `Proposed` (under discussion) · `Accepted` (ratified; may or may not be fully implemented) · `Deprecated` / `Superseded`.
 
-> Note: a few ADRs describe subsystems that are designed but **not yet implemented** — notably the credential broker (*jit-credential-brokering-egress-gateway*, which supersedes the earlier *credential-aware-outbound-gateway*) and the MCP tool gateway (*mcp-server-registration*, *scope-gated-tool-exposure*). See [the architecture overview](../architecture.md) for current implementation status.
-
 ## By subsystem
 
 ### Foundations & Platform
