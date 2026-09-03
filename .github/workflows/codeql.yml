@@ -16,10 +16,9 @@ permissions:
 
 jobs:
   # Runs each language only when its inputs changed. The weekly schedule has
-  # no diff and analyses everything.
+  # no diff, so the filter is skipped and every language is analysed.
   changes:
     name: Detect changes
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,11 +26,13 @@ jobs:
     outputs:
       # A JSON array of the filter names that matched, so the analyze matrix
       # is exactly the set of languages whose inputs changed.
-      languages: ${{ steps.filter.outputs.changes }}
+      languages: ${{ steps.filter.outputs.changes || '["go","javascript-typescript","actions"]' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - if: github.event_name != 'schedule'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - id: filter
+        if: github.event_name != 'schedule'
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         with:
           filters: |
@@ -48,11 +49,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     needs: changes
-    if: >-
-      !cancelled() && (
-        github.event_name == 'schedule' ||
-        (needs.changes.outputs.languages != '' && needs.changes.outputs.languages != '[]')
-      )
+    if: needs.changes.outputs.languages != '[]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ${{ fromJson(needs.changes.outputs.languages || '["go","javascript-typescript","actions"]') }}
+        language: ${{ fromJson(needs.changes.outputs.languages) }}
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
