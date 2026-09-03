@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# The default token only reads the repository. Jobs that need more
+# declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   # Runs each suite only when its inputs changed. The two suites are
   # independent, so a backend-only change does not run the frontend suite.

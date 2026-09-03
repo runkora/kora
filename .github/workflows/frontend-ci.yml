@@ -3,6 +3,11 @@ name: Frontend CI
 on:
   workflow_call:
 
+# The default token only reads the repository. Jobs that need more
+# declare it themselves.
+permissions:
+  contents: read
+
 # Tool versions — keep in sync with pinned versions in Makefile.
 env:
   NODE_VERSION: '24'
