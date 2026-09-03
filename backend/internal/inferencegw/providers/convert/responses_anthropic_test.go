@@ -122,7 +122,7 @@ func TestResponsesParamsToAnthropicParams_FunctionCallRoundTrip(t *testing.T) {
 	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
 		responses.ResponseInputItemParamOfMessage("what's the weather in London?", responses.EasyInputMessageRoleUser),
 		responses.ResponseInputItemParamOfFunctionCall(`{"city":"London"}`, "call_1", "get_weather"),
-		responses.ResponseInputItemParamOfFunctionCallOutput("call_1", `{"temp":"15C"}`),
+		functionCallOutput("call_1", `{"temp":"15C"}`),
 		responses.ResponseInputItemParamOfMessage("thanks", responses.EasyInputMessageRoleUser),
 	}
 
@@ -914,4 +914,12 @@ func TestAnthropicStreaming_FunctionCallWireFormat(t *testing.T) {
 	if !foundFunctionCall {
 		t.Error("no function_call item found in response.completed output")
 	}
+}
+
+// functionCallOutput builds a function_call_output input item. openai-go's own
+// constructor takes only the output since v3.55, so the call id is set here.
+func functionCallOutput(callID, output string) responses.ResponseInputItemUnionParam {
+	item := responses.ResponseInputItemFunctionCallOutputParam{CallID: param.NewOpt(callID)}
+	item.Output.OfString = param.NewOpt(output)
+	return responses.ResponseInputItemUnionParam{OfFunctionCallOutput: &item}
 }

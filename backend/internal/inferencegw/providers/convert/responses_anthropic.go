@@ -330,7 +330,7 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 			if !fco.Output.OfString.Valid() {
 				return nil, nil, fmt.Errorf("responses: function_call_output item %q has unsupported content-array output; only string outputs are supported", fco.CallID)
 			}
-			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output.OfString.Value, false))
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID.Value, fco.Output.OfString.Value, false))
 		}
 	}
 	flushPendingTool()
