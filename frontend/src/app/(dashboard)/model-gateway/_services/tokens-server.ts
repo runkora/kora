@@ -35,8 +35,7 @@ export type GetPATAttributionResult =
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type CreatePATResult =
-  | { ok: true; pat: CreatePATResponse }
-  | { ok: false; status: number; message: string };
+  { ok: true; pat: CreatePATResponse } | { ok: false; status: number; message: string };
 
 export type RevokePATResult = { ok: true } | { ok: false; status: number; message: string };
 
@@ -130,8 +129,7 @@ interface IdentityUsersResponse {
 }
 
 export type GetUsersResult =
-  | { ok: true; users: PATAttributionEntry[] }
-  | { ok: false; status: number; message: string };
+  { ok: true; users: PATAttributionEntry[] } | { ok: false; status: number; message: string };
 
 export async function fetchUsersByIDs(
   accessToken: string,

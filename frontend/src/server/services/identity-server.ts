@@ -6,8 +6,7 @@ import type { ListPATsResponse, PAT } from '@orbit/shared/api';
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type ListPATsResult =
-  | { ok: true; tokens: PAT[] }
-  | { ok: false; status: number; message: string };
+  { ok: true; tokens: PAT[] } | { ok: false; status: number; message: string };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

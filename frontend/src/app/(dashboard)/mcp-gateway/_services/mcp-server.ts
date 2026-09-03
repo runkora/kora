@@ -6,8 +6,7 @@ import { listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
 export type McpServersResult = { ok: true; servers: McpServer[] } | { ok: false; message: string };
 
 export type McpToolsResult =
-  | { ok: true; server: McpServer | null; tools: McpCatalogTool[] }
-  | { ok: false; message: string };
+  { ok: true; server: McpServer | null; tools: McpCatalogTool[] } | { ok: false; message: string };
 
 /** Loads the MCP servers visible to the tenant for the top-level list. */
 export async function fetchMcpServers(accessToken: string): Promise<McpServersResult> {
