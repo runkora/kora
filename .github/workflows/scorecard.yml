@@ -7,6 +7,9 @@ on:
     - cron: "31 4 * * 1"
   push:
     branches: [main]
+  # Temporary, so the workflow runs once on the fixing PR. Removed in the next commit.
+  pull_request:
+    branches: [main]
 
 permissions: read-all
 
@@ -15,9 +18,13 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
+      # Job-level permissions replace the top-level set, so the reads the
+      # checkout and the analysis need are restated here.
+      contents: read
+      actions: read
       # Upload the SARIF result to code scanning.
       security-events: write
-      # Publish the result to the OpenSSF API so the README badge resolves.
+      # Required by scorecard-action for publishing, harmless while that is off.
       id-token: write
 
     steps:
@@ -31,8 +38,8 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Publishing requires a public repository. It is a no-op until then.
-          publish_results: true
+          # Publishing requires a public repository. Set to true once it is.
+          publish_results: false
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
