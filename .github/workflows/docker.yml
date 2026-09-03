@@ -35,7 +35,7 @@ jobs:
     outputs:
       targets: ${{ steps.list.outputs.targets }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Expand default group to target list
         id: list
@@ -57,7 +57,7 @@ jobs:
         target: ${{ fromJson(needs.list-targets.outputs.targets) }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Derive image tag
         shell: bash
@@ -78,11 +78,11 @@ jobs:
           echo "IMAGE_CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_ENV}"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       # Login is unconditional: PR builds don't push images, but they pull the
       # layer cache from GHCR, which needs auth on a private registry.
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
