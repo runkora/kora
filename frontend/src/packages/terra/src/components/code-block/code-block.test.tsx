@@ -27,4 +27,43 @@ describe('CodeBlock', () => {
     // be wider than its column); whitespace-pre-wrap + break-words wrap the text.
     expect(pre).toHaveClass('overflow-x-auto', 'whitespace-pre-wrap', 'break-words');
   });
+
+  describe('json highlighting', () => {
+    const classesOf = (container: HTMLElement, text: string) =>
+      Array.from(container.querySelectorAll('pre span'))
+        .filter((el) => el.textContent === text)
+        .map((el) => el.className);
+
+    it('colours keys, string values, literals and numbers by kind', () => {
+      const { container } = render(
+        <CodeBlock
+          language="json"
+          text={'{"name": "orb\\"it", "n": -1.5, "ok": true, "x": null}'}
+        />,
+      );
+      expect(classesOf(container, '"name":')).toEqual(['text-accent']);
+      expect(classesOf(container, '"orb\\"it"')).toEqual(['text-status-healthy']);
+      expect(classesOf(container, '-1.5')).toEqual(['text-status-healthy']);
+      expect(classesOf(container, 'true')).toEqual(['text-status-degraded']);
+      expect(classesOf(container, 'null')).toEqual(['text-status-degraded']);
+      expect(container.querySelector('pre')?.textContent).toBe(
+        '{"name": "orb\\"it", "n": -1.5, "ok": true, "x": null}',
+      );
+    });
+
+    it('does not treat letters inside words as literals', () => {
+      const { container } = render(<CodeBlock language="json" text={'{"nullable": "truest"}'} />);
+      expect(classesOf(container, 'null')).toEqual([]);
+      expect(classesOf(container, 'true')).toEqual([]);
+    });
+
+    it('renders an unterminated string as plain text without rescanning it', () => {
+      const text = '{"a": "' + '\\"'.repeat(5000);
+      const started = performance.now();
+      const { container } = render(<CodeBlock language="json" text={text} />);
+      expect(performance.now() - started).toBeLessThan(2000);
+      expect(container.querySelector('pre')?.textContent).toBe(text);
+      expect(classesOf(container, '"a":')).toEqual(['text-accent']);
+    });
+  });
 });

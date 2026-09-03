@@ -47,47 +47,97 @@ export interface CodeBlockProps {
 // ── JSON highlighting ─────────────────────────────────────────────────────────
 
 /**
- * One regex pass, four token kinds. A string is matched once and is a key
- * when a colon follows it (group 2), so the scan stays linear on inputs with
- * long escaped runs. Keys carry the accent, values carry the
- * healthy green, true/false/null the amber literal tone, and everything else
- * (punctuation, whitespace) recedes to subtle, so the eye lands on data.
+ * Single left-to-right pass, four token kinds. Strings are scanned by hand
+ * rather than by regex: a global regex restarts from every quote inside an
+ * unterminated string, which is quadratic on long escaped runs, whereas this
+ * scanner visits each character once and treats an unterminated string as
+ * plain text. A string is a key when a colon follows it. Keys carry the
+ * accent, values carry the healthy green, true/false/null the amber literal
+ * tone, and everything else (punctuation, whitespace) recedes to subtle, so
+ * the eye lands on data.
  */
-const JSON_TOKEN = /("(?:\\.|[^"\\])*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?)/g;
+const LITERAL_AT = /true|false|null/y;
+const NUMBER_AT = /-?\d+(?:\.\d+)?/y;
+const KEY_COLON_AT = /\s*:/y;
+
+/** Index just past the closing quote of the string opening at `from`, or -1. */
+function scanString(src: string, from: number): number {
+  for (let i = from + 1; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (ch === '"') return i + 1;
+  }
+  return -1;
+}
+
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && /\w/.test(ch);
+}
 
 function highlightJson(src: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   let last = 0;
   let key = 0;
-  for (const m of src.matchAll(JSON_TOKEN)) {
-    const at = m.index ?? 0;
-    if (at > last) {
+  const flushPlain = (upTo: number) => {
+    if (upTo > last) {
       parts.push(
         <span key={key++} className="text-subtle">
-          {src.slice(last, at)}
+          {src.slice(last, upTo)}
         </span>,
       );
     }
-    const cls =
-      m[2] !== undefined
-        ? 'text-accent'
-        : m[3] !== undefined
-          ? 'text-status-degraded'
-          : 'text-status-healthy';
+  };
+  const pushToken = (from: number, to: number, cls: string) => {
+    flushPlain(from);
     parts.push(
       <span key={key++} className={cls}>
-        {m[0]}
+        {src.slice(from, to)}
       </span>,
     );
-    last = at + m[0].length;
+    last = to;
+  };
+
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === '"') {
+      const close = scanString(src, i);
+      if (close === -1) break;
+      KEY_COLON_AT.lastIndex = close;
+      const colon = KEY_COLON_AT.exec(src);
+      if (colon) {
+        pushToken(i, close + colon[0].length, 'text-accent');
+      } else {
+        pushToken(i, close, 'text-status-healthy');
+      }
+      i = last;
+      continue;
+    }
+    if ((ch === 't' || ch === 'f' || ch === 'n') && !isWordChar(src[i - 1])) {
+      LITERAL_AT.lastIndex = i;
+      const lit = LITERAL_AT.exec(src);
+      if (lit && !isWordChar(src[i + lit[0].length])) {
+        pushToken(i, i + lit[0].length, 'text-status-degraded');
+        i = last;
+        continue;
+      }
+    }
+    if (ch === '-' || (ch >= '0' && ch <= '9')) {
+      NUMBER_AT.lastIndex = i;
+      const num = NUMBER_AT.exec(src);
+      if (num) {
+        pushToken(i, i + num[0].length, 'text-status-healthy');
+        i = last;
+        continue;
+      }
+    }
+    i++;
   }
-  if (last < src.length) {
-    parts.push(
-      <span key={key++} className="text-subtle">
-        {src.slice(last)}
-      </span>,
-    );
-  }
+  flushPlain(src.length);
+  last = src.length;
   return parts;
 }
 
