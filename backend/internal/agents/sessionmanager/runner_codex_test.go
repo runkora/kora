@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -414,6 +416,32 @@ func TestCodex_NewResumeRunner_CarriesThreadID(t *testing.T) {
 	}
 	if rr.cfg.ResumeThreadID != "thr_xyz" {
 		t.Errorf("resume runner ResumeThreadID = %q, want thr_xyz", rr.cfg.ResumeThreadID)
+	}
+}
+
+// ── writeCodexConfig ────────────────────────────────────────────────────────────
+
+func TestCodexWriteConfig_BaseURLIncludesV1(t *testing.T) {
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "test-run",
+		Model:               "anthropic/claude-sonnet-4-6",
+		InferenceGatewayURL: "http://orbit-inference-gateway.orbit-system.svc.cluster.local",
+	})
+
+	codexHome, err := r.writeCodexConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+
+	const wantBaseURL = `base_url = "http://orbit-inference-gateway.orbit-system.svc.cluster.local/run/test-run/v1"`
+	if !strings.Contains(string(data), wantBaseURL) {
+		t.Errorf("config.toml does not contain %q, got:\n%s", wantBaseURL, data)
 	}
 }
 
