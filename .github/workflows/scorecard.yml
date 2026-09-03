@@ -7,6 +7,7 @@ on:
     - cron: "31 4 * * 1"
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions: read-all
 
@@ -16,9 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       # Job-level permissions replace the top-level set. The checkout and the
-      # analysis need these reads.
+      # analysis need these reads. On a private repository the analysis also
+      # walks pull requests, issues, and checks.
       contents: read
       actions: read
+      issues: read
+      pull-requests: read
+      checks: read
       # Upload the SARIF result to code scanning.
       security-events: write
 
