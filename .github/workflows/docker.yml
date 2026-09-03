@@ -26,16 +26,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Expands the bake file's default group into a list of individual target names.
-  # Adding a new image to docker-bake.hcl's default group is all that's needed —
-  # CI picks it up automatically on the next run.
+  # Skips the image builds when nothing that enters a build context changed.
+  # The patterns mirror .dockerignore.
+  changes:
+    name: Detect image-affecting changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!.github/**'
+              - '.github/workflows/docker.yml'
+
+  # Expands the bake file's default group into a list of target names. A new
+  # image added to that group is built on the next run.
   list-targets:
     name: List bake targets
+    needs: changes
+    # Release tags and manual runs always build. Everything else builds only
+    # when an image input changed.
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.list.outputs.targets }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Expand default group to target list
         id: list
@@ -57,7 +87,7 @@ jobs:
         target: ${{ fromJson(needs.list-targets.outputs.targets) }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Derive image tag
         shell: bash
@@ -79,8 +109,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      # Login is unconditional: PR builds don't push images, but they pull the
-      # layer cache from GHCR, which needs auth on a private registry.
+      # Login runs for pull requests as well. They do not push, but pulling the
+      # layer cache from a private GHCR needs auth.
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:

@@ -902,18 +902,14 @@ prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
 # ===========================================
 
 .PHONY: build-backend
-build-backend: proto-gen ## Build the host-buildable service binaries to .bin (runs proto-gen first). Not every cmd/ binary.
+build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen first)
 	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-agents ./cmd/orbit-agents
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-mcp ./cmd/orbit-mcp
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
-	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
+	@for dir in $(BACKEND_DIR)/cmd/*/; do \
+		name=$$(basename "$$dir"); \
+		[ -f "$$dir/main.go" ] || continue; \
+		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/orbit-$${name#orbit-}" "./cmd/$$name") || exit 1; \
+	done
 
 # ===========================================
 # Testing & Quality

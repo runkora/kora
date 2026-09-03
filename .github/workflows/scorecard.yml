@@ -3,7 +3,7 @@ name: Scorecard
 on:
   branch_protection_rule:
   schedule:
-    # Weekly, so the published score tracks the default branch over time.
+    # Weekly rescore of the default branch.
     - cron: "31 4 * * 1"
   push:
     branches: [main]
@@ -15,14 +15,16 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
+      # Job-level permissions replace the top-level set. The checkout and the
+      # analysis need these reads.
+      contents: read
+      actions: read
       # Upload the SARIF result to code scanning.
       security-events: write
-      # Publish the result to the OpenSSF API so the README badge resolves.
-      id-token: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -31,17 +33,18 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Publishing requires a public repository. It is a no-op until then.
-          publish_results: true
+          # Publishing requires a public repository. Set to true once it is.
+          publish_results: false
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: SARIF file
           path: results.sarif
           retention-days: 5
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        # Needs Code Security enabled on the repository.
         with:
           sarif_file: results.sarif
