@@ -1,6 +1,6 @@
 # Orbit
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![CI](https://github.com/clear-route/orbit/actions/workflows/ci.yml/badge.svg)](https://github.com/clear-route/orbit/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![CI](https://github.com/clear-route/orbit/actions/workflows/ci.yml/badge.svg)](https://github.com/clear-route/orbit/actions/workflows/ci.yml) [![CodeQL](https://github.com/clear-route/orbit/actions/workflows/codeql.yml/badge.svg)](https://github.com/clear-route/orbit/actions/workflows/codeql.yml)
 
 Orbit is an open source control plane for managing and running agents at scale. An agent on a laptop runs with its developer's credentials and leaves no audit trail of what it did. Orbit makes those agents safe to run in production.
 
