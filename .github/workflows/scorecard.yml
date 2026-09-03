@@ -7,9 +7,6 @@ on:
     - cron: "31 4 * * 1"
   push:
     branches: [main]
-  # Temporary. Runs the workflow once on this PR. Removed in the next commit.
-  pull_request:
-    branches: [main]
 
 permissions: read-all
 
