@@ -26,8 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Go is compiled, so the extractor needs a real build. The module
-          # lives in backend/, which autobuild does not find.
+          # Go is compiled, so the extractor needs a real build.
           - language: go
             build-mode: manual
           - language: javascript-typescript
@@ -44,6 +43,11 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      # build-backend regenerates protobuf first, which needs buf.
+      - if: matrix.language == 'go'
+        name: Install build tools
+        run: make install-tools
+
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
@@ -52,7 +56,7 @@ jobs:
 
       - if: matrix.language == 'go'
         name: Build
-        run: cd backend && go build ./...
+        run: make build-backend
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
