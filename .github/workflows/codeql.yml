@@ -15,8 +15,44 @@ permissions:
   contents: read
 
 jobs:
+  # Runs each language only when its inputs changed. The weekly schedule has
+  # no diff and analyses everything.
+  changes:
+    name: Detect changes
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # A JSON array of the filter names that matched, so the analyze matrix
+      # is exactly the set of languages whose inputs changed.
+      languages: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: |
+            go:
+              - 'backend/**'
+              - '.github/workflows/codeql.yml'
+            javascript-typescript:
+              - 'frontend/**'
+              - 'tools/**'
+              - '.github/workflows/codeql.yml'
+            actions:
+              - '.github/workflows/**'
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: changes
+    if: >-
+      !cancelled() && (
+        github.event_name == 'schedule' ||
+        (needs.changes.outputs.languages != '' && needs.changes.outputs.languages != '[]')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,14 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Go is compiled, so the extractor needs a real build.
-          - language: go
-            build-mode: manual
-          - language: javascript-typescript
-            build-mode: none
-          - language: actions
-            build-mode: none
+        language: ${{ fromJson(needs.changes.outputs.languages || '["go","javascript-typescript","actions"]') }}
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -51,7 +80,8 @@ jobs:
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          # Go is compiled, so the extractor needs a real build.
+          build-mode: ${{ matrix.language == 'go' && 'manual' || 'none' }}
           queries: security-and-quality
 
       - if: matrix.language == 'go'
