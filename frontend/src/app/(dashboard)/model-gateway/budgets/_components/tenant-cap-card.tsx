@@ -85,8 +85,7 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               showValue
             />
             <Text size="caption" color="subtle">
-              Blocks all inference at the limit, for every principal type, until the period
-              resets.
+              Blocks all inference at the limit, for every principal type, until the period resets.
             </Text>
           </Stack>
         ) : (
