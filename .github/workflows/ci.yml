@@ -7,10 +7,45 @@ on:
     branches: [main]
 
 jobs:
+  # Runs each suite only when its inputs changed. The two suites are
+  # independent, so a backend-only change does not run the frontend suite.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'rules/**'
+              - '.golangci.yml'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/backend-ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/frontend-ci.yml'
+
   backend:
     name: Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     uses: ./.github/workflows/backend-ci.yml
 
   frontend:
     name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     uses: ./.github/workflows/frontend-ci.yml
