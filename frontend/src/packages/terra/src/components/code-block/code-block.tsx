@@ -47,12 +47,13 @@ export interface CodeBlockProps {
 // ── JSON highlighting ─────────────────────────────────────────────────────────
 
 /**
- * One regex pass, four token kinds. Keys carry the accent, values carry the
+ * One regex pass, four token kinds. A string is matched once and is a key
+ * when a colon follows it (group 2), so the scan stays linear on inputs with
+ * long escaped runs. Keys carry the accent, values carry the
  * healthy green, true/false/null the amber literal tone, and everything else
  * (punctuation, whitespace) recedes to subtle, so the eye lands on data.
  */
-const JSON_TOKEN =
-  /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?)/g;
+const JSON_TOKEN = /("(?:\\.|[^"\\])*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?)/g;
 
 function highlightJson(src: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
@@ -68,7 +69,7 @@ function highlightJson(src: string): React.ReactNode[] {
       );
     }
     const cls =
-      m[1] !== undefined
+      m[2] !== undefined
         ? 'text-accent'
         : m[3] !== undefined
           ? 'text-status-degraded'
