@@ -111,10 +111,7 @@ describe('fetchAllTenantUsers', () => {
 
   it('returns ok:false when a page request fails', async () => {
     server.use(
-      http.get(
-        `${API_URL}/identity/users`,
-        () => new HttpResponse('boom', { status: 500 }),
-      ),
+      http.get(`${API_URL}/identity/users`, () => new HttpResponse('boom', { status: 500 })),
     );
 
     const result = await fetchAllTenantUsers('token-abc');
