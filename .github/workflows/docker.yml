@@ -36,18 +36,24 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      workflow: ${{ steps.filter.outputs.workflow }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
+          # A file counts only if it satisfies every rule, which is what makes
+          # the negations exclude. Under the default quantifier a negation is
+          # just another pattern and matches everything it does not name.
+          predicate-quantifier: every
           filters: |
             code:
               - '**'
               - '!**/*.md'
               - '!docs/**'
               - '!.github/**'
+            workflow:
               - '.github/workflows/docker.yml'
 
   # Expands the bake file's default group into a list of target names. A new
@@ -60,7 +66,8 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/') ||
       github.event_name == 'workflow_dispatch' ||
-      needs.changes.outputs.code == 'true'
+      needs.changes.outputs.code == 'true' ||
+      needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.list.outputs.targets }}
