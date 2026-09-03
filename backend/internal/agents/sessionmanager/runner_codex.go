@@ -65,6 +65,13 @@ type codexActiveItem struct {
 	outputBuf strings.Builder
 }
 
+// maxStderrLines bounds the tail of Codex subprocess stderr kept in memory for
+// attaching to a run_error event. Codex logs the HTTP status, URL and response
+// body for a failed Responses API call to stderr (not to the JSONL protocol on
+// stdout), so a short tail is the only way to recover that detail without
+// exec'ing into the pod.
+const maxStderrLines = 20
+
 // isCodexToolType returns true for item types that map to tool_use/tool_result events.
 // The v2 protocol uses camelCase type names.
 func isCodexToolType(t string) bool {
@@ -98,6 +105,8 @@ type CodexRunner struct {
 	pending      map[int64]chan codexMsg // in-flight requests awaiting response
 	nextID       atomic.Int64
 	activeItems  map[string]*codexActiveItem // tool items between item/started and item/completed
+	stderrMu     sync.Mutex
+	stderrTail   []string // bounded tail of subprocess stderr lines; see maxStderrLines
 }
 
 // NewCodexRunner creates a runner with the given configuration.
@@ -139,6 +148,11 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("codex stdout pipe: %w", err)
 	}
 
+	stderr, err := r.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("codex stderr pipe: %w", err)
+	}
+
 	if err := r.cmd.Start(); err != nil {
 		return fmt.Errorf("codex start: %w", err)
 	}
@@ -150,6 +164,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		logging.Field{Key: "resume_thread_id", Value: r.cfg.ResumeThreadID},
 	)
 
+	go r.logStderr(ctx, stderr)
 	go r.readLoop(ctx, stdout)
 
 	// cleanupProc kills and reaps the subprocess when Start returns an error
@@ -370,6 +385,51 @@ func (r *CodexRunner) writeJSONL(msg any) error {
 	return err
 }
 
+// logStderr reads the Codex subprocess's stderr and logs each line as an error,
+// keeping a bounded tail so handleErrorNotification can attach the HTTP detail
+// (status code, URL, response body) that Codex only logs to stderr, never over
+// the JSONL protocol on stdout.
+func (r *CodexRunner) logStderr(ctx context.Context, stderr io.Reader) {
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		r.cfg.Logger.Error(ctx, "Codex subprocess stderr",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "line", Value: line},
+		)
+		r.appendStderrTail(line)
+	}
+	if err := scanner.Err(); err != nil {
+		r.cfg.Logger.Error(ctx, "Codex stderr scan error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// appendStderrTail records line, keeping at most the last maxStderrLines.
+func (r *CodexRunner) appendStderrTail(line string) {
+	r.stderrMu.Lock()
+	defer r.stderrMu.Unlock()
+	r.stderrTail = append(r.stderrTail, line)
+	if len(r.stderrTail) > maxStderrLines {
+		r.stderrTail = r.stderrTail[len(r.stderrTail)-maxStderrLines:]
+	}
+}
+
+// stderrSnapshot returns a copy of the current stderr tail joined with newlines.
+func (r *CodexRunner) stderrSnapshot() string {
+	r.stderrMu.Lock()
+	defer r.stderrMu.Unlock()
+	if len(r.stderrTail) == 0 {
+		return ""
+	}
+	return strings.Join(r.stderrTail, "\n")
+}
+
 // readLoop reads the Codex app-server's stdout line by line and dispatches each message.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
 func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
@@ -575,18 +635,27 @@ func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.R
 	if params != nil {
 		_ = json.Unmarshal(params, &p)
 	}
+	stderrTail := r.stderrSnapshot()
 	r.cfg.Logger.Error(ctx, "Codex error notification",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
 		logging.Field{Key: "message", Value: p.Error.Message},
+		logging.Field{Key: "stderr_tail", Value: stderrTail},
 	)
 	r.textBuf.Reset()
 	r.thinkingBuf.Reset()
 	r.activeTurnID.Store("")
 	// Emit a run_error so the registry marks the run as failed, then close
 	// stdin to cause the subprocess to exit and the event channel to close.
+	// stderrTail carries the HTTP status/URL/response body that Codex logs to
+	// its subprocess stderr but never includes in the "error" notification
+	// itself, so it's appended here to keep that detail recoverable from the run.
+	message := p.Error.Message
+	if stderrTail != "" {
+		message = message + "\n" + stderrTail
+	}
 	r.emit(EventTypeRunError, RunErrorPayload{
 		Code:    "runner_error",
-		Message: p.Error.Message,
+		Message: message,
 	})
 	r.stdin.Close() //nolint:errcheck
 }

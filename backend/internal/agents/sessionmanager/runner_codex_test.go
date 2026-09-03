@@ -1,9 +1,12 @@
 package sessionmanager
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -437,5 +440,87 @@ func TestCodexHandleErrorNotification_EmitsRunError(t *testing.T) {
 	}
 	if payload.Message != "context length exceeded" {
 		t.Errorf("message = %q, want 'context length exceeded'", payload.Message)
+	}
+}
+
+// ── logStderr / stderrTail ──────────────────────────────────────────────────────
+
+func TestCodexLogStderr_CapturesTailForErrorEvent(t *testing.T) {
+	r := newTestCodexRunner()
+	r.stdin = nopWriteCloser{} // handleErrorNotification calls r.stdin.Close()
+
+	pr, pw := io.Pipe()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.logStderr(t.Context(), pr)
+	}()
+
+	_, _ = fmt.Fprintln(pw, `http.response.status_code=403 error.message="http 403" endpoint="/responses"`)
+	_, _ = fmt.Fprintln(pw, `Turn error: unexpected status 403 Forbidden: Unknown error, url: http://gateway/run/abc/responses`)
+	_ = pw.Close()
+	wg.Wait()
+
+	r.handleErrorNotification(t.Context(), mustMarshal(map[string]any{
+		"error": map[string]string{"message": "context length exceeded"},
+	}))
+
+	ev := <-r.events
+	var payload RunErrorPayload
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !strings.Contains(payload.Message, "context length exceeded") {
+		t.Errorf("message = %q, want it to contain the notification message", payload.Message)
+	}
+	if !strings.Contains(payload.Message, "http.response.status_code=403") {
+		t.Errorf("message = %q, want it to contain the captured stderr detail", payload.Message)
+	}
+	if !strings.Contains(payload.Message, "url: http://gateway/run/abc/responses") {
+		t.Errorf("message = %q, want it to contain the captured URL", payload.Message)
+	}
+}
+
+func TestCodexLogStderr_TailIsBounded(t *testing.T) {
+	r := newTestCodexRunner()
+	for i := range maxStderrLines * 2 {
+		r.appendStderrTail(fmt.Sprintf("line %d", i))
+	}
+	if got := len(r.stderrTail); got != maxStderrLines {
+		t.Fatalf("len(stderrTail) = %d, want %d", got, maxStderrLines)
+	}
+	if r.stderrTail[0] != fmt.Sprintf("line %d", maxStderrLines) {
+		t.Errorf("stderrTail[0] = %q, want the oldest lines to have been dropped", r.stderrTail[0])
+	}
+}
+
+func TestCodexLogStderr_ScanError_IsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(&buf),
+		RunID:  "test-run",
+	})
+
+	pr, pw := io.Pipe()
+	scanErr := fmt.Errorf("injected scan error")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.logStderr(t.Context(), pr)
+	}()
+
+	_, _ = fmt.Fprintln(pw, "some stderr line")
+	pw.CloseWithError(scanErr)
+	wg.Wait()
+
+	log := buf.String()
+	if !strings.Contains(log, "Codex stderr scan error") {
+		t.Errorf("expected scan error to be logged; got: %s", log)
+	}
+	if !strings.Contains(log, "injected scan error") {
+		t.Errorf("expected error text in log; got: %s", log)
 	}
 }
