@@ -3,11 +3,11 @@ name: Scorecard
 on:
   branch_protection_rule:
   schedule:
-    # Weekly, so the published score tracks the default branch over time.
+    # Weekly rescore of the default branch.
     - cron: "31 4 * * 1"
   push:
     branches: [main]
-  # Temporary, so the workflow runs once on the fixing PR. Removed in the next commit.
+  # Temporary. Runs the workflow once on this PR. Removed in the next commit.
   pull_request:
     branches: [main]
 
@@ -18,14 +18,12 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
-      # Job-level permissions replace the top-level set, so the reads the
-      # checkout and the analysis need are restated here.
+      # Job-level permissions replace the top-level set. The checkout and the
+      # analysis need these reads.
       contents: read
       actions: read
       # Upload the SARIF result to code scanning.
       security-events: write
-      # Required by scorecard-action for publishing, harmless while that is off.
-      id-token: write
 
     steps:
       - name: Checkout code
@@ -49,6 +47,9 @@ jobs:
           retention-days: 5
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        # Code scanning on a private repository needs Code Security enabled.
+        # Until it is, the upload fails. The SARIF artifact above holds the result.
+        continue-on-error: true
         with:
           sarif_file: results.sarif
