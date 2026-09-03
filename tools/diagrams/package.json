@@ -12,5 +12,15 @@
     "@excalidraw/excalidraw": "^0.18.1",
     "@playwright/test": "^1.53.0",
     "esbuild": "^0.28.1"
+  },
+  "overrides": {
+    "@excalidraw/excalidraw": {
+      "nanoid": "^3.3.18"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "^5.1.16"
+    },
+    "lodash-es": "^4.18.1",
+    "picomatch": "^2.3.2"
   }
 }
