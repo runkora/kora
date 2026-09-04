@@ -42,9 +42,6 @@ const (
 
 	// tenantsConfigMapKey is the key within the ConfigMap that holds the YAML.
 	tenantsConfigMapKey = "tenants.yaml"
-
-	// systemNamespace is the namespace where the tenants ConfigMap lives.
-	systemNamespace = "orbit-system"
 )
 
 // TenantRegistry manages the orbit-tenants ConfigMap. It translates the set of

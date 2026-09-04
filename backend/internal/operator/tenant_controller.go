@@ -19,18 +19,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// TenantReconciler reconciles OrbitTenant resources.
-//
-// For each OrbitTenant it:
-//  1. Creates the tenant namespace with the required Istio/SPIRE labels.
-//  2. Syncs the orbit-tenants ConfigMap (via TenantRegistry) so the
-//     identity service picks up the new OIDC provider.
-//  3. Syncs the orbit-tenant-oidc-secrets Secret (via ClientSecretAggregator)
-//     so confidential tenants have their client_secret available to the
-//     identity service without a pod restart.
-//  4. Marks the tenant Ready and records the last-reconciled timestamp.
-//
-// See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
+// TenantReconciler provisions tenant resources and aggregates tenant configuration.
 type TenantReconciler struct {
 	client.Client
 	Scheme          *runtime.Scheme
@@ -47,6 +36,40 @@ type TenantReconciler struct {
 
 	// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
 	BundlePollingMaxDelay int
+
+	// IstioRevision selects the injection label written on tenant namespaces:
+	// istio.io/rev=<revision> when set, istio-injection=enabled otherwise.
+	IstioRevision string
+
+	// PodSecurity holds the Pod Security Admission levels labeled onto every
+	// tenant namespace. Empty entries are not written.
+	PodSecurity PodSecurityLabels
+
+	// ImagePullSecrets are the platform pull Secrets replicated from the system
+	// namespace into every tenant namespace.
+	ImagePullSecrets []string
+
+	// Preflight reports the latest prerequisites result. While it fails, tenants
+	// are reconciled but held at Degraded so no workload is admitted.
+	Preflight PreflightSource
+}
+
+// PreflightSource is the narrow view of the preflight runner the reconciler needs.
+type PreflightSource interface {
+	Latest() (PreflightResult, bool)
+}
+
+// PreflightResult is what the reconciler gates on.
+type PreflightResult struct {
+	OK       bool
+	Failures string
+}
+
+// PodSecurityLabels are the Pod Security Admission levels for tenant namespaces.
+type PodSecurityLabels struct {
+	Enforce string
+	Warn    string
+	Audit   string
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitTenant is
@@ -136,6 +159,12 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// table rather than duplicating the boilerplate per step.
 	steps := []reconcileStep{
 		{
+			// Pull Secrets first: runtime pods and injected containers in this
+			// namespace cannot pull without them.
+			name: "image pull secrets",
+			run:  func(ctx context.Context) error { return r.ensureImagePullSecrets(ctx, tenant) },
+		},
+		{
 			name: "OPA config",
 			run:  func(ctx context.Context) error { return r.ensureOPAConfig(ctx, tenant) },
 		},
@@ -206,7 +235,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Step 8: mark ready and record timestamp.
+	if result, blocked := r.applyPreflightGate(ctx, tenant); blocked {
+		return result, nil
+	}
+
+	// Mark ready and record the timestamp.
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
@@ -223,16 +256,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 // SetupWithManager registers the controller with the controller-runtime Manager.
-// In addition to watching OrbitTenant CRs, it watches corev1.Secret objects
-// so that a rotation of a referenced clientSecretRef immediately triggers a
-// reconcile of the affected tenant — no manual sync required.
+// Do not watch Secrets: a cluster-wide informer would cache every Secret.
+// Periodic reconciliation picks up rotations.
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&OrbitTenant{}).
-		Watches(
-			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.secretToTenants),
-		).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -310,41 +338,6 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	return reqs
 }
 
-// secretToTenants maps a Secret event to the set of OrbitTenant reconcile
-// requests whose spec.oidc.clientSecretRef points to that Secret.
-func (r *TenantReconciler) secretToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
-	secret, ok := obj.(*corev1.Secret)
-	if !ok {
-		return nil
-	}
-
-	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "failed to list OrbitTenants for secret watch",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return nil
-	}
-
-	var reqs []reconcile.Request
-	for _, t := range list.Items {
-		ref := t.Spec.OIDC.ClientSecretRef
-		if ref == nil {
-			continue
-		}
-		ns := ref.Namespace
-		if ns == "" {
-			ns = systemNamespace
-		}
-		if ref.Name == secret.Name && ns == secret.Namespace {
-			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
-			})
-		}
-	}
-	return reqs
-}
-
 // -----------------------------------------------------------------------------
 // private helpers
 // -----------------------------------------------------------------------------
@@ -364,7 +357,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 		obj := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   ns,
-				Labels: tenantNamespaceLabels(tenant),
+				Labels: r.tenantNamespaceLabels(tenant),
 				Annotations: map[string]string{
 					"orbit.io/managed-by": "orbit-operator",
 					"orbit.io/tenant":     tenant.Name,
@@ -382,12 +375,12 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 		return fmt.Errorf("get namespace %q: %w", ns, err)
 	default:
 		// Namespace exists — ensure required labels are present.
-		if !hasRequiredLabels(existing.Labels, tenantNamespaceLabels(tenant)) {
+		if !hasRequiredLabels(existing.Labels, r.tenantNamespaceLabels(tenant)) {
 			patch := client.MergeFrom(existing.DeepCopy())
 			if existing.Labels == nil {
 				existing.Labels = make(map[string]string)
 			}
-			maps.Copy(existing.Labels, tenantNamespaceLabels(tenant))
+			maps.Copy(existing.Labels, r.tenantNamespaceLabels(tenant))
 			if err := r.Patch(ctx, existing, patch); err != nil {
 				return fmt.Errorf("patch namespace %q labels: %w", ns, err)
 			}
@@ -472,10 +465,9 @@ func (r *TenantReconciler) setTenantCondition(
 }
 
 // ensureOPAConfig creates or updates the orbit-opa-config ConfigMap in the
-// tenant namespace. The OPA injection template mounts this ConfigMap to
-// configure the OPA Envoy plugin sidecar — specifically the policy-service
-// bundle endpoint and the tenant-specific bundle path (resolved at runtime
-// from the pod's orbit.io/tenant-id annotation via env var substitution).
+// tenant namespace. The webhook mounts it into the OPA sidecar it injects: the
+// policy-service bundle endpoint and the tenant bundle path, resolved at runtime
+// from the pod's orbit.io/tenant-id annotation.
 func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
@@ -493,7 +485,7 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTen
 	}
 	opaConfigYAML := fmt.Sprintf(`services:
   policy-service:
-    url: http://orbit-policy-service.orbit-system.svc/api/v1/policy
+    url: http://orbit-policy-service.%s.svc/api/v1/policy
 
 bundles:
   authz:
@@ -511,7 +503,7 @@ plugins:
 
 decision_logs:
   console: true
-`, minDelay, maxDelay)
+`, systemNamespace, minDelay, maxDelay)
 
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -557,16 +549,54 @@ decision_logs:
 	return nil
 }
 
-// tenantNamespaceLabels returns the required set of labels for a tenant
-// namespace. These are checked on every reconcile and added if missing.
-func tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
-	return map[string]string{
-		"istio-injection":              "enabled",
+// applyPreflightGate marks the tenant Degraded until prerequisites pass.
+func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, bool) {
+	if r.Preflight == nil {
+		return ctrl.Result{}, false
+	}
+	res, ok := r.Preflight.Latest()
+	switch {
+	case !ok:
+		_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionUnknown,
+			"Pending", "preflight has not completed yet")
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseProvisioning)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, true
+	case !res.OK:
+		_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionFalse,
+			"PreflightFailed", res.Failures)
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: time.Minute}, true
+	}
+	_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionTrue,
+		"Satisfied", "Istio and SPIRE prerequisites verified")
+	return ctrl.Result{}, false
+}
+
+// tenantNamespaceLabels returns the labels every tenant namespace must carry:
+// Orbit's markers, the Istio injection label for the configured revision, and
+// the Pod Security Admission levels. Re-applied on every reconcile.
+func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
+	labels := map[string]string{
 		"spiffe.io/spire-managed":      "true",
 		"orbit.io/role":                "tenant",
 		"orbit.io/tenant":              tenant.Name,
 		"app.kubernetes.io/managed-by": "orbit-operator",
 	}
+	if r.IstioRevision != "" {
+		labels["istio.io/rev"] = r.IstioRevision
+	} else {
+		labels["istio-injection"] = "enabled"
+	}
+	if r.PodSecurity.Enforce != "" {
+		labels["pod-security.kubernetes.io/enforce"] = r.PodSecurity.Enforce
+	}
+	if r.PodSecurity.Warn != "" {
+		labels["pod-security.kubernetes.io/warn"] = r.PodSecurity.Warn
+	}
+	if r.PodSecurity.Audit != "" {
+		labels["pod-security.kubernetes.io/audit"] = r.PodSecurity.Audit
+	}
+	return labels
 }
 
 // hasRequiredLabels returns true when all entries in required are present in

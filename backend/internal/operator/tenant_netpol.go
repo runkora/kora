@@ -95,7 +95,7 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"kubernetes.io/metadata.name": "istio-system",
+									"kubernetes.io/metadata.name": istioNamespace,
 								},
 							},
 						},
