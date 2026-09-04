@@ -45,14 +45,7 @@ export type Responsive<T> = T | Partial<Record<Breakpoint, T>>;
  * and the `gap` prop type on `Stack`.
  */
 export type SpacingSize =
-  | 'none'
-  | 'tight'
-  | 'snug'
-  | 'cozy'
-  | 'comfortable'
-  | 'relaxed'
-  | 'loose'
-  | 'spacious';
+  'none' | 'tight' | 'snug' | 'cozy' | 'comfortable' | 'relaxed' | 'loose' | 'spacious';
 
 // ── Internal constants ────────────────────────────────────────────────────────
 // Not re-exported from the package barrel — internal to the layout directory.
