@@ -66,6 +66,9 @@ EOF
 #               Currently used only by identity to layer the mkcert CA in.
 #   restart     'true' to do a rollout restart, 'false' for build-only services.
 #   tenant_default  Optional default tenant slug for {tenant}/{slug} substitution.
+#   values_key  The orbit chart values key for this image; the pushed digest is
+#               recorded under images.<values_key>.digest in
+#               deploy/reference/environments/local.generated.yaml.
 
 service_spec() {
   case "$1" in
@@ -75,6 +78,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=identity
 image=orbit-identity
+values_key=identity
 namespace=orbit-system
 workload=deployment/orbit-identity
 post_build=layer_mkcert_ca
@@ -82,12 +86,14 @@ restart=true
 EOF
       ;;
     identity-proxy)
-      # Sidecar injected via operator template; restart by deleting injected pods.
+      # Rendered into chart-templated system pods and webhook-injected tenant
+      # pods; rolled by re-applying the orbit release.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=identity-proxy
 image=orbit-identity-proxy
+values_key=identityProxy
 namespace=orbit-system
 workload=sidecar
 restart=true
@@ -99,6 +105,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=inference-gateway
 image=orbit-inference-gateway
+values_key=inferenceGateway
 namespace=orbit-system
 workload=deployment/orbit-inference-gateway
 restart=true
@@ -110,6 +117,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=policy-service
 image=orbit-policy-service
+values_key=policyService
 namespace=orbit-system
 workload=deployment/orbit-policy-service
 restart=true
@@ -121,6 +129,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=policy-gateway
 image=orbit-policy-gateway
+values_key=policyGateway
 namespace=orbit-system
 workload=deployment/orbit-policy-gateway
 restart=true
@@ -132,6 +141,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=egress-gateway
 image=orbit-egress-gateway
+values_key=egressGateway
 namespace=orbit-system
 workload=deployment/orbit-egress-gateway
 restart=true
@@ -143,6 +153,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=orbit-agents
 image=orbit-agents
+values_key=agents
 namespace=orbit-system
 workload=deployment/orbit-agents
 restart=true
@@ -154,6 +165,7 @@ dockerfile=frontend/Dockerfile
 context=frontend
 build_arg=NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 image=orbit-frontend
+values_key=frontend
 namespace=orbit-system
 workload=deployment/orbit-frontend
 restart=true
@@ -165,6 +177,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=orbit-mcp
 image=orbit-mcp
+values_key=orbitMcp
 namespace=orbit-system
 workload=deployment/orbit-mcp
 restart=true
@@ -176,6 +189,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=orbit-triggers
 image=orbit-triggers
+values_key=triggers
 namespace=orbit-system
 workload=deployment/orbit-triggers
 restart=true
@@ -189,6 +203,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=tool-gateway
 image=orbit-tool-gateway
+values_key=toolGateway
 namespace=orbit-system
 workload=deployment/orbit-tool-gateway
 extra_workloads=deployment/orbit-tool-gateway-publisher
@@ -201,7 +216,8 @@ dockerfile=Dockerfile.operator
 context=.
 build_arg=
 image=orbit-operator
-namespace=orbit-operator
+values_key=operator
+namespace=orbit-system
 workload=deployment/orbit-operator
 restart=true
 EOF
@@ -263,7 +279,7 @@ frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
 orbit-triggers      (deployment, orbit-system)
-operator            (deployment, orbit-operator)
+operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
 sandbox-exec        (build-only — picked up by next agent run)
@@ -380,7 +396,7 @@ fi
 
 # Parse spec.
 DOCKERFILE=""; CONTEXT=""; BUILD_ARG=""; IMAGE=""; NAMESPACE=""
-WORKLOAD=""; EXTRA_WORKLOADS=""; POST_BUILD=""; RESTART=""; TENANT_DEFAULT=""
+WORKLOAD=""; EXTRA_WORKLOADS=""; POST_BUILD=""; RESTART=""; TENANT_DEFAULT=""; VALUES_KEY=""
 while IFS='=' read -r k v; do
   [ -z "$k" ] && continue
   case "$k" in
@@ -394,6 +410,7 @@ while IFS='=' read -r k v; do
     post_build) POST_BUILD="$v" ;;
     restart) RESTART="$v" ;;
     tenant_default) TENANT_DEFAULT="$v" ;;
+    values_key) VALUES_KEY="$v" ;;
   esac
 done <<< "$SPEC"
 
@@ -480,9 +497,16 @@ fi
 # want a deterministic image reference, so query the registry. `docker buildx
 # imagetools inspect --format` is unreliable across versions, so just grep the
 # default output for the Digest line.
-if [ "$BUILD_ONLY" -eq 0 ] && [ "$RESTART" = "true" ] && [ "$WORKLOAD" != "sidecar" ] && [ "$WORKLOAD" != "on-demand" ]; then
+if [ "$BUILD_ONLY" -eq 0 ] && [ "$RESTART" = "true" ] && [ "$WORKLOAD" != "on-demand" ]; then
   DIGEST="$(docker buildx imagetools inspect "localhost:5001/$IMAGE:latest" 2>/dev/null \
     | awk '/^Digest:/ {print $2; exit}')"
+fi
+
+# Record the pushed digest in local.generated.yaml for subsequent Helmfile renders.
+GENERATED="$ROOT_DIR/deploy/reference/environments/local.generated.yaml"
+if [ -n "$DIGEST" ] && [ -n "$VALUES_KEY" ]; then
+  [ -f "$GENERATED" ] || echo "{}" > "$GENERATED"
+  yq -i ".images.${VALUES_KEY}.digest = \"${DIGEST}\"" "$GENERATED"
 fi
 
 # ── restart ───────────────────────────────────────────────────────────────────
@@ -499,19 +523,11 @@ fi
 
 case "$WORKLOAD" in
   sidecar)
-    log "$SERVICE is a sidecar — deleting injected pods so they're recreated with the new image..."
-    # Identity-proxy is injected into orbit-system data-plane pods (anything that
-    # talks outbound through the platform token). Restart all deployments in
-    # orbit-system that have istio injection enabled — operator's webhook will
-    # re-inject the new image on the way back up.
-    pods=$(kubectl get pods -n "$NAMESPACE" -l 'orbit.dev/identity-proxy=injected' -o name 2>/dev/null || true)
-    if [ -z "$pods" ]; then
-      info "No pods found with label orbit.dev/identity-proxy=injected — falling back to restart-all in $NAMESPACE"
-      kubectl rollout restart deployment -n "$NAMESPACE"
-    else
-      echo "$pods" | xargs kubectl delete -n "$NAMESPACE" --grace-period=10
-    fi
-    ok "$SERVICE pods restarted"
+    # Referenced by chart templates and the operator's injection config;
+    # re-applying the release rolls system pods, tenant pods on next creation.
+    log "$SERVICE is a sidecar — re-applying the orbit release with the new digest..."
+    (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=orbit)
+    ok "$SERVICE rolled via the orbit release"
     ;;
   on-demand)
     info "$SERVICE has no long-lived workload to restart"

@@ -7,7 +7,8 @@ metadata:
 servers: 1
 agents: 2
 
-image: rancher/k3s:v1.29.4-k3s1
+# Inside the Kubernetes window Istio 1.29 supports.
+image: rancher/k3s:v1.33.13-k3s1
 
 ports:
   # Istio ingress gateway — high ports avoid conflicts with other local services.

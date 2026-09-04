@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
-# =============================================================================
-# install-tools-cluster.sh — Install cluster tooling for local dev environment
-#
-# Installs (if not already present at the correct version):
-#   - k3d        >= 5.6   (local k3s cluster manager)
-#   - kubectl    >= 1.29  (Kubernetes CLI)
-#   - helm       >= 3.14  (Kubernetes package manager)
+# Install Helmfile and the helm-diff plugin, plus k3d, kubectl and helm.
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
 #
-# Note: istioctl is NOT required. SPIRE and Istio are installed by the orbit
-# operator (charts/orbit-operator) via the Helm Go SDK — no CLI tooling needed.
+# istioctl is not required; SPIRE and Istio come from their upstream charts
+# via the reference Helmfile.
 # =============================================================================
 set -euo pipefail
 
@@ -117,6 +111,29 @@ else
   mv "/tmp/${OS}-${ARCH_HELM}/helm" "${INSTALL_DIR}/helm"
   rm -rf "/tmp/${OS}-${ARCH_HELM}"
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
+fi
+
+# ── helmfile ──────────────────────────────────────────────────────────────────
+step "helmfile ${HELMFILE_VERSION}"
+HELMFILE_BARE="${HELMFILE_VERSION#v}"
+if command -v helmfile >/dev/null && [ "v$(helmfile version -o short 2>/dev/null)" = "${HELMFILE_VERSION}" ]; then
+  already "helmfile ${HELMFILE_VERSION}"
+else
+  curl -sSfL \
+    "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_BARE}_${OS}_${ARCH_HELM}.tar.gz" \
+    | tar -xz -C "${INSTALL_DIR}" helmfile
+  ok "helmfile ${HELMFILE_VERSION} installed → ${INSTALL_DIR}/helmfile"
+fi
+
+# ── helm-diff ─────────────────────────────────────────────────────────────────
+step "helm-diff ${HELM_DIFF_VERSION}"
+INSTALLED="$(helm plugin list 2>/dev/null | awk '$1 == "diff" {print "v"$2}')"
+if [ "${INSTALLED}" = "${HELM_DIFF_VERSION}" ]; then
+  already "helm-diff ${HELM_DIFF_VERSION}"
+else
+  [ -n "${INSTALLED}" ] && helm plugin uninstall diff >/dev/null
+  helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}" --verify=false >/dev/null
+  ok "helm-diff ${HELM_DIFF_VERSION} installed"
 fi
 
 echo ""

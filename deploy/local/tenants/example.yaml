@@ -30,4 +30,3 @@ spec:
 
   # Retain the namespace when this CR is deleted (default). Prevents accidental
   # workload deletion during local dev iteration.
-  deleteNamespaceOnRemoval: false

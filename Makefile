@@ -422,7 +422,7 @@ dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. 
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile, helm-diff)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
@@ -435,7 +435,7 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 # dev-cluster starts the compose services first, so migrations can run before the
 # operator brings up services that expect their tables to exist.
 .PHONY: up
-up: dev-cluster migrate-up cluster-operator cluster-deploy ## Bring up everything: backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants. Idempotent.
+up: dev-cluster migrate-up cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, migrations, SPIRE + Istio + Orbit from the reference Helmfile, tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
@@ -459,7 +459,7 @@ auth: auth-device-k3d ## Authenticate against the cluster (Device Authorization 
 auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/orbit_credentials.json
 
 .PHONY: dev-cluster
-dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-operator' next.
+dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-platform' next.
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-up.sh
 
@@ -525,7 +525,7 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 # Cluster bring-up + bulk operations
 # ===========================================
 
-# Build + push every platform image in BUILD_ONLY mode. Used by cluster-operator
+# Build + push every platform image in BUILD_ONLY mode; used by cluster-platform.
 # and cluster-update — anything that needs the local registry seeded but does
 # its own restart logic later. Serial by default (parallel builds overload
 # low-spec Docker VMs and cascade into mesh/Postgres failures). On machines
@@ -662,58 +662,25 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
-.PHONY: cluster-operator
-cluster-operator: redeploy-platform-missing docker-pull-third-party ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
-	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
-	@$(MAKE) cluster-operator-chart
-	@echo "$(COLOR_YELLOW)Applying OrbitPlatform CR...$(COLOR_RESET)"
-	@kubectl apply -f deploy/local/orbit-platform.yaml
-	@echo "  Waiting for orbit-system namespace (created by operator)..."
-	@until kubectl get namespace orbit-system &>/dev/null; do sleep 3; done
+.PHONY: cluster-platform
+cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
+	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
-	@echo "$(COLOR_YELLOW)Resolving Docker container IPs and patching OrbitPlatform CR...$(COLOR_RESET)"
-	@bash scripts/cluster/resolve-docker-ips.sh
-	@echo "$(COLOR_YELLOW)Waiting for SPIRE + Istio (operator is installing)...$(COLOR_RESET)"
-	@echo "  Waiting for spire-system namespace..."
-	@until kubectl get namespace spire-system &>/dev/null; do sleep 3; done
-	@echo "  Waiting for spire-agent daemonset..."
-	@until kubectl get daemonset spire-agent -n spire-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status daemonset/spire-agent -n spire-system --timeout=300s
-	@echo "  Waiting for istio-system namespace..."
-	@until kubectl get namespace istio-system &>/dev/null; do sleep 3; done
-	@echo "  Waiting for istiod deployment..."
-	@until kubectl get deployment istiod -n istio-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
-	@echo "$(COLOR_YELLOW)Creating TLS secret for Istio gateway...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Creating TLS secret for the Orbit ingress gateway...$(COLOR_RESET)"
 	@$(MAKE) cluster-tls-secret
-	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
-	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
-	@echo "  Waiting for orbit-frontend (operator reconciling orbit chart)..."
-	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
+	@echo "$(COLOR_YELLOW)Resolving Docker container IPs...$(COLOR_RESET)"
+	@bash scripts/cluster/resolve-docker-ips.sh
+	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
+	@cd deploy/reference && helmfile -e local apply
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
-
-.PHONY: cluster-operator-chart
-cluster-operator-chart: ## helm upgrade --install the operator chart (CRDs + operator deployment)
-	@# --force-conflicts: redeploy.sh pins the operator image with `kubectl set image`,
-	@# which takes server-side-apply ownership of .image away from helm. Without this
-	@# flag every upgrade after a redeploy fails with a field-manager conflict, so
-	@# chart/CRD changes never land. Helm reclaims the field and resets it to :latest;
-	@# callers re-pin the digest afterwards.
-	@helm upgrade --install orbit-operator charts/orbit-operator \
-		-f deploy/local/operator-values.yaml \
-		--namespace orbit-operator --create-namespace \
-		--server-side=true \
-		--force-conflicts \
-		--timeout 90s --wait
 
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)
@@ -724,7 +691,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
 	@echo "  Waiting for the operator to write the tenant registry ConfigMap..."
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
-	@# orbit-identity boots before the tenant exists (cluster-operator runs first) and
+	@# orbit-identity boots before the tenant exists (cluster-platform runs first) and
 	@# builds its OIDC providers at startup. It watches the ConfigMap, but the fsnotify
 	@# watcher dies with "too many open files" when the host's inotify limits are low,
 	@# leaving federated auth disabled and `make auth` failing with oidc_not_configured.
@@ -761,8 +728,8 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Upgrading the operator chart (picks up CRD + template changes)...$(COLOR_RESET)"
-	@$(MAKE) cluster-operator-chart
+	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
+	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
 	@bash scripts/cluster/redeploy.sh operator --no-build
 	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
 	@# `kubectl rollout restart` is NOT enough: redeploy.sh pins workloads to an
@@ -874,7 +841,7 @@ redeploy-triggers: ## Redeploy orbit-triggers (webhook ingestion, management API
 	@bash scripts/cluster/redeploy.sh orbit-triggers $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
-redeploy-operator: ## Redeploy the orbit-operator (charts are baked into the image)
+redeploy-operator: ## Redeploy the orbit-operator (tenant lifecycle, webhooks, preflight)
 	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-example
@@ -916,7 +883,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 # ===========================================
 
 .PHONY: test-integration
-test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-operator + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
+test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-platform + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
 	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
@@ -1180,15 +1147,15 @@ setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.i
 	@bash scripts/setup-tls.sh
 
 .PHONY: cluster-tls-secret
-cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in istio-system (run after setup-tls)
+cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in orbit-system, where the ingress gateway runs (run after setup-tls)
 	@[ -f secrets/tls.crt ] && [ -f secrets/tls.key ] || \
 		(echo "$(COLOR_RED)✗ secrets/tls.crt / secrets/tls.key not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
 	@kubectl create secret tls orbit-gateway-tls \
 		--cert=secrets/tls.crt \
 		--key=secrets/tls.key \
-		--namespace istio-system \
+		--namespace orbit-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in istio-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in orbit-system$(COLOR_RESET)"
 
 .PHONY: cluster-ca-configmap
 cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-system (for Dex TLS verification)
