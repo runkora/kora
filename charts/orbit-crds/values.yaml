@@ -1,0 +1,2 @@
+# No configurable behaviour. The CRDs are their own release so they outlive an uninstall of orbit.
+{}

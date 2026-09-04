@@ -15,37 +15,29 @@ spec:
       labels:
         {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.inferenceGateway.labels" . | nindent 8 }}
-        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
-        # orbit-system-component to issue:
-        #   spiffe://<trust-domain>/system/inference-gateway
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: inference-gateway
-        # Required for the identity-proxy EnvoyFilter to inject the platform
-        # token on outbound requests (e.g. route registration with policy service).
         orbit.io/identity-proxy: "enabled"
+        {{- include "orbit.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Exclude PostgreSQL from sidecar interception — orbit-postgres is an
-        # external container on orbit-network, not a mesh service.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-inference-gateway
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "inferenceGateway") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
+        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
         - name: orbit-inference-gateway
-          image: "{{ .Values.inferenceGateway.image.repository }}:{{ include "orbit.inferenceGateway.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.inferenceGateway.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "inferenceGateway") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "inferenceGateway") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
               value: {{ .Values.inferenceGateway.config.postgresSSLMode | quote }}
@@ -57,21 +49,23 @@ spec:
               value: {{ .Values.inferenceGateway.config.logFormat | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- /* Each Bedrock account registers provider "bedrock:<alias>"; credentials come from the pod's cloud identity. */}}
+            {{- with .Values.inferenceGateway.bedrock.accounts }}
+            {{- $aliases := list }}
+            {{- range . }}{{ $aliases = append $aliases (required "inferenceGateway.bedrock.accounts[].alias must be set" .alias) }}{{ end }}
+            - name: BEDROCK_ACCOUNTS
+              value: {{ join "," $aliases | quote }}
+            {{- range . }}
+            - name: BEDROCK_{{ .alias | upper }}_REGION
+              value: {{ required (printf "inferenceGateway.bedrock.accounts[%s].region must be set" .alias) .region | quote }}
+            {{- end }}
+            {{- end }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8081
               protocol: TCP
-          {{- if or .Values.inferenceGateway.existingConfigMap .Values.inferenceGateway.existingSecret }}
-          envFrom:
-            {{- if .Values.inferenceGateway.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.inferenceGateway.existingConfigMap }}
-            {{- end }}
-            {{- if .Values.inferenceGateway.existingSecret }}
-            - secretRef:
-                name: {{ .Values.inferenceGateway.existingSecret }}
-            {{- end }}
-          {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -91,6 +85,6 @@ spec:
           resources:
             {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
+        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

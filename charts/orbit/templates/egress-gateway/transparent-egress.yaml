@@ -105,6 +105,9 @@ spec:
                           grpc_service:
                             envoy_grpc:
                               cluster_name: identity_proxy_local
+                          # Envoy defaults to 200ms; the header phase is a cache read, and 1s is
+                          # headroom against a slow path silently overrunning.
+                          message_timeout: 1s
                           failure_mode_allow: true
                           processing_mode:
                             request_header_mode: SEND

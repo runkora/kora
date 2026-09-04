@@ -15,45 +15,35 @@ spec:
       labels:
         {{- include "orbit.agents.selectorLabels" . | nindent 8 }}
         {{- include "orbit.agents.labels" . | nindent 8 }}
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: orbit-agents
-        # Required for the identity-proxy EnvoyFilter to inject the platform
-        # token into outbound requests to other platform services.
         orbit.io/identity-proxy: "enabled"
+        {{- include "orbit.podLabels" (dict "root" $ "name" "agents") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Postgres is external to the mesh — bypass Envoy interception.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
-        # Connection registry: the operator aggregates each tenant's Connection
-        # CRs into the orbit-tenant-connections ConfigMap (one key,
-        # connections.json) — the same ConfigMap the egress-gateway brokers from.
-        # orbit-agents mounts it read-only to serve the read-only connection
-        # catalog (GET /api/v1/connections) the frontend connector picker uses.
-        # Optional so the pod starts before any connection is applied (the
-        # catalog is simply empty until then). Mounted at the directory
-        # agents.config.connectionRegistryPath points at.
+        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        # Connection registry aggregated by the operator; optional so the pod starts
+        # before any Connection exists.
         - name: tenant-connections
           configMap:
             name: {{ .Values.agents.tenantConnectionsConfigMapName }}
             optional: true
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
         - name: orbit-agents
-          image: "{{ .Values.agents.image.repository }}:{{ include "orbit.agents.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.agents.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "agents") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "agents") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
               value: {{ .Values.agents.config.postgresSSLMode | quote }}
@@ -65,23 +55,63 @@ spec:
               value: {{ .Values.agents.config.logFormat | quote }}
             - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
               value: {{ .Values.agents.config.sessionManagerPostgresSSLMode | quote }}
-            # Gates the per-agent AuthorizationPolicy that restricts each agent
-            # pod's session-manager port to the orbit-agents SPIFFE principal.
-            # Requires SPIFFE: without attested identities no source matches the
-            # rule and every session call is denied.
             - name: ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED
               value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
-          {{- if or .Values.agents.existingConfigMap .Values.agents.existingSecret }}
-          envFrom:
-            {{- if .Values.agents.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.agents.existingConfigMap }}
+            - name: ORBIT_SYSTEM_NAMESPACE
+              value: {{ include "orbit.systemNamespace" . | quote }}
+            - name: ORBIT_TRUST_DOMAIN
+              value: {{ include "orbit.trustDomain" . | quote }}
+            - name: ORBIT_SESSION_MANAGER_IMAGE
+              value: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry .Chart.AppVersion) | quote }}
+            - name: ORBIT_SANDBOX_IMAGE
+              value: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry .Chart.AppVersion) | quote }}
+            - name: ORBIT_SANDBOX_GIT_AUTHOR_NAME
+              value: {{ .Values.agents.config.sandboxGitAuthorName | quote }}
+            - name: ORBIT_SANDBOX_GIT_AUTHOR_EMAIL
+              value: {{ .Values.agents.config.sandboxGitAuthorEmail | quote }}
+            - name: ORBIT_AGENTS_IMAGE_PULL_SECRETS
+              value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
+            {{- /* Scheduling and storage for the StatefulSets and sandbox pods orbit-agents creates in tenant namespaces (ADR 2026-06-12). */}}
+            {{- $rp := .Values.agents.runtimePods }}
+            {{- $ns := $rp.nodeSelector | default .Values.global.nodeSelector }}
+            {{- $tol := $rp.tolerations | default .Values.global.tolerations }}
+            {{- $pc := $rp.priorityClassName | default .Values.global.priorityClassName }}
+            {{- with $ns }}
+            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__nodeSelector
+              value: {{ toJson . | quote }}
+            - name: ORBIT_MANIFEST__Pod__*__spec__nodeSelector
+              value: {{ toJson . | quote }}
             {{- end }}
-            {{- if .Values.agents.existingSecret }}
-            - secretRef:
-                name: {{ .Values.agents.existingSecret }}
+            {{- with $tol }}
+            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__tolerations
+              value: {{ toJson . | quote }}
+            - name: ORBIT_MANIFEST__Pod__*__spec__tolerations
+              value: {{ toJson . | quote }}
             {{- end }}
-          {{- end }}
+            {{- with $pc }}
+            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__priorityClassName
+              value: {{ . | quote }}
+            - name: ORBIT_MANIFEST__Pod__*__spec__priorityClassName
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $rp.sandboxResources }}
+            - name: ORBIT_MANIFEST__Pod__*__spec__containers__0__resources
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- with $rp.workspace.storageClassName }}
+            - name: ORBIT_MANIFEST__PersistentVolumeClaim__*__spec__storageClassName
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $rp.workspace.accessModes }}
+            - name: ORBIT_MANIFEST__PersistentVolumeClaim__*__spec__accessModes
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- with $rp.serviceAccountAnnotations }}
+            - name: ORBIT_MANIFEST__ServiceAccount__*__metadata__annotations
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "agents") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8080
@@ -105,11 +135,9 @@ spec:
           resources:
             {{- toYaml .Values.agents.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
-            # connections.json lands here as /var/run/orbit/connections/connections.json,
-            # matching cmd/orbit-agents/config/base.yaml agents.connectionRegistryPath.
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             - name: tenant-connections
               mountPath: /var/run/orbit/connections
               readOnly: true
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}
+        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

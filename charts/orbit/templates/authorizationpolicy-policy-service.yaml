@@ -29,8 +29,7 @@ metadata:
   name: orbit-policy-service-gateway-bundle
   namespace: {{ include "orbit.systemNamespace" . }}
   labels:
-    app.kubernetes.io/part-of: orbit
-    app.kubernetes.io/managed-by: Helm
+    {{- include "orbit.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
@@ -39,10 +38,11 @@ spec:
   rules:
     - to:
         - operation:
+            ports: ["8083"]
             paths: ["/api/v1/policy/bundles/gateway"]
       from:
         - source:
             notPrincipals:
-              - "{{ .Values.global.trustDomain }}/system/opa-gateway"
+              - "{{ include "orbit.trustDomain" . }}/system/opa-gateway"
 {{- end }}
 

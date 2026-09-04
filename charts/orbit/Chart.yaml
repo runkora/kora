@@ -1,27 +1,29 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit control plane — deploys the Orbit identity service and associated
-  Kubernetes resources (ServiceAccount, Deployment, Service, DestinationRule,
-  EnvoyFilter). Requires orbit-platform to be installed first.
+  Orbit control plane: the tenant operator, cluster-scoped identity and gateway
+  resources, and every Orbit service. Requires the orbit-crds chart first, and a
+  cluster that meets the Istio and SPIRE prerequisites contract in
+  docs/guides/deployment.md. Orbit never installs Istio or SPIRE.
 type: application
-version: 0.6.2
-appVersion: "0.3.0"
+version: 0.0.0
+appVersion: "0.0.0"
 
 keywords:
   - orbit
+  - agents
   - identity
-  - oidc
   - spiffe
-  - agent-control-plane
+  - istio
 
+home: https://github.com/clear-route/orbit
 maintainers:
-  - name: Orbit Platform Team
+  - name: Orbit Team
 
-# This chart has no sub-chart dependencies — it is a pure application chart.
-# Platform prerequisites (SPIRE, Istio, namespaces, ClusterSPIFFEIDs,
-# NetworkPolicies) are provided by the orbit-platform chart.
-#
-# Install sequence:
-#   1. helm upgrade --install orbit-platform ./charts/orbit-platform -f <platform-values>
-#   2. helm upgrade --install orbit ./charts/orbit -f <orbit-values>
+dependencies:
+  # Orbit's ingress gateway pods. Off when an existing Istio Gateway fronts Orbit.
+  - name: gateway
+    alias: ingressGateway
+    version: "1.29.1"
+    repository: https://istio-release.storage.googleapis.com/charts
+    condition: gateway.create

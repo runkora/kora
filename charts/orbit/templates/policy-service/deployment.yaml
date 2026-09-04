@@ -15,30 +15,28 @@ spec:
       labels:
         {{- include "orbit.policyService.selectorLabels" . | nindent 8 }}
         {{- include "orbit.policyService.labels" . | nindent 8 }}
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: policy-service
+        {{- include "orbit.podLabels" (dict "root" $ "name" "policyService") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Postgres is external to the mesh — bypass Envoy interception.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "policyService") | nindent 8 }}
     spec:
       serviceAccountName: orbit-policy-service
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "policyService") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "policyService") | nindent 8 }}
       containers:
         - name: orbit-policy-service
-          image: "{{ .Values.policyService.image.repository }}:{{ include "orbit.policyService.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.policyService.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "policyService") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "policyService") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
               value: {{ .Values.policyService.config.postgresSSLMode | quote }}
@@ -49,18 +47,9 @@ spec:
             - name: ORBIT_LOG_FORMAT
               value: {{ .Values.policyService.config.logFormat | quote }}
             - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
-              value: {{ .Values.frontendHost | quote }}
-          {{- if or .Values.policyService.existingConfigMap .Values.policyService.existingSecret }}
-          envFrom:
-            {{- if .Values.policyService.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.policyService.existingConfigMap }}
-            {{- end }}
-            {{- if .Values.policyService.existingSecret }}
-            - secretRef:
-                name: {{ .Values.policyService.existingSecret }}
-            {{- end }}
-          {{- end }}
+              value: {{ include "orbit.frontendHost" . | quote }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "policyService") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8083
@@ -84,6 +73,5 @@ spec:
           resources:
             {{- toYaml .Values.policyService.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "policyService") | nindent 12 }}

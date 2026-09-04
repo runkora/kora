@@ -1,0 +1,53 @@
+{{- if .Values.agents.warmHeadroom.enabled }}
+# Low-priority placeholder holding one sandbox's worth of capacity on a warm
+# node. A real sandbox preempts it and starts without a cold node or image pull.
+{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry .Chart.AppVersion) }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: orbit-sandbox-headroom
+  labels:
+    {{- include "orbit.agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-headroom
+value: {{ .Values.agents.warmHeadroom.priority | int }}
+globalDefault: false
+preemptionPolicy: Never
+description: Low-priority placeholder for Orbit sandbox warm capacity.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-sandbox-headroom
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-headroom
+spec:
+  replicas: {{ .Values.agents.warmHeadroom.replicas | int }}
+  selector:
+    matchLabels:
+      app: orbit-sandbox-headroom
+  template:
+    metadata:
+      labels:
+        app: orbit-sandbox-headroom
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      priorityClassName: orbit-sandbox-headroom
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 0
+      securityContext:
+        {{- include "orbit.podSecurityContext" (dict "uid" 100) | nindent 8 }}
+      containers:
+        - name: headroom
+          image: {{ $img | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do sleep 86400; done"]
+          resources:
+            {{- toYaml .Values.agents.warmHeadroom.resources | nindent 12 }}
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
+{{- end }}
