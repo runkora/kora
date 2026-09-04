@@ -47,98 +47,139 @@ export interface CodeBlockProps {
 // ── JSON highlighting ─────────────────────────────────────────────────────────
 
 /**
- * Single left-to-right pass, four token kinds. Strings are scanned by hand
- * rather than by regex: a global regex restarts from every quote inside an
- * unterminated string, which is quadratic on long escaped runs, whereas this
- * scanner visits each character once and treats an unterminated string as
- * plain text. A string is a key when a colon follows it. Keys carry the
- * accent, values carry the healthy green, true/false/null the amber literal
- * tone, and everything else (punctuation, whitespace) recedes to subtle, so
- * the eye lands on data.
+ * JSON is split into tokens in one pass, then each token is rendered with the
+ * class for its kind: keys carry the accent, string and number values the
+ * healthy green, true/false/null the amber literal tone, and everything else
+ * (punctuation, whitespace) recedes to subtle, so the eye lands on data.
+ *
+ * Strings are scanned by hand rather than by regex. A global regex restarts
+ * from every quote inside an unterminated string, which is quadratic on long
+ * escaped runs; this tokenizer reads each character once and renders an
+ * unterminated string as plain text.
  */
-const LITERAL_AT = /true|false|null/y;
-const NUMBER_AT = /-?\d+(?:\.\d+)?/y;
-const KEY_COLON_AT = /\s*:/y;
+type JsonTokenKind = 'key' | 'value' | 'literal' | 'plain';
 
-/** Index just past the closing quote of the string opening at `from`, or -1. */
-function scanString(src: string, from: number): number {
-  for (let i = from + 1; i < src.length; i++) {
-    const ch = src[i];
-    if (ch === '\\') {
-      i++;
-      continue;
-    }
-    if (ch === '"') return i + 1;
-  }
-  return -1;
+interface JsonToken {
+  kind: JsonTokenKind;
+  text: string;
 }
+
+const JSON_TOKEN_CLASS: Record<JsonTokenKind, string> = {
+  key: 'text-accent',
+  value: 'text-status-healthy',
+  literal: 'text-status-degraded',
+  plain: 'text-subtle',
+};
+
+const JSON_LITERALS = ['true', 'false', 'null'];
 
 function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && /\w/.test(ch);
 }
 
-function highlightJson(src: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  const flushPlain = (upTo: number) => {
-    if (upTo > last) {
-      parts.push(
-        <span key={key++} className="text-subtle">
-          {src.slice(last, upTo)}
-        </span>,
-      );
+function isDigit(ch: string | undefined): boolean {
+  return ch !== undefined && ch >= '0' && ch <= '9';
+}
+
+/** Index just past the closing quote of the string opening at `start`, or -1 if unterminated. */
+function findStringEnd(src: string, start: number): number {
+  let i = start + 1;
+  while (i < src.length) {
+    if (src[i] === '\\') {
+      i += 2;
+    } else if (src[i] === '"') {
+      return i + 1;
+    } else {
+      i += 1;
     }
+  }
+  return -1;
+}
+
+/** Index of the first non-whitespace character at or after `start`. */
+function skipWhitespace(src: string, start: number): number {
+  let i = start;
+  while (i < src.length && /\s/.test(src[i])) i += 1;
+  return i;
+}
+
+/** Length of the literal (true/false/null) starting at `start`, or 0 if there is none. */
+function literalLengthAt(src: string, start: number): number {
+  if (isWordChar(src[start - 1])) return 0;
+  for (const literal of JSON_LITERALS) {
+    if (src.startsWith(literal, start) && !isWordChar(src[start + literal.length])) {
+      return literal.length;
+    }
+  }
+  return 0;
+}
+
+/** Length of the number (optional sign, digits, optional fraction) starting at `start`, or 0. */
+function numberLengthAt(src: string, start: number): number {
+  let i = start;
+  if (src[i] === '-') i += 1;
+  if (!isDigit(src[i])) return 0;
+  while (isDigit(src[i])) i += 1;
+  if (src[i] === '.' && isDigit(src[i + 1])) {
+    i += 1;
+    while (isDigit(src[i])) i += 1;
+  }
+  return i - start;
+}
+
+function tokenizeJson(src: string): JsonToken[] {
+  const tokens: JsonToken[] = [];
+  let plainStart = 0;
+  let i = 0;
+
+  const pushPlainUpTo = (end: number) => {
+    if (end > plainStart) tokens.push({ kind: 'plain', text: src.slice(plainStart, end) });
   };
-  const pushToken = (from: number, to: number, cls: string) => {
-    flushPlain(from);
-    parts.push(
-      <span key={key++} className={cls}>
-        {src.slice(from, to)}
-      </span>,
-    );
-    last = to;
+  const pushToken = (kind: JsonTokenKind, end: number) => {
+    pushPlainUpTo(i);
+    tokens.push({ kind, text: src.slice(i, end) });
+    i = end;
+    plainStart = end;
   };
 
-  let i = 0;
   while (i < src.length) {
-    const ch = src[i];
-    if (ch === '"') {
-      const close = scanString(src, i);
-      if (close === -1) break;
-      KEY_COLON_AT.lastIndex = close;
-      const colon = KEY_COLON_AT.exec(src);
-      if (colon) {
-        pushToken(i, close + colon[0].length, 'text-accent');
+    if (src[i] === '"') {
+      const stringEnd = findStringEnd(src, i);
+      if (stringEnd === -1) break;
+      const afterWhitespace = skipWhitespace(src, stringEnd);
+      if (src[afterWhitespace] === ':') {
+        pushToken('key', afterWhitespace + 1);
       } else {
-        pushToken(i, close, 'text-status-healthy');
+        pushToken('value', stringEnd);
       }
-      i = last;
       continue;
     }
-    if ((ch === 't' || ch === 'f' || ch === 'n') && !isWordChar(src[i - 1])) {
-      LITERAL_AT.lastIndex = i;
-      const lit = LITERAL_AT.exec(src);
-      if (lit && !isWordChar(src[i + lit[0].length])) {
-        pushToken(i, i + lit[0].length, 'text-status-degraded');
-        i = last;
-        continue;
-      }
+
+    const literalLength = literalLengthAt(src, i);
+    if (literalLength > 0) {
+      pushToken('literal', i + literalLength);
+      continue;
     }
-    if (ch === '-' || (ch >= '0' && ch <= '9')) {
-      NUMBER_AT.lastIndex = i;
-      const num = NUMBER_AT.exec(src);
-      if (num) {
-        pushToken(i, i + num[0].length, 'text-status-healthy');
-        i = last;
-        continue;
-      }
+
+    const numberLength = numberLengthAt(src, i);
+    if (numberLength > 0) {
+      pushToken('value', i + numberLength);
+      continue;
     }
-    i++;
+
+    i += 1;
   }
-  flushPlain(src.length);
-  last = src.length;
-  return parts;
+
+  pushPlainUpTo(src.length);
+  return tokens;
+}
+
+function highlightJson(src: string): React.ReactNode[] {
+  return tokenizeJson(src).map((token, index) => (
+    <span key={index} className={JSON_TOKEN_CLASS[token.kind]}>
+      {token.text}
+    </span>
+  ));
 }
 
 // ── CodeBlock ─────────────────────────────────────────────────────────────────
