@@ -142,3 +142,20 @@ jobs:
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
             *.labels.org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
             *.labels.org.opencontainers.image.created=${{ env.IMAGE_CREATED }}
+
+  # The build matrix varies per run, so branch protection requires this
+  # always-on job instead. A skipped build means no image input changed.
+  gate:
+    name: Docker gate
+    needs: [changes, list-targets, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and every build passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "list-targets: ${{ needs.list-targets.result }}"
+          echo "build: ${{ needs.build.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.list-targets.result }}" in success|skipped) ;; *) exit 1 ;; esac
+          case "${{ needs.build.result }}" in success|skipped) ;; *) exit 1 ;; esac
