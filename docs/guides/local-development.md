@@ -22,7 +22,7 @@ make setup
 
 - `env`: Generates `.env` with machine-local secrets. No-op if `.env` exists.
 - `install-tools`: Installs `goose`, `golangci-lint`, `gitleaks`, `buf`, protoc plugins.
-- `install-tools-cluster`: Installs `k3d`, `kubectl`, `helm`.
+- `install-tools-cluster`: Installs `k3d`, `kubectl`, `helm`, `helmfile` and the `helm-diff` plugin.
 - `tidy`: `go mod tidy`.
 - `frontend-install`: Enforces Node 24 and pnpm 10, runs `pnpm install`.
 - `hooks`: Installs the git pre-commit hooks.
@@ -40,7 +40,7 @@ make up
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
 - `migrate-up`: Applies every service's Goose migrations.
-- `cluster-operator`: Builds and installs the `orbit-operator`, which reconciles the `OrbitPlatform` resource: SPIRE, Istio, the gateway, `orbit-platform`, and the Orbit services.
+- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two Orbit charts in dependency order, the same sequence on any cluster. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `OrbitTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
@@ -73,7 +73,7 @@ Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their defau
 | `dev@orbit.local.clearroute.io` | `platform-admin`, `tenant-admin`, `engineer` | The admin. Policy administration and everything else. |
 | `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
 
-Access tokens last four hours locally, set by `accessTokenTtlMinutes` in `deploy/local/orbit-values.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
+Access tokens last four hours locally, set by `identity.accessTokenTtlMinutes` in `deploy/reference/environments/local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
 
 ## Using your token
 
@@ -109,7 +109,15 @@ make check                       # run the full verify gate
 | `make redeploy-warm` | Prebuild every image so the BuildKit caches are hot. Run once at the start of a session. |
 | `make cluster-update` | Rebuild every image and roll every workload. |
 
-See [deploy/local/README.md](../../deploy/local/README.md) for the full per-service loop.
+## Changing platform values
+
+Edit `deploy/reference/environments/local.yaml`, then re-apply from `deploy/reference/`:
+
+```bash
+helmfile -e local apply --selector name=orbit
+```
+
+`helmfile -e example apply` renders the same charts against a starting point for a real cluster (`deploy/reference/environments/example.yaml`), not the local one.
 
 ### Parallel builds on high-spec machines
 
@@ -230,6 +238,32 @@ The cluster runs `orbit-mcp` behind the tool gateway. With Orbit running, point 
 ```
 
 The client runs the MCP OAuth flow and opens the consent screen in your browser. Approve the tools and it connects. Revoke the token from the dashboard's Connections page.
+
+## Registering a Kubernetes connection
+
+`deploy/local/connections/kubernetes.yaml` is a template Connection CR for the `kubernetes` adapter. Copy it, fill in the `${placeholder}` fields, and work through these steps before applying.
+
+1. **Name it.** `metadata.name` identifies the target cluster (not the adapter); a tenant can register more than one `adapter: kubernetes` connection.
+2. **Provision a bearer token** against the target cluster, with least-privilege RBAC:
+   ```bash
+   kubectl create serviceaccount orbit-agent -n default --context <target-cluster-context>
+   kubectl create clusterrolebinding orbit-agent-view \
+     --clusterrole=view --serviceaccount=default:orbit-agent --context <target-cluster-context>
+   kubectl create token orbit-agent --duration=8760h --context <target-cluster-context>
+   ```
+   Store it in your local k3d cluster, where Orbit runs, under the name `spec.secretRef` points at:
+   ```bash
+   kubectl create secret generic ${cluster}-token -n orbit-tenant-example \
+     --from-literal=token=<ServiceAccount token> --dry-run=client -o yaml | kubectl apply -f -
+   ```
+   `make cluster-deploy` applies the CR whether or not this Secret exists yet, but the connection stays unusable until it does.
+3. **Get the target cluster's CA cert** and put it inline in `config.ca_cert` (it's not a secret):
+   ```bash
+   kubectl config view --raw \
+     -o jsonpath='{.clusters[?(@.name=="<target-cluster-context>")].cluster.certificate-authority-data}' \
+     | base64 -d
+   ```
+   Testing against the local k3d cluster itself instead of a real target: `docker exec k3d-orbit-local-server-0 cat /var/lib/rancher/k3s/server/tls/server-ca.crt`, and `baseHost: k3d-orbit-local-server-0:6443` (resolvable inside the cluster once `make cluster-platform` has patched CoreDNS).
 
 ## Troubleshooting
 

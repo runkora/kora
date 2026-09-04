@@ -146,7 +146,7 @@ The second webhook closes the gap where Orbit's containers land but Istio's inje
 
 Consequences for the operator deployment in the `orbit` chart: `operator.replicas: 2` default, a PodDisruptionBudget with `minAvailable: 1`, leader election for reconcilers while both webhooks serve from every replica. The chart documents that scaling the operator to zero blocks tenant pod creation; a single-replica local install accepts that. The webhooks do not match the system, Istio, SPIRE or `kube-system` namespaces, so an outage cannot block its own repair. The operator pod stays outside the mesh (`sidecar.istio.io/inject: "false"`) because the API server's webhook client cannot present a mesh certificate under strict mTLS; the chart comment states that reason rather than the old "the operator installs Istio".
 
-The chart renders both configurations with `failurePolicy: Ignore`; the operator patches them to `Fail` once its serving certificate is in place and the `caBundle` is populated (Decision 3). This closes the upgrade window in which the configuration would be `Fail` before the new operator can answer, while agent StatefulSets roll for the security-context change. On a stuck StatefulSet the operator's events show the rejection reason.
+The chart renders both configurations without `failurePolicy` or `caBundle`. The API default for `failurePolicy` is `Fail`, and only tenant namespaces match, none of which has pods before the operator serves. The operator owns both fields: it populates the `caBundle` once its serving certificate is in place and holds `failurePolicy` at `Fail` (Decision 3). Rendering either from the chart would make every Helm upgrade conflict with the operator under server-side apply. This closes the upgrade window in which the configuration would be `Fail` before the new operator can answer, while agent StatefulSets roll for the security-context change. On a stuck StatefulSet the operator's events show the rejection reason.
 
 ### Decision 3: Webhook TLS without Helm lookups
 
@@ -271,7 +271,7 @@ webhooks:
         resources: ["pods"]
     namespaceSelector:
       matchLabels: { orbit.io/role: tenant }
-    failurePolicy: Ignore          # patched to Fail by the operator once its cert is in place
+    # failurePolicy and caBundle are owned by the operator; the API default Fail applies
     reinvocationPolicy: Never
     sideEffects: None
     timeoutSeconds: 10
@@ -292,7 +292,7 @@ webhooks:
         resources: ["pods"]
     namespaceSelector:
       matchLabels: { orbit.io/role: tenant }
-    failurePolicy: Ignore          # patched to Fail by the operator once its cert is in place
+    # failurePolicy and caBundle are owned by the operator; the API default Fail applies
     sideEffects: None
     timeoutSeconds: 10
 ```
@@ -333,7 +333,7 @@ operator:
 
 1. **Mutating webhook** (`backend/internal/operator/pod_webhook.go`): move the two container specs and volumes from `istio_templates.go` into typed structs built from an `InjectionConfig` loaded from env (populated by the chart from `operator.injection.*` and `ORBIT_SYSTEM_NAMESPACE`); OPA on loopback; build the JSON patch for labels, annotations, `imagePullSecrets`, volumes and containers; merge existing annotations; remove the skip label; unit tests for a bare pod, a pod with existing `proxy.istio.io/config`, a pod with `excludeInboundPorts` as `orbit-agents` sets on sandboxes, and idempotency on reinvocation. Delete `istio_templates.go` and `mergeIstioTemplates`.
 2. **Validating webhook** (`pod_validator.go`): the checks in Decision 2; unit tests for each rejection.
-3. **Webhook configurations and TLS**: chart renders both configurations without `caBundle` and with `failurePolicy: Ignore`; operator gains a `webhookcert` package (leader creates or adopts the Secret, followers watch, `GetCertificate` serving, rotation with dual CA, watch and re-patch of `caBundle` and `failurePolicy`); cert-manager path behind the value; remove `genCA`/`lookup` from the chart.
+3. **Webhook configurations and TLS**: chart renders both configurations without `caBundle` or `failurePolicy`; operator gains a `webhookcert` package (leader creates or adopts the Secret, followers watch, `GetCertificate` serving, rotation with dual CA, watch and re-patch of `caBundle` and `failurePolicy`); cert-manager path behind the value; remove `genCA`/`lookup` from the chart.
 4. **Tenant namespace labels**: injection label from `istio.revision`, PSA labels from `operator.tenantPodSecurity`, pull-secret replication, in `tenant_controller.go`.
 5. **System pod helpers**: `_helpers.tpl` gains `orbit.spireProxyAnnotations`, `orbit.spireVolumes`, `orbit.identityProxyContainer`; every service template uses them; `inject.istio.io/templates` removed everywhere.
 6. **Preflight**: `backend/cmd/operator` gains a `preflight` subcommand backed by `backend/internal/operator/preflight` (injector ConfigMap reads by label, Workload API SVID fetch, ClusterSPIFFEID status, webhook state); periodic run, `OrbitTenant` condition gate, events, metrics; `templates/operator/tests/preflight-test.yaml` as a `helm test` Job.
@@ -343,7 +343,7 @@ operator:
 
 ### Migration Path
 
-Existing tenant pods keep running; injection and validation apply on the next pod creation. The operator upgrades first with the webhooks at `Ignore`, then flips them to `Fail`; agent StatefulSets roll afterwards when `orbit-agents` applies the security-context change. Istio installations that still carry the old injection templates are unaffected: nothing selects them after the upgrade, and they can be removed at any time. Tenant namespaces receive the PSA labels on the first reconcile after upgrade; a pod that would violate the profile fails on its next restart with the admission message.
+Existing tenant pods keep running; injection and validation apply on the next pod creation. The operator upgrades first; agent StatefulSets roll afterwards when `orbit-agents` applies the security-context change. Istio installations that still carry the old injection templates are unaffected: nothing selects them after the upgrade, and they can be removed at any time. Tenant namespaces receive the PSA labels on the first reconcile after upgrade; a pod that would violate the profile fails on its next restart with the admission message.
 
 ---
 

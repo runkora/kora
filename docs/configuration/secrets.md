@@ -10,7 +10,7 @@ Orbit reads secrets from environment variables at runtime.
 
 `make setup` generates a machine-local `.env` at the repository root. It is gitignored and never committed. It holds only `DB_PASSWORD`, `REDIS_PASSWORD` and `BFF_SESSION_SECRET`. The Postgres and Redis passwords are fixed local defaults; `BFF_SESSION_SECRET` is generated with `openssl rand`. Nothing needs editing before the platform runs.
 
-Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/local/orbit-values.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, port collisions).
+Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/reference/environments/local.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, port collisions).
 
 `make up` reads `.env`, injects these values into the cluster's `orbit-secrets`, and brings the platform up.
 

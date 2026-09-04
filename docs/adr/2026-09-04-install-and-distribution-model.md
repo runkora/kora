@@ -219,7 +219,7 @@ The charts render identically under `helm template` with no cluster access and p
 
 ### Decision 6: Reference install and local development
 
-`deploy/reference/helmfile.yaml` is the blank-cluster path:
+`deploy/reference/helmfile.yaml.gotmpl` is the blank-cluster path:
 
 ```yaml
 helmDefaults:
@@ -412,7 +412,7 @@ Release automation populates `digest` in the packaged chart; development leaves 
 
 ### Phase 3: Reference install and local development
 
-1. `deploy/reference/helmfile.yaml`, `values/*.gotmpl`, `values/gateway-byo.yaml`, `environments/{local,example}.yaml`, `argocd/` app-of-apps, `flux/` objects.
+1. `deploy/reference/helmfile.yaml.gotmpl`, `values/*.gotmpl`, `values/gateway-byo.yaml`, `environments/{local,example}.yaml`, `argocd/` app-of-apps, `flux/` objects.
 2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml`; k3d's Kubernetes version moves inside the supported window.
 3. Move `deploy/local/{orbit-values,platform-values,operator-values}.yaml` content into `environments/local.yaml`; delete `deploy/local/orbit-platform.yaml`.
 4. Update `docs/guides/local-development.md` and `deploy/local/README.md`.

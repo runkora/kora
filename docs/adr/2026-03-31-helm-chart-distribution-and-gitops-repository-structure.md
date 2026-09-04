@@ -648,7 +648,7 @@ When a new platform service is introduced:
 - [ArgoCD Applications](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/)
 - [spiffe/spire Helm chart](https://github.com/spiffe/helm-charts-hardened) — `orbit-platform` sub-chart dependency
 - [istio/istiod Helm chart](https://istio.io/latest/docs/setup/install/helm/) — `orbit-platform` sub-chart dependency
-- [charts/orbit-platform/](../../charts/orbit-platform/) — Core Infrastructure Layer chart (created during implementation)
+- `charts/orbit-platform/` — Core Infrastructure Layer chart; folded into `charts/orbit/` by [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
 - [charts/orbit/](../../charts/orbit/) — Orbit services chart (created during implementation)
 - [deploy/local/](../../deploy/local/) — Local operator reference deployment (created during implementation)
 
