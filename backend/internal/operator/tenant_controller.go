@@ -239,12 +239,12 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return result, nil
 	}
 
-	// Mark ready and record the timestamp.
-	now := metav1.Now()
-	tenant.Status.Namespace = ns
-	tenant.Status.LastReconciledAt = &now
-
-	_ = r.setTenantPhase(ctx, tenant, TenantPhaseReady)
+	if err := r.markReady(ctx, tenant, ns); err != nil {
+		log.Error(ctx, "failed to patch OrbitTenant status",
+			logging.Field{Key: "tenant", Value: tenant.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 
 	log.Info(ctx, "OrbitTenant reconciliation complete",
 		logging.Field{Key: "tenant", Value: tenant.Name},
@@ -253,6 +253,23 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Periodic re-check every 5 minutes — catches namespace label drift.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// markReady patches Namespace, LastReconciledAt and Phase in one call.
+// setTenantPhase alone would skip this: it no-ops when the phase is already
+// Ready, which is every reconcile after the first, so Namespace and
+// LastReconciledAt would never reach the API server on steady-state
+// reconciles.
+func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, ns string) error {
+	patch := client.MergeFrom(tenant.DeepCopy())
+	now := metav1.Now()
+	tenant.Status.Namespace = ns
+	tenant.Status.LastReconciledAt = &now
+	tenant.Status.Phase = TenantPhaseReady
+	if err := r.Status().Patch(ctx, tenant, patch); err != nil {
+		return fmt.Errorf("patch OrbitTenant %q status: %w", tenant.Name, err)
+	}
+	return nil
 }
 
 // SetupWithManager registers the controller with the controller-runtime Manager.

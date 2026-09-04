@@ -163,6 +163,6 @@ spec:
                         type: string
                       message:
                         type: string
-                registeredAt:
+                lastReconciledAt:
                   type: string
                   format: date-time

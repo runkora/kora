@@ -27,15 +27,6 @@ releases:
     chart: spiffe/spire-crds
     version: {{ .Values.versions.spireCrds }}
 
-  - name: spire
-    namespace: spire-system
-    # Uses CRDs an earlier release installs. Not validatable before that release runs.
-    disableValidationOnInstall: true
-    chart: spiffe/spire
-    version: {{ .Values.versions.spire }}
-    needs: [spire-system/spire-crds]
-    values: [values/spire.yaml.gotmpl]
-
   - name: istio-base
     namespace: istio-system
     chart: istio/base
@@ -49,6 +40,19 @@ releases:
     version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base]
     values: [values/cni.yaml.gotmpl]
+
+  - name: spire
+    namespace: spire-system
+    # Uses CRDs an earlier release installs. Not validatable before that release runs.
+    disableValidationOnInstall: true
+    chart: spiffe/spire
+    version: {{ .Values.versions.spire }}
+    # istio-cni, not spire-crds: the CNI DaemonSet chains its plugin into every
+    # node's CNI config as soon as it starts, before the binary is in place.
+    # A pod scheduled on that node in the gap gets no network sandbox, spire's
+    # included; waiting for the DaemonSet to report ready avoids the race.
+    needs: [spire-system/spire-crds, istio-system/istio-cni]
+    values: [values/spire.yaml.gotmpl]
 
   - name: istiod
     namespace: istio-system
