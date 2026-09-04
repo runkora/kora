@@ -20,3 +20,11 @@ updates:
     groups:
       base-images:
         patterns: ["*"]
+    # The tags in the Dockerfiles (golang 1.26, node 24, alpine 3.23, ...)
+    # are chosen deliberately; a new major or minor is a decision, not an
+    # update. Dependabot moves only the digest and patch releases behind them.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
