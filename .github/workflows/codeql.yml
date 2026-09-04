@@ -69,22 +69,32 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      # build-backend regenerates protobuf first, which needs buf.
-      - if: matrix.language == 'go'
-        name: Install build tools
-        run: make install-tools
-
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
-          # Go is compiled, so the extractor needs a real build.
-          build-mode: ${{ matrix.language == 'go' && 'manual' || 'none' }}
+          # Every language is extracted from source. Go needs no build: the
+          # generated protobuf code is committed, and skipping the traced build
+          # takes the Go job from about 13 minutes to about 4.
+          build-mode: none
           queries: security-and-quality
-
-      - if: matrix.language == 'go'
-        name: Build
-        run: make build-backend
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: /language:${{ matrix.language }}
+
+  # Branch protection requires a check by name, and the analyze jobs above are
+  # a matrix that varies with the change set. This job always runs, so the
+  # ruleset can require it; it fails only when an analysis failed or was
+  # cancelled, and treats a skipped analysis as passed.
+  gate:
+    name: CodeQL gate
+    needs: [changes, analyze]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any analysis failed
+        run: |
+          case "${{ needs.analyze.result }}" in
+            success|skipped) echo "analyze: ${{ needs.analyze.result }}" ;;
+            *) echo "analyze: ${{ needs.analyze.result }}"; exit 1 ;;
+          esac
