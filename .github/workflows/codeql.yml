@@ -72,11 +72,16 @@ jobs:
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
-          # Every language is extracted from source. Go needs no build: the
-          # generated protobuf code is committed, and skipping the traced build
-          # takes the Go job from about 13 minutes to about 4.
-          build-mode: none
+          # Go only supports a traced build (CodeQL rejects build-mode none
+          # for it); the other languages are extracted from source.
+          build-mode: ${{ matrix.language == 'go' && 'manual' || 'none' }}
           queries: security-and-quality
+
+      # Compile every package once without linking binaries. The generated
+      # protobuf code is committed, so no tool install or proto-gen is needed.
+      - if: matrix.language == 'go'
+        name: Build
+        run: cd backend && go build ./...
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
