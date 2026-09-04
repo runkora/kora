@@ -44,6 +44,11 @@ func main() {
 
 	logger := initLogger()
 
+	for _, parseErr := range oc.ResourceParseErrors {
+		logger.Warn(ctx, "malformed resource requirements env var; using empty requirements",
+			logging.Field{Key: "error", Value: parseErr.Error()})
+	}
+
 	operator.Apply(operator.Settings{
 		SystemNamespace: oc.Current.Install.SystemNamespace,
 		IstioNamespace:  oc.Current.Install.IstioNamespace,

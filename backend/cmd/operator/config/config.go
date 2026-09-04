@@ -3,6 +3,7 @@ package operatorConfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -173,11 +174,21 @@ func splitList(v string) []string {
 	return out
 }
 
+// ResourceParseErrors collects the keys resourcesEnv failed to parse, so
+// main can log them once the injected logger exists; Current is built before
+// that logger, so resourcesEnv cannot log directly.
+var ResourceParseErrors []error
+
 // resourcesEnv parses resource requirements from an environment variable.
+// Malformed JSON yields no requirements rather than failing startup and
+// records the failure in ResourceParseErrors; the chart renders this JSON,
+// so a parse failure is a chart bug the operator should surface, not crash on.
 func resourcesEnv(key string) corev1.ResourceRequirements {
 	var rr corev1.ResourceRequirements
 	if v := os.Getenv(key); v != "" {
-		_ = json.Unmarshal([]byte(v), &rr)
+		if err := json.Unmarshal([]byte(v), &rr); err != nil {
+			ResourceParseErrors = append(ResourceParseErrors, fmt.Errorf("%s: %w", key, err))
+		}
 	}
 	return rr
 }

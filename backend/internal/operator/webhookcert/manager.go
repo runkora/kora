@@ -130,6 +130,13 @@ func (m *Manager) Rotate(ctx context.Context) error {
 		if caErr != nil {
 			return caErr
 		}
+		// caBundle() serves both CAs from here until the next call to this
+		// branch drops the previous one, so an in-flight client's cached
+		// bundle stays valid for one renewal interval (renewBefore) even if
+		// it validated against the certificate signed by the old CA. A
+		// client that misses that whole window fails TLS verification until
+		// it refetches caBundle; there is no separate grace period or
+		// revocation mechanism.
 		sec.Data[keyCAPrevious] = sec.Data[keyCACert]
 		sec.Data[keyCACert] = newCA
 		sec.Data[keyCAKey] = newKey
