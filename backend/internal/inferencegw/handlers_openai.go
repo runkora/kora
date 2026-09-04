@@ -169,7 +169,11 @@ type modelObjectPricing struct {
 //   - OpenAI clients read: id, object, created, owned_by, family, display_name, status, and extended fields
 //   - Anthropic clients read: id, type, created_at, display_name, has_more, first_id, last_id
 //
-// Both sets of clients ignore unknown fields, so a single response satisfies both dialects.
+// The response is unconditional rather than gated on the "anthropic-version" header: several
+// agent harnesses (e.g. Claude Code via ANTHROPIC_BASE_URL) issue Anthropic-shaped requests
+// without ever sending that header, so header presence is not a reliable dialect signal.
+// Both sets of clients ignore unknown fields, so a single response satisfies both dialects
+// without needing to detect which one is asking.
 type modelObject struct {
 	ID               string              `json:"id"`
 	Object           string              `json:"object"`     // always "model" (OpenAI format)
@@ -190,6 +194,7 @@ type modelObject struct {
 
 // modelsResponse is the unified /v1/models response shape supporting both OpenAI and Anthropic clients.
 // OpenAI clients use: object, data. Anthropic clients use: data, has_more, first_id, last_id.
+// See modelObject for why this is unconditional rather than header-gated.
 type modelsResponse struct {
 	Object  string        `json:"object"` // always "list" (OpenAI format)
 	Data    []modelObject `json:"data"`
