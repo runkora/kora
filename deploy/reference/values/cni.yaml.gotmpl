@@ -1,0 +1,10 @@
+# k3s keeps CNI binaries and config under /var/lib/rancher; other distributions use the defaults.
+{{- with .Values.istio.cni }}
+cni:
+  {{- with .cniBinDir }}
+  cniBinDir: {{ . }}
+  {{- end }}
+  {{- with .cniConfDir }}
+  cniConfDir: {{ . }}
+  {{- end }}
+{{- end }}

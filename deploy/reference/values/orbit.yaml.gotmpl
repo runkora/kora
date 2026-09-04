@@ -1,0 +1,189 @@
+# Maps environments/<name>.yaml onto the orbit chart. `images.<component>.digest`
+# (written by scripts/cluster/redeploy.sh) pins a component image.
+{{- $svc := .Values.orbit.serviceConfig }}
+{{- $images := .Values | get "images" dict }}
+{{- $tag := .Values.orbit | get "imageTag" "" }}
+global:
+  trustDomain: {{ .Values.trustDomain }}
+  imageRegistry: {{ .Values.orbit.imageRegistry }}
+  imagePullPolicy: {{ .Values.orbit.imagePullPolicy }}
+  {{- with (.Values.orbit | get "imagePullSecrets" list) }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+frontendHost: {{ .Values.frontendHost }}
+publicHosts:
+  - api.{{ .Values.frontendHost }}
+  - {{ .Values.frontendHost }}
+
+config:
+  db:
+    host: {{ .Values.database.host }}
+    port: {{ .Values.database.port }}
+    name: {{ .Values.database.name }}
+    user: {{ .Values.database.user }}
+  redis:
+    host: {{ .Values.redis.host }}
+    port: {{ .Values.redis.port }}
+  platformSecretName: {{ .Values.orbit.platformSecretName }}
+
+istio:
+  namespace: istio-system
+  revision: {{ .Values.istio.revision | quote }}
+  outboundTrafficPolicy: {{ .Values.istio.outboundTrafficPolicy }}
+
+spire:
+  namespace: spire-system
+  className: spire-system-spire
+
+networkPolicy:
+  enabled: {{ .Values.networkPolicy.enabled }}
+  {{- with (.Values.networkPolicy | get "externalServices" list) }}
+  externalServices:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+gateway:
+  create: true
+  tls:
+    enabled: {{ .Values.gateway.tls.enabled }}
+    credentialName: {{ .Values.gateway.tls.credentialName }}
+
+ingressGateway:
+  service:
+    type: {{ .Values.gateway.serviceType }}
+
+operator:
+  image:
+    digest: {{ dig "operator" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  replicas: {{ .Values.orbit.operatorReplicas }}
+  leaderElection: {{ gt (int .Values.orbit.operatorReplicas) 1 }}
+  logLevel: {{ .Values.orbit.logLevel }}
+  podDisruptionBudget:
+    enabled: {{ gt (int .Values.orbit.operatorReplicas) 1 }}
+
+identityProxy:
+  image:
+    digest: {{ dig "identityProxy" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  appEnv: {{ .Values.orbit.appEnv }}
+
+identity:
+  image:
+    digest: {{ dig "identity" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  {{- with (.Values.identity | get "hostAliases" list) }}
+  hostAliases:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    postgresCaptureQueryText: {{ $svc.postgresCaptureQueryText | quote }}
+    redisTLSEnabled: {{ .Values.redis.tls | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+    accessTokenTtlMinutes: {{ .Values.identity.accessTokenTtlMinutes }}
+
+inferenceGateway:
+  image:
+    digest: {{ dig "inferenceGateway" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    postgresCaptureQueryText: {{ $svc.postgresCaptureQueryText | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+  {{- with (.Values.bedrock | get "accounts" list) }}
+  bedrock:
+    accounts:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  {{- with (.Values.inferenceGateway | get "serviceAccountAnnotations" dict) }}
+  serviceAccount:
+    annotations:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+
+orbitMcp:
+  image:
+    digest: {{ dig "orbitMcp" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+toolGateway:
+  image:
+    digest: {{ dig "toolGateway" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+frontend:
+  image:
+    digest: {{ dig "frontend" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    nextPublicAppUrl: {{ .Values.frontend.publicUrl | quote }}
+
+agents:
+  image:
+    digest: {{ dig "agents" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    postgresCaptureQueryText: {{ $svc.postgresCaptureQueryText | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+    sessionManagerPostgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+  {{- with (.Values.agents | get "runtimePods" dict) }}
+  runtimePods:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+policyService:
+  image:
+    digest: {{ dig "policyService" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    postgresCaptureQueryText: {{ $svc.postgresCaptureQueryText | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+policyGateway:
+  image:
+    digest: {{ dig "policyGateway" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+triggers:
+  image:
+    digest: {{ dig "triggers" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    postgresCaptureQueryText: {{ $svc.postgresCaptureQueryText | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+egressGateway:
+  image:
+    digest: {{ dig "egressGateway" "digest" "" $images | quote }}
+    tag: {{ $tag | quote }}
+  config:
+    postgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    otlpInsecure: {{ $svc.otlpInsecure | quote }}
+    logFormat: {{ $svc.logFormat | quote }}
+
+{{- with (.Values.orbit | get "opaImage" dict) }}
+opaGateway:
+  image:
+    {{- toYaml . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,72 @@
+# Starting point for a real cluster. Copy and edit.
+versions:
+  spireCrds: "0.5.0"
+  spire: "0.28.3"
+  istio: "1.29.1"
+
+systemNamespace: orbit-system
+trustDomain: orbit.example.com
+clusterName: orbit
+frontendHost: orbit.example.com
+
+orbit:
+  chart: oci://ghcr.io/clear-route/charts/orbit
+  crdsChart: oci://ghcr.io/clear-route/charts/orbit-crds
+  version: 0.0.0
+  imageRegistry: ghcr.io/clear-route
+  # Empty means the chart appVersion.
+  imageTag: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  platformSecretName: orbit-secrets
+  operatorReplicas: 2
+  logLevel: info
+  appEnv: production
+  serviceConfig:
+    postgresSSLMode: require
+    postgresCaptureQueryText: "false"
+    otlpInsecure: "false"
+    logFormat: json
+  opaImage: {}
+
+database:
+  host: postgres.example.internal
+  port: 5432
+  name: orbit
+  user: orbit
+redis:
+  host: redis.example.internal
+  port: 6379
+  tls: true
+
+istio:
+  revision: ""
+  outboundTrafficPolicy: ALLOW_ANY
+  cni: {}
+
+networkPolicy:
+  enabled: true
+  externalServices: []
+
+gateway:
+  serviceType: LoadBalancer
+  tls:
+    enabled: true
+    credentialName: orbit-gateway-tls
+
+identity:
+  hostAliases: []
+  accessTokenTtlMinutes: 15
+
+inferenceGateway:
+  serviceAccountAnnotations: {}
+
+frontend:
+  # Baked into the frontend image at build time.
+  publicUrl: https://orbit.example.com
+
+bedrock:
+  accounts: []
+
+agents:
+  runtimePods: {}

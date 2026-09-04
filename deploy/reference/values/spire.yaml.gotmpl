@@ -1,0 +1,42 @@
+# What Orbit requires of SPIRE. An existing SPIRE must match these; the rest is chart default.
+global:
+  spire:
+    trustDomain: {{ .Values.trustDomain }}
+    clusterName: {{ .Values.clusterName }}
+
+spire-server:
+  controllerManager:
+    identities:
+      clusterSPIFFEIDs:
+        # The chart's catch-all registration would race Orbit's own.
+        default:
+          enabled: false
+  nodeAttestor:
+    k8sPSAT:
+      enabled: true
+      clusters:
+        {{ .Values.clusterName }}:
+          service_account_allow_list:
+            - spire-system:spire-agent
+
+spire-agent:
+  sds:
+    enabled: true
+    defaultSVIDName: default
+    defaultBundleName: ROOTCA
+    defaultAllBundlesName: ALL
+  nodeAttestor:
+    k8sPSAT:
+      enabled: true
+  workloadAttestors:
+    k8s:
+      enabled: true
+      skipKubeletVerification: true
+      disableContainerSelectors: true
+      useNewContainerLocator: false
+
+spiffe-csi-driver:
+  enabled: true
+
+spire-controller-manager:
+  enabled: true

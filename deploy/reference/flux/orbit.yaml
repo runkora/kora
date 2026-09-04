@@ -1,0 +1,140 @@
+# Use dependsOn to install releases in dependency order.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orbit-system
+  labels:
+    istio-injection: enabled
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: spiffe
+  namespace: flux-system
+spec:
+  url: https://spiffe.github.io/helm-charts-hardened
+  interval: 1h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: istio
+  namespace: flux-system
+spec:
+  url: https://istio-release.storage.googleapis.com/charts
+  interval: 1h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: orbit
+  namespace: flux-system
+spec:
+  type: oci
+  url: oci://ghcr.io/clear-route/charts
+  interval: 1h
+  # secretRef: { name: ghcr-credentials }   # while the registry is private
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spire-crds
+  namespace: spire-system
+spec:
+  interval: 10m
+  chart:
+    spec: { chart: spire-crds, version: 0.5.0, sourceRef: { kind: HelmRepository, name: spiffe, namespace: flux-system } }
+  install: { createNamespace: true }
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spire
+  namespace: spire-system
+spec:
+  interval: 10m
+  dependsOn: [{ name: spire-crds }]
+  chart:
+    spec: { chart: spire, version: 0.28.3, sourceRef: { kind: HelmRepository, name: spiffe, namespace: flux-system } }
+  valuesFrom:
+    - kind: ConfigMap
+      name: spire-values
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-base
+  namespace: istio-system
+spec:
+  interval: 10m
+  chart:
+    spec: { chart: base, version: 1.29.1, sourceRef: { kind: HelmRepository, name: istio, namespace: flux-system } }
+  install: { createNamespace: true }
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-cni
+  namespace: istio-system
+spec:
+  interval: 10m
+  dependsOn: [{ name: istio-base }]
+  chart:
+    spec: { chart: cni, version: 1.29.1, sourceRef: { kind: HelmRepository, name: istio, namespace: flux-system } }
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istiod
+  namespace: istio-system
+spec:
+  interval: 10m
+  dependsOn: [{ name: istio-base }, { name: istio-cni }]
+  chart:
+    spec: { chart: istiod, version: 1.29.1, sourceRef: { kind: HelmRepository, name: istio, namespace: flux-system } }
+  values:
+    meshConfig:
+      trustDomain: orbit.example.com
+    pilot:
+      cni:
+        enabled: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: orbit-crds
+  namespace: orbit-system
+spec:
+  interval: 10m
+  chart:
+    spec: { chart: orbit-crds, version: 0.0.0, sourceRef: { kind: HelmRepository, name: orbit, namespace: flux-system } }
+  install: { crds: Create }
+  upgrade: { crds: CreateReplace }
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: orbit
+  namespace: orbit-system
+spec:
+  interval: 10m
+  dependsOn:
+    - { name: orbit-crds }
+    - { name: spire, namespace: spire-system }
+    - { name: istiod, namespace: istio-system }
+  chart:
+    spec: { chart: orbit, version: 0.0.0, sourceRef: { kind: HelmRepository, name: orbit, namespace: flux-system } }
+  valuesFrom:
+    - kind: ConfigMap
+      name: orbit-values
+  # Operator-owned fields.
+  driftDetection:
+    mode: enabled
+    ignore:
+      - paths: ["/webhooks/0/clientConfig/caBundle", "/webhooks/0/failurePolicy"]
+        target: { kind: MutatingWebhookConfiguration }
+      - paths: ["/webhooks/0/clientConfig/caBundle", "/webhooks/0/failurePolicy"]
+        target: { kind: ValidatingWebhookConfiguration }

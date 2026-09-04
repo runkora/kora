@@ -1,0 +1,86 @@
+# Reference release order for SPIRE, Istio, and Orbit.
+environments:
+  local:
+    # local.generated.yaml comes from scripts/cluster/resolve-docker-ips.sh.
+    missingFileHandler: Warn
+    values:
+      - environments/local.yaml
+      - environments/local.generated.yaml
+  example:
+    values:
+      - environments/example.yaml
+---
+helmDefaults:
+  wait: true
+  timeout: 600
+  createNamespace: true
+
+repositories:
+  - name: spiffe
+    url: https://spiffe.github.io/helm-charts-hardened
+  - name: istio
+    url: https://istio-release.storage.googleapis.com/charts
+
+releases:
+  - name: spire-crds
+    namespace: spire-system
+    chart: spiffe/spire-crds
+    version: {{ .Values.versions.spireCrds }}
+
+  - name: spire
+    namespace: spire-system
+    # Uses CRDs an earlier release installs. Not validatable before that release runs.
+    disableValidationOnInstall: true
+    chart: spiffe/spire
+    version: {{ .Values.versions.spire }}
+    needs: [spire-system/spire-crds]
+    values: [values/spire.yaml.gotmpl]
+
+  - name: istio-base
+    namespace: istio-system
+    chart: istio/base
+    version: {{ .Values.versions.istio }}
+
+  # CNI mode. Avoids the privileged istio-init container the restricted profile rejects.
+  - name: istio-cni
+    namespace: istio-system
+    disableValidationOnInstall: true
+    chart: istio/cni
+    version: {{ .Values.versions.istio }}
+    needs: [istio-system/istio-base]
+    values: [values/cni.yaml.gotmpl]
+
+  - name: istiod
+    namespace: istio-system
+    disableValidationOnInstall: true
+    chart: istio/istiod
+    version: {{ .Values.versions.istio }}
+    needs: [istio-system/istio-base, istio-system/istio-cni]
+    values: [values/istiod.yaml.gotmpl]
+
+  - name: orbit-crds
+    namespace: {{ .Values.systemNamespace }}
+    chart: {{ .Values.orbit.crdsChart }}
+    version: {{ .Values.orbit.version }}
+
+  # Namespace labels must exist before the first Orbit pod; createNamespace cannot set them.
+  - name: orbit
+    namespace: {{ .Values.systemNamespace }}
+    disableValidationOnInstall: true
+    chart: {{ .Values.orbit.chart }}
+    version: {{ .Values.orbit.version }}
+    needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
+    values: [values/orbit.yaml.gotmpl]
+    hooks:
+      - events: [presync]
+        showlogs: true
+        command: kubectl
+        args:
+          - label
+          - --overwrite
+          - namespace
+          - {{ .Values.systemNamespace }}
+          - {{ if .Values.istio.revision }}istio.io/rev={{ .Values.istio.revision }}{{ else }}istio-injection=enabled{{ end }}
+          - pod-security.kubernetes.io/enforce=restricted
+          - pod-security.kubernetes.io/warn=restricted
+          - pod-security.kubernetes.io/audit=restricted

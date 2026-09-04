@@ -1,0 +1,14 @@
+# Configure an existing Istio gateway to use SPIRE certificates.
+# Set gateway.name and gateway.byo to match the gateway deployment.
+env:
+  PILOT_CERT_PROVIDER: spire
+  SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+volumes:
+  - name: workload-socket
+    csi:
+      driver: csi.spiffe.io
+      readOnly: true
+volumeMounts:
+  - name: workload-socket
+    mountPath: /run/secrets/workload-spiffe-uds
+    readOnly: true
