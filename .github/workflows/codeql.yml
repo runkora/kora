@@ -69,22 +69,41 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      # build-backend regenerates protobuf first, which needs buf.
-      - if: matrix.language == 'go'
-        name: Install build tools
-        run: make install-tools
-
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
-          # Go is compiled, so the extractor needs a real build.
+          # Go only supports a traced build (CodeQL rejects build-mode none
+          # for it); the other languages are extracted from source.
           build-mode: ${{ matrix.language == 'go' && 'manual' || 'none' }}
           queries: security-and-quality
 
+      # Compile every package once without linking binaries. The generated
+      # protobuf code is committed, so no tool install or proto-gen is needed.
       - if: matrix.language == 'go'
         name: Build
-        run: make build-backend
+        run: cd backend && go build ./...
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: /language:${{ matrix.language }}
+
+  # Branch protection requires a check by name, and the analyze jobs above are
+  # a matrix that varies with the change set. This job always runs, so the
+  # ruleset can require it. It passes only when change detection succeeded
+  # and every analysis either succeeded or was skipped because nothing in its
+  # language changed; a failed or cancelled job anywhere fails the gate.
+  gate:
+    name: CodeQL gate
+    needs: [changes, analyze]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and every analysis passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "analyze: ${{ needs.analyze.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.analyze.result }}" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac
