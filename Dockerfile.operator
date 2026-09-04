@@ -8,7 +8,7 @@
 # chartDir to ../charts (relative to the backend/ working directory).
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 WORKDIR /app
 
@@ -34,7 +34,7 @@ RUN find /app -path "*/config/*.yaml" | while read f; do \
     done
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
 # Create non-root user that matches the securityContext in the Helm chart.
 RUN addgroup -g 65532 nonroot && adduser -u 65532 -G nonroot -s /sbin/nologin -D nonroot

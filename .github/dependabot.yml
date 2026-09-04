@@ -7,3 +7,16 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # Base images are pinned by digest in the Dockerfiles so builds are
+  # reproducible; this keeps those digests moving with upstream tags.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]

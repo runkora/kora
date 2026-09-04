@@ -19,7 +19,7 @@
 # Install all workspace dependencies with a frozen lockfile.
 # Separated from the build stage so Docker layer caching skips re-installs
 # when only source files change (not package.json or pnpm-lock.yaml).
-FROM node:24-alpine AS deps
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
 
 WORKDIR /app
 
@@ -82,7 +82,7 @@ RUN pnpm build
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine AS runner
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS runner
 
 WORKDIR /app
 
