@@ -49,7 +49,11 @@ async function policyServiceFetch<T>(
     });
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
-    console.error(`[policyServiceFetch] ${path}: ${isTimeout ? 'timeout' : 'network error'}`, err);
+    console.error('[policyServiceFetch] request failed', {
+      path,
+      reason: isTimeout ? 'timeout' : 'network error',
+      err,
+    });
     return {
       ok: false,
       status: isTimeout ? 504 : 502,
@@ -59,7 +63,11 @@ async function policyServiceFetch<T>(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`[policyServiceFetch] ${path}: ${res.status} ${res.statusText}`);
+    console.error('[policyServiceFetch] non-OK response', {
+      path,
+      status: res.status,
+      statusText: res.statusText,
+    });
     return { ok: false, status: res.status, message: body || res.statusText };
   }
 
@@ -72,7 +80,7 @@ async function policyServiceFetch<T>(
     const data = (await res.json()) as T;
     return { ok: true, data };
   } catch {
-    console.error(`[policyServiceFetch] ${path}: failed to parse JSON`);
+    console.error('[policyServiceFetch] failed to parse JSON', { path });
     return { ok: false, status: 502, message: 'Invalid response from policy service' };
   }
 }

@@ -104,3 +104,20 @@ func TestToolGatewayURLForRun(t *testing.T) {
 		})
 	}
 }
+
+// ── run_id must stay inside the workspaces directory ─────────────────────────
+
+func TestHandleCreateSession_RejectsPathTraversalRunID(t *testing.T) {
+	ctrl := newBareController(t, ControllerConfig{})
+	for _, id := range []string{"../escape", "a/b", "..", ".", "run id", "run\\x"} {
+		rec := postSessionRaw(t, ctrl, map[string]any{
+			"run_id": id, "agent_type_id": "at", "tenant_id": "t",
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("run_id %q: status = %d, want 400", id, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "path-safe") {
+			t.Errorf("run_id %q: body = %s, want the run_id validation message", id, rec.Body.String())
+		}
+	}
+}

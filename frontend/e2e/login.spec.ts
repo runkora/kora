@@ -192,7 +192,7 @@ test.describe('/login', () => {
     // Wait for the full-page navigation to the mocked IdP.  Verifying the
     // exact OIDC query parameters is an oidc-client-ts implementation detail
     // outside Orbit's responsibility.
-    await page.waitForURL(/idp\.acme\.example\.com/, { timeout: 10_000 });
+    await page.waitForURL(/^https?:\/\/idp\.acme\.example\.com\//, { timeout: 10_000 });
     expect(page.url()).toContain('idp.acme.example.com');
   });
 
