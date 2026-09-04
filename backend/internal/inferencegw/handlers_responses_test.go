@@ -145,6 +145,30 @@ func TestSanitizeTools_WebSearchAliasDropped(t *testing.T) {
 	}
 }
 
+func TestSanitizeTools_ShellAndApplyPatchPassThrough(t *testing.T) {
+	t.Parallel()
+	// openai-go v3.55.0 registers "shell" and "apply_patch", which Codex CLI
+	// sends for its native tools. sanitizeTools must pass them through and
+	// report zero drops; before the upgrade they were unknown and removed.
+	body := []byte(`{"model":"m","tools":[` +
+		`{"type":"function","name":"exec","strict":false,"parameters":{}},` +
+		`{"type":"shell"},` +
+		`{"type":"apply_patch"}` +
+		`]}`)
+	out, dropped := sanitizeTools(body)
+	if len(dropped) != 0 {
+		t.Errorf("dropped = %d, want 0 (shell and apply_patch are recognized in v3.55)", len(dropped))
+	}
+
+	var params responses.ResponseNewParams
+	if err := params.UnmarshalJSON(out); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if len(params.Tools) != 3 {
+		t.Errorf("Tools count = %d, want 3", len(params.Tools))
+	}
+}
+
 func TestSanitizeTools_NoToolsKey(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"model":"m","stream":true}`)
