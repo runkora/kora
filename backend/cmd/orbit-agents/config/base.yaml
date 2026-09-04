@@ -12,10 +12,12 @@ observability:
 kubernetes:
   inCluster: true
   tenantNamespacePrefix: orbit-tenant-
+  # The chart overrides this with ORBIT_SYSTEM_NAMESPACE (the release namespace).
   systemNamespace: orbit-system
 
 platform:
-  trustDomain: "orbit.test"
+  # No default: the chart sets ORBIT_TRUST_DOMAIN and local.yaml sets orbit.test.
+  trustDomain: ""
   identityServiceURL: "http://orbit-identity.orbit-system.svc"
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
 
@@ -35,8 +37,12 @@ drafts:
   retentionDays: 30
 
 agents:
-  sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
-  sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest
+  # Overridden per install by ORBIT_SESSION_MANAGER_IMAGE / ORBIT_SANDBOX_IMAGE.
+  sessionManagerImage: ghcr.io/clear-route/orbit-session-manager:latest
+  sandboxImage: ghcr.io/clear-route/orbit-sandbox-exec:latest
+  # Pull secrets for the images above, named per install by
+  # ORBIT_AGENTS_IMAGE_PULL_SECRETS (comma-separated).
+  imagePullSecrets: []
   sandboxGRPCPort: 50051
   maxConcurrentRunsPerPod: 10
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"

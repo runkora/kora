@@ -67,6 +67,9 @@ type K8sProvisionerConfig struct {
 	GitAuthorName             string
 	GitAuthorEmail            string
 	SessionManagerPostgresSSL string
+	// ImagePullSecrets names the Secrets, present in every tenant namespace,
+	// that runtime-created pods pull the session-manager and sandbox images with.
+	ImagePullSecrets []string
 	// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
 	// Used to build the agent's SPIFFE principal ID for grant creation.
 	TrustDomain string
@@ -350,6 +353,70 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	)
 	defer span.End()
 
+	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters)
+	podName := pod.Name
+
+	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "apply Pod overrides")
+		return "", fmt.Errorf("apply Pod overrides: %w", err)
+	}
+	// Re-sync locals in case an override changed metadata.name or metadata.namespace.
+	if podVal.Name != "" {
+		podName = podVal.Name
+	}
+	if podVal.Namespace != "" {
+		namespace = podVal.Namespace
+	}
+
+	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
+	switch {
+	case err == nil:
+		p.logger.Info(ctx, "Sandbox pod created, waiting for ready",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod", Value: podName},
+			logging.Field{Key: "namespace", Value: namespace},
+		)
+	case apierrors.IsAlreadyExists(err):
+		// Reuse an existing pod if alive; replace it if dead or terminating.
+		replaced, repErr := p.replaceIfDeadSandboxPod(ctx, &podVal, namespace)
+		if repErr != nil {
+			span.RecordError(repErr)
+			span.SetStatus(codes.Error, "replace dead sandbox pod")
+			return "", repErr
+		}
+		p.logger.Info(ctx, "Sandbox pod already exists",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod", Value: podName},
+			logging.Field{Key: "replaced_dead_pod", Value: replaced},
+		)
+	default:
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create sandbox pod")
+		return "", fmt.Errorf("create sandbox pod: %w", err)
+	}
+
+	podIP, err := p.waitForPodReady(ctx, podName, namespace)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "wait for sandbox pod ready")
+		return "", fmt.Errorf("wait for sandbox pod ready: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort)
+	span.SetAttributes(attribute.String("endpoint", endpoint))
+	p.logger.Info(ctx, "Sandbox pod ready",
+		logging.Field{Key: "run_id", Value: run.ID},
+		logging.Field{Key: "pod", Value: podName},
+		logging.Field{Key: "endpoint", Value: endpoint},
+	)
+	return endpoint, nil
+}
+
+// buildSandboxPod renders the sandbox pod for a run before manifest overrides
+// are applied.
+func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) *corev1.Pod {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
 	uid := int64(100)
 	nonRoot := true
@@ -404,7 +471,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
 	}
 
-	pod := &corev1.Pod{
+	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        podName,
 			Namespace:   namespace,
@@ -412,10 +479,14 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
+			RestartPolicy:    corev1.RestartPolicyNever,
+			ImagePullSecrets: imagePullSecretRefs(p.cfg.ImagePullSecrets),
+			// Restricted Pod Security Standard: the pod-level seccomp profile is
+			// what istio-proxy inherits, since Istio sets none of its own.
 			SecurityContext: &corev1.PodSecurityContext{
-				RunAsUser:    &uid,
-				RunAsNonRoot: &nonRoot,
+				RunAsUser:      &uid,
+				RunAsNonRoot:   &nonRoot,
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 				SELinuxOptions: &corev1.SELinuxOptions{
 					Level: "s0",
 				},
@@ -424,66 +495,19 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
 		},
 	}
+}
 
-	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "apply Pod overrides")
-		return "", fmt.Errorf("apply Pod overrides: %w", err)
+// imagePullSecretRefs turns configured Secret names into pod references, or
+// nil so an unconfigured install leaves the field off the spec entirely.
+func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
+	if len(names) == 0 {
+		return nil
 	}
-	// Re-sync locals in case an override changed metadata.name or metadata.namespace.
-	if podVal.Name != "" {
-		podName = podVal.Name
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	for _, n := range names {
+		refs = append(refs, corev1.LocalObjectReference{Name: n})
 	}
-	if podVal.Namespace != "" {
-		namespace = podVal.Namespace
-	}
-
-	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
-	switch {
-	case err == nil:
-		p.logger.Info(ctx, "Sandbox pod created, waiting for ready",
-			logging.Field{Key: "run_id", Value: run.ID},
-			logging.Field{Key: "pod", Value: podName},
-			logging.Field{Key: "namespace", Value: namespace},
-		)
-	case apierrors.IsAlreadyExists(err):
-		// A pod of this name already exists. Reuse it if it's alive (warm-start /
-		// idempotent re-call), but REPLACE it if it's dead or terminating — the
-		// previous sandbox was evicted/killed and left a stale pod. Without this
-		// we would wait on a corpse and hand back a dead endpoint.
-		replaced, repErr := p.replaceIfDeadSandboxPod(ctx, &podVal, namespace)
-		if repErr != nil {
-			span.RecordError(repErr)
-			span.SetStatus(codes.Error, "replace dead sandbox pod")
-			return "", repErr
-		}
-		p.logger.Info(ctx, "Sandbox pod already exists",
-			logging.Field{Key: "run_id", Value: run.ID},
-			logging.Field{Key: "pod", Value: podName},
-			logging.Field{Key: "replaced_dead_pod", Value: replaced},
-		)
-	default:
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create sandbox pod")
-		return "", fmt.Errorf("create sandbox pod: %w", err)
-	}
-
-	podIP, err := p.waitForPodReady(ctx, podName, namespace)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "wait for sandbox pod ready")
-		return "", fmt.Errorf("wait for sandbox pod ready: %w", err)
-	}
-
-	endpoint := fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort)
-	span.SetAttributes(attribute.String("endpoint", endpoint))
-	p.logger.Info(ctx, "Sandbox pod ready",
-		logging.Field{Key: "run_id", Value: run.ID},
-		logging.Field{Key: "pod", Value: podName},
-		logging.Field{Key: "endpoint", Value: endpoint},
-	)
-	return endpoint, nil
+	return refs
 }
 
 // replaceIfDeadSandboxPod inspects an existing sandbox pod of the same name and,
@@ -803,9 +827,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		Name:  "sandbox-exec",
 		Image: cfg.SandboxImage,
 		// Always so a freshly built :latest image (new toolchain/versions) reaches
-		// new sandboxes — PullIfNotPresent would keep serving the node's cached
-		// image. The registry is local (orbit-registry:5001), so the digest check
-		// is cheap and short-circuits when the image is already cached.
+		// new sandboxes; PullIfNotPresent would keep serving the node's cached
+		// image. The digest check short-circuits when the image is already cached.
 		ImagePullPolicy: corev1.PullAlways,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
@@ -1128,10 +1151,62 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 }
 
 func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string) error {
+	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
+
+	var err error
+	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
+	if err != nil {
+		return fmt.Errorf("apply StatefulSet overrides: %w", err)
+	}
+	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
+		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
+		if err != nil {
+			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
+		}
+	}
+
+	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	// Sync the security-sensitive parts of the pod template onto an existing
+	// StatefulSet so already-provisioned agents pick up hardening changes.
+	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing statefulset: %w", err)
+	}
+	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
+	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
+	for i := range existing.Spec.Template.Spec.Containers {
+		if existing.Spec.Template.Spec.Containers[i].Name == sessionManagerContainerName {
+			existing.Spec.Template.Spec.Containers[i].SecurityContext = restrictedContainerSecurityContext()
+		}
+	}
+	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
+}
+
+// sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
+const sessionManagerContainerName = "session-manager"
+
+// restrictedContainerSecurityContext is the container half of the restricted
+// Pod Security Standard for processes that still need a writable root filesystem.
+func restrictedContainerSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: new(false),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+}
+
+// buildSessionManagerStatefulSet renders an agent type's StatefulSet before
+// manifest overrides are applied.
+func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
 	uid := int64(100)
 	nonRoot := true
-	ss := appsv1.StatefulSet{
+	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
@@ -1141,28 +1216,32 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels(at),
 					Annotations: map[string]string{
-						// sidecar,spire: Envoy + SPIRE workload cert (mTLS + SPIFFE identity)
-						// identity-proxy: injects a platform JWT on all outbound requests
-						// (no opa-policy: session-manager is platform-managed, not a tenant app)
-						"inject.istio.io/templates":                     "sidecar,spire,identity-proxy",
+						// The operator's pod webhook adds the SPIRE and identity-proxy
+						// wiring; Istio itself injects only the sidecar.
 						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
 						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
 					},
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
+					ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
+					// Restricted Pod Security Standard: the pod-level seccomp profile is
+					// what istio-proxy inherits, since Istio sets none of its own.
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsUser:    &uid,
-						RunAsNonRoot: &nonRoot,
+						RunAsUser:      &uid,
+						RunAsNonRoot:   &nonRoot,
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 						SELinuxOptions: &corev1.SELinuxOptions{
 							Level: "s0",
 						},
 					},
 					Containers: []corev1.Container{
 						{
-							Name:            "session-manager",
+							Name:            sessionManagerContainerName,
 							Image:           p.cfg.SessionManagerImage,
 							ImagePullPolicy: corev1.PullAlways,
+							// No readOnlyRootFilesystem: the agent subprocess writes to $HOME.
+							SecurityContext: restrictedContainerSecurityContext(),
 							Ports: []corev1.ContainerPort{
 								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
 							},
@@ -1183,7 +1262,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 								},
 							},
 							Env: []corev1.EnvVar{
-								{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"},
+								{Name: "ANTHROPIC_BASE_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								{Name: "ORBIT_POSTGRES_SSL_MODE", Value: p.cfg.SessionManagerPostgresSSL},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
@@ -1234,33 +1313,6 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			},
 		},
 	}
-
-	var err error
-	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
-	if err != nil {
-		return fmt.Errorf("apply StatefulSet overrides: %w", err)
-	}
-	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
-		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
-		}
-	}
-
-	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
-	}
-	// StatefulSet already exists — patch the pod template security context so that
-	// clusters affected by the SELinux MCS relabel issue pick up the fix on the next
-	// re-provision without requiring a manual StatefulSet delete.
-	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing statefulset: %w", err)
-	}
-	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
-	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
 }
 
 func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string) error {
