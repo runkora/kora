@@ -87,11 +87,8 @@ jobs:
         with:
           category: /language:${{ matrix.language }}
 
-  # Branch protection requires a check by name, and the analyze jobs above are
-  # a matrix that varies with the change set. This job always runs, so the
-  # ruleset can require it. It passes only when change detection succeeded
-  # and every analysis either succeeded or was skipped because nothing in its
-  # language changed; a failed or cancelled job anywhere fails the gate.
+  # The analyze matrix varies per run, so branch protection requires this
+  # always-on job instead. A skipped analysis means nothing in its language changed.
   gate:
     name: CodeQL gate
     needs: [changes, analyze]
