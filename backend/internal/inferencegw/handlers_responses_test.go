@@ -13,6 +13,7 @@ import (
 
 	"github.com/openai/openai-go/v3/responses"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -83,6 +84,47 @@ func TestMarshalResponsesEvent_NoDelta(t *testing.T) {
 	}
 	if _, ok := m["delta"]; ok {
 		t.Errorf("delta key should be absent for non-delta event, got %s", m["delta"])
+	}
+}
+
+// ─── responsesErrorEventPayload ────────────────────────────────────────────────
+
+func TestResponsesErrorEventPayload_FlatShape(t *testing.T) {
+	t.Parallel()
+	// ai-sdk validates the Responses "error" event against a flat schema —
+	// {"type":"error","code":...,"message":...,"param":...,"sequence_number":...} —
+	// not the chat-completions {"error":{...}} envelope this used to emit.
+	apiErr := api.BadRequestError("invalid_request", "boom", nil)
+	payload := responsesErrorEventPayload(apiErr, 7)
+
+	b, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := m["error"]; present {
+		t.Errorf("payload must not nest fields under an \"error\" key: %s", b)
+	}
+	var typ, code, message string
+	_ = json.Unmarshal(m["type"], &typ)
+	_ = json.Unmarshal(m["code"], &code)
+	_ = json.Unmarshal(m["message"], &message)
+	if typ != "error" {
+		t.Errorf("type = %q, want error", typ)
+	}
+	if code != "invalid_request" {
+		t.Errorf("code = %q, want invalid_request", code)
+	}
+	if message != "boom" {
+		t.Errorf("message = %q, want boom", message)
+	}
+	var seq int64
+	_ = json.Unmarshal(m["sequence_number"], &seq)
+	if seq != 7 {
+		t.Errorf("sequence_number = %d, want 7", seq)
 	}
 }
 
@@ -238,6 +280,161 @@ func TestSanitizeTools_TrulyUnknownTypeDropped(t *testing.T) {
 	}
 	if params.Tools[0].OfFunction == nil || params.Tools[0].OfFunction.Name != "exec" {
 		t.Errorf("unexpected tool: %+v", params.Tools[0])
+	}
+}
+
+// ─── sanitizeInputItems ────────────────────────────────────────────────────────
+
+func TestSanitizeInputItems_AiSDKShapeBackfillsType(t *testing.T) {
+	t.Parallel()
+	// This is the exact shape ai-sdk (OpenCode's LLM runtime) sends: a message
+	// item with "role" and "content" but no "type". Without sanitizeInputItems,
+	// the SDK's discriminator can't classify it and drops the whole input array.
+	body := []byte(`{"model":"openai/gpt-5-6-terra","input":[` +
+		`{"role":"user","content":[{"type":"input_text","text":"Reply with the single word: done"}]}` +
+		`],"max_output_tokens":16}`)
+
+	out := sanitizeInputItems(body)
+
+	var params responses.ResponseNewParams
+	if err := params.UnmarshalJSON(out); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if len(params.Input.OfInputItemList) != 1 {
+		t.Fatalf("input items = %d, want 1", len(params.Input.OfInputItemList))
+	}
+	item := params.Input.OfInputItemList[0]
+	if item.OfMessage == nil {
+		t.Fatalf("expected item to decode as EasyInputMessage (OfMessage), got %+v", item)
+	}
+	if item.OfMessage.Role != "user" {
+		t.Errorf("role = %q, want user", item.OfMessage.Role)
+	}
+}
+
+func TestSanitizeInputItems_CodexShapeUnchanged(t *testing.T) {
+	t.Parallel()
+	// Codex already sends an explicit "type":"message" — sanitizeInputItems must
+	// not alter a request that already decodes correctly.
+	body := []byte(`{"model":"m","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}` +
+		`]}`)
+
+	out := sanitizeInputItems(body)
+	if string(out) != string(body) {
+		t.Errorf("body changed unexpectedly:\ngot:  %s\nwant: %s", out, body)
+	}
+}
+
+func TestSanitizeInputItems_MixedArrayBothItemsSurvive(t *testing.T) {
+	t.Parallel()
+	// One item already has "type":"message", the other (ai-sdk shape) doesn't.
+	// Both must decode after sanitization — the SDK drops the whole array if
+	// even one element is unclassifiable.
+	body := []byte(`{"model":"m","input":[` +
+		`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi","annotations":[]}]},` +
+		`{"role":"user","content":[{"type":"input_text","text":"bye"}]}` +
+		`]}`)
+
+	out := sanitizeInputItems(body)
+
+	var params responses.ResponseNewParams
+	if err := params.UnmarshalJSON(out); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if len(params.Input.OfInputItemList) != 2 {
+		t.Fatalf("input items = %d, want 2", len(params.Input.OfInputItemList))
+	}
+}
+
+func TestSanitizeInputItems_NoInputKey(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"m","stream":true}`)
+	out := sanitizeInputItems(body)
+	if string(out) != string(body) {
+		t.Errorf("body changed when no input key present")
+	}
+}
+
+func TestSanitizeInputItems_StringInputUnchanged(t *testing.T) {
+	t.Parallel()
+	// "input" as a plain string (OfString variant) is valid and must pass through.
+	body := []byte(`{"model":"m","input":"hello"}`)
+	out := sanitizeInputItems(body)
+	if string(out) != string(body) {
+		t.Errorf("body changed for string input")
+	}
+}
+
+func TestSanitizeInputItems_ItemWithoutRoleUnchanged(t *testing.T) {
+	t.Parallel()
+	// An item with neither "role" nor "type" (e.g. malformed) is left alone;
+	// sanitizeInputItems only backfills the specific role-but-no-type shape.
+	body := []byte(`{"model":"m","input":[{"foo":"bar"}]}`)
+	out := sanitizeInputItems(body)
+	if string(out) != string(body) {
+		t.Errorf("body changed for item without role")
+	}
+}
+
+// ─── countRawInputItems ─────────────────────────────────────────────────────────
+
+func TestCountRawInputItems(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"no input key", `{"model":"m"}`, 0},
+		{"string input", `{"model":"m","input":"hi"}`, 0},
+		{"empty array", `{"model":"m","input":[]}`, 0},
+		{"two items", `{"model":"m","input":[{"role":"user"},{"role":"assistant"}]}`, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := countRawInputItems([]byte(tc.body))
+			if got != tc.want {
+				t.Errorf("countRawInputItems(%s) = %d, want %d", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── handleResponses — 400 on unparseable input items ──────────────────────────
+
+func TestHandleResponses_RejectsWhenInputItemsUnparseable(t *testing.T) {
+	t.Parallel()
+	// A fabricated input item shape that sanitizeInputItems cannot fix (no role,
+	// no type) must not be silently forwarded upstream as an empty input; the
+	// handler should reject with a 400 naming the mismatch.
+	body := []byte(`{"model":"test-model","input":[{"foo":"bar"}]}`)
+
+	cl := &captureLogger{}
+	c := &Controller{
+		svc:    &Service{logger: logging.NewLoggerWithOutput(io.Discard)},
+		logger: cl,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	c.handleResponses(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	var resp struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response body: %v", err)
+	}
+	if resp.Code != "invalid_request" {
+		t.Errorf("code = %q, want invalid_request", resp.Code)
 	}
 }
 

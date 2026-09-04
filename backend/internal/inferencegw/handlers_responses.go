@@ -110,6 +110,84 @@ func sanitizeTools(b []byte) ([]byte, []droppedTool) {
 	return sanitized, dropped
 }
 
+// sanitizeInputItems returns a copy of b where any "input" array element that
+// has a "role" but no "type" has "type":"message" added. The OpenAI Responses
+// API accepts message items without "type" (the "easy input message" shape
+// used by ai-sdk/OpenCode), but the openai-go SDK's apijson discriminator for
+// ResponseInputItemUnionParam is keyed on "type" and drops the *entire* input
+// array — not just the unrecognized item — when it can't classify one element.
+// Backfilling "type":"message" here mirrors sanitizeTools' role: patch the
+// wire shape before the SDK ever sees it. If the body has no "input" key, or
+// "input" is not an array (e.g. a plain string), the original bytes are
+// returned unchanged.
+func sanitizeInputItems(b []byte) []byte {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return b
+	}
+	inputRaw, ok := raw["input"]
+	if !ok {
+		return b
+	}
+	var rawItems []json.RawMessage
+	if err := json.Unmarshal(inputRaw, &rawItems); err != nil {
+		return b
+	}
+
+	changed := false
+	for i, ri := range rawItems {
+		var probe struct {
+			Role string `json:"role"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(ri, &probe); err != nil || probe.Role == "" || probe.Type != "" {
+			continue
+		}
+		var item map[string]json.RawMessage
+		if err := json.Unmarshal(ri, &item); err != nil {
+			continue
+		}
+		item["type"] = json.RawMessage(`"message"`)
+		patched, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		rawItems[i] = patched
+		changed = true
+	}
+	if !changed {
+		return b
+	}
+
+	patchedInput, err := json.Marshal(rawItems)
+	if err != nil {
+		return b
+	}
+	raw["input"] = patchedInput
+	sanitized, err := json.Marshal(raw)
+	if err != nil {
+		return b
+	}
+	return sanitized
+}
+
+// countRawInputItems returns the number of elements in the raw request body's
+// "input" array, or 0 if "input" is absent or not an array (e.g. a plain
+// string input). Used to detect items the SDK decoder silently dropped.
+func countRawInputItems(b []byte) int {
+	var raw struct {
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil || raw.Input == nil {
+		return 0
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw.Input, &items); err != nil {
+		return 0
+	}
+	return len(items)
+}
+
 func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
 	if err := e.Params.UnmarshalJSON(b); err != nil {
 		return err
@@ -332,9 +410,27 @@ func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 	// so we can emit a Warn after decode (once the model name is available).
 	bodyBytes, dropped := sanitizeTools(bodyBytes)
 
+	// sanitizeInputItems backfills "type":"message" onto input items that carry
+	// a "role" but no "type" (the ai-sdk/OpenCode "easy input message" shape).
+	// Without this, the SDK's discriminator can't classify the item and drops
+	// the entire input array rather than just that element — see sanitizeInputItems.
+	rawInputCount := countRawInputItems(bodyBytes)
+	bodyBytes = sanitizeInputItems(bodyBytes)
+
 	var env responsesEnvelope
 	if err := json.Unmarshal(bodyBytes, &env); err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
+		return
+	}
+
+	// Guard against forwarding an empty input upstream: if the SDK decoded
+	// fewer input items than the raw request contained, something in the
+	// array couldn't be classified even after sanitizeInputItems. Reject with
+	// a 400 naming the mismatch instead of silently sending an empty input.
+	if decodedCount := len(env.Params.Input.OfInputItemList); rawInputCount > 0 && decodedCount < rawInputCount {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request",
+			fmt.Sprintf("failed to parse %d of %d input item(s): unrecognized item shape", rawInputCount-decodedCount, rawInputCount), nil),
+			fmt.Errorf("responses: input item count mismatch: raw=%d decoded=%d", rawInputCount, decodedCount))
 		return
 	}
 
@@ -380,6 +476,21 @@ func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, json.RawMessage(respBytes))
 }
 
+// responsesErrorEventPayload builds the payload for a Responses API "error"
+// SSE event: a flat object — {"type":"error","code":...,"message":...,
+// "param":...,"sequence_number":...} — matching the schema ai-sdk (OpenCode's
+// runtime) validates streamed events against. seq is the sequence number to
+// assign, normally one past the last event actually forwarded.
+func responsesErrorEventPayload(apiErr *api.APIError, seq int64) map[string]any {
+	return map[string]any{
+		"type":            "error",
+		"code":            apiErr.Code,
+		"message":         apiErr.Message,
+		"param":           nil,
+		"sequence_number": seq,
+	}
+}
+
 // handleResponsesStream writes a Server-Sent Events stream for the Responses API.
 // Each event is emitted as "data: <json>\n\n"; the stream is terminated with
 // "data: [DONE]\n\n" on success.
@@ -421,20 +532,22 @@ func (c *Controller) handleResponsesStream(
 		return writeSSERaw(eventType, data)
 	}
 
+	var lastSeq int64
 	for result := range events {
 		if result.Err != nil {
 			c.logger.Error(ctx, "responses stream error",
 				logging.Field{Key: "error", Value: result.Err.Error()},
 			)
 			apiErr := inferenceErrorResponse(result.Err)
-			_ = writeSSEEvent("error", map[string]any{
-				"error": map[string]string{
-					"type":    apiErr.Code,
-					"message": apiErr.Message,
-				},
-			})
+			// The Responses API "error" event is a flat object, not the
+			// chat-completions {"error":{...}} envelope; ai-sdk (OpenCode's
+			// runtime) validates streamed events against the Responses schema
+			// and raises AI_TypeValidationError on a mismatch, masking the
+			// real upstream message with a client-side schema error.
+			_ = writeSSEEvent("error", responsesErrorEventPayload(apiErr, lastSeq+1))
 			return
 		}
+		lastSeq = result.Event.SequenceNumber
 		// Use the provider's original JSON when available (e.g. Mantle pass-through)
 		// to avoid re-serializing the SDK's union types which don't round-trip cleanly.
 		if raw := result.Event.RawJSON(); raw != "" {
