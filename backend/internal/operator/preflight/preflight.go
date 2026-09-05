@@ -283,6 +283,9 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 			if className != r.Config.SPIREClassName {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
 			}
+			if failures, ok := statFailures(item.Object); ok && failures != "" {
+				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
+			}
 			orbitOwned++
 			continue
 		}
@@ -294,6 +297,38 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		return Check{Name: name, OK: false, Message: "no Orbit ClusterSPIFFEIDs found; is the orbit chart installed"}
 	}
 	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d Orbit registrations for class %s", orbitOwned, r.Config.SPIREClassName)}
+}
+
+// statFailures reads status.stats.entryFailures and podEntryRenderFailures
+// off a ClusterSPIFFEID; a nonzero count means the controller manager has
+// the object but isn't successfully turning it into SPIRE registration
+// entries. ok is false when status.stats isn't populated yet (a brand-new
+// object the controller hasn't reconciled once).
+func statFailures(obj map[string]any) (message string, ok bool) {
+	status, _ := obj["status"].(map[string]any)
+	stats, _ := status["stats"].(map[string]any)
+	if stats == nil {
+		return "", false
+	}
+	entryFailures := statInt(stats["entryFailures"])
+	podFailures := statInt(stats["podEntryRenderFailures"])
+	if entryFailures == 0 && podFailures == 0 {
+		return "", true
+	}
+	return fmt.Sprintf("entryFailures=%d podEntryRenderFailures=%d", entryFailures, podFailures), true
+}
+
+// statInt reads a numeric status field from unstructured JSON, which decodes
+// whole numbers as either int64 or float64 depending on the client path.
+func statInt(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	default:
+		return 0
+	}
 }
 
 func claimsAllManagedPods(spec map[string]any) bool {
