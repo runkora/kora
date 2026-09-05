@@ -1,8 +1,8 @@
 package operator
 
 // Install-time settings the chart passes through the environment, fixed for
-// the life of the process. Shared here instead of duplicated on every
-// aggregator and reconciler that names the system namespace.
+// the life of the process. Read by every aggregator and reconciler that
+// names the system namespace.
 var (
 	// systemNamespace is where Orbit's services and the aggregated registries live.
 	systemNamespace = "orbit-system"

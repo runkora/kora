@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,11 +48,17 @@ func (v *PodValidator) rejectionReason(pod *corev1.Pod, ns *corev1.Namespace) st
 	if !namespaceInjects(ns, v.IstioRevision) {
 		return fmt.Sprintf("namespace %q is not labeled for Istio injection (%s)", ns.Name, injectionLabelWanted(v.IstioRevision))
 	}
-	if pod.Annotations["sidecar.istio.io/inject"] == "false" {
+	// Istio's injector honors the label as well as the annotation.
+	if pod.Annotations["sidecar.istio.io/inject"] == "false" || pod.Labels["sidecar.istio.io/inject"] == "false" {
 		return "pod opts out of Istio sidecar injection (sidecar.istio.io/inject=false)"
 	}
 	if pod.Annotations["sidecar.istio.io/interceptionMode"] == "NONE" {
 		return "pod disables Istio traffic interception (interceptionMode=NONE)"
+	}
+	// A container named istio-proxy proves nothing; the injector's status
+	// annotation is written only when Istio itself rendered the sidecar.
+	if !strings.Contains(pod.Annotations["sidecar.istio.io/status"], `"istio-proxy"`) {
+		return "pod carries no sidecar.istio.io/status listing istio-proxy; Istio injection did not run"
 	}
 	if !hasContainer(pod, "istio-proxy") {
 		return "pod has no istio-proxy sidecar; Istio injection did not run"

@@ -10,7 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -247,14 +250,32 @@ func (r *Runner) systemNamespaceInjection(ctx context.Context) Check {
 	return Check{Name: name, OK: true, Message: "sidecar injection enabled"}
 }
 
+// svidRegistrationGrace bounds how long a fresh pod waits for its SPIRE
+// entry. The controller manager registers a pod a few seconds after it
+// exists; until then the Workload API answers PermissionDenied.
+const svidRegistrationGrace = 45 * time.Second
+
 // spireWorkloadAPI verifies that this pod can fetch an SVID.
 func (r *Runner) spireWorkloadAPI(ctx context.Context) Check {
 	const name = "spire-workload-api"
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	svid, err := workloadapi.FetchX509SVID(fetchCtx, workloadapi.WithAddr(r.Config.SPIFFESocket))
-	if err != nil {
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("fetch SVID over %s: %v (is the SPIFFE CSI driver installed and is the operator registered)", r.Config.SPIFFESocket, err)}
+	deadline := time.Now().Add(svidRegistrationGrace)
+	var svid *x509svid.SVID
+	for {
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		var err error
+		svid, err = workloadapi.FetchX509SVID(fetchCtx, workloadapi.WithAddr(r.Config.SPIFFESocket))
+		cancel()
+		if err == nil {
+			break
+		}
+		if status.Code(err) != codes.PermissionDenied || time.Now().After(deadline) {
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("fetch SVID over %s: %v (is the SPIFFE CSI driver installed and is the operator registered)", r.Config.SPIFFESocket, err)}
+		}
+		select {
+		case <-ctx.Done():
+			return Check{Name: name, OK: false, Message: "fetch SVID: " + ctx.Err().Error()}
+		case <-time.After(3 * time.Second):
+		}
 	}
 	if svid.ID.TrustDomain().Name() != r.Config.TrustDomain {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("SVID trust domain is %q, Orbit is configured for %q", svid.ID.TrustDomain().Name(), r.Config.TrustDomain)}
@@ -283,7 +304,7 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 			if className != r.Config.SPIREClassName {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
 			}
-			if failures, ok := statFailures(item.Object); ok && failures != "" {
+			if failures := statFailures(item.Object); failures != "" {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
 			}
 			orbitOwned++
@@ -302,20 +323,20 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 // statFailures reads status.stats.entryFailures and podEntryRenderFailures
 // off a ClusterSPIFFEID; a nonzero count means the controller manager has
 // the object but isn't successfully turning it into SPIRE registration
-// entries. ok is false when status.stats isn't populated yet (a brand-new
-// object the controller hasn't reconciled once).
-func statFailures(obj map[string]any) (message string, ok bool) {
+// entries. Missing status.stats fails too: the controller manager has not
+// reconciled the object, and the check runs again on the next interval.
+func statFailures(obj map[string]any) string {
 	status, _ := obj["status"].(map[string]any)
 	stats, _ := status["stats"].(map[string]any)
 	if stats == nil {
-		return "", false
+		return "no status.stats yet"
 	}
 	entryFailures := statInt(stats["entryFailures"])
 	podFailures := statInt(stats["podEntryRenderFailures"])
 	if entryFailures == 0 && podFailures == 0 {
-		return "", true
+		return ""
 	}
-	return fmt.Sprintf("entryFailures=%d podEntryRenderFailures=%d", entryFailures, podFailures), true
+	return fmt.Sprintf("entryFailures=%d podEntryRenderFailures=%d", entryFailures, podFailures)
 }
 
 // statInt reads a numeric status field from unstructured JSON, which decodes
@@ -340,30 +361,39 @@ func claimsAllManagedPods(spec map[string]any) bool {
 	}
 	ps, _ := spec["podSelector"].(map[string]any)
 	ml, _ := ps["matchLabels"].(map[string]any)
-	_, ok := ml["spiffe.io/spire-managed-identity"]
-	return ok
+	if _, ok := ml["spiffe.io/spire-managed-identity"]; ok {
+		return true
+	}
+	exprs, _ := ps["matchExpressions"].([]any)
+	for _, e := range exprs {
+		expr, _ := e.(map[string]any)
+		if key, _ := expr["key"].(string); key == "spiffe.io/spire-managed-identity" {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) webhooks(ctx context.Context) Check {
 	const name = "orbit-webhooks"
-	for _, name := range r.Config.WebhookNames {
+	for _, hook := range r.Config.WebhookNames {
 		var bundle []byte
 		var policy *admissionv1.FailurePolicyType
 		mw := &admissionv1.MutatingWebhookConfiguration{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: name}, mw); err == nil && len(mw.Webhooks) > 0 {
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: hook}, mw); err == nil && len(mw.Webhooks) > 0 {
 			bundle, policy = mw.Webhooks[0].ClientConfig.CABundle, mw.Webhooks[0].FailurePolicy
 		} else {
 			vw := &admissionv1.ValidatingWebhookConfiguration{}
-			if err := r.Client.Get(ctx, client.ObjectKey{Name: name}, vw); err != nil || len(vw.Webhooks) == 0 {
-				return Check{Name: name, OK: false, Message: fmt.Sprintf("webhook configuration %s not found", name)}
+			if err := r.Client.Get(ctx, client.ObjectKey{Name: hook}, vw); err != nil || len(vw.Webhooks) == 0 {
+				return Check{Name: name, OK: false, Message: fmt.Sprintf("webhook configuration %s not found", hook)}
 			}
 			bundle, policy = vw.Webhooks[0].ClientConfig.CABundle, vw.Webhooks[0].FailurePolicy
 		}
 		if len(bundle) == 0 {
-			return Check{Name: name, OK: false, Message: fmt.Sprintf("%s has no caBundle yet", name)}
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("%s has no caBundle yet", hook)}
 		}
 		if policy == nil || *policy != admissionv1.Fail {
-			return Check{Name: name, OK: false, Message: fmt.Sprintf("%s failurePolicy is not Fail yet", name)}
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("%s failurePolicy is not Fail yet", hook)}
 		}
 	}
 	return Check{Name: name, OK: true, Message: "both webhooks wired and fail closed"}
@@ -380,9 +410,31 @@ func firstNonEmpty(values ...string) string {
 
 // Loop runs the checks on an interval until ctx ends. Every replica may run it;
 // only the tenant reconciler (leader) acts on the result.
+//
+// A failed run is retried after RetryInterval rather than Interval. The
+// startup run on a fresh pod races SPIRE entry propagation (the controller
+// manager registers the pod a few seconds after it exists), and without the
+// short retry every operator restart leaves tenants Degraded for a full
+// Interval.
 type Loop struct {
-	Runner   *Runner
-	Interval time.Duration
+	Runner        *Runner
+	Interval      time.Duration
+	RetryInterval time.Duration
+}
+
+// defaultRetryInterval applies when RetryInterval is zero.
+const defaultRetryInterval = 15 * time.Second
+
+// nextDelay is how long to wait before the next run given the last result.
+func (l *Loop) nextDelay(ok bool) time.Duration {
+	if ok {
+		return l.Interval
+	}
+	retry := l.RetryInterval
+	if retry <= 0 {
+		retry = defaultRetryInterval
+	}
+	return min(retry, l.Interval)
 }
 
 // NeedLeaderElection reports false so a follower promoted to leader has a
@@ -390,19 +442,20 @@ type Loop struct {
 func (l *Loop) NeedLeaderElection() bool { return false }
 
 func (l *Loop) Start(ctx context.Context) error {
-	tick := time.NewTicker(l.Interval)
-	defer tick.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+		}
 		res := l.Runner.Run(ctx)
 		if res.OK() {
 			l.Runner.Logger.Info(ctx, "preflight passed")
 		} else {
 			l.Runner.Logger.Error(ctx, "preflight failed", logging.Field{Key: "failures", Value: res.Failures()})
 		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-tick.C:
-		}
+		timer.Reset(l.nextDelay(res.OK()))
 	}
 }

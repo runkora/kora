@@ -86,6 +86,10 @@ func main() {
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
 	install := oc.Current.Install
 
+	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
+	// route them through the injected logger instead of discarding them.
+	ctrl.SetLogger(logr.New(operator.NewLogSink(logger)))
+
 	mgr, err := initManager(restCfg)
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
@@ -241,10 +245,6 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 			CertDir: oc.Current.Operator.WebhookCertDir,
 		}),
 	}
-
-	// controller-runtime's own logger is discarded; the reconcilers log through
-	// the injected logging.Logger.
-	ctrl.SetLogger(logr.Discard())
 
 	return ctrl.NewManager(restCfg, opts)
 }

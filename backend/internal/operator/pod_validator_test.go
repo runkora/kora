@@ -10,6 +10,9 @@ import (
 
 func injectedPod() *corev1.Pod {
 	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			"sidecar.istio.io/status": `{"initContainers":["istio-validation","istio-proxy"],"containers":null}`,
+		}},
 		Spec: corev1.PodSpec{
 			InitContainers: []corev1.Container{{Name: "istio-validation"}, {Name: "istio-proxy"}},
 			Containers:     []corev1.Container{{Name: "sandbox-exec"}, {Name: containerIdentityProxy}, {Name: containerOPA}},
@@ -36,10 +39,16 @@ func TestValidator_RejectionReasons(t *testing.T) {
 		{"namespace wrong revision", "canary", map[string]string{"istio-injection": "enabled"}, nil, "istio.io/rev=canary"},
 		{"ambient namespace", "", map[string]string{"istio-injection": "enabled", "istio.io/dataplane-mode": "ambient"}, nil, "not labeled for Istio injection"},
 		{"pod opts out", "", map[string]string{"istio-injection": "enabled"}, func(p *corev1.Pod) {
-			p.Annotations = map[string]string{"sidecar.istio.io/inject": "false"}
+			p.Annotations["sidecar.istio.io/inject"] = "false"
 		}, "opts out"},
+		{"pod opts out by label", "", map[string]string{"istio-injection": "enabled"}, func(p *corev1.Pod) {
+			p.Labels = map[string]string{"sidecar.istio.io/inject": "false"}
+		}, "opts out"},
+		{"self-named istio-proxy without injector status", "", map[string]string{"istio-injection": "enabled"}, func(p *corev1.Pod) {
+			delete(p.Annotations, "sidecar.istio.io/status")
+		}, "no sidecar.istio.io/status"},
 		{"interception disabled", "", map[string]string{"istio-injection": "enabled"}, func(p *corev1.Pod) {
-			p.Annotations = map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}
+			p.Annotations["sidecar.istio.io/interceptionMode"] = "NONE"
 		}, "interceptionMode=NONE"},
 		{"no istio-proxy", "", map[string]string{"istio-injection": "enabled"}, func(p *corev1.Pod) {
 			p.Spec.InitContainers = nil

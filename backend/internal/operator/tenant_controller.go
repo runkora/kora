@@ -13,8 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -278,7 +280,9 @@ func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, n
 // Periodic reconciliation picks up rotations.
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&OrbitTenant{}).
+		// markReady patches status on every pass; without this predicate that
+		// patch re-enqueues the tenant and the reconciler spins.
+		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -392,13 +396,18 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 	case err != nil:
 		return fmt.Errorf("get namespace %q: %w", ns, err)
 	default:
-		// Namespace exists: ensure required labels are present.
-		if !hasRequiredLabels(existing.Labels, r.tenantNamespaceLabels(tenant)) {
+		// Namespace exists: ensure required labels are present and the
+		// injection label for the other Istio mode is gone. Istio's revision
+		// webhook only matches namespaces without istio-injection.
+		stale := staleInjectionLabel(r.IstioRevision)
+		_, hasStale := existing.Labels[stale]
+		if !hasRequiredLabels(existing.Labels, r.tenantNamespaceLabels(tenant)) || hasStale {
 			patch := client.MergeFrom(existing.DeepCopy())
 			if existing.Labels == nil {
 				existing.Labels = make(map[string]string)
 			}
 			maps.Copy(existing.Labels, r.tenantNamespaceLabels(tenant))
+			delete(existing.Labels, stale)
 			if err := r.Patch(ctx, existing, patch); err != nil {
 				return fmt.Errorf("patch namespace %q labels: %w", ns, err)
 			}
@@ -607,6 +616,15 @@ func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *Orbit
 // tenantNamespaceLabels returns the labels every tenant namespace must carry:
 // Orbit's markers, the Istio injection label for the configured revision, and
 // the Pod Security Admission levels. Re-applied on every reconcile.
+// staleInjectionLabel is the Istio injection label the configured mode does
+// not use: istio-injection under a named revision, istio.io/rev otherwise.
+func staleInjectionLabel(revision string) string {
+	if revision != "" {
+		return "istio-injection"
+	}
+	return "istio.io/rev"
+}
+
 func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
 	labels := map[string]string{
 		"spiffe.io/spire-managed":      "true",

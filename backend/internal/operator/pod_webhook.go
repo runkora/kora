@@ -112,6 +112,13 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName string) error {
 	pod.Labels[podLabelIdentityProxy] = "enabled"
 	pod.Annotations[podAnnotationTenantID] = tenantName
 
+	// Orbit's own containers below are overwritten by name. Istio's are not
+	// Orbit's to overwrite, and a pod that declares them itself is trying to
+	// stand in for the sidecar; refuse it rather than let it through.
+	if name := preDeclaredIstioContainer(&pod.Spec); name != "" {
+		return fmt.Errorf("pod declares its own %q container; Istio injects that", name)
+	}
+
 	proxyCfg, err := mergeProxyConfig(pod.Annotations[podAnnotationProxyConfig])
 	if err != nil {
 		return fmt.Errorf("merge %s: %w", podAnnotationProxyConfig, err)
@@ -296,6 +303,20 @@ func ensureVolume(spec *corev1.PodSpec, v corev1.Volume) {
 		}
 	}
 	spec.Volumes = append(spec.Volumes, v)
+}
+
+// preDeclaredIstioContainer returns the first container or init container
+// named like one Istio injects, or "" when there is none.
+func preDeclaredIstioContainer(spec *corev1.PodSpec) string {
+	for _, list := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range list {
+			switch c.Name {
+			case "istio-proxy", "istio-validation", "istio-init":
+				return c.Name
+			}
+		}
+	}
+	return ""
 }
 
 func ensureContainer(spec *corev1.PodSpec, c corev1.Container) {

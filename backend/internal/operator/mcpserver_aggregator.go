@@ -291,7 +291,9 @@ func (a *MCPServerAggregator) upsertConfigMap(ctx context.Context, entries []mcp
 			a.logger.Debug(ctx, "aggregated MCP servers unchanged, skipping update")
 			return nil
 		}
-		patch := client.MergeFrom(existing.DeepCopy())
+		// Two controllers share this aggregator; the lock turns a stale
+		// writer into a conflict and requeue instead of a silent overwrite.
+		patch := client.MergeFromWithOptions(existing.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		if existing.Data == nil {
 			existing.Data = make(map[string]string)
 		}

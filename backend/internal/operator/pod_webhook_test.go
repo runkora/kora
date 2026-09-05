@@ -102,6 +102,19 @@ func TestMutate_AttachesEnforcement(t *testing.T) {
 	}
 }
 
+// TestMutate_RejectsPreDeclaredIstioContainers: a pod that ships its own
+// istio-proxy is standing in for the sidecar; with failurePolicy Fail the
+// error becomes a denial.
+func TestMutate_RejectsPreDeclaredIstioContainers(t *testing.T) {
+	for _, name := range []string{"istio-proxy", "istio-validation", "istio-init"} {
+		pod := sandboxLikePod()
+		pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{Name: name, Image: "busybox"})
+		if err := testMutator().mutate(pod, "example"); err == nil {
+			t.Errorf("pod declaring %q was mutated instead of rejected", name)
+		}
+	}
+}
+
 func TestMutate_Idempotent(t *testing.T) {
 	m := testMutator()
 	pod := sandboxLikePod()
