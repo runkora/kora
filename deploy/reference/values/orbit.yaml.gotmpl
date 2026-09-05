@@ -140,6 +140,13 @@ agents:
     otlpInsecure: {{ $svc.otlpInsecure | quote }}
     logFormat: {{ $svc.logFormat | quote }}
     sessionManagerPostgresSSLMode: {{ $svc.postgresSSLMode | quote }}
+    {{- /* Without $tag the chart falls back to <registry>/orbit-*:<AppVersion>, which is
+    correct for a published release (appVersion = release tag) but not for a local build,
+    where imageTag pins the pushed :latest tag explicitly. */}}
+    {{- with $tag }}
+    sessionManagerImage: {{ printf "%s/orbit-session-manager:%s" $.Values.orbit.imageRegistry . | quote }}
+    sandboxImage: {{ printf "%s/orbit-sandbox-exec:%s" $.Values.orbit.imageRegistry . | quote }}
+    {{- end }}
   {{- with (.Values.agents | get "runtimePods" dict) }}
   runtimePods:
     {{- toYaml . | nindent 4 }}
