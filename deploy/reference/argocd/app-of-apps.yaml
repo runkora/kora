@@ -1,5 +1,8 @@
 # Use sync waves to install releases in dependency order.
-# Set repoURL and values paths for your GitOps repository.
+# The orbit Application's second source is a placeholder: replace repoURL with
+# your own GitOps values repository, holding a values/orbit.yaml with your
+# database, redis, hosts and bedrock settings (deploy/reference/values/orbit.yaml.gotmpl
+# is the Helmfile equivalent of that same content).
 # Configure OCI registry credentials when required.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -35,8 +38,44 @@ spec:
     chart: spire
     targetRevision: 0.28.3
     helm:
-      valueFiles:
-        - $values/deploy/reference/rendered/spire.yaml
+      values: |
+        global:
+          spire:
+            trustDomain: orbit.example.com
+            clusterName: orbit
+        spire-server:
+          controllerManager:
+            identities:
+              clusterSPIFFEIDs:
+                # The chart's catch-all registration would race Orbit's own.
+                default:
+                  enabled: false
+          nodeAttestor:
+            k8sPSAT:
+              enabled: true
+              clusters:
+                orbit:
+                  service_account_allow_list:
+                    - spire-system:spire-agent
+        spire-agent:
+          sds:
+            enabled: true
+            defaultSVIDName: default
+            defaultBundleName: ROOTCA
+            defaultAllBundlesName: ALL
+          nodeAttestor:
+            k8sPSAT:
+              enabled: true
+          workloadAttestors:
+            k8s:
+              enabled: true
+              skipKubeletVerification: true
+              disableContainerSelectors: true
+              useNewContainerLocator: false
+        spiffe-csi-driver:
+          enabled: true
+        spire-controller-manager:
+          enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: spire-system
@@ -140,13 +179,20 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  source:
-    repoURL: ghcr.io/clear-route/charts
-    chart: orbit
-    targetRevision: 0.0.0
-    helm:
-      valueFiles:
-        - $values/deploy/reference/rendered/orbit.yaml
+  # orbit's values are environment-specific (database, redis, hosts, bedrock
+  # accounts) the same way Flux's sibling example takes them from a
+  # consumer-owned ConfigMap; there is nothing generic to inline here. Point
+  # the second source at your own GitOps values repository and path.
+  sources:
+    - repoURL: ghcr.io/clear-route/charts
+      chart: orbit
+      targetRevision: 0.0.0
+      helm:
+        valueFiles:
+          - $values/orbit.yaml
+    - repoURL: https://github.com/your-org/your-gitops-values
+      targetRevision: HEAD
+      ref: values
   destination:
     server: https://kubernetes.default.svc
     namespace: orbit-system
