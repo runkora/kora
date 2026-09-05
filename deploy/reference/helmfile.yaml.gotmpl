@@ -1,8 +1,10 @@
 # Reference release order for SPIRE, Istio, and Orbit.
 environments:
   local:
-    # local.generated.yaml comes from scripts/cluster/resolve-docker-ips.sh.
-    missingFileHandler: Warn
+    # local.generated.yaml comes from scripts/cluster/resolve-docker-ips.sh
+    # (make up). Without it identity has no Dex hostAlias and the external
+    # services policy is empty, which default-deny turns into a broken install.
+    missingFileHandler: Error
     values:
       - environments/local.yaml
       - environments/local.generated.yaml
@@ -14,6 +16,9 @@ helmDefaults:
   wait: true
   timeout: 600
   createNamespace: true
+  {{- with (.Values | get "kubeContext" "") }}
+  kubeContext: {{ . }}
+  {{- end }}
 
 repositories:
   - name: spiffe
@@ -80,6 +85,9 @@ releases:
         showlogs: true
         command: kubectl
         args:
+          {{- with (.Values | get "kubeContext" "") }}
+          - --context={{ . }}
+          {{- end }}
           - label
           - --overwrite
           - namespace

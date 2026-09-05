@@ -449,10 +449,19 @@ if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "orbit-registry"; th
   echo "  k3d owns it, so the cluster is down. Bring it up with: make up" >&2
   exit 1
 fi
+# Every kubectl and helmfile call below uses the current context. Refuse
+# anything but the local cluster: a default context left on a shared cluster
+# would receive the rollout. ORBIT_KUBE_CONTEXT overrides the expected name.
+EXPECTED_CONTEXT="${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"
+CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || echo '<none>')"
+if [ "$CURRENT_CONTEXT" != "$EXPECTED_CONTEXT" ]; then
+  err "kubectl context is '$CURRENT_CONTEXT', expected '$EXPECTED_CONTEXT'."
+  echo "  Run with KUBECONFIG pointed at the local cluster, or set ORBIT_KUBE_CONTEXT." >&2
+  exit 1
+fi
 if ! kubectl cluster-info >/dev/null 2>&1; then
-  err "No reachable Kubernetes cluster for the current kubectl context."
-  echo "  Context: $(kubectl config current-context 2>/dev/null || echo '<none>') (expected k3d-orbit-local)" >&2
-  echo "  Bring the cluster up with 'make up', or switch context." >&2
+  err "No reachable Kubernetes cluster for context '$CURRENT_CONTEXT'."
+  echo "  Bring the cluster up with 'make up'." >&2
   exit 1
 fi
 
@@ -493,11 +502,13 @@ if [ "$NO_BUILD" -eq 0 ]; then
   ok "localhost:5001/$IMAGE:{latest,$GIT_SHA}"
 fi
 
-# Resolve the digest we'll pin the deployment to. Even with NO_BUILD=1 we still
-# want a deterministic image reference, so query the registry. `docker buildx
-# imagetools inspect --format` is unreliable across versions, so just grep the
-# default output for the Digest line.
-if [ "$BUILD_ONLY" -eq 0 ] && [ "$RESTART" = "true" ] && [ "$WORKLOAD" != "on-demand" ]; then
+# Resolve the pushed digest: it pins the workload below and is recorded for
+# Helmfile. Build-only runs (make up's missing-image pass) record it too, or
+# a fresh cluster would render digests from the previous registry. Even with
+# NO_BUILD=1 the registry is queried for a deterministic reference.
+# `docker buildx imagetools inspect --format` is unreliable across versions,
+# so grep the default output for the Digest line.
+if [ -n "$VALUES_KEY" ] || { [ "$RESTART" = "true" ] && [ "$WORKLOAD" != "on-demand" ]; }; then
   DIGEST="$(docker buildx imagetools inspect "localhost:5001/$IMAGE:latest" 2>/dev/null \
     | awk '/^Digest:/ {print $2; exit}')"
 fi
