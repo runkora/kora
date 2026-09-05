@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -522,6 +523,16 @@ decision_logs:
   console: true
 `, systemNamespace, minDelay, maxDelay)
 
+	// --authorization=basic (pod_webhook.go) applies to every listener the
+	// process serves, diagnostics included: without this rule the liveness
+	// and readiness probes on the diagnostic port get denied too.
+	const authzRego = `package system.authz
+
+default allow := false
+
+allow if input.path == ["health"]
+`
+
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "orbit-opa-config",
@@ -533,6 +544,7 @@ decision_logs:
 		},
 		Data: map[string]string{
 			"config.yaml": opaConfigYAML,
+			"authz.rego":  authzRego,
 		},
 	}
 
@@ -552,8 +564,11 @@ decision_logs:
 		return fmt.Errorf("get orbit-opa-config in %q: %w", ns, err)
 	}
 
-	// Update if data has drifted.
-	if existing.Data["config.yaml"] != opaConfigYAML {
+	// Update if data has drifted. Compares the whole map, not one key: an
+	// existing ConfigMap could be missing a key added since it was written
+	// (config.yaml unchanged, authz.rego new) and a single-key comparison
+	// would never see that as drift.
+	if !reflect.DeepEqual(existing.Data, desired.Data) {
 		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Data = desired.Data
 		if err := r.Patch(ctx, existing, patch); err != nil {

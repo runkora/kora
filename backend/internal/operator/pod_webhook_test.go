@@ -90,6 +90,9 @@ func TestMutate_AttachesEnforcement(t *testing.T) {
 	if !containsArg(opa.Args, "--addr=127.0.0.1:8181") {
 		t.Errorf("OPA REST API must bind loopback, args = %v", opa.Args)
 	}
+	if !containsArg(opa.Args, "--authorization=basic") {
+		t.Errorf("OPA REST API must require authorization, args = %v", opa.Args)
+	}
 	for _, c := range []corev1.Container{*containerByName(pod, containerIdentityProxy), *opa} {
 		sc := c.SecurityContext
 		if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation ||

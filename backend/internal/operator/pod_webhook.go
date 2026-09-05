@@ -31,7 +31,7 @@ const (
 	podAnnotationProxyConfig     = "proxy.istio.io/config"
 	podAnnotationUserVolumeMount = "sidecar.istio.io/userVolumeMount"
 
-	spiffeSocketPath  = "unix:///var/run/secrets/workload-spiffe-uds/socket"
+	spiffeSocketPath  = "unix:///run/secrets/workload-spiffe-uds/socket"
 	spiffeSocketMount = "/run/secrets/workload-spiffe-uds"
 	identityProxyMnt  = "/run/orbit"
 
@@ -194,8 +194,14 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			"run", "--server",
 			"--config-file=/config/config.yaml",
 			"--addr=127.0.0.1:8181",
+			// Binding to loopback only blocks other pods; the agent container
+			// shares this pod's network namespace and can still reach 8181.
+			// No policy defines system.authz.allow, so this denies every
+			// request the loopback bind alone would let the agent make.
+			"--authorization=basic",
 			"--diagnostic-addr=0.0.0.0:8282",
 			"--log-level=" + m.Config.OPALogLevel,
+			"/config/authz.rego",
 		},
 		Env: []corev1.EnvVar{{
 			Name: "ORBIT_TENANT_ID",
