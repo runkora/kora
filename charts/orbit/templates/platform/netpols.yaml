@@ -181,7 +181,12 @@ metadata:
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  # Only the operator and orbit-agents call the API server directly.
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [orbit-operator, orbit-agents]
   policyTypes:
     - Egress
   egress:
