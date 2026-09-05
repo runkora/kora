@@ -104,12 +104,12 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(15012)},
 					},
 				},
-				// orbit-system services. The mesh sidecars (identity-proxy,
-				// opa) injected into the sandbox need to call orbit-identity
-				// (for SVID→token exchange + JWKS) and orbit-policy-service
-				// (for OPA bundle polling and route registration). These are
-				// platform-internal calls — not agent traffic — so they
-				// bypass the credential broker by design.
+				// orbit-identity and orbit-policy-service, on their own ports
+				// only: the mesh sidecars (identity-proxy for SVID→token
+				// exchange and JWKS, opa for bundle polling and route
+				// registration) call these platform-internal endpoints
+				// directly, bypassing the credential broker by design. Not
+				// agent traffic.
 				//
 				// Critically, the sandbox-exec container's user code does
 				// NOT reach orbit-system this way: the sandbox Envoy
@@ -125,7 +125,30 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 									"kubernetes.io/metadata.name": systemNamespace,
 								},
 							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"app": "orbit-identity"},
+							},
 						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(8080)},
+					},
+				},
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": systemNamespace,
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"app": "orbit-policy-service"},
+							},
+						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(8083)},
 					},
 				},
 				// NOTE: there is deliberately NO kube-API egress rule here. A

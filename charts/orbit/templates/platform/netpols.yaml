@@ -247,16 +247,14 @@ spec:
             matchLabels:
               {{- include "orbit.gatewayWorkloadSelector" $ | nindent 14 }}
       ports:
-        # Allow gateway traffic to Orbit backends.
+        # Allow gateway traffic to Orbit backends. Scoped to the ports the
+        # VirtualService actually routes to; policy-service and
+        # policy-gateway have no external route.
         - port: 3000
           protocol: TCP
         - port: 8080
           protocol: TCP
         - port: 8081
-          protocol: TCP
-        - port: 8083
-          protocol: TCP
-        - port: 8084
           protocol: TCP
         - port: 8096
           protocol: TCP
