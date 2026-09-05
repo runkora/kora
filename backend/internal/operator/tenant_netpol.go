@@ -5,8 +5,8 @@
 // targets pods labeled orbit.io/role=sandbox in the tenant namespace and
 // constrains their egress to:
 //
-//   - DNS (port 53) — service discovery, including resolving the gateway
-//   - The egress-gateway in orbit-system on its CONNECT port — the only
+//   - DNS (port 53): service discovery, including resolving the gateway
+//   - The egress-gateway in orbit-system on its CONNECT port: the only
 //     governed egress path
 //
 // All other egress is denied. The default-deny posture is implicit: a
@@ -64,7 +64,7 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
-				// DNS — to CoreDNS only (kube-system, k8s-app=kube-dns), NOT
+				// DNS: to CoreDNS only (kube-system, k8s-app=kube-dns), NOT
 				// 53-to-anywhere. An open 53 lets a hostile agent tunnel data
 				// out via an arbitrary upstream resolver; restricting to the
 				// in-cluster resolver removes that path (residual: CoreDNS ->
@@ -87,7 +87,7 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 				},
 				// istiod xDS (15012). The sandbox is in the mesh; without
 				// this its Envoy sidecar can't fetch Listener/Cluster/Route
-				// config and fails its postStart probe — which in turn drags
+				// config and fails its postStart probe, which in turn drags
 				// every other container in the pod down. Without xDS the
 				// pod literally cannot start.
 				{
@@ -158,13 +158,13 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 				// istiod, not in the pod. An earlier `ipBlock 0.0.0.0/0` on
 				// 443/6443 (added to reach the host-networked API server)
 				// reopened the entire internet on 443 and let tools bypass the
-				// egress gateway entirely — defeating the chokepoint. If a
+				// egress gateway entirely, defeating the chokepoint. If a
 				// future component genuinely needs the API server, scope it to
 				// the resolved `kubernetes` Service ClusterIP (/32 on 443) and
-				// Endpoints (/32 on 6443) — never 0.0.0.0/0.
+				// Endpoints (/32 on 6443), never 0.0.0.0/0.
 				//
 				// The egress gateway in orbit-system. We match by namespace
-				// label + service name (via pod label) — Kubernetes
+				// label + service name (via pod label): Kubernetes
 				// NetworkPolicy does not have a native "Service" matcher,
 				// but the gateway's pods carry an app=orbit-egress-gateway
 				// label set by its chart so this selects them.

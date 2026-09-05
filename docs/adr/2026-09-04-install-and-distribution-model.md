@@ -128,7 +128,7 @@ The operator's ClusterRole, complete, including the rows the companion ADR's web
 | coordination.k8s.io | leases | get, create, update | leader election |
 | core | events | create, patch | controller-runtime |
 
-Secrets and ConfigMaps are excluded from the informer cache entirely (`client.CacheOptions.DisableFor`), so the operator never holds an in-memory watch of every Secret in the cluster; every read goes straight to the API server. This bounds memory, not authorization: RBAC (Decision 1's table) is what actually limits which Secrets and ConfigMaps the operator can touch, and today that table is a cluster-wide grant, not one scoped to Orbit's namespaces — see [#269](https://github.com/clear-route/orbit/issues/269). The tenant reconciler does not watch Secrets at all; a rotated OIDC client Secret or Connection credential is picked up on the periodic reconcile.
+Secrets and ConfigMaps are excluded from the informer cache entirely (`client.CacheOptions.DisableFor`), so the operator never holds an in-memory watch of every Secret in the cluster; every read goes straight to the API server. This bounds memory, not authorization: RBAC (Decision 1's table) is what actually limits which Secrets and ConfigMaps the operator can touch, and today that table is a cluster-wide grant, not one scoped to Orbit's namespaces (tracked as [#269](https://github.com/clear-route/orbit/issues/269)). The tenant reconciler does not watch Secrets at all; a rotated OIDC client Secret or Connection credential is picked up on the periodic reconcile.
 
 ### Decision 2: Chart topology
 

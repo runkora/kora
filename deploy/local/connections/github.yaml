@@ -11,6 +11,6 @@ spec:
   secretRef: github-app-key
   secretKey: key.pem
   config:
-    app_id: "4015347"          # string — your GitHub App's App ID
-    installation_id: 139299720 # number — the installation on your org/repos
+    app_id: "4015347"          # string: your GitHub App's App ID
+    installation_id: 139299720 # number: the installation on your org/repos
     owner: clear-route         # Restrict repository access to this owner.

@@ -81,7 +81,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &OrbitTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — re-run every aggregator so the removed tenant is no
+			// CR deleted: re-run every aggregator so the removed tenant is no
 			// longer served (registry, OIDC secrets, CAs, connections, MCP
 			// servers, OAuth clients).
 			for _, sync := range []func(context.Context) error{
@@ -109,14 +109,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logging.Field{Key: "phase", Value: tenant.Status.Phase},
 	)
 
-	// Handle suspended tenants — update registry and status, no namespace work.
+	// Handle suspended tenants: update registry and status, no namespace work.
 	if !tenant.Spec.Active {
 		return r.reconcileSuspended(ctx, tenant)
 	}
 
 	// Only transition to Provisioning from an initial/unset state. Once the
 	// tenant has reached Ready, we do not regress it to Provisioning at the
-	// start of every reconcile — that would generate a status patch, trigger a
+	// start of every reconcile, since that would generate a status patch, trigger a
 	// new reconcile event, and produce an infinite Ready↔Provisioning loop.
 	if tenant.Status.Phase == "" || tenant.Status.Phase == TenantPhasePending {
 		if err := r.setTenantPhase(ctx, tenant, TenantPhaseProvisioning); err != nil {
@@ -156,7 +156,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"Synced", "orbit-tenants ConfigMap updated")
 
 	// Steps 3-7: per-tenant resource ensure-steps. Each follows the same
-	// failure shape — log, degrade, requeue — so they're collapsed into a
+	// failure shape: log, degrade, requeue. They're collapsed into a
 	// table rather than duplicating the boilerplate per step.
 	steps := []reconcileStep{
 		{
@@ -180,19 +180,19 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Lock sandbox egress to the per-tenant gateway. Without this
 			// the structural credential-isolation guarantee weakens to a
-			// convention — agents could dial external hosts directly.
+			// convention: agents could dial external hosts directly.
 			name: "sandbox egress NetworkPolicy",
 			run:  func(ctx context.Context) error { return r.ensureSandboxEgressPolicy(ctx, tenant) },
 		},
 		{
-			// Aggregated OIDC client secrets — confidential tenants need
+			// Aggregated OIDC client secrets: confidential tenants need
 			// their client_secret available to the identity service
 			// without a pod restart.
 			name: "aggregated client secrets",
 			run:  func(ctx context.Context) error { return r.Aggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated tenant CAs — pods can only mount Secrets from
+			// Aggregated tenant CAs: pods can only mount Secrets from
 			// their own namespace, so the per-tenant orbit-tenant-ca
 			// Secrets are aggregated into one orbit-system Secret the
 			// egress gateway projects.
@@ -200,7 +200,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated connections — each tenant's Connection CRs (and
+			// Aggregated connections: each tenant's Connection CRs (and
 			// their referenced Secrets) are aggregated into the
 			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
 			// Secret in orbit-system the egress gateway mounts (Amendment 3).
@@ -208,7 +208,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated MCP servers — every MCPServer CR across all namespaces
+			// Aggregated MCP servers: every MCPServer CR across all namespaces
 			// is rendered into the orbit-mcp-servers ConfigMap in orbit-system
 			// the tool-gateway mounts. Re-aggregated here so a tenant suspend /
 			// reactivate includes/excludes that tenant's servers.
@@ -216,7 +216,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.MCPAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated OAuth clients — each tenant's OAuthClient CRs are
+			// Aggregated OAuth clients: each tenant's OAuthClient CRs are
 			// rendered into the orbit-tenant-oauth-clients ConfigMap in
 			// orbit-system the identity service mounts, so a pre-registered
 			// hosted-app client appears without a pod restart. Re-aggregated
@@ -252,7 +252,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logging.Field{Key: "namespace", Value: ns},
 	)
 
-	// Periodic re-check every 5 minutes — catches namespace label drift.
+	// Periodic re-check every 5 minutes: catches namespace label drift.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
@@ -392,7 +392,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 	case err != nil:
 		return fmt.Errorf("get namespace %q: %w", ns, err)
 	default:
-		// Namespace exists — ensure required labels are present.
+		// Namespace exists: ensure required labels are present.
 		if !hasRequiredLabels(existing.Labels, r.tenantNamespaceLabels(tenant)) {
 			patch := client.MergeFrom(existing.DeepCopy())
 			if existing.Labels == nil {

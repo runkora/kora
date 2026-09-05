@@ -13,7 +13,7 @@
 #
 # Health checks and OIDC/JWKS discovery are bypassed by Rego.
 #
-# failure_mode_allow: false — fail-closed (zero trust). If OPA is unreachable
+# failure_mode_allow: false. Fail-closed (zero trust). If OPA is unreachable
 # or times out, the request is denied. The OPA readiness probe gates pod
 # readiness on bundle activation so traffic only arrives after the bundle loads.
 #

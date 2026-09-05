@@ -36,7 +36,7 @@ spec:
         openAPIV3Schema:
           description: >
             Connection declares the credential-source identity of one external
-            service the Orbit egress gateway brokers for a tenant (GitOps —
+            service the Orbit egress gateway brokers for a tenant (GitOps,
             Amendment 3 of the JIT credential-brokering ADR). It carries the
             adapter, the upstream base host, a reference to a Kubernetes Secret
             (a name, never a value), and adapter-specific config. The operator
@@ -67,15 +67,15 @@ spec:
                     )
                   message: >-
                     kubernetes connections must use a DNS hostname as baseHost, not a
-                    bare IPv4 address — TLS to an IP literal carries no SNI, so the
+                    bare IPv4 address. TLS to an IP literal carries no SNI; the
                     sandbox's transparent-egress interception can never authorize it.
               properties:
                 adapter:
                   description: >
                     Credential mechanism selector (e.g. "github_app",
                     "passthrough"). Validated by the gateway's adapter registry
-                    at resolve time, not by this schema — adding an adapter must
-                    not require a CRD bump.
+                    at resolve time, not by this schema, so adding an adapter
+                    does not require a CRD bump.
                   type: string
                   minLength: 1
                 baseHost:
@@ -88,14 +88,14 @@ spec:
                   description: >
                     Name of a Kubernetes Secret in this namespace holding the
                     connection's secret material (e.g. the GitHub App private
-                    key). A name, never a value — the material is materialised by
+                    key). A name, never a value; the material is materialised by
                     the deployer's secret pipeline.
                   type: string
                   minLength: 1
                 secretKey:
                   description: >
                     Which data key inside the referenced Secret holds the
-                    material. Optional — when omitted and the Secret has exactly
+                    material. Optional; when omitted and the Secret has exactly
                     one key, that key is used.
                   type: string
                 config:

@@ -37,7 +37,7 @@ spec:
       schema:
         openAPIV3Schema:
           description: >
-            MCPServer declares one MCP server Orbit governs (GitOps — there is no
+            MCPServer declares one MCP server Orbit governs (GitOps; there is no
             create API). Apply it in orbit-system for a platform-global server
             (e.g. the Orbit MCP) or in a tenant namespace for a tenant's own
             server. The operator aggregates every MCPServer into the
@@ -92,7 +92,7 @@ spec:
                     forwarded; the server acts as itself with its own backend
                     credential. "forward": the gateway forwards the caller's
                     bearer so the server acts AS the caller against first-party
-                    Orbit APIs. ENFORCED GLOBAL-ONLY — a tenant-namespaced CR
+                    Orbit APIs. ENFORCED GLOBAL-ONLY: a tenant-namespaced CR
                     that sets "forward" is rejected at reconcile (status Invalid).
                   type: string
                   enum:
@@ -102,7 +102,7 @@ spec:
               type: object
               properties:
                 phase:
-                  description: Reconciliation phase — Pending, Aggregated, or Invalid.
+                  description: "Reconciliation phase: Pending, Aggregated, or Invalid."
                   type: string
                 lastReconciledAt:
                   type: string

@@ -40,7 +40,7 @@ container_ip() {
   fi
 
   if [[ -z "${ip}" ]]; then
-    die "Could not resolve IP for container '${name}' — is it running? (make dev-up)"
+    die "Could not resolve IP for container '${name}': is it running? (make dev-up)"
   fi
   echo "${ip}"
 }
@@ -62,7 +62,7 @@ SUBNET="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
 
 if [[ -z "${SUBNET}" ]]; then
-  die "Could not detect orbit-network subnet — is the network created? (make dev-up)"
+  die "Could not detect orbit-network subnet: is the network created? (make dev-up)"
 fi
 ok "orbit-network:  ${SUBNET}"
 
@@ -88,7 +88,7 @@ kubectl get configmap coredns -n kube-system -o json \
 
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS NodeHosts patched — orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
+ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
 
 # ── Write the generated environment file ────────────────────────────────────
 # Preserves digest pins redeploy.sh writes under `images`.

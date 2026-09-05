@@ -65,7 +65,7 @@ spec:
                   description: >
                     Stable, human-readable client identifier the app presents at
                     the authorize and token endpoints (e.g. "example-app"). MUST
-                    be unique across the whole authorization server — the identity
+                    be unique across the whole authorization server: the identity
                     service resolves clients by client_id alone, not scoped by
                     tenant.
                   type: string

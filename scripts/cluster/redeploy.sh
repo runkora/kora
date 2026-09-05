@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# redeploy.sh — Build, push, and restart a single Orbit service in the k3d
+# redeploy.sh: build, push, and restart a single Orbit service in the k3d
 # cluster. Driven by the per-service registry below so every service uses the
 # same entry point, and edge cases (identity's mkcert CA layer, session-manager
 # living in a tenant namespace as a StatefulSet, sandbox-exec being build-only)
@@ -34,7 +34,7 @@ info() { printf "%s\n" "${C_BLUE}ℹ $*${C_RESET}"; }
 
 usage() {
   cat <<EOF
-${C_BOLD}redeploy.sh${C_RESET} — build, push, and restart an Orbit service.
+${C_BOLD}redeploy.sh${C_RESET}: build, push, and restart an Orbit service.
 
 Usage:
   $0 <service> [--tenant <slug>] [--build-only] [--no-build]
@@ -250,7 +250,7 @@ tenant_default=example
 EOF
       ;;
     sandbox-exec)
-      # No long-lived workload — sandbox-exec pods are created on demand by the
+      # No long-lived workload; sandbox-exec pods are created on demand by the
       # session-manager. Push the new image and let the next run pick it up.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-exec
@@ -269,7 +269,7 @@ EOF
 list_services() {
   cat <<'EOF'
 identity            (deployment, orbit-system, +mkcert CA layer)
-identity-proxy      (sidecar — restart by deleting injected pods)
+identity-proxy      (sidecar; restart by deleting injected pods)
 inference-gateway   (deployment, orbit-system)
 policy-service      (deployment, orbit-system)
 policy-gateway      (deployment, orbit-system)
@@ -282,7 +282,7 @@ orbit-triggers      (deployment, orbit-system)
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
-sandbox-exec        (build-only — picked up by next agent run)
+sandbox-exec        (build-only; picked up by next agent run)
 EOF
 }
 
@@ -299,19 +299,19 @@ pin_workload() {
   local containers container_name current
 
   # `|| true`: under `set -euo pipefail` a missing workload would otherwise kill
-  # the script mid-run with no message — reachable when a chart hasn't created
+  # the script mid-run with no message; reachable when a chart hasn't created
   # the Deployment yet, or on a cluster predating an extra_workloads entry.
   containers=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
     -o jsonpath='{range .spec.template.spec.containers[*]}{.name} {.image}{"\n"}{end}' 2>/dev/null || true)
   if [ -z "$containers" ]; then
-    info "$workload not found in $NAMESPACE — skipping rollout"
+    info "$workload not found in $NAMESPACE; skipping rollout"
     return 0
   fi
 
   # Match the container running *this* image rather than taking the first one.
   # Deployment specs are single-container today (istio/identity-proxy sidecars
   # are injected at admission, so they never appear here), but the publisher's
-  # container is named for its image, not its workload — never match on $name.
+  # container is named for its image, not its workload; never match on $name.
   container_name=$(printf '%s\n' "$containers" | grep -E "/${IMAGE}[@:]" | awk '{print $1; exit}' || true)
   if [ -z "$container_name" ]; then
     container_name=$(printf '%s\n' "$containers" | awk 'NF {print $1; exit}')
@@ -324,7 +324,7 @@ pin_workload() {
     # the runtime-stage export isn't deterministic (timestamps, layer order).
     current=$(printf '%s\n' "$containers" | awk -v c="$container_name" '$1 == c {print $2; exit}')
     if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
-      ok "$workload already at $IMAGE@${DIGEST:0:19} — no rollout needed"
+      ok "$workload already at $IMAGE@${DIGEST:0:19}; no rollout needed"
       return 0
     fi
     log "Pinning $workload ($container_name) to $IMAGE@${DIGEST:0:19}..."
@@ -346,7 +346,7 @@ pin_workload() {
 
 layer_mkcert_ca() {
   if [ ! -f secrets/mkcert-ca.pem ]; then
-    info "secrets/mkcert-ca.pem not found — skipping CA layer (Dex TLS trust may break)"
+    info "secrets/mkcert-ca.pem not found; skipping CA layer (Dex TLS trust may break)"
     return 0
   fi
   log "Layering mkcert CA into orbit-identity for local Dex TLS trust..."
@@ -458,10 +458,10 @@ fi
 
 # ── build + push ──────────────────────────────────────────────────────────────
 
-# git-sha tag for this build — both :latest and :<sha> get pushed, and rollouts
+# git-sha tag for this build; both :latest and :<sha> get pushed, and rollouts
 # use the @sha256 digest so kubectl describe shows the actual image and there's
 # no chance of pulling a stale :latest. SHA may include "-dirty" if the worktree
-# has uncommitted changes — that's intentional, the image differs from HEAD.
+# has uncommitted changes; that's intentional, the image differs from HEAD.
 GIT_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if [ -n "$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null)" ]; then
   GIT_SHA="${GIT_SHA}-dirty"
@@ -512,12 +512,12 @@ fi
 # ── restart ───────────────────────────────────────────────────────────────────
 
 if [ "$BUILD_ONLY" -eq 1 ]; then
-  ok "$SERVICE built and pushed (build-only) — tag $GIT_SHA"
+  ok "$SERVICE built and pushed (build-only); tag $GIT_SHA"
   exit 0
 fi
 
 if [ "$RESTART" != "true" ]; then
-  ok "$SERVICE built and pushed — no long-lived workload to restart (picked up on next run)"
+  ok "$SERVICE built and pushed; no long-lived workload to restart (picked up on next run)"
   exit 0
 fi
 
@@ -525,7 +525,7 @@ case "$WORKLOAD" in
   sidecar)
     # Referenced by chart templates and the operator's injection config;
     # re-applying the release rolls system pods, tenant pods on next creation.
-    log "$SERVICE is a sidecar — re-applying the orbit release with the new digest..."
+    log "$SERVICE is a sidecar, re-applying the orbit release with the new digest..."
     (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=orbit)
     ok "$SERVICE rolled via the orbit release"
     ;;

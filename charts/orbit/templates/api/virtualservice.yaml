@@ -102,7 +102,7 @@ spec:
             host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
-    # ── Inference gateway (OpenAI-compatible API) — the API-host default ────────
+    # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
       {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       route:

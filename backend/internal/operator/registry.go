@@ -48,7 +48,7 @@ const (
 // active OrbitTenant CRs into the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML format that
 // the identity service reads at startup and watches for changes via a file watcher.
 //
-// Registry operations are idempotent — calling Sync multiple times with the
+// Registry operations are idempotent: calling Sync multiple times with the
 // same tenant list is safe.
 type TenantRegistry struct {
 	client client.Client
@@ -114,10 +114,10 @@ func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]OrbitTenant, 
 }
 
 // buildRegistryYAML produces the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML that the
-// identity service parses. The format must remain stable — the identity
+// identity service parses. The format must remain stable: the identity
 // service owns the schema; the operator only writes it.
 //
-// All tenants passed in are assumed active — listActiveTenants already
+// All tenants passed in are assumed active: listActiveTenants already
 // filters the list before this function is called.
 func (r *TenantRegistry) buildRegistryYAML(tenants []OrbitTenant) (string, error) {
 	entries := make([]registryEntry, 0, len(tenants))

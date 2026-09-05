@@ -42,7 +42,7 @@ spec:
         openAPIV3Schema:
           description: >
             OrbitTenant declares a tenant in the Orbit platform.
-            The CR name (metadata.name) is the tenant ID — no separate tenantId
+            The CR name (metadata.name) is the tenant ID; no separate tenantId
             field is needed. The operator creates the tenant namespace
             (auto-derived as "orbit-tenant-{name}" when spec.namespace is omitted)
             and registers the tenant in the orbit-tenants ConfigMap consumed by

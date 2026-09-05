@@ -1,8 +1,8 @@
-// MCPServer reconciler (Phase 3 — MCP Tool Gateway).
+// MCPServer reconciler (Phase 3: MCP Tool Gateway).
 //
 // Unlike Connection (which has no status and is aggregated off the tenant
 // reconcile), an MCPServer carries its own Status and can live in orbit-system
-// (global) where there is no owning OrbitTenant — so it gets its own
+// (global) where there is no owning OrbitTenant. It gets its own
 // reconciler. On each MCPServer change this validates the spec, sets the CR's
 // reconciliation Status (Pending|Aggregated|Invalid), and re-renders the
 // orbit-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
@@ -48,7 +48,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	srv := &MCPServer{}
 	if err := r.Get(ctx, req.NamespacedName, srv); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — re-aggregate so the removed server drops out of the
+			// CR deleted: re-aggregate so the removed server drops out of the
 			// registry (and its scopes are pruned by the gateway on next sync).
 			return ctrl.Result{}, r.Aggregator.Sync(ctx)
 		}

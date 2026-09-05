@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install Helmfile and the helm-diff plugin, plus k3d, kubectl and helm.
 #
-# Versions are pinned in scripts/cluster/versions.env — change them there.
+# Versions are pinned in scripts/cluster/versions.env. Change them there.
 #
 # istioctl is not required; SPIRE and Istio come from their upstream charts
 # via the reference Helmfile.
@@ -20,7 +20,7 @@ RESET="\033[0m"
 step()    { echo -e "\n${BLUE}▶ $*${RESET}"; }
 ok()      { echo -e "${GREEN}✓ $*${RESET}"; }
 warn()    { echo -e "${YELLOW}⚠ $*${RESET}"; }
-already() { echo -e "${GREEN}✓ $* already installed at correct version — skipping${RESET}"; }
+already() { echo -e "${GREEN}✓ $* already installed at correct version: skipping${RESET}"; }
 
 # Prefer GOPATH/bin when Go is available so cluster tools share the same
 # PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
@@ -31,7 +31,7 @@ else
 fi
 mkdir -p "${INSTALL_DIR}"
 
-# uname -s returns 'Darwin' on macOS — lower-cased for download URLs.
+# uname -s returns 'Darwin' on macOS, lower-cased for download URLs.
 # Note: for release assets that use 'osx' instead of 'darwin', see helm below.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -50,7 +50,7 @@ if command -v k3d >/dev/null; then
   if [ "${INSTALLED}" = "${K3D_VERSION}" ]; then
     already "k3d ${INSTALLED}"
   else
-    warn "k3d ${INSTALLED} is installed but ${K3D_VERSION} is required — reinstalling"
+    warn "k3d ${INSTALLED} is installed but ${K3D_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-${OS}-${ARCH_K3D}" \
       -o "${INSTALL_DIR}/k3d"
@@ -72,7 +72,7 @@ if command -v kubectl >/dev/null; then
   if [ "${INSTALLED}" = "${KUBECTL_VERSION}" ]; then
     already "kubectl ${INSTALLED}"
   else
-    warn "kubectl ${INSTALLED} is installed but ${KUBECTL_VERSION} is required — reinstalling"
+    warn "kubectl ${INSTALLED} is installed but ${KUBECTL_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH_KUBE}/kubectl" \
       -o "${INSTALL_DIR}/kubectl"
@@ -96,7 +96,7 @@ if command -v helm >/dev/null; then
   if [ "${INSTALLED}" = "${HELM_VERSION}" ]; then
     already "helm ${INSTALLED}"
   else
-    warn "helm ${INSTALLED} is installed but ${HELM_VERSION} is required — reinstalling"
+    warn "helm ${INSTALLED} is installed but ${HELM_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_HELM}.tar.gz" \
       | tar -xz -C /tmp

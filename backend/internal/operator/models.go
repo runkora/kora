@@ -11,7 +11,7 @@ import (
 var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 
 // -----------------------------------------------------------------------------
-// OrbitTenant — cluster-scoped, one per tenant
+// OrbitTenant: cluster-scoped, one per tenant
 // -----------------------------------------------------------------------------
 
 // OrbitTenant declares a tenant's existence, OIDC configuration, and namespace.

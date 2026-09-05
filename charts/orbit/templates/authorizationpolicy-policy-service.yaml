@@ -8,7 +8,7 @@
 # tenant, the gateway bundle must not be readable by pods in tenant namespaces.
 #
 # Per-tenant bundle endpoints are intentionally left unauthenticated and
-# reachable from all namespaces — agent pod OPA sidecars in tenant namespaces
+# reachable from all namespaces; agent pod OPA sidecars in tenant namespaces
 # poll their own bundle at startup.
 #
 # We match on source.principals (SPIFFE ID) rather than source.notNamespaces
@@ -21,7 +21,7 @@
 #
 # NOTE: Istio prepends "spiffe://" to the principal string when translating
 # AuthorizationPolicy to Envoy RBAC. Specify the principal WITHOUT the
-# "spiffe://" prefix — Istio adds it. Writing "spiffe://..." produces
+# "spiffe://" prefix; Istio adds it. Writing "spiffe://..." produces
 # "spiffe://spiffe://..." in the generated Envoy rule and never matches.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy

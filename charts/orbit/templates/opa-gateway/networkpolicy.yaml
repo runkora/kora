@@ -1,7 +1,7 @@
 {{- if .Values.networkPolicy.enabled }}
 # Allows the Istio IngressGateway to reach the OPA gateway pod.
-# Port 9191 — gRPC ext_authz calls from the IngressGateway Envoy.
-# Port 8282 — OPA diagnostic listener (health/readiness probes only).
+# Port 9191: gRPC ext_authz calls from the IngressGateway Envoy.
+# Port 8282: OPA diagnostic listener (health/readiness probes only).
 # Port 8181, OPA's management API, is intentionally NOT opened here: it stays
 # loopback-only so nothing outside the pod can read the tenant's grant bundle.
 # Without this rule, the default-deny-all NetworkPolicy blocks ext_authz calls
