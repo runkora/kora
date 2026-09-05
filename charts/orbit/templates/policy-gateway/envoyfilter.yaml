@@ -17,7 +17,7 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: opa-policy-ext-authz
-  namespace: istio-system
+  namespace: {{ .Values.istio.namespace }}
   labels:
     app.kubernetes.io/part-of: orbit
     app.kubernetes.io/managed-by: Helm

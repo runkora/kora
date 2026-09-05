@@ -14,6 +14,7 @@ spec:
     metadata:
       labels:
         {{- include "orbit.operator.selectorLabels" . | nindent 8 }}
+        orbit.io/kube-api-client: "true"
         {{- include "orbit.operator.labels" . | nindent 8 }}
         spiffe.io/component: operator
         {{- include "orbit.podLabels" (dict "root" $ "name" "operator") | nindent 8 }}
@@ -45,16 +46,12 @@ spec:
               value: {{ .Values.istio.namespace | quote }}
             - name: ORBIT_ISTIO_REVISION
               value: {{ .Values.istio.revision | quote }}
-            - name: ORBIT_SPIRE_NAMESPACE
-              value: {{ .Values.spire.namespace | quote }}
             - name: ORBIT_SPIRE_CLASS_NAME
               value: {{ .Values.spire.className | quote }}
             - name: ORBIT_IMAGE_PULL_SECRETS
               value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
             - name: ORBIT_LEADER_ELECTION
               value: {{ .Values.operator.leaderElection | quote }}
-            - name: LOG_LEVEL
-              value: {{ .Values.operator.logLevel | quote }}
             - name: ORBIT_WEBHOOK_CERT_MANAGER
               value: {{ .Values.operator.webhook.certificate.certManager.enabled | quote }}
             # Same images as the system pods: identityProxy.image, opaGateway.image.

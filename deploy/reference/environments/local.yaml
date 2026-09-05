@@ -7,6 +7,8 @@ versions:
 systemNamespace: orbit-system
 trustDomain: orbit.test
 clusterName: orbit-local
+# Pins every helm and kubectl call in this Helmfile to the k3d cluster.
+kubeContext: k3d-orbit-local
 frontendHost: orbit.local.clearroute.io
 
 orbit:
@@ -20,7 +22,6 @@ orbit:
   imagePullSecrets: []
   platformSecretName: orbit-secrets
   operatorReplicas: 1
-  logLevel: debug
   serviceConfig:
     postgresSSLMode: disable
     postgresCaptureQueryText: "true"

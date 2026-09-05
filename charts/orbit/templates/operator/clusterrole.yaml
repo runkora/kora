@@ -14,11 +14,11 @@ rules:
   # replication, the webhook serving certificate.
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Sandbox egress policy in each tenant namespace.
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
@@ -26,7 +26,7 @@ rules:
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants/status", "mcpservers/status"]
-    verbs: ["get", "update", "patch"]
+    verbs: ["get", "patch"]
   # caBundle and failurePolicy on Orbit's own webhooks.
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
@@ -40,10 +40,10 @@ rules:
   # direct RBAC; see preflight.go's SVID fetch and ClusterSPIFFEID checks.
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
-    verbs: ["get", "list"]
+    verbs: ["get"]
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "create", "update"]

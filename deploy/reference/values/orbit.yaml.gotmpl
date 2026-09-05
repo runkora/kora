@@ -34,7 +34,6 @@ istio:
   outboundTrafficPolicy: {{ .Values.istio.outboundTrafficPolicy }}
 
 spire:
-  namespace: spire-system
   className: spire-system-spire
 
 networkPolicy:
@@ -60,7 +59,6 @@ operator:
     tag: {{ $tag | quote }}
   replicas: {{ .Values.orbit.operatorReplicas }}
   leaderElection: {{ gt (int .Values.orbit.operatorReplicas) 1 }}
-  logLevel: {{ .Values.orbit.logLevel }}
   podDisruptionBudget:
     enabled: {{ gt (int .Values.orbit.operatorReplicas) 1 }}
 

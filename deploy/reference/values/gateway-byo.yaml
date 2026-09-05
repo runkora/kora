@@ -1,5 +1,54 @@
-# Configure an existing Istio gateway to use SPIRE certificates.
-# Set gateway.name and gateway.byo to match the gateway deployment.
+# Running Orbit behind an Istio ingress gateway you already operate
+# (gateway.create: false). Four pieces, in order.
+#
+# 1. orbit chart values (environments/<name>.yaml or your values repository).
+#    VirtualServices bind to gateway.name; the OPA ext_authz EnvoyFilter and
+#    the gateway NetworkPolicies select gateway.byo.selector in
+#    gateway.byo.namespace. The chart renders no Gateway resource in this mode.
+#
+#      gateway:
+#        create: false
+#        name: istio-system/istio-ingressgateway   # <namespace>/<Gateway name>
+#        byo:
+#          namespace: istio-system
+#          selector:
+#            app: istio-ingressgateway
+#
+# 2. A Gateway on that deployment for the two public hosts, with the TLS
+#    Secret in the gateway's namespace:
+#
+#      apiVersion: networking.istio.io/v1
+#      kind: Gateway
+#      metadata:
+#        name: istio-ingressgateway
+#        namespace: istio-system
+#      spec:
+#        selector:
+#          app: istio-ingressgateway
+#        servers:
+#          - port: { number: 443, name: https, protocol: HTTPS }
+#            tls: { mode: SIMPLE, credentialName: orbit-gateway-tls }
+#            hosts: [orbit.example.com, api.orbit.example.com]
+#
+# 3. A SPIRE registration for the gateway pods. The chart's
+#    orbit-system-component registration covers only the system namespace:
+#
+#      apiVersion: spire.spiffe.io/v1alpha1
+#      kind: ClusterSPIFFEID
+#      metadata:
+#        name: orbit-byo-ingress-gateway
+#      spec:
+#        className: spire-system-spire
+#        spiffeIDTemplate: "spiffe://<trustDomain>/system/ingress-gateway"
+#        namespaceSelector:
+#          matchLabels:
+#            kubernetes.io/metadata.name: istio-system
+#        podSelector:
+#          matchLabels:
+#            app: istio-ingressgateway
+#
+# 4. This file, merged into the istio/gateway chart values of that deployment,
+#    so its Envoy takes certificates from SPIRE instead of istiod.
 env:
   PILOT_CERT_PROVIDER: spire
   SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket

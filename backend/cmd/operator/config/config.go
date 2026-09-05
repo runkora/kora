@@ -49,10 +49,8 @@ type Install struct {
 	SystemNamespace  string
 	IstioNamespace   string
 	IstioRevision    string
-	SPIRENamespace   string
 	SPIREClassName   string
 	ImagePullSecrets []string
-	LogLevel         string
 
 	// WebhookCertManager is true when cert-manager issues the webhook certificate
 	// and the operator must not manage it.
@@ -117,10 +115,8 @@ func loadInstall() Install {
 		SystemNamespace:    envOr("ORBIT_SYSTEM_NAMESPACE", "orbit-system"),
 		IstioNamespace:     envOr("ORBIT_ISTIO_NAMESPACE", "istio-system"),
 		IstioRevision:      os.Getenv("ORBIT_ISTIO_REVISION"),
-		SPIRENamespace:     envOr("ORBIT_SPIRE_NAMESPACE", "spire-system"),
 		SPIREClassName:     envOr("ORBIT_SPIRE_CLASS_NAME", "spire-system-spire"),
 		ImagePullSecrets:   splitList(os.Getenv("ORBIT_IMAGE_PULL_SECRETS")),
-		LogLevel:           envOr("LOG_LEVEL", "info"),
 		WebhookCertManager: os.Getenv("ORBIT_WEBHOOK_CERT_MANAGER") == "true",
 		Injection: Injection{
 			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),
@@ -140,7 +136,7 @@ func loadInstall() Install {
 		},
 		Preflight: Preflight{
 			SupportedIstioMinors: splitList(os.Getenv("ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS")),
-			Interval:             time.Duration(intEnv("ORBIT_PREFLIGHT_INTERVAL_SECONDS", 300)) * time.Second,
+			Interval:             time.Duration(max(intEnv("ORBIT_PREFLIGHT_INTERVAL_SECONDS", 300), 10)) * time.Second,
 		},
 	}
 	return in
@@ -178,9 +174,9 @@ func splitList(v string) []string {
 var ResourceParseErrors []error
 
 // resourcesEnv parses resource requirements from an environment variable.
-// Malformed JSON yields no requirements rather than failing startup and
-// records the failure in ResourceParseErrors; the chart renders this JSON,
-// so a parse failure is a chart bug the operator should surface, not crash on.
+// Malformed JSON yields no requirements and is recorded in ResourceParseErrors
+// for main to log; the chart renders this JSON, and a chart bug is surfaced,
+// not crashed on.
 func resourcesEnv(key string) corev1.ResourceRequirements {
 	var rr corev1.ResourceRequirements
 	if v := os.Getenv(key); v != "" {

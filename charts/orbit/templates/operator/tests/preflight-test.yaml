@@ -8,6 +8,7 @@ metadata:
   labels:
     {{- include "orbit.operator.labels" . | nindent 4 }}
     spiffe.io/component: operator
+    orbit.io/kube-api-client: "true"
   annotations:
     helm.sh/hook: test
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
@@ -24,6 +25,7 @@ spec:
     - name: preflight
       image: {{ include "orbit.image" (dict "root" $ "name" "operator") | quote }}
       imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "operator") }}
+      command: ["./orbit"]
       args: ["preflight"]
       securityContext:
         {{- include "orbit.containerSecurityContext" (dict) | nindent 8 }}

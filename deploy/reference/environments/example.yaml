@@ -20,7 +20,6 @@ orbit:
   imagePullSecrets: []
   platformSecretName: orbit-secrets
   operatorReplicas: 2
-  logLevel: info
   serviceConfig:
     postgresSSLMode: require
     postgresCaptureQueryText: "false"

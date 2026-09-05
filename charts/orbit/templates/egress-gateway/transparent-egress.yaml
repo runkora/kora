@@ -30,7 +30,7 @@
 # CONNECT at the upstream edge, which would skip the outbound HCM where ext_proc
 # + ext_authz live. Routing the generated CONNECT through an internal-listener
 # HCM is what re-runs those existing filters on it. The identity-proxy and OPA
-# binaries are UNCHANGED; this is pure Envoy config, scoped to sandbox pods.
+# binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
 #
 # Scope: mesh services (orbit-system, kube-dns, istiod, …) have their own
 # dedicated outbound listeners that match the original destination first, so
@@ -48,12 +48,12 @@
 # (no data leaves the pod). For an ALLOWED non-443 raw-TCP connection the gateway
 # still needs a raw-passthrough mode (it only TLS-intercepts today), tracked
 # follow-up. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
-{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.egressGateway.transparentEgress.enabled }}
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: egress-transparent-encap
-  namespace: istio-system
+  namespace: {{ .Values.istio.namespace }}
   labels:
     {{- include "orbit.egressGateway.labels" . | nindent 4 }}
 spec:

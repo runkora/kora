@@ -47,7 +47,6 @@ config:
   # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
   platformSecretName: orbit-secrets
 
-# The Istio control plane Orbit runs on top of.
 istio:
   namespace: istio-system
   # Empty means the default revision: namespaces get istio-injection=enabled.
@@ -59,7 +58,6 @@ istio:
 
 # The SPIRE deployment Orbit registers into.
 spire:
-  namespace: spire-system
   # Class the spire-controller-manager serves. A mismatch means Orbit's
   # ClusterSPIFFEIDs are ignored.
   className: spire-system-spire
@@ -145,7 +143,6 @@ ingressGateway:
       drop: [ALL]
     readOnlyRootFilesystem: true
 
-# Configure tenant reconciliation, admission, and preflight.
 operator:
   image:
     registry: ""
@@ -159,7 +156,6 @@ operator:
     enabled: true
     minAvailable: 1
   leaderElection: true
-  logLevel: info
   resources:
     requests:
       cpu: 100m
@@ -202,7 +198,7 @@ operator:
     warn: restricted
     audit: restricted
   preflight:
-    # Istio minors this release supports.
+    # Preflight fails on an istiod outside this list. Release automation stamps it.
     supportedIstioMinors: ["1.29", "1.28"]
     intervalSeconds: 300
 
@@ -598,6 +594,11 @@ triggers:
     meshPrincipals: []
 
 egressGateway:
+  # The Envoy filter that tunnels every sandbox connection into the egress
+  # gateway. Independent of networkPolicy.enabled: on a CNI without
+  # NetworkPolicy support this is the control that still holds.
+  transparentEgress:
+    enabled: true
   image:
     registry: ""
     repository: orbit-egress-gateway

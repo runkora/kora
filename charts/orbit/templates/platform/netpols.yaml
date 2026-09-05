@@ -93,18 +93,29 @@ spec:
         - port: 15006
         - port: 15008
 ---
-# mTLS traffic from tenant namespaces: identity-proxy exchanging tokens on
-# 8080, OPA polling bundles on 8083, session-manager calling inference-gateway
-# on 8081 and tool-gateway on 8096.
+# mTLS traffic from tenant namespaces, one rule per destination: identity-proxy
+# exchanging tokens with identity on 8080, session-manager pushing events to
+# orbit-agents on 8080 and calling inference-gateway on 8081 and tool-gateway
+# on 8096, OPA polling bundles from policy-service on 8083.
+{{- range $rule := list
+  (dict "name" "identity" "apps" (list "orbit-identity" "orbit-agents") "port" 8080)
+  (dict "name" "inference-gateway" "apps" (list "orbit-inference-gateway") "port" 8081)
+  (dict "name" "policy-service" "apps" (list "orbit-policy-service") "port" 8083)
+  (dict "name" "tool-gateway" "apps" (list "orbit-tool-gateway") "port" 8096) }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-tenant-mesh-ingress
+  name: allow-tenant-ingress-{{ $rule.name }}
   namespace: {{ $ns }}
   labels:
-    {{- include "orbit.labels" . | nindent 4 }}
+    {{- include "orbit.labels" $ | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: {{ toJson $rule.apps }}
   policyTypes:
     - Ingress
   ingress:
@@ -113,18 +124,9 @@ spec:
             matchLabels:
               orbit.io/role: tenant
       ports:
-        - port: 8080
+        - port: {{ $rule.port }}
           protocol: TCP
-        - port: 8081
-          protocol: TCP
-        - port: 8083
-          protocol: TCP
-        - port: 8096
-          protocol: TCP
-        - port: 15006
-          protocol: TCP
-        - port: 15008
-          protocol: TCP
+{{- end }}
 ---
 # orbit-agents creates, messages and terminates the session-manager process on
 # any agent pod in any tenant; scoped to app=orbit-agents so no other
@@ -181,12 +183,11 @@ metadata:
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
-  # Only the operator and orbit-agents call the API server directly.
+  # The operator, orbit-agents and the preflight helm-test pod carry this label;
+  # the webhook Service selects on app, which is why the label is separate.
   podSelector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values: [orbit-operator, orbit-agents]
+    matchLabels:
+      orbit.io/kube-api-client: "true"
   policyTypes:
     - Egress
   egress:
@@ -194,6 +195,32 @@ spec:
         - port: 443
           protocol: TCP
         - port: 6443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+---
+# Outbound HTTPS for the services that call out of the cluster: model
+# providers (inference-gateway), brokered upstreams (egress-gateway), the OIDC
+# issuer and JWKS (identity), external MCP servers (tool-gateway).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-https
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [orbit-inference-gateway, orbit-egress-gateway, orbit-identity, orbit-tool-gateway]
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
           protocol: TCP
       to:
         - ipBlock:

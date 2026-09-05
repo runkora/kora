@@ -64,7 +64,7 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: egress-gateway-connect-outbound
-  namespace: istio-system
+  namespace: {{ .Values.istio.namespace }}
   labels:
     {{- include "orbit.egressGateway.labels" . | nindent 4 }}
 spec:
