@@ -283,9 +283,15 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 	return string(out), err
 }
 
+// ensureVolume sets an Orbit-owned volume by name, overwriting any pod-supplied
+// definition of the same name. Every caller here is one of Orbit's own fixed
+// volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
+// that pre-declares one of these itself must not get its definition kept, or the
+// injected sidecar mounts an attacker-controlled volume instead of the real one.
 func ensureVolume(spec *corev1.PodSpec, v corev1.Volume) {
-	for _, existing := range spec.Volumes {
-		if existing.Name == v.Name {
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == v.Name {
+			spec.Volumes[i] = v
 			return
 		}
 	}
