@@ -35,17 +35,12 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     verbs: ["list", "watch"]
-  # Preflight: CNI presence, CSI driver, CRDs, SPIRE registrations. istiod
-  # presence and version come from the injector ConfigMap, not a Deployment.
+  # Preflight: CNI presence, SPIRE registrations. istiod comes from the
+  # injector ConfigMap, not a Deployment. CSI driver and CRD presence have no
+  # direct RBAC; see preflight.go's SVID fetch and ClusterSPIFFEID checks.
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
     verbs: ["get", "list"]
-  - apiGroups: ["storage.k8s.io"]
-    resources: ["csidrivers"]
-    verbs: ["get"]
-  - apiGroups: ["apiextensions.k8s.io"]
-    resources: ["customresourcedefinitions"]
-    verbs: ["get"]
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
     verbs: ["get", "list"]
