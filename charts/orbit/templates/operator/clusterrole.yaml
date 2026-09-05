@@ -35,9 +35,10 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     verbs: ["list", "watch"]
-  # Preflight: istiod and CNI presence, CSI driver, CRDs, SPIRE registrations.
+  # Preflight: CNI presence, CSI driver, CRDs, SPIRE registrations. istiod
+  # presence and version come from the injector ConfigMap, not a Deployment.
   - apiGroups: ["apps"]
-    resources: ["deployments", "daemonsets"]
+    resources: ["daemonsets"]
     verbs: ["get", "list"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["csidrivers"]

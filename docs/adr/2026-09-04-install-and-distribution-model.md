@@ -111,7 +111,7 @@ The decision decomposes into eight sub-decisions.
 
 ### Decision 1: Distribution model and operator scope
 
-The published Helm charts are the product. The operator is part of the `orbit` chart, not the install entry point. It reconciles `OrbitTenant` and `MCPServer`, watches `Connection` and `OAuthClient` and the Secrets they reference to trigger the owning tenant's reconcile, runs the aggregators, serves the admission webhooks, and runs the preflight. `PlatformReconciler`, `helm.go`, `istio_templates.go`, `loadValuesFile`, `orbitImageRef`, `chartVersions` and the `OrbitPlatform` type are deleted, and the Helm SDK leaves `backend/go.mod`.
+The published Helm charts are the product. The operator is part of the `orbit` chart, not the install entry point. It reconciles `OrbitTenant` and `MCPServer`, watches `Connection` and `OAuthClient` to trigger the owning tenant's reconcile, runs the aggregators, serves the admission webhooks, and runs the preflight. It does not watch Secrets; a rotated Connection or OIDC client Secret is picked up on the periodic reconcile instead. `PlatformReconciler`, `helm.go`, `istio_templates.go`, `loadValuesFile`, `orbitImageRef`, `chartVersions` and the `OrbitPlatform` type are deleted, and the Helm SDK leaves `backend/go.mod`.
 
 The operator's ClusterRole, complete, including the rows the companion ADR's webhook and preflight need:
 
@@ -122,15 +122,15 @@ The operator's ClusterRole, complete, including the rows the companion ADR's web
 | networking.k8s.io | networkpolicies | get, list, watch, create, update, patch | sandbox egress policy |
 | orbit.io | orbittenants, connections, oauthclients, mcpservers | get, list, watch | reconciliation inputs; the operator never writes CR bodies |
 | orbit.io | orbittenants/status, mcpservers/status | get, update, patch | conditions (the other two CRDs have no status subresource) |
-| admissionregistration.k8s.io | mutatingwebhookconfigurations, validatingwebhookconfigurations | get, list, watch, patch | `caBundle` injection and failure-policy switch, named resources |
-| apps | deployments, daemonsets | get, list | preflight: istiod and CNI presence |
+| admissionregistration.k8s.io | mutatingwebhookconfigurations, validatingwebhookconfigurations | get, patch (scoped to the two named webhooks); list, watch (unscoped) | `caBundle` injection and failure-policy switch |
+| apps | daemonsets | get, list | preflight: CNI presence (istiod itself is read from the injector ConfigMap) |
 | storage.k8s.io | csidrivers | get | preflight |
 | apiextensions.k8s.io | customresourcedefinitions | get | preflight: ClusterSPIFFEID CRD served |
 | spire.spiffe.io | clusterspiffeids | get, list | preflight: default ClusterSPIFFEID absent, Orbit registrations accepted |
 | coordination.k8s.io | leases | get, create, update | leader election |
 | core | events | create, patch | controller-runtime |
 
-The informer cache is scoped: Secrets and ConfigMaps are cached only in the system namespace and namespaces labelled `orbit.io/role: tenant` (`cache.Options.ByObject` with a namespace selector), and Istio-namespace ConfigMaps are read on demand, not cached. A Secret watch across the whole cluster is what a security reviewer asks about first, and the tenant reconciler's Secret watch today is cluster-wide (`tenant_controller.go:232-235`).
+Secrets and ConfigMaps are excluded from the informer cache entirely (`client.CacheOptions.DisableFor`), so the operator never holds an in-memory watch of every Secret in the cluster; every read goes straight to the API server. This bounds memory, not authorization: RBAC (Decision 1's table) is what actually limits which Secrets and ConfigMaps the operator can touch, and today that table is a cluster-wide grant, not one scoped to Orbit's namespaces — see [#269](https://github.com/clear-route/orbit/issues/269). The tenant reconciler does not watch Secrets at all; a rotated OIDC client Secret or Connection credential is picked up on the periodic reconcile.
 
 ### Decision 2: Chart topology
 
@@ -225,6 +225,7 @@ The charts render identically under `helm template` with no cluster access and p
 helmDefaults:
   wait: true
   timeout: 600
+  createNamespace: true
 
 repositories:
   - name: spiffe
@@ -237,12 +238,6 @@ releases:
     namespace: spire-system
     chart: spiffe/spire-crds
     version: {{ .Values.versions.spireCrds }}
-  - name: spire
-    namespace: spire-system
-    chart: spiffe/spire
-    version: {{ .Values.versions.spire }}
-    needs: [spire-system/spire-crds]
-    values: [values/spire.yaml.gotmpl]        # trust domain, SDS names, attestor, default ClusterSPIFFEID off
   - name: istio-base
     namespace: istio-system
     chart: istio/base
@@ -253,6 +248,15 @@ releases:
     version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base]
     values: [values/cni.yaml.gotmpl]          # k3s CNI bin and conf dirs in the local environment
+  - name: spire
+    namespace: spire-system
+    chart: spiffe/spire
+    version: {{ .Values.versions.spire }}
+    # istio-cni, not just spire-crds: the CNI DaemonSet chains its plugin into
+    # a node's CNI config as soon as it starts, before the binary is ready, so
+    # a pod scheduled there in the gap gets no network sandbox.
+    needs: [spire-system/spire-crds, istio-system/istio-cni]
+    values: [values/spire.yaml.gotmpl]        # trust domain, SDS names, attestor, default ClusterSPIFFEID off
   - name: istiod
     namespace: istio-system
     chart: istio/istiod
@@ -261,14 +265,14 @@ releases:
     values: [values/istiod.yaml.gotmpl]       # meshConfig.trustDomain, pilot.cni.enabled: true
   - name: orbit-crds
     namespace: {{ .Values.systemNamespace }}
-    chart: oci://ghcr.io/clear-route/charts/orbit-crds
-    version: {{ .Values.orbitVersion }}
+    chart: {{ .Values.orbit.crdsChart }}      # oci://ghcr.io/clear-route/charts/orbit-crds in production
+    version: {{ .Values.orbit.version }}
   - name: orbit
     namespace: {{ .Values.systemNamespace }}
-    chart: oci://ghcr.io/clear-route/charts/orbit
-    version: {{ .Values.orbitVersion }}
+    chart: {{ .Values.orbit.chart }}          # oci://ghcr.io/clear-route/charts/orbit in production
+    version: {{ .Values.orbit.version }}
     needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
-    values: [values/orbit.yaml.gotmpl]       # gateway.create: true deploys Orbit's ingress gateway
+    values: [values/orbit.yaml.gotmpl]        # gateway.create: true deploys Orbit's ingress gateway
 ```
 
 There is no separate gateway release. Orbit's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release, so nothing in the reference install depends on a component outside Orbit's ownership except the prerequisites themselves. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
@@ -354,11 +358,14 @@ publicHosts: []
 config: { db: {...}, redis: {...}, platformSecretName: orbit-secrets }
 istio: { namespace: istio-system, revision: "", outboundTrafficPolicy: ALLOW_ANY }
 spire: { namespace: spire-system, className: spire-system-spire }
+platform: { spiffe: { enabled: true } }
 networkPolicy: { enabled: true, externalServices: [], apiServerCIDRs: ["0.0.0.0/0"] }
-gateway: { create: true, name: orbit-gateway, service: {type: LoadBalancer}, tls: {...}, ingress: {...} }   # create=false: bind to a customer-owned Gateway named here
+gateway: { create: true, name: orbit-gateway, ports: {...}, tls: {...}, ingress: {...}, byo: {...} }   # create=false: bind to an existing Gateway named here; service.type lives under ingressGateway
+ingressGateway: { name: orbit-gateway, service: {type: LoadBalancer}, env: {...}, volumes: [...] }     # upstream istio/gateway subchart values, used when gateway.create is true
 operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, logLevel: info, webhook: {...}, injection: {...}, preflight: {...} }
+identityProxy: { image: {...}, appEnv: production, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
 identity: ...
-inferenceGateway: ...             # includes bedrock.accounts[], serviceAccount.annotations, identityProxy
+inferenceGateway: ...             # includes bedrock.accounts[], serviceAccount.annotations
 agents: ...                       # includes config.sessionManagerImage, config.sandboxImage, extraEnv, runtimePods, imageWarmer, warmHeadroom
 policyService: ...
 policyGateway: ...
@@ -367,7 +374,7 @@ toolGateway: ...
 orbitMcp: ...
 triggers: ...
 frontend: ...                     # includes existingSecret, ingress
-opaGateway: ...
+opaGateway: ...                   # the gateway-level OPA's own image, distinct from the tenant sidecar OPA the webhook injects
 ```
 
 Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`. Global values are defaults; component values override. The same scheduling values, and `global.imagePullSecrets`, reach pods orbit-agents creates at runtime through `agents.runtimePods.*`, which the chart renders into the existing `ORBIT_MANIFEST__*` overrides and a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
@@ -376,17 +383,17 @@ Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}
 
 ```
 {{- define "orbit.image" -}}
-{{- $reg := .component.image.registry | default .global.imageRegistry -}}
-{{- $repo := .component.image.repository -}}
-{{- if .component.image.digest -}}
-{{ $reg }}/{{ $repo }}@{{ .component.image.digest }}
+{{- $img := (index .root.Values .name).image -}}
+{{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
+{{- if $img.digest -}}
+{{ $reg }}/{{ $img.repository }}@{{ $img.digest }}
 {{- else -}}
-{{ $reg }}/{{ $repo }}:{{ .component.image.tag | default .chart.AppVersion }}
+{{ $reg }}/{{ $img.repository }}:{{ $img.tag | default .root.Chart.AppVersion }}
 {{- end -}}
-{{- end -}}
+{{- end }}
 ```
 
-Release automation populates `digest` in the packaged chart; development leaves it empty and uses tags.
+Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. A sibling `orbit.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`. Release automation populates `digest` in the packaged chart; development leaves it empty and uses tags.
 
 ---
 
@@ -448,7 +455,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 - An installable, signed, versioned release exists.
 - BYO Istio and SPIRE become real, with a contract Orbit can verify rather than a skip flag.
 - One artefact set and one install path from local k3d to enterprise GitOps.
-- Operator RBAC drops from wildcard verbs on seventeen API groups to the table in Decision 1, and its Secret visibility drops from cluster-wide to Orbit's namespaces.
+- Operator RBAC drops from wildcard verbs on seventeen API groups to the table in Decision 1, and it no longer holds an in-memory cache of every Secret in the cluster. The RBAC grant on Secrets and ConfigMaps is still cluster-wide, not scoped to Orbit's namespaces ([#269](https://github.com/clear-route/orbit/issues/269)).
 - Helm SDK, chart baking and local-values-in-production-image all leave the operator.
 - Orbit's ingress gateway is an Orbit workload: consumers add nothing to their mesh for it, and Orbit's identity registrations stay in Orbit's namespaces.
 

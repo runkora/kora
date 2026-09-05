@@ -299,7 +299,23 @@ webhooks:
 
 ### Operator values relevant to this ADR
 
+The injected identity-proxy and OPA images are not a separate values tree:
+they reuse the top-level `identityProxy.image` and `opaGateway.image` blocks
+that also configure the system-pod identity-proxy sidecar and the
+gateway-level OPA, resolved into the webhook's `InjectionConfig` through
+`ORBIT_INJECT_IDENTITY_PROXY_IMAGE`/`ORBIT_INJECT_OPA_IMAGE` env vars on the
+operator Deployment. `operator.injection` carries only what's specific to the
+injected containers, not their images:
+
 ```yaml
+identityProxy:
+  image: { registry: "", repository: orbit-identity-proxy, tag: "", digest: "", pullPolicy: "" }
+  appEnv: production
+  resources: { requests: { cpu: 50m, memory: 32Mi }, limits: { cpu: 200m, memory: 64Mi } }
+
+opaGateway:
+  image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.15.2-envoy-static, digest: "", pullPolicy: "" }
+
 operator:
   replicas: 2
   podDisruptionBudget: { enabled: true, minAvailable: 1 }
@@ -307,12 +323,7 @@ operator:
     certificate:
       certManager: { enabled: false, issuerRef: {} }
   injection:
-    identityProxy:
-      image: { registry: "", repository: orbit-identity-proxy, tag: "", digest: "", pullPolicy: "" }
-      appEnv: production
-      resources: { requests: { cpu: 50m, memory: 32Mi }, limits: { cpu: 200m, memory: 64Mi } }
     opa:
-      image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.15.2-envoy-static, digest: "", pullPolicy: "" }
       logLevel: info
       bundlePolling: { minDelaySeconds: 30, maxDelaySeconds: 60 }
       resources: {}
@@ -325,7 +336,7 @@ operator:
     intervalSeconds: 300
 ```
 
-`istio.namespace`, `istio.revision`, `spire.namespace` and `spire.className` are top-level values shared with the services (companion ADR, Decision 4).
+`istio.namespace`, `istio.revision`, `spire.namespace` and `spire.className` are top-level values shared with the services ([install-and-distribution-model](2026-09-04-install-and-distribution-model.md), Decision 4).
 
 ---
 
