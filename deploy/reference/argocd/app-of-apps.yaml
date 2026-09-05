@@ -140,6 +140,8 @@ spec:
       values: |
         meshConfig:
           trustDomain: orbit.example.com
+          defaultConfig:
+            discoveryAddress: istiod.istio-system.svc:15012
         pilot:
           cni:
             enabled: true
@@ -167,6 +169,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: orbit-system
   syncPolicy:
+    # Unlike spire-crds, these back tenant-authored CRs (OrbitTenant,
+    # Connection, OAuthClient, MCPServer) with no way to regenerate them;
+    # a prune here cascade-deletes every tenant's data cluster-wide.
     automated: { prune: false, selfHeal: true }
     syncOptions: [CreateNamespace=true, ServerSideApply=true]
 ---
