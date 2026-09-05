@@ -27,7 +27,7 @@ metadata:
   name: spire
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   project: default
   source:
@@ -50,7 +50,7 @@ metadata:
   name: istio-base
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
@@ -70,7 +70,7 @@ metadata:
   name: istio-cni
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
@@ -90,7 +90,7 @@ metadata:
   name: istiod
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   project: default
   source:
@@ -117,7 +117,7 @@ metadata:
   name: orbit-crds
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
@@ -137,7 +137,7 @@ metadata:
   name: orbit
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
   source:

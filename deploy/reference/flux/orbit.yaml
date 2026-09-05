@@ -56,7 +56,10 @@ metadata:
   namespace: spire-system
 spec:
   interval: 10m
-  dependsOn: [{ name: spire-crds }]
+  timeout: 10m
+  install: { remediation: { retries: 3 } }
+  upgrade: { remediation: { retries: 3 } }
+  dependsOn: [{ name: spire-crds }, { name: istio-cni, namespace: istio-system }]
   chart:
     spec: { chart: spire, version: 0.28.3, sourceRef: { kind: HelmRepository, name: spiffe, namespace: flux-system } }
   valuesFrom:
@@ -92,6 +95,9 @@ metadata:
   namespace: istio-system
 spec:
   interval: 10m
+  timeout: 10m
+  install: { remediation: { retries: 3 } }
+  upgrade: { remediation: { retries: 3 } }
   dependsOn: [{ name: istio-base }, { name: istio-cni }]
   chart:
     spec: { chart: istiod, version: 1.29.1, sourceRef: { kind: HelmRepository, name: istio, namespace: flux-system } }
@@ -121,6 +127,9 @@ metadata:
   namespace: orbit-system
 spec:
   interval: 10m
+  timeout: 10m
+  install: { remediation: { retries: 3 } }
+  upgrade: { remediation: { retries: 3 } }
   dependsOn:
     - { name: orbit-crds }
     - { name: spire, namespace: spire-system }
