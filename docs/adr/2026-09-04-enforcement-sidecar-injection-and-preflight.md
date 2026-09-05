@@ -32,7 +32,7 @@ Without istiod templates, Orbit needs another delivery mechanism for its per-pod
 - Tenant pods receive identity-proxy, OPA and SPIRE proxy wiring with no Orbit-specific istiod configuration.
 - System pods receive SPIRE proxy wiring (and identity-proxy where they need it) from the chart alone.
 - A tenant pod without Orbit's enforcement, or without an Istio sidecar, is rejected at admission.
-- Webhook TLS works under Argo CD and Flux.
+- Webhook TLS works under Argo CD.
 - A preflight reports the prerequisites contract; tenants are not admitted while it fails.
 - Every Orbit pod, including runtime-created ones, passes restricted admission, and tenant namespaces enforce it.
 
@@ -364,7 +364,7 @@ Existing tenant pods keep running; injection and validation apply on the next po
 - Orbit runs on any Istio that performs standard injection, including managed offerings, with no control-plane changes.
 - Enforcement delivery is fail-closed at admission, including when Istio does not inject.
 - One owner for the sidecar specs, versioned and configured with the rest of the chart.
-- Webhook TLS and the charts render cleanly under Argo CD and Flux, and survive a sync that reapplies them.
+- Webhook TLS and the charts render cleanly under Argo CD, and survive a sync that reapplies them.
 - The preflight turns "is my mesh compatible" into a printed answer and blocks tenants, not the operator, while it fails.
 - Every Orbit pod admits under the restricted profile, tenant namespaces enforce it, and CI holds the line.
 - The tenant OPA's REST API is no longer readable by the agent.

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit installs into any Kubernetes cluster from published, signed release artefacts using standard tooling: Helm, Argo CD, or Flux. The service mesh and workload identity layers are prerequisites with a documented, verifiable contract; Orbit fits the mesh a platform team already runs and never installs its own. An evaluator brings a blank cluster to a running agent with one command. An enterprise platform team applies its own registry, scheduling, secret and security policy to every Orbit workload without forking anything. Tenants are declared and maintained automatically by a controller whose only job is tenants.
+Orbit installs into any Kubernetes cluster from published, signed release artefacts using standard tooling: Helm or Argo CD. The service mesh and workload identity layers are prerequisites with a documented, verifiable contract; Orbit fits the mesh a platform team already runs and never installs its own. An evaluator brings a blank cluster to a running agent with one command. An enterprise platform team applies its own registry, scheduling, secret and security policy to every Orbit workload without forking anything. Tenants are declared and maintained automatically by a controller whose only job is tenants.
 
 ---
 
@@ -52,7 +52,7 @@ A team that wants to run Orbit cannot install it from a release. There is no pub
 
 1. **Publish an installable release.** Every Orbit release includes signed artefacts, immutable image references, an image inventory, release notes, and compatibility information.
 2. **Respect infrastructure ownership.** Production installation consumes Istio and SPIRE as prerequisites. Orbit does not install, upgrade, or remove them, and requires no change to them beyond the published prerequisite contract.
-3. **Support GitOps directly.** Helm, Argo CD, and Flux install, upgrade, roll back, and remove Orbit from the same declared release inputs.
+3. **Support GitOps directly.** Helm and Argo CD install, upgrade, roll back, and remove Orbit from the same declared release inputs.
 4. **Provide one reference path.** Evaluation and local development use the released artefacts and the same prerequisite contract as production, with local values as the only variation.
 5. **Narrow controller responsibility.** The in-cluster controller manages tenant lifecycle and attaches Orbit's enforcement to tenant workloads. It does not install the platform. Every permission it holds is documented with its reason.
 6. **Fit the customer cluster.** Operators configure image sourcing, pull credentials, secrets, placement, resources, priority, and ingress without editing release templates.
@@ -65,7 +65,7 @@ All metrics are owned by the Orbit Core Team and measured in release validation 
 
 - **Time to first run.** From a cluster that meets the tool prerequisites to a command showing a completed sample agent run, following only the quickstart: 30 minutes or less. Measured by a timed walkthrough on each release.
 - **Existing mesh and identity.** A cluster with independently operated Istio and SPIRE that satisfy the prerequisite contract installs Orbit with no change to either system beyond that contract, and the preflight reports the contract satisfied.
-- **No manual steps.** Helm and the reference install complete a documented installation, upgrade and rollback with no step outside their own workflow. Argo CD and Flux configurations render and validate against every release.
+- **No manual steps.** Helm and the reference install complete a documented installation, upgrade and rollback with no step outside their own workflow. Argo CD configurations render and validate against every release.
 - **Verifiable release.** Every release publishes signed artefacts, digest-pinned images, a machine-readable image inventory, release notes, and a supported-version matrix.
 - **Validated compatibility.** Release validation renders the artefacts against every supported Kubernetes version and installs them against every supported Istio version.
 - **Restricted admission.** Every Orbit workload, including sidecars and the agent sandbox, admits under the Kubernetes restricted Pod Security Standard without exemptions.
@@ -81,7 +81,8 @@ All metrics are owned by the Orbit Core Team and measured in release validation 
 - Database schema migration. A separate concern; this PRD covers installing, upgrading and rolling back Orbit's workloads.
 - Multi-cluster, multi-region, or OpenShift packaging.
 - A second publication channel or a standalone installer CLI.
-- Exercising Argo CD and Flux installs in release validation. Future improvement; v1 validates their configurations by rendering.
+- Exercising an Argo CD install in release validation. Future improvement; v1 validates the configuration by rendering.
+- Flux support. Not in scope for v1; the reference charts are standard Helm charts and work under Flux, but no example is published or maintained.
 
 ---
 
@@ -110,10 +111,10 @@ All metrics are owned by the Orbit Core Team and measured in release validation 
 
 ### US-003: Operate Orbit through GitOps
 
-**As a** platform operator using Argo CD or Flux, **I want to** manage Orbit as versioned declarations in my repository, **so that** review, reconciliation, rollback, and drift handling work like the rest of my cluster.
+**As a** platform operator using Argo CD, **I want to** manage Orbit as versioned declarations in my repository, **so that** review, reconciliation, rollback, and drift handling work like the rest of my cluster.
 
 **Acceptance Criteria:**
-- [ ] Argo CD and Flux examples consume the same versioned artefacts as Helm.
+- [ ] The Argo CD example consumes the same versioned artefacts as Helm.
 - [ ] The examples cover installation, upgrade, rollback, uninstall, and dependency ordering.
 - [ ] A GitOps reconciliation completes without an out-of-band installation action.
 - [ ] Uninstalling Orbit retains tenant declarations and tenant namespaces.
@@ -195,7 +196,7 @@ These are the only changes a platform team may need to make to an existing mesh 
 
 The reference install is a Helmfile that installs compatible prerequisites and the released Orbit artefacts in dependency order. It is the evaluator quickstart and the local-development deployment path.
 
-The production path starts with a cluster that already meets the prerequisite contract. The operator stores the release version, values, and tenant declarations in Git and reconciles them with Helm, Argo CD, or Flux. The same artefacts, values schema, release metadata, and verification procedure apply to both paths.
+The production path starts with a cluster that already meets the prerequisite contract. The operator stores the release version, values, and tenant declarations in Git and reconciles them with Helm or Argo CD. The same artefacts, values schema, release metadata, and verification procedure apply to both paths.
 
 Supported ingress topologies: an Istio Gateway Orbit creates, an Istio Gateway the customer owns, and a Kubernetes Ingress in front of either.
 
@@ -212,7 +213,7 @@ Installation moves where enforcement is delivered. Workload identity, policy eva
 ### In Scope
 
 - Published, versioned, signed artefacts and release metadata.
-- Helm installation and upgrade guidance plus Argo CD and Flux examples.
+- Helm installation and upgrade guidance plus an Argo CD example.
 - A release-specific Istio and SPIRE prerequisite contract, preflight validation, and compatibility matrix.
 - A reference installation for evaluation and local development that uses the released artefacts.
 - A documented configuration surface for image sources, pull credentials, secrets, placement, resources, priority, and the three ingress topologies.
@@ -234,7 +235,8 @@ Installation moves where enforcement is delivered. Workload identity, policy eva
 
 - Public artefact distribution after the repository opens. The private-preview registry authentication step is removed at that point; nothing else changes.
 - Naming managed Istio offerings as supported after each passes release validation.
-- Argo CD and Flux installs exercised in release validation.
+- An Argo CD install exercised in release validation.
+- Flux support, if a customer need for it appears.
 - Corporate egress proxy support.
 - Ambient mesh and Gateway API support after the enforcement model for those environments receives its own approved ADR.
 
@@ -262,7 +264,7 @@ Rejected: two install paths maintained by one team, with the secondary path deca
 
 **Must Have (P0):**
 - [ ] Every release installs, upgrades and rolls back through Helm from published artefacts.
-- [ ] Documented Argo CD and Flux configurations consume the same release inputs.
+- [ ] A documented Argo CD configuration consumes the same release inputs.
 - [ ] Production installation never manages the lifecycle of Istio or SPIRE and requires no change to them beyond the prerequisite contract.
 - [ ] Preflight validates the prerequisite contract and returns actionable failures before tenant workloads are admitted.
 - [ ] The configuration reference identifies defaults, required fields, supported overrides, and every Secret key Orbit reads.

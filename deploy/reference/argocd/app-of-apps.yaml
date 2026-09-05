@@ -180,9 +180,8 @@ metadata:
 spec:
   project: default
   # orbit's values are environment-specific (database, redis, hosts, bedrock
-  # accounts) the same way Flux's sibling example takes them from a
-  # consumer-owned ConfigMap; there is nothing generic to inline here. Point
-  # the second source at your own GitOps values repository and path.
+  # accounts); there is nothing generic to inline here. Point the second
+  # source at your own GitOps values repository and path.
   sources:
     - repoURL: ghcr.io/clear-route/charts
       chart: orbit

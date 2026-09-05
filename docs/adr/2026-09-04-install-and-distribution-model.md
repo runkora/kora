@@ -23,7 +23,7 @@ Orbit has no installable release. The install model it documents fails the three
 
 ### Goals
 
-- Two published, signed charts that install with Helm, Argo CD or Flux with no imperative steps.
+- Two published, signed charts that install with Helm or Argo CD with no imperative steps.
 - Istio and SPIRE as documented, verifiable prerequisites. Orbit never installs them.
 - The operator does tenant lifecycle and enforcement attachment only, with RBAC to match.
 - One reference install for blank clusters that local development also uses.
@@ -136,7 +136,7 @@ Secrets and ConfigMaps are excluded from the informer cache entirely (`client.Ca
 
 Two charts.
 
-**`orbit-crds`** carries the four `orbit.io` CRDs (`OrbitTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm, Argo CD and Flux and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `OrbitTenant` schema; it was never implemented and tenant namespaces are always retained.
+**`orbit-crds`** carries the four `orbit.io` CRDs (`OrbitTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm and Argo CD and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `OrbitTenant` schema; it was never implemented and tenant namespaces are always retained.
 
 **`orbit`** carries the operator, cluster-scoped identity and gateway resources, and every service. Chart version and application version are one number for one product. A chart-only fix therefore requires a full release; that cost is accepted for one version to reason about.
 
@@ -211,8 +211,8 @@ The charts render identically under `helm template` with no cluster access and p
 - No `lookup`, `genCA`, `genSignedCert`, `randAlphaNum` or `now`. Today `lookup` appears in `charts/orbit-platform/templates/namespaces.yaml` and `charts/orbit-operator/templates/webhook.yaml`; both templates go. Webhook TLS moves to the operator (companion ADR).
 - No Helm hooks required for correctness.
 - Every credential is an existing Secret; the charts create none.
-- The system namespace is created and labelled outside the chart. Helmfile: a `presync` hook creates it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. Flux: a `Namespace` object in the Kustomization that precedes the `HelmRelease`. The deployment guide gives all three.
-- A published ownership table: every object the chart or operator creates or changes, its owner, and the fields the operator writes on objects it does not own (tenant namespace labels, webhook `caBundle` and `failurePolicy`, PSA labels). Argo CD `ignoreDifferences` and Flux drift-detection snippets follow from it.
+- The system namespace is created and labelled outside the chart. Helmfile: a `presync` hook creates it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. The deployment guide gives both.
+- A published ownership table: every object the chart or operator creates or changes, its owner, and the fields the operator writes on objects it does not own (tenant namespace labels, webhook `caBundle` and `failurePolicy`, PSA labels). Argo CD `ignoreDifferences` follows from it.
 - A NetworkPolicy `allow-apiserver-webhook` admitting the API server to the operator's webhook port; the API server is host-networked so the source is `networkPolicy.apiServerCIDRs` (default `0.0.0.0/0` on the webhook port only). Without it the default-deny in the system namespace blocks admission and, with a fail-closed webhook, every tenant pod.
 - A published flow table in the deployment guide: every flow Orbit's shipped policies permit (istiod xDS and webhook ports, API server to the operator webhook, system namespace to and from tenant namespaces by port, sandboxes to the egress gateway, DNS, and egress to PostgreSQL, Redis, the identity provider and model providers), so a platform team authoring its own default-deny policies can permit them. `networkPolicy.enabled: false` is documented with the isolation it removes.
 - `ServiceEntry` templates for the external destinations Orbit's services call (model providers, the identity provider, PostgreSQL and Redis when outside the cluster), rendered when `istio.outboundTrafficPolicy` is `REGISTRY_ONLY`, so Orbit works on meshes that restrict egress to registered hosts.
@@ -277,7 +277,7 @@ releases:
 
 There is no separate gateway release. Orbit's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release, so nothing in the reference install depends on a component outside Orbit's ownership except the prerequisites themselves. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
 
-`deploy/reference/environments/` holds `local.yaml` (k3d registry, `imagePullPolicy: Always`, local trust domain, local charts by path instead of OCI, k3s CNI paths) and `example.yaml` (a cloud-shaped starting point). `local.generated.yaml` is gitignored and written by `scripts/cluster/resolve-docker-ips.sh` (identity `hostAliases`, `networkPolicy.externalServices`). `deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. `deploy/reference/flux/` holds `HelmRepository`, `OCIRepository` and `HelmRelease` objects with `dependsOn`. Both GitOps examples carry the registry credential reference needed during the private preview.
+`deploy/reference/environments/` holds `local.yaml` (k3d registry, `imagePullPolicy: Always`, local trust domain, local charts by path instead of OCI, k3s CNI paths) and `example.yaml` (a cloud-shaped starting point). `local.generated.yaml` is gitignored and written by `scripts/cluster/resolve-docker-ips.sh` (identity `hostAliases`, `networkPolicy.externalServices`). `deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. It carries the registry credential reference needed during the private preview. Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
 
 `make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), `migrate-up`, create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and digest pinning with `kubectl set image` is replaced by setting `image.digest` in `local.generated.yaml` so `helmfile apply` and redeploys agree. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
 
@@ -294,7 +294,7 @@ A `release.yml` workflow on `v*` tags, reusing `docker.yml` through `workflow_ca
 5. Sign charts and images with cosign using a repository-held key while the repository is private (keyless signing writes image names to the public transparency log), switching to keyless with the GitHub OIDC identity when the repository opens. Attach SLSA provenance. The workflow holds `id-token: write`, `packages: write`, `attestations: write`.
 6. Publish release assets: `images.txt` (every image reference including third-party), `compatibility.yaml` (supported Kubernetes, Istio, SPIRE, Helm, Helmfile and helm-diff versions), and release notes generated from conventional commits with a breaking-changes section.
 
-Chart CI on every pull request touching `charts/`, `deploy/reference/`, `backend/internal/operator/` or `backend/internal/agents/k8s*.go`: `ct lint` with `values.schema.json` (`check-version-increment: false`, versions are stamped at release), `helm template | kubeconform` per supported Kubernetes minor with `istioctl analyze --use-kube=false` on the rendered output for the Istio resources kubeconform has no schema for, the restricted pod security check from the companion ADR, and a k3d matrix that runs the reference Helmfile against Istio N and N-1 (k3d rather than kind so CI and local development use the same cluster tooling). Argo CD and Flux examples are render-validated; exercising them as installs is a future improvement. Renovate tracks the Istio and SPIRE versions in `deploy/reference/`.
+Chart CI on every pull request touching `charts/`, `deploy/reference/`, `backend/internal/operator/` or `backend/internal/agents/k8s*.go`: `ct lint` with `values.schema.json` (`check-version-increment: false`, versions are stamped at release), `helm template | kubeconform` per supported Kubernetes minor with `istioctl analyze --use-kube=false` on the rendered output for the Istio resources kubeconform has no schema for, the restricted pod security check from the companion ADR, and a k3d matrix that runs the reference Helmfile against Istio N and N-1 (k3d rather than kind so CI and local development use the same cluster tooling). The Argo CD example is render-validated; exercising it as an install is a future improvement. Renovate tracks the Istio and SPIRE versions in `deploy/reference/`.
 
 While the repository is private, the GHCR packages are private. The quickstart carries one marked preview step (`helm registry login ghcr.io`, a pull secret named in `global.imagePullSecrets`). Nothing in the charts assumes credentials.
 
@@ -419,7 +419,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 ### Phase 3: Reference install and local development
 
-1. `deploy/reference/helmfile.yaml.gotmpl`, `values/*.gotmpl`, `values/gateway-byo.yaml`, `environments/{local,example}.yaml`, `argocd/` app-of-apps, `flux/` objects.
+1. `deploy/reference/helmfile.yaml.gotmpl`, `values/*.gotmpl`, `values/gateway-byo.yaml`, `environments/{local,example}.yaml`, `argocd/` app-of-apps.
 2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml`; k3d's Kubernetes version moves inside the supported window.
 3. Move `deploy/local/{orbit-values,platform-values,operator-values}.yaml` content into `environments/local.yaml`; delete `deploy/local/orbit-platform.yaml`.
 4. Update `docs/guides/local-development.md` and `deploy/local/README.md`.
@@ -427,7 +427,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 ### Phase 4: Release and verification
 
 1. `.github/workflows/release.yml` and `charts-ci.yml` per Decision 7; `docker.yml` gains `workflow_call`.
-2. Rewrite `docs/guides/deployment.md`: prerequisites contract with the constraints on customer systems, quickstart (tools, minimum cluster size, credentials, reference Helmfile, teardown), production install (Helm, Argo CD, Flux, namespace labelling per path), the three ingress topologies with DNS and TLS requirements, private preview step, upgrade and rollback, uninstall, ownership table, outbound destinations, compatibility statement, verification against a mirror, migration.
+2. Rewrite `docs/guides/deployment.md`: prerequisites contract with the constraints on customer systems, quickstart (tools, minimum cluster size, credentials, reference Helmfile, teardown), production install (Helm, Argo CD, namespace labelling per path), the three ingress topologies with DNS and TLS requirements, private preview step, upgrade and rollback, uninstall, ownership table, outbound destinations, compatibility statement, verification against a mirror, migration.
 3. Update `AGENTS.md`, `docs/code-organization.md`, `ARCHITECTURE.md` and the diagrams under `docs/diagrams/` where they show the operator installing the platform.
 4. Mark the 2026-03-31 operator ADR Superseded and add an amendment note to the chart-distribution ADR when this ADR is accepted.
 
@@ -513,6 +513,5 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 - Helm CRD best practices: https://helm.sh/docs/chart_best_practices/custom_resource_definitions/
 - Argo CD Helm behaviour (hooks, `lookup`, random values): https://argo-cd.readthedocs.io/en/stable/user-guide/helm/
 - Argo CD sync options and app-of-apps ordering: https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/
-- Flux HelmRelease: https://fluxcd.io/flux/components/helm/helmreleases/
 - Helmfile: https://helmfile.readthedocs.io/
 - cosign: https://docs.sigstore.dev/cosign/
