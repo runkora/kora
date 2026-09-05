@@ -42,7 +42,7 @@ func renderedStatefulSet() appsv1.StatefulSet {
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
-// Standard that Orbit sets itself; the CI kyverno step checks the full profile.
+// Standard that Orbit sets itself; the remaining fields are Kubernetes defaults.
 func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 	t.Helper()
 	sc := spec.SecurityContext
@@ -128,6 +128,57 @@ func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	}
 }
 
+// TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv covers upgrading an
+// agent created before the operator webhook took over injection: the istiod
+// template annotation must go and the rendered env must replace the old one,
+// while the digest-pinned image is left alone.
+func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	const ns = "orbit-tenant-acme"
+	stale := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					"inject.istio.io/templates": "sidecar,spire,identity-proxy",
+				}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  sessionManagerContainerName,
+						Image: "old",
+						Env:   []corev1.EnvVar{{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"}},
+					}},
+				},
+			},
+		},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(stale)
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at)); err != nil {
+		t.Fatalf("ensureStatefulSet: %v", err)
+	}
+	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if _, ok := got.Spec.Template.Annotations["inject.istio.io/templates"]; ok {
+		t.Error("stale inject.istio.io/templates annotation survived the update")
+	}
+	c := got.Spec.Template.Spec.Containers[0]
+	if c.Image != "old" {
+		t.Error("update path must not replace the pinned image")
+	}
+	var base string
+	for _, e := range c.Env {
+		if e.Name == "ANTHROPIC_BASE_URL" {
+			base = e.Value
+		}
+	}
+	if base != "http://orbit-inference-gateway.orbit-prod.svc.cluster.local" {
+		t.Errorf("ANTHROPIC_BASE_URL not synced to the configured system namespace: %q", base)
+	}
+}
+
 // TestEnsureStatefulSet_ExistingPicksUpHardening covers the re-provision path:
 // an agent StatefulSet created before this hardening must receive the pod and
 // container contexts and pull secrets without a manual delete.
@@ -192,8 +243,7 @@ func TestRuntimePods_RenderYAML(t *testing.T) {
 }
 
 // TestRuntimePods_NoIstioTemplatesAnnotation guards against naming istiod
-// injection templates that no longer exist; Istio's injector fails the pod
-// when one is missing. The operator webhook wires SPIRE and identity-proxy.
+// injection templates; Istio's injector fails the pod when one is missing. The operator webhook wires SPIRE and identity-proxy.
 func TestRuntimePods_NoIstioTemplatesAnnotation(t *testing.T) {
 	const key = "inject.istio.io/templates"
 	if _, ok := renderedSandboxPod().Annotations[key]; ok {

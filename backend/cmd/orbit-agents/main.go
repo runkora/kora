@@ -32,6 +32,9 @@ func main() {
 }
 
 func realMain() error {
+	if err := agentsConfig.Validate(agentsConfig.Current); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

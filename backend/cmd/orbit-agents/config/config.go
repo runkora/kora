@@ -2,6 +2,7 @@
 package agentsConfig
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -153,6 +154,16 @@ var Current = func() *Config {
 	applyEnvOverrides(cfg, os.Getenv)
 	return cfg
 }()
+
+// Validate rejects an in-cluster config that would mint identities in an
+// empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the
+// base YAML carries no trust domain on purpose, so it cannot run at load.
+func Validate(cfg *Config) error {
+	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
+		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
+	}
+	return nil
+}
 
 // applyEnvOverrides layers the per-install values the chart sets as env vars
 // over the YAML defaults. getenv is injected so tests can drive it.

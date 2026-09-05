@@ -88,6 +88,23 @@ func TestApplyEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
+	cfg := &Config{}
+	cfg.Kubernetes.InCluster = true
+	if err := Validate(cfg); err == nil {
+		t.Fatal("empty trust domain in cluster must fail validation")
+	}
+	cfg.Platform.TrustDomain = "orbit.test"
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg.Platform.TrustDomain = ""
+	cfg.Kubernetes.InCluster = false
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("local dev without a trust domain must pass: %v", err)
+	}
+}
+
 func TestApplyEnvOverrides_UnsetLeavesYAMLValues(t *testing.T) {
 	cfg := &Config{}
 	cfg.Kubernetes.SystemNamespace = "orbit-system"

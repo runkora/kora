@@ -1169,17 +1169,27 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	// Sync the security-sensitive parts of the pod template onto an existing
-	// StatefulSet so already-provisioned agents pick up hardening changes.
+	// Sync the rendered pod template's metadata, env and security settings onto
+	// an existing StatefulSet. The image is left alone: redeploy pins it by
+	// digest. Labels and annotations are replaced wholesale so an annotation
+	// an older release set (the istiod template list) does not survive.
 	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing statefulset: %w", err)
 	}
+	existing.Spec.Template.Labels = ss.Spec.Template.Labels
+	existing.Spec.Template.Annotations = ss.Spec.Template.Annotations
 	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
 	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
 	for i := range existing.Spec.Template.Spec.Containers {
-		if existing.Spec.Template.Spec.Containers[i].Name == sessionManagerContainerName {
-			existing.Spec.Template.Spec.Containers[i].SecurityContext = restrictedContainerSecurityContext()
+		if existing.Spec.Template.Spec.Containers[i].Name != sessionManagerContainerName {
+			continue
+		}
+		for _, rendered := range ss.Spec.Template.Spec.Containers {
+			if rendered.Name == sessionManagerContainerName {
+				existing.Spec.Template.Spec.Containers[i].Env = rendered.Env
+				existing.Spec.Template.Spec.Containers[i].SecurityContext = rendered.SecurityContext
+			}
 		}
 	}
 	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
