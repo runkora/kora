@@ -363,7 +363,7 @@ networkPolicy: { enabled: true, externalServices: [], apiServerCIDRs: ["0.0.0.0/
 gateway: { create: true, name: orbit-gateway, ports: {...}, tls: {...}, ingress: {...}, byo: {...} }   # create=false: bind to an existing Gateway named here; service.type lives under ingressGateway
 ingressGateway: { name: orbit-gateway, service: {type: LoadBalancer}, env: {...}, volumes: [...] }     # upstream istio/gateway subchart values, used when gateway.create is true
 operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, logLevel: info, webhook: {...}, injection: {...}, preflight: {...} }
-identityProxy: { image: {...}, appEnv: production, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
+identityProxy: { image: {...}, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
 identity: ...
 inferenceGateway: ...             # includes bedrock.accounts[], serviceAccount.annotations
 agents: ...                       # includes config.sessionManagerImage, config.sandboxImage, extraEnv, runtimePods, imageWarmer, warmHeadroom

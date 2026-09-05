@@ -21,7 +21,6 @@ orbit:
   platformSecretName: orbit-secrets
   operatorReplicas: 2
   logLevel: info
-  appEnv: production
   serviceConfig:
     postgresSSLMode: require
     postgresCaptureQueryText: "false"

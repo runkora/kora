@@ -62,8 +62,6 @@ spec:
               value: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.identityProxy.image) | quote }}
             - name: ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY
               value: {{ .Values.identityProxy.image.pullPolicy | default .Values.global.imagePullPolicy | quote }}
-            - name: ORBIT_INJECT_IDENTITY_PROXY_APP_ENV
-              value: {{ .Values.identityProxy.appEnv | quote }}
             - name: ORBIT_INJECT_IDENTITY_PROXY_RESOURCES
               value: {{ toJson .Values.identityProxy.resources | quote }}
             - name: ORBIT_INJECT_OPA_IMAGE

@@ -212,8 +212,6 @@ platform token when calling other Orbit services. Takes (dict "root" $).
   image: {{ include "orbit.imageRef" (dict "root" .root "image" $ip.image) | quote }}
   imagePullPolicy: {{ $ip.image.pullPolicy | default .root.Values.global.imagePullPolicy | default "IfNotPresent" }}
   env:
-    - name: APP_ENV
-      value: {{ $ip.appEnv | quote }}
     - name: ORBIT_IDENTITY_SERVICE_URL
       value: {{ include "orbit.serviceURL" (dict "root" .root "name" "orbit-identity") | quote }}
     - name: SPIFFE_ENDPOINT_SOCKET

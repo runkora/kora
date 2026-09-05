@@ -53,7 +53,6 @@ type InjectionConfig struct {
 
 	IdentityProxyImage      string
 	IdentityProxyPullPolicy corev1.PullPolicy
-	IdentityProxyAppEnv     string
 	IdentityProxyResources  corev1.ResourceRequirements
 
 	OPAImage      string
@@ -161,7 +160,6 @@ func (m *PodMutator) identityProxyContainer() corev1.Container {
 		Image:           m.Config.IdentityProxyImage,
 		ImagePullPolicy: m.Config.IdentityProxyPullPolicy,
 		Env: []corev1.EnvVar{
-			{Name: "APP_ENV", Value: m.Config.IdentityProxyAppEnv},
 			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
 		},

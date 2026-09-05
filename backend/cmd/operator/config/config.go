@@ -67,7 +67,6 @@ type Install struct {
 type Injection struct {
 	IdentityProxyImage      string
 	IdentityProxyPullPolicy string
-	IdentityProxyAppEnv     string
 	IdentityProxyResources  corev1.ResourceRequirements
 
 	OPAImage              string
@@ -126,7 +125,6 @@ func loadInstall() Install {
 		Injection: Injection{
 			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),
 			IdentityProxyPullPolicy: envOr("ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY", "IfNotPresent"),
-			IdentityProxyAppEnv:     envOr("ORBIT_INJECT_IDENTITY_PROXY_APP_ENV", "production"),
 			IdentityProxyResources:  resourcesEnv("ORBIT_INJECT_IDENTITY_PROXY_RESOURCES"),
 			OPAImage:                envOr("ORBIT_INJECT_OPA_IMAGE", "docker.io/openpolicyagent/opa:1.15.2-envoy-static"),
 			OPAPullPolicy:           envOr("ORBIT_INJECT_OPA_PULL_POLICY", "IfNotPresent"),

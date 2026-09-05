@@ -15,7 +15,6 @@ func testMutator() *PodMutator {
 		ImagePullSecrets:        []string{"regcred"},
 		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
-		IdentityProxyAppEnv:     "production",
 		OPAImage:                "docker.io/openpolicyagent/opa:1.15.2-envoy-static",
 		OPAPullPolicy:           corev1.PullIfNotPresent,
 		OPALogLevel:             "info",

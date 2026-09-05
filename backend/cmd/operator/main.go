@@ -261,7 +261,6 @@ func initWebhooks(mgr ctrl.Manager) {
 				ImagePullSecrets:        install.ImagePullSecrets,
 				IdentityProxyImage:      install.Injection.IdentityProxyImage,
 				IdentityProxyPullPolicy: corev1.PullPolicy(install.Injection.IdentityProxyPullPolicy),
-				IdentityProxyAppEnv:     install.Injection.IdentityProxyAppEnv,
 				IdentityProxyResources:  install.Injection.IdentityProxyResources,
 				OPAImage:                install.Injection.OPAImage,
 				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),

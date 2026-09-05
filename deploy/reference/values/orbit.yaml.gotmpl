@@ -68,7 +68,6 @@ identityProxy:
   image:
     digest: {{ dig "identityProxy" "digest" "" $images | quote }}
     tag: {{ $tag | quote }}
-  appEnv: {{ .Values.orbit.appEnv }}
 
 identity:
   image:

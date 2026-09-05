@@ -129,7 +129,7 @@ sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets
 
 **Pod fields:** `imagePullSecrets` from `global.imagePullSecrets` (the operator replicates those Secrets into each tenant namespace during tenant reconcile).
 
-**Containers:** `identity-proxy` and `opa`, built from typed structs in the operator, parameterised from `operator.injection.*` (image registry, repository, tag or digest, pull policy, resources, log level, `appEnv`). Both carry the restricted security context of Decision 6. The identity service URL and the OPA policy-service URL are rendered from `ORBIT_SYSTEM_NAMESPACE`, replacing the `orbit-system` literals in `istio_templates.go:121` and `tenant_controller.go:496`. OPA listens on `127.0.0.1:8181` with diagnostics on `0.0.0.0:8282` for probes only; today's `--addr=0.0.0.0:8181` (`istio_templates.go:50`) lets the untrusted agent read the tenant's whole grant bundle from `localhost:8181/v1/data`.
+**Containers:** `identity-proxy` and `opa`, built from typed structs in the operator, parameterised from `operator.injection.*` (image registry, repository, tag or digest, pull policy, resources, log level). Both carry the restricted security context of Decision 6. The identity service URL and the OPA policy-service URL are rendered from `ORBIT_SYSTEM_NAMESPACE`, replacing the `orbit-system` literals in `istio_templates.go:121` and `tenant_controller.go:496`. OPA listens on `127.0.0.1:8181` with diagnostics on `0.0.0.0:8282` for probes only; today's `--addr=0.0.0.0:8181` (`istio_templates.go:50`) lets the untrusted agent read the tenant's whole grant bundle from `localhost:8181/v1/data`.
 
 The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `orbit.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
 
@@ -162,7 +162,7 @@ Orbit's own services set the annotations, volumes and (where used) the identity-
 
 - `orbit.spireProxyAnnotations`: the `proxy.istio.io/config` block and the `userVolumeMount` JSON, extended with `id-proxy-sock` when the component has the identity-proxy.
 - `orbit.spireVolumes`: the `workload-socket` CSI volume.
-- `orbit.identityProxyContainer`: the sidecar container, parameterised from `identityProxy.*` values (image, resources, `appEnv`), with the Decision 6 security context.
+- `orbit.identityProxyContainer`: the sidecar container, parameterised from `identityProxy.*` values (image, resources), with the Decision 6 security context.
 
 Components with the identity-proxy today (inference gateway, agents, egress gateway, tool-gateway publisher) render the container and the socket volume. Components without it render only the SPIRE annotations and volume. The `inject.istio.io/templates` annotation is removed from every template. Orbit's ingress gateway pods, deployed by the `orbit` chart's `istio/gateway` subchart, receive the same wiring through that subchart's `env`, `volumes` and `volumeMounts` values; a customer-owned gateway applies the documented equivalent.
 
@@ -310,7 +310,6 @@ injected containers, not their images:
 ```yaml
 identityProxy:
   image: { registry: "", repository: orbit-identity-proxy, tag: "", digest: "", pullPolicy: "" }
-  appEnv: production
   resources: { requests: { cpu: 50m, memory: 32Mi }, limits: { cpu: 200m, memory: 64Mi } }
 
 opaGateway:
