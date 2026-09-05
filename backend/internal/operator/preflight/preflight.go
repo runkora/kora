@@ -14,6 +14,7 @@ import (
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -189,7 +190,10 @@ func (r *Runner) cniDaemonSet(ctx context.Context) Check {
 	const name = "istio-cni-daemonset"
 	ds := &appsv1.DaemonSet{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: "istio-cni-node", Namespace: r.Config.IstioNamespace}, ds); err != nil {
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("DaemonSet istio-cni-node not found in %q: %v", r.Config.IstioNamespace, err)}
+		if apierrors.IsNotFound(err) {
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("DaemonSet istio-cni-node not found in %q: is Istio CNI installed?", r.Config.IstioNamespace)}
+		}
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("get DaemonSet istio-cni-node in %q: %v", r.Config.IstioNamespace, err)}
 	}
 	if ds.Status.DesiredNumberScheduled == 0 || ds.Status.NumberReady < ds.Status.DesiredNumberScheduled {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("istio-cni-node ready %d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)}
@@ -205,7 +209,10 @@ func (r *Runner) meshTrustDomain(ctx context.Context) Check {
 	}
 	cm := &corev1.ConfigMap{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: cmName, Namespace: r.Config.IstioNamespace}, cm); err != nil {
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("ConfigMap %s not found in %q: %v", cmName, r.Config.IstioNamespace, err)}
+		if apierrors.IsNotFound(err) {
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("ConfigMap %s not found in %q: is istiod installed at this revision?", cmName, r.Config.IstioNamespace)}
+		}
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("get ConfigMap %s in %q: %v", cmName, r.Config.IstioNamespace, err)}
 	}
 	var mesh struct {
 		TrustDomain string `json:"trustDomain"`
