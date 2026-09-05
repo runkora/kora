@@ -216,7 +216,7 @@ Installation moves where enforcement is delivered. Workload identity, policy eva
 - Helm installation and upgrade guidance plus an Argo CD example.
 - A release-specific Istio and SPIRE prerequisite contract, preflight validation, and compatibility matrix.
 - A reference installation for evaluation and local development that uses the released artefacts.
-- A documented configuration surface for image sources, pull credentials, secrets, placement, resources, priority, and the three ingress topologies.
+- A documented configuration surface for image sources, pull credentials, secrets, placement, resources, priority, and the supported ingress topologies.
 - Tenant-only reconciliation, enforcement attachment at admission, and defined lifecycle behaviour for tenant resources and namespaces.
 - Release verification, upgrade, rollback, uninstall, and troubleshooting guidance.
 - Release validation against every declared Kubernetes and Istio version.

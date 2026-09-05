@@ -133,7 +133,7 @@ sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets
 
 The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `orbit.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
 
-Ordering: the API server invokes mutating webhooks in configuration-name order, so the configuration keeps the `aaa-` prefix and runs before `istio-sidecar-injector`, which reads `proxy.istio.io/config` and `userVolumeMount` from the pod at admission. `reinvocationPolicy` is `Never`; `IfNeeded` on Orbit's webhook would not make Istio's injector re-run and permits the API server to reorder. The guarantee that survives any reordering is Decision 2's validating webhook, and the k3d matrix asserts the final pod shape on every supported Istio minor.
+Ordering: the API server invokes mutating webhooks in configuration-name order. The configuration keeps the `aaa-` prefix and runs before `istio-sidecar-injector`, which reads `proxy.istio.io/config` and `userVolumeMount` from the pod at admission. `reinvocationPolicy` is `Never`; `IfNeeded` on Orbit's webhook would not make Istio's injector re-run and permits the API server to reorder. The guarantee that survives any reordering is Decision 2's validating webhook, and the k3d matrix asserts the final pod shape on every supported Istio minor.
 
 ### Decision 2: Fail closed, including when Istio does not inject
 
@@ -154,7 +154,7 @@ The operator owns its serving certificate. The leader creates a Secret `orbit-op
 
 `operator.webhook.certificate.certManager.enabled: false` remains available for customers who prefer a cert-manager `Certificate` and the cainjector annotation; when enabled, the operator skips certificate management but still patches `failurePolicy`.
 
-`genCA`, `genSignedCert` and `lookup` are removed from the chart. RBAC: a Role on Secrets in the operator's namespace, and `get, list, watch, patch` on the two named webhook configurations, both in the companion ADR's ClusterRole table.
+`genCA`, `genSignedCert` and `lookup` are removed from the chart. RBAC: Secrets through the cluster-wide ConfigMap/Secret rule ([#269](https://github.com/clear-route/orbit/issues/269)), and `get, patch` on the two named webhook configurations plus unscoped `list, watch`, all in the companion ADR's ClusterRole table.
 
 ### Decision 4: System pods
 
@@ -168,7 +168,7 @@ Components with the identity-proxy today (inference gateway, agents, egress gate
 
 ### Decision 5: Preflight
 
-A `preflight` subcommand on the operator binary, run in three places: at operator startup and every reconcile interval thereafter, publishing a `PrerequisitesSatisfied` condition on every `OrbitTenant`, an event on failure, and metrics; as a `helm test` Job for on-demand checks; and as the gate that keeps every `OrbitTenant` out of `Ready` while it fails, so no tenant workload is admitted on an unverified cluster. Preflight does not gate the operator's readiness probe: the probe depends only on the process being alive, so a transient failure during an Istio or CNI rollout cannot empty the webhook endpoints and, with `Fail`, block every tenant pod including restarts of already-running agents.
+A `preflight` subcommand on the operator binary, run in three places: at operator startup and every `operator.preflight.intervalSeconds` thereafter, publishing a `PrerequisitesSatisfied` condition on every `OrbitTenant`, an event on failure, and metrics; as a `helm test` Job for on-demand checks; and as the gate that keeps every `OrbitTenant` out of `Ready` while it fails, so no tenant workload is admitted on an unverified cluster. Preflight does not gate the operator's readiness probe: the probe depends only on the process being alive, so a transient failure during an Istio or CNI rollout cannot empty the webhook endpoints and, with `Fail`, block every tenant pod including restarts of already-running agents.
 
 Checks, each with an actionable message:
 
@@ -178,8 +178,8 @@ Checks, each with an actionable message:
 | Istio CNI configured | `pilot.cni.enabled` true in the same ConfigMap; `istio-cni-node` DaemonSet present and ready in `istio.namespace` |
 | Trust domain matches | `meshConfig.trustDomain` in the `istio` (or `istio-<rev>`) ConfigMap equals `ORBIT_TRUST_DOMAIN` |
 | Sidecar mode and injection on Orbit namespaces | the system namespace carries `istio-injection: enabled` or an `istio.io/rev` matching a live revision, and does not carry `istio.io/dataplane-mode: ambient` |
-| SPIRE working and trust domain | the operator fetches its own SVID and bundle over the Workload API through the CSI socket and compares the SVID trust domain to `ORBIT_TRUST_DOMAIN`; this proves the CSI driver, the agent, the server and the trust domain in one check |
-| SPIRE controller manager | `ClusterSPIFFEID` CRD served; Orbit's registrations report entries in `status.stats`; no ClusterSPIFFEID selects `spiffe.io/spire-managed-identity` cluster-wide without `fallback: true`; `spire.className` matches the controller manager's class |
+| SPIRE working and trust domain | the operator fetches its own SVID over the Workload API through the CSI socket and compares the SVID trust domain to `ORBIT_TRUST_DOMAIN`; this proves the CSI driver, the agent, the server and the trust domain in one check |
+| SPIRE controller manager | `ClusterSPIFFEID` CRD served; Orbit's registrations report no entry or render failures in `status.stats`; no ClusterSPIFFEID selects `spiffe.io/spire-managed-identity` cluster-wide without `fallback: true`; every Orbit registration uses `spire.className` |
 | Own webhooks wired | both configurations present with a populated `caBundle` and `failurePolicy: Fail` |
 
 Preflight mutates nothing outside the operator's own webhook configurations. It reads with the ClusterRole in the companion ADR, which lists the preflight rows; the `helm test` Job runs with the operator's ServiceAccount. Reading injector ConfigMaps by label rather than a fixed `istiod` Deployment name is what makes the check work on revisioned installs and on managed offerings that run istiod outside the cluster.
@@ -325,7 +325,7 @@ operator:
     opa:
       logLevel: info
       bundlePolling: { minDelaySeconds: 30, maxDelaySeconds: 60 }
-      resources: {}
+      resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 250m, memory: 128Mi } }
   tenantPodSecurity:
     enforce: restricted
     warn: restricted
@@ -335,7 +335,7 @@ operator:
     intervalSeconds: 300
 ```
 
-`istio.namespace`, `istio.revision`, `spire.namespace` and `spire.className` are top-level values shared with the services ([install-and-distribution-model](2026-09-04-install-and-distribution-model.md), Decision 4).
+`istio.namespace`, `istio.revision` and `spire.className` are top-level values shared with the services ([install-and-distribution-model](2026-09-04-install-and-distribution-model.md), Decision 4).
 
 ---
 
@@ -392,7 +392,7 @@ Existing tenant pods keep running; injection and validation apply on the next po
 - A tenant pod with `sidecar.istio.io/inject: "false"` is rejected with the validating webhook's message.
 - Operator scaled to zero: tenant pod creation is rejected, system namespaces unaffected.
 - An Argo CD sync that reapplies the webhook configurations: `caBundle` and `failurePolicy` are restored within the watch latency and no admission is lost.
-- `helm template` of the `orbit` chart contains no `lookup`, `genCA`, `caBundle` or `inject.istio.io/templates`.
+- `helm template` of the `orbit` chart contains no `lookup`, `genCA`, `caBundle`, or any of Orbit's former injection template names (`spire`, `identity-proxy`, `opa-policy`); the `istio/gateway` subchart's own `gateway` template annotation remains.
 - `kyverno apply` restricted policies pass on every rendered and runtime pod.
 - Preflight on a cluster whose istiod lacks `pilot.cni.enabled` reports it by name; `OrbitTenant` objects stay out of `Ready`; the operator stays ready.
 

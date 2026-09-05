@@ -107,7 +107,7 @@ Orbit has no installable release. The install model it documents fails the three
 
 **Chosen Option:** Option 3, Charts as the product, operator for tenant lifecycle only.
 
-The decision decomposes into eight sub-decisions.
+The decision decomposes into the sub-decisions below.
 
 ### Decision 1: Distribution model and operator scope
 
@@ -118,13 +118,13 @@ The operator's ClusterRole, complete, including the rows the companion ADR's web
 | API group | Resources | Verbs | Reason |
 |---|---|---|---|
 | core | namespaces | get, list, watch, create, patch | tenant namespaces, label repair, PSA labels |
-| core | configmaps, secrets | get, list, watch, create, update, patch | aggregated registries, tenant CA, OPA config, pull-secret replication, webhook TLS |
-| networking.k8s.io | networkpolicies | get, list, watch, create, update, patch | sandbox egress policy |
+| core | configmaps, secrets | get, list, watch, create, patch | aggregated registries, tenant CA, OPA config, pull-secret replication, webhook TLS |
+| networking.k8s.io | networkpolicies | get, list, watch, create, patch | sandbox egress policy |
 | orbit.io | orbittenants, connections, oauthclients, mcpservers | get, list, watch | reconciliation inputs; the operator never writes CR bodies |
-| orbit.io | orbittenants/status, mcpservers/status | get, update, patch | conditions (the other two CRDs have no status subresource) |
+| orbit.io | orbittenants/status, mcpservers/status | get, patch | conditions (the other two CRDs have no status subresource) |
 | admissionregistration.k8s.io | mutatingwebhookconfigurations, validatingwebhookconfigurations | get, patch (scoped to the two named webhooks); list, watch (unscoped) | `caBundle` injection and failure-policy switch |
-| apps | daemonsets | get, list | preflight: CNI presence (istiod itself is read from the injector ConfigMap) |
-| spire.spiffe.io | clusterspiffeids | get, list | preflight: CSI driver and CRD presence proven indirectly (SVID fetch, List error), default ClusterSPIFFEID absent, Orbit registrations accepted |
+| apps | daemonsets | get | preflight: CNI presence (istiod itself is read from the injector ConfigMap) |
+| spire.spiffe.io | clusterspiffeids | list | preflight: CSI driver and CRD presence proven indirectly (SVID fetch, List error), default ClusterSPIFFEID absent, Orbit registrations accepted |
 | coordination.k8s.io | leases | get, create, update | leader election |
 | core | events | create, patch | controller-runtime |
 
@@ -134,7 +134,7 @@ Secrets and ConfigMaps are excluded from the informer cache entirely (`client.Ca
 
 Two charts.
 
-**`orbit-crds`** carries the four `orbit.io` CRDs (`OrbitTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm and Argo CD and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `OrbitTenant` schema; it was never implemented and tenant namespaces are always retained.
+**`orbit-crds`** carries the `orbit.io` CRDs (`OrbitTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm and Argo CD and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `OrbitTenant` schema; it was never implemented and tenant namespaces are always retained.
 
 **`orbit`** carries the operator, cluster-scoped identity and gateway resources, and every service. Chart version and application version are one number for one product. A chart-only fix therefore requires a full release; that cost is accepted for one version to reason about.
 
@@ -165,7 +165,7 @@ Istio and SPIRE are prerequisites. Per release Orbit publishes:
 | PostgreSQL, Redis | reachable from the system namespace; credentials in the platform Secret |
 | OIDC provider, model provider | as today; the reference install ships Dex for evaluation |
 
-Orbit's ClusterSPIFFEIDs are scoped to what Orbit owns: the system namespace (which now contains Orbit's gateway pods) and namespaces labelled `orbit.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` (`clusterSpiffeIDs.yaml:40-64`) and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` (`:19-38`) are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
+Orbit's ClusterSPIFFEIDs are scoped to what Orbit owns: the system namespace (which now contains Orbit's gateway pods) and namespaces labelled `orbit.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
 
 No Orbit-specific Istio control-plane configuration is required. The injection templates the operator rendered into istiod are replaced by Orbit's own webhook and by chart-rendered pod specs (companion ADR). Istio CNI is required because the restricted pod security profile rejects the `istio-init` container's `NET_ADMIN`/`NET_RAW`; with `pilot.cni.enabled` istiod renders the unprivileged `istio-validation` container instead.
 
@@ -190,11 +190,10 @@ istio:
   revision: ""                       # empty = default revision, label istio-injection: enabled
   outboundTrafficPolicy: ALLOW_ANY   # REGISTRY_ONLY renders ServiceEntries for Orbit's external destinations
 spire:
-  namespace: spire-system
   className: spire-system-spire
 ```
 
-The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `ORBIT_SYSTEM_NAMESPACE`; the literals in `registry.go:47`, `tenant_netpol.go:125,153`, `tenant_controller.go:337,496`, `agents/k8s.go:1188` and `cmd/orbit-agents/config/base.yaml:15` are removed. `orbit-system` remains the default.
+The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `ORBIT_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/orbit-agents/config/base.yaml` are removed. `orbit-system` remains the default.
 
 The chart renders the `orbit-config` ConfigMap from `config.*`. `config.platformSecretName` is the single Secret reference; the per-component `existingSecret` values collapse into it, with `frontend.existingSecret` kept because the BFF session secret is a different Secret. `platform.namespaces.tenants` is removed: tenant namespaces are created only by the operator from `OrbitTenant`, or adopted when `spec.namespace` names an existing one, which removes the coupling that made the platform release depend on tenant CR state.
 
@@ -209,7 +208,7 @@ The charts render identically under `helm template` with no cluster access and p
 - No `lookup`, `genCA`, `genSignedCert`, `randAlphaNum` or `now`. Today `lookup` appears in `charts/orbit-platform/templates/namespaces.yaml` and `charts/orbit-operator/templates/webhook.yaml`; both templates go. Webhook TLS moves to the operator (companion ADR).
 - No Helm hooks required for correctness.
 - Every credential is an existing Secret; the charts create none.
-- The system namespace is created and labelled outside the chart. Helmfile: a `presync` hook creates it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. The deployment guide gives both.
+- The system namespace is created and labelled outside the chart. Helmfile: `createNamespace` creates it and a `presync` hook labels it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. The deployment guide gives both.
 - A published ownership table: every object the chart or operator creates or changes, its owner, and the fields the operator writes on objects it does not own (tenant namespace labels, webhook `caBundle` and `failurePolicy`, PSA labels). Argo CD `ignoreDifferences` follows from it.
 - A NetworkPolicy `allow-apiserver-webhook` admitting the API server to the operator's webhook port; the API server is host-networked so the source is `networkPolicy.apiServerCIDRs` (default `0.0.0.0/0` on the webhook port only). Without it the default-deny in the system namespace blocks admission and, with a fail-closed webhook, every tenant pod.
 - A published flow table in the deployment guide: every flow Orbit's shipped policies permit (istiod xDS and webhook ports, API server to the operator webhook, system namespace to and from tenant namespaces by port, sandboxes to the egress gateway, DNS, and egress to PostgreSQL, Redis, the identity provider and model providers), so a platform team authoring its own default-deny policies can permit them. `networkPolicy.enabled: false` is documented with the isolation it removes.
@@ -277,9 +276,9 @@ There is no separate gateway release. Orbit's ingress gateway pods, their `Gatew
 
 `deploy/reference/environments/` holds `local.yaml` (k3d registry, `imagePullPolicy: Always`, local trust domain, local charts by path instead of OCI, k3s CNI paths) and `example.yaml` (a cloud-shaped starting point). `local.generated.yaml` is gitignored and written by `scripts/cluster/resolve-docker-ips.sh` (identity `hostAliases`, `networkPolicy.externalServices`). `deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. While `ghcr.io/clear-route/charts` is private, pulling `orbit-crds`/`orbit` requires OCI registry credentials the app-of-apps doesn't provide; a comment marks where they're needed, but the actual repository credential configuration is left to the consumer's own Argo CD setup (`argocd repo add`, or an equivalent Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
 
-`make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), `migrate-up`, create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and digest pinning with `kubectl set image` is replaced by setting `image.digest` in `local.generated.yaml` so `helmfile apply` and redeploys agree. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
+`make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), `migrate-up`, create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and after each push `redeploy.sh` pins the workload with `kubectl set image` and records the digest under `images.<key>.digest` in `local.generated.yaml`, so the next `helmfile apply` renders the same image. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
 
-`deploy/local/` is reduced to tenant fixtures, connection examples and the mkcert helper. `Dockerfile.operator` copies only the binary. orbit-agents' sandbox and session-manager images and trust domain move from `base.yaml` literals to env overrides in the existing `ORBIT_SESSION_MANAGER_*` pattern, set by the chart from `agents.config.*`; the `production.yaml` file overlay is not used.
+`deploy/local/` is reduced to tenant fixtures and connection examples. `Dockerfile.operator` copies the binary and the per-binary `config/*.yaml` defaults, no charts or `deploy/` content. orbit-agents' sandbox and session-manager images and trust domain move from `base.yaml` literals to env overrides in the existing `ORBIT_SESSION_MANAGER_*` pattern, set by the chart from `agents.config.*`; the `production.yaml` file overlay is not used.
 
 ### Decision 7: Publishing, versioning and verification
 
@@ -355,12 +354,12 @@ frontendHost: ""                  # required; api.<frontendHost> is the API host
 publicHosts: []
 config: { db: {...}, redis: {...}, platformSecretName: orbit-secrets }
 istio: { namespace: istio-system, revision: "", outboundTrafficPolicy: ALLOW_ANY }
-spire: { namespace: spire-system, className: spire-system-spire }
+spire: { className: spire-system-spire }
 platform: { spiffe: { enabled: true } }
 networkPolicy: { enabled: true, externalServices: [], apiServerCIDRs: ["0.0.0.0/0"] }
 gateway: { create: true, name: orbit-gateway, ports: {...}, tls: {...}, ingress: {...}, byo: {...} }   # create=false: bind to an existing Gateway named here; service.type lives under ingressGateway
 ingressGateway: { name: orbit-gateway, service: {type: LoadBalancer}, env: {...}, volumes: [...] }     # upstream istio/gateway subchart values, used when gateway.create is true
-operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, logLevel: info, webhook: {...}, injection: {...}, preflight: {...} }
+operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, webhook: {...}, injection: {...}, preflight: {...} }
 identityProxy: { image: {...}, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
 identity: ...
 inferenceGateway: ...             # includes bedrock.accounts[], serviceAccount.annotations
@@ -412,7 +411,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 1. Delete `platform_controller.go`, `helm.go`, `istio_templates.go`, the `OrbitPlatform` types in `models.go`, `loadValuesFile`, `orbitImageRef`, `chartVersions`. Remove the Helm SDK from `backend/go.mod`.
 2. Operator reads `ORBIT_TRUST_DOMAIN`, `ORBIT_SYSTEM_NAMESPACE`, `ORBIT_ISTIO_NAMESPACE`, `ORBIT_ISTIO_REVISION`, `ORBIT_SPIRE_NAMESPACE`, `ORBIT_IMAGE_PULL_SECRETS` from the chart; every namespace literal in Go is removed; tenant namespaces get the injection label matching `istio.revision` and the PSA labels; pull Secrets are replicated.
 3. Scope the informer cache; shrink `clusterrole.yaml` to the table in Decision 1.
-4. `Dockerfile.operator` copies only the binary.
+4. `Dockerfile.operator` copies the binary and the per-binary `config/*.yaml` defaults, no charts or `deploy/` content.
 5. Webhook injection, validating webhook, failure policy, TLS and preflight per the companion ADR.
 
 ### Phase 3: Reference install and local development
@@ -425,7 +424,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 ### Phase 4: Release and verification
 
 1. `.github/workflows/release.yml` and `charts-ci.yml` per Decision 7; `docker.yml` gains `workflow_call`.
-2. Rewrite `docs/guides/deployment.md`: prerequisites contract with the constraints on customer systems, quickstart (tools, minimum cluster size, credentials, reference Helmfile, teardown), production install (Helm, Argo CD, namespace labelling per path), the three ingress topologies with DNS and TLS requirements, private preview step, upgrade and rollback, uninstall, ownership table, outbound destinations, compatibility statement, verification against a mirror, migration.
+2. Rewrite `docs/guides/deployment.md`: prerequisites contract with the constraints on customer systems, quickstart (tools, minimum cluster size, credentials, reference Helmfile, teardown), production install (Helm, Argo CD, namespace labelling per path), the supported ingress topologies with DNS and TLS requirements, private preview step, upgrade and rollback, uninstall, ownership table, outbound destinations, compatibility statement, verification against a mirror, migration.
 3. Update `AGENTS.md`, `docs/code-organization.md`, `ARCHITECTURE.md` and the diagrams under `docs/diagrams/` where they show the operator installing the platform.
 4. Mark the 2026-03-31 operator ADR Superseded and add an amendment note to the chart-distribution ADR when this ADR is accepted.
 

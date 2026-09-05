@@ -17,7 +17,7 @@ kubectl get pods -n orbit-tenant-example          # example tenant workloads
 The operator's preflight reports whether SPIRE and Istio meet Orbit's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
 
 ```bash
-kubectl get orbittenants -o wide
+kubectl describe orbittenant <name>
 kubectl logs deployment/orbit-operator -n orbit-system
 ```
 
