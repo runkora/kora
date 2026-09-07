@@ -16,7 +16,7 @@ jobs:
       - uses: ./.github/actions/k8s-toolchain
         with:
           helm: true
-      - run: helm dependency build charts/orbit
+      - run: .github/scripts/build-chart-deps.sh
       - run: make chart-lint
       - run: make chart-docs-check
 
@@ -33,7 +33,7 @@ jobs:
         with:
           helm: true
           kubeconform: true
-      - run: helm dependency build charts/orbit
+      - run: .github/scripts/build-chart-deps.sh
       - name: Render and validate manifests
         env:
           K8S_VERSION: ${{ matrix.k8s }}

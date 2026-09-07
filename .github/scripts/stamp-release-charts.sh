@@ -8,7 +8,7 @@ set -euo pipefail
 
 : "${TAG:?}" "${VERSION:?}" "${REGISTRY:?}" "${IMAGE_NAMESPACE:?}"
 
-helm dependency build charts/orbit
+.github/scripts/build-chart-deps.sh
 
 for chart in orbit orbit-crds; do
   yq -i ".version = \"${VERSION}\" | .appVersion = \"${TAG}\"" "charts/${chart}/Chart.yaml"
