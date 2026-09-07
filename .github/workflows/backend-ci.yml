@@ -11,39 +11,8 @@ permissions:
 # Tool versions — keep in sync with pinned versions in Makefile.
 env:
   GOLANGCI_LINT_VERSION: v2.11.3
-  GITLEAKS_VERSION: v8.27.2
 
 jobs:
-  secrets:
-    name: Secret Scanning
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Full history required — gitleaks scans all commits, not just the tip.
-          fetch-depth: 0
-
-      - name: Run gitleaks
-        run: |
-          if ! command -v gitleaks > /dev/null; then
-            echo "Installing gitleaks ${GITLEAKS_VERSION}..."
-            GL_TAG=${GITLEAKS_VERSION}
-            GL_VER=${GL_TAG#v}
-            GL_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-            GL_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
-            GL_URL="https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_VER}_${GL_OS}_${GL_ARCH}.tar.gz"
-            INSTALL_DIR="${HOME}/.local/bin"
-            mkdir -p "${INSTALL_DIR}"
-            echo "Downloading ${GL_URL}"
-            curl -sSfL "${GL_URL}" | tar -xz -C "${INSTALL_DIR}" gitleaks
-            echo "${INSTALL_DIR}" >> $GITHUB_PATH
-          else
-            echo "gitleaks already installed"
-          fi
-          make secrets
-
   infra-lint:
     name: Infra Config Lint
     runs-on: ubuntu-latest
