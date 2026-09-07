@@ -67,7 +67,7 @@ EOF
 #   restart     'true' to do a rollout restart, 'false' for build-only services.
 #   tenant_default  Optional default tenant slug for {tenant}/{slug} substitution.
 #   values_key  The orbit chart values key for this image; the pushed digest is
-#               recorded under images.<values_key>.digest in
+#               recorded under <values_key>.image.digest in
 #               deploy/reference/environments/local.generated.yaml.
 
 service_spec() {
@@ -517,7 +517,7 @@ fi
 GENERATED="$ROOT_DIR/deploy/reference/environments/local.generated.yaml"
 if [ -n "$DIGEST" ] && [ -n "$VALUES_KEY" ]; then
   [ -f "$GENERATED" ] || echo "{}" > "$GENERATED"
-  yq -i ".images.${VALUES_KEY}.digest = \"${DIGEST}\"" "$GENERATED"
+  yq -i ".${VALUES_KEY}.image.digest = \"${DIGEST}\"" "$GENERATED"
 fi
 
 # ── restart ───────────────────────────────────────────────────────────────────

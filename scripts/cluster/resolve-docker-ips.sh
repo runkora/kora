@@ -91,7 +91,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
 
 # ── Write the generated environment file ────────────────────────────────────
-# Preserves digest pins redeploy.sh writes under `images`.
+# Preserves the image digest pins redeploy.sh writes.
 step "Writing deploy/reference/environments/local.generated.yaml"
 
 GENERATED="${REPO_ROOT}/deploy/reference/environments/local.generated.yaml"
