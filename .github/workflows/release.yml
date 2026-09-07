@@ -11,7 +11,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
   CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
-  COSIGN_VERSION: v3.1.3
 
 concurrency:
   group: release-${{ github.ref }}
@@ -50,10 +49,9 @@ jobs:
       - id: version
         uses: ./.github/actions/derive-version
 
-      - name: Install cosign
-        run: |
-          curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o /tmp/cosign
-          sudo install /tmp/cosign /usr/local/bin/cosign
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Log in to GHCR
         run: |
