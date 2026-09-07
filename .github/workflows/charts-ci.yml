@@ -32,6 +32,7 @@ jobs:
       - uses: ./.github/actions/k8s-toolchain
         with:
           helm: true
+          yq: true
           kubeconform: true
       - run: .github/scripts/build-chart-deps.sh
       - name: Render and validate manifests
@@ -39,10 +40,15 @@ jobs:
           K8S_VERSION: ${{ matrix.k8s }}
         run: |
           set -euo pipefail
+          .github/scripts/gen-crd-schemas.sh crd-schemas
           {
             helm template orbit-crds charts/orbit-crds -n orbit-system
             echo '---'
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml
           } > rendered.yaml
+          # Orbit CRs validate against the extracted schemas; third-party mesh CRs
+          # (Istio, SPIRE) have no local schema and stay skipped.
           kubeconform -summary -strict -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'crd-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
             -kubernetes-version "${K8S_VERSION}" rendered.yaml
