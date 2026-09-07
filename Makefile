@@ -1197,6 +1197,26 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 deadcode: ## Report Go functions no main package can reach
 	@DEADCODE_VERSION=$(DEADCODE_VERSION) ./scripts/check-deadcode.sh
 
+HELM_DOCS_VERSION := v1.14.2
+
+.PHONY: chart-lint
+chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
+	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml
+	@helm lint charts/orbit-crds
+
+.PHONY: chart-docs
+chart-docs: ## Regenerate charts/*/README.md from values with helm-docs
+	@go run github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) --chart-search-root=charts
+
+.PHONY: chart-docs-check
+chart-docs-check: chart-docs ## Fail if charts/*/README.md is out of date
+	@git diff --exit-code -- 'charts/**/README.md' \
+	  || { echo "$(COLOR_RED)✗ chart README out of date — run: make chart-docs$(COLOR_RESET)"; exit 1; }
+
+.PHONY: chart-check
+chart-check: chart-lint chart-docs-check ## Lint the charts and verify their generated docs
+	@echo "$(COLOR_GREEN)✓ chart checks passed$(COLOR_RESET)"
+
 .PHONY: chart-deps
 chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit

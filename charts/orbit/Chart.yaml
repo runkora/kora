@@ -1,10 +1,9 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit control plane: the tenant operator, cluster-scoped identity and gateway
-  resources, and every Orbit service. Requires the orbit-crds chart first, and a
-  cluster that meets the Istio and SPIRE prerequisites contract in
-  docs/guides/deployment.md. Orbit never installs Istio or SPIRE.
+  Orbit's control plane runs the operator, the cluster-scoped identity and
+  gateway resources, and the platform services. Install orbit-crds first, and
+  have Istio and SPIRE already running on the cluster.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
