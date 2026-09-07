@@ -157,28 +157,34 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 
 	slug := at.Slug
 	labels := agentTypeLabels(at)
+	// Owner reference for GitOps observability + k8s-native cascade delete
+	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+	// Zero value when the OrbitTenant CR is unreachable; ensureX no-ops the
+	// merge and provisioning proceeds unowned so local-dev without the
+	// operator still works.
+	tenantRef := p.tenantOwnerRef(ctx, at.TenantID)
 
-	if err := p.ensureServiceAccount(ctx, slug, namespace, labels); err != nil {
+	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure service account")
 		return err
 	}
-	if err := p.ensureStatefulSet(ctx, at, namespace, labels); err != nil {
+	if err := p.ensureStatefulSet(ctx, at, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure statefulset")
 		return err
 	}
-	if err := p.ensureHeadlessService(ctx, slug, namespace, labels); err != nil {
+	if err := p.ensureHeadlessService(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure headless service")
 		return err
 	}
-	if err := p.ensureHPA(ctx, slug, namespace, labels); err != nil {
+	if err := p.ensureHPA(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure hpa")
 		return err
 	}
-	if err := p.ensurePDB(ctx, slug, namespace, labels); err != nil {
+	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure pdb")
 		return err
@@ -188,12 +194,12 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 		span.SetStatus(codes.Error, "ensure agent grant")
 		return err
 	}
-	if err := p.ensureDestinationRule(ctx, at, namespace); err != nil {
+	if err := p.ensureDestinationRule(ctx, at, namespace, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure destination rule")
 		return err
 	}
-	if err := p.ensureAuthorizationPolicy(ctx, at, namespace); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure authorization policy")
 		return err
@@ -355,6 +361,14 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters)
 	podName := pod.Name
+	// Owner reference on the parent StatefulSet: sandbox pods share its
+	// workspace PVC via subPath, so their lifecycle is bound to it. Deleting
+	// the StatefulSet cascades to in-flight sandboxes; the StatefulSet itself
+	// is owned by the tenant CR
+	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+	// Best-effort: on any lookup error we log and proceed unowned so
+	// sandbox creation is never gated on the ownerRef path.
+	applyOwnerRef(&pod.ObjectMeta, p.statefulSetOwnerRef(ctx, agentTypeSlug, namespace))
 
 	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
 	if err != nil {
@@ -1137,21 +1151,38 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 
 // ── resource builders ─────────────────────────────────────────────────────────
 
-func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string) error {
+func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
 	sa := corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 	}
+	applyOwnerRef(&sa.ObjectMeta, owner)
 	var err error
 	sa, err = applyOverrides(sa, overridesForSlug(p.cfg.ManifestOverrides["ServiceAccount"], name))
 	if err != nil {
 		return fmt.Errorf("apply ServiceAccount overrides: %w", err)
 	}
 	_, err = p.client.CoreV1().ServiceAccounts(namespace).Create(ctx, &sa, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	// Backfill owner refs on the existing object so upgraded clusters gain
+	// GitOps observability + native GC on the next reconcile
+	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing serviceaccount: %w", err)
+	}
+	applyOwnerRef(&existing.ObjectMeta, owner)
+	_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
-func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string) error {
+func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
 	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
+	applyOwnerRef(&ss.ObjectMeta, owner)
 
 	var err error
 	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
@@ -1173,6 +1204,15 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	// an existing StatefulSet. The image is left alone: redeploy pins it by
 	// digest. Labels and annotations are replaced wholesale so an annotation
 	// an older release set (the istiod template list) does not survive.
+	//
+	// Manifest overrides applied to the StatefulSet above land on the rendered
+	// `ss`, so any override touching the pod template's labels, annotations,
+	// SecurityContext, ImagePullSecrets, container env or container
+	// SecurityContext propagates to the existing object through the copy
+	// below. Overrides on OTHER fields (spec.replicas, .spec.updateStrategy,
+	// VolumeClaimTemplates …) are still only applied on Create; extending
+	// this path further needs to weigh HPA / storage semantics against the
+	// override reach and belongs to its own change.
 	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing statefulset: %w", err)
@@ -1192,6 +1232,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			}
 		}
 	}
+	// Backfill the OrbitTenant owner reference on the existing StatefulSet.
+	// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
+	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
 }
@@ -1325,7 +1368,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	}
 }
 
-func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string) error {
+func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
@@ -1336,13 +1379,26 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 			},
 		},
 	}
+	applyOwnerRef(&svc.ObjectMeta, owner)
 	var err error
 	svc, err = applyOverrides(svc, overridesForSlug(p.cfg.ManifestOverrides["Service"], name))
 	if err != nil {
 		return fmt.Errorf("apply Service overrides: %w", err)
 	}
 	_, err = p.client.CoreV1().Services(namespace).Create(ctx, &svc, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing service: %w", err)
+	}
+	applyOwnerRef(&existing.ObjectMeta, owner)
+	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 // ensureHPA creates an HPA targeting the agent StatefulSet.
@@ -1350,7 +1406,7 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 // PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
 // accumulate silently. A cleanup controller or CronJob should prune PVCs whose
 // owning pod no longer exists. Track in the sandbox hardening story.
-func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string) error {
+func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
 	cpuTarget := int32(70)
 	memTarget := int32(80)
 	minReplicas := int32(1)
@@ -1388,16 +1444,29 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 			},
 		},
 	}
+	applyOwnerRef(&hpa.ObjectMeta, owner)
 	var err error
 	hpa, err = applyOverrides(hpa, overridesForSlug(p.cfg.ManifestOverrides["HorizontalPodAutoscaler"], name))
 	if err != nil {
 		return fmt.Errorf("apply HorizontalPodAutoscaler overrides: %w", err)
 	}
 	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, &hpa, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing hpa: %w", err)
+	}
+	applyOwnerRef(&existing.ObjectMeta, owner)
+	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
-func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string) error {
+func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
 	minAvailable := intstr.FromInt32(1)
 	pdb := policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
@@ -1406,13 +1475,26 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 			Selector:     &metav1.LabelSelector{MatchLabels: labels},
 		},
 	}
+	applyOwnerRef(&pdb.ObjectMeta, owner)
 	var err error
 	pdb, err = applyOverrides(pdb, overridesForSlug(p.cfg.ManifestOverrides["PodDisruptionBudget"], name))
 	if err != nil {
 		return fmt.Errorf("apply PodDisruptionBudget overrides: %w", err)
 	}
 	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, &pdb, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing pdb: %w", err)
+	}
+	applyOwnerRef(&existing.ObjectMeta, owner)
+	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 // ensureDestinationRule creates an Istio DestinationRule in the system namespace
@@ -1423,17 +1505,19 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 // EDS-based endpoint identity lookup. Without this rule, istiod falls back to
 // the standard formula (spiffe://<td>/ns/<ns>/sa/<sa>), which doesn't match the
 // SPIRE-issued SPIFFE ID (spiffe://<td>/tenant/<ns>/agent/<slug>).
-func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string) error {
+func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference) error {
 	spiffeID := p.agentSpiffeID(at, namespace)
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", at.Slug, namespace)
+	metadata := map[string]any{
+		"name":      "agent-" + at.Slug,
+		"namespace": p.cfg.SystemNamespace,
+	}
+	setUnstructuredOwnerRef(metadata, owner)
 	dr := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "networking.istio.io/v1beta1",
 			"kind":       "DestinationRule",
-			"metadata": map[string]any{
-				"name":      "agent-" + at.Slug,
-				"namespace": p.cfg.SystemNamespace,
-			},
+			"metadata":   metadata,
 			"spec": map[string]any{
 				"host": host,
 				"trafficPolicy": map[string]any{
@@ -1455,7 +1539,23 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 	_, err := p.dynamicClient.Resource(destinationRuleGVR).
 		Namespace(p.cfg.SystemNamespace).
 		Create(ctx, dr, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.dynamicClient.Resource(destinationRuleGVR).
+		Namespace(p.cfg.SystemNamespace).
+		Get(ctx, "agent-"+at.Slug, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing destinationrule: %w", err)
+	}
+	existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
+	_, err = p.dynamicClient.Resource(destinationRuleGVR).
+		Namespace(p.cfg.SystemNamespace).
+		Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 // agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
@@ -1493,18 +1593,20 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // NOTE: Istio prepends "spiffe://" when translating an AuthorizationPolicy to
 // Envoy RBAC. Principals are written WITHOUT the prefix; writing it produces
 // "spiffe://spiffe://..." in the generated rule and never matches.
-func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string) error {
+func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference) error {
 	if !p.cfg.AuthorizationPolicyEnabled {
 		return nil
 	}
+	metadata := map[string]any{
+		"name":      agentAuthorizationPolicyName(at.Slug),
+		"namespace": namespace,
+	}
+	setUnstructuredOwnerRef(metadata, owner)
 	ap := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "security.istio.io/v1beta1",
 			"kind":       "AuthorizationPolicy",
-			"metadata": map[string]any{
-				"name":      agentAuthorizationPolicyName(at.Slug),
-				"namespace": namespace,
-			},
+			"metadata":   metadata,
 			"spec": map[string]any{
 				"selector": map[string]any{
 					"matchLabels": map[string]any{"app": at.Slug},
@@ -1546,7 +1648,23 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 	_, err := p.dynamicClient.Resource(authorizationPolicyGVR).
 		Namespace(namespace).
 		Create(ctx, ap, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if owner.Kind == "" {
+		return nil
+	}
+	existing, err := p.dynamicClient.Resource(authorizationPolicyGVR).
+		Namespace(namespace).
+		Get(ctx, agentAuthorizationPolicyName(at.Slug), metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing authorizationpolicy: %w", err)
+	}
+	existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
+	_, err = p.dynamicClient.Resource(authorizationPolicyGVR).
+		Namespace(namespace).
+		Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 func (p *K8sProvisioner) deleteAuthorizationPolicy(ctx context.Context, slug, namespace string) error {
@@ -1589,13 +1707,6 @@ func podLabels(at AgentType) map[string]string {
 
 func ignoreNotFound(err error) error {
 	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	return err
-}
-
-func ignoreAlreadyExists(err error) error {
-	if apierrors.IsAlreadyExists(err) {
 		return nil
 	}
 	return err

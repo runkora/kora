@@ -154,7 +154,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	}
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(stale)
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at)); err != nil {
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
 	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
@@ -198,7 +198,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(stale)
 
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at)); err != nil {
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
 	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
