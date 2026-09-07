@@ -112,6 +112,9 @@ jobs:
     name: Images
     needs: changes
     if: needs.changes.outputs.images == 'true'
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/images.yml
     with:
       push: false
