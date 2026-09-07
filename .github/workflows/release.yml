@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
+  COSIGN_VERSION: v3.1.3
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A release uploads several artifacts; cancelling midway leaves them partial.
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Build images
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      image_tag: ${{ github.ref_name }}
+      platforms: linux/amd64,linux/arm64
+      push: true
+    secrets: inherit
+
+  publish:
+    name: Publish charts
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    env:
+      HAS_COSIGN: ${{ secrets.COSIGN_KEY != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/k8s-toolchain
+        with:
+          helm: true
+          yq: true
+      - id: version
+        uses: ./.github/actions/derive-version
+
+      - name: Install cosign
+        run: |
+          curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o /tmp/cosign
+          sudo install /tmp/cosign /usr/local/bin/cosign
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login "${REGISTRY}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve digests and stamp charts
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/scripts/stamp-release-charts.sh
+
+      - name: Package and push charts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          helm package charts/orbit-crds -d dist
+          helm package charts/orbit -d dist
+          for c in orbit-crds orbit; do
+            helm push "dist/${c}-${VERSION}.tgz" "${CHART_REPO}" 2>&1 | tee "push-${c}.txt"
+          done
+
+      - name: Sign charts and images
+        if: ${{ env.HAS_COSIGN == 'true' }}
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: .github/scripts/sign-release.sh
+
+      - name: Write the compatibility statement
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: .github/scripts/write-compatibility.sh
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --generate-notes \
+            dist/*.tgz images.txt compatibility.yaml
