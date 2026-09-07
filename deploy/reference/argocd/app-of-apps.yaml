@@ -1,8 +1,6 @@
 # Use sync waves to install releases in dependency order.
 # The orbit Application's second source is a placeholder: replace repoURL with
-# your own GitOps values repository, holding a values/orbit.yaml with your
-# database, redis, hosts and bedrock settings (deploy/reference/values/orbit.yaml.gotmpl
-# is the Helmfile equivalent of that same content).
+# your own GitOps values repository holding an orbit chart values file.
 # Configure OCI registry credentials when required.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -184,9 +182,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  # orbit's values are environment-specific (database, redis, hosts, bedrock
-  # accounts); there is nothing generic to inline here. Point the second
-  # source at your own GitOps values repository and path.
+  # orbit's values are environment-specific: database, redis, hosts, bedrock.
+  # Point the second source at your own GitOps values repository and path.
   sources:
     - repoURL: ghcr.io/clear-route/charts
       chart: orbit

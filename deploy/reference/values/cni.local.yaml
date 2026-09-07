@@ -1,0 +1,5 @@
+# k3s keeps CNI binaries and config under /var/lib/rancher; other distributions
+# use the defaults. Local k3d only.
+cni:
+  cniBinDir: /var/lib/rancher/k3s/data/cni
+  cniConfDir: /var/lib/rancher/k3s/agent/etc/cni/net.d

@@ -1,13 +1,9 @@
-# Reference release order for SPIRE, Istio, and Orbit.
+# Reference release order for SPIRE, Istio and Orbit. The environments carry
+# cluster facts; the orbit chart's own values live in values/orbit.yaml.
 environments:
   local:
-    # local.generated.yaml comes from scripts/cluster/resolve-docker-ips.sh
-    # (make up). Without it identity has no Dex hostAlias and the external
-    # services policy is empty, which default-deny turns into a broken install.
-    missingFileHandler: Error
     values:
       - environments/local.yaml
-      - environments/local.generated.yaml
   example:
     values:
       - environments/example.yaml
@@ -44,7 +40,10 @@ releases:
     chart: istio/cni
     version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base]
-    values: [values/cni.yaml.gotmpl]
+    values:
+      {{- range (.Values | get "cniValuesFiles" list) }}
+      - {{ . }}
+      {{- end }}
 
   - name: spire
     namespace: spire-system
@@ -52,12 +51,15 @@ releases:
     disableValidationOnInstall: true
     chart: spiffe/spire
     version: {{ .Values.versions.spire }}
-    # istio-cni, not spire-crds: the CNI DaemonSet chains its plugin into every
-    # node's CNI config as soon as it starts, before the binary is in place.
-    # A pod scheduled on that node in the gap gets no network sandbox, spire's
-    # included; waiting for the DaemonSet to report ready avoids the race.
+    # Waits on istio-cni so SPIRE's agents land on nodes whose CNI plugin is in
+    # place. A pod scheduled during the CNI install gap gets no network sandbox.
     needs: [spire-system/spire-crds, istio-system/istio-cni]
-    values: [values/spire.yaml.gotmpl]
+    values: [values/spire.yaml]
+    set:
+      - name: global.spire.trustDomain
+        value: {{ .Values.trustDomain }}
+      - name: global.spire.clusterName
+        value: {{ .Values.clusterName }}
 
   - name: istiod
     namespace: istio-system
@@ -65,7 +67,10 @@ releases:
     chart: istio/istiod
     version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base, istio-system/istio-cni]
-    values: [values/istiod.yaml.gotmpl]
+    values: [values/istiod.yaml]
+    set:
+      - name: meshConfig.trustDomain
+        value: {{ .Values.trustDomain }}
 
   - name: orbit-crds
     namespace: {{ .Values.systemNamespace }}
@@ -79,7 +84,16 @@ releases:
     chart: {{ .Values.orbit.chart }}
     version: {{ .Values.orbit.version }}
     needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
-    values: [values/orbit.yaml.gotmpl]
+    values:
+      - values/orbit.yaml
+      {{- range (.Values | get "orbitValuesFiles" list) }}
+      - {{ . }}
+      {{- end }}
+    set:
+      - name: global.trustDomain
+        value: {{ .Values.trustDomain }}
+      - name: global.systemNamespace
+        value: {{ .Values.systemNamespace }}
     hooks:
       - events: [presync]
         showlogs: true

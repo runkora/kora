@@ -1,9 +1,6 @@
-# What Orbit requires of SPIRE. An existing SPIRE must match these; the rest is chart default.
-global:
-  spire:
-    trustDomain: {{ .Values.trustDomain }}
-    clusterName: {{ .Values.clusterName }}
-
+# What Orbit requires of SPIRE. An existing SPIRE must match these; the rest is
+# chart default. The trust domain and cluster name are injected by the Helmfile
+# from the shared environment facts (global.spire.trustDomain, clusterName).
 spire-server:
   controllerManager:
     identities:
@@ -14,10 +11,8 @@ spire-server:
   nodeAttestor:
     k8sPSAT:
       enabled: true
-      clusters:
-        {{ .Values.clusterName }}:
-          service_account_allow_list:
-            - spire-system:spire-agent
+      serviceAccountAllowList:
+        - spire-system:spire-agent
 
 spire-agent:
   sds:

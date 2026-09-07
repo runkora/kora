@@ -1,4 +1,5 @@
-# Local k3d environment.
+# Local k3d: Helmfile release inputs. The orbit chart's values live in
+# values/orbit.yaml and values/orbit.local.yaml.
 versions:
   spireCrds: "0.5.0"
   spire: "0.28.3"
@@ -9,72 +10,22 @@ trustDomain: orbit.test
 clusterName: orbit-local
 # Pins every helm and kubectl call in this Helmfile to the k3d cluster.
 kubeContext: k3d-orbit-local
-frontendHost: orbit.local.clearroute.io
 
 orbit:
   chart: ../../charts/orbit
   crdsChart: ../../charts/orbit-crds
   version: 0.0.0
-  imageRegistry: orbit-registry:5001
-  # Local builds push :latest; redeploy.sh pins digests over it.
-  imageTag: latest
-  imagePullPolicy: Always
-  imagePullSecrets: []
-  platformSecretName: orbit-secrets
-  operatorReplicas: 1
-  serviceConfig:
-    postgresSSLMode: disable
-    postgresCaptureQueryText: "true"
-    otlpInsecure: "true"
-    logFormat: console
-  # Mirrored into the k3d registry by make docker-pull-third-party.
-  opaImage:
-    registry: orbit-registry:5001
-    repository: openpolicyagent/opa
-    tag: 1.15.2-envoy-static
-
-database:
-  host: orbit-postgres
-  port: 5432
-  name: orbit
-  user: orbit
-redis:
-  host: orbit-redis
-  port: 6379
-  tls: false
 
 istio:
   revision: ""
-  outboundTrafficPolicy: ALLOW_ANY
-  cni:
-    cniBinDir: /var/lib/rancher/k3s/data/cni
-    cniConfDir: /var/lib/rancher/k3s/agent/etc/cni/net.d
 
-networkPolicy:
-  enabled: true
-  # externalServices comes from local.generated.yaml.
+# Values files for the istio-cni release (k3s CNI paths, local only).
+cniValuesFiles:
+  - values/cni.local.yaml
 
-gateway:
-  # k3d maps host 8443 and 8880 to the cluster load balancer.
-  serviceType: LoadBalancer
-  tls:
-    enabled: true
-    credentialName: orbit-gateway-tls
-
-identity:
-  # hostAliases comes from local.generated.yaml.
-  hostAliases: []
-  accessTokenTtlMinutes: 240
-
-inferenceGateway:
-  serviceAccountAnnotations: {}
-
-frontend:
-  # Baked into the frontend image at build time.
-  publicUrl: https://orbit.local.clearroute.io:8443
-
-bedrock:
-  accounts: []
-
-agents:
-  runtimePods: {}
+# Chart-values overlays merged onto values/orbit.yaml for the orbit release.
+# local.generated.yaml is written by make up (Dex hostAlias, egress CIDRs,
+# pushed image digests).
+orbitValuesFiles:
+  - values/orbit.local.yaml
+  - environments/local.generated.yaml

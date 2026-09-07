@@ -1,9 +1,0 @@
-# What Orbit requires of istiod: the shared trust domain and CNI mode.
-meshConfig:
-  trustDomain: {{ .Values.trustDomain }}
-  defaultConfig:
-    discoveryAddress: istiod.istio-system.svc:15012
-
-pilot:
-  cni:
-    enabled: true
