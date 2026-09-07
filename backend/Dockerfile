@@ -24,11 +24,25 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}/main.go
 
-# Collect every */config/*.yaml file into /configs/ maintaining the same relative
-# path structure. This means the runtime stage can do a single COPY regardless of
-# which internal packages have config dirs, and the loader sees the exact same
-# layout it sees on disk during local development.
-RUN find /app -path "*/config/*.yaml" | while read f; do \
+# Stage only the YAML config files this binary actually loads at runtime,
+# preserving relative paths under /app. Filtering to *.yaml keeps Go source
+# (config.go, etc.) out of the runtime image. Directories that do not exist
+# for a given SERVICE are tolerated silently, so config-less services
+# (orbit-shell, orbit-runtime-mcp) still build.
+#
+#   1. cmd/${SERVICE}/config          — service-owned settings.
+#   2. internal/platform/observability/config — imported by all runtime binaries.
+#   3. internal/platform/storage/config       — imported by binaries that touch
+#                                               Postgres/Redis; harmless for
+#                                               those that do not.
+#   4. internal/identity/config       — only consumed by the identity binary
+#                                       today, small enough to copy universally.
+RUN mkdir -p /configs && \
+    find /app/cmd/${SERVICE}/config \
+         /app/internal/platform/observability/config \
+         /app/internal/platform/storage/config \
+         /app/internal/identity/config \
+         -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
         cp "$f" "/configs/$rel"; \

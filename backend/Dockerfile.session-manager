@@ -26,7 +26,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-session-runner ./cmd/orbit-session-runner/
 
-RUN find /app -path "*/config/*.yaml" | while read f; do \
+# Stage only the YAML config files the session-manager binary loads at
+# runtime, keeping Go source (config.go) out of the runtime image.
+RUN mkdir -p /configs && \
+    find /app/cmd/session-manager/config \
+         /app/internal/platform/observability/config \
+         /app/internal/platform/storage/config \
+         -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
         cp "$f" "/configs/$rel"; \
