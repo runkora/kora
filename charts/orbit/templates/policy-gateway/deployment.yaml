@@ -37,9 +37,9 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.policyGateway.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.policyGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "policyGateway") | nindent 12 }}
           ports:
             - name: http

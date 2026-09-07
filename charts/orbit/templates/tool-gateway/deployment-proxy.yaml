@@ -48,14 +48,15 @@ spec:
             - name: ORBIT_TOOL_GATEWAY_MODE
               value: proxy
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.toolGateway.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.toolGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.toolGateway.config.postgresSSLMode | quote }}
-            {{- if .Values.publicHosts }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
+            {{- $publicHosts := include "orbit.publicHosts" . }}
+            {{- if $publicHosts }}
             - name: ORBIT_PUBLIC_HOSTS
-              value: {{ join "," .Values.publicHosts | quote }}
+              value: {{ $publicHosts | quote }}
             {{- end }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "toolGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}

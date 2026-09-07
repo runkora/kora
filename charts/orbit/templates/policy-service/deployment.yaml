@@ -39,13 +39,13 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.policyService.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.policyService.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.policyService.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.policyService.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
               value: {{ include "orbit.frontendHost" . | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "policyService") | nindent 12 }}

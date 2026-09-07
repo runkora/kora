@@ -40,13 +40,13 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.inferenceGateway.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.inferenceGateway.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.inferenceGateway.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.inferenceGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
             {{- /* Each Bedrock account registers provider "bedrock:<alias>"; credentials come from the pod's cloud identity. */}}

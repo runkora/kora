@@ -1,7 +1,7 @@
 {{- if .Values.agents.warmHeadroom.enabled }}
 # Low-priority placeholder holding one sandbox's worth of capacity on a warm
 # node. A real sandbox preempts it and starts without a cold node or image pull.
-{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry .Chart.AppVersion) }}
+{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:

@@ -54,11 +54,11 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.egressGateway.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.egressGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.egressGateway.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "egressGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:

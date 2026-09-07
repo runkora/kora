@@ -11,6 +11,19 @@ global:
   # Registry prefix for every Orbit image. Overridable per component.
   imageRegistry: ghcr.io/clear-route
 
+  # Image tag for every Orbit image. Empty uses the chart appVersion. Local
+  # development sets this to pin a pushed tag; a release stamps digests instead.
+  imageTag: ""
+
+  # Service config shared by every component. A component overrides in its own
+  # config block; otherwise it inherits these.
+  logFormat: json
+  postgres:
+    sslMode: require
+    captureQueryText: false
+  observability:
+    otlpInsecure: false
+
   # Apply these pull secrets to Orbit and tenant workloads.
   imagePullSecrets: []
 
@@ -248,11 +261,7 @@ identity:
   serviceAccount:
     annotations: {}
   config:
-    postgresSSLMode: "require"
-    postgresCaptureQueryText: "false"
     redisTLSEnabled: "true"
-    otlpInsecure: "false"
-    logFormat: "json"
     accessTokenTtlMinutes: 15
   # Operator-owned ConfigMaps and Secrets identity reads. Mounts are optional:
   # identity starts before any tenant exists.
@@ -288,11 +297,7 @@ inferenceGateway:
   serviceAccount:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
-  config:
-    postgresSSLMode: "require"
-    postgresCaptureQueryText: "false"
-    otlpInsecure: "false"
-    logFormat: "json"
+  config: {}
   # AWS Bedrock providers. Each entry registers provider "bedrock:<alias>".
   # Credentials come from the pod's cloud identity, never from values.
   bedrock:
@@ -328,9 +333,7 @@ orbitMcp:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config:
-    otlpInsecure: "false"
-    logFormat: "json"
+  config: {}
 
 toolGateway:
   image:
@@ -362,10 +365,7 @@ toolGateway:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config:
-    otlpInsecure: "false"
-    logFormat: "json"
-    postgresSSLMode: "require"
+  config: {}
 
 frontend:
   image:
@@ -443,14 +443,9 @@ agents:
   serviceAccount:
     annotations: {}
   config:
-    postgresSSLMode: "require"
-    postgresCaptureQueryText: "false"
-    otlpInsecure: "false"
-    logFormat: "json"
-    sessionManagerPostgresSSLMode: "require"
     # Images orbit-agents runs in tenant namespaces. Empty resolves to
     # <global.imageRegistry>/orbit-session-manager and orbit-sandbox-exec at
-    # the chart appVersion.
+    # global.imageTag, falling back to the chart appVersion when it is empty.
     sessionManagerImage: ""
     sandboxImage: ""
     sandboxGitAuthorName: ""
@@ -513,11 +508,7 @@ policyService:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config:
-    postgresSSLMode: "require"
-    postgresCaptureQueryText: "false"
-    otlpInsecure: "false"
-    logFormat: "json"
+  config: {}
 
 policyGateway:
   image:
@@ -546,9 +537,7 @@ policyGateway:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config:
-    otlpInsecure: "false"
-    logFormat: "json"
+  config: {}
 
 triggers:
   image:
@@ -577,11 +566,7 @@ triggers:
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config:
-    postgresSSLMode: "require"
-    postgresCaptureQueryText: "false"
-    otlpInsecure: "false"
-    logFormat: "json"
+  config: {}
   authorizationPolicy:
     enabled: true
     systemPrincipals:
@@ -633,10 +618,7 @@ egressGateway:
   tenantCASecretName: orbit-tenant-cas
   connectionSecretName: orbit-tenant-connection-secrets
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  config:
-    otlpInsecure: "false"
-    logFormat: "json"
-    postgresSSLMode: "require"
+  config: {}
 
 # Gateway-level OPA (ADR 2026-04-27): ext_authz for every request entering
 # through the Istio gateway.

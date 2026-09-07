@@ -1,7 +1,7 @@
 {{- if .Values.agents.imageWarmer.enabled }}
 # Keeps the sandbox image cached on every node, avoiding a cold pull inside
 # the provisioning timeout. The container only idles.
-{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry .Chart.AppVersion) }}
+{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

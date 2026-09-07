@@ -47,15 +47,15 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.agents.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.agents.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.agents.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.agents.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
-              value: {{ .Values.agents.config.sessionManagerPostgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "sessionManagerPostgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED
               value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
@@ -63,9 +63,9 @@ spec:
             - name: ORBIT_TRUST_DOMAIN
               value: {{ include "orbit.trustDomain" . | quote }}
             - name: ORBIT_SESSION_MANAGER_IMAGE
-              value: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry .Chart.AppVersion) | quote }}
+              value: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
             - name: ORBIT_SANDBOX_IMAGE
-              value: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry .Chart.AppVersion) | quote }}
+              value: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
             - name: ORBIT_SANDBOX_GIT_AUTHOR_NAME
               value: {{ .Values.agents.config.sandboxGitAuthorName | quote }}
             - name: ORBIT_SANDBOX_GIT_AUTHOR_EMAIL

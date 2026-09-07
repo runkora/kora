@@ -57,13 +57,13 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.identity.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.identity.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.identity.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.identity.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_REDIS_TLS_ENABLED
               value: {{ .Values.identity.config.redisTLSEnabled | quote }}
             - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
@@ -76,9 +76,10 @@ spec:
               value: "/etc/orbit/tenant-secrets/client-secrets.yaml"
             - name: ORBIT_OAUTH_CLIENTS_CONFIG
               value: "/etc/orbit/oauth-clients/oauth-clients.json"
-            {{- if .Values.publicHosts }}
+            {{- $publicHosts := include "orbit.publicHosts" . }}
+            {{- if $publicHosts }}
             - name: ORBIT_PUBLIC_HOSTS
-              value: {{ join "," .Values.publicHosts | quote }}
+              value: {{ $publicHosts | quote }}
             {{- end }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "identity") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}

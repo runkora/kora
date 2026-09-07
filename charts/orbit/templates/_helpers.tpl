@@ -35,6 +35,18 @@ The external frontend host and the derived API host (ADR 2026-07-04).
 {{- required "frontendHost must be set: the external host of the frontend, e.g. orbit.example.com" .Values.frontendHost }}
 {{- end }}
 
+{{/*
+Public hosts for OAuth discovery validation. Explicit publicHosts wins; otherwise
+the API host and the frontend host, derived from frontendHost.
+*/}}
+{{- define "orbit.publicHosts" -}}
+{{- if .Values.publicHosts -}}
+{{ join "," .Values.publicHosts }}
+{{- else if .Values.frontendHost -}}
+{{ printf "api.%s,%s" .Values.frontendHost .Values.frontendHost }}
+{{- end -}}
+{{- end }}
+
 {{- define "orbit.apiHost" -}}
 api.{{ include "orbit.frontendHost" . }}
 {{- end }}
@@ -62,13 +74,29 @@ gateway.create is true, otherwise gateway.name.
 Image reference for a component: <registry>/<repository>@<digest> when set
 (released charts), otherwise <registry>/<repository>:<tag|appVersion>.
 */}}
+{{/*
+Service config value: the component's own config.<field> when the key is present,
+otherwise the global default. Key presence is checked with hasKey so an explicit
+false is honoured; sprig default would treat false as unset and use the global.
+Takes (dict "root" $ "name" "<component>" "field" "<field>" "default" <global value>).
+*/}}
+{{- define "orbit.serviceConfig" -}}
+{{- $c := (index .root.Values .name).config | default dict -}}
+{{- if hasKey $c .field -}}
+{{- index $c .field -}}
+{{- else -}}
+{{- .default -}}
+{{- end -}}
+{{- end }}
+
 {{- define "orbit.image" -}}
 {{- $img := (index .root.Values .name).image -}}
 {{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
+{{- $tag := $img.tag | default .root.Values.global.imageTag | default .root.Chart.AppVersion -}}
 {{- if $img.digest -}}
 {{ $reg }}/{{ $img.repository }}@{{ $img.digest }}
 {{- else -}}
-{{ $reg }}/{{ $img.repository }}:{{ $img.tag | default .root.Chart.AppVersion }}
+{{ $reg }}/{{ $img.repository }}:{{ $tag }}
 {{- end -}}
 {{- end }}
 
@@ -78,10 +106,11 @@ Takes (dict "root" $ "image" <image map>).
 */}}
 {{- define "orbit.imageRef" -}}
 {{- $reg := .image.registry | default .root.Values.global.imageRegistry -}}
+{{- $tag := .image.tag | default .root.Values.global.imageTag | default .root.Chart.AppVersion -}}
 {{- if .image.digest -}}
 {{ $reg }}/{{ .image.repository }}@{{ .image.digest }}
 {{- else -}}
-{{ $reg }}/{{ .image.repository }}:{{ .image.tag | default .root.Chart.AppVersion }}
+{{ $reg }}/{{ .image.repository }}:{{ $tag }}
 {{- end -}}
 {{- end }}
 
