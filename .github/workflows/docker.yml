@@ -1,8 +1,9 @@
 name: Docker build and publish
 on:
+  # Tags are handled by release.yml (it calls this workflow), so this only
+  # publishes sha-tagged images on a merge to main.
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
