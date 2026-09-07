@@ -169,7 +169,7 @@ seccompProfile:
 
 {{- define "orbit.containerSecurityContext" -}}
 allowPrivilegeEscalation: false
-readOnlyRootFilesystem: {{ .readOnlyRootFilesystem | default true }}
+readOnlyRootFilesystem: {{ if hasKey . "readOnlyRootFilesystem" }}{{ .readOnlyRootFilesystem }}{{ else }}true{{ end }}
 capabilities:
   drop: [ALL]
 {{- end }}

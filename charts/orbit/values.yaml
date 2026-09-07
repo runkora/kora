@@ -24,7 +24,8 @@ global:
   observability:
     otlpInsecure: false
 
-  # Apply these pull secrets to Orbit and tenant workloads.
+  # Pull secrets applied to Orbit and tenant workloads. Kubernetes convention:
+  # a list of {name: <secret-name>} objects.
   imagePullSecrets: []
 
   # IfNotPresent for released, digest-pinned images. Always for local development.
@@ -184,12 +185,6 @@ operator:
   podAnnotations: {}
   podLabels: {}
   extraEnv: []
-  webhook:
-    certificate:
-      # Set true to delegate webhook certificate management to cert-manager.
-      certManager:
-        enabled: false
-        issuerRef: {}
   # Containers the webhook injects into every tenant pod. Images come from
   # identityProxy.image and opaGateway.image, same as the system pods.
   injection:
