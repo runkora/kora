@@ -117,7 +117,9 @@ jobs:
       packages: write
     uses: ./.github/workflows/images.yml
     with:
-      push: false
+      # Publish sha-tagged images on a merge to main so the dev environment can
+      # track it; PRs build only.
+      push: ${{ github.event_name == 'push' }}
     secrets: inherit
 
   # A reusable workflow call reports per inner job only, never the calling job.
