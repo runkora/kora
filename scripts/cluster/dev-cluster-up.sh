@@ -84,7 +84,13 @@ fi
 # kubeconfig context; the skipped-creation path above never rewrites it.
 # Re-merge to recover it without a manual delete-and-recreate.
 if ! kubectl config get-contexts "k3d-${CLUSTER_NAME}" &>/dev/null; then
-  k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default >/dev/null 2>&1 || true
+  step "Restoring kubeconfig context for '${CLUSTER_NAME}'"
+  if ! k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default >/dev/null; then
+    echo "  ERROR: failed to merge kubeconfig for cluster '${CLUSTER_NAME}'."
+    echo "  The cluster may be half-created. Recreate it cleanly:"
+    echo "    k3d cluster delete ${CLUSTER_NAME} && make dev-cluster"
+    exit 1
+  fi
 fi
 
 if kubectl config get-contexts "k3d-${CLUSTER_NAME}" &>/dev/null; then
