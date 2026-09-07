@@ -1197,6 +1197,10 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 deadcode: ## Report Go functions no main package can reach
 	@DEADCODE_VERSION=$(DEADCODE_VERSION) ./scripts/check-deadcode.sh
 
+.PHONY: chart-deps
+chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
+	@helm dependency update charts/orbit
+
 .PHONY: check
 check: tidy fmt vet fix lint deadcode secrets docs-check test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
