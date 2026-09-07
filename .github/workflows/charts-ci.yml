@@ -1,0 +1,107 @@
+name: Charts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "deploy/reference/**"
+      - "backend/internal/operator/**"
+      - "backend/internal/agents/k8s*.go"
+      - "ct.yaml"
+      - ".github/workflows/charts-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "deploy/reference/**"
+      - "backend/internal/operator/**"
+      - "backend/internal/agents/k8s*.go"
+      - "ct.yaml"
+      - ".github/workflows/charts-ci.yml"
+
+permissions:
+  contents: read
+
+env:
+  # Kept in sync with scripts/cluster/versions.env.
+  HELM_VERSION: v4.2.3
+
+concurrency:
+  group: charts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # helm lint with the ci/ values, and a check that the generated chart READMEs
+  # are current. Both run through the Makefile so local and CI use one path.
+  lint:
+    name: Lint and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Install helm
+        run: |
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp linux-amd64/helm
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version
+      - name: helm lint
+        run: make chart-lint
+      - name: Chart READMEs are current
+        run: make chart-docs-check
+
+  # Render both charts and validate every manifest against the Kubernetes API
+  # schemas for each supported minor. CRDs without a published schema are
+  # skipped rather than failing the run.
+  render:
+    name: Render (k8s ${{ matrix.k8s }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: ["1.31.0", "1.32.0", "1.33.0"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Install helm
+        run: |
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp linux-amd64/helm
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: helm template | kubeconform
+        env:
+          K8S_VERSION: ${{ matrix.k8s }}
+        run: |
+          set -euo pipefail
+          render() { helm template "$1" "$2" -n orbit-system "${@:3}"; }
+          {
+            render orbit-crds charts/orbit-crds
+            echo '---'
+            render orbit charts/orbit -f charts/orbit/ci/default-values.yaml
+          } > rendered.yaml
+          go run github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7 \
+            -summary -strict -ignore-missing-schemas \
+            -kubernetes-version "${K8S_VERSION}" \
+            rendered.yaml
+
+  # Always-on job so branch protection can require a single check while the
+  # render matrix varies.
+  gate:
+    name: Charts gate
+    needs: [lint, render]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require lint and render to pass
+        run: |
+          echo "lint:   ${{ needs.lint.result }}"
+          echo "render: ${{ needs.render.result }}"
+          [ "${{ needs.lint.result }}" = "success" ] || exit 1
+          [ "${{ needs.render.result }}" = "success" ] || exit 1

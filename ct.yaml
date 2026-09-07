@@ -1,0 +1,9 @@
+# chart-testing (ct) configuration for .github/workflows/charts-ci.yml.
+remote: origin
+target-branch: main
+chart-dirs:
+  - charts
+# Versions are stamped at release time (Decision 7), not bumped per PR.
+check-version-increment: false
+validate-maintainers: false
+helm-extra-args: --timeout 600s
