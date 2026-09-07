@@ -85,11 +85,10 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(53)},
 					},
 				},
-				// istiod xDS (15012). The sandbox is in the mesh; without
-				// this its Envoy sidecar can't fetch Listener/Cluster/Route
-				// config and fails its postStart probe, which in turn drags
-				// every other container in the pod down. Without xDS the
-				// pod literally cannot start.
+				// istiod xDS (15012). The sandbox is in the mesh, so its
+				// Envoy sidecar needs xDS to fetch Listener/Cluster/Route
+				// config. Without it the sidecar never becomes ready and the
+				// pod cannot start.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
