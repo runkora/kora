@@ -180,7 +180,14 @@ global:
   trustDomain: orbit.example.com     # required
   systemNamespace: ""                # defaults to .Release.Namespace
   imageRegistry: ghcr.io/clear-route
+  imageTag: ""                       # empty = chart appVersion; a release stamps per-component digests
   imagePullSecrets: []
+  logFormat: json                    # applied to every service
+  postgres:
+    sslMode: require
+    captureQueryText: false
+  observability:
+    otlpInsecure: false
 config:
   db:    { host: "", port: 5432, name: orbit, user: orbit }
   redis: { host: "", port: 6379 }
@@ -192,6 +199,8 @@ istio:
 spire:
   className: spire-system-spire
 ```
+
+Settings shared by every service live on `global`: log format, the Postgres SSL mode and query-text capture, the OTLP insecure flag, and the image registry and tag. A component block overrides one where it must. The chart reads the `global` value directly, so these fields are no longer repeated per component.
 
 The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `ORBIT_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/orbit-agents/config/base.yaml` are removed. `orbit-system` remains the default.
 
@@ -216,67 +225,59 @@ The charts render identically under `helm template` with no cluster access and p
 
 ### Decision 6: Reference install and local development
 
-`deploy/reference/helmfile.yaml.gotmpl` is the blank-cluster path:
+The reference install is an example to copy, not a second configuration system. Its parts separate by owner: the `orbit` chart's own values are the only Orbit configuration surface, the Helmfile only sequences releases, and everything specific to the local k3d cluster is a separate overlay.
+
+**Chart values.** `deploy/reference/values/orbit.yaml` is the file: chart values with the required fields set for a cloud cluster, the same set `helm show values` prints. There is no Orbit-specific environment schema and no template between it and the chart. Cross-cutting settings a translation layer would fan out across components are `global` values (Decision 4).
+
+**The Helmfile sequences releases and passes the facts they share.**
 
 ```yaml
-helmDefaults:
-  wait: true
-  timeout: 600
-  createNamespace: true
-
-repositories:
-  - name: spiffe
-    url: https://spiffe.github.io/helm-charts-hardened
-  - name: istio
-    url: https://istio-release.storage.googleapis.com/charts
-
 releases:
-  - name: spire-crds
-    namespace: spire-system
-    chart: spiffe/spire-crds
-    version: {{ .Values.versions.spireCrds }}
-  - name: istio-base
-    namespace: istio-system
-    chart: istio/base
-    version: {{ .Values.versions.istio }}
+  - name: spire-crds  { namespace: spire-system, chart: spiffe/spire-crds }
+  - name: istio-base  { namespace: istio-system, chart: istio/base }
   - name: istio-cni
     namespace: istio-system
     chart: istio/cni
-    version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base]
-    values: [values/cni.yaml.gotmpl]          # k3s CNI bin and conf dirs in the local environment
+    values: []                                # local adds values/cni.local.yaml (k3s CNI paths); a cloud cluster needs none
   - name: spire
     namespace: spire-system
     chart: spiffe/spire
-    version: {{ .Values.versions.spire }}
-    # istio-cni, not just spire-crds: the CNI DaemonSet chains its plugin into
-    # a node's CNI config as soon as it starts, before the binary is ready, so
-    # a pod scheduled there in the gap gets no network sandbox.
+    # Waits on istio-cni so SPIRE's agents land on nodes whose CNI plugin is in
+    # place; a pod scheduled during the CNI install gap gets no network sandbox.
     needs: [spire-system/spire-crds, istio-system/istio-cni]
-    values: [values/spire.yaml.gotmpl]        # trust domain, SDS names, attestor, default ClusterSPIFFEID off
+    values: [values/spire.yaml]               # what Orbit requires of SPIRE
+    set:                                       # trust domain and cluster name from the environment
+      - { name: global.spire.trustDomain, value: '{{`{{ .Values.trustDomain }}`}}' }
+      - { name: global.spire.clusterName, value: '{{`{{ .Values.clusterName }}`}}' }
   - name: istiod
     namespace: istio-system
     chart: istio/istiod
-    version: {{ .Values.versions.istio }}
     needs: [istio-system/istio-base, istio-system/istio-cni]
-    values: [values/istiod.yaml.gotmpl]       # meshConfig.trustDomain, pilot.cni.enabled: true
-  - name: orbit-crds
-    namespace: {{ .Values.systemNamespace }}
-    chart: {{ .Values.orbit.crdsChart }}      # oci://ghcr.io/clear-route/charts/orbit-crds in production
-    version: {{ .Values.orbit.version }}
+    values: [values/istiod.yaml]              # what Orbit requires of istiod: pilot.cni.enabled, discoveryAddress
+    set: [{ name: meshConfig.trustDomain, value: '{{`{{ .Values.trustDomain }}`}}' }]
+  - name: orbit-crds  { namespace: '{{`{{ .Values.systemNamespace }}`}}', chart: '{{`{{ .Values.orbit.crdsChart }}`}}' }
   - name: orbit
-    namespace: {{ .Values.systemNamespace }}
-    chart: {{ .Values.orbit.chart }}          # oci://ghcr.io/clear-route/charts/orbit in production
-    version: {{ .Values.orbit.version }}
-    needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
-    values: [values/orbit.yaml.gotmpl]        # gateway.create: true deploys Orbit's ingress gateway
+    namespace: '{{`{{ .Values.systemNamespace }}`}}'
+    chart: '{{`{{ .Values.orbit.chart }}`}}'  # oci://ghcr.io/clear-route/charts/orbit in production
+    needs: ['{{`{{ .Values.systemNamespace }}`}}/orbit-crds', spire-system/spire, istio-system/istiod]
+    values: [values/orbit.yaml]               # the consumer's chart values
+    set:                                       # the two facts SPIRE, Istio and Orbit share
+      - { name: global.trustDomain,    value: '{{`{{ .Values.trustDomain }}`}}' }
+      - { name: global.systemNamespace, value: '{{`{{ .Values.systemNamespace }}`}}' }
 ```
 
-There is no separate gateway release. Orbit's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release, so nothing in the reference install depends on a component outside Orbit's ownership except the prerequisites themselves. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
+The Helmfile orders the releases and injects the trust domain, cluster name and system namespace each chart needs. SPIRE and istiod take a plain values file stating only what Orbit requires of them, with the shared facts set from the environment; the `orbit` release takes `values/orbit.yaml`. No values file in the reference is templated. Version numbers, chart sources and the two shared facts come from the environment. A consumer already running SPIRE and Istio installs the `orbit` chart directly with their own values and needs no Helmfile at all.
 
-`deploy/reference/environments/` holds `local.yaml` (k3d registry, `imagePullPolicy: Always`, local trust domain, local charts by path instead of OCI, k3s CNI paths) and `example.yaml` (a cloud-shaped starting point). `local.generated.yaml` is gitignored and written by `scripts/cluster/resolve-docker-ips.sh` (identity `hostAliases`, `networkPolicy.externalServices`). `deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. While `ghcr.io/clear-route/charts` is private, pulling `orbit-crds`/`orbit` requires OCI registry credentials the app-of-apps doesn't provide; a comment marks where they're needed, but the actual repository credential configuration is left to the consumer's own Argo CD setup (`argocd repo add`, or an equivalent Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
+There is no separate gateway release. Orbit's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release. The reference install depends on nothing outside Orbit's ownership except the prerequisites. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
 
-`make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), `migrate-up`, create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and after each push `redeploy.sh` pins the workload with `kubectl set image` and records the digest under `images.<key>.digest` in `local.generated.yaml`, so the next `helmfile apply` renders the same image. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
+**Environments carry cluster facts, not chart configuration.** `deploy/reference/environments/{local,example}.yaml` hold the Helmfile's release inputs: chart versions, trust domain, cluster name, system namespace, kube context, and for local the chart paths and registry. `example.yaml` targets a cloud cluster; `local.yaml` targets k3d.
+
+**Local development is an overlay, not the shipped reference.** The image digests `redeploy.sh` records, the k3s CNI paths, and the identity `hostAliases` and external-service CIDRs `resolve-docker-ips.sh` generates are local concerns. They live in `values/orbit.local.yaml`, `values/cni.local.yaml` and the gitignored `local.generated.yaml`, which the local environment layers onto the base values. The base `values/orbit.yaml` carries none of them.
+
+`deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. The `orbit` Application points its values at the consumer's own GitOps repository, the values `values/orbit.yaml` demonstrates. While `ghcr.io/clear-route/charts` is private, pulling `orbit-crds`/`orbit` needs OCI registry credentials the app-of-apps does not provide; a comment marks where they belong, and the repository credential itself is the consumer's Argo CD setup (`argocd repo add` or a Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
+
+`make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), `migrate-up`, create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and after each push `redeploy.sh` pins the workload with `kubectl set image` and records the digest under `<component>.image.digest` in `local.generated.yaml`; the next `helmfile apply` renders the same image. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
 
 `deploy/local/` is reduced to tenant fixtures and connection examples. `Dockerfile.operator` copies the binary and the per-binary `config/*.yaml` defaults, no charts or `deploy/` content. orbit-agents' sandbox and session-manager images and trust domain move from `base.yaml` literals to env overrides in the existing `ORBIT_SESSION_MANAGER_*` pattern, set by the chart from `agents.config.*`; the `production.yaml` file overlay is not used.
 
@@ -343,8 +344,15 @@ global:
   trustDomain: ""                 # required
   systemNamespace: ""             # defaults to .Release.Namespace
   imageRegistry: ghcr.io/clear-route
+  imageTag: ""                    # empty = chart appVersion
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
+  logFormat: json                 # every service; component overrides where needed
+  postgres:
+    sslMode: require
+    captureQueryText: false
+  observability:
+    otlpInsecure: false
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -374,7 +382,7 @@ frontend: ...                     # includes existingSecret, ingress
 opaGateway: ...                   # the gateway-level OPA's own image, distinct from the tenant sidecar OPA the webhook injects
 ```
 
-Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`. Global values are defaults; component values override. The same scheduling values, and `global.imagePullSecrets`, reach pods orbit-agents creates at runtime through `agents.runtimePods.*`, which the chart renders into the existing `ORBIT_MANIFEST__*` overrides and a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
+Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`, and the service-config keys (log format, Postgres SSL mode, OTLP) that default from `global`. Global values are defaults; component values override. The same scheduling values, and `global.imagePullSecrets`, reach pods orbit-agents creates at runtime through `agents.runtimePods.*`, which the chart renders into the existing `ORBIT_MANIFEST__*` overrides and a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
 
 ### Image reference helper
 
@@ -382,15 +390,16 @@ Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}
 {{- define "orbit.image" -}}
 {{- $img := (index .root.Values .name).image -}}
 {{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
+{{- $tag := $img.tag | default .root.Values.global.imageTag | default .root.Chart.AppVersion -}}
 {{- if $img.digest -}}
 {{ $reg }}/{{ $img.repository }}@{{ $img.digest }}
 {{- else -}}
-{{ $reg }}/{{ $img.repository }}:{{ $img.tag | default .root.Chart.AppVersion }}
+{{ $reg }}/{{ $img.repository }}:{{ $tag }}
 {{- end -}}
 {{- end }}
 ```
 
-Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. A sibling `orbit.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`. Release automation populates `digest` in the packaged chart; development leaves it empty and uses tags.
+Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. Tag resolution is component `image.tag`, then `global.imageTag`, then the chart appVersion, so local development pins every deployed image with one `global.imageTag` and a release pins each with a `digest`. This covers the twelve chart-deployed images. The two images orbit-agents runs at runtime, `orbit-session-manager` and `orbit-sandbox-exec`, are referenced by full string in `agents.config` and resolve by tag; digest-pinning them is deferred. A sibling `orbit.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`.
 
 ---
 
@@ -400,7 +409,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 1. Create `charts/orbit-crds` from the CRD templates in `charts/orbit-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `OrbitTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
 2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `orbit.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to Orbit's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with Orbit's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/orbit-operator` and `charts/orbit-platform`.
-3. Introduce `orbit.image`, `orbit.scheduling` and `orbit.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator.
+3. Introduce `orbit.image`, `orbit.scheduling` and `orbit.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator. Add the cross-cutting `global` settings (`logFormat`, `postgres.sslMode`, `postgres.captureQueryText`, `observability.otlpInsecure`, `imageTag`) and default every component's service-config and image to them, removing the per-component repetition of these fields from `values.yaml`.
 4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `orbit-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
 5. Render `orbit-config` from `config.*`. Remove `platform.namespaces.tenants`. Collapse `existingSecret` values into `config.platformSecretName`.
 6. Switch defaults to `ghcr.io/clear-route`; remove every `orbit-registry:5001` default outside `deploy/reference/environments/local.yaml`.
@@ -416,9 +425,9 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 ### Phase 3: Reference install and local development
 
-1. `deploy/reference/helmfile.yaml.gotmpl`, `values/*.gotmpl`, `values/gateway-byo.yaml`, `environments/{local,example}.yaml`, `argocd/` app-of-apps.
-2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml`; k3d's Kubernetes version moves inside the supported window.
-3. Move `deploy/local/{orbit-values,platform-values,operator-values}.yaml` content into `environments/local.yaml`; delete `deploy/local/orbit-platform.yaml`.
+1. `deploy/reference/helmfile.yaml.gotmpl` (release sequencing and the shared-fact `set:` blocks), `values/orbit.yaml` (the consumer's chart values), `values/spire.yaml` and `values/istiod.yaml` (what Orbit requires of each prerequisite, shared facts set from the environment), `values/gateway-byo.yaml`, `environments/{local,example}.yaml` (cluster facts for the Helmfile), `argocd/` app-of-apps.
+2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml` as plain chart values; k3d's Kubernetes version moves inside the supported window.
+3. Local-only chart values (k3d registry, `imagePullPolicy: Always`, k3s CNI paths, recorded digests, generated host aliases and external-service CIDRs) live in `values/orbit.local.yaml` and `local.generated.yaml`, layered onto `values/orbit.yaml` by the local environment. Delete `deploy/local/orbit-platform.yaml` and the old `deploy/local/{orbit,platform,operator}-values.yaml`.
 4. Update `docs/guides/local-development.md` and `deploy/local/README.md`.
 
 ### Phase 4: Release and verification
@@ -450,6 +459,8 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 ### Positive
 
 - An installable, signed, versioned release exists.
+- Orbit has one configuration surface: the `orbit` chart's own values. The reference carries no second schema and no template translating one schema into another, so a consumer writes chart values directly in their own repository.
+- Cross-cutting settings are `global` values set once, not fields repeated per component in the chart and again in a fan-out layer above it.
 - BYO Istio and SPIRE become real, with a contract Orbit can verify rather than a skip flag.
 - One artefact set and one install path from local k3d to enterprise GitOps.
 - Operator RBAC drops from wildcard verbs on seventeen API groups to the table in Decision 1, and it no longer holds an in-memory cache of every Secret in the cluster. The RBAC grant on Secrets and ConfigMaps is still cluster-wide, not scoped to Orbit's namespaces ([#269](https://github.com/clear-route/orbit/issues/269)).
@@ -459,7 +470,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 ### Negative
 
 - `OrbitPlatform` is removed; local development, the deployment guide and any deployment applying it change at once.
-- Blank-cluster install requires Helmfile. The quickstart lists it alongside Helm and kubectl.
+- Blank-cluster install requires Helmfile. The quickstart lists it alongside Helm and kubectl. A consumer who already runs SPIRE and Istio installs the `orbit` chart alone and needs neither the Helmfile nor the reference environments.
 - Two charts means an ordering rule on install and upgrade; `orbit` fails with a clear message when `orbit-crds` is absent.
 - A chart-only fix needs a full release.
 - The `orbit` chart pins the `istio/gateway` subchart version, which must move with the Istio compatibility window.
