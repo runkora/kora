@@ -1,44 +1,21 @@
+# In-cluster URLs the Next.js BFF calls server-side; frontend.config.*
+# overrides the release-namespace defaults. Only NEXT_PUBLIC_APP_URL reaches
+# the browser, and it must match the build-time value.
+{{- $ns := include "orbit.systemNamespace" . }}
+{{- $c := .Values.frontend.config }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: orbit-frontend-config
-  namespace: {{ include "orbit.systemNamespace" . }}
+  namespace: {{ $ns }}
   labels:
     {{- include "orbit.frontend.labels" . | nindent 4 }}
 data:
-  # URL of the Go identity service as seen from inside the cluster.
-  # Used by the Next.js BFF server-side routes to call the identity API.
-  # Never sent to the browser.
-  ORBIT_API_URL: {{ required "frontend.config.orbitApiUrl must be set" .Values.frontend.config.orbitApiUrl | quote }}
-  ORBIT_TRIGGERS_URL: {{ required "frontend.config.orbitTriggersUrl must be set" .Values.frontend.config.orbitTriggersUrl | quote }}
-
-  # URL of the inference gateway service as seen from inside the cluster.
-  # Used by the Next.js BFF server-side routes to proxy model/usage requests.
-  # Never sent to the browser.
-  INFERENCE_GATEWAY_URL: {{ required "frontend.config.inferenceGatewayUrl must be set" .Values.frontend.config.inferenceGatewayUrl | quote }}
-
-  # URL of the policy gateway service as seen from inside the cluster.
-  # Used by the Next.js BFF to fetch the principal's effective scope set
-  # on login and token refresh (ADR-0037). Never sent to the browser.
-  POLICY_GATEWAY_URL: {{ required "frontend.config.policyGatewayUrl must be set" .Values.frontend.config.policyGatewayUrl | quote }}
-
-  # URL of the policy service (PAP) as seen from inside the cluster.
-  # Used by the Next.js BFF to proxy grant/role/vocabulary admin endpoints.
-  # Never sent to the browser.
-  POLICY_SERVICE_URL: {{ required "frontend.config.policyServiceUrl must be set" .Values.frontend.config.policyServiceUrl | quote }}
-
-  # URL of the orbit-agents service as seen from inside the cluster.
-  # Used by the Next.js BFF to proxy agent type and run CRUD + SSE endpoints.
-  # Never sent to the browser.
-  ORBIT_AGENTS_URL: {{ required "frontend.config.orbitAgentsUrl must be set" .Values.frontend.config.orbitAgentsUrl | quote }}
-
-  # URL of the MCP tool-gateway (proxy) as seen from inside the cluster.
-  # Used by the Next.js BFF to read the read-only MCP tool catalog. Never sent
-  # to the browser.
-  TOOL_GATEWAY_URL: {{ required "frontend.config.toolGatewayUrl must be set" .Values.frontend.config.toolGatewayUrl | quote }}
-
-  # Public base URL of this frontend, as seen from the browser.
-  # Also available at runtime for server-side code that reads process.env.NEXT_PUBLIC_APP_URL.
-  # Note: Next.js inlines NEXT_PUBLIC_* values into client bundles at build time —
-  # the value here does not affect what was baked into the image, but should match it.
-  NEXT_PUBLIC_APP_URL: {{ required "frontend.config.nextPublicAppUrl must be set" .Values.frontend.config.nextPublicAppUrl | quote }}
+  ORBIT_API_URL: {{ $c.orbitApiUrl | default (printf "http://orbit-identity.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  ORBIT_TRIGGERS_URL: {{ $c.orbitTriggersUrl | default (printf "http://orbit-triggers.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  INFERENCE_GATEWAY_URL: {{ $c.inferenceGatewayUrl | default (printf "http://orbit-inference-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
+  POLICY_GATEWAY_URL: {{ $c.policyGatewayUrl | default (printf "http://orbit-policy-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
+  POLICY_SERVICE_URL: {{ $c.policyServiceUrl | default (printf "http://orbit-policy-service.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  ORBIT_AGENTS_URL: {{ $c.orbitAgentsUrl | default (printf "http://orbit-agents.%s.svc.cluster.local" $ns) | quote }}
+  TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://orbit-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
+  NEXT_PUBLIC_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "orbit.frontendHost" .)) | quote }}

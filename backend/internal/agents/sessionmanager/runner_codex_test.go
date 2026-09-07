@@ -479,11 +479,9 @@ func TestCodexLogStderr_CapturesTailForErrorEvent(t *testing.T) {
 
 	pr, pw := io.Pipe()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		r.logStderr(t.Context(), pr)
-	}()
+	})
 
 	_, _ = fmt.Fprintln(pw, `http.response.status_code=403 error.message="http 403" endpoint="/responses"`)
 	_, _ = fmt.Fprintln(pw, `Turn error: unexpected status 403 Forbidden: Unknown error, url: http://gateway/run/abc/responses`)
@@ -534,11 +532,9 @@ func TestCodexLogStderr_ScanError_IsLogged(t *testing.T) {
 	scanErr := fmt.Errorf("injected scan error")
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		r.logStderr(t.Context(), pr)
-	}()
+	})
 
 	_, _ = fmt.Fprintln(pw, "some stderr line")
 	pw.CloseWithError(scanErr)

@@ -14,11 +14,11 @@ kubectl get pods -n orbit-system                  # control-plane services
 kubectl get pods -n orbit-tenant-example          # example tenant workloads
 ```
 
-`OrbitPlatform` reports the state of the operator-managed installation. If it is not `Ready`, inspect its conditions before chasing an application pod:
+The operator's preflight reports whether SPIRE and Istio meet Orbit's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
 
 ```bash
-kubectl describe orbitplatform orbit
-kubectl logs deployment/orbit-operator -n orbit-operator -c operator
+kubectl describe orbittenant <name>
+kubectl logs deployment/orbit-operator -n orbit-system
 ```
 
 `make up` is idempotent. Re-running it is the first recovery step when setup stopped partway through or the cluster drifted after a Docker restart.

@@ -1,0 +1,21 @@
+# A real cluster: Helmfile release inputs. Copy values/orbit.yaml into your own
+# repository and edit it; this file only tells the Helmfile which charts and
+# versions to install and the facts SPIRE, Istio and Orbit share.
+versions:
+  spireCrds: "0.5.0"
+  spire: "0.28.3"
+  istio: "1.29.1"
+
+systemNamespace: orbit-system
+trustDomain: orbit.example.com
+clusterName: orbit
+
+orbit:
+  chart: oci://ghcr.io/clear-route/charts/orbit
+  crdsChart: oci://ghcr.io/clear-route/charts/orbit-crds
+  version: 0.0.0
+
+istio:
+  revision: ""
+
+orbitValuesFiles: []

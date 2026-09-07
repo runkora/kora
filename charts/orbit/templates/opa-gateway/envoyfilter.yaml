@@ -13,7 +13,7 @@
 #
 # Health checks and OIDC/JWKS discovery are bypassed by Rego.
 #
-# failure_mode_allow: false — fail-closed (zero trust). If OPA is unreachable
+# failure_mode_allow: false. Fail-closed (zero trust). If OPA is unreachable
 # or times out, the request is denied. The OPA readiness probe gates pod
 # readiness on bundle activation so traffic only arrives after the bundle loads.
 #
@@ -24,16 +24,14 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: opa-gateway-ext-authz
-  namespace: istio-system
+  namespace: {{ include "orbit.gatewayWorkloadNamespace" . }}
   labels:
-    app.kubernetes.io/part-of: orbit
-    app.kubernetes.io/managed-by: Helm
+    {{- include "orbit.labels" . | nindent 4 }}
 spec:
-  # Targets the Istio IngressGateway pods (app=gateway, deployed by the
-  # orbit-platform chart's gateway Helm release in istio-system).
+  # Orbit's own gateway pods, or the customer-owned gateway selected by gateway.byo.
   workloadSelector:
     labels:
-      app: gateway
+      {{- include "orbit.gatewayWorkloadSelector" . | nindent 6 }}
   configPatches:
     # INSERT_BEFORE the router filter ensures ext_authz runs before any routing
     # or forwarding decisions are made. Note: INSERT_BEFORE targets the named
@@ -88,6 +86,7 @@ spec:
                 http2_protocol_options: {}
 
 {{- if .Values.frontendHost }}
+{{- $fh := include "orbit.frontendHost" . }}
     # Bypass ext_authz for the frontend host at the VirtualHost level.
     # Browser cookie traffic (no Bearer token) never reaches OPA, eliminating
     # unnecessary gRPC round-trips for requests that Rego would pass through.
@@ -97,7 +96,7 @@ spec:
         context: GATEWAY
         routeConfiguration:
           vhost:
-            name: "{{ .Values.frontendHost }}:443"
+            name: "{{ $fh }}:443"
       patch:
         operation: MERGE
         value:
@@ -110,7 +109,7 @@ spec:
         context: GATEWAY
         routeConfiguration:
           vhost:
-            name: "{{ .Values.frontendHost }}:80"
+            name: "{{ $fh }}:80"
       patch:
         operation: MERGE
         value:

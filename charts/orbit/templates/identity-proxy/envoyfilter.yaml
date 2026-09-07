@@ -2,8 +2,9 @@
 #
 # The identity-proxy is the MANDATORY trust enforcement point for all Orbit
 # platform agent workloads. It is not optional. Every agent pod on the platform
-# must carry the label `orbit.io/identity-proxy: "enabled"` and the sidecar
-# injection annotation `inject.istio.io/templates: "sidecar,spire,identity-proxy"`.
+# must carry the label `orbit.io/identity-proxy: "enabled"` and an identity-proxy
+# container sharing the /run/orbit socket with istio-proxy (added by the operator
+# webhook for tenant pods and by the chart for Orbit services).
 #
 # This filter activates on all pods bearing that label and intercepts every
 # outbound HTTP request at the Envoy layer. It calls the identity-proxy sidecar
@@ -12,10 +13,10 @@
 #   2. Caches the token and invalidates it on SVID rotation.
 #   3. Injects Authorization: Bearer <token> into the outbound request headers.
 #
-# Agent workloads make plain HTTP calls — they are completely unaware of SPIFFE,
+# Agent workloads make plain HTTP calls; they are completely unaware of SPIFFE,
 # token exchange, or credential lifecycle. The platform enforces identity here.
 #
-# failureModeAllow: true — if the ext_proc socket is unavailable at startup
+# failureModeAllow: true. If the ext_proc socket is unavailable at startup
 # (race between containers), Envoy passes the request through rather than
 # failing. The identity-proxy readinessProbe gates pod readiness so traffic
 # is not routed until the proxy is ready.
@@ -25,14 +26,14 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: identity-proxy-ext-proc
-  namespace: istio-system
+  namespace: {{ .Values.istio.namespace }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
   # Targets all platform agent pods across all namespaces that carry the
   # orbit.io/identity-proxy=enabled label. Because this EnvoyFilter lives in
   # istio-system (the Istio root namespace), workloadSelector matches globally.
-  # Using workloadSelector here is correct — proxy.metadata.LABELS in a
+  # Using workloadSelector here is correct; proxy.metadata.LABELS in a
   # configPatch match expects a flat string value, not a nested label map.
   workloadSelector:
     labels:
@@ -76,8 +77,8 @@ spec:
                   - endpoint:
                       address:
                         pipe:
-                          # Unix socket path — must match the mountPath of the
+                          # Unix socket path: must match the mountPath of the
                           # id-proxy-sock emptyDir volume in the identity-proxy
-                          # sidecar injection template (charts/orbit-platform values).
+                          # identity-proxy container and istio-proxy (chart helper or operator webhook).
                           path: /run/orbit/identity-proxy.sock
           http2_protocol_options: {}

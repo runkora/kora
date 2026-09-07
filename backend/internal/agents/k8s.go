@@ -67,6 +67,9 @@ type K8sProvisionerConfig struct {
 	GitAuthorName             string
 	GitAuthorEmail            string
 	SessionManagerPostgresSSL string
+	// ImagePullSecrets names the Secrets, present in every tenant namespace,
+	// that runtime-created pods pull the session-manager and sandbox images with.
+	ImagePullSecrets []string
 	// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
 	// Used to build the agent's SPIFFE principal ID for grant creation.
 	TrustDomain string
@@ -101,7 +104,7 @@ type K8sProvisioner struct {
 }
 
 // SetScopeResolver installs the resolver that compiles an agent type's full
-// effective grant scopes — its own scopes plus the egress and connectors
+// effective grant scopes; its own scopes plus the egress and connectors
 // contributed by its referenced environment, plus connector auto-egress. When
 // unset, grant reconciliation falls back to the agent's own configured scopes
 // (AgentType.EffectiveGrantScopes), so a partially-wired deployment still works.
@@ -109,7 +112,7 @@ func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = 
 
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster
 // is true, otherwise falling back to KUBECONFIG (local development).
-// policyClient may be nil — grant creation is skipped when unset (local dev).
+// policyClient may be nil; grant creation is skipped when unset (local dev).
 func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisionerConfig, policyClient *policyclient.Client) (*K8sProvisioner, error) {
 	restCfg, err := buildRestConfig(inCluster)
 	if err != nil {
@@ -142,7 +145,7 @@ func buildRestConfig(inCluster bool) (*rest.Config, error) {
 // ── Agent type provisioning ───────────────────────────────────────────────────
 
 // ProvisionAgentType creates all k8s resources for a managed agent type in the
-// given namespace. Idempotent — existing resources are left unchanged.
+// given namespace. Idempotent; existing resources are left unchanged.
 func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionAgentType",
 		trace.WithAttributes(
@@ -337,7 +340,7 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container
 // (Edit, Write tools) are immediately visible in the sandbox without copying.
 // The PVC is shared by every run scheduled onto that pod ordinal, so the
-// mount is scoped with SubPath: run.ID (see sandboxContainer) — this run's
+// mount is scoped with SubPath: run.ID (see sandboxContainer); this run's
 // sandbox pod only ever has its own {runID} directory mounted, never a
 // sibling run's. See https://github.com/clear-route/orbit/issues/134.
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error) {
@@ -350,80 +353,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	)
 	defer span.End()
 
-	podName := fmt.Sprintf("sandbox-%s", run.ID)
-	uid := int64(100)
-	nonRoot := true
-	// PVC name follows StatefulSet volumeClaimTemplate convention:
-	// {volumeName}-{statefulSetName}-{ordinal}
-	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
-
-	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
-	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
-	//     tenant NetworkPolicy locking egress to the gateway.
-	//   - orbit.io/run-id, orbit.io/agent-slug: matched by the
-	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
-	//     pod is attested as
-	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
-	//     The principal extractor (internal/identity/principal_extractor.go)
-	//     normalizes this back to the agent principal for authorization
-	//     while lifting run_id into claims for attribution.
-	//
-	// We deliberately NO LONGER set orbit.io/skip-injection: per
-	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
-	// sandbox rejoins the mesh — the operator pod webhook adds the
-	// identity-proxy + opa-policy + spire injection templates, giving the
-	// sandbox the same outbound enforcement chain as the agent StatefulSet
-	// pod. Without injection the credential broker would be unreachable.
-	labels := map[string]string{
-		"orbit.io/role":       "sandbox",
-		"orbit.io/run-id":     run.ID,
-		"orbit.io/agent-slug": agentTypeSlug,
-	}
-
-	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
-	// outbound traffic on its own (orbit-shell connects directly via plain
-	// TCP); however the sandbox pod ALSO hosts the agent's tooling
-	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
-	// injection is therefore required — see comment on the labels block.
-	annotations := map[string]string{
-		// Exclude the gRPC port from the inbound mesh so orbit-shell still
-		// connects over plain TCP, matching the existing pre-injection
-		// behavior. Outbound to the egress-gateway intentionally STAYS in
-		// the mesh — the sandbox's identity-proxy ext_proc filter must see
-		// the CONNECT and inject the platform Bearer token, which is the
-		// gateway's only signal of caller identity. The CONNECT method is
-		// passed through HCM via the egress-gateway EnvoyFilter
-		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
-		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
-		// Hold every other container until istio-proxy is ready. Without
-		// this, identity-proxy starts immediately and times out after 60s
-		// waiting for Envoy — which istio-proxy is the LAST container
-		// kubelet starts (it follows the largest image, sandbox-exec, whose
-		// pull alone can take ~50s on a cold node). Same wiring the
-		// session-manager StatefulSet pod uses.
-		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
-	}
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        podName,
-			Namespace:   namespace,
-			Labels:      labels,
-			Annotations: annotations,
-		},
-		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsUser:    &uid,
-				RunAsNonRoot: &nonRoot,
-				SELinuxOptions: &corev1.SELinuxOptions{
-					Level: "s0",
-				},
-			},
-			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
-			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
-		},
-	}
+	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters)
+	podName := pod.Name
 
 	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
 	if err != nil {
@@ -448,10 +379,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			logging.Field{Key: "namespace", Value: namespace},
 		)
 	case apierrors.IsAlreadyExists(err):
-		// A pod of this name already exists. Reuse it if it's alive (warm-start /
-		// idempotent re-call), but REPLACE it if it's dead or terminating — the
-		// previous sandbox was evicted/killed and left a stale pod. Without this
-		// we would wait on a corpse and hand back a dead endpoint.
+		// Reuse an existing pod if alive; replace it if dead or terminating.
 		replaced, repErr := p.replaceIfDeadSandboxPod(ctx, &podVal, namespace)
 		if repErr != nil {
 			span.RecordError(repErr)
@@ -486,6 +414,102 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	return endpoint, nil
 }
 
+// buildSandboxPod renders the sandbox pod for a run before manifest overrides
+// are applied.
+func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) *corev1.Pod {
+	podName := fmt.Sprintf("sandbox-%s", run.ID)
+	uid := int64(100)
+	nonRoot := true
+	// PVC name follows StatefulSet volumeClaimTemplate convention:
+	// {volumeName}-{statefulSetName}-{ordinal}
+	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
+
+	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
+	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
+	//     tenant NetworkPolicy locking egress to the gateway.
+	//   - orbit.io/run-id, orbit.io/agent-slug: matched by the
+	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
+	//     pod is attested as
+	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
+	//     The principal extractor (internal/identity/principal_extractor.go)
+	//     normalizes this back to the agent principal for authorization
+	//     while lifting run_id into claims for attribution.
+	//
+	// We deliberately NO LONGER set orbit.io/skip-injection: per
+	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
+	// sandbox rejoins the mesh; the operator pod webhook adds the
+	// identity-proxy + opa-policy + spire injection templates, giving the
+	// sandbox the same outbound enforcement chain as the agent StatefulSet
+	// pod. Without injection the credential broker would be unreachable.
+	labels := map[string]string{
+		"orbit.io/role":       "sandbox",
+		"orbit.io/run-id":     run.ID,
+		"orbit.io/agent-slug": agentTypeSlug,
+	}
+
+	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
+	// outbound traffic on its own (orbit-shell connects directly via plain
+	// TCP); however the sandbox pod ALSO hosts the agent's tooling
+	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
+	// injection is therefore required; see comment on the labels block.
+	annotations := map[string]string{
+		// Exclude the gRPC port from the inbound mesh so orbit-shell still
+		// connects over plain TCP, matching the existing pre-injection
+		// behavior. Outbound to the egress-gateway intentionally STAYS in
+		// the mesh; the sandbox's identity-proxy ext_proc filter must see
+		// the CONNECT and inject the platform Bearer token, which is the
+		// gateway's only signal of caller identity. The CONNECT method is
+		// passed through HCM via the egress-gateway EnvoyFilter
+		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
+		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
+		// Hold every other container until istio-proxy is ready. Without
+		// this, identity-proxy starts immediately and times out after 60s
+		// waiting for Envoy, since istio-proxy is the LAST container
+		// kubelet starts (it follows the largest image, sandbox-exec, whose
+		// pull alone can take ~50s on a cold node). Same wiring the
+		// session-manager StatefulSet pod uses.
+		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
+	}
+
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        podName,
+			Namespace:   namespace,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy:    corev1.RestartPolicyNever,
+			ImagePullSecrets: imagePullSecretRefs(p.cfg.ImagePullSecrets),
+			// Restricted Pod Security Standard: the pod-level seccomp profile is
+			// what istio-proxy inherits, since Istio sets none of its own.
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser:      &uid,
+				RunAsNonRoot:   &nonRoot,
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				SELinuxOptions: &corev1.SELinuxOptions{
+					Level: "s0",
+				},
+			},
+			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
+			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
+		},
+	}
+}
+
+// imagePullSecretRefs turns configured Secret names into pod references, or
+// nil so an unconfigured install leaves the field off the spec entirely.
+func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
+	if len(names) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	for _, n := range names {
+		refs = append(refs, corev1.LocalObjectReference{Name: n})
+	}
+	return refs
+}
+
 // replaceIfDeadSandboxPod inspects an existing sandbox pod of the same name and,
 // if it is dead (PodFailed/PodSucceeded) or already terminating
 // (DeletionTimestamp set), deletes it, waits for it to disappear, and creates a
@@ -495,7 +519,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev1.Pod, namespace string) (bool, error) {
 	existing, err := p.client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		// Vanished between Create and Get — just create it fresh.
+		// Vanished between Create and Get; just create it fresh.
 		if _, cErr := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); cErr != nil && !apierrors.IsAlreadyExists(cErr) {
 			return true, fmt.Errorf("create sandbox pod: %w", cErr)
 		}
@@ -602,7 +626,7 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 //
 // SANDBOX_EXEC_PORT is consumed by sandbox-exec itself.
 //
-// Egress is TRANSPARENT — the sandbox has NO proxy env. The sandbox Envoy
+// Egress is TRANSPARENT; the sandbox has NO proxy env. The sandbox Envoy
 // rewrites the agent's raw outbound TLS into a CONNECT to the per-tenant egress
 // gateway and runs OPA posture + platform-JWT injection on it; see
 // docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md (Amendment 2)
@@ -614,11 +638,11 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // SSL_CERT_FILE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS / REQUESTS_CA_BUNDLE
 // point common runtimes at the per-tenant CA root mounted at
 // sandboxTenantCAPath. The gateway presents a leaf for whatever upstream the
-// tool dialed, signed by this CA — without this hint, every TLS handshake
+// tool dialed, signed by this CA; without this hint, every TLS handshake
 // would fail because the leaves chain to a CA that's not in the system trust
 // store.
 //
-// When SystemNamespace is empty (defensive — should never happen in
+// When SystemNamespace is empty (defensive; should never happen in
 // production) the CA env is omitted so the sandbox simply has no governed
 // egress.
 func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir string) []corev1.EnvVar {
@@ -652,20 +676,20 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// Trust-store hints for the per-tenant CA root. Different runtimes honor
 		// different env vars; we set all the common ones so a tool finds the CA
 		// wherever it looks. The file itself is mounted by sandboxVolumes below.
-		//   SSL_CERT_FILE       — OpenSSL apps (and Go's crypto/tls)
-		//   CURL_CA_BUNDLE      — the curl CLI
-		//   NODE_EXTRA_CA_CERTS — Node.js
-		//   REQUESTS_CA_BUNDLE  — Python requests
-		//   GIT_SSL_CAINFO      — git over HTTPS (git manages CAINFO itself and
+		//   SSL_CERT_FILE:       OpenSSL apps (and Go's crypto/tls)
+		//   CURL_CA_BUNDLE:      the curl CLI
+		//   NODE_EXTRA_CA_CERTS: Node.js
+		//   REQUESTS_CA_BUNDLE:  Python requests
+		//   GIT_SSL_CAINFO:      git over HTTPS (git manages CAINFO itself and
 		//     does NOT read SSL_CERT_FILE/CURL_CA_BUNDLE).
-		//   PIP_CERT            — pip (ships its own bundle, ignores
+		//   PIP_CERT:            pip (ships its own bundle, ignores
 		//     REQUESTS_CA_BUNDLE).
 		//
 		// These cover runtimes that ship their own CA bundle and ignore the OS
 		// trust store. Tools that DO fall back to the OS bundle (wget, the curl
 		// CLI, Go binaries like gh/kubectl, ruby, apt) are covered instead by
-		// mounting the CA over osTrustBundlePath in sandboxContainer — so we do
-		// not have to enumerate an env var per tool.
+		// mounting the CA over osTrustBundlePath in sandboxContainer. We do not
+		// have to enumerate an env var per tool.
 		corev1.EnvVar{Name: "SSL_CERT_FILE", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "CURL_CA_BUNDLE", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "NODE_EXTRA_CA_CERTS", Value: sandboxTenantCAPath},
@@ -681,7 +705,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 	)
 	// Kubernetes connections the agent is granted. sandbox-exec renders these to
 	// $HOME/.kube/config at startup, so the agent runs `kubectl get pods` with no
-	// server URL, no kubeconfig and no token — the gateway injects the brokered
+	// server URL, no kubeconfig and no token; the gateway injects the brokered
 	// ServiceAccount credential on the wire. Omitted entirely when the agent has
 	// no Kubernetes connector.
 	if encoded, err := kubeconfig.Encode(kubeClusters); err == nil && encoded != "" {
@@ -693,7 +717,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 // egressGatewayURL returns the in-cluster URL of the egress gateway, or empty
 // if SystemNamespace is unset. The gateway always lives in SystemNamespace
 // under the well-known service name + port (the shared ports.EgressGatewayCONNECT,
-// matching charts/orbit/templates/egress-gateway/service.yaml) — there's no
+// matching charts/orbit/templates/egress-gateway/service.yaml); there's no
 // configurable knob because there's no version of the topology where it
 // could be different.
 func egressGatewayURL(cfg K8sProvisionerConfig) string {
@@ -713,7 +737,7 @@ const sandboxTenantCAPath = "/var/run/orbit/tenant-ca/ca.crt"
 // here makes git, wget, the curl CLI, Go binaries (gh/kubectl/helm), ruby and
 // apt trust the interception cert with no per-tool env var. The sandbox only
 // ever sees tenant-CA-signed certs (all egress is intercepted), so replacing
-// the bundle with the tenant CA alone is correct, not a downgrade — the
+// the bundle with the tenant CA alone is correct, not a downgrade; the
 // sandbox never needs to verify a real upstream certificate.
 const osTrustBundlePath = "/etc/ssl/certs/ca-certificates.crt"
 
@@ -741,7 +765,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 	if egressGatewayURL(cfg) == "" {
 		return vols
 	}
-	// 0o444 — world-readable. The sandbox container runs as a non-root UID
+	// 0o444: world-readable. The sandbox container runs as a non-root UID
 	// the operator does not pre-coordinate with the Secret mount's UID, so
 	// any-user-readable is the safest default for a public CA cert. The
 	// CA's *private key* is intentionally NOT projected here (Items below
@@ -754,7 +778,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 				SecretName:  "orbit-tenant-ca",
 				DefaultMode: &mode,
 				Items: []corev1.KeyToPath{
-					// Project ca.crt only — the private key never reaches
+					// Project ca.crt only; the private key never reaches
 					// the sandbox; that lives on the egress gateway pod.
 					{Key: "ca.crt", Path: "ca.crt"},
 				},
@@ -770,7 +794,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 // file.
 //
 // The workspaces volume is mounted with SubPath: runID so this pod's view of
-// the (StatefulSet-shared) PVC is scoped to its own run directory only —
+// the (StatefulSet-shared) PVC is scoped to its own run directory only:
 // sibling runs co-located on the same pod ordinal share the underlying PVC
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/clear-route/orbit/issues/134.
@@ -789,7 +813,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 			// Overlay the OS trust bundle so OS-store tools (wget, curl CLI, Go
 			// binaries, ruby, apt) trust the interception cert without a per-tool
 			// env var. SubPath mounts a single file and does not auto-update on
-			// CA rotation — fine for per-run sandboxes, each of which gets the
+			// CA rotation; fine for per-run sandboxes, each of which gets the
 			// current CA at provision time.
 			corev1.VolumeMount{
 				Name:      tenantCAVolumeName,
@@ -803,15 +827,14 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		Name:  "sandbox-exec",
 		Image: cfg.SandboxImage,
 		// Always so a freshly built :latest image (new toolchain/versions) reaches
-		// new sandboxes — PullIfNotPresent would keep serving the node's cached
-		// image. The registry is local (orbit-registry:5001), so the digest check
-		// is cheap and short-circuits when the image is already cached.
+		// new sandboxes; PullIfNotPresent would keep serving the node's cached
+		// image. The digest check short-circuits when the image is already cached.
 		ImagePullPolicy: corev1.PullAlways,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
 		},
-		// The agent is untrusted code. Dropping all Linux capabilities —
-		// critically NET_ADMIN and NET_RAW — is what makes the transparent
+		// The agent is untrusted code. Dropping all Linux capabilities,
+		// critically NET_ADMIN and NET_RAW, is what makes the transparent
 		// egress redirect un-bypassable: without them the agent cannot rewrite
 		// the pod's iptables or open raw sockets to escape the sidecar
 		// interception (docs/adr/2026-06-06-jit-credential-brokering-egress-
@@ -871,13 +894,13 @@ func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, nam
 //   - Keep the first existing grant whose scopes (and, when a budget is
 //     specified, budget) exactly match the desired state.
 //   - Delete all other grants for this principal (duplicates + stale state).
-//   - If no matching grant was kept, create one — carrying the desired budget,
+//   - If no matching grant was kept, create one, carrying the desired budget,
 //     or preserving the previous grant's budget when none was specified.
 //
 // Budget semantics: at.Budget == nil means "leave the budget as it is";
 // at.Budget with both limits zero means "remove the budget". Budget changes
 // recreate the grant (the agent path holds platform:grants:write, not
-// platform:budgets:write) — per-grant attribution counters restart, while
+// platform:budgets:write); per-grant attribution counters restart, while
 // enforcement counters (principal/tenant/run) are unaffected.
 //
 // This handles first-time provisioning, scope and budget updates, and
@@ -924,7 +947,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 
 	// The delegation_required marker mirrors the agent's identity mode: a
 	// delegated agent's grant is a ceiling, never a standing entitlement
-	// (delegated-agent-identity ADR, Decision 2). Reconciled like scopes — a
+	// (delegated-agent-identity ADR, Decision 2). Reconciled like scopes; a
 	// grant whose marker drifted from the identity mode is stale and replaced.
 	delegationRequired := at.IsDelegated()
 
@@ -1013,7 +1036,7 @@ func firstBudget(grants []policyclient.Grant) *policyclient.BudgetAssignment {
 }
 
 // GetAgentBudget returns the budget currently carried by the agent's grant,
-// or nil when no grant or budget exists. Used to enrich agent type reads —
+// or nil when no grant or budget exists. Used to enrich agent type reads:
 // the grant is the source of truth for budget configuration.
 func (p *K8sProvisioner) GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error) {
 	if p.policyClient == nil {
@@ -1086,7 +1109,7 @@ func scopeSetsEqual(a, b []string) bool {
 }
 
 // deleteAgentGrant removes all policy-service grants for this agent's SPIFFE
-// principal. Best-effort — logs and returns nil if no grants exist or the
+// principal. Best-effort; logs and returns nil if no grants exist or the
 // policy client is unavailable.
 func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, namespace string) error {
 	if p.policyClient == nil {
@@ -1128,10 +1151,72 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 }
 
 func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string) error {
+	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
+
+	var err error
+	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
+	if err != nil {
+		return fmt.Errorf("apply StatefulSet overrides: %w", err)
+	}
+	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
+		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
+		if err != nil {
+			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
+		}
+	}
+
+	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	// Sync the rendered pod template's metadata, env and security settings onto
+	// an existing StatefulSet. The image is left alone: redeploy pins it by
+	// digest. Labels and annotations are replaced wholesale so an annotation
+	// an older release set (the istiod template list) does not survive.
+	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing statefulset: %w", err)
+	}
+	existing.Spec.Template.Labels = ss.Spec.Template.Labels
+	existing.Spec.Template.Annotations = ss.Spec.Template.Annotations
+	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
+	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
+	for i := range existing.Spec.Template.Spec.Containers {
+		if existing.Spec.Template.Spec.Containers[i].Name != sessionManagerContainerName {
+			continue
+		}
+		for _, rendered := range ss.Spec.Template.Spec.Containers {
+			if rendered.Name == sessionManagerContainerName {
+				existing.Spec.Template.Spec.Containers[i].Env = rendered.Env
+				existing.Spec.Template.Spec.Containers[i].SecurityContext = rendered.SecurityContext
+			}
+		}
+	}
+	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
+}
+
+// sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
+const sessionManagerContainerName = "session-manager"
+
+// restrictedContainerSecurityContext is the container half of the restricted
+// Pod Security Standard for processes that still need a writable root filesystem.
+func restrictedContainerSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: new(false),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+}
+
+// buildSessionManagerStatefulSet renders an agent type's StatefulSet before
+// manifest overrides are applied.
+func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
 	uid := int64(100)
 	nonRoot := true
-	ss := appsv1.StatefulSet{
+	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
@@ -1141,28 +1226,32 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels(at),
 					Annotations: map[string]string{
-						// sidecar,spire: Envoy + SPIRE workload cert (mTLS + SPIFFE identity)
-						// identity-proxy: injects a platform JWT on all outbound requests
-						// (no opa-policy: session-manager is platform-managed, not a tenant app)
-						"inject.istio.io/templates":                     "sidecar,spire,identity-proxy",
+						// The operator's pod webhook adds the SPIRE and identity-proxy
+						// wiring; Istio itself injects only the sidecar.
 						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
 						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
 					},
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
+					ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
+					// Restricted Pod Security Standard: the pod-level seccomp profile is
+					// what istio-proxy inherits, since Istio sets none of its own.
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsUser:    &uid,
-						RunAsNonRoot: &nonRoot,
+						RunAsUser:      &uid,
+						RunAsNonRoot:   &nonRoot,
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 						SELinuxOptions: &corev1.SELinuxOptions{
 							Level: "s0",
 						},
 					},
 					Containers: []corev1.Container{
 						{
-							Name:            "session-manager",
+							Name:            sessionManagerContainerName,
 							Image:           p.cfg.SessionManagerImage,
 							ImagePullPolicy: corev1.PullAlways,
+							// No readOnlyRootFilesystem: the agent subprocess writes to $HOME.
+							SecurityContext: restrictedContainerSecurityContext(),
 							Ports: []corev1.ContainerPort{
 								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
 							},
@@ -1183,11 +1272,11 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 								},
 							},
 							Env: []corev1.EnvVar{
-								{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"},
+								{Name: "ANTHROPIC_BASE_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								{Name: "ORBIT_POSTGRES_SSL_MODE", Value: p.cfg.SessionManagerPostgresSSL},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
-								// Placeholder key — actual auth is the identity-proxy-issued JWT
+								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
@@ -1234,33 +1323,6 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			},
 		},
 	}
-
-	var err error
-	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
-	if err != nil {
-		return fmt.Errorf("apply StatefulSet overrides: %w", err)
-	}
-	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
-		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
-		}
-	}
-
-	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
-	}
-	// StatefulSet already exists — patch the pod template security context so that
-	// clusters affected by the SELinux MCS relabel issue pick up the fix on the next
-	// re-provision without requiring a manual StatefulSet delete.
-	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing statefulset: %w", err)
-	}
-	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
-	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
 }
 
 func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string) error {
@@ -1412,7 +1474,7 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 //
 // It lives in the TENANT namespace, not orbit-system, because that is where the
 // agent pods run and an AuthorizationPolicy selects workloads in its own
-// namespace. The DestinationRule above is the mirror image — it configures the
+// namespace. The DestinationRule above is the mirror image; it configures the
 // CLIENT side (orbit-agents' outbound mTLS expectations) so it belongs in
 // orbit-system. Neither can be templated in a chart: the StatefulSet these
 // govern is created imperatively, per agent type, at provision time, so its
@@ -1429,7 +1491,7 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // security fix for an outage. /health returns liveness and a session count.
 //
 // NOTE: Istio prepends "spiffe://" when translating an AuthorizationPolicy to
-// Envoy RBAC. Principals are written WITHOUT the prefix — writing it produces
+// Envoy RBAC. Principals are written WITHOUT the prefix; writing it produces
 // "spiffe://spiffe://..." in the generated rule and never matches.
 func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string) error {
 	if !p.cfg.AuthorizationPolicyEnabled {

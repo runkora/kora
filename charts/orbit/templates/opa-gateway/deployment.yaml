@@ -15,66 +15,53 @@ spec:
       labels:
         {{- include "orbit.opaGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.opaGateway.labels" . | nindent 8 }}
-        # Selects this pod for the orbit-system-component ClusterSPIFFEID, issuing
-        # spiffe://orbit.test/system/opa-gateway via SPIRE. Required so the Istio
-        # sidecar can do mTLS when fetching the gateway bundle from the policy service.
         spiffe.io/component: opa-gateway
-        # Selects this pod for the istio-sidecar ClusterSPIFFEID so SPIRE tracks it,
-        # and pairs with inject.istio.io/templates: "sidecar,spire" above which causes
-        # the Istio injector to mount the SPIRE workload socket as a CSI volume.
-        spiffe.io/spire-managed-identity: "true"
+        {{- include "orbit.podLabels" (dict "root" $ "name" "opaGateway") | nindent 8 }}
       annotations:
-        sidecar.istio.io/inject: "true"
-        # Tells Istio to apply the "spire" overlay template in addition to the standard
-        # sidecar template. The spire template replaces the workload-socket emptyDir with
-        # a csi.spiffe.io volume and sets PILOT_CERT_PROVIDER=spire on the proxy, so the
-        # Istio sidecar gets an X.509-SVID from SPIRE rather than falling back to istiod's
-        # built-in CA. Without this, mTLS with SPIRE-issued peers (e.g. policy-service)
-        # fails due to different certificate roots.
-        inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Force a rollout when the OPA config changes (e.g. policy-service URL or
-        # bundle polling interval) so pods never run stale config.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/opa-gateway/configmap.yaml") . | sha256sum }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "opaGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-opa-gateway
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "opaGateway") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        {{- include "orbit.podSecurityContext" (dict "uid" 1000) | nindent 8 }}
       volumes:
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
         - name: opa-config
           configMap:
             name: orbit-opa-gateway-config
       containers:
         - name: opa
-          image: {{ .Values.opaGateway.image.repository }}:{{ .Values.opaGateway.image.tag }}
-          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "opaGateway") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "opaGateway") }}
           args:
             - "run"
             - "--server"
-            - "--addr=0.0.0.0:8181"
+            # gRPC ext_authz is what the gateway calls; the REST API stays on loopback.
+            - "--addr=127.0.0.1:8181"
+            - "--diagnostic-addr=0.0.0.0:8282"
             - "--config-file=/config/config.yaml"
             - "--log-level=info"
             - "--log-format=json"
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
           ports:
             - name: grpc
               containerPort: 9191
               protocol: TCP
-            - name: http
-              containerPort: 8181
+            - name: diag
+              containerPort: 8282
               protocol: TCP
           volumeMounts:
             - name: opa-config
               mountPath: /config
               readOnly: true
           readinessProbe:
-            # OPA is ready once it has fetched and activated the bundle.
             httpGet:
-              path: /health?bundle=true
-              port: 8181
+              path: /health?bundles=true
+              port: 8282
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 5
@@ -82,7 +69,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8181
+              port: 8282
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5

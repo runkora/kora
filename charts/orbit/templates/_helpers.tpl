@@ -1,361 +1,451 @@
 {{/*
-orbit chart helpers
+orbit chart helpers. Component helpers take (dict "root" $ "name" "<values key>"),
+the values key being the component's top-level block (identity, agents, ...).
 */}}
 
-{{/*
-Expand the name of the chart.
-*/}}
-{{- define "orbit.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Create a default fully qualified app name.
-*/}}
-{{- define "orbit.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
-
-{{/*
-Chart label.
-*/}}
 {{- define "orbit.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Common labels applied to all resources in this chart.
+Common labels applied to every resource.
 */}}
 {{- define "orbit.labels" -}}
 helm.sh/chart: {{ include "orbit.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: orbit
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 
 {{/*
-Identity service labels — applied to the Deployment and its pod template.
-*/}}
-{{- define "orbit.identity.labels" -}}
-{{ include "orbit.labels" . }}
-app.kubernetes.io/name: orbit-identity
-app.kubernetes.io/component: identity
-{{- end }}
-
-{{/*
-Identity service selector labels — must be stable; used by the Service selector
-and the Deployment matchLabels. Do not add mutable labels here.
-*/}}
-{{- define "orbit.identity.selectorLabels" -}}
-app: orbit-identity
-{{- end }}
-
-{{/*
-Resolve the image tag for a service. Uses .Values.identity.image.tag when set,
-otherwise falls back to .Chart.AppVersion. This ensures the chart always deploys
-a known version even when the tag is omitted from values.
-*/}}
-{{- define "orbit.identity.imageTag" -}}
-{{- .Values.identity.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{/*
-Resolve the imagePullPolicy for the identity service.
-Pod-level override → global default → IfNotPresent.
-*/}}
-{{- define "orbit.identity.imagePullPolicy" -}}
-{{- .Values.identity.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-The effective trust domain — used in DestinationRule SAN URIs.
-Sourced from global.trustDomain so it stays consistent with orbit-platform.
-*/}}
-{{- define "orbit.trustDomain" -}}
-{{- required "global.trustDomain must be set — it must match the orbit-platform chart value" .Values.global.trustDomain }}
-{{- end }}
-
-{{/*
-The orbit-system namespace.
+Namespace Orbit runs in: global.systemNamespace when set, else the release namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}
-{{- .Values.platform.namespaces.system | default "orbit-system" }}
+{{- .Values.global.systemNamespace | default .Release.Namespace }}
+{{- end }}
+
+{{- define "orbit.trustDomain" -}}
+{{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and Orbit" .Values.global.trustDomain }}
 {{- end }}
 
 {{/*
-The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
-Per the north-south exposure convention (ADR 2026-07-04), the unified backend API
-host is api.<frontendHost>. Set per environment (deploy/local for dev, a prod
-overlay for prod) — never hardcode a domain in the chart.
+The external frontend host and the derived API host (ADR 2026-07-04).
 */}}
 {{- define "orbit.frontendHost" -}}
-{{- required "frontendHost must be set — the external host of the frontend/BFF, e.g. orbit.example.com" .Values.frontendHost }}
+{{- required "frontendHost must be set: the external host of the frontend, e.g. orbit.example.com" .Values.frontendHost }}
 {{- end }}
 
 {{/*
-The unified backend/data-plane API host: api.<frontendHost>.
+Public hosts for OAuth discovery validation. Explicit publicHosts wins; otherwise
+the API host and the frontend host, derived from frontendHost.
 */}}
+{{- define "orbit.publicHosts" -}}
+{{- if .Values.publicHosts -}}
+{{ join "," .Values.publicHosts }}
+{{- else if .Values.frontendHost -}}
+{{ printf "api.%s,%s" .Values.frontendHost .Values.frontendHost }}
+{{- end -}}
+{{- end }}
+
 {{- define "orbit.apiHost" -}}
 api.{{ include "orbit.frontendHost" . }}
 {{- end }}
 
 {{/*
-Inference gateway service labels — applied to the Deployment and its pod template.
+In-cluster URL of an Orbit service by its Service name.
 */}}
+{{- define "orbit.serviceURL" -}}
+http://{{ .name }}.{{ include "orbit.systemNamespace" .root }}.svc.cluster.local
+{{- end }}
+
+{{/*
+Istio Gateway reference every VirtualService binds to: Orbit's own gateway when
+gateway.create is true, otherwise gateway.name.
+*/}}
+{{- define "orbit.gatewayRef" -}}
+{{- if .Values.gateway.create -}}
+{{ include "orbit.systemNamespace" . }}/{{ .Values.gateway.name }}
+{{- else -}}
+{{ .Values.gateway.name }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Image reference for a component: <registry>/<repository>@<digest> when set
+(released charts), otherwise <registry>/<repository>:<tag|appVersion>.
+*/}}
+{{/*
+Service config value: the component's own config.<field> when the key is present,
+otherwise the global default. Key presence is checked with hasKey so an explicit
+false is honoured; sprig default would treat false as unset and use the global.
+Takes (dict "root" $ "name" "<component>" "field" "<field>" "default" <global value>).
+*/}}
+{{- define "orbit.serviceConfig" -}}
+{{- $c := (index .root.Values .name).config | default dict -}}
+{{- if hasKey $c .field -}}
+{{- index $c .field -}}
+{{- else -}}
+{{- .default -}}
+{{- end -}}
+{{- end }}
+
+{{- define "orbit.image" -}}
+{{- $img := (index .root.Values .name).image -}}
+{{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
+{{- $tag := $img.tag | default .root.Values.global.imageTag | default .root.Chart.AppVersion -}}
+{{- if $img.digest -}}
+{{ $reg }}/{{ $img.repository }}@{{ $img.digest }}
+{{- else -}}
+{{ $reg }}/{{ $img.repository }}:{{ $tag }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Image reference for a nested image block (identityProxy.image, opaGateway.image).
+Takes (dict "root" $ "image" <image map>).
+*/}}
+{{- define "orbit.imageRef" -}}
+{{- $reg := .image.registry | default .root.Values.global.imageRegistry -}}
+{{- $tag := .image.tag | default .root.Values.global.imageTag | default .root.Chart.AppVersion -}}
+{{- if .image.digest -}}
+{{ $reg }}/{{ .image.repository }}@{{ .image.digest }}
+{{- else -}}
+{{ $reg }}/{{ .image.repository }}:{{ $tag }}
+{{- end -}}
+{{- end }}
+
+{{- define "orbit.imagePullPolicy" -}}
+{{- $img := (index .root.Values .name).image -}}
+{{- $img.pullPolicy | default .root.Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{- define "orbit.imagePullSecrets" -}}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Scheduling for a component: component value when set, else the global default.
+*/}}
+{{- define "orbit.scheduling" -}}
+{{- $c := index .root.Values .name -}}
+{{- $g := .root.Values.global -}}
+{{- with ($c.nodeSelector | default $g.nodeSelector) }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($c.tolerations | default $g.tolerations) }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($c.affinity | default $g.affinity) }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($c.topologySpreadConstraints | default $g.topologySpreadConstraints) }}
+topologySpreadConstraints:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($c.priorityClassName | default $g.priorityClassName) }}
+priorityClassName: {{ . }}
+{{- end }}
+{{- end }}
+
+{{/*
+Pod-level security context for the restricted Pod Security Standard. The
+seccomp profile is inherited by istio-proxy and istio-validation, neither of
+which sets its own. Takes (dict "uid" <int>).
+*/}}
+{{- define "orbit.podSecurityContext" -}}
+runAsNonRoot: true
+runAsUser: {{ .uid }}
+runAsGroup: {{ .uid }}
+fsGroup: {{ .uid }}
+seccompProfile:
+  type: RuntimeDefault
+{{- end }}
+
+{{- define "orbit.containerSecurityContext" -}}
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: {{ if hasKey . "readOnlyRootFilesystem" }}{{ .readOnlyRootFilesystem }}{{ else }}true{{ end }}
+capabilities:
+  drop: [ALL]
+{{- end }}
+
+{{/*
+Pod annotations that route the Istio sidecar's certificate through SPIRE and
+mount the SPIFFE workload socket, plus the identity-proxy socket when that
+sidecar is present. Annotation-driven so it works on any conforming Istio,
+with no custom injection template. Takes (dict "root" $ "identityProxy" <bool>).
+*/}}
+{{- define "orbit.spireProxyAnnotations" -}}
+proxy.istio.io/config: |
+  holdApplicationUntilProxyStarts: true
+  proxyMetadata:
+    PILOT_CERT_PROVIDER: spire
+    SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
+{{- if .identityProxy }}
+sidecar.istio.io/userVolumeMount: '{"id-proxy-sock":{"mountPath":"/run/orbit"}}'
+{{- end }}
+{{- end }}
+
+{{/*
+Volumes for SPIRE (and the identity-proxy socket when requested).
+Takes (dict "identityProxy" <bool>). Named workload-socket to shadow Istio's
+own emptyDir of that name; the injector keeps the pod's definition, so the
+CSI socket lands at the path the proxy checks for an external SDS socket.
+*/}}
+{{- define "orbit.spireVolumes" -}}
+- name: workload-socket
+  csi:
+    driver: csi.spiffe.io
+    readOnly: true
+{{- if .identityProxy }}
+- name: id-proxy-sock
+  emptyDir: {}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.spireVolumeMount" -}}
+- name: workload-socket
+  mountPath: /run/secrets/workload-spiffe-uds
+  readOnly: true
+{{- end }}
+
+{{/*
+The identity-proxy sidecar: exchanges a service's SPIFFE identity for its own
+platform token when calling other Orbit services. Takes (dict "root" $).
+*/}}
+{{- define "orbit.identityProxyContainer" -}}
+{{- $ip := .root.Values.identityProxy -}}
+- name: identity-proxy
+  image: {{ include "orbit.imageRef" (dict "root" .root "image" $ip.image) | quote }}
+  imagePullPolicy: {{ $ip.image.pullPolicy | default .root.Values.global.imagePullPolicy | default "IfNotPresent" }}
+  env:
+    - name: ORBIT_IDENTITY_SERVICE_URL
+      value: {{ include "orbit.serviceURL" (dict "root" .root "name" "orbit-identity") | quote }}
+    - name: SPIFFE_ENDPOINT_SOCKET
+      value: "unix:///run/secrets/workload-spiffe-uds/socket"
+  ports:
+    - name: health
+      containerPort: 9090
+      protocol: TCP
+  securityContext:
+    {{- include "orbit.containerSecurityContext" (dict) | nindent 4 }}
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 9090
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 10
+  resources:
+    {{- toYaml $ip.resources | nindent 4 }}
+  volumeMounts:
+    - name: id-proxy-sock
+      mountPath: /run/orbit
+    {{- include "orbit.spireVolumeMount" . | nindent 4 }}
+{{- end }}
+
+{{/*
+envFrom for the platform ConfigMap and Secret every service reads.
+*/}}
+{{- define "orbit.platformEnvFrom" -}}
+envFrom:
+  - configMapRef:
+      name: orbit-config
+  - secretRef:
+      name: {{ .Values.config.platformSecretName }}
+{{- end }}
+
+{{/*
+Optional pod annotations, labels, env, volumes and mounts for a component.
+Takes (dict "root" $ "name" "<values key>").
+*/}}
+{{- define "orbit.podAnnotations" -}}
+{{- with (index .root.Values .name).podAnnotations }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.podLabels" -}}
+{{- with (index .root.Values .name).podLabels }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.extraEnv" -}}
+{{- with (index .root.Values .name).extraEnv }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.extraVolumes" -}}
+{{- with (index .root.Values .name).extraVolumes }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.extraVolumeMounts" -}}
+{{- with (index .root.Values .name).extraVolumeMounts }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{- define "orbit.serviceAccountAnnotations" -}}
+{{- with (index .root.Values .name).serviceAccount }}
+{{- with .annotations }}
+annotations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Per-component labels. Selector labels back Service and Deployment matchLabels;
+keep them stable.
+*/}}
+{{- define "orbit.operator.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-operator
+app.kubernetes.io/component: operator
+{{- end }}
+{{- define "orbit.operator.selectorLabels" -}}
+app: orbit-operator
+{{- end }}
+
+{{- define "orbit.identity.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-identity
+app.kubernetes.io/component: identity
+{{- end }}
+{{- define "orbit.identity.selectorLabels" -}}
+app: orbit-identity
+{{- end }}
+
 {{- define "orbit.inferenceGateway.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-inference-gateway
 app.kubernetes.io/component: inference-gateway
 {{- end }}
-
-{{/*
-Inference gateway selector labels — stable; used by Service selector and Deployment matchLabels.
-*/}}
 {{- define "orbit.inferenceGateway.selectorLabels" -}}
 app: orbit-inference-gateway
 {{- end }}
 
-{{/*
-Resolve the image tag for the inference gateway.
-*/}}
-{{- define "orbit.inferenceGateway.imageTag" -}}
-{{- .Values.inferenceGateway.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{/*
-Resolve the imagePullPolicy for the inference gateway.
-Pod-level override → global default → IfNotPresent.
-*/}}
-{{- define "orbit.inferenceGateway.imagePullPolicy" -}}
-{{- .Values.inferenceGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Orbit MCP service labels — applied to the Deployment and its pod template.
-*/}}
 {{- define "orbit.orbitMcp.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-mcp
 app.kubernetes.io/component: orbit-mcp
 {{- end }}
-
-{{/*
-Orbit MCP selector labels — stable; used by Service selector and Deployment matchLabels.
-*/}}
 {{- define "orbit.orbitMcp.selectorLabels" -}}
 app: orbit-mcp
 {{- end }}
 
-{{/*
-Resolve the image tag for orbit-mcp.
-*/}}
-{{- define "orbit.orbitMcp.imageTag" -}}
-{{- .Values.orbitMcp.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{/*
-Resolve the imagePullPolicy for orbit-mcp.
-Pod-level override → global default → IfNotPresent.
-*/}}
-{{- define "orbit.orbitMcp.imagePullPolicy" -}}
-{{- .Values.orbitMcp.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Tool-gateway service labels — applied to the Deployment and its pod template.
-*/}}
 {{- define "orbit.toolGateway.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-tool-gateway
 app.kubernetes.io/component: tool-gateway
 {{- end }}
-
-{{/*
-Tool-gateway selector labels — stable; used by Service selector and Deployment matchLabels.
-*/}}
 {{- define "orbit.toolGateway.selectorLabels" -}}
 app: orbit-tool-gateway
 {{- end }}
 
-{{/*
-Resolve the image tag for the tool-gateway.
-*/}}
-{{- define "orbit.toolGateway.imageTag" -}}
-{{- .Values.toolGateway.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{/*
-Resolve the imagePullPolicy for the tool-gateway.
-Pod-level override → global default → IfNotPresent.
-*/}}
-{{- define "orbit.toolGateway.imagePullPolicy" -}}
-{{- .Values.toolGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Frontend service labels — applied to the Deployment and its pod template.
-*/}}
 {{- define "orbit.frontend.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-frontend
 app.kubernetes.io/component: frontend
 {{- end }}
-
-{{/*
-Frontend service selector labels — must be stable; used by the Service selector
-and the Deployment matchLabels. Do not add mutable labels here.
-*/}}
 {{- define "orbit.frontend.selectorLabels" -}}
 app: orbit-frontend
 {{- end }}
 
-{{/*
-Resolve the image tag for the frontend. Uses .Values.frontend.image.tag when set,
-otherwise falls back to .Chart.AppVersion.
-*/}}
-{{- define "orbit.frontend.imageTag" -}}
-{{- .Values.frontend.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{/*
-Resolve the imagePullPolicy for the frontend service.
-Pod-level override → global default → IfNotPresent.
-*/}}
-{{- define "orbit.frontend.imagePullPolicy" -}}
-{{- .Values.frontend.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Policy Service labels.
-*/}}
 {{- define "orbit.policyService.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-policy-service
 app.kubernetes.io/component: policy-service
 {{- end }}
-
 {{- define "orbit.policyService.selectorLabels" -}}
 app: orbit-policy-service
 {{- end }}
 
-{{- define "orbit.policyService.imageTag" -}}
-{{- .Values.policyService.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{- define "orbit.policyService.imagePullPolicy" -}}
-{{- .Values.policyService.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Policy Gateway labels.
-*/}}
 {{- define "orbit.policyGateway.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-policy-gateway
 app.kubernetes.io/component: policy-gateway
 {{- end }}
-
 {{- define "orbit.policyGateway.selectorLabels" -}}
 app: orbit-policy-gateway
 {{- end }}
 
-{{- define "orbit.policyGateway.imageTag" -}}
-{{- .Values.policyGateway.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{- define "orbit.policyGateway.imagePullPolicy" -}}
-{{- .Values.policyGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-Egress Gateway labels.
-Per-tenant credential broker that hijacks CONNECT requests from sandbox pods,
-terminates upstream TLS with a per-tenant CA leaf, mints just-in-time
-upstream credentials, and forwards to the real upstream. See
-docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
-*/}}
 {{- define "orbit.egressGateway.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-egress-gateway
 app.kubernetes.io/component: egress-gateway
 {{- end }}
-
 {{- define "orbit.egressGateway.selectorLabels" -}}
 app: orbit-egress-gateway
 {{- end }}
 
-{{- define "orbit.egressGateway.imageTag" -}}
-{{- .Values.egressGateway.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{- define "orbit.egressGateway.imagePullPolicy" -}}
-{{- .Values.egressGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-OPA Gateway labels.
-Standalone OPA pod that enforces authz_gateway.rego on the Istio IngressGateway
-via ext_authz (ADR-0044).
-*/}}
 {{- define "orbit.opaGateway.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-opa-gateway
 app.kubernetes.io/component: opa-gateway
 {{- end }}
-
 {{- define "orbit.opaGateway.selectorLabels" -}}
 app: orbit-opa-gateway
 {{- end }}
 
-{{/*
-Agents service labels — orbit-agents manages the agent/run lifecycle and
-provisions StatefulSets, sandboxes, and services in tenant namespaces.
-*/}}
 {{- define "orbit.agents.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-agents
 app.kubernetes.io/component: agents
 {{- end }}
-
 {{- define "orbit.agents.selectorLabels" -}}
 app: orbit-agents
 {{- end }}
 
-{{- define "orbit.agents.imageTag" -}}
-{{- .Values.agents.image.tag | default .Chart.AppVersion }}
-{{- end }}
-
-{{- define "orbit.agents.imagePullPolicy" -}}
-{{- .Values.agents.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
-{{- end }}
-
-{{/*
-orbit-triggers: the platform's front door for starting work (webhook ingestion,
-the trigger management API, the manual fire endpoint, and the cron scheduler).
-See docs/adr/2026-06-20-extended-trigger-types.md.
-*/}}
 {{- define "orbit.triggers.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-triggers
 app.kubernetes.io/component: triggers
 {{- end }}
-
 {{- define "orbit.triggers.selectorLabels" -}}
 app: orbit-triggers
 {{- end }}
 
-{{- define "orbit.triggers.imageTag" -}}
-{{- .Values.triggers.image.tag | default .Chart.AppVersion }}
+{{/*
+Forces x-forwarded-proto: https on API routes. Only needed behind a
+TLS-terminating Ingress, where the gateway would otherwise stamp http and
+OAuth metadata would reflect it.
+*/}}
+{{- define "orbit.forceHttpsHeaders" -}}
+{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
+headers:
+  request:
+    set:
+      x-forwarded-proto: https
+{{- end }}
 {{- end }}
 
-{{- define "orbit.triggers.imagePullPolicy" -}}
-{{- .Values.triggers.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{/*
+Where the Istio ingress gateway pods run and how to select them: Orbit's own
+(gateway.create) in the system namespace, or an existing one per gateway.byo.
+*/}}
+{{- define "orbit.gatewayWorkloadNamespace" -}}
+{{- if .Values.gateway.create -}}
+{{ include "orbit.systemNamespace" . }}
+{{- else -}}
+{{ .Values.gateway.byo.namespace | default .Values.istio.namespace }}
+{{- end -}}
+{{- end }}
+
+{{- define "orbit.gatewayWorkloadSelector" -}}
+{{- if .Values.gateway.create -}}
+app: {{ .Values.ingressGateway.name }}
+{{- else -}}
+{{ toYaml .Values.gateway.byo.selector }}
+{{- end -}}
 {{- end }}

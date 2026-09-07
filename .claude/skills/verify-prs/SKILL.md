@@ -91,7 +91,7 @@ If pods CrashLoop after a Colima/k3d restart (DNS `no such host` for `orbit-post
 SPIRE `Trust Bundle and Server don't agree`), **rebuild — don't debug Istio/SPIRE** (confirm
 with the user first; ~20-40 min):
 ```bash
-make dev-cluster-down && make dev-cluster && make cluster-operator && make cluster-deploy
+make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy
 ```
 Infra (Postgres/Redis/Dex) runs in docker-compose; k3d services reach it over the shared
 network. `make cluster-restore` only re-pushes images after a restart — it won't fix DNS/SPIRE.
@@ -192,7 +192,7 @@ ones** (cite exact lines), then re-run CI to green.
 | --- | --- |
 | Switch to local cluster | `kubectl config use-context k3d-orbit-local` |
 | Cluster health | `kubectl get pods -A \| grep -vE 'Running\|Completed'` |
-| Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-operator && make cluster-deploy` |
+| Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy` |
 | Auth / refresh | `make auth-device-k3d` · `make auth-refresh-k3d` (token: `/tmp/orbit_credentials.json`) |
 | Redeploy a service | `make redeploy SERVICE=<svc>` · `make redeploy-frontend` · `make redeploy-list` |
 | Postgres | `docker exec orbit-postgres psql -U orbit -d orbit -c "…"` |

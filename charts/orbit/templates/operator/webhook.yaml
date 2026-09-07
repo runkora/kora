@@ -1,0 +1,68 @@
+# The operator owns caBundle and failurePolicy; Helm intentionally omits both.
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-operator-webhook
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "orbit.operator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: https-webhook
+      port: 443
+      targetPort: 9443
+      protocol: TCP
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  # Run before Istio injection so Istio reads the required annotations.
+  name: aaa-orbit-agent-pod-mutator
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+webhooks:
+  - name: pod.orbit.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: orbit-operator-webhook
+        namespace: {{ include "orbit.systemNamespace" . }}
+        path: /mutate-pod
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        orbit.io/role: tenant
+    reinvocationPolicy: Never
+    sideEffects: None
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: orbit-agent-pod-validator
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+webhooks:
+  - name: pod.orbit.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: orbit-operator-webhook
+        namespace: {{ include "orbit.systemNamespace" . }}
+        path: /validate-pod
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        orbit.io/role: tenant
+    sideEffects: None
+    timeoutSeconds: 10

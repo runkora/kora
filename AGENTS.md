@@ -250,7 +250,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   ```
 
   Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever its author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. **CI does not run these**, so a change to that SQL still needs them run locally.
-- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
+- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-platform` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
 Write tests alongside new code; unit tests are the default and must pass in `make check`.

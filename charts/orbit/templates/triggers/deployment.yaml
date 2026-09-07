@@ -15,51 +15,39 @@ spec:
       labels:
         {{- include "orbit.triggers.selectorLabels" . | nindent 8 }}
         {{- include "orbit.triggers.labels" . | nindent 8 }}
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: orbit-triggers
+        {{- include "orbit.podLabels" (dict "root" $ "name" "triggers") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Postgres is external to the mesh — bypass Envoy interception.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
     spec:
       serviceAccountName: orbit-triggers
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "triggers") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
         - name: orbit-triggers
-          image: "{{ .Values.triggers.image.repository }}:{{ include "orbit.triggers.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.triggers.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "triggers") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "triggers") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.triggers.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.triggers.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.triggers.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.triggers.config.logFormat | quote }}
-          envFrom:
-            {{- if .Values.triggers.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.triggers.existingConfigMap }}
-            {{- end }}
-            {{- if .Values.triggers.existingSecret }}
-            # Supplies ORBIT_TRIGGERS_ENCRYPTION_KEY, the at-rest key for webhook
-            # signing secrets. Without it the service falls back to an insecure
-            # local-dev key and logs a warning.
-            - secretRef:
-                name: {{ .Values.triggers.existingSecret }}
-            {{- end }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "triggers") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8097
@@ -83,6 +71,5 @@ spec:
           resources:
             {{- toYaml .Values.triggers.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

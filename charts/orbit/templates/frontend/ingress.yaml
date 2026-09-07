@@ -1,0 +1,36 @@
+{{- if .Values.frontend.ingress.enabled }}
+# Kubernetes Ingress straight to the frontend Service, for an edge that is not
+# the Istio gateway. The API host still needs its own path to the gateway.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orbit-frontend
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.frontend.labels" . | nindent 4 }}
+  {{- with .Values.frontend.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.frontend.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  rules:
+    {{- range (.Values.frontend.ingress.hosts | default (list (include "orbit.frontendHost" .))) }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: orbit-frontend
+                port:
+                  number: 80
+    {{- end }}
+  {{- with .Values.frontend.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,8 +1,5 @@
-# PUBLISHER deployment: introspection + scope publishing + catalog write. It
-# needs identity-proxy (its own platform token for the policy-service publish +
-# authed introspection). replicas=1 — its DeleteOrphans publish is destructive
-# and must be single-writer (MCP registration ADR, Decision 2). Not behind the
-# Service (it serves no request traffic; the proxy deployment does).
+# Publisher: introspects MCP servers and publishes scopes. Single writer, not
+# behind the Service, carries identity-proxy for its own platform token.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,65 +20,47 @@ spec:
         {{- include "orbit.toolGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.toolGateway.labels" . | nindent 8 }}
         orbit.io/mode: publisher
-        # SPIRE workload attestation — issues spiffe://<trust-domain>/system/tool-gateway.
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: tool-gateway
-        # Activates the identity-proxy ext_proc so outbound east-west calls carry
-        # the gateway's own platform token: the policy-service /routes/register
-        # publish AND the authed tools/list introspection of each MCP server.
         orbit.io/identity-proxy: "enabled"
+        {{- include "orbit.podLabels" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "toolGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-tool-gateway
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "toolGateway") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
-        # MCP server registry: the operator's MCPServerAggregator renders the
-        # orbit-mcp-servers ConfigMap (one key, servers.json). The gateway mounts
-        # it and parses it into its in-memory registry, hot-reloading on change.
-        # Optional so the pod starts before any MCPServer CR is applied.
+        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
         - name: mcp-servers
           configMap:
             name: {{ .Values.toolGateway.mcpServersConfigMapName }}
             optional: true
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       containers:
         - name: orbit-tool-gateway
-          image: "{{ .Values.toolGateway.image.repository }}:{{ include "orbit.toolGateway.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.toolGateway.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "toolGateway") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "toolGateway") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_TOOL_GATEWAY_MODE
               value: publisher
-            {{- if .Values.publicHosts }}
-            - name: ORBIT_PUBLIC_HOSTS
-              value: {{ join "," .Values.publicHosts | quote }}
-            {{- end }}
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.toolGateway.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.toolGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.toolGateway.config.postgresSSLMode | quote }}
-          {{- if or .Values.toolGateway.existingConfigMap .Values.toolGateway.existingSecret }}
-          envFrom:
-            {{- if .Values.toolGateway.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.toolGateway.existingConfigMap }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
+            {{- $publicHosts := include "orbit.publicHosts" . }}
+            {{- if $publicHosts }}
+            - name: ORBIT_PUBLIC_HOSTS
+              value: {{ $publicHosts | quote }}
             {{- end }}
-            {{- if .Values.toolGateway.existingSecret }}
-            - secretRef:
-                name: {{ .Values.toolGateway.existingSecret }}
-            {{- end }}
-          {{- end }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "toolGateway") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: {{ .Values.toolGateway.httpPort }}
@@ -105,11 +84,9 @@ spec:
           resources:
             {{- toYaml .Values.toolGateway.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
-            # servers.json lands at /var/run/orbit/mcp-servers/servers.json,
-            # matching cmd/tool-gateway/config/base.yaml registry.serversPath.
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             - name: mcp-servers
               mountPath: /var/run/orbit/mcp-servers
               readOnly: true
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "toolGateway") | nindent 12 }}
+        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

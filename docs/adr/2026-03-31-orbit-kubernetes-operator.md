@@ -1,6 +1,6 @@
 # Orbit Kubernetes Operator
 
-**Status:** Accepted
+**Status:** Superseded by [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
 **Date:** 2026-03-31
 **Deciders:** Engineering Team
 **Technical Story:** [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) established two Helm charts as the distribution artifact for Orbit. The current installation experience requires operators to use Helmfile, manage install ordering (SPIRE CRDs → SPIRE → Istio → orbit-platform → orbit), imperatively create ConfigMaps and Secrets, and understand the dependency graph to add a tenant. As Orbit targets both self-hosted enterprise clusters and our own production EKS deployment, this complexity is an adoption barrier and an operational gap. A Kubernetes operator that manages the complete platform lifecycle — from SPIRE and Istio installation through to tenant provisioning — closes both gaps with a single CRD surface. The operator owns the full release sequence; Helmfile is no longer required.

@@ -44,13 +44,40 @@ jobs:
               - '.github/workflows/frontend-ci.yml'
 
   backend:
-    name: Backend
+    name: Backend CI
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     uses: ./.github/workflows/backend-ci.yml
 
   frontend:
-    name: Frontend
+    name: Frontend CI
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     uses: ./.github/workflows/frontend-ci.yml
+
+  # A reusable workflow call reports per inner job only, never the calling job.
+  backend-gate:
+    name: Backend
+    needs: [changes, backend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and the backend suite passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "backend: ${{ needs.backend.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.backend.result }}" in success|skipped) ;; *) exit 1 ;; esac
+
+  frontend-gate:
+    name: Frontend
+    needs: [changes, frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and the frontend suite passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "frontend: ${{ needs.frontend.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.frontend.result }}" in success|skipped) ;; *) exit 1 ;; esac

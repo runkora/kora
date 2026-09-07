@@ -98,6 +98,14 @@ The dashboard reads `BFF_SESSION_SECRET` from `orbit-frontend-secrets`. Use at l
 
 The operator reads these Secrets but does not create or rotate them. Rotation remains the responsibility of the system that owns the source secret.
 
+## Model providers
+
+On a managed cloud cluster the inference gateway reaches AWS Bedrock through the gateway pod's own cloud identity, not credentials in a Secret. List the Bedrock accounts under `inferenceGateway.bedrock.accounts`, each with an alias and a region; an empty list disables Bedrock. Every account becomes a provider named `bedrock:<alias>` in the model catalogue.
+
+On a managed cloud cluster, grant the gateway an IAM role and attach it with `inferenceGateway.serviceAccount.annotations`. On EKS this is IRSA or Pod Identity; the role needs `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles`, and `bedrock:InvokeModel`. The gateway then discovers and invokes models with no static credentials.
+
+A cluster with no cloud identity, such as local development, is the only case that falls back to static keys. There the gateway reads `BEDROCK_<ALIAS>_ACCESS_KEY_ID`, `BEDROCK_<ALIAS>_SECRET_ACCESS_KEY`, and `BEDROCK_<ALIAS>_SESSION_TOKEN` from `orbit-secrets`. Session credentials expire, so this path is unsuitable for a long-lived deployment.
+
 ## Define the platform
 
 `OrbitPlatform` is the desired state of the installation. The example below uses an operator-managed SPIRE and Istio deployment, a cloud load balancer, and externally managed PostgreSQL and Redis services.

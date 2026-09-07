@@ -32,6 +32,9 @@ func main() {
 }
 
 func realMain() error {
+	if err := agentsConfig.Validate(agentsConfig.Current); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -163,6 +166,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
 		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
 		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,

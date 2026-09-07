@@ -2,8 +2,6 @@ app:
   version: "0.1.0"
 
 operator:
-  namespace: orbit-system
-  chartDir: /etc/orbit/charts
   leaderElection: true
   webhookCertDir: /tmp/k8s-webhook-server/serving-certs
   syncPeriodSecs: 300

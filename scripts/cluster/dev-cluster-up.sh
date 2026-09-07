@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# dev-cluster-up.sh — Bring up the Orbit local k3d development cluster
+# dev-cluster-up.sh: bring up the Orbit local k3d development cluster
 #
 # This script creates the k3d cluster and patches CoreDNS.
 # Orbit services are installed separately via `make cluster-deploy` (Helm).
@@ -34,7 +34,7 @@ warn()  { echo -e "${YELLOW}⚠ $*${RESET}"; }
 step "Checking prerequisites"
 for cmd in k3d kubectl helm docker; do
   if ! command -v "${cmd}" &>/dev/null; then
-    echo "  Missing: ${cmd}$([ "${cmd}" != "docker" ] && echo " — run 'make install-tools-cluster'" || echo "")"
+    echo "  Missing: ${cmd}$([ "${cmd}" != "docker" ] && echo "; run 'make install-tools-cluster'" || echo "")"
     exit 1
   fi
 done
@@ -74,13 +74,13 @@ fi
 # ── Create k3d cluster ────────────────────────────────────────────────────
 step "Creating k3d cluster '${CLUSTER_NAME}'"
 if k3d cluster list | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
-  warn "Cluster '${CLUSTER_NAME}' already exists — skipping creation"
+  warn "Cluster '${CLUSTER_NAME}' already exists: skipping creation"
 else
   k3d cluster create --config "${K3D_CONFIG}"
   ok "Cluster created"
 fi
 
-# Use the k3d context — guard against it not yet being registered
+# Use the k3d context. Guard against it not yet being registered
 if kubectl config get-contexts "k3d-${CLUSTER_NAME}" &>/dev/null; then
   kubectl config use-context "k3d-${CLUSTER_NAME}"
 else
@@ -171,12 +171,12 @@ kubectl get configmap coredns -n kube-system -o json \
 # Restart CoreDNS to pick up all changes immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex → ${DEX_IP}, orbit.local.clearroute.io → ${DOCKER_BRIDGE_IP}, orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
+ok "CoreDNS patched: dex → ${DEX_IP}, orbit.local.clearroute.io → ${DOCKER_BRIDGE_IP}, orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  k3d cluster ready — install Orbit next          ${RESET}"
+echo -e "${GREEN}  k3d cluster ready: install Orbit next          ${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
 echo ""
 echo "  Cluster:       k3d-${CLUSTER_NAME}"
@@ -184,7 +184,7 @@ echo "  Context:       k3d-${CLUSTER_NAME}"
 echo ""
 echo "  Next steps:"
 echo ""
-echo "    make cluster-operator   # install the operator + apply OrbitPlatform / OrbitTenant CRs"
+echo "    make cluster-platform   # SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl"
 echo "    make cluster-deploy     # build service images + apply workload fixtures"
 echo ""
 echo "  See deploy/local/README.md for the full annotated sequence."

@@ -2,7 +2,9 @@
 package agentsConfig
 
 import (
+	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -67,6 +69,9 @@ type Config struct {
 		// per-deployment so the platform identity is not baked into the operator.
 		SandboxGitAuthorName  string `yaml:"sandboxGitAuthorName"`
 		SandboxGitAuthorEmail string `yaml:"sandboxGitAuthorEmail"`
+		// ImagePullSecrets names the Secrets, present in every tenant namespace,
+		// that session-manager and sandbox pods pull their images with.
+		ImagePullSecrets []string `yaml:"imagePullSecrets"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
@@ -146,11 +151,55 @@ func (c *Config) TenantNamespace(tenantID string) string {
 // Secrets (Postgres DSN) must be supplied via environment variables.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
-	if v := os.Getenv("ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE"); v != "" {
-		cfg.Agents.SessionManager.PostgresSSLMode = v
-	}
-	if v := os.Getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
-		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
-	}
+	applyEnvOverrides(cfg, os.Getenv)
 	return cfg
 }()
+
+// Validate rejects an in-cluster config that would mint identities in an
+// empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the
+// base YAML carries no trust domain on purpose, so it cannot run at load.
+func Validate(cfg *Config) error {
+	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
+		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
+	}
+	return nil
+}
+
+// applyEnvOverrides layers the per-install values the chart sets as env vars
+// over the YAML defaults. getenv is injected so tests can drive it.
+func applyEnvOverrides(cfg *Config, getenv func(string) string) {
+	overrides := []struct {
+		env string
+		dst *string
+	}{
+		{"ORBIT_SYSTEM_NAMESPACE", &cfg.Kubernetes.SystemNamespace},
+		{"ORBIT_TRUST_DOMAIN", &cfg.Platform.TrustDomain},
+		{"ORBIT_SESSION_MANAGER_IMAGE", &cfg.Agents.SessionManagerImage},
+		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},
+		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
+		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
+		{"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE", &cfg.Agents.SessionManager.PostgresSSLMode},
+	}
+	for _, o := range overrides {
+		if v := getenv(o.env); v != "" {
+			*o.dst = v
+		}
+	}
+	if v := getenv("ORBIT_AGENTS_IMAGE_PULL_SECRETS"); v != "" {
+		cfg.Agents.ImagePullSecrets = splitCommaList(v)
+	}
+	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
+		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
+	}
+}
+
+// splitCommaList parses a comma-separated env value, dropping blanks and whitespace.
+func splitCommaList(v string) []string {
+	var out []string
+	for part := range strings.SplitSeq(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}

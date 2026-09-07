@@ -1,0 +1,9 @@
+# The values with no default. Lets the chart lint and render without an environment.
+global:
+  trustDomain: orbit.example.com
+frontendHost: orbit.example.com
+config:
+  db:
+    host: postgres.example.internal
+  redis:
+    host: redis.example.internal
