@@ -34,4 +34,5 @@ for key in ${components}; do
 done
 
 sort -u images.txt -o images.txt
+[ -s images.txt ] || { echo "::error::no chart images resolved from values.yaml" >&2; exit 1; }
 mv "${work}" charts/orbit/values.yaml

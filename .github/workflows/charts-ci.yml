@@ -16,6 +16,7 @@ jobs:
       - uses: ./.github/actions/k8s-toolchain
         with:
           helm: true
+      - run: helm dependency build charts/orbit
       - run: make chart-lint
       - run: make chart-docs-check
 
