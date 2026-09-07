@@ -1,10 +1,8 @@
 apiVersion: v2
 name: orbit-crds
 description: >
-  Custom resource definitions for Orbit: OrbitTenant, Connection, OAuthClient and MCPServer.
-  Install before the orbit chart. The CRDs are templated (not a crds/ directory) so Helm and
-  Argo CD upgrade them with the release, and each carries helm.sh/resource-policy: keep
-  so uninstalling never deletes tenant definitions.
+  Defines the OrbitTenant, Connection, OAuthClient and MCPServer resources Orbit
+  runs on. Apply this chart before orbit.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"

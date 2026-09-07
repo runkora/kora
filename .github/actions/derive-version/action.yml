@@ -1,0 +1,49 @@
+name: derive-version
+description: Derive the image tag and chart version from the event, or an override.
+
+inputs:
+  image_tag:
+    description: Explicit tag to use instead of deriving one.
+    default: ""
+
+outputs:
+  tag:
+    description: The image tag.
+    value: ${{ steps.derive.outputs.tag }}
+  version:
+    description: The chart version (tag without a leading v).
+    value: ${{ steps.derive.outputs.version }}
+  created:
+    description: RFC 3339 build timestamp.
+    value: ${{ steps.derive.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+    - id: derive
+      shell: bash
+      env:
+        OVERRIDE: ${{ inputs.image_tag }}
+        EVENT: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+        SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        if [ -n "${OVERRIDE}" ]; then
+          tag="${OVERRIDE}"
+        elif [ "${EVENT}" = "pull_request" ]; then
+          tag="pr-${PR_NUMBER}"
+        elif [ "${REF_TYPE}" = "tag" ]; then
+          tag="${REF_NAME}"
+        elif [ "${REF_NAME}" = "main" ]; then
+          tag="${SHA}"
+        else
+          tag="latest"
+        fi
+        {
+          echo "tag=${tag}"
+          echo "version=${tag#v}"
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        } >> "${GITHUB_OUTPUT}"
