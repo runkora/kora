@@ -136,6 +136,16 @@ else
   ok "helm-diff ${HELM_DIFF_VERSION} installed"
 fi
 
+# ── yq ────────────────────────────────────────────────────────────────────────
+step "yq ${YQ_VERSION}"
+if command -v yq >/dev/null && [ "$(yq --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)" = "${YQ_VERSION}" ]; then
+  already "yq ${YQ_VERSION}"
+else
+  curl -sSfL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_${OS}_${ARCH_HELM}" -o "${INSTALL_DIR}/yq"
+  chmod +x "${INSTALL_DIR}/yq"
+  ok "yq ${YQ_VERSION} installed → ${INSTALL_DIR}/yq"
+fi
+
 echo ""
 echo -e "${GREEN}All cluster tools installed.${RESET}"
 echo "  Run 'make dev-cluster' to bring up the local k3d cluster."

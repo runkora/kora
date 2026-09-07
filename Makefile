@@ -664,6 +664,11 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 
 .PHONY: cluster-platform
 cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
+	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
+	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
+	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set ORBIT_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
+	 fi
 	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
 	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
