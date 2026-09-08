@@ -69,7 +69,7 @@ COPY --from=builder --chown=65532:65532 /configs/ ./
 
 COPY --from=builder --chown=65532:65532 /orbit ./orbit
 
-USER 65532
+USER 65532:65532
 
 EXPOSE 8080
 CMD ["./orbit"]
