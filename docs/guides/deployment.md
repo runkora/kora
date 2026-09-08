@@ -39,7 +39,7 @@ Orbit runs on Istio in sidecar mode and handles its own sidecar injection throug
 
 ### SPIRE
 
-Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Oribt, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. It must provide:
+Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Orbit, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. It must provide:
 
 - A trust domain equal to Orbit's.
 - The SPIFFE CSI driver `csi.spiffe.io` registered, and spire-controller-manager present with the `ClusterSPIFFEID` CRD served.
@@ -57,7 +57,7 @@ PostgreSQL and Redis must be reachable from the system namespace. Orbit runs its
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
-- When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the orbit char then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
+- When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
 Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, you can point Orbit at a different class using `agents.runtimePods.workspace`.
 
