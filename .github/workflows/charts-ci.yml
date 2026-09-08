@@ -48,7 +48,8 @@ jobs:
           } > rendered.yaml
           # Orbit CRs validate against the extracted schemas; third-party mesh CRs
           # (Istio, SPIRE) have no local schema and stay skipped.
-          kubeconform -summary -strict -ignore-missing-schemas \
+          kubeconform -summary -strict \
             -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -schema-location 'crd-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
             -kubernetes-version "${K8S_VERSION}" rendered.yaml
