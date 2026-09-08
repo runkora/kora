@@ -5,6 +5,11 @@ Use this index to find Orbit's guides, architecture, engineering reference, and 
 ## Guides
 
 - [Deployment](guides/deployment.md): install Orbit in a Kubernetes cluster.
+- [Tenants](guides/tenants.md): onboard a tenant so its team can sign in and get their own workspace.
+- [Model providers](guides/model-providers.md): connect the platform to upstream inference providers.
+- [Connections](guides/connections.md): register external services agents can reach without holding credentials.
+- [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against Orbit.
+- [MCP servers](guides/mcp-servers.md): give agents and humans governed access to a set of tools.
 - [Local development](guides/local-development.md): set up the development environment and work against the local cluster.
 - [Troubleshooting](guides/troubleshooting.md): diagnose common failures in the local environment.
 - [Backend golden path](guides/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
