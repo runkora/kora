@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**/*.md", "docs/**"]
-  # No paths-ignore: the change-detection job below already skips analysis when
-  # no language's inputs changed, and the always-on gate must still report so a
-  # docs-only PR can satisfy the required check.
   pull_request:
     branches: [main]
   schedule:
