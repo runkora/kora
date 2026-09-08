@@ -21,8 +21,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator/main.go
 
-# Collect every */config/*.yaml file into /configs/ maintaining relative paths.
-RUN find /app -path "*/config/*.yaml" | while read f; do \
+# Stage only the YAML config files the operator binary loads at runtime,
+# keeping Go source (config.go) out of the runtime image. Operator does not
+# import internal/platform/storage.
+RUN mkdir -p /configs && \
+    find /app/cmd/operator/config \
+         /app/internal/platform/observability/config \
+         -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
         cp "$f" "/configs/$rel"; \
