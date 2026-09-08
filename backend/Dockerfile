@@ -51,16 +51,25 @@ RUN mkdir -p /configs && \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
+# Non-root user matching the chart securityContext (runAsUser: 65532,
+# runAsNonRoot: true, per charts/orbit/templates/*/deployment.yaml). Baking the
+# drop into the image keeps the guarantee wherever the chart is not the
+# deployment surface (direct docker run, forensics, ad-hoc orchestrators) and
+# mirrors Dockerfile.operator's user model.
+RUN addgroup -g 65532 nonroot && adduser -u 65532 -G nonroot -s /sbin/nologin -D nonroot
+
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates
 
 # Config files: same relative structure as local dev so the loader resolves
 # paths identically in both environments. The staging dir from the builder
-# stage contains all */config/*.yaml files collected above.
-COPY --from=builder /configs/ ./
+# stage contains only the YAML config files this binary actually loads.
+COPY --from=builder --chown=65532:65532 /configs/ ./
 
-COPY --from=builder /orbit ./orbit
+COPY --from=builder --chown=65532:65532 /orbit ./orbit
+
+USER 65532:65532
 
 EXPOSE 8080
 CMD ["./orbit"]
