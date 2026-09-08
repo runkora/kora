@@ -1,91 +1,96 @@
 # Deploying Orbit
 
-Orbit is deployed through its Kubernetes operator. The operator is the only component installed directly. An `OrbitPlatform` resource then declares the platform, and an `OrbitTenant` resource declares each tenant.
+Orbit is two Helm charts. `orbit-crds` installs the custom resources; `orbit` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
 
-The operator reconciles the installation in dependency order: SPIRE, Istio, the ingress gateway, cluster-wide Orbit resources, and the Orbit services. It also creates tenant namespaces and keeps the identity service's tenant registry in sync.
+The `orbit` chart installs the operator alongside the platform services. Once running, the operator watches the Orbit CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
+
+## Installation paths
+
+| Path | When |
+|---|---|
+| Reference Helmfile | A blank cluster. Installs SPIRE, Istio, and both Orbit charts in dependency order. |
+| Direct Helm | You already run SPIRE and Istio. Install the two charts against your own values. |
+| Argo CD | GitOps. An app-of-apps applies the same releases with sync waves. |
 
 ## Before you begin
 
-Orbit installs the identity, policy, and connectivity layers that govern agents. It does not create the cluster, data stores, public DNS, or external identity provider. Prepare those dependencies before installing the operator.
+Orbit installs the identity, policy, and connectivity layers that govern agents. Orbit is designed to run in a Kubernetes cluster with Istio and Spire.
 
 ### Kubernetes cluster
 
 The cluster must provide:
 
-- Cluster-admin access for the initial installation. The operator installs CRDs, cluster roles, admission webhooks, namespaces, and other cluster-scoped resources.
-- A CNI that enforces Kubernetes `NetworkPolicy`. Orbit installs a default-deny policy in `orbit-system` and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Disabling those policies is suitable only for development environments where the CNI cannot enforce them.
-- A default `ReadWriteOnce` StorageClass, or an equivalent storage-class override, for agent workspace volumes.
+- Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
+- A CNI that enforces Kubernetes `NetworkPolicy`. The `orbit` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
+- A default `ReadWriteOnce` StorageClass, or a storage-class override, for agent workspace volumes.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
-- A `LoadBalancer` implementation for the default gateway configuration, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
-- Admission and pod-security settings that allow the pinned SPIRE and Istio components, including the SPIRE agent and CSI driver, to run in their own namespaces.
+- A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
+- Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst Orbit namespaces run at restricted.
 
-Orbit's NetworkPolicies are part of its defence in depth. The mesh remains responsible for workload identity and policy enforcement, but a production cluster should not silently ignore the network layer. See [connectivity](../architecture/connectivity.md) for the request path and [identity](../architecture/identity.md) for the SPIRE and Istio trust model.
+See [connectivity](../architecture/connectivity.md) for the request path and [identity](../architecture/identity.md) for the SPIRE and Istio trust model.
+
+### Istio
+
+Orbit runs on Istio in sidecar mode and handles its own sidecar injection through an admission webhook. You must install Istio before installing Orbit, by following the [Istio install guide](https://istio.io/latest/docs/setup/install/) or the reference Helmfile in this repository. The mesh must provide:
+
+- Sidecar injection on Orbit's namespaces, through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision. Set the revision in the chart's `istio.revision` value when you run a revisioned control plane.
+- `meshConfig.trustDomain` equal to Orbit's `global.trustDomain`.
+- `pilot.cni.enabled: true` on istiod, with the Istio CNI DaemonSet running. The `restricted` profile of orbit's namespaces reject the `istio-init` container.
+
+### SPIRE
+
+Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Oribt, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. It must provide:
+
+- A trust domain equal to Orbit's.
+- The SPIFFE CSI driver `csi.spiffe.io` registered, and spire-controller-manager present with the `ClusterSPIFFEID` CRD served.
+- The chart's default `ClusterSPIFFEID` disabled or set `fallback: true`, so it does not race Orbit's own registrations.
+- Agent SDS enabled with `defaultSVIDName: default`, `defaultBundleName: ROOTCA`, `defaultAllBundlesName: ALL`.
+- A controller-manager class matching the chart's `spire.className` value (`spire-system-spire` by default). A mismatch means Orbit's `ClusterSPIFFEID`s are ignored.
+
+The reference Helmfile and the Argo CD example install a SPIRE the minimum spec required for Orbit.
+
+The platform's SPIFFE trust domain is part of every workload identity Orbit issues and should be treated as permanent. It is important you choose this upfront before installation. Changing it later is an identity migration, not a routine update.
 
 ### Database, cache, and storage
 
-PostgreSQL and Redis must be reachable from `orbit-system`. Orbit manages its schema migrations, but it does not provision, back up, patch, or replicate either service.
+PostgreSQL and Redis must be reachable from the system namespace. Orbit runs its own schema migrations against the provided infrastructure. Orbit does not provision, back up, patch, or replicate either service.
 
-Use private endpoints and TLS in production. When either service sits outside the cluster network, add its CIDR and port to `platformValues.networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
+- Use private endpoints and TLS in production.
+- When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
+- When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the orbit char then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
-Managed services whose addresses change need a stable private CIDR, a cluster egress path with stable addresses, or CNI-specific policy outside the Orbit chart. The built-in setting uses standard Kubernetes `ipBlock` rules and therefore accepts CIDRs rather than DNS names.
-
-Agent workspaces use persistent volumes. Confirm the default StorageClass has the capacity, topology, expansion, retention, and encryption behaviour you expect before allowing agents to run.
+Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, you can point Orbit at a different class using `agents.runtimePods.workspace`.
 
 ### DNS and TLS
 
-Choose one dashboard hostname, for example `orbit.example.com`. Orbit derives the API hostname by adding the `api.` label:
+Choose a hostname for your dashboard, for example `orbit.example.com`. Orbit derives the API hostname by adding the `api.` prefix:
 
-- `orbit.example.com` serves the dashboard and BFF.
+- `orbit.example.com` serves the dashboard and BFF (`frontendHost`).
 - `api.orbit.example.com` serves the platform APIs, inference API, MCP endpoints, and OAuth discovery documents.
 
-Create DNS records for both names that resolve to the same Istio gateway. With a cloud `LoadBalancer`, they normally point to the load balancer's address or hostname. If the gateway is private, publish both records in the private DNS zone used by operators and agent clients.
+Create DNS records for both names resolving to the same Istio gateway, fronted by a cloud `LoadBalancer`.
 
-The gateway certificate must be valid for both names. Provision a `kubernetes.io/tls` Secret in `istio-system`, either directly or through cert-manager, and set `platformValues.gateway.tls.credentialName` to its name. Orbit terminates public TLS at the Istio gateway. Service-to-service mTLS uses SPIRE identities and is configured separately by the operator.
+The gateway certificate must be valid for both names. Provision a `kubernetes.io/tls` Secret in the gateway's namespace, directly or through cert-manager, and set `gateway.tls.credentialName` to it. Orbit terminates public TLS at the Istio gateway. Inside the mesh, service-to-service mTLS uses SPIRE identities.
 
-Register `https://orbit.example.com/auth/callback` as an allowed redirect URI for the OIDC client. The issuer and its discovery endpoints must be reachable from `orbit-system`.
+Register `https://orbit.example.com/auth/callback` as an allowed redirect URI for the OIDC client. Orbit's services must be able to reach the issuer and its discovery endpoints from the system namespace.
 
 ### Artifact access
 
-The machine running Helm must be able to pull the operator chart. The cluster must also be able to pull the operator image before reconciliation can begin.
+Charts and images are currently private. Run `helm registry login ghcr.io` to pull the charts. The cluster pulls the images with a `ghcr.io` pull Secret configured by `global.imagePullSecrets`. The operator copies the pull Secret into every tenant namespace for workloads to pull from.
 
-After startup, the operator uses the Orbit charts bundled in its image and fetches the pinned SPIRE and Istio charts over HTTPS. Cluster nodes then pull the images referenced by those charts and the Orbit release. In a restricted network, allow outbound access to the release registries and upstream chart repositories, or mirror every chart and image into registries the cluster can reach.
+To pull from your own registry mirror, set `global.imageRegistry` and name a pull Secret in `global.imagePullSecrets`. 
 
-Private registries also need a pull-secret strategy for `orbit-operator`, `orbit-system`, and the tenant namespaces where agent workloads run. Decide how those namespaces and service accounts receive `imagePullSecrets` before setting `imageRegistry` to a private mirror.
+### OIDC federation
 
-### Identity and secrets
-
-Provide an OIDC client for each tenant and decide which email domains route to it. Confidential clients need a Kubernetes Secret containing the client secret. Public clients can omit it.
-
-Choose the platform's SPIFFE trust domain before installation. It becomes part of every workload identity issued by Orbit and should be treated as permanent. Changing it is an identity migration, not a routine configuration update.
-
-Platform credentials and signing keys must come from an external secret-management system. [Secrets](../configuration/secrets.md) describes the ownership and projection model.
-
-## Install the operator
-
-Install the operator chart into its own namespace:
-
-```bash
-helm upgrade --install orbit-operator \
-  oci://ghcr.io/clear-route/charts/orbit-operator \
-  --version <version> \
-  --namespace orbit-operator \
-  --create-namespace
-```
-
-The chart installs the Orbit CRDs, service account, RBAC, and operator deployment. The operator itself is not injected into the mesh because it is responsible for installing the mesh.
-
-Verify that it is ready before applying the platform resource:
-
-```bash
-kubectl rollout status deployment/orbit-operator -n orbit-operator
-kubectl get crd orbitplatforms.orbit.io orbittenants.orbit.io
-```
+Each tenant can have an isolated OIDC client. This allows for custom tenancy and routing between providers or email domains. Confidential clients require a Kubernetes Secret holding the OIDC client secret. It is not required to run multiple tenants, a single tenant is enough if you do not need separation between workloads.
 
 ## Provide platform secrets
 
-Project credentials into Kubernetes Secrets in the `orbit-system` namespace. The operator creates the namespace during initial reconciliation and continues once the referenced Secrets are available. In production, use your existing secret manager and a controller such as External Secrets Operator rather than committing Secret manifests.
+Platform credentials and signing keys come from an external secret manager. [Secrets](../configuration/secrets.md) describes the ownership and projection model.
 
-The platform services read the following keys from `orbit-secrets`:
+Platform credentials must be projected into Kubernetes Secrets in the system namespace before installing the `orbit` chart.
+
+The platform services read these keys from `orbit-secrets`, which can be customised using `config.platformSecretName`:
 
 | Key | Purpose |
 |---|---|
@@ -94,167 +99,172 @@ The platform services read the following keys from `orbit-secrets`:
 | `ORBIT_TOKEN_SIGNING_KEY` | RSA private key used to sign platform tokens. |
 | `ORBIT_TRIGGERS_ENCRYPTION_KEY` | Base64-encoded 32-byte key used to encrypt stored trigger credentials. |
 
-The dashboard reads `BFF_SESSION_SECRET` from `orbit-frontend-secrets`. Use at least 32 random characters.
+The dashboard reads `BFF_SESSION_SECRET` from a separate secret, `orbit-frontend-secrets` by default. This can be configured via `frontend.existingSecret`. You must use at least 32 random characters.
 
-The operator reads these Secrets but does not create or rotate them. Rotation remains the responsibility of the system that owns the source secret.
+Your secret manager owns rotation. The Orbit operator does not watch these Secrets, and only picks up a rotated Connection or OIDC client secret on its next periodic reconcile.
 
-## Model providers
+## Configure the chart
 
-On a managed cloud cluster the inference gateway reaches AWS Bedrock through the gateway pod's own cloud identity, not credentials in a Secret. List the Bedrock accounts under `inferenceGateway.bedrock.accounts`, each with an alias and a region; an empty list disables Bedrock. Every account becomes a provider named `bedrock:<alias>` in the model catalogue.
-
-On a managed cloud cluster, grant the gateway an IAM role and attach it with `inferenceGateway.serviceAccount.annotations`. On EKS this is IRSA or Pod Identity; the role needs `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles`, and `bedrock:InvokeModel`. The gateway then discovers and invokes models with no static credentials.
-
-A cluster with no cloud identity, such as local development, is the only case that falls back to static keys. There the gateway reads `BEDROCK_<ALIAS>_ACCESS_KEY_ID`, `BEDROCK_<ALIAS>_SECRET_ACCESS_KEY`, and `BEDROCK_<ALIAS>_SESSION_TOKEN` from `orbit-secrets`. Session credentials expire, so this path is unsuitable for a long-lived deployment.
-
-## Define the platform
-
-`OrbitPlatform` is the desired state of the installation. The example below uses an operator-managed SPIRE and Istio deployment, a cloud load balancer, and externally managed PostgreSQL and Redis services.
+The example at `deploy/reference/values/orbit.yaml` can be copied directly into your repository, a full list of values can be found in the chart schema. The fields most installs will set:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
-kind: OrbitPlatform
-metadata:
-  name: orbit
-spec:
-  version: "0.1.0"
-  trustDomain: orbit.example.com
-  clusterName: production
+global:
+  trustDomain: orbit.example.com      # required; equal to Istio and SPIRE
+  # systemNamespace defaults to the install namespace
+  imageRegistry: ghcr.io/clear-route
 
-  spire:
+frontendHost: orbit.example.com       # required; api.<frontendHost> is the API host
+
+config:
+  db:
+    host: postgres.example.internal
+    port: 5432
+    name: orbit
+    user: orbit
+  redis:
+    host: redis.example.internal
+    port: 6379
+  platformSecretName: orbit-secrets
+
+networkPolicy:
+  enabled: true
+  externalServices:         # only when Postgres or Redis is off-cluster
+    - cidr: 10.20.0.0/24
+      ports: [5432, 6379]
+
+gateway:
+  create: true
+  tls:
     enabled: true
-  istio:
-    enabled: true
-  gateway:
-    serviceType: LoadBalancer
-
-  secrets:
-    platformSecretRef:
-      name: orbit-secrets
-      namespace: orbit-system
-
-  config:
-    db:
-      host: postgres.example.internal
-      port: 5432
-      name: orbit
-      user: orbit
-    redis:
-      host: redis.example.internal
-      port: 6379
-
-  platformValues:
-    frontendHost: orbit.example.com
-    networkPolicy:
-      enabled: true
-      externalServices:
-        - cidr: 10.20.0.0/24
-          ports:
-            - 5432
-            - 6379
-    gateway:
-      tls:
-        enabled: true
-        credentialName: orbit-gateway-tls
-
-  orbitValues:
-    frontendHost: orbit.example.com
-    publicHosts:
-      - orbit.example.com
-      - api.orbit.example.com
-
-  upgradeStrategy:
-    mode: Explicit
+    credentialName: orbit-gateway-tls  # kubernetes.io/tls Secret in the gateway namespace
+ingressGateway:
+  service:
+    type: LoadBalancer
 ```
 
-Replace `spec.version` with the Orbit release you installed. Leave `imageRegistry` unset to use the images associated with that release. Set it only when the images are mirrored into another registry.
+`global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings. A component can override any of them.
 
-The dashboard is served from `frontendHost`. The backend API uses the corresponding `api.` host. Provision the TLS Secret named by `credentialName` in `istio-system`, either through cert-manager or your secret-management controller.
+Image tags resolve as follows:
 
-The `externalServices` entry permits `orbit-system` workloads to reach PostgreSQL and Redis on the example private CIDR. Use the narrowest CIDRs and ports that cover your services. Omit the entry when both services are reached through destinations already allowed by your cluster network policy.
+| `global.imageTag` | Result |
+|---|---|
+| Empty (default) | The chart's `appVersion`. A release stamps per-component digests. |
+| A tag | Every Orbit image uses it.  |
 
-Apply the resource and follow reconciliation through its status:
+Use the narrowest CIDRs and ports in `networkPolicy.externalServices` that cover your services. Omit the entry when Postgres and Redis are reached through destinations your cluster network policy already allows.
+
+## Run behind an existing gateway
+
+By default Orbit creates its own ingress gateway. Set `gateway.create: false` to front Orbit with an Istio gateway you already operate. Orbit then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
+
+There are four points of configuration documented in `deploy/reference/values/gateway-byo.yaml`:
+
+ 1. Chart values: `gateway.create: false`, with `gateway.name` and `gateway.byo` pointing at your gateway.
+ 2. A `Gateway` resource on your gateway for the two public hosts.
+ 3. A `ClusterSPIFFEID` registering your gateway's pods.
+ 4. SPIRE wiring in your gateway's own values, pointing its Envoy at SPIRE for certificates instead of istiod.
+
+Points 3 and 4 give your gateway a SPIRE identity, required to interact with Orbit's own pods. See [identity](../architecture/identity.md) and [runtime topology](../architecture/runtime-topology.md) for a detailed look at the trust model.
+
+## Install
+
+### Reference Helmfile (blank cluster)
+
+The reference Helmfile in `deploy/reference/` installs SPIRE, Istio, and the two Orbit charts in dependency order. 
+
+Copy `deploy/reference/` into your own repository, and edit the two files: `environments/example.yaml` (or whatever you name it) for the cluster facts, and `values/orbit.yaml` for the chart config.
+
+To apply from your local copy:
 
 ```bash
-kubectl apply -f orbit-platform.yaml
-kubectl get orbitplatform orbit -w
+helmfile -e example apply
 ```
 
-The release process applies pending database migrations before rolling the application services forward. Treat a migration failure as a failed platform reconciliation. Do not bypass it by starting services against an older schema.
+If SPIRE and Istio are already running in your cluster, you can skip the helmfile and use helm directly for the Orbit charts.
 
-The `OrbitPlatform` conditions show which dependency is still installing or which release failed. The operator logs contain the corresponding Helm error:
+### Direct Helm (existing mesh)
+
+With SPIRE and Istio already running, you install the two Orbit charts directly. First label the system namespace, then install `orbit-crds`, and then `orbit`.
 
 ```bash
-kubectl describe orbitplatform orbit
-kubectl logs deployment/orbit-operator -n orbit-operator -c operator
+kubectl create namespace orbit-system
+kubectl label namespace orbit-system \
+  istio-injection=enabled \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/warn=restricted \
+  pod-security.kubernetes.io/audit=restricted
+
+helm upgrade --install orbit-crds oci://ghcr.io/clear-route/charts/orbit-crds \
+  --namespace orbit-system
+
+helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+  --namespace orbit-system \
+  --values orbit.yaml
 ```
 
-## Register a tenant
+Pin `--version` on both to install a specific release rather than the latest.
+Your `orbit.yaml` must also set `global.trustDomain`, which the Helmfile injected for you but helm does not. 
 
-An `OrbitTenant` binds an email domain and OIDC client to a tenant namespace. The operator creates the namespace with the required SPIRE and Istio labels, then publishes the tenant to the identity service.
+### Argo CD (GitOps)
 
-```yaml
-apiVersion: orbit.io/v1alpha1
-kind: OrbitTenant
-metadata:
-  name: example
-spec:
-  displayName: Example Organisation
-  active: true
+`deploy/reference/argocd/app-of-apps.yaml` is an app-of-apps example: one `Application` per release which is ordered by `argocd.argoproj.io/sync-wave`. Copy it into your own GitOps repository and edit the values:
 
-  oidc:
-    issuerURL: https://idp.example.com/oauth2/default
-    clientID: orbit-production
-    clientSecretRef:
-      name: orbit-example-oidc
-      namespace: orbit-system
-    scopes:
-      - openid
-      - profile
-      - email
-      - groups
-    emailDomains:
-      - example.com
+- Point the `orbit` Application's second source at your own values repository.
+- Configure OCI registry credentials (`argocd repo add`) if required.
 
-  deleteNamespaceOnRemoval: false
-```
+The `orbit` Application includes the settings that stop ArgoCD and the operator fighting over the same resources:
 
-For a confidential OIDC client, the referenced Secret must contain the client secret under the key `clientSecret`. Public clients can omit `clientSecretRef`.
+| Setting | Purpose |
+|---|---|
+| `managedNamespaceMetadata` | Labels the system namespace (`istio-injection`, PSA `restricted`). |
+| `ignoreDifferences` | Fields the operator writes on objects Argo CD does not own: the webhook `caBundle` and `failurePolicy`. |
+| `prune: false` on `orbit-crds` | Stops ArgoCD from pruning the Orbit CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
 
-Apply the tenant and wait for it to become ready:
-
-```bash
-kubectl apply -f orbit-tenant-example.yaml
-kubectl get orbittenant example -w
-kubectl get namespace orbit-tenant-example
-```
-
-Keep `deleteNamespaceOnRemoval` false unless deleting the `OrbitTenant` should also delete every workload and resource in its namespace.
+The app-of-apps installs SPIRE, Istio, and the Orbit charts. Add your `OrbitTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
 
 ## Verify the installation
 
-Once the platform and tenant report `Ready`, check the workloads and the public endpoints:
+Check the platform workloads and the public endpoints:
 
 ```bash
-kubectl get orbitplatform,orbittenant
 kubectl get pods -n orbit-system
-kubectl get pods -n orbit-tenant-example
 curl -I https://orbit.example.com
 curl -I https://api.orbit.example.com/health
 ```
 
-Authentication and policy are separate checks. A healthy endpoint proves that ingress is available. It does not prove that the OIDC client, tenant routing, or grants are correct. Configure initial access using [policy and roles](policy-and-roles.md).
+Every pod should be running and both endpoints should respond. At this stage, you should have a working install with no tenants registered yet. 
 
-## Upgrade Orbit
+## Configure the platform
 
-With the explicit upgrade strategy, change `spec.version` to the target release and apply the resource again. The operator advances the managed releases in dependency order and records progress in `status.conditions`.
+Now that the platform is running, you can configure it through the following guides:
 
-Review the release notes before changing versions. In particular, check for trust-domain, CRD, database migration, and identity-provider changes. Do not change `trustDomain` as part of a routine upgrade.
+- [Tenants](tenants.md): onboard a tenant so its team can sign in and get their own workspace.
+- [Model providers](model-providers.md): connect the platform to upstream inference providers.
+- [Connections](connections.md): register external services agents can reach without holding credentials.
+- [OAuth clients](oauth-clients.md): configure clients that authenticate users against Orbit.
+- [MCP servers](mcp-servers.md): give agents and humans governed access to a set of tools.
+- [Policy and roles](policy-and-roles.md): decide what each person and agent is allowed to do.
 
-## Use an existing Istio or SPIRE installation
+## Upgrade
 
-Set `istio.enabled: false` or `spire.enabled: false` when the cluster already provides that component. Orbit still expects the same runtime contract:
+Upgrade `orbit-crds` before `orbit`, on every upgrade.
 
-- SPIRE issues SVIDs in the `OrbitPlatform` trust domain and exposes the workload API through the CSI driver.
-- Istio uses those SVIDs for workload mTLS and applies the Orbit gateway and policy configuration.
+```bash
+helm upgrade orbit-crds oci://ghcr.io/clear-route/charts/orbit-crds \
+  --namespace orbit-system --version <target>
+helm upgrade orbit oci://ghcr.io/clear-route/charts/orbit \
+  --namespace orbit-system --version <target> --values orbit.yaml
+```
 
-Disabling installation transfers lifecycle ownership. It does not remove Orbit's dependency on workload identity or mesh enforcement. See [identity](../architecture/identity.md) and [runtime topology](../architecture/runtime-topology.md) before integrating an existing mesh.
+- Under GitOps, bump the chart `targetRevision` on both Applications in the same order.
+- Skipping minors is fine.
+- Review the release notes for trust-domain, CRD, database migration, and identity-provider changes before upgrading.
+- Do not change `trustDomain` as part of a routine upgrade.
+
+Rollback the `orbit` release with `helm rollback orbit`, or revert the release revision under GitOps. This reverts the workloads only, not the database or the CRDs. Migrations are expand-contract and backward-compatible.
+
+## References
+
+- [Install and distribution model](../adr/2026-09-04-install-and-distribution-model.md): why Orbit ships as two charts and the operator manages only tenants.
+- [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how Orbit injects its sidecars and runs preflight on the mesh before install.
+- [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
