@@ -1,20 +1,17 @@
-// ConfigMap-backed connection registry for the egress gateway (Amendment 3).
+package credentials
+
+// ConfigMapRegistry is the gateway's connection registry, read from the file
+// the operator renders into orbit-system. The ConnectionAggregator writes one
+// ConfigMap key, connections.json, holding a JSON array of registry entries;
+// the gateway mounts it and parses it into Connection values, serving the
+// GetByHost and ListByTenant lookups the broker and ScopePublisher use.
 //
-// The operator's ConnectionAggregator renders the orbit-tenant-connections
-// ConfigMap (one key, connections.json — a JSON array of registry entries) into
-// orbit-system; the gateway mounts it as a file. This file replaces the Postgres
-// registry: the gateway parses connections.json into Connection values and serves
-// the two lookups the broker + connLookup + ScopePublisher need —
-// GetByHost and ListByTenant.
-//
-// The reader mirrors cabundle.LoadEager for the load and the identity service's
-// fsnotify directory-watch for hot-reload (Kubernetes rotates the "..data"
-// symlink atomically on a ConfigMap-volume update). On reload the gateway
-// republishes its connection scope vocabulary via the OnReload hook.
+// Hot-reload watches the directory with fsnotify, since Kubernetes rotates the
+// "..data" symlink atomically on a ConfigMap-volume update. Reload fires the
+// OnReload hook, which republishes the connection scope vocabulary.
 //
 // See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md,
-// "Amendment 3 — 2026-06-12".
-package credentials
+// Amendment 3.
 
 import (
 	"context"
@@ -33,7 +30,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// registryEntry is the wire shape of one element of connections.json — the
+// registryEntry is the wire shape of one element of connections.json,
 // runtime contract the operator's ConnectionAggregator renders. tenant_id equals
 // claims.Orbit.TenantID (the OrbitTenant CR name); secret_ref is a flat key the
 // k8sfile resolver reads under the connection-secret root.
@@ -44,12 +41,13 @@ type registryEntry struct {
 	BaseHost  string          `json:"base_host"`
 	SecretRef string          `json:"secret_ref"`
 	Config    json.RawMessage `json:"config,omitempty"`
+	CACert    string          `json:"ca_cert,omitempty"`
 }
 
-// ConfigMapRegistry is a file-backed, hot-reloadable ConnectionRepository. It
-// loads connections.json from the mounted ConfigMap path and holds the parsed
-// connections in memory behind an RWMutex. It satisfies ConnectionRepository
-// (the shrunk GetByHost + ListByTenant surface).
+// ConfigMapRegistry is the gateway's connection registry: file-backed and
+// hot-reloadable. It loads connections.json from the mounted ConfigMap path and
+// holds the parsed connections in memory behind an RWMutex. Components take the
+// narrow interface they call, so this concrete type is what binaries wire.
 type ConfigMapRegistry struct {
 	path   string
 	logger logging.Logger
@@ -63,7 +61,7 @@ type ConfigMapRegistry struct {
 // holding the parsed connections. An empty path or an absent file is permitted
 // (the operator may not have rendered the ConfigMap yet) and yields an empty
 // registry that returns ErrConnectionNotFound for every host until a reload
-// populates it — mirroring cabundle.LoadEager's tolerance of a missing mount.
+// populates it, mirroring cabundle.LoadEager's tolerance of a missing mount.
 func LoadConfigMapRegistry(ctx context.Context, path string, logger logging.Logger) (*ConfigMapRegistry, error) {
 	r := &ConfigMapRegistry{path: path, logger: logger}
 	conns, err := loadConnections(ctx, path, logger)
@@ -88,8 +86,8 @@ func (r *ConfigMapRegistry) OnReload(fn func(ctx context.Context)) {
 }
 
 // GetByHost returns the connection serving host within tenantID. A connection
-// serves its base_host AND the family of hosts its adapter declares — github_app
-// also serves api.github.com, codeload.github.com, and *.githubusercontent.com —
+// serves its base_host and the family of hosts its adapter declares. github_app
+// also serves api.github.com, codeload.github.com and *.githubusercontent.com,
 // so REST/archive/raw calls to those hosts are brokered and credentialed rather
 // than passed through unauthenticated. Comparison is case-insensitive and ignores
 // any :port suffix. Returns ErrConnectionNotFound when no connection serves host.
@@ -114,7 +112,7 @@ func (r *ConfigMapRegistry) GetByHost(_ context.Context, tenantID, host string) 
 }
 
 // hostPatternMatches reports whether the (already normalized) host matches the
-// (already normalized) pattern — either an exact host or a "*.suffix" wildcard
+// (already normalized) pattern: either an exact host or a "*.suffix" wildcard
 // covering any subdomain of suffix.
 func hostPatternMatches(pattern, host string) bool {
 	if pattern == host {
@@ -128,7 +126,7 @@ func hostPatternMatches(pattern, host string) bool {
 }
 
 // ListByTenant returns connections for tenantID. An empty tenantID returns ALL
-// connections across every tenant — the ScopePublisher relies on this to
+// connections across every tenant. The ScopePublisher relies on this to
 // publish the full connection:<name>:<action> vocabulary on reload.
 func (r *ConfigMapRegistry) ListByTenant(_ context.Context, tenantID string) ([]*Connection, error) {
 	r.mu.RLock()
@@ -154,7 +152,7 @@ func (r *ConfigMapRegistry) Watch(ctx context.Context) {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		r.logger.Error(ctx, "failed to create fsnotify watcher for connection registry — hot-reload disabled",
+		r.logger.Error(ctx, "failed to create fsnotify watcher for connection registry; hot-reload disabled",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
@@ -170,7 +168,7 @@ func (r *ConfigMapRegistry) Watch(ctx context.Context) {
 	dir := filepath.Dir(r.path)
 	base := filepath.Base(r.path)
 	if addErr := watcher.Add(dir); addErr != nil {
-		r.logger.Error(ctx, "failed to watch connection registry directory — hot-reload disabled",
+		r.logger.Error(ctx, "failed to watch connection registry directory; hot-reload disabled",
 			logging.Field{Key: "path", Value: dir},
 			logging.Field{Key: "error", Value: addErr.Error()},
 		)
@@ -216,12 +214,12 @@ func (r *ConfigMapRegistry) Watch(ctx context.Context) {
 }
 
 // reload re-reads connections.json and swaps in the new set under a write lock,
-// then fires the OnReload hook. A read error keeps the current set — a transient
+// then fires the OnReload hook. A read error keeps the current set. A transient
 // mount glitch must not blank the registry mid-flight.
 func (r *ConfigMapRegistry) reload(ctx context.Context) {
 	conns, err := loadConnections(ctx, r.path, r.logger)
 	if err != nil {
-		r.logger.Error(ctx, "connection registry reload failed — keeping current connections",
+		r.logger.Error(ctx, "connection registry reload failed; keeping current connections",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
@@ -245,14 +243,14 @@ func (r *ConfigMapRegistry) reload(ctx context.Context) {
 // cabundle's tolerance of an unmounted secret.
 func loadConnections(ctx context.Context, path string, logger logging.Logger) ([]*Connection, error) {
 	if path == "" {
-		logger.Warn(ctx, "connection registry path is empty — no connections will be brokered")
+		logger.Warn(ctx, "connection registry path is empty; no connections will be brokered")
 		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Warn(ctx, "connection registry file does not exist — no connections until it is mounted",
+			logger.Warn(ctx, "connection registry file does not exist; no connections until it is mounted",
 				logging.Field{Key: "path", Value: path})
 			return nil, nil
 		}
@@ -273,7 +271,7 @@ func loadConnections(ctx context.Context, path string, logger logging.Logger) ([
 	for _, e := range entries {
 		conns = append(conns, &Connection{
 			// ID is derived (tenant|name) so the github_app adapter's token
-			// cache key — keyed on conn.ID — stays stable across reloads.
+			// cache key, which is conn.ID, stays stable across reloads.
 			ID:        e.TenantID + "|" + e.Name,
 			TenantID:  e.TenantID,
 			Name:      e.Name,
@@ -281,6 +279,7 @@ func loadConnections(ctx context.Context, path string, logger logging.Logger) ([
 			BaseHost:  e.BaseHost,
 			SecretRef: e.SecretRef,
 			Config:    e.Config,
+			CACert:    e.CACert,
 		})
 	}
 	return conns, nil
@@ -291,7 +290,14 @@ func loadConnections(ctx context.Context, path string, logger logging.Logger) ([
 func normalizeHost(host string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if stripped, _, err := net.SplitHostPort(h); err == nil {
-		return stripped
+		h = stripped
+	}
+	// net/http accepts a fully-qualified "github.com." and passes it through as
+	// the request Host. Left in place it misses every registered connection,
+	// and the broker falls back to passthrough: no action classification and no
+	// connection-scope check on a host that has both.
+	if len(h) > 1 {
+		h = strings.TrimSuffix(h, ".")
 	}
 	return h
 }

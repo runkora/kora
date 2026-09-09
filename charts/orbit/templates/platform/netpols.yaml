@@ -225,6 +225,35 @@ spec:
       to:
         - ipBlock:
             cidr: 0.0.0.0/0
+{{- with .Values.egressGateway.upstreamPorts }}
+---
+# Brokered upstreams that do not listen on 443. Scoped to the egress gateway
+# alone, and empty by default: every port here widens what the component
+# holding upstream credentials may dial, so an operator opens only the ports
+# their own Connection resources need.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-gateway-upstream-ports
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: orbit-egress-gateway
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+      {{- range . }}
+        - port: {{ . }}
+          protocol: TCP
+      {{- end }}
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- end }}
 {{- if .Values.networkPolicy.externalServices }}
 ---
 # Postgres, Redis or other out-of-cluster services, per environment.

@@ -22,7 +22,7 @@ func TestAllScopes_NoConnections_PublishesStaticScopes(t *testing.T) {
 	// reserved-role management scope) so the policy-service vocabulary contains
 	// them even when no connections are mounted.
 	if len(got) != 2 {
-		t.Fatalf("scopes = %d, want 2 (platform:connections:read + :write, no connections) — got %v", len(got), scopeStrings(got))
+		t.Fatalf("scopes = %d, want 2 (platform:connections:read + :write, no connections), got %v", len(got), scopeStrings(got))
 	}
 	if got[0].Scope != "platform:connections:read" {
 		t.Errorf("scope[0] = %q, want platform:connections:read", got[0].Scope)
@@ -91,7 +91,7 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 		switch d.Scope {
 		case "connection:github-prod:repo:write":
 			// Metadata matches the scope grammar: path = [name, category],
-			// action = the final verb — not path=[name], action="repo:write".
+			// action = the final verb, not path=[name], action="repo:write".
 			if d.ResourceType != "connection" || len(d.PathSegments) != 2 ||
 				d.PathSegments[0] != "github-prod" || d.PathSegments[1] != "repo" || d.Action != "write" {
 				t.Errorf("structure = %+v, want resource=connection path=[github-prod repo] action=write", d)
@@ -109,13 +109,13 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 }
 
 func TestConnectionScopes_SkipsUnregisteredAdapter(t *testing.T) {
-	registry := NewAdapterRegistry() // empty — no adapters registered
+	registry := NewAdapterRegistry() // empty: no adapters registered
 	conns := []*credentials.Connection{
 		{ID: "1", TenantID: "acme", Name: "ghost", Adapter: credentials.AdapterGitHubApp, Config: json.RawMessage(`{}`)},
 	}
 	got := ConnectionScopes(conns, registry)
 	if len(got) != 0 {
-		t.Errorf("got %d scopes, want 0 — connections with unregistered adapters must be skipped", len(got))
+		t.Errorf("got %d scopes, want 0: connections with unregistered adapters must be skipped", len(got))
 	}
 }
 
@@ -141,7 +141,7 @@ func TestConnectionScopes_DedupeOnDuplicateConnectionName(t *testing.T) {
 	got := ConnectionScopes(conns, registry)
 
 	// Expect one set of unique entries: 2 covering parents + the adapter's 15
-	// actions — duplicates from the repeated connection name are dropped.
+	// actions: duplicates from the repeated connection name are dropped.
 	wantCount := 17
 	if len(got) != wantCount {
 		t.Errorf("scopes = %d, want %d (got: %v)", len(got), wantCount, scopeStrings(got))

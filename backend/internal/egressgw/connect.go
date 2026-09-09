@@ -4,15 +4,39 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
+)
+
+// interceptIdleTimeout tears down a TLS-intercepted tunnel after this much
+// inactivity. It covers the whole hijacked conn: the client TLS handshake, the
+// inner request read, and the response write. A var so tests can shrink it.
+var interceptIdleTimeout = 5 * time.Minute
+
+// tracer instruments the CONNECT path. The listener carries no tracing
+// middleware, so this package starts the server span itself.
+var tracer = otel.Tracer("orbit.egress-gateway")
+
+// Span status descriptions are package-level sentinels: the raw error text can
+// carry hostnames and addresses, which must not land in a span string field.
+var (
+	errReadInnerRequest   = errors.New("read inner request")
+	errInnerRequestFailed = errors.New("inner request failed")
+	errRelayDial          = errors.New("relay upstream dial")
 )
 
 // maxInnerRequestBytes bounds how much of a tunneled inner request the gateway
@@ -54,15 +78,13 @@ type CABundle interface {
 //     accepts the leaf and completes the handshake.
 //  4. ConnectHandler reads one *http.Request from the inner TLS conn,
 //     re-attaches the verified claims, and serves it via the inner handler
-//     (typically ProxyHandler). The inner handler treats the call as a normal
-//     HTTPS request — broker logic stays unchanged from Phase 2a.
+//     (typically ProxyHandler), which treats it as a normal HTTPS request.
 //  5. After the inner handler returns, ConnectHandler closes the TLS conn and
 //     the underlying TCP connection.
 //
-// The handler is deliberately one-shot per CONNECT: HTTP/1.1 connection reuse
-// over the tunneled TLS is not supported in Phase 2b. The tool's HTTP client
-// will dial a fresh CONNECT for the next request, which is the standard
-// behavior for HTTPS_PROXY clients anyway.
+// The handler is one-shot per CONNECT. HTTP/1.1 connection reuse over the
+// tunneled TLS is unsupported; the tool dials a fresh CONNECT for its next
+// request, which is standard behavior for an HTTPS_PROXY client.
 type ConnectHandler struct {
 	bundle CABundle
 	inner  http.Handler
@@ -80,7 +102,7 @@ type connLookup interface {
 
 // NewConnectHandler constructs a ConnectHandler. bundle resolves the per-tenant
 // IssuingCA from the verified caller's claims; inner is invoked with the parsed
-// *http.Request after TLS termination — pass the gateway's ProxyHandler so the
+// *http.Request after TLS termination. Pass the gateway's ProxyHandler so the
 // established Phase 2a pipeline runs unchanged. conns lets the handler intercept
 // registered connections on any port (it may be nil, in which case only :443 is
 // intercepted and all other ports are relayed).
@@ -121,8 +143,8 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Route by destination. :443 (HTTPS) and registered connections are TLS-
 	// intercepted and credential-brokered (below); every other port is a raw,
-	// authorized TCP relay — the sandbox OPA already gated the destination, so
-	// the gateway just lets it through. See shouldIntercept / serveRelay.
+	// authorized TCP relay. The sandbox OPA already gated the destination, so
+	// the gateway lets it through. See shouldIntercept and serveRelay.
 	host, port, splitErr := net.SplitHostPort(r.Host)
 	if splitErr != nil {
 		// CONNECT normally carries "host:port"; tolerate a bare host as HTTPS.
@@ -163,6 +185,15 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = clientConn.Close() }()
 
+	// Hijacking detaches the conn from the server, which stops applying
+	// ReadHeaderTimeout and never cancels the request context. Without a
+	// deadline of its own a client that opens the tunnel and then sends
+	// nothing holds the goroutine and the socket forever. The deadline is set
+	// before the 200 so a client that never reads cannot block that write
+	// either; every later read and write refreshes it through tunnel.
+	_ = clientConn.SetDeadline(time.Now().Add(interceptIdleTimeout))
+	tunnel := &idleConn{Conn: clientConn, idle: interceptIdleTimeout}
+
 	// Tell the tool the tunnel is established. Standard HTTP/1.1 form.
 	if _, writeErr := bufrw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); writeErr != nil {
 		h.logger.Warn(ctx, "write CONNECT 200 failed", logging.Field{Key: "error", Value: writeErr.Error()})
@@ -188,7 +219,7 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return ca.GetCertificate(hello)
 	}
 
-	tlsConn := tls.Server(clientConn, &tls.Config{
+	tlsConn := tls.Server(tunnel, &tls.Config{
 		MinVersion:     tls.VersionTLS12,
 		GetCertificate: getCert,
 	})
@@ -209,22 +240,42 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // TLS conn, pins it to the verified CONNECT target, and serves it through the
 // inner handler. It is split out of ServeHTTP to keep that method within the
 // cyclomatic-complexity budget.
+//
+// The span starts here rather than in middleware. TracingMiddleware wraps the
+// ResponseWriter in a type with no Hijack, which the CONNECT handler needs, so
+// it cannot sit on this listener. Without a span here the whole brokered path
+// is untraced: the broker's decision, the credential mint and the forward leg
+// all become orphan roots, and every log line on the path carries no trace id.
 func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.Conn, claims *token.PlatformClaims, host, port string) {
+	ctx, span := tracer.Start(ctx, "egress "+host,
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("server.address", host),
+			attribute.String("server.port", port),
+			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
+			attribute.String("orbit.principal_id", claims.Subject),
+			attribute.String("orbit.run_id", claims.Orbit.Claims["run_id"]),
+		))
+	defer span.End()
+
 	// Read the inner HTTP request the tool wants to send to the upstream. The
 	// read is bounded (io.LimitReader) so a sandboxed agent cannot OOM the gateway
 	// with an unbounded request line / header / body stream.
 	innerReq, err := http.ReadRequest(bufio.NewReader(io.LimitReader(tlsConn, maxInnerRequestBytes)))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errReadInnerRequest.Error())
 		h.logger.Warn(ctx, "read inner request failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
+	span.SetAttributes(attribute.String("http.request.method", innerReq.Method))
 
 	// Pin the inner request to the CONNECT target the OPA posture authorized. The
-	// inner Host header is attacker-controlled — a sandbox can put any value
-	// inside the TLS tunnel — so without this an agent could CONNECT an allowed
+	// inner Host header is attacker-controlled, since a sandbox can put any
+	// value inside the TLS tunnel. Without this an agent could CONNECT an allowed
 	// host and then tunnel to an arbitrary Host the gateway can reach (SSRF into
 	// cluster-internal services). For a legitimate HTTPS_PROXY client the inner
 	// Host already equals the CONNECT authority, so this is a no-op.
@@ -242,7 +293,12 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	// headers into the body; the response writer goes back through tlsConn.
 	rw := newConnectResponseWriter(tlsConn)
 	h.inner.ServeHTTP(rw, innerReq)
+	span.SetAttributes(attribute.Int("http.response.status_code", rw.statusCode))
+	if rw.statusCode >= http.StatusBadRequest {
+		span.SetStatus(codes.Error, errInnerRequestFailed.Error())
+	}
 	if err := rw.finish(); err != nil {
+		span.RecordError(err)
 		h.logger.Warn(ctx, "write inner response failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "error", Value: err.Error()},
@@ -253,7 +309,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 // shouldIntercept decides whether a CONNECT is TLS-terminated and credential-
 // brokered, or raw-relayed.
 //
-//   - :443 is always intercepted — HTTPS where the agent trusts the per-tenant
+//   - :443 is always intercepted. HTTPS is where the agent trusts the per-tenant
 //     CA leaf (registered connections AND passthrough). Relaying it would expose
 //     the real upstream cert, which the sandbox (trusting only the tenant CA)
 //     would reject.
@@ -262,9 +318,9 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 //     broker wherever it lives. (Production registered connections are reached
 //     on :443 and caught above; this also covers connections registered with an
 //     explicit host:port base.)
-//   - everything else is a raw, authorized TCP relay — the sandbox OPA already
+//   - everything else is a raw, authorized TCP relay. The sandbox OPA already
 //     gated the destination (docs/adr/2026-06-06-jit-credential-brokering-
-//     egress-gateway.md, Amendment 2), so the gateway lets it through, no creds.
+//     egress-gateway.md, Amendment 2), so the gateway lets it through uncredentialled.
 func (h *ConnectHandler) shouldIntercept(ctx context.Context, tenantID, authority, port string) bool {
 	if port == "443" {
 		return true
@@ -355,7 +411,7 @@ func (w *connectResponseWriter) Flush() {
 		w.WriteHeader(http.StatusOK)
 	}
 	if !w.headersOut {
-		// Best-effort — if header emission fails the next Write will see the
+		// Best-effort. If header emission fails the next Write will see the
 		// error. We can't return an error from http.Flusher.
 		w.finishErr = w.emitHeaders()
 		return
@@ -406,7 +462,6 @@ func (w *connectResponseWriter) finish() error {
 	return w.bw.Flush()
 }
 
-// Hijack is intentionally absent — the inner ProxyHandler must not hijack the
-// inner TLS conn. If a future inner handler needs streaming it should instead
-// call Flush(); we'll add http.Flusher support when that lands.
+// Hijack is intentionally absent: the inner ProxyHandler must not hijack the
+// tunneled TLS conn. Streaming inner handlers use Flush instead.
 var _ http.ResponseWriter = (*connectResponseWriter)(nil)

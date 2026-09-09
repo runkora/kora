@@ -716,7 +716,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
-	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token — skipping Kubernetes connection; create it to enable)"
+	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
 	@if [ -f secrets/orbit-github-app.pem ]; then \
 		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
@@ -754,6 +754,10 @@ cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image
 		bash scripts/cluster/redeploy.sh $$svc --no-build || exit $$?; \
 	done
 	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
+
+.PHONY: cluster-k8s-connection
+cluster-k8s-connection: ## Register the local k3d cluster as a Kubernetes connection for the example tenant
+	@bash scripts/cluster/register-k8s-connection.sh
 
 .PHONY: cluster-bedrock-creds
 cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)

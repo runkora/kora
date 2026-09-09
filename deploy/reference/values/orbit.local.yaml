@@ -40,3 +40,10 @@ operator:
   leaderElection: false
   podDisruptionBudget:
     enabled: false
+
+egressGateway:
+  # The local Kubernetes connection points at the k3d API server, which listens
+  # on 6443. deploy/local/connections/kubernetes.yaml and
+  # scripts/cluster/register-k8s-connection.sh register it.
+  upstreamPorts:
+    - 6443

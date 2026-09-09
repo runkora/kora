@@ -1,7 +1,7 @@
 // Package tlsca is the per-tenant TLS issuing authority for the egress gateway.
 // It holds one CA key + cert per tenant and mints short-lived leaf certificates
 // on demand for SNI hosts the gateway intercepts. The agent never sees the CA
-// private key — only the public root, which is mounted into the sandbox image's
+// private key, only the public root, which is mounted into the sandbox image's
 // trust store so tools (git, gh, curl, SDKs) accept the leaf the gateway
 // presents during MITM termination.
 //
@@ -38,8 +38,13 @@ var (
 // Default leaf TTL. Long enough to amortize signing cost across a multi-step
 // command (a git push hits info/refs then git-receive-pack on separate
 // connections), short enough to bound exposure if the leaf key ever leaked
-// (which is hard — leaf keys never leave the broker process).
+// (which is hard, since leaf keys never leave the broker process).
 const defaultLeafTTL = 24 * time.Hour
+
+// leafCacheEvictThreshold is the entry count at which leafFor sweeps stale
+// leaves before inserting. The SNI is caller-supplied, so the cache needs a
+// ceiling that does not depend on hosts being real.
+var leafCacheEvictThreshold = 512
 
 // leafCacheRefreshMargin is how long before true expiry a cached leaf is
 // treated as stale, so a caller never gets an about-to-expire cert.
@@ -62,16 +67,13 @@ type IssuingCA struct {
 	cache map[string]*tls.Certificate
 }
 
-// Option configures an IssuingCA.
-type Option func(*IssuingCA)
-
 // New constructs an IssuingCA from PEM-encoded CA cert and private key. Both
 // arguments accept any number of PEM blocks; the first CERTIFICATE block is
 // used as the CA, and the first PRIVATE KEY block (RSA or EC) as its key.
 //
 // tenant is the tenant ID this CA serves; it is recorded on every minted leaf
 // for audit and is part of the cache key.
-func New(tenant string, caCertPEM, caKeyPEM []byte, opts ...Option) (*IssuingCA, error) {
+func New(tenant string, caCertPEM, caKeyPEM []byte) (*IssuingCA, error) {
 	if tenant == "" {
 		return nil, errors.New("tenant id is required")
 	}
@@ -89,6 +91,13 @@ func New(tenant string, caCertPEM, caKeyPEM []byte, opts ...Option) (*IssuingCA,
 		return nil, fmt.Errorf("parse ca key: %w", err)
 	}
 
+	// Reject a cert and key that are not a pair here, at load. Deferred, the
+	// mismatch surfaces on every CONNECT, after the hijack, where it can only
+	// be reported as a dropped connection.
+	if _, err := tls.X509KeyPair(caCertPEM, caKeyPEM); err != nil {
+		return nil, fmt.Errorf("ca cert and key are not a pair: %w", err)
+	}
+
 	c := &IssuingCA{
 		caCert: cert,
 		caKey:  key,
@@ -96,9 +105,6 @@ func New(tenant string, caCertPEM, caKeyPEM []byte, opts ...Option) (*IssuingCA,
 		ttl:    defaultLeafTTL,
 		now:    time.Now,
 		cache:  make(map[string]*tls.Certificate),
-	}
-	for _, opt := range opts {
-		opt(c)
 	}
 	return c, nil
 }
@@ -150,6 +156,21 @@ func (c *IssuingCA) leafFor(host string) (*tls.Certificate, error) {
 	}
 
 	c.mu.Lock()
+	// Bound growth before inserting. The SNI is attacker-chosen, so an agent
+	// could otherwise mint a leaf per fabricated hostname and hold every one of
+	// them. Sweeping the stale entries first keeps real traffic cached.
+	if len(c.cache) >= leafCacheEvictThreshold {
+		for k, v := range c.cache {
+			if !c.cacheFresh(v) {
+				delete(c.cache, k)
+			}
+		}
+		// Every entry is still fresh: drop the cache rather than grow without
+		// bound. Live hosts re-mint on their next request.
+		if len(c.cache) >= leafCacheEvictThreshold {
+			c.cache = make(map[string]*tls.Certificate, leafCacheEvictThreshold)
+		}
+	}
 	c.cache[host] = leaf
 	c.mu.Unlock()
 	return leaf, nil

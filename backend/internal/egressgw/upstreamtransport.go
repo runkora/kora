@@ -3,29 +3,23 @@ package egressgw
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 )
 
-// connectionTLSConfig is the adapter-agnostic shape of the one CA-trust field
-// any connection's Config may carry. It is deliberately NOT any adapter's own
-// config type (e.g. k8sbearer's) — ca_cert is a connection-level convention,
-// not a Kubernetes-specific one, so any future adapter needing a private CA
-// can opt in by putting ca_cert in its own Config with no gateway change.
-type connectionTLSConfig struct {
-	CACert string `json:"ca_cert,omitempty"`
-}
-
-// ErrTransportUnavailable is returned by TransportCache.For when a
-// connection's declared ca_cert cannot be parsed, or when CA trust is
-// requested against a base transport that cannot be cloned. The proxy treats
-// this as a distinct, logged failure mode from a policy deny.
+// ErrTransportUnavailable is returned by TransportCache.For when a connection's
+// declared ca_cert cannot be parsed. The proxy treats this as a distinct,
+// logged failure mode from a policy deny.
 var ErrTransportUnavailable = errors.New("upstream transport unavailable")
+
+// upstreamTracer names the OTel tracer for the forward leg. ReverseProxy owns
+// the request lifecycle, so the span comes from the RoundTripper layer.
+const upstreamTracer = "orbit.egress-upstream"
 
 // TransportCache resolves the http.RoundTripper the proxy should use to
 // re-originate a call to a given connection's upstream. Connections with no
@@ -34,37 +28,34 @@ var ErrTransportUnavailable = errors.New("upstream transport unavailable")
 // ca_cert gets its own cached *http.Transport that additionally trusts that
 // CA, scoped to exactly that connection so a leaked or misconfigured CA can
 // never affect certificate validation for any other connection.
+// Every transport it hands out is wrapped in the platform tracing transport, so
+// each forwarded call carries an OTel client span. The wrapper sits outside the
+// CA-trust clone, keeping the span across the whole round-trip.
 type TransportCache struct {
-	base http.RoundTripper
+	base   *http.Transport
+	shared http.RoundTripper
 
 	mu     sync.RWMutex
 	byConn map[string]http.RoundTripper
 }
 
-// NewTransportCache constructs a TransportCache. base is used unchanged for
-// every connection that declares no ca_cert; a nil base defaults to
-// http.DefaultTransport.
-func NewTransportCache(base http.RoundTripper) *TransportCache {
-	if base == nil {
-		base = http.DefaultTransport
+// NewTransportCache constructs a TransportCache. base is cloned per connection
+// that declares a ca_cert and used as-is otherwise. It is a concrete
+// *http.Transport because CA trust is applied by cloning it, and it is required:
+// the owning binary decides the forward leg's timeouts.
+func NewTransportCache(base *http.Transport) *TransportCache {
+	return &TransportCache{
+		base:   base,
+		shared: httpclient.NewTracingTransport(upstreamTracer, base),
+		byConn: make(map[string]http.RoundTripper),
 	}
-	return &TransportCache{base: base, byConn: make(map[string]http.RoundTripper)}
 }
 
 // For returns the http.RoundTripper the proxy should use to forward to conn's
-// upstream. A nil conn, or one with no ca_cert in Config, returns the shared
-// base transport.
+// upstream. A nil conn, or one declaring no CA, gets the shared base transport.
 func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, error) {
-	if conn == nil || len(conn.Config) == 0 {
-		return c.base, nil
-	}
-
-	var cfg connectionTLSConfig
-	if err := json.Unmarshal(conn.Config, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: parse connection config: %w", ErrTransportUnavailable, err)
-	}
-	if cfg.CACert == "" {
-		return c.base, nil
+	if conn == nil || conn.CACert == "" {
+		return c.shared, nil
 	}
 
 	c.mu.RLock()
@@ -74,28 +65,21 @@ func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, e
 		return cached, nil
 	}
 
-	transport, err := c.buildTransport(cfg.CACert)
+	clone, err := c.buildTransport(conn.CACert)
 	if err != nil {
 		return nil, err
 	}
+	traced := httpclient.NewTracingTransport(upstreamTracer, clone)
 
 	c.mu.Lock()
-	c.byConn[conn.ID] = transport
+	c.byConn[conn.ID] = traced
 	c.mu.Unlock()
-	return transport, nil
+	return traced, nil
 }
 
-// buildTransport clones the base *http.Transport with an additional trusted
-// CA appended to the system pool. The base must be an *http.Transport — the
-// production gateway always passes http.DefaultTransport (or an equivalent
-// configured Transport); a base that cannot be cloned is a caller error, not
-// a per-request failure.
-func (c *TransportCache) buildTransport(caCertPEM string) (http.RoundTripper, error) {
-	base, ok := c.base.(*http.Transport)
-	if !ok {
-		return nil, fmt.Errorf("%w: base transport does not support per-connection CA trust", ErrTransportUnavailable)
-	}
-
+// buildTransport clones the base transport with an additional trusted CA
+// appended to the system pool. The caller wraps it for tracing.
+func (c *TransportCache) buildTransport(caCertPEM string) (*http.Transport, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
 		pool = x509.NewCertPool()
@@ -104,7 +88,7 @@ func (c *TransportCache) buildTransport(caCertPEM string) (http.RoundTripper, er
 		return nil, fmt.Errorf("%w: connection ca_cert contains no usable certificate", ErrTransportUnavailable)
 	}
 
-	clone := base.Clone()
+	clone := c.base.Clone()
 	tlsConfig := clone.TLSClientConfig
 	if tlsConfig == nil {
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}

@@ -101,7 +101,7 @@ func TestConfigMapRegistry_GetByHost_AdapterHostFamily(t *testing.T) {
 		}
 	}
 
-	// Hosts outside the family are NOT claimed by the github connection — the
+	// Hosts outside the family are not claimed by the github connection. The
 	// credential must never reach a non-github upstream.
 	for _, host := range []string{
 		"githubusercontent.com", // apex, not a *.subdomain
@@ -181,5 +181,24 @@ func TestConfigMapRegistry_MalformedJSON(t *testing.T) {
 	_, err := LoadConfigMapRegistry(context.Background(), writeRegistry(t, `{not json`), logger)
 	if err == nil {
 		t.Fatal("expected error on malformed registry JSON")
+	}
+}
+
+// TestGetByHost_FullyQualifiedHost locks the trailing-dot form against the
+// registry. net/http accepts "github.com." and passes it through as the request
+// Host; left unnormalised it matches no connection, and the broker falls back
+// to passthrough, skipping the connection-scope check on a host that has one.
+func TestGetByHost_FullyQualifiedHost(t *testing.T) {
+	reg := newTestRegistry(t, sampleRegistry)
+
+	for _, host := range []string{"github.com", "github.com.", "GitHub.Com.", "api.github.com."} {
+		conn, err := reg.GetByHost(t.Context(), "acme", host)
+		if err != nil {
+			t.Errorf("GetByHost(%q) = %v, want the github connection", host, err)
+			continue
+		}
+		if conn.Name != "github" {
+			t.Errorf("GetByHost(%q) resolved %q, want github", host, conn.Name)
+		}
 	}
 }

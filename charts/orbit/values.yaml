@@ -574,6 +574,12 @@ triggers:
     meshPrincipals: []
 
 egressGateway:
+  # Extra outbound TCP ports the gateway may dial when brokering a connection.
+  # It reaches 443 already; anything else has to be opened deliberately, since
+  # this is the one component that holds credentials for every upstream. A
+  # Kubernetes API server conventionally listens on 6443, so a kubernetes
+  # Connection needs that port here before the gateway can reach it.
+  upstreamPorts: []
   # The Envoy filter that tunnels every sandbox connection into the egress
   # gateway. Independent of networkPolicy.enabled: on a CNI without
   # NetworkPolicy support this is the control that still holds.

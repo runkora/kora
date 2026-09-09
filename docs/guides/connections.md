@@ -51,17 +51,16 @@ config:
   app_id: (string) the GitHub App's ID.
   installation_id: (number) the installation on your organisation or repositories.
   owner: (string) the org or user the App is installed on. Orbit rejects requests addressed to any other owner.
+  permissions: (map) optional ceiling, intersected with the permissions each action derives.
 ```
+
+The connection does not name repositories. An agent is narrowed to specific repositories when a connector is attached to it, which compiles to a qualified grant; the App installation bounds everything beyond that.
 
 ### kubernetes
 
-Authenticates an agent to a Kubernetes API server as a ServiceAccount. `secretRef` should hold the bearer token under `secretKey: token`.
+Authenticates an agent to a Kubernetes API server as a ServiceAccount. `secretRef` should hold the bearer token under `secretKey: token`. The adapter reads no `config`.
 
-```yaml
-config:
-  cluster_name: (string) a name you choose to identify this cluster.
-  ca_cert: (string) the cluster's public CA certificate in PEM format, used by the gateway to verify the API server.
-```
+Set `caCert` to the cluster's CA certificate in PEM. It is a connection field rather than adapter config, because the gateway makes the outbound TLS connection and no adapter dials the upstream.
 
 Extract it from your kubeconfig:
 

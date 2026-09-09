@@ -99,6 +99,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | egressGateway.tolerations | list | `[]` |  |
 | egressGateway.topologySpreadConstraints | list | `[]` |  |
 | egressGateway.transparentEgress.enabled | bool | `true` |  |
+| egressGateway.upstreamPorts | list | `[]` |  |
 | frontend.affinity | object | `{}` |  |
 | frontend.config.inferenceGatewayUrl | string | `""` |  |
 | frontend.config.nextPublicAppUrl | string | `""` |  |

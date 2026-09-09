@@ -14,32 +14,16 @@ import (
 // ConnectionsReadController serves the read-only connection catalog for the
 // caller's tenant.
 //
-// Why this endpoint still exists (it is NOT dead code): the frontend connector
-// picker no longer calls this route — the catalog it reads moved to orbit-agents
-// (a plain-HTTP mesh service the BFF can reach; the gateway is a CONNECT/egress
-// broker that is not reachable over plain HTTP through the mesh). What this
-// controller is retained for is its route REGISTRATION. GET /connections is the
-// only non-empty HTTP route the gateway exposes, and the gateway's scope
-// vocabulary publish (ScopePublisher.Publish → ReadRoutes() in scopes.go) must
-// register a non-empty routes list with the policy service, which rejects an
-// empty routes list with 400 missing_required_field. Registering this route is
-// what lets the connection scope vocabulary publish at all. Deleting it would
-// break scope publication, so leave it in place.
+// GET /connections is the gateway's only HTTP route, and the policy service
+// rejects a scope registration whose routes list is empty. The route therefore
+// has to exist for the connection vocabulary to publish at all, even though the
+// frontend picker reads its catalog from orbit-agents rather than from here.
 //
-// It is also the minimal replacement for the admin connections CRUD API removed
-// by Amendment 3 of the JIT credential-brokering ADR
-// (docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md): connections
-// are now GitOps CRs, created and edited via Connection custom resources and
-// aggregated by the operator into the mounted registry — never through this
-// API.
-//
-// The response carries non-sensitive data only (connection name, adapter type,
-// and the adapter's grantable action vocabulary). It is therefore auth-only —
-// any authenticated caller may read their own tenant's catalog — with no
-// route → scope enforcement. The list is tenant-scoped from the verified token,
-// so a caller can never see another tenant's connections.
+// The response carries only a connection's name, adapter type, and grantable
+// actions, so the route is auth-only with no scope enforcement. The list is
+// tenant-scoped from the verified token.
 type ConnectionsReadController struct {
-	connRegistry credentials.ConnectionRepository
+	connRegistry connLister
 	registry     *AdapterRegistry
 	verifier     *platformtoken.Verifier
 	logger       logging.Logger
@@ -47,7 +31,7 @@ type ConnectionsReadController struct {
 
 // NewConnectionsReadController constructs the read-only connections controller.
 func NewConnectionsReadController(
-	connRegistry credentials.ConnectionRepository,
+	connRegistry connLister,
 	registry *AdapterRegistry,
 	verifier *platformtoken.Verifier,
 	logger logging.Logger,
@@ -77,14 +61,14 @@ func (c *ConnectionsReadController) Boot(mux *api.Mux) {
 	mux.Handle("GET /connections/{name}/resources", c.handleListConnectionResources)
 }
 
-// QualifierEnumerator is the optional adapter capability behind
+// QualifierEnumerator is the optional connector capability behind
 // GET /connections/{name}/resources: listing the upstream's current qualifier
 // values (repository names, namespaces) for the connector attachment picker,
-// through the connection's own credential. Adapters without a qualifier
-// dimension simply do not implement it. See
+// through the connection's own credential. A connector without a qualifier
+// dimension simply does not implement it. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md (Decision D).
 type QualifierEnumerator interface {
-	ListQualifierValues(ctx context.Context, conn credentials.Connection) ([]string, error)
+	ListQualifierValues(ctx context.Context) ([]string, error)
 }
 
 // handleListConnectionResources enumerates the named connection's qualifier
@@ -127,14 +111,20 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 			api.NotFoundError(api.ErrCodeResourceNotFound, "connection adapter not registered", nil), nil)
 		return
 	}
-	enum, ok := adapter.(QualifierEnumerator)
+	connector, err := adapter.Open(*conn)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "connection configuration is invalid", nil), err)
+		return
+	}
+	enum, ok := connector.(QualifierEnumerator)
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "connection declares no resource dimension", nil), nil)
 		return
 	}
 
-	values, err := enum.ListQualifierValues(ctx, *conn)
+	values, err := enum.ListQualifierValues(ctx)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to enumerate connection resources", nil), err)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -47,29 +48,6 @@ func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (polic
 	}
 	return policy.Result{Allow: s.allow, Reason: s.reason}, nil
 }
-func (*stubEvaluator) Query(context.Context, policy.QueryInput) ([]string, error) { return nil, nil }
-func (*stubEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
-	return nil, nil
-}
-func (*stubEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*policy.ScopesExplainResult, error) {
-	return nil, nil
-}
-func (*stubEvaluator) CheckBudget(context.Context, string, policy.BudgetCheckRequest) (policy.BudgetResult, error) {
-	return policy.BudgetResult{Allow: true}, nil
-}
-func (*stubEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
-	return nil, nil
-}
-func (*stubEvaluator) GetRoleBudgets(context.Context, string, []string) ([]policy.BudgetCategory, error) {
-	return nil, nil
-}
-func (*stubEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return nil, nil, nil
-}
-func (*stubEvaluator) GetTenantBudget(context.Context, string) (*policy.TenantBudget, error) {
-	return nil, nil
-}
-func (*stubEvaluator) Start(context.Context) {}
 
 type memConnRepo struct {
 	items map[string]*credentials.Connection // key: tenant|name
@@ -84,21 +62,6 @@ func (m *memConnRepo) Create(_ context.Context, c *credentials.Connection) error
 	}
 	m.items[c.TenantID+"|"+c.Name] = c
 	return nil
-}
-func (m *memConnRepo) GetByID(_ context.Context, id, tenantID string) (*credentials.Connection, error) {
-	for _, c := range m.items {
-		if c.ID == id && c.TenantID == tenantID {
-			return c, nil
-		}
-	}
-	return nil, credentials.ErrConnectionNotFound
-}
-func (m *memConnRepo) GetByName(_ context.Context, tenantID, name string) (*credentials.Connection, error) {
-	c, ok := m.items[tenantID+"|"+name]
-	if !ok {
-		return nil, credentials.ErrConnectionNotFound
-	}
-	return c, nil
 }
 func (m *memConnRepo) GetByHost(_ context.Context, tenantID, host string) (*credentials.Connection, error) {
 	for _, c := range m.items {
@@ -171,7 +134,7 @@ type fixture struct {
 	githubAPI *httptest.Server
 	upstream  *httptest.Server
 
-	// connectionHost is the upstream's host:port — the connection's base_host,
+	// connectionHost is the upstream's host:port, the connection's base_host,
 	// and the value tests set on req.Host.
 	connectionHost string
 
@@ -187,7 +150,7 @@ func newFixture(t *testing.T) *fixture {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	f := &fixture{t: t, logger: logger}
 
-	// Upstream — receives forwarded requests; records what it saw and replies 200.
+	// Upstream: receives forwarded requests; records what it saw and replies 200.
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.upstreamSawAuth = r.Header.Get("Authorization")
 		f.upstreamSawHost = r.Host
@@ -199,7 +162,7 @@ func newFixture(t *testing.T) *fixture {
 	f.upstream = upstream
 	f.connectionHost = strings.TrimPrefix(upstream.URL, "https://")
 
-	// GitHub API stub — exchanges the App JWT for an installation token.
+	// GitHub API stub: exchanges the App JWT for an installation token.
 	githubAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -237,14 +200,14 @@ func newFixture(t *testing.T) *fixture {
 	eval := &stubEvaluator{allow: true, reason: "allow"}
 	f.eval = eval
 
-	f.broker = NewBroker(eval, repo, registry, logger)
+	f.broker = NewBroker(eval, repo, registry, passthrough.New(), logger)
 
 	// Forward transport must accept the upstream's self-signed test cert.
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	handler := NewProxyHandler(f.broker, tr, logger)
 
-	// The gateway HTTP server runs as plain HTTP for tests — TLS termination
-	// is Phase 2b, not 2a. AuthMiddleware is simulated by authInjector.
+	// The gateway runs as plain HTTP here; the CONNECT handler's TLS
+	// termination has its own tests. authInjector stands in for AuthMiddleware.
 	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), handler))
 
 	t.Cleanup(func() {
@@ -287,7 +250,7 @@ func (f *fixture) callGateway(method, path, host string) (*http.Response, error)
 func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	f := newFixture(t)
 
-	// git push discovery — the path the adapter classifies as repo:write.
+	// git push discovery: the path the adapter classifies as repo:write.
 	resp, err := f.callGateway(http.MethodGet, "/orbit/orbit.git/info/refs?service=git-receive-pack", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
@@ -341,7 +304,7 @@ func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	// An unrecognized read path falls to the repo:read catch-all — the broker
+	// An unrecognized read path falls to the repo:read catch-all. The broker
 	// splits it into path=[github repo], action=read.
 	if len(f.eval.calls) != 1 || f.eval.calls[0].Action != "read" ||
 		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "repo" {
@@ -371,7 +334,7 @@ func TestProxy_PolicyDenies(t *testing.T) {
 // A host with no registered connection AUTO-PASSTHROUGHS: the broker forwards
 // to the host with no credential injected (the egress posture at the caller's
 // OPA sidecar is the reachability gate; connections are a credential overlay).
-// It must NOT reject — connections are not required just to reach a host.
+// It must NOT reject: connections are not required just to reach a host.
 func TestProxy_NoConnectionAutoPassthrough(t *testing.T) {
 	f := newFixture(t)
 
@@ -390,7 +353,7 @@ func TestProxy_NoConnectionAutoPassthrough(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (auto-passthrough forwards to the host)", resp.StatusCode)
 	}
-	// Nothing injected, and the platform token is stripped — the upstream sees
+	// Nothing injected, and the platform token is stripped. The upstream sees
 	// no Authorization at all.
 	if f.upstreamSawAuth != "" {
 		t.Errorf("upstream Authorization = %q, want empty (passthrough injects nothing, strips platform token)", f.upstreamSawAuth)
@@ -425,7 +388,7 @@ func TestProxy_Unauthenticated(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}}
 	registry := NewAdapterRegistry()
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	handler := NewProxyHandler(broker, tr, logger)
 
