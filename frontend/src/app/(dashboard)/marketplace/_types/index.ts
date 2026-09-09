@@ -1,0 +1,1 @@
+// Marketplace type placeholder.
