@@ -121,7 +121,10 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, errOpenConnector.Error())
-		return Decision{}, fmt.Errorf("%w: %w", ErrForbidden, err)
+		// A connection Orbit cannot read is an operator error, not a caller
+		// one. It still denies, but reporting it as forbidden sends whoever
+		// reads the audit log hunting a grant that was never the problem.
+		return Decision{}, err
 	}
 
 	cls, err := b.classify(ctx, connector, conn, req)

@@ -25,6 +25,10 @@ set -euo pipefail
 NAMESPACE="${1:-orbit-tenant-example}"
 SA_NAME="orbit-egress-local"
 SECRET_NAME="orbit-local-token"
+# The role and binding are cluster-scoped, so their names carry the namespace.
+# Without it, registering a second tenant would rebind the role to that tenant's
+# ServiceAccount and silently revoke the first.
+ROLE_NAME="orbit-egress-local-reader-${NAMESPACE}"
 TOKEN_TTL="24h"
 API_HOST="k3d-orbit-local-server-0:6443"
 
@@ -42,7 +46,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orbit-egress-local-reader
+  name: ${ROLE_NAME}
 rules:
   - apiGroups: [""]
     resources: ["pods", "services", "configmaps", "namespaces", "nodes", "events"]
@@ -54,11 +58,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: orbit-egress-local-reader
+  name: ${ROLE_NAME}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: orbit-egress-local-reader
+  name: ${ROLE_NAME}
 subjects:
   - kind: ServiceAccount
     name: ${SA_NAME}

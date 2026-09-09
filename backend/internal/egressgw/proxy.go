@@ -2,6 +2,7 @@ package egressgw
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -52,22 +53,26 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decision, err := p.broker.Authorize(ctx, claims, FromHTTP(r))
+	egress := FromHTTP(r)
+	decision, err := p.broker.Authorize(ctx, claims, egress)
 	if err != nil {
 		p.handleBrokerError(w, r, err)
 		return
 	}
 
-	// Forward to the host the client actually requested, not the connection's
-	// base_host: a single connection can serve a host family (github.com for git
-	// AND api.github.com / codeload.github.com / *.githubusercontent.com for the
-	// REST API, archives, and raw content). GetByHost has already constrained
-	// r.Host to the connection's declared hosts, so the minted credential only
-	// ever reaches the connection's own upstreams.
-	upstream, err := buildUpstreamURL(r.Host)
+	// Forward to the host the client asked for, not the connection's base_host:
+	// one connection can serve a host family (github.com for git, plus
+	// api.github.com, codeload.github.com and *.githubusercontent.com for the
+	// REST API, archives and raw content). GetByHost has already constrained
+	// that host to the connection's own, so the minted credential never leaves
+	// them.
+	//
+	// It is the host the broker authorized, not r.Host: the two differ when the
+	// request carries its authority in the URL rather than the Host header, and
+	// the credential is scoped to whichever one policy was evaluated against.
+	upstream, err := buildUpstreamURL(egress.Host)
 	if err != nil {
-		platformapi.ErrorResponse(ctx, w, p.logger,
-			platformapi.InternalError(platformapi.ErrCodeInternalError, "invalid upstream url", nil), err)
+		p.handleBrokerError(w, r, fmt.Errorf("%w: %w", ErrMissingHost, err))
 		return
 	}
 
@@ -147,6 +152,8 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 		apiErr = platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "no connection registered for host", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
+	case errors.Is(err, credentials.ErrInvalidConfig):
+		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	default:
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "broker error", nil)
 	}
