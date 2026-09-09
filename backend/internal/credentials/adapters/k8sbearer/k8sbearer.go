@@ -1,12 +1,12 @@
 // Package k8sbearer implements the credential adapter for a Kubernetes
 // connection whose credential is a static, admin-supplied ServiceAccount
 // bearer token. Unlike githubapp, there is no minting: the egress gateway
-// calls Adapter.Resolve to read the token from the mounted secret and inject
+// calls Mint to read the token from the mounted secret and inject
 // it verbatim on the re-originated leg. Rotation is a Secret update, picked
 // up on the next resolve via the existing fsnotify reload, with no adapter-side
 // cache to invalidate.
 //
-// ClassifyAction is resource-category-scoped rather than one coarse
+// Classify is resource-category-scoped rather than one coarse
 // read/write pair: it parses the Kubernetes API request path to determine
 // which resource category (workloads, config, secrets, networking, storage,
 // rbac, or the cluster catch-all) a call touches, combined with a verb class
@@ -16,7 +16,7 @@
 // Amendment 1.
 //
 // Each connection-type lives in its own subpackage so adding a new external
-// service is a new directory behind the same credentials.CredentialAdapter
+// service is a new directory behind the same credentials.Adapter
 // interface, never a change to the parent package.
 package k8sbearer
 
@@ -32,7 +32,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Action constants returned by ClassifyAction. Sourced from the shared
+// Action constants returned by Classify. Sourced from the shared
 // adapter metadata table so the classifier and the published vocabulary
 // cannot drift. They combine with the connection name to form
 // "connection:<name>:<action>".
@@ -68,7 +68,7 @@ const categoryCluster = "cluster"
 // to know this shape. The broker and policy layer treat the resulting
 // "<category>:<verb>" action as an opaque string. Unlisted resources
 // (including CRDs) are NOT auto-bucketed into "cluster": categorizeRequest
-// returns ok=false for them, and ClassifyAction denies the call outright
+// returns ok=false for them, and Classify denies the call outright
 // (ErrUnsupportedAction) rather than guessing. Extend this map, one line per
 // resource, as new categories or resources need coverage.
 var resourceCategories = map[string]string{
@@ -125,7 +125,7 @@ var resourceCategories = map[string]string{
 }
 
 // Adapter resolves the static ServiceAccount bearer token mounted for a
-// Kubernetes connection. Adapter implements credentials.CredentialAdapter.
+// Kubernetes connection. Adapter implements credentials.Adapter.
 type Adapter struct {
 	secrets credentials.SecretResolver
 	logger  logging.Logger
@@ -139,7 +139,7 @@ func New(secrets credentials.SecretResolver, logger logging.Logger) *Adapter {
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterKubernetesBearer }
 
-// Actions enumerates every action ClassifyAction can return, delegating to
+// Actions enumerates every action Classify can return, delegating to
 // the shared metadata table (internal/platform/connections) so the
 // connection:<name>:<action> vocabulary the egress gateway publishes has
 // exactly one source of truth.
@@ -147,21 +147,31 @@ func (a *Adapter) Actions() []credentials.ActionDeclaration {
 	return credentials.DeclaredActions(platformconns.AdapterKubernetesBearer)
 }
 
-// ClassifyAction maps a Kubernetes API request to the policy action that
-// authorizes it: a resource category (workloads, config, secrets,
-// networking, storage, rbac, or the cluster catch-all) combined with a verb
-// class (read/write) derived from the HTTP method.
+// Open binds the adapter to one connection. A cluster connection carries no
+// adapter configuration: its certificate authority is a connection field the
+// gateway reads, not an adapter key.
+func (a *Adapter) Open(conn credentials.Connection) (credentials.Connector, error) {
+	return &connector{adapter: a, conn: conn}, nil
+}
+
+// connector serves one cluster.
+type connector struct {
+	adapter *Adapter
+	conn    credentials.Connection
+}
+
+// Classify maps a Kubernetes API request to the action that authorizes it: a
+// resource category (workloads, config, secrets, networking, storage, rbac, or
+// the cluster catch-all) combined with a read or write verb from the method.
 //
-// kubectl exec/port-forward are SPDY/WebSocket-upgraded requests, not plain
-// REST. They are denied outright (ErrUnsupportedAction) rather than
-// misclassified as a REST verb, so they fail cleanly and audibly.
+// Two shapes are denied outright rather than misclassified. kubectl exec and
+// port-forward are SPDY or WebSocket upgrades, not REST. A resource absent from
+// resourceCategories, a CRD or anything not yet enumerated, is denied rather
+// than folded into the catch-all.
 //
-// A resource type not present in resourceCategories (a CRD, or any resource
-// not yet enumerated) is denied outright rather than folded into the
-// "cluster" catch-all. See resourceCategories' doc comment. Fine-grained
-// (namespace/resource-name/verb) authorization within a granted category is
-// delegated to the target cluster's own RBAC on the injected identity.
-func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (credentials.Classification, error) {
+// Authorization within a granted category, by namespace, resource name or
+// verb, is the target cluster's own RBAC on the injected identity.
+func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -280,14 +290,14 @@ func isUpgradeRequest(req *http.Request) bool {
 // it as-is. There is no minting and no cache, since the token is already an
 // in-memory string once read, so caching it buys nothing k8sfile's own
 // mount-read doesn't already give for free.
-func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id credentials.CallerIdentity) (credentials.Credential, error) {
-	tok, err := a.secrets.Resolve(ctx, conn.SecretRef)
+func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
+	tok, err := c.adapter.secrets.Resolve(ctx, c.conn.SecretRef)
 	if err != nil {
 		return credentials.Credential{}, fmt.Errorf("resolve k8s bearer secret: %w", err)
 	}
 
-	a.logger.Debug(ctx, "resolved k8s bearer credential",
-		logging.Field{Key: "connection", Value: conn.Name},
+	c.adapter.logger.Debug(ctx, "resolved k8s bearer credential",
+		logging.Field{Key: "connection", Value: c.conn.Name},
 		logging.Field{Key: "tenant_id", Value: id.TenantID},
 		logging.Field{Key: "run_id", Value: id.RunID},
 	)

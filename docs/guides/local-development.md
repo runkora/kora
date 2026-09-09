@@ -257,7 +257,7 @@ The client runs the MCP OAuth flow and opens the consent screen in your browser.
      --from-literal=token=<ServiceAccount token> --dry-run=client -o yaml | kubectl apply -f -
    ```
    `make cluster-deploy` applies the shipped CR only once `orbit-local-token` exists; a copied CR under another name is applied by hand.
-3. **Get the target cluster's CA cert** and put it inline in `config.ca_cert` (it's not a secret):
+3. **Get the target cluster's CA cert** and put it inline in `spec.caCert` (it's not a secret):
    ```bash
    kubectl config view --raw \
      -o jsonpath='{.clusters[?(@.name=="<target-cluster-context>")].cluster.certificate-authority-data}' \

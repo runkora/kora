@@ -2,8 +2,8 @@
 #
 # scripts/cluster/register-k8s-connection.sh generates this resource with the
 # live cluster CA and applies it, along with the ServiceAccount and token it
-# needs. This file is the shape that script produces; ca_cert is cluster
-# specific, so the committed copy carries a placeholder.
+# needs. This file is the shape that script produces; the certificate is
+# cluster specific, so the committed copy carries a placeholder.
 #
 # baseHost is the k3d server's own hostname, which CoreDNS resolves from its
 # NodeHosts entries and which is on the API server certificate. It is
@@ -25,8 +25,7 @@ spec:
   baseHost: k3d-orbit-local-server-0:6443
   secretRef: orbit-local-token
   secretKey: token
-  config:
-    ca_cert: |
-      -----BEGIN CERTIFICATE-----
-      <replace with the target cluster CA certificate PEM>
-      -----END CERTIFICATE-----
+  caCert: |
+    -----BEGIN CERTIFICATE-----
+    <replace with the target cluster CA certificate PEM>
+    -----END CERTIFICATE-----

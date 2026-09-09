@@ -38,14 +38,22 @@ func (a *Adapter) Actions() []credentials.ActionDeclaration {
 	}
 }
 
-// ClassifyAction maps every request to "use". A passthrough host is authorized
-// uniformly, regardless of method or path, and declares no qualifier dimension.
-func (a *Adapter) ClassifyAction(_ *http.Request, _ credentials.Connection) (credentials.Classification, error) {
+// Open binds the adapter to a connection. There is no configuration to read.
+func (a *Adapter) Open(credentials.Connection) (credentials.Connector, error) {
+	return connector{}, nil
+}
+
+// connector serves one passthrough host.
+type connector struct{}
+
+// Classify maps every request to "use". A passthrough host is authorized
+// uniformly, regardless of method or path.
+func (connector) Classify(*http.Request) (credentials.Classification, error) {
 	return credentials.Classification{Action: actionUse}, nil
 }
 
-// Resolve returns an empty credential. The gateway's forward path treats an
-// empty Header as "inject nothing".
-func (a *Adapter) Resolve(_ context.Context, _ credentials.Connection, _ credentials.CallerIdentity) (credentials.Credential, error) {
+// Mint returns an empty credential. The gateway's forward path treats an empty
+// Header as "inject nothing".
+func (connector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, nil
 }

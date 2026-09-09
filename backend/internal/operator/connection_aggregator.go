@@ -78,6 +78,10 @@ type connectionRegistryEntry struct {
 	BaseHost  string          `json:"base_host"`
 	SecretRef string          `json:"secret_ref"`
 	Config    json.RawMessage `json:"config,omitempty"`
+
+	// CACert is the authority the gateway verifies this upstream against,
+	// carried straight from spec.caCert.
+	CACert string `json:"ca_cert,omitempty"`
 }
 
 // ConnectionAggregator reads each active tenant's Connection CRs from its
@@ -192,6 +196,7 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 				BaseHost:  conn.Spec.BaseHost,
 				SecretRef: secretRef,
 				Config:    rawConfig(conn.Spec.Config),
+				CACert:    conn.Spec.CACert,
 			})
 		}
 	}

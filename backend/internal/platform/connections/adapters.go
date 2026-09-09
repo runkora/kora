@@ -104,10 +104,6 @@ type QualifierMeta struct {
 	Name string
 	// Description explains the dimension for admins.
 	Description string
-	// ConfigKey is the connection-config key holding the optional ceiling
-	// allowlist ([]string). The broker denies requests whose extracted
-	// qualifier falls outside a declared ceiling, before policy evaluation.
-	ConfigKey string
 }
 
 // adapterMeta is the static metadata for one adapter.
@@ -172,7 +168,6 @@ var registry = map[string]adapterMeta{
 		qualifier: &QualifierMeta{
 			Name:        "repository",
 			Description: "Scope this connector to specific repositories of the installation (bare repository name; the installation fixes the owner)",
-			ConfigKey:   "repositories",
 		},
 		baselineActions: []string{ActionGitHubMetadataRead},
 	},

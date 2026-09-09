@@ -26,7 +26,7 @@ type EgressRequest struct {
 	URL *url.URL
 
 	// HTTPRequest is the original inbound request. The broker passes it to the
-	// adapter's ClassifyAction so adapter-specific shapes (git smart-HTTP,
+	// connector's Classify so adapter-specific shapes (git smart-HTTP,
 	// REST verbs, GraphQL) can be inspected without leaking that knowledge into
 	// the broker.
 	HTTPRequest *http.Request

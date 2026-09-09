@@ -41,6 +41,7 @@ type registryEntry struct {
 	BaseHost  string          `json:"base_host"`
 	SecretRef string          `json:"secret_ref"`
 	Config    json.RawMessage `json:"config,omitempty"`
+	CACert    string          `json:"ca_cert,omitempty"`
 }
 
 // ConfigMapRegistry is the gateway's connection registry: file-backed and
@@ -278,6 +279,7 @@ func loadConnections(ctx context.Context, path string, logger logging.Logger) ([
 			BaseHost:  e.BaseHost,
 			SecretRef: e.SecretRef,
 			Config:    e.Config,
+			CACert:    e.CACert,
 		})
 	}
 	return conns, nil

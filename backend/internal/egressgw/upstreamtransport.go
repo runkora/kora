@@ -3,7 +3,6 @@ package egressgw
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,15 +11,6 @@ import (
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 )
-
-// connectionTLSConfig is the adapter-agnostic shape of the one CA-trust field
-// any connection's Config may carry. It is deliberately NOT any adapter's own
-// config type such as k8sbearer's. ca_cert is a connection-level convention,
-// not a Kubernetes-specific one, so any future adapter needing a private CA
-// opts in by putting ca_cert in its own Config, with no gateway change.
-type connectionTLSConfig struct {
-	CACert string `json:"ca_cert,omitempty"`
-}
 
 // ErrTransportUnavailable is returned by TransportCache.For when a connection's
 // declared ca_cert cannot be parsed. The proxy treats this as a distinct,
@@ -62,18 +52,9 @@ func NewTransportCache(base *http.Transport) *TransportCache {
 }
 
 // For returns the http.RoundTripper the proxy should use to forward to conn's
-// upstream. A nil conn, or one with no ca_cert in Config, returns the shared
-// base transport.
+// upstream. A nil conn, or one declaring no CA, gets the shared base transport.
 func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, error) {
-	if conn == nil || len(conn.Config) == 0 {
-		return c.shared, nil
-	}
-
-	var cfg connectionTLSConfig
-	if err := json.Unmarshal(conn.Config, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: parse connection config: %w", ErrTransportUnavailable, err)
-	}
-	if cfg.CACert == "" {
+	if conn == nil || conn.CACert == "" {
 		return c.shared, nil
 	}
 
@@ -84,7 +65,7 @@ func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, e
 		return cached, nil
 	}
 
-	clone, err := c.buildTransport(cfg.CACert)
+	clone, err := c.buildTransport(conn.CACert)
 	if err != nil {
 		return nil, err
 	}

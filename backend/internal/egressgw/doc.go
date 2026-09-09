@@ -2,7 +2,7 @@
 // outbound requests from a sandbox (carrying the agent's platform token), looks
 // up the connection by the upstream Host the request is destined for, asks the
 // adapter to classify the call into a policy action, authorizes the egress
-// against policy, asks the matching credentials.CredentialAdapter for a
+// against policy, asks the connection's credentials.Connector for a
 // just-in-time credential, swaps the platform token for the minted upstream
 // credential, and forwards the request to the real third-party service. The
 // agent never holds the upstream credential.

@@ -2,6 +2,8 @@ package credentials
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -27,46 +29,66 @@ type Credential struct {
 	ExpiresAt time.Time
 }
 
-// CredentialAdapter mints or resolves the credential for one connection, scoped
-// to the calling identity. Connection.Adapter selects the implementation, which
-// must never return a credential broader than the connection's ceiling.
+// Adapter serves one credential mechanism. It is registered once per mechanism
+// and opens a Connector for each connection of that type.
 //
-// The adapter also translates an inbound HTTP request into the policy action
-// that authorizes it. Only it knows the upstream's API shape: git smart-HTTP
-// routes, REST verb mapping, the Kubernetes resource grammar. The gateway asks
-// what scope the call requires and evaluates that against the caller's grants,
-// staying adapter-agnostic throughout.
-//
-// Actions enumerates everything ClassifyAction can ever return, which is what
-// the gateway publishes as the connection:<name>:<action> vocabulary.
-// ClassifyAction must return only values from that set.
-type CredentialAdapter interface {
+// The adapter owns the translation from an inbound request to the policy action
+// that authorizes it, because only it knows the upstream's API shape: git
+// smart-HTTP routes, REST verb mapping, the Kubernetes resource grammar. The
+// gateway asks what scope a call requires and evaluates that against the
+// caller's grants, staying adapter-agnostic throughout.
+type Adapter interface {
 	// Type reports which AdapterType this adapter serves.
 	Type() AdapterType
 
-	// Actions returns every action this adapter may classify a request as,
-	// each with a human-readable description. Order is presentational; the
-	// gateway does not depend on it.
+	// Actions returns every action a Connector of this adapter may classify a
+	// request as, each with a human-readable description. It is what the
+	// gateway publishes as the connection:<name>:<action> vocabulary, and
+	// Classify must return only values from this set. Order is presentational.
 	Actions() []ActionDeclaration
 
-	// ClassifyAction inspects req and returns the policy action this call
-	// requires (e.g. "repo:write", "workloads:read") plus, for adapters with a
-	// declared qualifier dimension, the resource qualifier extracted from the
-	// request (e.g. the repository name). The broker builds the required scope
-	// connection:<name>:<category>[:<qualifier>]:<verb> from the result. An
-	// adapter that authorizes the entire connection uniformly may return a
-	// single constant action ("use", "invoke") and an empty qualifier.
-	//
-	// conn is the connection the request routed to. Adapters read its config to
-	// verify resource authority; the GitHub adapter, for instance, denies paths
-	// naming a foreign repository owner. Extraction must be canonical: a request
-	// naming a resource outside the connection's authority returns
-	// ErrUnsupportedAction rather than an ambiguous qualifier. See
-	// docs/adr/2026-07-22-connection-scope-qualifiers.md.
-	ClassifyAction(req *http.Request, conn Connection) (Classification, error)
+	// Open binds the adapter to one connection, decoding and validating its
+	// configuration. A Connector that exists is one whose configuration was
+	// accepted, so neither Classify nor Mint revisits it. Configuration
+	// failures wrap ErrInvalidConfig.
+	Open(conn Connection) (Connector, error)
+}
 
-	// Resolve returns the credential to apply for this call.
-	Resolve(ctx context.Context, conn Connection, id CallerIdentity) (Credential, error)
+// Connector is one adapter bound to one connection, with its configuration
+// already resolved. It holds that configuration, so nothing downstream of Open
+// reads raw JSON.
+type Connector interface {
+	// Classify inspects req and returns the policy action this call requires
+	// (e.g. "repo:write", "workloads:read") plus, for a connection with a
+	// qualifier dimension, the resource the request names (e.g. the
+	// repository). The broker builds the required scope
+	// connection:<name>:<category>[:<qualifier>]:<verb> from the result. A
+	// connection authorized uniformly returns a constant action ("use") and an
+	// empty qualifier.
+	//
+	// Extraction is canonical: a request naming a resource outside the
+	// connection's authority returns ErrUnsupportedAction rather than an
+	// ambiguous qualifier. See
+	// docs/adr/2026-07-22-connection-scope-qualifiers.md.
+	Classify(req *http.Request) (Classification, error)
+
+	// Mint returns the credential to apply for this call.
+	Mint(ctx context.Context, id CallerIdentity) (Credential, error)
+}
+
+// DecodeConfig reads a connection's adapter configuration into out. It is the
+// one place adapter config is decoded, so every adapter fails the same way. A
+// connection with no config leaves out at its zero value, which the adapter
+// then validates. Keys out does not declare are ignored, which is how the
+// platform-owned settings share the same object.
+func DecodeConfig(conn Connection, out any) error {
+	if len(conn.Config) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(conn.Config, out); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+	return nil
 }
 
 // Classification is the policy-facing result of mapping one inbound request:
@@ -79,7 +101,7 @@ type Classification struct {
 }
 
 // ActionDeclaration describes one action an adapter can classify. The Action
-// is the value returned by ClassifyAction; Description is shown to admins in
+// is the value returned by Classify; Description is shown to admins in
 // the connection dashboard and embedded in the published scope vocabulary.
 // Requires lists same-connection action fragments the action confers when
 // granted (published as vocabulary requires edges).

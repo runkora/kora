@@ -74,7 +74,8 @@ kubectl create secret generic "${SECRET_NAME}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # The gateway verifies the API server against this CA. It is cluster-specific,
-# so it is read live rather than committed.
+# so it is read live rather than committed. caCert is a connection field, not
+# adapter config: the gateway owns the outbound TLS leg.
 CA_CERT="$(kubectl config view --raw --minify \
   -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)"
 
@@ -96,10 +97,9 @@ spec:
   baseHost: ${API_HOST}
   secretRef: ${SECRET_NAME}
   secretKey: token
-  config:
-    ca_cert: |
+  caCert: |
 EOF
-  echo "${CA_CERT}" | sed 's/^/      /'
+  echo "${CA_CERT}" | sed 's/^/    /'
 } | kubectl apply -f -
 
 echo "✓ Kubernetes connection registered as 'orbit-local' in ${NAMESPACE}"

@@ -1,11 +1,11 @@
 // Package githubapp implements the credential adapter for GitHub App
 // installation tokens. The agent acts as the installed GitHub App (bot
-// authority); the egress gateway calls Adapter.Resolve to obtain a short-lived,
+// authority); the egress gateway calls Mint to obtain a short-lived,
 // repository- and permission-scoped installation token, formatted as the git
 // smart-HTTP Basic credential. The long-lived App private key never leaves this
 // process.
 //
-// ClassifyAction is category-scoped: it parses the request's host family and
+// Classify is category-scoped: it parses the request's host family and
 // path into a route-family category (contents, issues, pulls, actions, checks,
 // admin, metadata) combined with a read/write verb class, plus the repository
 // qualifier when the path names one. Resolve then mints the installation token
@@ -15,7 +15,7 @@
 //
 // Each connection-type lives in its own subpackage so adding a new external
 // service (AWS STS, OAuth2 client-credentials, API-key SaaS) is a new directory
-// behind the same credentials.CredentialAdapter interface, never a change to
+// behind the same credentials.Adapter interface, never a change to
 // the parent package. See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
 package githubapp
 
@@ -66,14 +66,11 @@ type config struct {
 	AppID          string `json:"app_id"`
 	InstallationID int64  `json:"installation_id"`
 	// Owner is the account (org or user) the App installation is bound to.
-	// When declared, ClassifyAction verifies request paths against it and
+	// When declared, Classify verifies request paths against it and
 	// denies foreign-owner paths outright; when empty (legacy connections),
 	// no repository qualifier is ever extracted, so only unqualified grants
 	// match, which is the pre-qualifier behavior.
 	Owner string `json:"owner,omitempty"`
-	// Repositories is the optional mint-time repository ceiling; the broker
-	// additionally enforces it as the qualifier ceiling at the gate.
-	Repositories []string `json:"repositories,omitempty"`
 	// Permissions is the optional permission ceiling. When set, derived
 	// per-category permission sets are intersected with it, and the repo:*
 	// umbrella mints it verbatim.
@@ -102,7 +99,7 @@ type cachedInstPerms struct {
 
 // Adapter mints short-lived GitHub App installation tokens. Tokens are scoped to
 // the classified category's permissions and the request's repository, and cached
-// until shortly before expiry. Adapter implements credentials.CredentialAdapter.
+// until shortly before expiry. Adapter implements credentials.Adapter.
 type Adapter struct {
 	api     API
 	secrets credentials.SecretResolver
@@ -130,7 +127,7 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 
-// Action constants returned by ClassifyAction. Sourced from the shared adapter
+// Action constants returned by Classify. Sourced from the shared adapter
 // metadata table so the classifier and the published vocabulary cannot drift.
 // They combine with the connection name (and optional repository qualifier) to
 // form "connection:<name>:<category>[:<repo>]:<verb>".
@@ -142,45 +139,51 @@ const (
 	ActionContentsWrite = platformconns.ActionGitHubContentsWrite
 )
 
-// Actions enumerates every action ClassifyAction can return. The shared
+// Actions enumerates every action Classify can return. The shared
 // metadata table is the one source of truth for the vocabulary, and it is the
 // same table orbit-agents reads to derive auto-egress.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
 	return credentials.DeclaredActions(platformconns.AdapterGitHubApp)
 }
 
-// ClassifyAction maps a GitHub-bound HTTP request to the policy action and
-// repository qualifier that authorize it. Four surfaces share the host family:
+// Open binds the adapter to one connection, decoding and validating its
+// configuration once so neither Classify nor Mint revisits it.
+func (a *Adapter) Open(conn credentials.Connection) (credentials.Connector, error) {
+	var cfg config
+	if err := credentials.DecodeConfig(conn, &cfg); err != nil {
+		return nil, fmt.Errorf("github_app config: %w", err)
+	}
+	if cfg.AppID == "" || cfg.InstallationID == 0 {
+		return nil, fmt.Errorf("%w: github_app requires app_id and installation_id", credentials.ErrInvalidConfig)
+	}
+	return &connector{adapter: a, conn: conn, cfg: cfg}, nil
+}
+
+// connector is the adapter bound to one connection. It holds the decoded
+// config, so the request path never sees the connection's raw JSON.
+type connector struct {
+	adapter *Adapter
+	conn    credentials.Connection
+	cfg     config
+}
+
+// Classify maps a GitHub-bound request to the action and repository that
+// authorize it, across the four surfaces sharing the host family: git
+// smart-HTTP, the REST and GraphQL API, the content hosts, and a
+// verb-classified catch-all for everything else.
 //
-//  1. git smart-HTTP: clone/fetch (git-upload-pack) is contents:read, push
-//     (git-receive-pack) is contents:write; the repository comes from the
-//     /{owner}/{repo}(.git)/ path.
-//  2. The REST/GraphQL API: api.github.com, or /api/v3 (+/api/graphql) on a
-//     GitHub Enterprise appliance host. Route families under
-//     /repos/{owner}/{repo}/… map to categories; the verb supplies read/write.
-//  3. The content-host family, codeload.github.com and *.githubusercontent.com:
-//     GET/HEAD only, contents:read.
-//  4. Anything else, verb-classified into the repo:read/repo:write catch-all,
-//     unqualified (the pre-category behavior).
-//
-// Owner verification: when the connection declares its account, any
-// repo-addressed path naming a different owner is denied outright. GitHub
-// serves foreign public repos to any token, so qualifying by bare name without
-// verifying the owner would let name collisions widen a repo-scoped grant.
-// Content-host paths are the exception: their shapes are not always
-// owner-addressed (opaque object URLs), so a non-matching shape classifies
-// unqualified instead, satisfiable only by an unqualified contents:read grant.
-func (a *Adapter) ClassifyAction(req *http.Request, conn credentials.Connection) (credentials.Classification, error) {
+// A repo-addressed path naming an owner other than the connection's is denied
+// outright. GitHub serves foreign public repositories to any token, so
+// qualifying by bare name without checking the owner would let a name
+// collision widen a repository-scoped grant. Content-host paths are the
+// exception: their shapes are not always owner-addressed, so one that does not
+// match classifies unqualified instead.
+func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
-	var cfg config
-	if len(conn.Config) > 0 {
-		// A malformed config cannot declare an owner; Resolve rejects it later.
-		_ = json.Unmarshal(conn.Config, &cfg)
-	}
-	owner := normalizeName(cfg.Owner)
+	owner := normalizeName(c.cfg.Owner)
 
 	if cls, ok, err := classifyGitSmartHTTP(req, owner); ok || err != nil {
 		return cls, err
@@ -806,14 +809,15 @@ func splitAction(action string) (category, verb string) {
 	return action, verbRead
 }
 
-// reposFor derives the mint-time repository narrowing: the request's qualifier
-// when one was classified (the broker has already ceiling-checked it), else the
-// connection's configured list.
-func reposFor(qualifier string, ceiling []string) []string {
-	if qualifier != "" {
-		return []string{qualifier}
+// reposFor derives the mint-time repository narrowing from the request's
+// classified repository. An unqualified call narrows to nothing, so the token
+// covers the installation: which repositories an agent may reach is expressed
+// by its grant, and the installation is the outer ceiling on all of them.
+func reposFor(qualifier string) []string {
+	if qualifier == "" {
+		return nil
 	}
-	return slices.Clone(ceiling)
+	return []string{qualifier}
 }
 
 // Resolve returns a cached, or freshly minted, installation token formatted as
@@ -858,16 +862,10 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 	return perms, nil
 }
 
-func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id credentials.CallerIdentity) (credentials.Credential, error) {
-	var cfg config
-	if err := json.Unmarshal(conn.Config, &cfg); err != nil {
-		return credentials.Credential{}, fmt.Errorf("%w: github_app config: %w", credentials.ErrInvalidConfig, err)
-	}
-	if cfg.AppID == "" || cfg.InstallationID == 0 {
-		return credentials.Credential{}, fmt.Errorf("%w: github_app requires app_id and installation_id", credentials.ErrInvalidConfig)
-	}
+func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
+	a, conn, cfg := c.adapter, c.conn, c.cfg
 
-	repos := reposFor(id.Qualifier, cfg.Repositories)
+	repos := reposFor(id.Qualifier)
 
 	// For the repo:* umbrella with no declared ceiling, derive the permission set
 	// by intersecting with the App installation's actual grants. This prevents
@@ -948,15 +946,15 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 // connector attachment picker (the egress gateway's optional
 // QualifierEnumerator capability). It resolves a metadata-scoped installation
 // token, reusing the cache, and lists the installation's repositories.
-func (a *Adapter) ListQualifierValues(ctx context.Context, conn credentials.Connection) ([]string, error) {
-	cred, err := a.Resolve(ctx, conn, credentials.CallerIdentity{
-		TenantID: conn.TenantID,
+func (c *connector) ListQualifierValues(ctx context.Context) ([]string, error) {
+	cred, err := c.Mint(ctx, credentials.CallerIdentity{
+		TenantID: c.conn.TenantID,
 		Action:   ActionMetadataRead,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolve metadata token for repository listing: %w", err)
 	}
-	repos, err := a.api.ListInstallationRepositories(ctx, cred.Token)
+	repos, err := c.adapter.api.ListInstallationRepositories(ctx, cred.Token)
 	if err != nil {
 		return nil, fmt.Errorf("list installation repositories: %w", err)
 	}

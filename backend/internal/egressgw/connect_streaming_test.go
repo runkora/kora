@@ -216,12 +216,19 @@ func (*streamTestAdapter) Type() credentials.AdapterType { return credentials.Ad
 func (*streamTestAdapter) Actions() []credentials.ActionDeclaration {
 	return []credentials.ActionDeclaration{{Action: "repo:read"}}
 }
-func (*streamTestAdapter) ClassifyAction(*http.Request, credentials.Connection) (credentials.Classification, error) {
+func (*streamTestAdapter) Open(credentials.Connection) (credentials.Connector, error) {
+	return streamTestConnector{}, nil
+}
+
+type streamTestConnector struct{}
+
+func (streamTestConnector) Classify(*http.Request) (credentials.Classification, error) {
 	return credentials.Classification{Action: "repo:read"}, nil
 }
-func (*streamTestAdapter) Resolve(context.Context, credentials.Connection, credentials.CallerIdentity) (credentials.Credential, error) {
+func (streamTestConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, nil
 }
+func (streamTestConnector) QualifierCeiling() []string { return nil }
 
 // closableBuf wraps a *bytes.Buffer so it satisfies net.Conn-ish writer
 // requirements (specifically, Close()) used by newConnectResponseWriter.

@@ -61,14 +61,14 @@ func (c *ConnectionsReadController) Boot(mux *api.Mux) {
 	mux.Handle("GET /connections/{name}/resources", c.handleListConnectionResources)
 }
 
-// QualifierEnumerator is the optional adapter capability behind
+// QualifierEnumerator is the optional connector capability behind
 // GET /connections/{name}/resources: listing the upstream's current qualifier
 // values (repository names, namespaces) for the connector attachment picker,
-// through the connection's own credential. Adapters without a qualifier
-// dimension simply do not implement it. See
+// through the connection's own credential. A connector without a qualifier
+// dimension simply does not implement it. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md (Decision D).
 type QualifierEnumerator interface {
-	ListQualifierValues(ctx context.Context, conn credentials.Connection) ([]string, error)
+	ListQualifierValues(ctx context.Context) ([]string, error)
 }
 
 // handleListConnectionResources enumerates the named connection's qualifier
@@ -111,14 +111,20 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 			api.NotFoundError(api.ErrCodeResourceNotFound, "connection adapter not registered", nil), nil)
 		return
 	}
-	enum, ok := adapter.(QualifierEnumerator)
+	connector, err := adapter.Open(*conn)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "connection configuration is invalid", nil), err)
+		return
+	}
+	enum, ok := connector.(QualifierEnumerator)
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "connection declares no resource dimension", nil), nil)
 		return
 	}
 
-	values, err := enum.ListQualifierValues(ctx, *conn)
+	values, err := enum.ListQualifierValues(ctx)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to enumerate connection resources", nil), err)

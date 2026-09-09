@@ -98,10 +98,21 @@ spec:
                     material. Optional; when omitted and the Secret has exactly
                     one key, that key is used.
                   type: string
+                caCert:
+                  description: >
+                    PEM certificate authority the gateway verifies this upstream
+                    against, for an upstream not signed by a public root. A
+                    property of the connection rather than of any adapter: the
+                    gateway owns the outbound TLS leg, and no adapter dials the
+                    upstream.
+                  type: string
                 config:
                   description: >
                     Adapter-specific configuration, passed through to the gateway
-                    verbatim. For github_app the adapter parses app_id (string)
-                    and installation_id (number); snake_case is required.
+                    verbatim; keys are snake_case. github_app reads app_id
+                    (string) and installation_id (number), both required, plus
+                    the optional owner (string) and permissions (map).
+                    kubernetes reads none. Which resources an agent may reach is
+                    set on its attachment, not here.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

@@ -42,6 +42,28 @@ func testKeyPEM(t *testing.T) []byte {
 	})
 }
 
+// validConn is the minimum connection Open accepts, for tests about request
+// classification rather than configuration.
+func validConn(t *testing.T) credentials.Connection {
+	t.Helper()
+	return credentials.Connection{
+		ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1}),
+	}
+}
+
+// open binds an adapter to a connection, which is how the broker reaches it.
+// Open decodes and validates the config, so a test that expects a rejection
+// asserts on this rather than on Classify or Mint.
+func open(t *testing.T, a *Adapter, conn credentials.Connection) credentials.Connector {
+	t.Helper()
+	c, err := a.Open(conn)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return c
+}
+
 func mustConfig(t *testing.T, cfg config) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(cfg)
@@ -112,13 +134,12 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 		BaseHost: "github.com", SecretRef: "k8s:orbit-conn-acme-github",
 		Config: mustConfig(t, config{
 			AppID: "12345", InstallationID: 42,
-			Repositories: []string{"orbit"},
-			Permissions:  map[string]string{"contents": "write"},
+			Permissions: map[string]string{"contents": "write"},
 		}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write"}
+	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "orbit"}
 
-	cred, err := adapter.Resolve(context.Background(), conn, id)
+	cred, err := open(t, adapter, conn).Mint(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -141,7 +162,7 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 	}
 
 	// A second Resolve within validity must be served from cache (no new call).
-	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
 	if calls != 1 {
@@ -163,7 +184,7 @@ func TestAdapter_Resolve_GitHubError(t *testing.T) {
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1}),
 	}
 
-	_, err := adapter.Resolve(context.Background(), conn, credentials.CallerIdentity{})
+	_, err := open(t, adapter, conn).Mint(context.Background(), credentials.CallerIdentity{})
 	if !errors.Is(err, ghclient.ErrUnexpectedStatus) {
 		t.Fatalf("err = %v, want wrapped ErrUnexpectedStatus", err)
 	}
@@ -187,7 +208,7 @@ func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
 
-	_, err := adapter.Resolve(context.Background(), conn,
+	_, err := open(t, adapter, conn).Mint(context.Background(),
 		credentials.CallerIdentity{Action: "issues:write", Qualifier: "orbit"})
 	if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
 		t.Fatalf("err = %v, want wrapped ErrCredentialScopeRejected", err)
@@ -197,17 +218,28 @@ func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
 	}
 }
 
-func TestAdapter_Resolve_InvalidConfig(t *testing.T) {
+// TestAdapter_OpenRejectsInvalidConfig covers the rules a github_app
+// connection must satisfy. Open enforces them, so a connection that cannot be
+// opened never reaches Classify or Mint.
+func TestAdapter_OpenRejectsInvalidConfig(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapter := New(nil, stubSecrets{pem: testKeyPEM(t)}, logger)
-	conn := credentials.Connection{
-		ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
-		Config: mustConfig(t, config{}), // no app_id / installation_id
-	}
 
-	_, err := adapter.Resolve(context.Background(), conn, credentials.CallerIdentity{})
-	if !errors.Is(err, credentials.ErrInvalidConfig) {
-		t.Fatalf("err = %v, want wrapped ErrInvalidConfig", err)
+	cases := map[string]json.RawMessage{
+		"missing app_id and installation_id": mustConfig(t, config{}),
+		"missing installation_id":            mustConfig(t, config{AppID: "1"}),
+		"malformed json":                     json.RawMessage(`{not json`),
+		"wrong type for app_id":              json.RawMessage(`{"app_id":1,"installation_id":2}`),
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			conn := credentials.Connection{
+				ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp, Config: cfg,
+			}
+			if _, err := adapter.Open(conn); !errors.Is(err, credentials.ErrInvalidConfig) {
+				t.Fatalf("Open err = %v, want wrapped ErrInvalidConfig", err)
+			}
+		})
 	}
 }
 
@@ -218,7 +250,7 @@ func TestAdapter_Type(t *testing.T) {
 	}
 }
 
-func TestAdapter_ClassifyAction(t *testing.T) {
+func TestConnector_Classify(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
@@ -301,7 +333,7 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build req: %v", err)
 			}
-			got, err := a.ClassifyAction(req, conn)
+			got, err := open(t, a, conn).Classify(req)
 			if tc.err {
 				if err == nil {
 					t.Fatalf("expected error, got %+v", got)
@@ -315,31 +347,31 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 				t.Fatalf("unexpected err: %v", err)
 			}
 			if got.Action != tc.want || got.Qualifier != tc.qualifier {
-				t.Errorf("ClassifyAction = %q/%q, want %q/%q", got.Action, got.Qualifier, tc.want, tc.qualifier)
+				t.Errorf("Classify = %q/%q, want %q/%q", got.Action, got.Qualifier, tc.want, tc.qualifier)
 			}
 		})
 	}
 }
 
-func TestAdapter_ClassifyAction_NoDeclaredOwner(t *testing.T) {
+func TestAdapter_Classify_NoDeclaredOwner(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1})}
 
 	// Without a declared owner no qualifier is ever extracted. Legacy
 	// connections keep pre-qualifier semantics (unqualified scopes only).
 	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/repos/orbital/orbit/issues", nil)
-	got, err := a.ClassifyAction(req, conn)
+	got, err := open(t, a, conn).Classify(req)
 	if err != nil {
-		t.Fatalf("ClassifyAction: %v", err)
+		t.Fatalf("Classify: %v", err)
 	}
 	if got.Action != "issues:read" || got.Qualifier != "" {
 		t.Errorf("got %q/%q, want issues:read with empty qualifier", got.Action, got.Qualifier)
 	}
 }
 
-func TestAdapter_ClassifyAction_NilRequest(t *testing.T) {
+func TestAdapter_Classify_NilRequest(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
-	if _, err := a.ClassifyAction(nil, credentials.Connection{}); !errors.Is(err, credentials.ErrUnsupportedAction) {
+	if _, err := open(t, a, validConn(t)).Classify(nil); !errors.Is(err, credentials.ErrUnsupportedAction) {
 		t.Errorf("nil req: err = %v, want ErrUnsupportedAction", err)
 	}
 }
@@ -495,7 +527,7 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "orbital"}),
 	}
 
-	_, err := adapter.Resolve(context.Background(), conn,
+	_, err := open(t, adapter, conn).Mint(context.Background(),
 		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "orbit"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -568,7 +600,7 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 	id := credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}
 
 	// First mint: calls GetInstallationPermissions once, then CreateInstallationToken.
-	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("first Resolve: %v", err)
 	}
 	if instPermsCallCount != 1 {
@@ -580,7 +612,7 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 
 	// Within instPermsCacheTTL and within credential TTL: both caches hit.
 	now = now.Add(30 * time.Second)
-	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
 	if instPermsCallCount != 1 {
@@ -591,7 +623,7 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 	// The credential expired at 12:02; now = 12:03 → credential cache miss,
 	// but instPermsCache still valid (TTL = 5min from 12:00 = expires 12:05).
 	now = now.Add(3 * time.Minute) // 12:03:30
-	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("third Resolve (post credential expiry): %v", err)
 	}
 	// instPermsCallCount must still be 1: the installation permission TTL has not expired.
@@ -645,7 +677,7 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 		}),
 	}
 
-	if _, err := adapter.Resolve(context.Background(), conn,
+	if _, err := open(t, adapter, conn).Mint(context.Background(),
 		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -678,7 +710,7 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	id := credentials.CallerIdentity{TenantID: "acme", Action: "issues:write", Qualifier: "orbit"}
 
-	if _, err := adapter.Resolve(context.Background(), conn, id); err != nil {
+	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if len(gotBody.Repositories) != 1 || gotBody.Repositories[0] != "orbit" {
@@ -820,7 +852,7 @@ func TestClassifyGraphQL(t *testing.T) {
 	}
 }
 
-// TestClassifyGraphQL_BodyPreservation verifies that ClassifyAction does not
+// TestClassifyGraphQL_BodyPreservation verifies that Classify does not
 // consume the request body: after classification the full original bytes must
 // still be readable from req.Body.
 func TestClassifyGraphQL_BodyPreservation(t *testing.T) {
@@ -837,19 +869,19 @@ func TestClassifyGraphQL_BodyPreservation(t *testing.T) {
 	}
 	req.ContentLength = int64(len(body))
 
-	if _, err := a.ClassifyAction(req, conn); err != nil {
-		t.Fatalf("ClassifyAction: %v", err)
+	if _, err := open(t, a, conn).Classify(req); err != nil {
+		t.Fatalf("Classify: %v", err)
 	}
 
 	if req.Body == nil {
-		t.Fatal("req.Body is nil after ClassifyAction")
+		t.Fatal("req.Body is nil after Classify")
 	}
 	remaining, readErr := io.ReadAll(req.Body)
 	if readErr != nil {
-		t.Fatalf("read body after ClassifyAction: %v", readErr)
+		t.Fatalf("read body after Classify: %v", readErr)
 	}
 	if string(remaining) != body {
-		t.Errorf("body after ClassifyAction = %q, want %q", remaining, body)
+		t.Errorf("body after Classify = %q, want %q", remaining, body)
 	}
 }
 
@@ -911,10 +943,10 @@ func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
 	}
 }
 
-// TestClassifyGraphQL_ViaClassifyAction exercises the full ClassifyAction path
+// TestClassifyGraphQL_ViaClassify exercises the full Classify path
 // so the routing from the host/path switch through classifyAPI to classifyGraphQL
 // is confirmed end-to-end.
-func TestClassifyGraphQL_ViaClassifyAction(t *testing.T) {
+func TestClassifyGraphQL_ViaClassify(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "clear-route"}),
@@ -960,7 +992,7 @@ func TestClassifyGraphQL_ViaClassifyAction(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build req: %v", err)
 			}
-			got, err := a.ClassifyAction(req, conn)
+			got, err := open(t, a, conn).Classify(req)
 			if tc.wantErr {
 				if !errors.Is(err, credentials.ErrUnsupportedAction) {
 					t.Fatalf("expected ErrUnsupportedAction, got err=%v cls=%+v", err, got)

@@ -71,6 +71,13 @@ type ConnectionSpec struct {
 	// +optional
 	SecretKey string `json:"secretKey,omitempty"`
 
+	// CACert is the PEM certificate authority the gateway verifies this
+	// upstream against, for an upstream not signed by a public root. It
+	// belongs to the connection rather than to any adapter: the gateway owns
+	// the outbound TLS leg, and no adapter dials the upstream.
+	// +optional
+	CACert string `json:"caCert,omitempty"`
+
 	// Config is the connection's adapter-specific configuration, passed
 	// through to the gateway verbatim. For github_app the adapter parses
 	// app_id (string) and installation_id (number); snake_case is required.

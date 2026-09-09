@@ -1,6 +1,6 @@
 // Package credentials is the connection registry and credential-minting core of
 // the Orbit credential broker. A Connection is a tenant-scoped registration of
-// one external service; a CredentialAdapter turns it into a short-lived, scoped
+// one external service; an Adapter opens a Connector that mints a short-lived,
 // Credential the egress gateway injects on the outbound leg. The agent never
 // holds the secret.
 //
@@ -49,9 +49,15 @@ type Connection struct {
 	Adapter   AdapterType     `json:"adapter"`
 	BaseHost  string          `json:"base_host"`  // e.g. "github.com"
 	SecretRef string          `json:"secret_ref"` // reference, never a raw value
-	Config    json.RawMessage `json:"config"`     // adapter-specific
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	Config    json.RawMessage `json:"config"`     // adapter-specific keys only
+
+	// CACert is the PEM authority the gateway verifies this upstream against,
+	// for an upstream not signed by a public root. It is a property of the
+	// connection, not of any adapter: the gateway owns the outbound TLS leg,
+	// and no adapter dials the upstream.
+	CACert    string    `json:"ca_cert,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CallerIdentity is the verified identity of the agent whose run is making the
@@ -82,12 +88,12 @@ var (
 	// absent or malformed.
 	ErrInvalidConfig = errors.New("invalid connection config")
 
-	// ErrUnsupportedAction is returned by ClassifyAction when the request shape
+	// ErrUnsupportedAction is returned by Classify when the request shape
 	// has no policy mapping for this adapter (e.g. an unsupported verb on a
 	// REST adapter). The gateway treats this as a deny.
 	ErrUnsupportedAction = errors.New("unsupported action for adapter")
 
-	// ErrCredentialScopeRejected is returned by an adapter's Resolve when the
+	// ErrCredentialScopeRejected is returned by Mint when the
 	// upstream refuses to issue a credential for the requested scope. Orbit's
 	// policy allowed the call, but the underlying credential (a GitHub App
 	// installation, say) does not itself hold that access. The broker maps this

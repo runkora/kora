@@ -2,7 +2,6 @@ package egressgw
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/credentials"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -23,6 +21,7 @@ import (
 var (
 	errResolveConnection = errors.New("resolve connection")
 	errMintCredential    = errors.New("mint credential")
+	errOpenConnector     = errors.New("open connector")
 )
 
 // policyChecker is the single method the broker needs from the policy
@@ -48,7 +47,7 @@ type Broker struct {
 	policy      policyChecker
 	conns       connLookup
 	adapters    *AdapterRegistry
-	passthrough credentials.CredentialAdapter
+	passthrough credentials.Adapter
 	logger      logging.Logger
 }
 
@@ -62,7 +61,7 @@ func NewBroker(
 	pol policyChecker,
 	conns connLookup,
 	adapters *AdapterRegistry,
-	pass credentials.CredentialAdapter,
+	pass credentials.Adapter,
 	logger logging.Logger,
 ) *Broker {
 	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger}
@@ -108,7 +107,8 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 
 	// The adapter knows the upstream's API shape; the broker stays
-	// adapter-agnostic about both classification and minting.
+	// adapter-agnostic about both classification and minting. Open decodes the
+	// connection's configuration once, so nothing below this point sees it raw.
 	adapter := b.passthrough
 	if registered {
 		known, ok := b.adapters.Lookup(conn.Adapter)
@@ -117,8 +117,14 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		}
 		adapter = known
 	}
+	connector, err := adapter.Open(*conn)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errOpenConnector.Error())
+		return Decision{}, fmt.Errorf("%w: %w", ErrForbidden, err)
+	}
 
-	cls, err := b.classify(ctx, adapter, conn, req, tenantID)
+	cls, err := b.classify(ctx, connector, conn, req)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrForbidden.Error())
@@ -150,7 +156,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		Action:      cls.Action,
 		Qualifier:   cls.Qualifier,
 	}
-	cred, err := adapter.Resolve(ctx, *conn, identity)
+	cred, err := connector.Mint(ctx, identity)
 	if err != nil {
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission Orbit authorized) is a
@@ -184,13 +190,13 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	return Decision{Connection: conn, Action: cls.Action, Qualifier: cls.Qualifier, Credential: cred}, nil
 }
 
-// classify asks the adapter to map the request to its policy action and
-// qualifier, then enforces the connection's optional qualifier ceiling. A
-// classification failure and an out-of-ceiling qualifier are distinct deny
-// classes in the audit log. See
-// docs/adr/2026-07-22-connection-scope-qualifiers.md (Decision C).
-func (b *Broker) classify(ctx context.Context, adapter credentials.CredentialAdapter, conn *credentials.Connection, req EgressRequest, tenantID string) (credentials.Classification, error) {
-	cls, err := adapter.ClassifyAction(req.HTTPRequest, *conn)
+// classify asks the connector to map the request to its policy action and the
+// resource it names. Which resources an agent may reach is settled by its
+// grant: an attachment narrowed to a repository compiles to a qualified scope,
+// and policy evaluation below rejects anything the grant does not cover. See
+// docs/adr/2026-07-22-connection-scope-qualifiers.md.
+func (b *Broker) classify(ctx context.Context, connector credentials.Connector, conn *credentials.Connection, req EgressRequest) (credentials.Classification, error) {
+	cls, err := connector.Classify(req.HTTPRequest)
 	if err != nil {
 		// An adapter that cannot classify the request shape is a deny.
 		// The deny is recorded with the unsupported reason so audit captures it.
@@ -203,19 +209,6 @@ func (b *Broker) classify(ctx context.Context, adapter credentials.CredentialAda
 		return credentials.Classification{}, fmt.Errorf("%w: %w", ErrForbidden, err)
 	}
 
-	if cls.Qualifier != "" {
-		if qm := platformconns.Qualifier(string(conn.Adapter)); qm != nil {
-			if allowed, declared := qualifierCeilingAllows(conn.Config, qm.ConfigKey, cls.Qualifier); declared && !allowed {
-				b.logger.Info(ctx, "egress denied: qualifier outside connection ceiling",
-					logging.Field{Key: "connection", Value: conn.Name},
-					logging.Field{Key: "qualifier", Value: cls.Qualifier},
-					logging.Field{Key: "action", Value: cls.Action},
-					logging.Field{Key: "tenant_id", Value: tenantID},
-				)
-				return credentials.Classification{}, ErrForbidden
-			}
-		}
-	}
 	return cls, nil
 }
 
@@ -269,47 +262,6 @@ func splitActionFragment(action string) (category, verb string) {
 		return action[:i], action[i+1:]
 	}
 	return "", action
-}
-
-// qualifierCeilingAllows reports whether the connection config declares a
-// qualifier allowlist under key and, if so, whether qualifier is in it.
-//
-// The ceiling is an optional security boundary set by the tenant admin, so the
-// two "no ceiling" cases (config carries no key, or an explicit empty list) are
-// distinguished from the "declared but unusable" cases (config or the key's
-// value does not parse as an allowlist). The former allow (declared=false); the
-// latter fails closed (allowed=false, declared=true). A malformed ceiling must
-// never silently widen access past the intended allowlist.
-func qualifierCeilingAllows(config json.RawMessage, key, qualifier string) (allowed, declared bool) {
-	if len(config) == 0 || key == "" {
-		return true, false // no config or no ceiling key configured, so allow
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(config, &raw); err != nil {
-		// The whole connection config is unparseable. The adapter's own Resolve
-		// will also fail, but the ceiling is a security boundary. Do not let it
-		// silently disappear on malformed input.
-		return false, true
-	}
-	rawList, ok := raw[key]
-	if !ok {
-		return true, false // ceiling key absent, so no allowlist was declared
-	}
-	var list []string
-	if err := json.Unmarshal(rawList, &list); err != nil {
-		// The ceiling key is present but is not a list of names: a malformed,
-		// declared ceiling. Fail closed rather than skip enforcement.
-		return false, true
-	}
-	if len(list) == 0 {
-		return true, false // explicit empty list ≡ no ceiling declared
-	}
-	for _, v := range list {
-		if strings.EqualFold(strings.TrimSpace(v), qualifier) {
-			return true, true
-		}
-	}
-	return false, true
 }
 
 // passthroughConnectionName is the connection name reported for a host with no
