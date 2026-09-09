@@ -8,8 +8,6 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Mux wraps http.ServeMux with controller-level routing and middleware support.
@@ -118,23 +116,16 @@ func (m *Mux) HandleWithMiddleware(
 		finalHandler = m.middleware(finalHandler)
 	}
 
-	finalHandler = withRouteName(joinedRoute, fullPath, finalHandler)
+	finalHandler = mw.MiddlewareChain(mw.SpanRouteNameMiddleware())(finalHandler)
 
-	m.ServeMux.Handle(joinedRoute, finalHandler)
+	// Publish the matched pattern before anything else on the route runs, so
+	// middleware can read the route instead of re-deriving it from the URL.
+	m.ServeMux.Handle(joinedRoute, publishRoutePattern(fullPath, finalHandler))
 }
 
-// withRouteName labels the request's span with the route it matched.
-//
-// TracingMiddleware starts the span before any routing has happened, when the
-// only pattern available is the outer mux's catch-all "/". Every span would
-// otherwise be named "GET /". The registered pattern is a template, not a URL,
-// so span names stay low-cardinality.
-func withRouteName(name, route string, next http.Handler) http.Handler {
+func publishRoutePattern(pattern string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		span := trace.SpanFromContext(r.Context())
-		span.SetName(name)
-		span.SetAttributes(semconv.HTTPRoute(route))
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(mw.WithRoutePattern(r.Context(), pattern)))
 	})
 }
 

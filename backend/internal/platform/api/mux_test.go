@@ -441,3 +441,27 @@ func TestMuxRouteSpanNaming(t *testing.T) {
 		t.Errorf("http.route = %q, want %q", gotRoute, "/api/v1/pats/{id}")
 	}
 }
+
+// TestMuxPublishesRoutePattern verifies the matched pattern reaches handlers
+// and any middleware on the route.
+func TestMuxPublishesRoutePattern(t *testing.T) {
+	var got string
+	var ok bool
+
+	mux := NewMux(context.Background(), logging.NewLogger())
+	mux.SetBasePath("/api/v1/pats")
+	mux.Handle("GET /{id}", func(w http.ResponseWriter, r *http.Request) {
+		got, ok = middleware.RoutePatternFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pats/abc123", nil)
+	mux.ServeHTTP(httptest.NewRecorder(), req)
+
+	if !ok {
+		t.Fatal("route pattern missing from request context")
+	}
+	if got != "/api/v1/pats/{id}" {
+		t.Errorf("route pattern = %q, want %q", got, "/api/v1/pats/{id}")
+	}
+}
