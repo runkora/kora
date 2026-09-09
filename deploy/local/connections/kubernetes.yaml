@@ -1,24 +1,32 @@
-# Template Connection CR for the kubernetes adapter. Copy and fill in the
-# ${placeholder} fields; see docs/guides/local-development.md#registering-a-kubernetes-connection
-# for the token and CA provisioning walkthrough.
+# The local k3d cluster as a Kubernetes connection for the example tenant.
 #
-# baseHost rejects a bare IP: TLS to an IP literal carries no SNI, so it must
-# be a hostname already on the target API server's certificate.
+# scripts/cluster/register-k8s-connection.sh generates this resource with the
+# live cluster CA and applies it, along with the ServiceAccount and token it
+# needs. This file is the shape that script produces; ca_cert is cluster
+# specific, so the committed copy carries a placeholder.
 #
-# Namespace: orbit-tenant-example (the operator derives "orbit-tenant-{name}"
-# from the OrbitTenant CR in deploy/local/tenants/example.yaml).
+# baseHost is the k3d server's own hostname, which CoreDNS resolves from its
+# NodeHosts entries and which is on the API server certificate. It is
+# deliberately not kubernetes.default.svc.cluster.local: that is a mesh
+# service, so a sandbox's sidecar routes it inside the mesh and the traffic
+# never reaches the egress chokepoint. A bare IP is rejected as well, since TLS
+# to an IP literal carries no SNI for the interceptor to match.
+#
+# The API server listens on 6443, and the gateway may only dial 443 by default.
+# egressGateway.upstreamPorts in deploy/reference/values/orbit.local.yaml opens
+# it.
 apiVersion: orbit.io/v1alpha1
 kind: Connection
 metadata:
-  name: orbit-local # ${cluster}
+  name: orbit-local
   namespace: orbit-tenant-example
 spec:
   adapter: kubernetes
-  baseHost: k3d-orbit-local-server-0:6443 # ${cluster_hostname}:${cluster_port}
-  secretRef: orbit-local-token # ${cluster}-token
+  baseHost: k3d-orbit-local-server-0:6443
+  secretRef: orbit-local-token
   secretKey: token
   config:
-    cluster_name: orbit-local # ${cluster}
+    cluster_name: orbit-local
     ca_cert: |
       -----BEGIN CERTIFICATE-----
       <replace with the target cluster CA certificate PEM>
