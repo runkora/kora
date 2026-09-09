@@ -371,6 +371,28 @@ Response (HTTP 200):
 
 `skill` is always present. `documents` is an empty array if the skill has no `resources/` directory. Returns HTTP 503 if the Redis key is absent (same condition as the list endpoint).
 
+### Cache Miss at Request Time
+
+When a user selects a marketplace and the backend reads `marketplace:{org}:{repo}:skills` from Redis, the key may be absent because:
+
+- The startup crawl for that repository failed (GitHub unreachable, 429, 5xx, or a parse error).
+- The key expired and the pod has not yet been restarted to re-crawl.
+
+Redis returns `nil` for a missing key — it does not return a 503. The backend translates that nil into a `503 Service Unavailable` response to the frontend:
+
+```json
+{
+  "code": "marketplace_unavailable",
+  "message": "skills for this marketplace are not yet available, try again shortly"
+}
+```
+
+**Why 503 and not 200 with an empty list:** an empty 200 is indistinguishable from a legitimately zero-skill repository. A 503 signals a recoverable infrastructure state and lets the frontend show a meaningful error (e.g. "This marketplace is temporarily unavailable") rather than an empty skill list with no explanation.
+
+This applies to both `GET /api/{org}/skills` and `GET /api/{encodedSkillSlug}` when the backing repo key is absent. The `GET /api/marketplaces` endpoint reads only from `marketplace-sources.json` and is unaffected.
+
+---
+
 ### Singleflight
 
 `golang.org/x/sync/singleflight` is process-local — it deduplicates crawls within a single pod only. If a `fsnotify` hot-reload fires while a preload for a repository is already in progress in the same pod, the second call coalesces into the first rather than starting a duplicate crawl. It does not coordinate across pod replicas; two pods starting simultaneously will each run their own crawl independently. Because all pods write to the same Redis key, the last writer wins, which is safe for an immutable crawl result.
