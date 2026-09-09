@@ -30,7 +30,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +69,7 @@ type config struct {
 	// When declared, ClassifyAction verifies request paths against it and
 	// denies foreign-owner paths outright; when empty (legacy connections),
 	// no repository qualifier is ever extracted, so only unqualified grants
-	// match — the pre-qualifier semantics.
+	// match, which is the pre-qualifier behavior.
 	Owner string `json:"owner,omitempty"`
 	// Repositories is the optional mint-time repository ceiling; the broker
 	// additionally enforces it as the qualifier ceiling at the gate.
@@ -142,40 +142,34 @@ const (
 	ActionContentsWrite = platformconns.ActionGitHubContentsWrite
 )
 
-// Actions enumerates every action ClassifyAction can return, delegating to the
-// shared metadata table (internal/platform/connections) so the
-// connection:<name>:<action> vocabulary the egress gateway publishes has exactly
-// one source of truth — the same table orbit-agents reads to derive auto-egress.
+// Actions enumerates every action ClassifyAction can return. The shared
+// metadata table is the one source of truth for the vocabulary, and it is the
+// same table orbit-agents reads to derive auto-egress.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
-	metas := platformconns.Actions(platformconns.AdapterGitHubApp)
-	out := make([]credentials.ActionDeclaration, len(metas))
-	for i, m := range metas {
-		out[i] = credentials.ActionDeclaration{Action: m.Action, Description: m.Description, Requires: m.Requires}
-	}
-	return out
+	return credentials.DeclaredActions(platformconns.AdapterGitHubApp)
 }
 
 // ClassifyAction maps a GitHub-bound HTTP request to the policy action and
 // repository qualifier that authorize it. Four surfaces share the host family:
 //
-//  1. git smart-HTTP — clone/fetch (git-upload-pack) is contents:read, push
+//  1. git smart-HTTP: clone/fetch (git-upload-pack) is contents:read, push
 //     (git-receive-pack) is contents:write; the repository comes from the
 //     /{owner}/{repo}(.git)/ path.
-//  2. The REST/GraphQL API — api.github.com, or /api/v3 (+/api/graphql) on a
+//  2. The REST/GraphQL API: api.github.com, or /api/v3 (+/api/graphql) on a
 //     GitHub Enterprise appliance host. Route families under
 //     /repos/{owner}/{repo}/… map to categories; the verb supplies read/write.
-//  3. The content-host family — codeload.github.com, *.githubusercontent.com:
+//  3. The content-host family, codeload.github.com and *.githubusercontent.com:
 //     GET/HEAD only, contents:read.
-//  4. Anything else — verb-classified into the repo:read/repo:write catch-all,
+//  4. Anything else, verb-classified into the repo:read/repo:write catch-all,
 //     unqualified (the pre-category behavior).
 //
 // Owner verification: when the connection declares its account, any
-// repo-addressed path naming a different owner is denied outright — GitHub
+// repo-addressed path naming a different owner is denied outright. GitHub
 // serves foreign public repos to any token, so qualifying by bare name without
 // verifying the owner would let name collisions widen a repo-scoped grant.
 // Content-host paths are the exception: their shapes are not always
 // owner-addressed (opaque object URLs), so a non-matching shape classifies
-// unqualified instead — satisfiable only by an unqualified contents:read grant.
+// unqualified instead, satisfiable only by an unqualified contents:read grant.
 func (a *Adapter) ClassifyAction(req *http.Request, conn credentials.Connection) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
@@ -211,7 +205,7 @@ func (a *Adapter) ClassifyAction(req *http.Request, conn credentials.Connection)
 		return classifyContentHost(req.Method, path, owner)
 	}
 
-	// Catch-all: verb-classified, unqualified — unchanged legacy behavior for
+	// Catch-all: verb-classified and unqualified, the legacy behavior for
 	// anything not recognized above.
 	verb, err := verbClass(req.Method)
 	if err != nil {
@@ -229,7 +223,7 @@ func (a *Adapter) ClassifyAction(req *http.Request, conn credentials.Connection)
 //
 // Returns (cls, true, nil) on a match, denying with ErrUnsupportedAction when
 // the connection's declared owner does not match the path's owner segment.
-// ok=false means "not a git smart-HTTP shape — fall through".
+// ok=false means the path is not a git smart-HTTP shape, so fall through.
 func classifyGitSmartHTTP(req *http.Request, owner string) (credentials.Classification, bool, error) {
 	path := req.URL.Path
 
@@ -311,7 +305,7 @@ func classifyGraphQL(req *http.Request, owner string) (credentials.Classificatio
 
 	if err != nil || int64(len(buf)) > graphqlBodySizeLimit {
 		// Unreadable or oversized body: fail closed on classification, but still
-		// forward the body WITHOUT truncation — the bytes already read (buf)
+		// forward the body without truncation. The bytes already read (buf)
 		// followed by whatever remains unread in the original stream. The wrapper
 		// closes the original once forwarding is done, so nothing leaks. Leave
 		// req.GetBody untouched: we must not install one that replays only buf.
@@ -355,7 +349,7 @@ func classifyGraphQL(req *http.Request, owner string) (credentials.Classificatio
 // a real write to a read.
 func graphqlVerb(query string) string {
 	t := strings.TrimSpace(query)
-	// Anonymous shorthand: document starts with { — it's a query.
+	// Anonymous shorthand: a document starting with { is a query.
 	if strings.HasPrefix(t, "{") {
 		return verbRead
 	}
@@ -367,7 +361,7 @@ func graphqlVerb(query string) string {
 	case "fragment":
 		// Leading fragment definition(s): the operation type appears later in
 		// the document. Only downgrade to read when there is no mutation
-		// anywhere — never downgrade a real write to a read.
+		// anywhere. Never downgrade a real write to a read.
 		if graphqlMutationRe.MatchString(t) {
 			return verbWrite
 		}
@@ -413,7 +407,7 @@ func firstWord(s string) string {
 // Extraction is best-effort: it searches for the literal patterns that the
 // GitHub CLI and most GitHub GraphQL clients use. It does not parse the query
 // as a proper AST; a query that successfully hides its repository from this
-// scanner is simply left unqualified — it must be satisfied by an unqualified
+// scanner is left unqualified. It must be satisfied by an unqualified
 // grant, which is still correct and safe.
 func graphqlRepoQualifier(query string, variables map[string]any, connOwner string) (qualifier string, deny bool) {
 	repoOwner, repoName := "", ""
@@ -441,7 +435,7 @@ func graphqlRepoQualifier(query string, variables map[string]any, connOwner stri
 	}
 
 	if repoOwner == "" || repoName == "" {
-		// Repository cannot be determined — unqualified, not denied.
+		// Repository cannot be determined, so unqualified rather than denied.
 		return "", false
 	}
 
@@ -462,53 +456,38 @@ func stringVar(vars map[string]any, key string) string {
 	return s
 }
 
-// extractInlineOwnerName searches for the literal GitHub GraphQL pattern
-// repository(owner:"x", name:"y") (with optional whitespace around punctuation)
-// within the query document and returns the owner and name values found, or
-// empty strings when the pattern is absent.
+// repositoryCallRe captures the argument list of a GitHub GraphQL
+// repository(...) call. graphqlOwnerArgRe and graphqlNameArgRe pull the quoted
+// values out of it.
+//
+// These match case-insensitively on one string rather than taking offsets from
+// a lowercased copy and slicing the original. Lowercasing can change a string's
+// byte length, so mixed offsets shift the extraction and drop the owner, which
+// on this path means an owner-mismatch deny silently becomes an allow.
+var (
+	repositoryCallRe  = regexp.MustCompile(`(?i)repository\s*\(([^)]*)\)`)
+	graphqlOwnerArgRe = regexp.MustCompile(`(?i)\bowner\s*:\s*"([^"]*)"`)
+	graphqlNameArgRe  = regexp.MustCompile(`(?i)\bname\s*:\s*"([^"]*)"`)
+)
+
+// extractInlineOwnerName returns the owner and name of an inline GitHub GraphQL
+// repository(owner:"x", name:"y") call, or empty strings when the query names
+// neither. Whitespace around the punctuation is optional.
 func extractInlineOwnerName(query string) (owner, name string) {
-	// Locate the "repository(" call site.
-	const marker = "repository("
-	idx := strings.Index(strings.ToLower(query), marker)
-	if idx < 0 {
+	call := repositoryCallRe.FindStringSubmatch(query)
+	if call == nil {
 		return "", ""
 	}
-	// Work only within the argument list that follows.
-	fragment := query[idx+len(marker):]
-	end := strings.Index(fragment, ")")
-	if end >= 0 {
-		fragment = fragment[:end]
-	}
-
-	owner = extractArgValue(fragment, "owner")
-	name = extractArgValue(fragment, "name")
-	return owner, name
+	args := call[1]
+	return firstSubmatch(graphqlOwnerArgRe, args), firstSubmatch(graphqlNameArgRe, args)
 }
 
-// extractArgValue returns the quoted string value of a named GraphQL argument
-// within a fragment such as `owner: "clear-route", name: "orbit"`.
-func extractArgValue(fragment, arg string) string {
-	// Find "arg" followed by optional whitespace, colon, optional whitespace,
-	// and a double-quoted value.
-	needle := arg
-	pos := strings.Index(strings.ToLower(fragment), needle)
-	if pos < 0 {
-		return ""
+// firstSubmatch returns re's first capture group in s, or the empty string.
+func firstSubmatch(re *regexp.Regexp, s string) string {
+	if m := re.FindStringSubmatch(s); m != nil {
+		return m[1]
 	}
-	rest := strings.TrimSpace(fragment[pos+len(needle):])
-	if !strings.HasPrefix(rest, ":") {
-		return ""
-	}
-	rest = strings.TrimSpace(rest[1:])
-	if !strings.HasPrefix(rest, `"`) {
-		return ""
-	}
-	rest = rest[1:] // skip opening quote
-	before, _, ok := strings.Cut(rest, `"`)
-	if !ok {
-		return ""
-	}
-	return before
+	return ""
 }
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
@@ -533,7 +512,7 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 		return classifyGraphQL(req, owner)
 	case "rate_limit", "user", "installation", "app", "meta", "octocat":
 		// Identity/limit/discovery endpoints most GitHub clients probe before
-		// real work — the metadata baseline covers them.
+		// real work. The metadata baseline covers them.
 		if verb == verbRead {
 			return credentials.Classification{Action: ActionMetadataRead}, nil
 		}
@@ -564,7 +543,7 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 func classifyRepoPath(verb string, sub []string, qualifier string) credentials.Classification {
 	if len(sub) == 0 {
 		// The bare repository object: reads are metadata; PATCH edits settings
-		// and DELETE deletes the repository — administration.
+		// and DELETE deletes the repository, so administration.
 		if verb == verbRead {
 			return credentials.Classification{Action: ActionMetadataRead, Qualifier: qualifier}
 		}
@@ -627,7 +606,7 @@ var repoSubResolvers = map[string]func(sub []string) string{
 		}
 		return catPulls
 	},
-	// Actions secrets/variables are credential-adjacent — administration, so
+	// Actions secrets and variables are credential-adjacent administration, so
 	// actions:* can be granted without them.
 	"actions": func(sub []string) string {
 		if len(sub) >= 2 && (sub[1] == "secrets" || sub[1] == "variables") {
@@ -647,7 +626,7 @@ var repoSubResolvers = map[string]func(sub []string) string{
 // (codeload.github.com, *.githubusercontent.com). Only reads are legitimate
 // there; the repository qualifier is extracted when the path is owner-addressed
 // (/{owner}/{repo}/…) and the owner matches. Opaque shapes (LFS object URLs)
-// classify unqualified rather than denying — satisfiable only by an unqualified
+// classify unqualified rather than denying, satisfiable only by an unqualified
 // contents:read grant, per the qualifier pattern's fail-closed rule.
 func classifyContentHost(method, path, owner string) (credentials.Classification, error) {
 	verb, err := verbClass(method)
@@ -746,7 +725,7 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 		// granted permissions so the umbrella never requests a level the
 		// installation does not hold (which would 422).
 		//
-		// When installationPerms is nil or empty (no permissions fetched — only
+		// When installationPerms is nil or empty (no permissions fetched, only
 		// possible in unit tests that construct permissionsFor directly, or if
 		// the API returned an empty map), we return only metadata:read: the
 		// minimum implicit grant on every installation token. This is safe and
@@ -834,7 +813,7 @@ func reposFor(qualifier string, ceiling []string) []string {
 	if qualifier != "" {
 		return []string{qualifier}
 	}
-	return append([]string(nil), ceiling...)
+	return slices.Clone(ceiling)
 }
 
 // Resolve returns a cached, or freshly minted, installation token formatted as
@@ -935,7 +914,7 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 		Permissions:  perms,
 	})
 	if err != nil {
-		// A 422 permissions rejection is the App installation's own ceiling —
+		// A 422 permissions rejection is the App installation's own ceiling.
 		// Orbit authorized the action, but the App is not granted this
 		// permission level. Translate to the adapter-agnostic sentinel so the
 		// broker returns a forbidden, not a 500.
@@ -968,7 +947,7 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 // ListQualifierValues enumerates the installation's repository names for the
 // connector attachment picker (the egress gateway's optional
 // QualifierEnumerator capability). It resolves a metadata-scoped installation
-// token — reusing the cache — and lists the installation's repositories.
+// token, reusing the cache, and lists the installation's repositories.
 func (a *Adapter) ListQualifierValues(ctx context.Context, conn credentials.Connection) ([]string, error) {
 	cred, err := a.Resolve(ctx, conn, credentials.CallerIdentity{
 		TenantID: conn.TenantID,
@@ -1020,13 +999,12 @@ func (a *Adapter) store(key string, cred credentials.Credential) {
 // repository/permission set minted, so a narrower request never reuses a
 // broader token.
 func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]string) string {
-	rs := append([]string(nil), repos...)
-	sort.Strings(rs)
+	rs := slices.Sorted(slices.Values(repos))
 	ps := make([]string, 0, len(perms))
 	for k, v := range perms {
 		ps = append(ps, k+"="+v)
 	}
-	sort.Strings(ps)
+	slices.Sort(ps)
 	return strings.Join([]string{connID, strings.Join(rs, ","), strings.Join(ps, ",")}, "|")
 }
 

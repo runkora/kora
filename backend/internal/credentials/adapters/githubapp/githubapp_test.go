@@ -232,7 +232,7 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 		qualifier string
 		err       bool
 	}{
-		// git smart-HTTP — discovery and pack transfer, with and without .git
+		// git smart-HTTP: discovery and pack transfer, with and without .git
 		{"git_clone_discovery", http.MethodGet, "https://github.com/orbital/orbit.git/info/refs?service=git-upload-pack", "contents:read", "orbit", false},
 		{"git_clone_no_dotgit", http.MethodGet, "https://github.com/orbital/orbit/info/refs?service=git-upload-pack", "contents:read", "orbit", false},
 		{"git_push_discovery", http.MethodGet, "https://github.com/orbital/orbit.git/info/refs?service=git-receive-pack", "contents:write", "orbit", false},
@@ -240,12 +240,12 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 		{"git_receive_pack", http.MethodPost, "https://github.com/orbital/orbit.git/git-receive-pack", "contents:write", "orbit", false},
 		{"git_foreign_owner", http.MethodPost, "https://github.com/evil/orbit.git/git-upload-pack", "", "", true},
 
-		// REST — bare repository object
+		// REST: bare repository object
 		{"repo_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit", "metadata:read", "orbit", false},
 		{"repo_patch", http.MethodPatch, "https://api.github.com/repos/orbital/orbit", "admin:write", "orbit", false},
 		{"repo_delete", http.MethodDelete, "https://api.github.com/repos/orbital/orbit", "admin:write", "orbit", false},
 
-		// REST — category route families
+		// REST: category route families
 		{"contents_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/contents/README.md", "contents:read", "orbit", false},
 		{"commits_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/commits/abc", "contents:read", "orbit", false},
 		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/orbit/commits/abc/status", "checks:read", "orbit", false},
@@ -265,10 +265,10 @@ func TestAdapter_ClassifyAction(t *testing.T) {
 		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/orbit/dependabot/secrets", "admin:read", "orbit", false},
 		{"releases_post", http.MethodPost, "https://api.github.com/repos/orbital/orbit/releases", "contents:write", "orbit", false},
 
-		// REST — uncategorized repo routes fall to the qualified catch-all
+		// REST: uncategorized repo routes fall to the qualified catch-all
 		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/orbit/deployments", "repo:read", "orbit", false},
 
-		// REST — owner mismatch on the API surface is denied outright
+		// REST: owner mismatch on the API surface is denied outright
 		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/orbit", "", "", true},
 
 		// Repo-less endpoints: unqualified
@@ -325,7 +325,7 @@ func TestAdapter_ClassifyAction_NoDeclaredOwner(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1})}
 
-	// Without a declared owner no qualifier is ever extracted — legacy
+	// Without a declared owner no qualifier is ever extracted. Legacy
 	// connections keep pre-qualifier semantics (unqualified scopes only).
 	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/repos/orbital/orbit/issues", nil)
 	got, err := a.ClassifyAction(req, conn)
@@ -424,7 +424,7 @@ func TestPermissionsFor(t *testing.T) {
 		t.Errorf("umbrella with ceiling must return ceiling verbatim, got %v", gotCeiling)
 	}
 
-	// The explicit admin action is unchanged — it still mints the full admin
+	// The explicit admin action is unchanged. It still mints the full admin
 	// category (administration, repository_hooks, secrets, dependabot_secrets),
 	// so nothing that legitimately needs repo-admin or secrets loses it.
 	if got := permissionsFor("admin:read", nil, nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" ||
@@ -433,7 +433,7 @@ func TestPermissionsFor(t *testing.T) {
 	}
 
 	// Unknown level strings from GitHub (not "read"/"write"/"admin") must be
-	// skipped entirely — they must not appear in the minted permissions.
+	// skipped entirely: they must not appear in the minted permissions.
 	unknownLevelPerms := map[string]string{
 		"contents": "write",
 		"issues":   "unknown_level", // GitHub-invented future level, not in permissionLevels
@@ -746,6 +746,19 @@ func TestClassifyGraphQL(t *testing.T) {
 		{
 			name:  "foreign_owner_denied",
 			body:  `{"query":"query { repository(owner:\"evil\", name:\"orbit\") { id } }"}`,
+			owner: connOwner, wantDenied: true,
+		},
+		{
+			// "İ" (U+0130) case-folds to a longer string. Taking offsets from a
+			// lowercased copy and slicing the original shifted the extraction,
+			// so the owner came back empty and this deny became an allow.
+			name:  "foreign_owner_denied_with_case_folding_widening_arg",
+			body:  `{"query":"query { repository(alias: \"\u0130\", owner:\"evil\", name:\"orbit\") { id } }"}`,
+			owner: connOwner, wantDenied: true,
+		},
+		{
+			name:  "foreign_owner_denied_uppercase_keywords",
+			body:  `{"query":"query { REPOSITORY(OWNER:\"evil\", NAME:\"orbit\") { id } }"}`,
 			owner: connOwner, wantDenied: true,
 		},
 		{
