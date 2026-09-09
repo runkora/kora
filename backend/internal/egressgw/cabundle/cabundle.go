@@ -1,17 +1,15 @@
-// Package cabundle is the per-tenant CA loader for the egress gateway. It
-// reads tenant CA material from the secret root configured by the binary —
-// typically a Kubernetes Secret mounted at /var/run/orbit/tenant-ca/ — and
-// holds one tlsca.IssuingCA per tenant in memory.
+// Package cabundle is the per-tenant CA loader for the egress gateway. It reads
+// tenant CA material from the secret root the binary configures, typically a
+// Kubernetes Secret mounted at /var/run/orbit/tenant-ca/, and holds one
+// tlsca.IssuingCA per tenant in memory.
 //
-// On-disk layout (eager loader):
+// The mount is flat, one pair of keys per tenant:
 //
-//	{root}/{tenant}/ca.crt
-//	{root}/{tenant}/ca.key
+//	{root}/{tenant}.ca.crt
+//	{root}/{tenant}.ca.key
 //
-// LoadEager scans {root} for tenant subdirectories at startup. Hot-reload on
-// secret rotation is not implemented yet; rotating a tenant's CA requires a
-// gateway restart. Restart is acceptable for now — the secret rotation cadence
-// is days/months, not minutes — and is tracked as a follow-up.
+// Rotating a tenant's CA requires a gateway restart. The rotation cadence is
+// days to months, so hot-reload is a follow-up rather than a gap.
 package cabundle
 
 import (
@@ -29,7 +27,7 @@ import (
 )
 
 // ErrTenantNotFound is returned by For when the bundle has no CA for the
-// requested tenant. The egress gateway treats this as a 500 — a tenant CA must
+// requested tenant. The egress gateway treats this as a 500, since a tenant CA must
 // always be present for any tenant whose agents the gateway serves; absence is
 // an operator misconfiguration, not a request-shaped error.
 var ErrTenantNotFound = errors.New("no issuing CA for tenant")
@@ -74,14 +72,14 @@ func LoadEager(ctx context.Context, root string, logger logging.Logger) (*Bundle
 	b := &Bundle{cas: make(map[string]*tlsca.IssuingCA)}
 
 	if root == "" {
-		logger.Warn(ctx, "tenant CA root is empty — gateway will reject all CONNECTs")
+		logger.Warn(ctx, "tenant CA root is empty; gateway will reject all CONNECTs")
 		return b, nil
 	}
 
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Warn(ctx, "tenant CA root does not exist — gateway will reject all CONNECTs",
+			logger.Warn(ctx, "tenant CA root does not exist; gateway will reject all CONNECTs",
 				logging.Field{Key: "root", Value: root})
 			return b, nil
 		}
@@ -119,7 +117,7 @@ func loadTenantCA(root, tenant string) (*tlsca.IssuingCA, error) {
 
 // tenantsWithCertAndKey returns the set of tenant names for which both
 // {tenant}.ca.crt and {tenant}.ca.key are present in the root. A tenant
-// with only one half is intentionally skipped (no warning at this layer —
+// with only one half is intentionally skipped (no warning at this layer;
 // the operator's aggregator should never produce that state, so silence
 // here keeps the log clean during ordinary projection updates).
 func tenantsWithCertAndKey(entries []os.DirEntry) []string {

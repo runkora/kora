@@ -8,7 +8,7 @@ import (
 )
 
 // EgressRequest is the broker's view of one inbound outbound-call attempt. It
-// is constructed from the inbound *http.Request — the broker never sees raw
+// is constructed from the inbound *http.Request. The broker never sees raw
 // HTTP itself, just this typed input plus the verified claims in context.
 type EgressRequest struct {
 	// Host is the upstream the caller is trying to reach (e.g. "github.com").
@@ -26,7 +26,7 @@ type EgressRequest struct {
 	URL *url.URL
 
 	// HTTPRequest is the original inbound request. The broker passes it to the
-	// adapter's ClassifyAction so adapter-specific shapes (git smart-HTTP,
+	// connector's Classify so adapter-specific shapes (git smart-HTTP,
 	// REST verbs, GraphQL) can be inspected without leaking that knowledge into
 	// the broker.
 	HTTPRequest *http.Request
@@ -54,10 +54,10 @@ type Decision struct {
 	// request's Host within the caller's tenant.
 	Connection *credentials.Connection
 	// Action is the policy action the adapter classified the request as,
-	// e.g. "contents:write" — included in audit and observability.
+	// e.g. "contents:write". Included in audit and observability.
 	Action string
 	// Qualifier is the resource the request was attributed to (e.g. the
-	// repository name), empty when none — included in audit and observability.
+	// repository name), empty when none. Included in audit and observability.
 	Qualifier string
 	// Credential is what the proxy injects on the outbound leg. The platform
 	// token must be removed from the outbound request before this is applied.

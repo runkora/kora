@@ -25,7 +25,6 @@ func TestActionNames(t *testing.T) {
 			"admin:read", "admin:write",
 			"repo:read", "repo:write",
 		},
-		AdapterPassthrough: {"use"},
 		AdapterKubernetesBearer: {
 			"workloads:read", "workloads:write",
 			"config:read", "config:write",
@@ -73,26 +72,20 @@ func TestEgressHosts_GitHub(t *testing.T) {
 	}
 }
 
-// TestEgressHosts_Passthrough returns just the declared host, or nil when none.
-func TestEgressHosts_Passthrough(t *testing.T) {
-	if got := EgressHosts(AdapterPassthrough, "example.com"); !slices.Equal(got, []string{"example.com"}) {
-		t.Errorf("EgressHosts(passthrough, example.com) = %v, want [example.com]", got)
-	}
-	if got := EgressHosts(AdapterPassthrough, ""); got != nil {
-		t.Errorf("EgressHosts(passthrough, \"\") = %v, want nil", got)
-	}
+// TestEgressHosts_Unknown returns nil for an adapter with no metadata entry.
+func TestEgressHosts_Unknown(t *testing.T) {
 	if got := EgressHosts("unknown_adapter", "example.com"); got != nil {
-		t.Errorf("EgressHosts(unknown, …) = %v, want nil", got)
+		t.Errorf("EgressHosts(unknown, example.com) = %v, want nil", got)
 	}
 }
 
 // TestEgressHosts_KubernetesBearer locks that a cluster connection serves
-// exactly its own declared host — no host family the way GitHub's does — and
+// exactly its own declared host, no host family the way GitHub's does, and
 // that the PORT IS STRIPPED. An egress scope names a host, never a host:port:
 // the grant path rejects a host segment containing ":" (it reserves the colon
 // for IPv6 literals), and the rego matcher compares against the CONNECT
 // :authority with the port already removed. Returning "host:6443" here yielded
-// "egress:host:6443:connect" — ungrantable, and unmatchable even if granted —
+// "egress:host:6443:connect": ungrantable, and unmatchable even if granted.
 // which made every kubernetes connection unusable by any agent.
 func TestEgressHosts_KubernetesBearer(t *testing.T) {
 	want := []string{"k8s.acme.internal"}
@@ -103,7 +96,7 @@ func TestEgressHosts_KubernetesBearer(t *testing.T) {
 	if got := EgressHosts(AdapterKubernetesBearer, "k8s.acme.internal"); !slices.Equal(got, want) {
 		t.Errorf("EgressHosts(kubernetes, k8s.acme.internal) = %v, want %v", got, want)
 	}
-	// Mixed case is lowercased — EKS endpoints are upper-case, and the rego
+	// Mixed case is lowercased: EKS endpoints are upper-case, and the rego
 	// lowercases the CONNECT host before matching.
 	if got := EgressHosts(AdapterKubernetesBearer, "ABC123.gr7.ap-southeast-2.eks.amazonaws.com:443"); !slices.Equal(got, []string{"abc123.gr7.ap-southeast-2.eks.amazonaws.com"}) {
 		t.Errorf("EgressHosts(kubernetes, mixed-case EKS host) = %v, want lowercased and port-stripped", got)
@@ -121,13 +114,12 @@ func TestEgressHosts_KubernetesBearer(t *testing.T) {
 func TestEgressHosts_PortStrippedIsGrantable(t *testing.T) {
 	cases := map[string]string{
 		AdapterKubernetesBearer: "cluster.example.com:6443",
-		AdapterPassthrough:      "example.com:8443",
 		AdapterGitHubApp:        "github.acme.com",
 	}
 	for adapter, baseHost := range cases {
 		for _, h := range EgressHosts(adapter, baseHost) {
 			if strings.ContainsAny(h, " \t:/") {
-				t.Errorf("EgressHosts(%s, %q) returned %q — not a valid egress scope host segment", adapter, baseHost, h)
+				t.Errorf("EgressHosts(%s, %q) returned %q: not a valid egress scope host segment", adapter, baseHost, h)
 			}
 		}
 	}
@@ -167,7 +159,7 @@ func TestValidateBaseHost_KubernetesBearer(t *testing.T) {
 // TestValidateBaseHost_NoRequirement locks that adapters with no hostname
 // requirement (and unknown adapters) never reject an IP literal.
 func TestValidateBaseHost_NoRequirement(t *testing.T) {
-	for _, adapter := range []string{AdapterGitHubApp, AdapterPassthrough, "unknown_adapter"} {
+	for _, adapter := range []string{AdapterGitHubApp, "unknown_adapter"} {
 		if err := ValidateBaseHost(adapter, "34.147.135.56"); err != nil {
 			t.Errorf("ValidateBaseHost(%q, IP) = %v, want nil", adapter, err)
 		}

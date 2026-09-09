@@ -9,6 +9,15 @@ import (
 	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 )
 
+func open(t *testing.T) credentials.Connector {
+	t.Helper()
+	c, err := passthrough.New().Open(credentials.Connection{Name: "ipify"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return c
+}
+
 func TestPassthrough_TypeAndActions(t *testing.T) {
 	a := passthrough.New()
 	if a.Type() != credentials.AdapterPassthrough {
@@ -16,31 +25,33 @@ func TestPassthrough_TypeAndActions(t *testing.T) {
 	}
 	actions := a.Actions()
 	if len(actions) != 1 || actions[0].Action != "use" {
-		t.Fatalf("Actions() = %+v, want single \"use\"", actions)
+		t.Fatalf("Actions() = %+v, want a single \"use\"", actions)
 	}
 }
 
-func TestPassthrough_ClassifyActionIsUniform(t *testing.T) {
-	a := passthrough.New()
+func TestPassthrough_ClassifyIsUniform(t *testing.T) {
+	c := open(t)
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
-		req, _ := http.NewRequest(method, "https://api.ipify.org/", nil)
-		got, err := a.ClassifyAction(req, credentials.Connection{})
+		req, err := http.NewRequest(method, "https://api.ipify.org/", nil)
 		if err != nil {
-			t.Fatalf("ClassifyAction(%s): unexpected error %v", method, err)
+			t.Fatalf("NewRequest: %v", err)
+		}
+		got, err := c.Classify(req)
+		if err != nil {
+			t.Fatalf("Classify(%s): %v", method, err)
 		}
 		if got.Action != "use" {
-			t.Errorf("ClassifyAction(%s) = %q, want \"use\"", method, got.Action)
+			t.Errorf("Classify(%s) = %q, want \"use\"", method, got.Action)
 		}
 	}
 }
 
-func TestPassthrough_ResolveInjectsNothing(t *testing.T) {
-	a := passthrough.New()
-	cred, err := a.Resolve(context.Background(), credentials.Connection{Name: "ipify"}, credentials.CallerIdentity{})
+func TestPassthrough_MintInjectsNothing(t *testing.T) {
+	cred, err := open(t).Mint(context.Background(), credentials.CallerIdentity{})
 	if err != nil {
-		t.Fatalf("Resolve: unexpected error %v", err)
+		t.Fatalf("Mint: %v", err)
 	}
 	if cred.Header != "" || cred.Value != "" || cred.Token != "" {
-		t.Errorf("Resolve returned a non-empty credential %+v, want empty (nothing injected)", cred)
+		t.Errorf("Mint returned %+v, want an empty credential", cred)
 	}
 }

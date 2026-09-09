@@ -14,13 +14,14 @@ import (
 	"testing"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // rawProxyCONNECT performs a MANUAL CONNECT + inner TLS handshake + single inner
 // request through the gateway, so the test can send an inner Host that differs
-// from the CONNECT target — something a well-behaved http.Client never does, and
+// from the CONNECT target: something a well-behaved http.Client never does, and
 // the exact shape of the inner-Host SSRF. Cert verification is skipped: the SUT
 // here is the gateway's inner-Host routing, not its leaf cert. Returns the inner
 // response status, or an error if the tunnel / handshake / inner read failed.
@@ -70,10 +71,10 @@ func recordingTLSUpstream(hit *int32) *httptest.Server {
 
 // interceptAllConns forces the CONNECT handler down the TLS-intercept path for
 // ANY destination. Test upstreams bind ephemeral ports (never :443), so without
-// this shouldIntercept() would relay them raw — bypassing the inner-request
+// this shouldIntercept() would relay them raw, bypassing the inner-request
 // parse where the Host pinning and the bounded read live. The broker is given a
 // SEPARATE empty repo so Authorize still takes the passthrough branch (forward
-// to the request Host, inject nothing) — exactly the path pinning protects.
+// to the request Host, inject nothing), exactly the path pinning protects.
 type interceptAllConns struct{}
 
 func (interceptAllConns) GetByHost(context.Context, string, string) (*credentials.Connection, error) {
@@ -91,7 +92,7 @@ func buildPassthroughGateway(t *testing.T) *httptest.Server {
 		t.Fatalf("testtlsca.NewCA: %v", err)
 	}
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}} // empty → broker passthrough
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger)
 	forward := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	claims := claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1")
 	inner := authInjector(claims, NewProxyHandler(broker, forward, logger))
@@ -126,10 +127,10 @@ func TestConnect_InnerHostPinnedToConnectTarget(t *testing.T) {
 		t.Fatalf("inner status = %d, want 200", status)
 	}
 	if atomic.LoadInt32(&targetHit) != 1 {
-		t.Error("CONNECT target was NOT reached — request did not follow the verified host")
+		t.Error("CONNECT target was NOT reached: request did not follow the verified host")
 	}
 	if atomic.LoadInt32(&forbiddenHit) != 0 {
-		t.Error("forbidden host WAS reached — inner-Host SSRF is not blocked")
+		t.Error("forbidden host WAS reached: inner-Host SSRF is not blocked")
 	}
 }
 

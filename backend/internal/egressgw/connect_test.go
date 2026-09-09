@@ -18,6 +18,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
@@ -60,7 +61,7 @@ func (f *fixedCABundle) For(tenant string) (IssuingCA, error) {
 func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 
-	// Upstream stub — receives the gateway's forward request, captures auth.
+	// Upstream stub: receives the gateway's forward request, captures auth.
 	var (
 		upstreamSawAuth string
 		upstreamSawHost string
@@ -73,7 +74,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	// GitHub API stub — mints the installation token.
+	// GitHub API stub: mints the installation token.
 	githubAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -114,7 +115,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	registry := NewAdapterRegistry()
 	registry.Register(gh)
 
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 
 	// Forward transport must accept the upstream's self-signed cert. The
 	// proxy itself terminates inbound TLS via the IssuingCA.
@@ -139,7 +140,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// correct behavior is to register a handler that always runs.
 	gatewayHandler := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), connect)
 
-	// httptest.NewServer is plain HTTP, which is what we want — the proxy
+	// httptest.NewServer is plain HTTP, which is what we want here: the proxy
 	// connection itself doesn't need TLS in the test (in production it sits
 	// behind the agent-pod sidecar's mTLS).
 	gateway := httptest.NewServer(gatewayHandler)
@@ -160,14 +161,14 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 				// The CONNECT target's hostname is what the cert is issued for;
 				// because the test routes everything through the proxy and the
 				// upstreamHost is a real listener, we don't need to override
-				// ServerName here — Go uses the URL host by default.
+				// ServerName here: Go uses the URL host by default.
 			},
 			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		},
 		Timeout: 10 * time.Second,
 	}
 
-	// The test request — addressed at the connection's BaseHost over HTTPS.
+	// The test request: addressed at the connection's BaseHost over HTTPS.
 	// http.Transport will:
 	//   1. Send `CONNECT <upstreamHost> HTTP/1.1` to the gateway.
 	//   2. On 200, perform a TLS handshake; the gateway's IssuingCA mints a

@@ -10,11 +10,11 @@ An outbound call is authorized twice. The sandbox's `opa` sidecar authorizes the
 
 ## Credential brokering
 
-Once authorized, the gateway mints a scoped, short-lived credential for the destination and injects it on the outbound leg: a GitHub App installation token, a Kubernetes bearer token, or none for a passthrough connection. It strips the platform token first. The agent never sees the injected credential, and the upstream system stays the authority on what it permits. A host with no matching connection falls through to passthrough. Reachability was already gated at `egress:<host>:connect`.
+Once authorized, the gateway mints a scoped, short-lived credential for the destination and injects it on the outbound leg: a GitHub App installation token, or a Kubernetes bearer token. It strips the platform token first. The agent never sees the injected credential, and the upstream system stays the authority on what it permits. A host with no matching connection falls through to passthrough, which injects nothing. Reachability was already gated at `egress:<host>:connect`.
 
 ## Connections
 
-An external system is a tenant-namespaced `Connection` custom resource naming an adapter, a host, and a secret. The operator aggregates every connection and its secret across tenants into a ConfigMap and Secret the gateway mounts and hot-reloads. Adapters are the credential mechanisms: `github_app`, `k8sbearer`, and `passthrough`. There is no database. Connections are GitOps resources.
+An external system is a tenant-namespaced `Connection` custom resource naming an adapter, a host, and a secret. The operator aggregates every connection and its secret across tenants into a ConfigMap and Secret the gateway mounts and hot-reloads. Adapters are the credential mechanisms: `github_app` and `k8sbearer`. Passthrough is not one of them: a connection is never needed to reach a host that requires no credential, so the gateway holds that adapter itself and the registry refuses to register it. There is no database. Connections are GitOps resources.
 
 ## ADRs
 

@@ -53,10 +53,10 @@ function actionScopePreview(connection: string, action: string, resources: strin
 
 /**
  * The resource scope block for a qualifier-capable connection: an all/selected
- * radio pair labeled from the adapter's qualifier dimension, and — under
- * "Selected" — a multiselect composed from existing Terra primitives (Badge
- * chips, an Input for manual entry, and the ceiling values as one-click
- * suggestions). Values outside a declared ceiling get a warning treatment.
+ * radio pair labeled from the adapter's qualifier dimension, and under
+ * "Selected" a multiselect composed from existing Terra primitives, a Badge
+ * chip per resource plus an Input for manual entry. The attachment is what
+ * narrows an agent, so anything the upstream credential can reach is valid here.
  */
 function ResourceScopeBlock({
   connection,
@@ -75,10 +75,6 @@ function ResourceScopeBlock({
   const [draft, setDraft] = useState('');
 
   const mode = selectedMode || resources.length > 0 ? 'selected' : 'all';
-  const ceiling = qualifier.ceiling;
-  const suggestions = ceiling.filter((c) => !resources.includes(c));
-  const stale = ceiling.length > 0 ? resources.filter((r) => !ceiling.includes(r)) : [];
-
   const addResource = (raw: string) => {
     const v = raw.trim().toLowerCase();
     if (v && !resources.includes(v)) {
@@ -132,35 +128,20 @@ function ResourceScopeBlock({
         <Stack gap="snug">
           {resources.length > 0 && (
             <Stack direction="horizontal" align="center" gap="tight" wrap>
-              {resources.map((r) => {
-                const isStale = stale.includes(r);
-                return (
-                  <Button
-                    key={r}
-                    variant="outline"
-                    size="xs"
-                    onClick={() => onResourcesChange(resources.filter((x) => x !== r))}
-                    aria-label={`Remove ${qualifier.name} ${r}`}
-                  >
-                    {isStale && (
-                      <Icon name="triangle-alert" size="xs" color="status-degraded" label="" />
-                    )}
-                    <Text as="span" size="micro" mono>
-                      {r}
-                    </Text>
-                    <Icon name="close" size="xs" color="muted" />
-                  </Button>
-                );
-              })}
-            </Stack>
-          )}
-          {stale.length > 0 && (
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Icon name="triangle-alert" size="xs" color="status-degraded" label="" />
-              <Text as="span" size="micro" color="subtle">
-                Marked {plural(qualifier.name)} are outside the connection&apos;s allowlist —
-                requests will be denied.
-              </Text>
+              {resources.map((r) => (
+                <Button
+                  key={r}
+                  variant="outline"
+                  size="xs"
+                  onClick={() => onResourcesChange(resources.filter((x) => x !== r))}
+                  aria-label={`Remove ${qualifier.name} ${r}`}
+                >
+                  <Text as="span" size="micro" mono>
+                    {r}
+                  </Text>
+                  <Icon name="close" size="xs" color="muted" />
+                </Button>
+              ))}
             </Stack>
           )}
           <Stack direction="horizontal" align="center" gap="snug">
@@ -185,21 +166,6 @@ function ResourceScopeBlock({
               Enter to add
             </Text>
           </Stack>
-          {suggestions.length > 0 && (
-            <Stack gap="tight">
-              <Text as="span" size="micro" color="subtle">
-                From the connection&apos;s allowlist
-              </Text>
-              <Stack direction="horizontal" gap="tight" wrap>
-                {suggestions.map((s) => (
-                  <Button key={s} variant="outline" size="xs" onClick={() => addResource(s)}>
-                    <Icon name="plus" size="xs" />
-                    {s}
-                  </Button>
-                ))}
-              </Stack>
-            </Stack>
-          )}
         </Stack>
       )}
     </Stack>

@@ -59,7 +59,6 @@ export function buildConnectionRows(
 
 const ADAPTER_LABELS: Record<string, string> = {
   github_app: 'GitHub App',
-  passthrough: 'Passthrough',
   kubernetes: 'Kubernetes',
 };
 

@@ -57,8 +57,6 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "egressGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:

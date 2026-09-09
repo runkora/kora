@@ -28,26 +28,24 @@ type ConnectionCatalogEntry struct {
 
 // ConnectionQualifierEntry describes a connection's resource-qualifier
 // dimension for the picker: the dimension's name ("repository", "namespace")
-// and the connection's optional config-declared ceiling allowlist.
+// an attachment narrows to. Which resources an agent may reach is settled by
+// its attachment, so the connection declares the dimension and nothing more.
 type ConnectionQualifierEntry struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Ceiling     []string `json:"ceiling"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // connectionRegistryEntry is the wire shape of one element of connections.json,
 // the registry the operator's ConnectionAggregator renders into the
 // orbit-tenant-connections ConfigMap. secret_ref is intentionally ignored.
-// base_host IS read: it is the upstream authority (not a secret), and the grant
+// base_host IS read: it is the upstream authority, not a secret, and the grant
 // compiler needs it to derive a connector's auto-egress hosts via the shared
-// adapter metadata table. config is peeked only for the adapter's declared
-// qualifier-ceiling key (an allowlist of resource names — not secret material).
+// adapter metadata table. Adapter config is not read here at all.
 type connectionRegistryEntry struct {
-	TenantID string          `json:"tenant_id"`
-	Name     string          `json:"name"`
-	Adapter  string          `json:"adapter"`
-	BaseHost string          `json:"base_host"`
-	Config   json.RawMessage `json:"config,omitempty"`
+	TenantID string `json:"tenant_id"`
+	Name     string `json:"name"`
+	Adapter  string `json:"adapter"`
+	BaseHost string `json:"base_host"`
 }
 
 // ConnectionCatalog serves the read-only, tenant-filtered connection catalog
@@ -91,35 +89,11 @@ func (c *ConnectionCatalog) ListByTenant(ctx context.Context, tenantID string) (
 			entry.Qualifier = &ConnectionQualifierEntry{
 				Name:        qm.Name,
 				Description: qm.Description,
-				Ceiling:     qualifierCeiling(e.Config, qm.ConfigKey),
 			}
 		}
 		out = append(out, entry)
 	}
 	return out, nil
-}
-
-// qualifierCeiling extracts the adapter's qualifier-ceiling allowlist from a
-// connection's config. Empty (non-nil) when the config declares none.
-func qualifierCeiling(config json.RawMessage, key string) []string {
-	out := []string{}
-	if len(config) == 0 || key == "" {
-		return out
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(config, &raw); err != nil {
-		return out
-	}
-	var list []string
-	if err := json.Unmarshal(raw[key], &list); err != nil {
-		return out
-	}
-	for _, v := range list {
-		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // ResolveConnection returns the adapter type and base host for the named
@@ -149,7 +123,7 @@ func (c *ConnectionCatalog) load(ctx context.Context) ([]connectionRegistryEntry
 	data, err := os.ReadFile(c.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.logger.Warn(ctx, "connection registry file does not exist — empty catalog until it is mounted",
+			c.logger.Warn(ctx, "connection registry file does not exist; empty catalog until it is mounted",
 				logging.Field{Key: "path", Value: c.path},
 			)
 			return nil, nil
