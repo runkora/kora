@@ -26,18 +26,18 @@ func TestQualifierCeilingAllows(t *testing.T) {
 		wantAllowed  bool
 		wantDeclared bool
 	}{
-		// No ceiling — optional, allow.
+		// No ceiling: optional, allow.
 		{"nil config", nil, "repositories", "orbit", true, false},
 		{"no key configured", cfg(map[string]any{"repositories": []string{"orbit"}}), "", "orbit", true, false},
 		{"ceiling key absent", cfg(map[string]any{"owner": "clear-route"}), "repositories", "orbit", true, false},
 		{"explicit empty list", cfg(map[string]any{"repositories": []string{}}), "repositories", "orbit", true, false},
 
-		// Declared ceiling — enforce membership.
+		// Declared ceiling: enforce membership.
 		{"in ceiling", cfg(map[string]any{"repositories": []string{"orbit", "passport"}}), "repositories", "orbit", true, true},
 		{"in ceiling case-insensitive", cfg(map[string]any{"repositories": []string{"Orbit"}}), "repositories", "orbit", true, true},
 		{"out of ceiling", cfg(map[string]any{"repositories": []string{"passport"}}), "repositories", "orbit", false, true},
 
-		// Malformed — fail closed (deny), never silently skip.
+		// Malformed: fail closed (deny), never silently skip.
 		{"config not an object", json.RawMessage(`["not","an","object"]`), "repositories", "orbit", false, true},
 		{"config invalid json", json.RawMessage(`{not json`), "repositories", "orbit", false, true},
 		{"ceiling value is a string", cfg(map[string]any{"repositories": "orbit"}), "repositories", "orbit", false, true},

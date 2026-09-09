@@ -13,25 +13,24 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// ProxyHandler is the gateway's inbound HTTP handler. It expects the platform
-// JWT to have already been verified by AuthMiddleware (claims live in context),
-// pulls the connection name + action from request headers, runs the broker for
-// authorization + minting, swaps the platform token for the minted credential,
-// and forwards the request to the upstream named by the resolved connection.
+// ProxyHandler is the gateway's inbound HTTP handler. AuthMiddleware has
+// already verified the platform JWT and put the claims in the request context.
+// The handler runs the broker to resolve the connection from the request Host,
+// authorize the call and mint a credential, then swaps the platform token for
+// that credential and forwards to the upstream.
 //
-// In Phase 2a the upstream is reached as a normal HTTPS client (the gateway is
-// the originating TLS endpoint); transparent TLS termination against a
-// per-tenant CA lands in Phase 2b without changing the broker logic.
+// It serves both entry points: a direct HTTPS request, and the inner request
+// the CONNECT handler reads off a terminated TLS tunnel.
 type ProxyHandler struct {
 	broker     *Broker
 	transports *TransportCache // upstream forward transport, keyed per-connection CA trust
 	logger     logging.Logger
 }
 
-// NewProxyHandler constructs a ProxyHandler. transport is the shared base
-// transport used for every connection that declares no custom CA; it may be
-// nil to use the process's default transport.
-func NewProxyHandler(broker *Broker, transport http.RoundTripper, logger logging.Logger) *ProxyHandler {
+// NewProxyHandler constructs a ProxyHandler. transport is the base transport for
+// the forward leg, cloned per connection that declares its own CA. Every
+// transport handed to the proxy is traced, so spans cover each forwarded call.
+func NewProxyHandler(broker *Broker, transport *http.Transport, logger logging.Logger) *ProxyHandler {
 	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), logger: logger}
 }
 
@@ -43,13 +42,13 @@ func (p *ProxyHandler) Transports() *TransportCache {
 	return p.transports
 }
 
-// ServeHTTP implements http.Handler. It is the Phase 2a entry point.
+// ServeHTTP implements http.Handler.
 func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok {
-		p.writeError(w, r, ErrUnauthenticated, http.StatusUnauthorized, "unauthenticated")
+		p.handleBrokerError(w, r, ErrUnauthenticated)
 		return
 	}
 
@@ -67,7 +66,8 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// ever reaches the connection's own upstreams.
 	upstream, err := buildUpstreamURL(r.Host)
 	if err != nil {
-		p.writeError(w, r, err, http.StatusBadGateway, "invalid upstream url")
+		platformapi.ErrorResponse(ctx, w, p.logger,
+			platformapi.InternalError(platformapi.ErrCodeInternalError, "invalid upstream url", nil), err)
 		return
 	}
 
@@ -82,7 +82,7 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 	transport, err := p.transports.For(d.Connection)
 	if err != nil {
 		// A CA trust failure is a distinct, logged failure mode from a policy
-		// deny or an adapter resolve failure — surface it as such rather than
+		// deny or an adapter resolve failure. Surface it as such rather than
 		// letting it masquerade as a generic forward error.
 		p.logger.Error(r.Context(), "egress upstream transport unavailable",
 			logging.Field{Key: "connection", Value: d.Connection.Name},
@@ -100,7 +100,7 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 			pr.SetURL(upstream)
 			// Tools expect their original Host (e.g. github.com), not the
 			// gateway's. SetXForwarded would publish the agent pod's IP, which
-			// is not useful to the upstream — we suppress it.
+			// is not useful to the upstream, so it is suppressed.
 			pr.Out.Host = upstream.Host
 
 			// Strip the platform token; the minted credential replaces it.
@@ -133,53 +133,36 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 // internal reasons to the caller (especially policy denials) beyond a coarse
 // code.
 func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request, err error) {
+	var apiErr *platformapi.APIError
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
-		p.writeError(w, r, err, http.StatusUnauthorized, "unauthenticated")
+		apiErr = platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "unauthenticated", nil)
 	case errors.Is(err, ErrMissingHost):
-		p.writeError(w, r, err, http.StatusBadRequest, "missing destination host")
+		apiErr = platformapi.BadRequestError(platformapi.ErrCodeValidationFailed, "missing destination host", nil)
 	case errors.Is(err, ErrForbidden):
-		p.writeError(w, r, err, http.StatusForbidden, "egress denied")
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):
-		p.writeError(w, r, err, http.StatusForbidden, "connection tenant mismatch")
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "connection tenant mismatch", nil)
 	case errors.Is(err, credentials.ErrConnectionNotFound):
-		p.writeError(w, r, err, http.StatusNotFound, "no connection registered for host")
+		apiErr = platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "no connection registered for host", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
-		p.writeError(w, r, err, http.StatusInternalServerError, "unsupported adapter")
+		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
 	default:
-		p.writeError(w, r, err, http.StatusInternalServerError, "broker error")
+		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "broker error", nil)
 	}
-}
-
-func (p *ProxyHandler) writeError(w http.ResponseWriter, r *http.Request, cause error, status int, message string) {
-	var apiErr *platformapi.APIError
-	switch status {
-	case http.StatusUnauthorized:
-		apiErr = platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, message, nil)
-	case http.StatusForbidden:
-		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, message, nil)
-	case http.StatusNotFound:
-		apiErr = platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, message, nil)
-	case http.StatusInternalServerError:
-		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, message, nil)
-	case http.StatusBadGateway, http.StatusServiceUnavailable:
-		apiErr = platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, message, nil)
-	default:
-		apiErr = platformapi.BadRequestError(platformapi.ErrCodeValidationFailed, message, nil)
-	}
-	platformapi.ErrorResponse(r.Context(), w, p.logger, apiErr, cause)
+	platformapi.ErrorResponse(r.Context(), w, p.logger, apiErr, err)
 }
 
 // buildUpstreamURL returns the upstream base URL (scheme + host) the forward
 // proxy targets. The inbound request's path and query are NOT set here: the
 // ReverseProxy's ProxyRequest.SetURL joins them onto this target, so setting
 // them here too would double the path (e.g. "/x" → "/x/x").
-func buildUpstreamURL(baseHost string) (*url.URL, error) {
-	if baseHost == "" {
-		return nil, errors.New("connection has empty base_host")
+func buildUpstreamURL(requestHost string) (*url.URL, error) {
+	if requestHost == "" {
+		return nil, errors.New("request has no host")
 	}
-	host := strings.TrimSpace(baseHost)
-	// Allow base_host to be either a bare host ("github.com") or a host:port.
+	host := strings.TrimSpace(requestHost)
+	// Accept either a bare host ("github.com") or a host:port.
 	host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
 	host = strings.TrimSuffix(host, "/")
 

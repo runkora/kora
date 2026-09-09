@@ -7,12 +7,11 @@
 // credential, and forwards the request to the real third-party service. The
 // agent never holds the upstream credential.
 //
-// In Phase 2a the gateway acts as a normal HTTPS client toward the upstream;
-// transparent TLS interception against a per-tenant CA lands in Phase 2b. The
-// resolution model is the same in both phases — connection lookup is by Host,
-// action classification is by the adapter — so 2b only changes the transport,
-// not the broker logic. See the ADR:
-// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
+// Sandboxed tools reach the gateway as an HTTPS proxy. It terminates TLS
+// against a per-tenant CA the sandbox trusts, then re-originates to the real
+// upstream. CONNECT to :443, and to any port a connection is registered on, is
+// intercepted this way; every other port is relayed as raw TCP.
+// See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
 package egressgw
 
 import "errors"
@@ -37,12 +36,7 @@ var (
 	// connection's tenant. Cross-tenant egress does not exist.
 	ErrTenantMismatch = errors.New("connection tenant mismatch")
 
-	// ErrUpstream is returned when the gateway successfully minted a credential
-	// but the upstream forward leg failed (transport error or non-2xx that the
-	// gateway treats as fatal).
-	ErrUpstream = errors.New("upstream call failed")
-
-	// ErrMissingHost is returned when the inbound request's Host is empty —
-	// the gateway has no way to resolve the destination connection.
+	// ErrMissingHost is returned when the inbound request's Host is empty. The
+	// gateway has no way to resolve the destination connection without it.
 	ErrMissingHost = errors.New("inbound request missing host")
 )
