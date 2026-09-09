@@ -1,0 +1,1 @@
+// Marketplace detail route placeholder.
