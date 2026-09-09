@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -52,5 +54,31 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 	}
 	if errors.Is(err, ErrForbidden) {
 		t.Error("an unreadable connection must not be reported as a policy denial")
+	}
+}
+
+// TestHandleBrokerError_ConfigFaultOutranksForbidden locks the classification
+// order. An operator's malformed connection is not a policy decision, so even
+// wrapped in ErrForbidden it must surface as a server fault: reported as a
+// denial it sends whoever reads it hunting a grant that was never the problem.
+func TestHandleBrokerError_ConfigFaultOutranksForbidden(t *testing.T) {
+	p := &ProxyHandler{logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	for name, err := range map[string]error{
+		"bare":               credentials.ErrInvalidConfig,
+		"wrapped in context": fmt.Errorf("open connector: %w", credentials.ErrInvalidConfig),
+		"wrapped in forbidden": fmt.Errorf("%w: %w",
+			ErrForbidden, credentials.ErrInvalidConfig),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, "https://github.com/", nil)
+
+			p.handleBrokerError(rec, req, err)
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+			}
+		})
 	}
 }

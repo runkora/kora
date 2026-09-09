@@ -51,6 +51,11 @@ type Adapter interface {
 	// configuration. A Connector that exists is one whose configuration was
 	// accepted, so neither Classify nor Mint revisits it. Configuration
 	// failures wrap ErrInvalidConfig.
+	//
+	// A Connector belongs to the request that opened it and must not be cached
+	// across requests. The registry hot-reloads a connection in place under a
+	// key that does not change, so a cached Connector would keep serving the
+	// configuration a CR edit had already replaced.
 	Open(conn Connection) (Connector, error)
 }
 

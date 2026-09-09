@@ -144,16 +144,20 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 		apiErr = platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "unauthenticated", nil)
 	case errors.Is(err, ErrMissingHost):
 		apiErr = platformapi.BadRequestError(platformapi.ErrCodeValidationFailed, "missing destination host", nil)
+	// The operator's own faults are matched before the caller's. A connection
+	// Orbit cannot read denies the call, but it is not a policy decision, and
+	// wrapping one in ErrForbidden anywhere upstream would otherwise report it
+	// as a denial and send an operator hunting a grant.
+	case errors.Is(err, credentials.ErrInvalidConfig):
+		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
+	case errors.Is(err, credentials.ErrUnsupportedAdapter):
+		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
 	case errors.Is(err, ErrForbidden):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "connection tenant mismatch", nil)
 	case errors.Is(err, credentials.ErrConnectionNotFound):
 		apiErr = platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "no connection registered for host", nil)
-	case errors.Is(err, credentials.ErrUnsupportedAdapter):
-		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
-	case errors.Is(err, credentials.ErrInvalidConfig):
-		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	default:
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "broker error", nil)
 	}
