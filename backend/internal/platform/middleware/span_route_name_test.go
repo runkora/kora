@@ -46,7 +46,7 @@ func TestSpanRouteName(t *testing.T) {
 			// Stand in for TracingMiddleware, which starts the span before routing.
 			ctx, span := provider.Tracer("test").Start(context.Background(), "GET /")
 			if tt.hasRoute {
-				ctx = withRoutePattern(ctx, tt.pattern)
+				ctx = context.WithValue(ctx, routePatternContextKey{}, tt.pattern)
 			}
 			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/pats/abc123", nil).WithContext(ctx))
 			span.End()
