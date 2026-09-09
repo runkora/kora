@@ -26,7 +26,6 @@ spec:
   secretRef: orbit-local-token
   secretKey: token
   config:
-    cluster_name: orbit-local
     ca_cert: |
       -----BEGIN CERTIFICATE-----
       <replace with the target cluster CA certificate PEM>

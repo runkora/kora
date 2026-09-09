@@ -59,7 +59,6 @@ Authenticates an agent to a Kubernetes API server as a ServiceAccount. `secretRe
 
 ```yaml
 config:
-  cluster_name: (string) a name you choose to identify this cluster.
   ca_cert: (string) the cluster's public CA certificate in PEM format, used by the gateway to verify the API server.
 ```
 

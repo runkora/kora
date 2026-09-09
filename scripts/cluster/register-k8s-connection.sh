@@ -97,7 +97,6 @@ spec:
   secretRef: ${SECRET_NAME}
   secretKey: token
   config:
-    cluster_name: orbit-local
     ca_cert: |
 EOF
   echo "${CA_CERT}" | sed 's/^/      /'
