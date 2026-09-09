@@ -3,7 +3,7 @@
 // bearer token. Unlike githubapp, there is no minting: the egress gateway
 // calls Adapter.Resolve to read the token from the mounted secret and inject
 // it verbatim on the re-originated leg. Rotation is a Secret update, picked
-// up on the next resolve via the existing fsnotify reload — no adapter-side
+// up on the next resolve via the existing fsnotify reload, with no adapter-side
 // cache to invalidate.
 //
 // ClassifyAction is resource-category-scoped rather than one coarse
@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -56,7 +57,7 @@ const (
 	ActionRBACWrite       = platformconns.ActionRBACWrite
 )
 
-// categoryCluster is the resource-category name for the catch-all bucket —
+// categoryCluster is the resource-category name for the catch-all bucket,
 // both a literal category returned by categorizeRequest for well-known
 // cluster-scoped/admin resources, and the category assigned to non-resource
 // API discovery paths.
@@ -64,12 +65,12 @@ const categoryCluster = "cluster"
 
 // resourceCategories maps a Kubernetes resource's plural, lowercase REST name
 // to the coarse category this adapter authorizes by. Only the adapter needs
-// to know this shape — the broker and policy layer treat the resulting
+// to know this shape. The broker and policy layer treat the resulting
 // "<category>:<verb>" action as an opaque string. Unlisted resources
 // (including CRDs) are NOT auto-bucketed into "cluster": categorizeRequest
 // returns ok=false for them, and ClassifyAction denies the call outright
-// (ErrUnsupportedAction) rather than guessing. Extend this map — one line per
-// resource — as new categories or resources need coverage.
+// (ErrUnsupportedAction) rather than guessing. Extend this map, one line per
+// resource, as new categories or resources need coverage.
 var resourceCategories = map[string]string{
 	// workloads
 	"pods":                   "workloads",
@@ -89,7 +90,7 @@ var resourceCategories = map[string]string{
 	// config
 	"configmaps": "config",
 
-	// secrets — split out from config: materially more sensitive, so an
+	// secrets, split out from config as materially more sensitive so an
 	// admin can grant ConfigMap access without also granting Secret access.
 	"secrets": "secrets",
 
@@ -114,7 +115,7 @@ var resourceCategories = map[string]string{
 	"clusterrolebindings": "rbac",
 	"serviceaccounts":     "rbac",
 
-	// cluster — well-known cluster-scoped/administrative resources not
+	// cluster: well-known cluster-scoped and administrative resources not
 	// covered by a more specific category above.
 	"namespaces":     categoryCluster,
 	"nodes":          categoryCluster,
@@ -143,12 +144,7 @@ func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterKub
 // connection:<name>:<action> vocabulary the egress gateway publishes has
 // exactly one source of truth.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
-	metas := platformconns.Actions(platformconns.AdapterKubernetesBearer)
-	out := make([]credentials.ActionDeclaration, len(metas))
-	for i, m := range metas {
-		out[i] = credentials.ActionDeclaration{Action: m.Action, Description: m.Description}
-	}
-	return out
+	return credentials.DeclaredActions(platformconns.AdapterKubernetesBearer)
 }
 
 // ClassifyAction maps a Kubernetes API request to the policy action that
@@ -157,12 +153,12 @@ func (a *Adapter) Actions() []credentials.ActionDeclaration {
 // class (read/write) derived from the HTTP method.
 //
 // kubectl exec/port-forward are SPDY/WebSocket-upgraded requests, not plain
-// REST — they are denied outright (ErrUnsupportedAction) rather than
+// REST. They are denied outright (ErrUnsupportedAction) rather than
 // misclassified as a REST verb, so they fail cleanly and audibly.
 //
 // A resource type not present in resourceCategories (a CRD, or any resource
 // not yet enumerated) is denied outright rather than folded into the
-// "cluster" catch-all — see resourceCategories' doc comment. Fine-grained
+// "cluster" catch-all. See resourceCategories' doc comment. Fine-grained
 // (namespace/resource-name/verb) authorization within a granted category is
 // delegated to the target cluster's own RBAC on the injected identity.
 func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (credentials.Classification, error) {
@@ -173,13 +169,16 @@ func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (c
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
-	category, ok := categorizeRequest(req.URL.Path)
+	// Classify the resolved path. The API server resolves dot segments, so
+	// classifying the raw path would let "/api/v1/.../pods/../../../secrets"
+	// be authorized as workloads while the upstream serves it as secrets.
+	category, ok := categorizeRequest(path.Clean(req.URL.Path))
 	if !ok {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
 	// The namespace qualifier instance is deferred to an amendment of the
-	// Kubernetes connection ADR — until then no qualifier is extracted, per
+	// Kubernetes connection ADR. Until then no qualifier is extracted, per
 	// docs/adr/2026-07-22-connection-scope-qualifiers.md (Instances).
 	switch strings.ToUpper(req.Method) {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
@@ -194,13 +193,13 @@ func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (c
 // categorizeRequest maps a Kubernetes API server request path to a resource
 // category. It recognizes the two REST prefixes the API server serves:
 //
-//	/api/v1/...                     — the core (unnamed) API group
-//	/apis/{group}/{version}/...     — every named API group
+//	/api/v1/...                     the core (unnamed) API group
+//	/apis/{group}/{version}/...     every named API group
 //
 // and, within either, both namespaced (".../namespaces/{ns}/{resource}/...")
 // and cluster-scoped (".../{resource}/...") resource shapes. Anything that
-// isn't a resource path at all — bare /api, /apis, /apis/{group}, /version,
-// /openapi/*, /healthz/livez/readyz, or the root — is API discovery, which
+// isn't a resource path at all (bare /api, /apis, /apis/{group}, /version,
+// /openapi/*, /healthz/livez/readyz, or the root) is API discovery, which
 // kubectl/client-go always call before any real request; it is bucketed into
 // the "cluster" category rather than denied (mirroring upstream Kubernetes'
 // own RBAC, which binds discovery to every authenticated user regardless of
@@ -215,7 +214,7 @@ func categorizeRequest(path string) (category string, ok bool) {
 		rest = segments[2:]
 	case len(segments) >= 1 && segments[0] == "apis":
 		if len(segments) < 3 {
-			return categoryCluster, true // bare /apis or /apis/{group} — discovery
+			return categoryCluster, true // bare /apis or /apis/{group}: discovery
 		}
 		rest = segments[3:]
 	default:
@@ -223,7 +222,7 @@ func categorizeRequest(path string) (category string, ok bool) {
 	}
 
 	if len(rest) == 0 {
-		return categoryCluster, true // bare group/version root — discovery
+		return categoryCluster, true // bare group/version root: discovery
 	}
 	if rest[0] == "watch" { // deprecated /api/v1/watch/... form
 		rest = rest[1:]
@@ -235,11 +234,11 @@ func categorizeRequest(path string) (category string, ok bool) {
 	resource := rest[0]
 	if resource == "namespaces" {
 		if len(rest) <= 2 {
-			// ["namespaces"] or ["namespaces", name] — the Namespace object
+			// ["namespaces"] or ["namespaces", name]: the Namespace object
 			// itself, not a namespaced resource beneath it.
 			resource = "namespaces"
 		} else {
-			// ["namespaces", ns, resource, ...] — the actual resource is the
+			// ["namespaces", ns, resource, ...]: the actual resource is the
 			// third segment; "namespaces/{ns}/" is just the scoping prefix.
 			resource = rest[2]
 		}
@@ -278,7 +277,7 @@ func isUpgradeRequest(req *http.Request) bool {
 }
 
 // Resolve reads the static bearer token from the mounted secret and returns
-// it as-is. There is no minting and no cache — the token is already an
+// it as-is. There is no minting and no cache, since the token is already an
 // in-memory string once read, so caching it buys nothing k8sfile's own
 // mount-read doesn't already give for free.
 func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id credentials.CallerIdentity) (credentials.Credential, error) {

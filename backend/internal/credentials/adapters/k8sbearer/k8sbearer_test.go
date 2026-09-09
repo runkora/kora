@@ -66,7 +66,7 @@ func TestClassifyAction_ResourceCategorization(t *testing.T) {
 		path   string
 		want   string
 	}{
-		// workloads — core and named groups, namespaced and all-namespaces list.
+		// workloads: core and named groups, namespaced and all-namespaces list.
 		{"pods namespaced", http.MethodGet, "/api/v1/namespaces/default/pods", k8sbearer.ActionWorkloadsRead},
 		{"pods all-namespaces list", http.MethodGet, "/api/v1/pods", k8sbearer.ActionWorkloadsRead},
 		{"deployments write", http.MethodPost, "/apis/apps/v1/namespaces/default/deployments", k8sbearer.ActionWorkloadsWrite},
@@ -77,7 +77,7 @@ func TestClassifyAction_ResourceCategorization(t *testing.T) {
 		{"horizontalpodautoscalers read", http.MethodGet, "/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers", k8sbearer.ActionWorkloadsRead},
 		{"horizontalpodautoscalers write", http.MethodPut, "/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers/foo", k8sbearer.ActionWorkloadsWrite},
 
-		// config vs. secrets — split into separate categories.
+		// config vs. secrets: split into separate categories.
 		{"configmaps read", http.MethodGet, "/api/v1/namespaces/default/configmaps", k8sbearer.ActionConfigRead},
 		{"secrets read", http.MethodGet, "/api/v1/namespaces/default/secrets", k8sbearer.ActionSecretsRead},
 		{"secrets write", http.MethodDelete, "/api/v1/namespaces/default/secrets/foo", k8sbearer.ActionSecretsWrite},
@@ -86,23 +86,23 @@ func TestClassifyAction_ResourceCategorization(t *testing.T) {
 		{"services", http.MethodGet, "/api/v1/namespaces/default/services", k8sbearer.ActionNetworkingRead},
 		{"ingresses", http.MethodGet, "/apis/networking.k8s.io/v1/namespaces/default/ingresses", k8sbearer.ActionNetworkingRead},
 
-		// storage — mixed namespaced/cluster-scoped.
+		// storage: mixed namespaced/cluster-scoped.
 		{"persistentvolumeclaims", http.MethodGet, "/api/v1/namespaces/default/persistentvolumeclaims", k8sbearer.ActionStorageRead},
 		{"persistentvolumes (cluster-scoped)", http.MethodGet, "/api/v1/persistentvolumes", k8sbearer.ActionStorageRead},
 		{"storageclasses (cluster-scoped)", http.MethodGet, "/apis/storage.k8s.io/v1/storageclasses", k8sbearer.ActionStorageRead},
 
-		// rbac — namespaced and cluster-scoped variants of the same concept.
+		// rbac: namespaced and cluster-scoped variants of the same concept.
 		{"roles (namespaced)", http.MethodGet, "/apis/rbac.authorization.k8s.io/v1/namespaces/default/roles", k8sbearer.ActionRBACRead},
 		{"clusterroles (cluster-scoped)", http.MethodGet, "/apis/rbac.authorization.k8s.io/v1/clusterroles", k8sbearer.ActionRBACRead},
 		{"serviceaccounts write", http.MethodPut, "/api/v1/namespaces/default/serviceaccounts/foo", k8sbearer.ActionRBACWrite},
 
-		// cluster catch-all — well-known cluster-scoped/admin resources.
+		// cluster catch-all: well-known cluster-scoped/admin resources.
 		{"nodes", http.MethodGet, "/api/v1/nodes", k8sbearer.ActionClusterRead},
 		{"namespace list (the resource itself)", http.MethodGet, "/api/v1/namespaces", k8sbearer.ActionClusterRead},
 		{"single namespace object", http.MethodGet, "/api/v1/namespaces/default", k8sbearer.ActionClusterRead},
 		{"events", http.MethodGet, "/api/v1/namespaces/default/events", k8sbearer.ActionClusterRead},
 
-		// non-resource API discovery — always bucketed into cluster, never denied.
+		// non-resource API discovery: always bucketed into cluster, never denied.
 		{"root", http.MethodGet, "/", k8sbearer.ActionClusterRead},
 		{"api root", http.MethodGet, "/api", k8sbearer.ActionClusterRead},
 		{"apis root", http.MethodGet, "/apis", k8sbearer.ActionClusterRead},
@@ -156,8 +156,8 @@ func TestClassifyAction_UnsupportedVerbDenied(t *testing.T) {
 
 func TestClassifyAction_UpgradeRequestDenied(t *testing.T) {
 	a := newAdapter(stubSecrets{})
-	// kubectl exec/attach/port-forward negotiate a SPDY or WebSocket upgrade —
-	// out of scope, and must fail cleanly rather than being misclassified as a
+	// kubectl exec/attach/port-forward negotiate a SPDY or WebSocket upgrade.
+	// Those are out of scope and must fail cleanly rather than be misclassified as a
 	// REST GET, regardless of what resource category the path would otherwise
 	// map to.
 	req, _ := http.NewRequest(http.MethodGet, "https://k8s.example.com/api/v1/namespaces/default/pods/foo/exec", nil)
