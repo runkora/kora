@@ -116,14 +116,16 @@ func (m *Mux) HandleWithMiddleware(
 		finalHandler = m.middleware(finalHandler)
 	}
 
-	finalHandler = mw.MiddlewareChain(mw.SpanRouteNameMiddleware())(finalHandler)
+	finalHandler = mw.SpanRouteName(finalHandler)
 
-	// Publish the matched pattern before anything else on the route runs, so
-	// middleware can read the route instead of re-deriving it from the URL.
-	m.ServeMux.Handle(joinedRoute, publishRoutePattern(fullPath, finalHandler))
+	// Outermost, so every middleware above reads the route from the context
+	// rather than re-deriving it from the URL.
+	finalHandler = withRoutePattern(fullPath, finalHandler)
+
+	m.ServeMux.Handle(joinedRoute, finalHandler)
 }
 
-func publishRoutePattern(pattern string, next http.Handler) http.Handler {
+func withRoutePattern(pattern string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(mw.WithRoutePattern(r.Context(), pattern)))
 	})

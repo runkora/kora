@@ -11,7 +11,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
-func TestSpanRouteNameMiddleware(t *testing.T) {
+func TestSpanRouteName(t *testing.T) {
 	tests := []struct {
 		name      string
 		pattern   string
@@ -39,11 +39,9 @@ func TestSpanRouteNameMiddleware(t *testing.T) {
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-			handler := SpanRouteNameMiddleware().next(
-				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}),
-			)
+			handler := SpanRouteName(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
 
 			// Stand in for TracingMiddleware, which starts the span before routing.
 			ctx, span := provider.Tracer("test").Start(context.Background(), "GET /")
