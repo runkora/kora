@@ -73,7 +73,7 @@ spec:
                 adapter:
                   description: >
                     Credential mechanism selector (e.g. "github_app",
-                    "passthrough"). Validated by the gateway's adapter registry
+                    "kubernetes"). Validated by the gateway's adapter registry
                     at resolve time, not by this schema, so adding an adapter
                     does not require a CRD bump.
                   type: string

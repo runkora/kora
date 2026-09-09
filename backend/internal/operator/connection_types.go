@@ -47,9 +47,9 @@ type Connection struct {
 // deliberately not restated here.
 type ConnectionSpec struct {
 	// Adapter selects the credential mechanism (e.g. "github_app",
-	// "passthrough"). Validated at resolve time by the gateway's adapter
-	// registry, not by the CRD schema — adding an adapter must not require a
-	// CRD bump.
+	// "kubernetes"). Validated at resolve time by the gateway's adapter
+	// registry rather than by the CRD schema, so adding an adapter does not
+	// require a CRD bump.
 	// +kubebuilder:validation:MinLength=1
 	Adapter string `json:"adapter"`
 

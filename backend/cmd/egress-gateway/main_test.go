@@ -1,33 +1,38 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
 	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/egressgw"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// stubConnections is a fixed connection registry. Only ListByTenant is
-// exercised; the broker's host lookup plays no part in scope publication.
-type stubConnections struct {
-	conns []*credentials.Connection
-}
-
-func (s stubConnections) GetByHost(context.Context, string, string) (*credentials.Connection, error) {
-	return nil, credentials.ErrConnectionNotFound
-}
-
-func (s stubConnections) ListByTenant(context.Context, string) ([]*credentials.Connection, error) {
-	return s.conns, nil
+// mountedRegistry writes a connections.json the way the operator renders it and
+// loads the gateway's real registry over it, so the test publishes from the
+// same type production does.
+func mountedRegistry(t *testing.T, entries string) *credentials.ConfigMapRegistry {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "connections.json")
+	if err := os.WriteFile(path, []byte(entries), 0o600); err != nil {
+		t.Fatalf("write connections.json: %v", err)
+	}
+	reg, err := credentials.LoadConfigMapRegistry(t.Context(), path, logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	return reg
 }
 
 // registration is the wire payload the policy service receives.
@@ -61,10 +66,24 @@ func withPolicyServiceURL(t *testing.T, url string) {
 	t.Cleanup(func() { egc.Current.Policy.PolicyServiceInternalURL = prev })
 }
 
-func testAdapters() *egressgw.AdapterRegistry {
+// testAdapters registers the adapters main.go registers. Passthrough is
+// deliberately absent: AdapterRegistry.Register refuses it.
+func testAdapters(t *testing.T) *egressgw.AdapterRegistry {
+	t.Helper()
+	registry := egressgw.NewAdapterRegistry()
+	registry.Register(githubapp.New(nil, nil, logging.NewLoggerWithOutput(io.Discard)))
+	return registry
+}
+
+// TestAdapterRegistryRefusesPassthrough locks the wiring guarantee: reaching a
+// host that needs no credential is granted by the egress whitelist, so no
+// Connection may name the passthrough adapter, however main.go is edited.
+func TestAdapterRegistryRefusesPassthrough(t *testing.T) {
 	registry := egressgw.NewAdapterRegistry()
 	registry.Register(passthrough.New())
-	return registry
+	if _, ok := registry.Lookup(credentials.AdapterPassthrough); ok {
+		t.Fatal("AdapterRegistry accepted the passthrough adapter")
+	}
 }
 
 // TestInitScopeRegistrationPublishesConnectionVocabulary asserts the register
@@ -76,10 +95,8 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	conns := stubConnections{conns: []*credentials.Connection{
-		{Name: "public-docs", Adapter: "passthrough", TenantID: "acme"},
-	}}
-	register := initScopeRegistration(logging.NewLogger(), conns, testAdapters())
+	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:orbit-conn-acme-github"}]`)
+	register := initScopeRegistration(logging.NewLoggerWithOutput(io.Discard), conns, testAdapters(t))
 
 	if err := register(t.Context()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -107,8 +124,9 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	for _, want := range []string{
 		"platform:connections:read",
 		"platform:connections:write",
-		"connection:public-docs:read",
-		"connection:public-docs:write",
+		"connection:github:read",
+		"connection:github:write",
+		"connection:github:contents:write",
 	} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration: %v", want, declared)

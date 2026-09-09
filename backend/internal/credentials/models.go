@@ -1,9 +1,8 @@
 // Package credentials is the connection registry and credential-minting core of
 // the Orbit credential broker. A Connection is a tenant-scoped registration of
-// one external service (GitHub, AWS, an OAuth2 app, an API-key SaaS); a
-// CredentialAdapter turns a Connection into a short-lived, scoped Credential
-// that the egress gateway injects on the outbound leg. The agent never holds the
-// secret.
+// one external service; a CredentialAdapter turns it into a short-lived, scoped
+// Credential the egress gateway injects on the outbound leg. The agent never
+// holds the secret.
 //
 // See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
 package credentials
@@ -18,23 +17,19 @@ import (
 // adapter implementation serves every connection of that type, so adding a
 // service that fits an existing adapter is a registration, not new code.
 //
-// The set is closed in code (each constant maps to one subpackage under
-// internal/credentials/adapters/) but the database column is intentionally an
-// unconstrained TEXT — adding a new adapter must not require a schema
-// migration. Validation happens at resolve time via ErrUnsupportedAdapter.
+// Each constant maps to one subpackage under internal/credentials/adapters/.
+// The stored value is unconstrained text so a new adapter needs no schema
+// change; an unknown value is rejected at resolve time with
+// ErrUnsupportedAdapter.
 type AdapterType string
 
 const (
-	AdapterGitHubApp         AdapterType = "github_app"
-	AdapterKubernetesBearer  AdapterType = "kubernetes"
-	AdapterOAuth2ClientCreds AdapterType = "oauth2_client_credentials"
-	AdapterAPIKey            AdapterType = "api_key"
-	AdapterAWSSTS            AdapterType = "aws_sts"
-	// AdapterPassthrough injects NO credential — the connection is governed
-	// (egress posture + connection grant + audit) and the gateway re-originates
-	// to the upstream unchanged. The "agent reaches a public, unauthenticated
-	// resource" case (Pattern D), alongside minted (A), static-secret (B), and
-	// native-endpoint (C). See the egress-gateway ADR.
+	AdapterGitHubApp        AdapterType = "github_app"
+	AdapterKubernetesBearer AdapterType = "kubernetes"
+
+	// AdapterPassthrough injects no credential. It is not registrable: the
+	// broker holds the passthrough adapter directly and uses it for hosts with
+	// no connection, which the egress whitelist alone authorizes.
 	AdapterPassthrough AdapterType = "passthrough"
 )
 
@@ -43,13 +38,10 @@ const (
 // reference to the per-tenant secret store (never a raw secret), and
 // adapter-specific configuration.
 //
-// Since Amendment 3 a Connection is sourced from the operator-aggregated
-// registry the gateway mounts (configmap.go), not a Postgres row. The
-// scope_ceiling field is dropped — the adapter declares the grantable action
-// vocabulary and the PDP authorizes; nothing read the ceiling. ID is derived
-// (tenant|name) by the registry reader so the github_app adapter's token cache
-// key stays stable; CreatedAt/UpdatedAt are retained for API/observability shape
-// and are zero when sourced from the registry.
+// Connections come from the operator-aggregated registry the gateway mounts
+// (configmap.go). The registry reader derives ID as "tenant|name" to keep the
+// github_app adapter's token cache key stable. CreatedAt and UpdatedAt are zero
+// there; they exist for API shape.
 type Connection struct {
 	ID        string          `json:"id"`
 	TenantID  string          `json:"tenant_id"`
@@ -96,11 +88,9 @@ var (
 	ErrUnsupportedAction = errors.New("unsupported action for adapter")
 
 	// ErrCredentialScopeRejected is returned by an adapter's Resolve when the
-	// upstream authority refuses to issue a credential for the requested scope —
-	// Orbit's policy allowed the call, but the underlying credential (e.g. a
-	// GitHub App installation) is not itself granted that level of access. The
-	// broker maps this to a client-facing forbidden, distinct from an internal
-	// mint failure. This is the "defer to the upstream as the authority"
-	// principle surfacing as its own error class.
+	// upstream refuses to issue a credential for the requested scope. Orbit's
+	// policy allowed the call, but the underlying credential (a GitHub App
+	// installation, say) does not itself hold that access. The broker maps this
+	// to a client-facing forbidden, distinct from an internal mint failure.
 	ErrCredentialScopeRejected = errors.New("upstream refused to issue a credential for the requested scope")
 )
