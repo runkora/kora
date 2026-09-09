@@ -8,6 +8,8 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Mux wraps http.ServeMux with controller-level routing and middleware support.
@@ -96,7 +98,8 @@ func (m *Mux) HandleWithMiddleware(
 		// if basepath is only a slash, we dont need to trim it
 		trimmedPath = strings.TrimPrefix(path, "/")
 	}
-	joinedRoute := fmt.Sprintf("%s %s%s", method, m.basePath, trimmedPath)
+	fullPath := m.basePath + trimmedPath
+	joinedRoute := fmt.Sprintf("%s %s", method, fullPath)
 	m.logger.Info(m.ctx, "Registering sub-route",
 		logging.Field{Key: "route", Value: joinedRoute},
 	)
@@ -115,7 +118,24 @@ func (m *Mux) HandleWithMiddleware(
 		finalHandler = m.middleware(finalHandler)
 	}
 
+	finalHandler = withRouteName(joinedRoute, fullPath, finalHandler)
+
 	m.ServeMux.Handle(joinedRoute, finalHandler)
+}
+
+// withRouteName labels the request's span with the route it matched.
+//
+// TracingMiddleware starts the span before any routing has happened, when the
+// only pattern available is the outer mux's catch-all "/". Every span would
+// otherwise be named "GET /". The registered pattern is a template, not a URL,
+// so span names stay low-cardinality.
+func withRouteName(name, route string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		span := trace.SpanFromContext(r.Context())
+		span.SetName(name)
+		span.SetAttributes(semconv.HTTPRoute(route))
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (m *Mux) HandleFileServer(

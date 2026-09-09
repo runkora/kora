@@ -8,6 +8,9 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/middleware"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
 // TestNewMux verifies Mux creation
@@ -396,5 +399,45 @@ func TestMuxRootBasePath(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+// TestMuxRouteSpanNaming verifies a matched route names its span after the
+// registered pattern, not the outer mux's catch-all.
+func TestMuxRouteSpanNaming(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	mux := NewMux(context.Background(), logging.NewLogger())
+	mux.SetBasePath("/api/v1/pats")
+	mux.Handle("GET /{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Stand in for TracingMiddleware, which starts the span before routing.
+	ctx, span := provider.Tracer("test").Start(context.Background(), "GET /")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pats/abc123", nil).WithContext(ctx)
+	mux.ServeHTTP(httptest.NewRecorder(), req)
+	span.End()
+
+	ended := recorder.Ended()
+	if len(ended) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(ended))
+	}
+
+	const wantName = "GET /api/v1/pats/{id}"
+	if got := ended[0].Name(); got != wantName {
+		t.Errorf("span name = %q, want %q", got, wantName)
+	}
+
+	var gotRoute string
+	for _, attr := range ended[0].Attributes() {
+		if attr.Key == semconv.HTTPRouteKey {
+			gotRoute = attr.Value.AsString()
+		}
+	}
+	if gotRoute != "/api/v1/pats/{id}" {
+		t.Errorf("http.route = %q, want %q", gotRoute, "/api/v1/pats/{id}")
 	}
 }
