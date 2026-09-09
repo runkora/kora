@@ -118,17 +118,10 @@ func (m *Mux) HandleWithMiddleware(
 
 	finalHandler = mw.SpanRouteName(finalHandler)
 
-	// Outermost, so every middleware above reads the route from the context
-	// rather than re-deriving it from the URL.
-	finalHandler = withRoutePattern(fullPath, finalHandler)
+	// Outermost, so every middleware above reads the route from the context.
+	finalHandler = mw.RoutePattern(fullPath)(finalHandler)
 
 	m.ServeMux.Handle(joinedRoute, finalHandler)
-}
-
-func withRoutePattern(pattern string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(mw.WithRoutePattern(r.Context(), pattern)))
-	})
 }
 
 func (m *Mux) HandleFileServer(
