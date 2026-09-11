@@ -835,3 +835,55 @@ export interface TriggerDeliveryRun {
   error?: string;
   created_at: string;
 }
+
+// ── Marketplace ─────────────────────────────────────────────────────────
+// Package refers to a Skill/PLugin.
+export interface Marketplace {
+  name: string;
+  org: string;
+  repo: string;
+  branch: string;
+}
+
+export interface GetMarketplaces {
+  marketplaces: Marketplace[];
+}
+
+export interface PackageOverview {
+  slug: string;
+  title_of_package: string;
+  description: string;
+}
+
+export interface PackageResource {
+  path_of_resource_in_repo: string;
+  name_of_resource: string;
+  body_of_resource: string;
+}
+
+export interface PackageDetail extends PackageOverview {
+  package: {
+    path_of_package_in_repo: string;
+    name_of_package: string;
+    body_of_package: string;
+  };
+  resources_of_package: PackageResource[];
+  name_of_marketplace: string;
+}
+
+export interface GetPackageOverview {
+  packages: PackageOverview[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
+export interface GetPackageOverviewParams {
+  offset: number;
+  limit: number;
+  search?: string;
+}
+
+export interface GetPackageDetails {
+  package_detail: PackageDetail;
+}

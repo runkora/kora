@@ -128,6 +128,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Accepted` · 2026-03-31
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
+- [Skills Marketplace: GitOps Source Registration and Reconciliation](2026-08-19-marketplace-gitops.md) — `Proposed` · 2026-08-19
 
 ### Frontend & Design System
 
@@ -242,6 +243,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed | — |
+| 2026-08-19 | [Skills Marketplace: GitOps Source Registration and Reconciliation](2026-08-19-marketplace-gitops.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
