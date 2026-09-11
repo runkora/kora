@@ -1224,13 +1224,54 @@ export interface TriggerDeliveryRun {
   created_at: string;
 }
 
-/**
- * An agent type's loop-guard thresholds (docs/adr/2026-09-29-agent-run-guardrails.md).
- * Each warn is at least 1 and each pause is greater than its warn.
- */
-export interface AgentTypeGuardrails {
-  repeated_call_warn?: number;
-  repeated_call_pause?: number;
-  wait_rearm_warn?: number;
-  wait_rearm_pause?: number;
+// ── Marketplace ─────────────────────────────────────────────────────────
+// Package refers to a Skill/PLugin.
+export interface Marketplace {
+  name: string;
+  org: string;
+  repo: string;
+  branch: string;
+}
+
+export interface GetMarketplaces {
+  marketplaces: Marketplace[];
+}
+
+export interface PackageOverview {
+  slug: string;
+  title_of_package: string;
+  description: string;
+}
+
+export interface PackageResource {
+  path_of_resource_in_repo: string;
+  name_of_resource: string;
+  body_of_resource: string;
+}
+
+export interface PackageDetail extends PackageOverview {
+  package: {
+    path_of_package_in_repo: string;
+    name_of_package: string;
+    body_of_package: string;
+  };
+  resources_of_package: PackageResource[];
+  name_of_marketplace: string;
+}
+
+export interface GetPackageOverview {
+  packages: PackageOverview[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
+export interface GetPackageOverviewParams {
+  offset: number;
+  limit: number;
+  search?: string;
+}
+
+export interface GetPackageDetails {
+  package_detail: PackageDetail;
 }

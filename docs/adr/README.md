@@ -160,11 +160,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Superseded` · 2026-03-31
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
-- [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed (Amended 2026-10-24: Amendment 1 Accepted)` · 2026-09-04
-- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Accepted (Amended 2026-10-02, 2026-10-12)` · 2026-09-04
-- [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
-- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
-- [Declarative Resources](2026-10-24-declarative-resources.md) — `Accepted` · 2026-10-24
+- [Skills Marketplace: GitOps Source Registration and Reconciliation](2026-08-19-marketplace-gitops.md) — `Proposed` · 2026-08-19
 
 ### Frontend & Design System
 
@@ -283,6 +279,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed | — |
+| 2026-08-19 | [Skills Marketplace: GitOps Source Registration and Reconciliation](2026-08-19-marketplace-gitops.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
