@@ -2,7 +2,7 @@
 #
 # This is the enforced egress chokepoint (docs/adr/2026-06-06-jit-credential-
 # brokering-egress-gateway.md, Amendment 2). It does NOT rely on the agent
-# honouring HTTPS_PROXY — a hostile agent using a raw socket is caught the same
+# honouring HTTPS_PROXY; a hostile agent using a raw socket is caught the same
 # way, because the sandbox Envoy itself rewrites the traffic.
 #
 # Data path for a plain `curl https://example.com` from the agent (no proxy):
@@ -16,13 +16,13 @@
 #     │  tcp_proxy tunneling_config wraps the raw bytes in a GENERATED
 #     │  CONNECT example.com:443 and sends it to the internal listener.
 #     ▼
-#   internal listener orbit_egress_encap (patch 1) — an HCM that runs the SAME
+#   internal listener orbit_egress_encap (patch 1): an HCM that runs the SAME
 #   two filters the explicit-proxy path already used:
 #     │  ext_proc  → identity-proxy stamps Authorization: Bearer <platform JWT>
 #     │  ext_authz → OPA evaluates egress:<host>:connect posture (fail-closed)
 #     │  connect_matcher route → egress-gateway cluster in PROXY mode
 #     ▼
-#   egress gateway :8085 — terminates the CONNECT, TLS-intercepts with the
+#   egress gateway :8085: terminates the CONNECT, TLS-intercepts with the
 #   per-tenant CA, runs connection authz + JIT mint, re-originates upstream.
 #
 # Why an internal listener: removing HTTPS_PROXY means *Envoy* must generate the
@@ -30,7 +30,7 @@
 # CONNECT at the upstream edge, which would skip the outbound HCM where ext_proc
 # + ext_authz live. Routing the generated CONNECT through an internal-listener
 # HCM is what re-runs those existing filters on it. The identity-proxy and OPA
-# binaries are UNCHANGED — this is pure Envoy config, scoped to sandbox pods.
+# binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
 #
 # Scope: mesh services (orbit-system, kube-dns, istiod, …) have their own
 # dedicated outbound listeners that match the original destination first, so
@@ -46,14 +46,14 @@
 #     TLS on :443 likewise tunnels with an empty host and is fail-closed.
 # A DENIED connection is reset at this sandbox's OPA before reaching the gateway
 # (no data leaves the pod). For an ALLOWED non-443 raw-TCP connection the gateway
-# still needs a raw-passthrough mode (it only TLS-intercepts today) — tracked
+# still needs a raw-passthrough mode (it only TLS-intercepts today), tracked
 # follow-up. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
-{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.egressGateway.transparentEgress.enabled }}
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: egress-transparent-encap
-  namespace: istio-system
+  namespace: {{ .Values.istio.namespace }}
   labels:
     {{- include "orbit.egressGateway.labels" . | nindent 4 }}
 spec:
@@ -98,18 +98,21 @@ spec:
                                 upgrade_configs:
                                   - upgrade_type: CONNECT
                     http_filters:
-                      # identity-proxy ext_proc — stamps the platform JWT.
+                      # identity-proxy ext_proc: stamps the platform JWT.
                       - name: envoy.filters.http.ext_proc
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
                           grpc_service:
                             envoy_grpc:
                               cluster_name: identity_proxy_local
+                          # Envoy defaults to 200ms; the header phase is a cache read, and 1s is
+                          # headroom against a slow path silently overrunning.
+                          message_timeout: 1s
                           failure_mode_allow: true
                           processing_mode:
                             request_header_mode: SEND
                             response_header_mode: SKIP
-                      # OPA ext_authz — egress posture (fail-closed).
+                      # OPA ext_authz: egress posture (fail-closed).
                       - name: envoy.filters.http.ext_authz
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
@@ -153,7 +156,7 @@ spec:
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
     # 4) TLS filter chain on 0.0.0.0_443: tunnel (CONNECT) to the internal
-    #    listener using the SNI as the host — replaces raw passthrough for TLS.
+    #    listener using the SNI as the host: replaces raw passthrough for TLS.
     - applyTo: FILTER_CHAIN
       match:
         context: SIDECAR_OUTBOUND
@@ -174,7 +177,7 @@ spec:
                   hostname: "%REQUESTED_SERVER_NAME%:443"
     # 5) Catch-all for every other TCP port. Istio's virtualOutbound listener
     #    sends traffic to any port WITHOUT a dedicated listener (i.e. not 80/443
-    #    and not a mesh service) to PassthroughCluster — a direct, ungoverned
+    #    and not a mesh service) to PassthroughCluster: a direct, ungoverned
     #    egress. Replace that with the same tunnel, using the ORIGINAL
     #    destination (ip:port) as the CONNECT host since there is no SNI to read.
     #    OPA then gates it by IP; a non-whitelisted connection is reset before

@@ -1,0 +1,9 @@
+Orbit CRDs installed: orbittenants, connections, oauthclients, mcpservers (orbit.io).
+
+Install the orbit chart next, into the namespace Orbit will run in:
+
+  helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+    --version {{ .Chart.Version }} --namespace {{ .Release.Namespace }}
+
+The CRDs carry helm.sh/resource-policy: keep. Uninstalling this release leaves
+them, and every OrbitTenant, Connection, OAuthClient and MCPServer, in place.

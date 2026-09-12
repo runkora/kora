@@ -124,7 +124,7 @@ target "orbit-operator" {
 }
 
 // Local platform bring-up group: every long-lived service the operator pulls
-// during `cluster-operator`. Excludes orbit-shell / orbit-runtime-mcp because
+// during `cluster-platform`. Excludes orbit-shell / orbit-runtime-mcp because
 // they're produced as side-effect binaries inside the session-manager image.
 group "local-platform" {
   targets = [

@@ -1,124 +1,64 @@
-# Contributing to Orbit
+# Contributing
 
-Thanks for your interest in Orbit, the control plane for AI agents, the agentic engineering platform that takes an agent from a developer's laptop to a secure, governed production deployment. This guide is the **human front door** for contributors. It covers how to get set up, the workflow we follow, and the bar your change must clear before it merges.
+Thanks for your interest in contributing to Orbit!
 
-For the exhaustive, machine-enforced engineering rules, **[`AGENTS.md`](AGENTS.md) is the canonical guide.** It documents every coding convention, every lint rule, and the rationale behind them. This document summarizes and points there; it does not duplicate it. Architecture lives in [`docs/`](docs/): start with the [architecture overview](docs/architecture.md), the [ADR index](docs/adr/README.md), and the [PRD index](docs/prd/README.md).
+## Ways to contribute
 
-By contributing, you agree your work is licensed under the [Apache License 2.0](LICENSE).
+There are more ways to contribute than code. Report a bug, fix the docs, help triage an issue, or answer a question from someone who is stuck.
 
----
+## Ask for help
 
-## 1. Getting set up
+If you are unsure, open a GitHub issue.
 
-Orbit's backend is **Go 1.26**. Local development runs in Kubernetes. You'll need Docker (Docker Desktop or Colima) with at least 4 CPUs and 8 GiB of RAM allocated to the VM, Node 24 with pnpm 10 for the frontend, and Make. Three commands take you from clone to a running platform:
+## Getting set up
 
-```bash
-make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
-make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
-make auth    # Device Authorization Grant against the cluster → dev@orbit.local.clearroute.io / password
-```
+Get Orbit running locally with the [local development guide](docs/guides/local-development.md). You do not need a running cluster to contribute documentation.
 
-`make setup` generates a machine-local `.env` with the secrets the platform needs, including `BFF_SESSION_SECRET`, which the frontend BFF refuses to start without. `make up` composes the granular `dev-cluster`, `migrate-up`, `cluster-operator`, and `cluster-deploy` recipes, and is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. `make auth` writes the token pair to `/tmp/orbit_credentials.json`; `make auth-refresh` rotates it when the token expires.
+Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-If this is your first day, [docs/guides/day-one.md](docs/guides/day-one.md) walks the whole path, backend and frontend.
+### Tips to get started
 
-The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service). For the full walkthrough, how to call authenticated APIs, and troubleshooting, see the **[Local Development Guide](docs/guides/local-development.md)**.
+- Review the [architecture documentation](ARCHITECTURE.md) to understand how Orbit works.
+- Look through closed issues and PRs for examples of changes similar to yours.
 
-> Run any `make` target without arguments (`make` or `make help`) to list every available target.
+## Filing an issue
 
----
+To file a bug or feature request for Orbit:
 
-## 2. Development workflow
+1. Search existing issues for duplication.
+2. If no existing issue covers your case, create a new one.
+3. Use an issue template when applicable.
 
-Orbit uses a **PRD → ADR → implementation** process so that the "why" is captured before the "how", and the "how" is captured before the code.
+## Finding something to work on
 
-### New features or significant changes
+Orbit uses [GitHub Issues](https://github.com/clear-route/orbit/issues) to track bugs and feature requests. Issues labelled with [good first issue](https://github.com/clear-route/orbit/issues?q=state%3Aopen%20label%3A%22good%20first%20issue%22) are a good place to start. If an issue has not been assigned, you can request to work on it by leaving a comment.
 
-1. **Write a PRD.** Copy [`docs/prd/template.md`](docs/prd/template.md) into `docs/prd/` and define the problem, user needs, and high-level solution. Collaborate with a maintainer to refine scope. See the [PRD index](docs/prd/README.md).
-2. **Write an ADR.** After the PRD is agreed, copy [`docs/adr/template.md`](docs/adr/template.md) into `docs/adr/` documenting the technical approach: Context → Options → Decision → Consequences. See the [ADR index](docs/adr/README.md).
-3. **Implement.** Only after the PRD and ADR are agreed. Write tests alongside the code and keep documentation current.
+## Contributing a change
 
-**An ADR before significant implementation is a hard rule.** Architectural decisions are not made inline in a PR. They're made in an ADR that the PR then references.
+For a new feature or a significant change, raise it in an issue and agree the design with us before you write code.
 
-### Bug fixes and minor changes
+1. Write a PRD from [docs/prd/template.md](docs/prd/template.md) and agree the scope with a maintainer.
+2. Write an ADR from [docs/adr/template.md](docs/adr/template.md) capturing the technical decision.
+3. Implement against the agreed documents, with tests.
 
-Lighter weight, no PRD/ADR required:
+Small patches and bug fixes do not need prior discussion. Open or reference an issue and fix it, with appropriate tests.
 
-1. Open an issue describing the problem (or reference an existing one).
-2. Fix it, with tests and any doc updates.
-3. Run the quality gate and open a PR.
+## Before you open a PR
 
----
+- `make check` passes.
+- Tests cover the change.
+- Documentation reflects the change.
 
-## 3. ADR & PRD conventions
+Follow the coding conventions in [docs/conventions.md](docs/conventions.md). Do not add inline `//nolint` or `eslint-disable` directives.
 
-ADRs are named by **decision date plus a short slug**:
+## Commits and pull requests
 
-```
-docs/adr/YYYY-MM-DD-kebab-slug.md
-```
+- Commits follow Conventional Commits with an optional scope, for example `fix(policy): fail closed on unbound and unverified delegation tokens`.
+- Reference the ADR that motivates the change in the PR description.
+- Branch from `main`. Keep each PR to one change.
 
-There is **no sequential number**. The slug is the citation handle: reference an ADR by its title/slug and link to the file (e.g. the *inference-gateway-architecture* ADR), **not** by a numeric "ADR-00NN". The [ADR index](docs/adr/README.md) is the catalogue and explains status values (`Proposed`, `Accepted`, `Deprecated`/`Superseded`); it also preserves the old sequential numbers in a *Former #* column for traceability with older commits.
+Contributions are accepted under the [Apache License 2.0](LICENSE).
 
-PRDs follow the same spirit: start from [`docs/prd/template.md`](docs/prd/template.md) and link them to their primary ADR(s) in the [PRD index](docs/prd/README.md).
+## Security
 
----
-
-## 4. Code conventions
-
-The codebase enforces **strict conventions mechanically**. Violations fail the quality gate, so you'll find out fast. In brief, the backend bans ORMs (explicit SQL via `pgx/v5` only, never `database/sql`), third-party HTTP routers, the stdlib `log`/`slog` (use the injected logger), hand-written migrations, and raw `http.Client` construction (use typed platform clients). Service-to-service calls go through typed clients in `internal/platform/clients/`; feature packages must not import each other. The frontend bans raw HTML primitives: all product JSX uses the **Terra** design system (`@orbit/terra`), enforced by ESLint with no escape hatches.
-
-This is the short version. **The full rules, the lint-rule tables, and the "why" all live in [`AGENTS.md`](AGENTS.md).** Read it before writing non-trivial code. Enforcement is centralized: do not add inline `//nolint` or `eslint-disable` directives.
-
----
-
-## 5. The quality gate
-
-Every change must pass the quality gate with **zero issues** before a PR. The same checks run in CI.
-
-**Backend**, run from the **repository root** (not `backend/`):
-
-```bash
-make check   # tidy + gofmt + go vet + golangci-lint + gitleaks (secret scan) + docs-check + tests + frontend checks
-```
-
-`docs-check` (`scripts/docs/check-docs.sh`) is a doc-drift guard: it fails on broken links, ADR/PRD index gaps, dead `make` targets, a stale binary table, and hardcoded counts, so the docs can't quietly assert something the code has changed underneath them.
-
-**Frontend**, if you touched anything under `frontend/`:
-
-```bash
-cd frontend && pnpm lint && pnpm tsc --noEmit
-```
-
-Both must pass with zero errors. (`make check` already invokes the frontend checks via `frontend-check`; running the two `pnpm` commands directly is the fast inner-loop equivalent while iterating on the UI.)
-
-Useful narrower targets: `make test` (Go unit tests with race detector + coverage), `make lint`, `make fmt`, `make secrets`, `make frontend-check`.
-
----
-
-## 6. Commits & pull requests
-
-- **Conventional Commits.** This repo uses `feat:`, `fix:`, `chore:`, etc., with optional scopes, e.g. `feat(agents): add run lifecycle` or `fix(inferencegw): correct SSE serialization`. Browse `git log --oneline` for the house style.
-- **Reference the PRD/ADR** that motivates the change in your commit messages and PR description, so reviewers can trace the decision.
-- **CI must be green.** PRs run `make check`; a red build will not be merged.
-- Keep PRs focused and reviewable. Write a clear description of what changed and why.
-- Branch from `main`; do not push directly to `main`.
-
----
-
-## 7. Security
-
-Orbit is infrastructure for autonomous agents. Security is not optional.
-
-- **Never commit secrets.** No API keys, tokens, or credentials in code or config. The `gitleaks` scan in `make check` is a backstop, not a substitute for care. Secrets load via environment variables only.
-- **Report vulnerabilities privately.** Do **not** open a public issue. See [`SECURITY.md`](SECURITY.md) for the disclosure process.
-
----
-
-## 8. License
-
-Orbit is licensed under the [Apache License 2.0](LICENSE). All contributions are accepted under the same license.
-
----
-
-Questions about architecture? Reference the relevant ADR in a GitHub Discussion or issue. Thanks for helping build Orbit.
+Report vulnerabilities by following the [security policy](SECURITY.md). Do not open a public issue for a suspected vulnerability.

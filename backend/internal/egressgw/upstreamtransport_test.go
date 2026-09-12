@@ -20,15 +20,6 @@ func testCACertPEM(t *testing.T) string {
 	return string(certPEM)
 }
 
-func caCertConfig(t *testing.T) json.RawMessage {
-	t.Helper()
-	cfg, err := json.Marshal(map[string]string{"ca_cert": testCACertPEM(t)})
-	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-	return cfg
-}
-
 func TestTransportCache_NoCACertReturnsBase(t *testing.T) {
 	base := &http.Transport{}
 	c := NewTransportCache(base)
@@ -37,8 +28,8 @@ func TestTransportCache_NoCACertReturnsBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("For: unexpected error %v", err)
 	}
-	if got != base {
-		t.Errorf("For(no ca_cert) = %v, want the shared base transport", got)
+	if got != c.shared {
+		t.Errorf("For(no ca_cert) = %v, want the shared traced transport", got)
 	}
 }
 
@@ -50,29 +41,35 @@ func TestTransportCache_NilConnectionReturnsBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("For: unexpected error %v", err)
 	}
-	if got != base {
-		t.Errorf("For(nil) = %v, want the shared base transport", got)
+	if got != c.shared {
+		t.Errorf("For(nil) = %v, want the shared traced transport", got)
 	}
 }
 
 func TestTransportCache_CACertBuildsScopedTransport(t *testing.T) {
 	base := &http.Transport{}
 	c := NewTransportCache(base)
-	conn := &credentials.Connection{ID: "acme|k8s", Config: caCertConfig(t)}
+	conn := &credentials.Connection{ID: "acme|k8s", CACert: testCACertPEM(t)}
 
 	got, err := c.For(conn)
 	if err != nil {
 		t.Fatalf("For: unexpected error %v", err)
 	}
-	if got == base {
-		t.Fatal("For(ca_cert) returned the shared base transport, want a scoped clone")
+	if got == c.shared {
+		t.Fatal("For(ca_cert) returned the shared transport, want a scoped clone")
 	}
-	tr, ok := got.(*http.Transport)
-	if !ok {
-		t.Fatalf("For(ca_cert) = %T, want *http.Transport", got)
+
+	// The clone carries the connection's CA. For() hands back a traced wrapper
+	// around it, so inspect what buildTransport produced.
+	tr, err := c.buildTransport(conn.CACert)
+	if err != nil {
+		t.Fatalf("buildTransport: %v", err)
 	}
 	if tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs == nil {
 		t.Fatal("scoped transport has no RootCAs configured")
+	}
+	if tr == base {
+		t.Fatal("buildTransport returned the base transport rather than a clone")
 	}
 
 	// A second call for the same connection must return the cached transport.
@@ -88,9 +85,9 @@ func TestTransportCache_CACertBuildsScopedTransport(t *testing.T) {
 func TestTransportCache_ScopedPerConnection(t *testing.T) {
 	base := &http.Transport{}
 	c := NewTransportCache(base)
-	cfg := caCertConfig(t)
-	connA := &credentials.Connection{ID: "acme|k8s-a", Config: cfg}
-	connB := &credentials.Connection{ID: "acme|k8s-b", Config: cfg}
+	pem := testCACertPEM(t)
+	connA := &credentials.Connection{ID: "acme|k8s-a", CACert: pem}
+	connB := &credentials.Connection{ID: "acme|k8s-b", CACert: pem}
 
 	trA, err := c.For(connA)
 	if err != nil {
@@ -110,8 +107,8 @@ func TestTransportCache_ScopedPerConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("For(plain): %v", err)
 	}
-	if plain != base {
-		t.Error("a connection with no ca_cert must get the shared base transport, unaffected by other connections' CAs")
+	if plain != c.shared {
+		t.Error("a connection with no ca_cert must get the shared transport, unaffected by other connections' CAs")
 	}
 }
 
@@ -119,40 +116,31 @@ func TestTransportCache_InvalidCACertErrors(t *testing.T) {
 	base := &http.Transport{}
 	c := NewTransportCache(base)
 
-	cfg, _ := json.Marshal(map[string]string{"ca_cert": "not a real certificate"})
-	_, err := c.For(&credentials.Connection{ID: "acme|k8s", Config: cfg})
+	_, err := c.For(&credentials.Connection{ID: "acme|k8s", CACert: "not a real certificate"})
 	if err == nil {
 		t.Fatal("For: expected error for an unparseable ca_cert, got nil")
 	}
 }
 
-func TestTransportCache_MalformedConfigErrors(t *testing.T) {
-	base := &http.Transport{}
-	c := NewTransportCache(base)
+// TestTransportCache_IgnoresAdapterConfig locks the split: the transport reads
+// the connection's CA and nothing else. A config the adapter would reject is
+// reported by Open, not here, so malformed adapter keys never reach this path.
+func TestTransportCache_IgnoresAdapterConfig(t *testing.T) {
+	c := NewTransportCache(&http.Transport{})
 
-	_, err := c.For(&credentials.Connection{ID: "acme|k8s", Config: json.RawMessage(`{not json`)})
-	if err == nil {
-		t.Fatal("For: expected error for malformed connection config, got nil")
+	got, err := c.For(&credentials.Connection{ID: "acme|k8s", Config: json.RawMessage(`{not json`)})
+	if err != nil {
+		t.Fatalf("For: %v", err)
 	}
-}
-
-func TestTransportCache_NonHTTPTransportBaseErrors(t *testing.T) {
-	// A base RoundTripper that isn't *http.Transport cannot be cloned to carry
-	// a per-connection TLSClientConfig.
-	c := NewTransportCache(roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, nil
-	}))
-
-	_, err := c.For(&credentials.Connection{ID: "acme|k8s", Config: caCertConfig(t)})
-	if err == nil {
-		t.Fatal("For: expected error when base transport cannot be cloned, got nil")
+	if got != c.shared {
+		t.Error("a connection with no CA must get the shared transport")
 	}
 }
 
 func TestTransportCache_InvalidateClearsCache(t *testing.T) {
 	base := &http.Transport{}
 	c := NewTransportCache(base)
-	conn := &credentials.Connection{ID: "acme|k8s", Config: caCertConfig(t)}
+	conn := &credentials.Connection{ID: "acme|k8s", CACert: testCACertPEM(t)}
 
 	first, err := c.For(conn)
 	if err != nil {
@@ -167,7 +155,3 @@ func TestTransportCache_InvalidateClearsCache(t *testing.T) {
 		t.Error("Invalidate did not force a fresh transport to be built")
 	}
 }
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

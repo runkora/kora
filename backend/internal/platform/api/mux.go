@@ -96,7 +96,8 @@ func (m *Mux) HandleWithMiddleware(
 		// if basepath is only a slash, we dont need to trim it
 		trimmedPath = strings.TrimPrefix(path, "/")
 	}
-	joinedRoute := fmt.Sprintf("%s %s%s", method, m.basePath, trimmedPath)
+	fullPath := m.basePath + trimmedPath
+	joinedRoute := fmt.Sprintf("%s %s", method, fullPath)
 	m.logger.Info(m.ctx, "Registering sub-route",
 		logging.Field{Key: "route", Value: joinedRoute},
 	)
@@ -114,6 +115,11 @@ func (m *Mux) HandleWithMiddleware(
 	if m.middleware != nil {
 		finalHandler = m.middleware(finalHandler)
 	}
+
+	finalHandler = mw.SpanRouteName(finalHandler)
+
+	// Outermost, so every middleware above reads the route from the context.
+	finalHandler = mw.RoutePattern(fullPath)(finalHandler)
 
 	m.ServeMux.Handle(joinedRoute, finalHandler)
 }

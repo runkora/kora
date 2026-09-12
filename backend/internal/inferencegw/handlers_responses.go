@@ -51,6 +51,11 @@ var knownToolTypes = map[string]bool{
 	"web_search_2025_08_26": true, // v3.x
 	"tool_search":           true, // v3.25.0
 	"computer":              true, // v3.25.0
+	// Added in v3.55.0
+	"shell":                     true, // Codex CLI shell tool
+	"apply_patch":               true, // Codex CLI patch tool
+	"custom":                    true,
+	"programmatic_tool_calling": true,
 }
 
 // droppedTool records the name and type of a tool that was removed by sanitizeTools.

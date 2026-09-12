@@ -340,7 +340,7 @@ func TestBudget_PooledRole_SharedCeilingNotMergedIntoMAX(t *testing.T) {
 
 // ── tenant cap ───────────────────────────────────────────────────────────────
 
-func TestBudget_TenantCap_BlocksAgentsNotHumans(t *testing.T) {
+func TestBudget_TenantCap_BlocksAllPrincipalTypes(t *testing.T) {
 	pq := compileAndPrepareBudgetQuery(t, nil, nil, tenantCap(2000, "monthly"))
 
 	agent := evalBudget(t, pq, budgetEvalInput{
@@ -363,8 +363,16 @@ func TestBudget_TenantCap_BlocksAgentsNotHumans(t *testing.T) {
 		principalID: "user-1", principalType: "HUMAN",
 		tenantSpends: map[string]float64{"monthly": 2000},
 	})
-	if !human.allow || human.hasLimit {
-		t.Errorf("HUMAN must not be blocked or limited by the tenant cap, got %+v", human)
+	if human.allow || !human.limitReached || !human.hasLimit {
+		t.Errorf("HUMAN at tenant cap must deny like any other principal type, got %+v", human)
+	}
+
+	humanUnder := evalBudget(t, pq, budgetEvalInput{
+		principalID: "user-1", principalType: "HUMAN",
+		tenantSpends: map[string]float64{"monthly": 1999.99},
+	})
+	if !humanUnder.allow || len(humanUnder.ceilings) != 1 || humanUnder.ceilings[0]["scope"] != "tenant" {
+		t.Errorf("HUMAN under the tenant cap must allow while still surfacing the tenant ceiling, got %+v", humanUnder)
 	}
 }
 

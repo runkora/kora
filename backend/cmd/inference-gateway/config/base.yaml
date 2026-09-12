@@ -28,7 +28,3 @@ policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
-  # How often to re-register routes and catalog scopes with the policy service
-  # (seconds). Heals the in-memory registration store after a policy-service
-  # restart. 300 = 5 minutes.
-  reregistrationIntervalSecs: 300

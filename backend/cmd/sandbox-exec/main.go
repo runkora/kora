@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
@@ -89,7 +90,7 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 			cmd.Dir = req.WorkingDir
 		}
 	}
-	cmd.Env = append(os.Environ(), req.Env...)
+	cmd.Env = append(os.Environ(), filterEnv(req.Env)...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -133,6 +134,55 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 	return stream.Send(&execpb.ExecuteResponse{
 		Output: &execpb.ExecuteResponse_ExitCode{ExitCode: int32(exitCode)},
 	})
+}
+
+// deniedEnvPrefixes covers families of variables that can hijack subprocess
+// behavior (dynamic linker/loader, memory allocator) regardless of the exact
+// suffix, so new members of a family are blocked without an allowlist update.
+var deniedEnvPrefixes = []string{"LD_", "MALLOC_", "DYLD_"}
+
+// deniedEnvNames covers individual variables that can redirect executable
+// lookup or swap the interpreter used to run commands.
+var deniedEnvNames = map[string]bool{
+	"PATH":            true,
+	"SHELL":           true,
+	"IFS":             true,
+	"ENV":             true,
+	"BASH_ENV":        true,
+	"PS4":             true,
+	"CDPATH":          true,
+	"GCONV_PATH":      true,
+	"NSS_WRAPPER_LIB": true,
+}
+
+// filterEnv drops entries from req.Env that would let a caller hijack the
+// subprocess (e.g. LD_PRELOAD, PATH, SHELL) rather than merely configure it,
+// while still allowing arbitrary safe additions (e.g. WORKSPACE, ANTHROPIC_*).
+// See https://github.com/clear-route/orbit/issues/231.
+func filterEnv(env []string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		key, _, ok := strings.Cut(e, "=")
+		if !ok {
+			continue
+		}
+		upperKey := strings.ToUpper(key)
+		if deniedEnvNames[upperKey] {
+			continue
+		}
+		denied := false
+		for _, prefix := range deniedEnvPrefixes {
+			if strings.HasPrefix(upperKey, prefix) {
+				denied = true
+				break
+			}
+		}
+		if denied {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	return filtered
 }
 
 func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r interface{ Read([]byte) (int, error) }, wrap func([]byte) *execpb.ExecuteResponse, done chan<- error) {

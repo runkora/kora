@@ -397,8 +397,21 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
+	// limit <= 0 (including absent) means unbounded — see ListRuns. An
+	// unparseable value must 400, not silently fall through to unbounded: that
+	// would turn a caller's typo into the one response shape they didn't ask for.
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be an integer", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			return
+		}
+		limit = parsed
+	}
 
-	runs, err := c.runs.ListRuns(ctx, agentTypeID)
+	runs, err := c.runs.ListRuns(ctx, agentTypeID, limit)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)

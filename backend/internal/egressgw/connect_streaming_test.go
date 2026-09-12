@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -119,12 +120,12 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 		SecretRef: "ignored", Config: []byte(`{}`),
 	})
 
-	// Adapter that returns a no-op credential — we don't care about minting
-	// here, only that a streaming response flows through the writer.
+	// Adapter that returns a no-op credential. This test is about a streaming
+	// response flowing through the writer, not about minting.
 	registry := NewAdapterRegistry()
 	registry.Register(&streamTestAdapter{})
 
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	forwardTransport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	proxyHandler := NewProxyHandler(broker, forwardTransport, logger)
 	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyHandler)
@@ -171,7 +172,7 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 	deadline := time.Now().Add(2 * time.Second)
 	for i, want := range []string{"chunk-1\n", "chunk-2\n", "chunk-3\n"} {
 		if time.Now().After(deadline) {
-			t.Fatalf("read deadline exceeded waiting for chunk %d — writer is likely buffering", i+1)
+			t.Fatalf("read deadline exceeded waiting for chunk %d, writer is likely buffering", i+1)
 		}
 		got, err := br.ReadString('\n')
 		if err != nil {
@@ -207,7 +208,7 @@ func TestConnectResponseWriter_FlushBeforeWriteEmitsHeaders(t *testing.T) {
 }
 
 // streamTestAdapter is a no-op CredentialAdapter for the streaming integration
-// test — it accepts any request and injects no header, so the upstream sees a
+// test: it accepts any request and injects no header, so the upstream sees a
 // request with whatever the proxy already had.
 type streamTestAdapter struct{}
 
@@ -215,12 +216,19 @@ func (*streamTestAdapter) Type() credentials.AdapterType { return credentials.Ad
 func (*streamTestAdapter) Actions() []credentials.ActionDeclaration {
 	return []credentials.ActionDeclaration{{Action: "repo:read"}}
 }
-func (*streamTestAdapter) ClassifyAction(*http.Request, credentials.Connection) (credentials.Classification, error) {
+func (*streamTestAdapter) Open(credentials.Connection) (credentials.Connector, error) {
+	return streamTestConnector{}, nil
+}
+
+type streamTestConnector struct{}
+
+func (streamTestConnector) Classify(*http.Request) (credentials.Classification, error) {
 	return credentials.Classification{Action: "repo:read"}, nil
 }
-func (*streamTestAdapter) Resolve(context.Context, credentials.Connection, credentials.CallerIdentity) (credentials.Credential, error) {
+func (streamTestConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, nil
 }
+func (streamTestConnector) QualifierCeiling() []string { return nil }
 
 // closableBuf wraps a *bytes.Buffer so it satisfies net.Conn-ish writer
 // requirements (specifically, Close()) used by newConnectResponseWriter.

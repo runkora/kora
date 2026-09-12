@@ -39,15 +39,19 @@ export { LogoutButton } from './logout-button';
 /** Light/dark theme toggle via next-themes. */
 export { ThemeToggle } from './theme-toggle';
 
-/** Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped). */
-export { DataTable } from './data-table';
+/**
+ * Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped).
+ * Default table component for the authenticated dashboard shell.
+ */
+export { SmartTable } from './smart-table';
 export type {
-  DataTableProps,
+  SmartTableProps,
   DataTableColumn,
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
-} from './data-table';
+  DataTableFilterOption,
+} from './smart-table';
 
 /** Preference-backed period selector (7d/30d/90d). Requires PreferencesProvider (dashboard-scoped). */
 export { PeriodSelector } from './period-selector';

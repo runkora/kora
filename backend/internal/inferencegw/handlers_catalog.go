@@ -177,6 +177,12 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
 
+// handleCreateVirtualModel creates a virtual model. Family and name are
+// embedded as segments in the policy scope inference:{family}:{name}:use,
+// so each must be 1–255 characters from [a-z0-9_-] (see
+// policy.ScopeSegmentGrammar). ':' is rejected because it would corrupt
+// the scope hierarchy. Non-conforming values return 400 naming the
+// offending character(s).
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -247,6 +253,12 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
 }
 
+// handleUpdateVirtualModel updates a virtual model. Family and name are
+// embedded as segments in the policy scope inference:{family}:{name}:use,
+// so each must be 1–255 characters from [a-z0-9_-] (see
+// policy.ScopeSegmentGrammar). ':' is rejected because it would corrupt
+// the scope hierarchy. Non-conforming values return 400 naming the
+// offending character(s).
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -592,8 +604,14 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	if req.Family == "" {
 		return fmt.Errorf("family is required")
 	}
+	if err := validateScopeSegmentField("family", req.Family); err != nil {
+		return err
+	}
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
+	}
+	if err := validateScopeSegmentField("name", req.Name); err != nil {
+		return err
 	}
 	if req.DisplayName == "" {
 		return fmt.Errorf("display_name is required")
@@ -626,6 +644,25 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 	}
 
 	return nil
+}
+
+// validateScopeSegmentField distinguishes character violations from
+// length-only violations so a 400 doesn't report invalid character(s) ""
+// for oversize-but-otherwise-valid input.
+func validateScopeSegmentField(field, value string) error {
+	if policy.IsValidScopeSegment(value) {
+		return nil
+	}
+	if invalid := policy.InvalidScopeSegmentChars(value); len(invalid) > 0 {
+		return fmt.Errorf(
+			"%s %q contains invalid character(s) %q; must match %s",
+			field, value, string(invalid), policy.ScopeSegmentGrammar,
+		)
+	}
+	return fmt.Errorf(
+		"%s %q must be 1–255 characters and match %s",
+		field, value, policy.ScopeSegmentGrammar,
+	)
 }
 
 // validateRouteInput validates a single route entry within a virtual model request.

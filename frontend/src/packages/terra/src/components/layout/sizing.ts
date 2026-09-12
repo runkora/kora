@@ -16,6 +16,7 @@
  *   form-field   →  min/max-w-[12.5rem]  (200px — standard form field)
  *   form-field-sm → min/max-w-40  (160px — compact form field / type selector)
  *   search-field  → max-w-[16.25rem] (260px — toolbar search input)
+ *   detail-panel  → 372px — fixed sidebar column in a main+sidebar layout (SidebarLayout)
  *   none         →  min-w-0 / max-w-none  (remove the constraint entirely)
  *
  * ## ContainerHeight
@@ -46,6 +47,8 @@ export type ContainerWidth =
   | 'form-field-sm'
   /** 260px — a search input in a toolbar; wide enough for a query, narrow enough not to dominate the row */
   | 'search-field'
+  /** 372px — fixed sidebar column width in a `SidebarLayout` main+sidebar layout */
+  | 'detail-panel'
   /** Remove the constraint entirely: `min-w-0` (allows flex items to shrink below content width) or `max-w-none` */
   | 'none';
 
@@ -111,8 +114,8 @@ export type MaxHeight = ContainerHeight | 'scroll-sm' | 'scroll-md' | 'scroll-lg
 export type TextAlign = 'start' | 'center' | 'end' | 'justify';
 
 // ── Internal lookup tables ────────────────────────────────────────────────────
-// Exported for use in stack.tsx and grid.tsx only — not re-exported from the
-// package barrel.
+// Exported for use in stack.tsx, grid.tsx, and sidebar-layout.tsx only —
+// not re-exported from the package barrel.
 
 /** max-w-* per breakpoint */
 export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
@@ -126,6 +129,7 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'max-w-[12.5rem]',
     'search-field': 'max-w-[16.25rem]',
     'form-field-sm': 'max-w-40',
+    'detail-panel': 'max-w-[372px]',
     none: 'max-w-none',
   },
   sm: {
@@ -138,6 +142,7 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'sm:max-w-[12.5rem]',
     'search-field': 'sm:max-w-[16.25rem]',
     'form-field-sm': 'sm:max-w-40',
+    'detail-panel': 'sm:max-w-[372px]',
     none: 'sm:max-w-none',
   },
   md: {
@@ -150,6 +155,7 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'md:max-w-[12.5rem]',
     'search-field': 'md:max-w-[16.25rem]',
     'form-field-sm': 'md:max-w-40',
+    'detail-panel': 'md:max-w-[372px]',
     none: 'md:max-w-none',
   },
   lg: {
@@ -162,6 +168,7 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'lg:max-w-[12.5rem]',
     'search-field': 'lg:max-w-[16.25rem]',
     'form-field-sm': 'lg:max-w-40',
+    'detail-panel': 'lg:max-w-[372px]',
     none: 'lg:max-w-none',
   },
   xl: {
@@ -174,6 +181,7 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'xl:max-w-[12.5rem]',
     'search-field': 'xl:max-w-[16.25rem]',
     'form-field-sm': 'xl:max-w-40',
+    'detail-panel': 'xl:max-w-[372px]',
     none: 'xl:max-w-none',
   },
 };
@@ -190,6 +198,7 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'min-w-[12.5rem]',
     'search-field': 'min-w-[16.25rem]',
     'form-field-sm': 'min-w-40',
+    'detail-panel': 'min-w-[372px]',
     none: 'min-w-0',
   },
   sm: {
@@ -202,6 +211,7 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'sm:min-w-[12.5rem]',
     'search-field': 'sm:min-w-[16.25rem]',
     'form-field-sm': 'sm:min-w-40',
+    'detail-panel': 'sm:min-w-[372px]',
     none: 'sm:min-w-0',
   },
   md: {
@@ -214,6 +224,7 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'md:min-w-[12.5rem]',
     'search-field': 'md:min-w-[16.25rem]',
     'form-field-sm': 'md:min-w-40',
+    'detail-panel': 'md:min-w-[372px]',
     none: 'md:min-w-0',
   },
   lg: {
@@ -226,6 +237,7 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'lg:min-w-[12.5rem]',
     'search-field': 'lg:min-w-[16.25rem]',
     'form-field-sm': 'lg:min-w-40',
+    'detail-panel': 'lg:min-w-[372px]',
     none: 'lg:min-w-0',
   },
   xl: {
@@ -238,6 +250,7 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     'form-field': 'xl:min-w-[12.5rem]',
     'search-field': 'xl:min-w-[16.25rem]',
     'form-field-sm': 'xl:min-w-40',
+    'detail-panel': 'xl:min-w-[372px]',
     none: 'xl:min-w-0',
   },
 };
@@ -299,4 +312,25 @@ export const TEXT_ALIGN: Record<TextAlign, string> = {
   center: 'text-center',
   end: 'text-right',
   justify: 'text-justify',
+};
+
+// ── Sidebar layout width tokens ───────────────────────────────────────────────
+// Pixel values for named sidebar widths used by `SidebarLayout`. These are
+// resolved at runtime into inline `gridTemplateColumns` strings, so they cannot
+// use Tailwind classes (which are static). Full numeric values only.
+
+/**
+ * Named sidebar widths for `SidebarLayout.sidebarWidth`.
+ *
+ * - `'detail-panel'` — 372px — the fixed sidebar column in a main+sidebar
+ *   detail layout (e.g. MCP server detail: tools + connect/trust cards).
+ */
+export type SidebarWidthToken = 'detail-panel';
+
+/**
+ * Pixel values for each `SidebarWidthToken`.
+ * Used by `SidebarLayout` to build the `gridTemplateColumns` inline style.
+ */
+export const SIDEBAR_WIDTH_PX: Record<SidebarWidthToken, number> = {
+  'detail-panel': 372,
 };

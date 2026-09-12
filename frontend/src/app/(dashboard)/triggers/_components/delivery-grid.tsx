@@ -10,20 +10,9 @@
  * The delivery list: one row per arrival, and what the platform did with it.
  */
 
-import { useState } from 'react';
-import {
-  Badge,
-  DataGrid,
-  DataGridEmpty,
-  DataGridHeader,
-  DataGridPagination,
-  DataGridRow,
-  DataGridToolbar,
-  Icon,
-  Stack,
-  StatusDot,
-  Text,
-} from '@orbit/terra';
+import { useMemo } from 'react';
+import { Badge, DataTable, Stack, StatusDot, Text } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
 import {
   deliveryDotStatus,
   deliveryDuration,
@@ -34,7 +23,162 @@ import {
   shortId,
 } from '../_types';
 import type { DeliveryRow } from '../_types';
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES, pageWindow } from '../_types/pagination';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+
+// ── View-model type ───────────────────────────────────────────────────────────
+
+/**
+ * DeliveryRow extended with display-specific derivations pre-computed once in
+ * useMemo. Cells reference shared computed fields (dot, identity, summary,
+ * arrivedVia) — the view model ensures they are computed once, not once per
+ * cell.
+ */
+interface DeliveryDisplayRow extends DeliveryRow {
+  dot: ReturnType<typeof deliveryDotStatus>;
+  identity: ReturnType<typeof deliveryTriggerIdentity>;
+  summary: ReturnType<typeof deliverySummary>;
+  arrivedVia: string;
+}
+
+/**
+ * Where this arrival came from, one line under the trigger.
+ *
+ * A schedule and a manual fire have no source, and naming their kind is more
+ * use than an empty line holding the row open.
+ */
+function computeArrivedVia(d: DeliveryRow, sourceName: (id: string) => string): string {
+  if (d.kind === 'scheduled') return 'schedule';
+  if (d.kind === 'manual') return 'manual fire';
+  return d.sourceId === '' ? 'webhook' : sourceName(d.sourceId);
+}
+
+// ── Column definitions ────────────────────────────────────────────────────────
+
+function makeColumns(sourceName: (id: string) => string): DataTableColumn<DeliveryDisplayRow>[] {
+  // sourceName is captured in the closure but unused in cells — arrivedVia is
+  // pre-computed on the view model. It is referenced here to satisfy the
+  // dependency on the memoised column array.
+  void sourceName;
+
+  return [
+    {
+      id: 'status',
+      header: 'Status',
+      gridWidth: '118px',
+      locked: true,
+      cell: (row) => (
+        <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+          <StatusDot status={row.dot} size="sm" />
+          <Text
+            size="supporting"
+            weight="emphasis"
+            color={row.dot === 'error' ? 'status-error' : 'muted'}
+            truncate
+          >
+            {row.status}
+          </Text>
+        </Stack>
+      ),
+    },
+    {
+      id: 'trigger',
+      header: 'Trigger',
+      gridWidth: 'minmax(0, 1.1fr)',
+      cell: (row) => (
+        <Stack gap="tight" minWidth="none">
+          {row.identity.kind === 'none' ? (
+            <Text size="supporting" color="subtle" truncate>
+              No trigger matched
+            </Text>
+          ) : (
+            <Text
+              mono
+              size="supporting"
+              weight="emphasis"
+              color={row.identity.kind === 'id' ? 'muted' : undefined}
+              truncate
+              title={row.triggerId ?? undefined}
+            >
+              {row.identity.label}
+            </Text>
+          )}
+          <Text size="caption" color="subtle" truncate>
+            {row.arrivedVia}
+          </Text>
+        </Stack>
+      ),
+    },
+    {
+      id: 'event',
+      header: 'Event',
+      gridWidth: '148px',
+      cell: (row) => (
+        <Stack direction="horizontal" minWidth="none">
+          {row.eventType !== '' && (
+            <Badge variant="elevated" size="sm" mono>
+              {row.eventType}
+            </Badge>
+          )}
+        </Stack>
+      ),
+    },
+    {
+      id: 'received',
+      header: 'Received',
+      gridWidth: '96px',
+      cell: (row) => (
+        <Text size="supporting" color="muted" title={formatTimestampUtc(row.receivedAt)}>
+          {relativeTime(row.receivedAt)}
+        </Text>
+      ),
+    },
+    {
+      id: 'duration',
+      header: 'Duration',
+      gridWidth: '76px',
+      align: 'right',
+      cell: (row) => (
+        <Text mono tabular size="supporting" color="muted" align="end">
+          {deliveryDuration(row)}
+        </Text>
+      ),
+    },
+    {
+      id: 'detail',
+      header: 'Detail',
+      gridWidth: 'minmax(0, 1.3fr)',
+      cell: (row) => (
+        <Stack direction="horizontal" minWidth="none">
+          {row.summary.kind !== 'none' && (
+            <Text
+              size="caption"
+              color="muted"
+              mono={row.summary.kind === 'runId' || row.summary.kind === 'excerpt'}
+              truncate
+              title={row.summary.kind === 'error' ? (row.error ?? undefined) : undefined}
+            >
+              {row.summary.text}
+            </Text>
+          )}
+        </Stack>
+      ),
+    },
+  ];
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+function deliveryMatchesSearch(row: DeliveryDisplayRow, q: string): boolean {
+  return (
+    row.id.toLowerCase().includes(q) ||
+    row.eventType.toLowerCase().includes(q) ||
+    row.status.toLowerCase().includes(q) ||
+    (row.identity.kind !== 'none' && row.identity.label.toLowerCase().includes(q)) ||
+    row.arrivedVia.toLowerCase().includes(q)
+  );
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface DeliveryGridProps {
   deliveries: DeliveryRow[];
@@ -43,29 +187,13 @@ interface DeliveryGridProps {
   onOpen: (d: DeliveryRow) => void;
   /** Shown inside the frame when there are no rows. */
   emptyMessage: string;
-  /** Filters and search, rendered inside the grid's frame above the header. */
-  toolbar?: React.ReactNode;
-  /** Changes whenever the filters upstream change; returns the list to page one. */
+  /** Status filter or similar, rendered in the toolbar's right slot. */
+  quickFilters?: React.ReactNode;
+  /**
+   * Changes whenever the filters upstream change. A new value remounts the
+   * DataTable, resetting all internal state including the current page.
+   */
   resetKey?: string;
-}
-
-/**
- * Column widths, fixed so every row lines up down the page. The trigger is the
- * identity a reader scans for and takes the larger share; the detail takes the
- * rest, because it is the only cell whose content has no natural length.
- */
-const COLUMNS = '118px minmax(0, 1.1fr) 148px 96px 76px minmax(0, 1.3fr)';
-
-/**
- * Where this arrival came from, one line under the trigger.
- *
- * A schedule and a manual fire have no source, and naming their kind is more
- * use than an empty line holding the row open.
- */
-function arrivedVia(d: DeliveryRow, sourceName: (id: string) => string): string {
-  if (d.kind === 'scheduled') return 'schedule';
-  if (d.kind === 'manual') return 'manual fire';
-  return d.sourceId === '' ? 'webhook' : sourceName(d.sourceId);
 }
 
 export function DeliveryGrid({
@@ -73,152 +201,39 @@ export function DeliveryGrid({
   sourceName,
   onOpen,
   emptyMessage,
-  toolbar,
+  quickFilters,
   resetKey = '',
 }: DeliveryGridProps) {
-  const [paging, setPaging] = useState({ key: resetKey, page: 0, size: DEFAULT_PAGE_SIZE });
-  // Adjusted during render rather than in an effect, so a filter change never
-  // renders one frame of the wrong page first. The reset is written back
-  // instead of shadowed: leaving the old page in state means returning to a
-  // previous filter resurrects the page it was left on, which reads as the
-  // list having jumped on its own.
-  if (paging.key !== resetKey) {
-    setPaging({ key: resetKey, page: 0, size: paging.size });
-  }
-  const requested = paging.key === resetKey ? paging.page : 0;
-  const win = pageWindow(deliveries.length, paging.size, requested);
-  const visible = deliveries.slice(win.start, win.end);
+  // Pre-compute per-row derived values once. Multiple cells reference the same
+  // computed fields — the view model ensures one computation, not one per cell.
+  const rows = useMemo<DeliveryDisplayRow[]>(
+    () =>
+      deliveries.map((d) => ({
+        ...d,
+        dot: deliveryDotStatus(d.status),
+        identity: deliveryTriggerIdentity(d),
+        summary: deliverySummary(d),
+        arrivedVia: computeArrivedVia(d, sourceName),
+      })),
+    [deliveries, sourceName],
+  );
+
+  const columns = useMemo(() => makeColumns(sourceName), [sourceName]);
 
   return (
-    <DataGrid columns={COLUMNS} aria-label="Deliveries">
-      {toolbar !== undefined && <DataGridToolbar>{toolbar}</DataGridToolbar>}
-      <DataGridHeader
-        cells={[
-          'Status',
-          'Trigger',
-          'Event',
-          'Received',
-          { label: 'Duration', align: 'end' },
-          'Detail',
-        ]}
-      />
-
-      {deliveries.length === 0 ? (
-        <DataGridEmpty>
-          <Icon name="activity" size="sm" color="subtle" />
-          <Text size="supporting" color="subtle">
-            {emptyMessage}
-          </Text>
-        </DataGridEmpty>
-      ) : (
-        visible.map((d) => {
-          const dot = deliveryDotStatus(d.status);
-          const identity = deliveryTriggerIdentity(d);
-          const summary = deliverySummary(d);
-
-          return (
-            <DataGridRow
-              key={d.id}
-              onClick={() => onOpen(d)}
-              rowLabel={`View payload and outcome for delivery ${shortId(d.id)}`}
-            >
-              {/* Status: a dot and the word, so the outcome reads at a glance
-                  without a filled pill competing with every other cell. */}
-              <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
-                <StatusDot status={dot} size="sm" />
-                <Text
-                  size="supporting"
-                  weight="emphasis"
-                  color={dot === 'error' ? 'status-error' : 'muted'}
-                  truncate
-                >
-                  {d.status}
-                </Text>
-              </Stack>
-
-              {/* Trigger: the identity a reader scans for, with where the
-                  arrival came from underneath it. */}
-              <Stack gap="tight" minWidth="none">
-                {identity.kind === 'none' ? (
-                  <Text size="supporting" color="subtle" truncate>
-                    No trigger matched
-                  </Text>
-                ) : (
-                  <Text
-                    mono
-                    size="supporting"
-                    weight="emphasis"
-                    color={identity.kind === 'id' ? 'muted' : undefined}
-                    truncate
-                    title={d.triggerId ?? undefined}
-                  >
-                    {identity.label}
-                  </Text>
-                )}
-                <Text size="caption" color="subtle" truncate>
-                  {arrivedVia(d, sourceName)}
-                </Text>
-              </Stack>
-
-              {/* Event: only when the arrival named one. A placeholder in every
-                  other row was the column's loudest content. */}
-              <Stack direction="horizontal" minWidth="none">
-                {d.eventType !== '' && (
-                  <Badge variant="elevated" size="sm" mono>
-                    {d.eventType}
-                  </Badge>
-                )}
-              </Stack>
-
-              {/* Received: relative, one line, with the exact time on hover. */}
-              <Text size="supporting" color="muted" title={formatTimestampUtc(d.receivedAt)}>
-                {relativeTime(d.receivedAt)}
-              </Text>
-
-              <Stack direction="horizontal" justify="end" minWidth="none">
-                <Text mono tabular size="supporting" color="muted">
-                  {deliveryDuration(d)}
-                </Text>
-              </Stack>
-
-              {/* Detail: one line. The full failure chain and the payload are a
-                  click away in the panel, which is where they are readable. */}
-              <Stack direction="horizontal" minWidth="none">
-                {summary.kind !== 'none' && (
-                  <Text
-                    size="caption"
-                    color="muted"
-                    mono={summary.kind === 'runId' || summary.kind === 'excerpt'}
-                    truncate
-                    title={summary.kind === 'error' ? (d.error ?? undefined) : undefined}
-                  >
-                    {summary.text}
-                  </Text>
-                )}
-              </Stack>
-            </DataGridRow>
-          );
-        })
-      )}
-
-      {/* Inside the frame, like the toolbar: the controls that change what the
-          grid shows belong to the grid. */}
-      {deliveries.length > 0 && (
-        <DataGridPagination
-          from={win.from}
-          to={win.to}
-          total={win.total}
-          page={win.page}
-          pageCount={win.pageCount}
-          pageSize={paging.size}
-          pageSizeOptions={PAGE_SIZES}
-          noun="deliveries"
-          onPageChange={(page) => setPaging({ key: resetKey, page, size: paging.size })}
-          // A new page size makes the old page index meaningless, so it
-          // returns to the first page rather than landing mid-list.
-          onPageSizeChange={(size) => setPaging({ key: resetKey, page: 0, size })}
-        />
-      )}
-    </DataGrid>
+    <DataTable
+      key={resetKey}
+      data={rows}
+      columns={columns}
+      getRowKey={(row) => row.id}
+      noun="deliveries"
+      emptyMessage={emptyMessage}
+      onRowClick={onOpen}
+      rowLabel={(row) => `View payload and outcome for delivery ${shortId(row.id)}`}
+      searchFn={deliveryMatchesSearch}
+      searchPlaceholder="Search deliveries…"
+      quickFilters={quickFilters}
+      pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
+    />
   );
 }

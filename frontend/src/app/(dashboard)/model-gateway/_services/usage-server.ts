@@ -12,8 +12,7 @@ export interface TokenUsageStat {
 }
 
 export type UsageStatsResult =
-  | { ok: true; stats: TokenUsageStat[] }
-  | { ok: false; status: number; message: string };
+  { ok: true; stats: TokenUsageStat[] } | { ok: false; status: number; message: string };
 
 export async function fetchUsageStats(accessToken: string): Promise<UsageStatsResult> {
   const url = `${config.inferenceGatewayUrl}/usage/stats`;

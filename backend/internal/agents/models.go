@@ -430,6 +430,61 @@ const (
 	RunStateBudgetExhausted RunState = "budget_exhausted"
 )
 
+// AllRunStates lists every declared RunState. Pinned by a unit test so a new
+// state cannot be added without OccupiesPod answering for it.
+func AllRunStates() []RunState {
+	return []RunState{
+		RunStatePending,
+		RunStateStarting,
+		RunStateActive,
+		RunStateIdle,
+		RunStateCompleting,
+		RunStateCompleted,
+		RunStateFailed,
+		RunStateBudgetExhausted,
+	}
+}
+
+// OccupiesPod reports whether a run in this state still holds a slot on its
+// assigned pod, and so counts towards MaxConcurrentRunsPerPod when a new run
+// is placed.
+//
+// A state occupies a pod whenever a session process may still be resident:
+// pending and starting are on their way in, active is mid-turn, idle has
+// finished a turn but keeps the session alive waiting for the next message,
+// and completing is snapshotting. The terminal states have released their
+// resources by then (RunService.transition deprovisions the sandbox on
+// completed, failed and budget_exhausted), so none of them occupies a slot;
+// budget_exhausted in particular is terminal rather than a paused run that
+// might resume.
+//
+// known is false for a value that is not a declared RunState, so a caller can
+// tell "does not occupy" apart from "not a state at all".
+func (s RunState) OccupiesPod() (occupies, known bool) {
+	switch s {
+	case RunStatePending, RunStateStarting, RunStateActive, RunStateIdle, RunStateCompleting:
+		return true, true
+	case RunStateCompleted, RunStateFailed, RunStateBudgetExhausted:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// PodOccupyingRunStates returns the states for which OccupiesPod reports true,
+// in declaration order. It is the source of truth for both the SQL predicate
+// that counts runs per pod and the matching partial index on runs.
+func PodOccupyingRunStates() []RunState {
+	all := AllRunStates()
+	out := make([]RunState, 0, len(all))
+	for _, s := range all {
+		if occupies, _ := s.OccupiesPod(); occupies {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {

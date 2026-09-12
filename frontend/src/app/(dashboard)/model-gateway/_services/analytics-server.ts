@@ -17,8 +17,7 @@ export interface AnalyticsParams {
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type AnalyticsResult =
-  | { ok: true; data: AnalyticsResponse }
-  | { ok: false; status: number; message: string };
+  { ok: true; data: AnalyticsResponse } | { ok: false; status: number; message: string };
 
 // Raw (pre-enrichment) response from the inference gateway principals endpoint.
 export interface RawPrincipalsResponse {
@@ -29,8 +28,7 @@ export interface RawPrincipalsResponse {
 }
 
 export type AnalyticsPrincipalsRawResult =
-  | { ok: true; data: RawPrincipalsResponse }
-  | { ok: false; status: number; message: string };
+  { ok: true; data: RawPrincipalsResponse } | { ok: false; status: number; message: string };
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 

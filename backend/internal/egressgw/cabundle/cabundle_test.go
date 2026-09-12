@@ -71,7 +71,7 @@ func TestLoadEager_MissingDirectory(t *testing.T) {
 func TestLoadEager_MalformedTenantFails(t *testing.T) {
 	root := t.TempDir()
 	// Both halves present but neither is valid PEM. The loader should error
-	// rather than silently skip — malformed material is an operator config
+	// rather than silently skip: malformed material is an operator config
 	// problem we want to fail loud on.
 	if err := os.WriteFile(filepath.Join(root, "broken.ca.crt"), []byte("not pem"), 0o600); err != nil {
 		t.Fatal(err)
@@ -88,12 +88,12 @@ func TestLoadEager_MalformedTenantFails(t *testing.T) {
 
 func TestLoadEager_IgnoresUnrelatedFilesAndStraySubdirs(t *testing.T) {
 	root := t.TempDir()
-	// Stray non-CA file at the root — kubelet sometimes drops these
+	// Stray non-CA file at the root. Kubelet sometimes drops these
 	// (..data, ..2024_xx_xx symlinks); we must ignore them.
 	if err := os.WriteFile(filepath.Join(root, "stray.txt"), []byte("ignored"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Stray subdirectory — kubelet projects symlinks/directories that we
+	// Stray subdirectory: kubelet projects symlinks/directories that we
 	// also need to skip without iterating into them.
 	if err := os.MkdirAll(filepath.Join(root, "..data"), 0o755); err != nil {
 		t.Fatal(err)
@@ -112,8 +112,8 @@ func TestLoadEager_IgnoresUnrelatedFilesAndStraySubdirs(t *testing.T) {
 
 func TestLoadEager_RequiresBothCertAndKey(t *testing.T) {
 	root := t.TempDir()
-	// Only the crt half — the key is missing. Must be skipped, not loaded
-	// (and importantly, not raised as an error — partial material can
+	// Only the crt half: the key is missing. Must be skipped, not loaded
+	// (and importantly, not raised as an error: partial material can
 	// briefly appear during a kubelet projection update).
 	if err := os.WriteFile(filepath.Join(root, "acme.ca.crt"), []byte("PEMBYTES"), 0o600); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestLoadEager_RequiresBothCertAndKey(t *testing.T) {
 }
 
 // writeTenant generates a fresh self-signed CA and writes
-// {root}/{tenant}.ca.crt + {tenant}.ca.key — the same flat layout the
+// {root}/{tenant}.ca.crt + {tenant}.ca.key: the same flat layout the
 // operator's aggregated Secret produces when projected as a volume. Tests
 // and production use the same on-disk shape so what we test is what runs.
 func writeTenant(t *testing.T, root, tenant string) {
@@ -148,7 +148,7 @@ func writeTenant(t *testing.T, root, tenant string) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Test CA — tenant=" + tenant,
+			CommonName: "Test CA: tenant=" + tenant,
 		},
 		NotBefore:             now.Add(-1 * time.Minute),
 		NotAfter:              now.Add(24 * time.Hour),

@@ -175,8 +175,8 @@ const TabsTrigger = React.forwardRef<
         '-mb-px',
         // Size — padding, height, and type scale
         TRIGGER_SIZE[size],
-        // Icon row — only when a leading icon is present; icon-less triggers are unaffected
-        icon && 'inline-flex items-center gap-1.5',
+        // Flex row — always applied so icon and badge children get consistent spacing
+        'inline-flex items-center gap-1.5',
         // Typography
         'leading-none whitespace-nowrap select-none',
         // Colour + transition

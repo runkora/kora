@@ -166,7 +166,7 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 			if !fco.Output.OfString.Valid() {
 				continue
 			}
-			msgs = append(msgs, openai.ToolMessage(fco.Output.OfString.Value, fco.CallID))
+			msgs = append(msgs, openai.ToolMessage(fco.Output.OfString.Value, fco.CallID.Value))
 		}
 	}
 	flushPendingTool()

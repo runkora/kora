@@ -48,6 +48,21 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseUserIDs splits a comma-separated ids query value into trimmed,
+// non-empty IDs. An empty value yields nil.
+func parseUserIDs(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var ids []string
+	for id := range strings.SplitSeq(raw, ",") {
+		if t := strings.TrimSpace(id); t != "" {
+			ids = append(ids, t)
+		}
+	}
+	return ids
+}
+
 // handleListUsers handles GET /identity/users.
 // Returns a paginated list of users within the caller's tenant.
 //
@@ -70,19 +85,13 @@ func (c *Controller) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 	filter := UserProfileFilter{Page: 1, Limit: defaultUserProfileLimit}
 
-	if raw := q.Get("ids"); raw != "" {
-		for id := range strings.SplitSeq(raw, ",") {
-			if t := strings.TrimSpace(id); t != "" {
-				filter.IDs = append(filter.IDs, t)
-			}
-		}
-		if len(filter.IDs) > maxUserProfileLimit {
-			api.ErrorResponse(ctx, w, c.logger,
-				api.ValidationError(api.ErrCodeInvalidField,
-					"ids must not exceed 100 entries",
-					map[string]any{"field": "ids", "max": maxUserProfileLimit}), nil)
-			return
-		}
+	filter.IDs = parseUserIDs(q.Get("ids"))
+	if len(filter.IDs) > maxUserProfileLimit {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeInvalidField,
+				"ids must not exceed 100 entries",
+				map[string]any{"field": "ids", "max": maxUserProfileLimit}), nil)
+		return
 	}
 
 	if v := strings.TrimSpace(q.Get("search")); v != "" {
@@ -105,6 +114,12 @@ func (c *Controller) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger,
 				api.ValidationError(api.ErrCodeInvalidField, "limit must be a positive integer", map[string]any{"field": "limit"}), nil)
 			return
+		}
+		// Clamp here rather than relying on the repository's silent clamp, so
+		// the response's `limit` field reflects what was actually applied and a
+		// caller requesting an out-of-range limit can tell it got one page.
+		if l > maxUserProfileLimit {
+			l = maxUserProfileLimit
 		}
 		filter.Limit = l
 	}

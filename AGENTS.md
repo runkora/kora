@@ -14,7 +14,7 @@ Underneath, Orbit is established platform engineering applied to a new domain: S
 
 **These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
 
-Build status lives in [docs/architecture.md](docs/architecture.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
+The architecture overview is in [ARCHITECTURE.md](ARCHITECTURE.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
 
 ## Development Workflow
 
@@ -42,23 +42,23 @@ make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / pa
 
 **Calling authenticated Orbit APIs (curl):**
 
-Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress on `:8443`.
+Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
 
 ```bash
 # Standard pattern for any authenticated API call
 TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  https://api.orbit.local.clearroute.io:8443/v1/models
+  https://api.orbit.local.clearroute.io/v1/models
 
 # POST example (inference gateway)
 TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
-  https://api.orbit.local.clearroute.io:8443/v1/chat/completions | jq .
+  https://api.orbit.local.clearroute.io/v1/chat/completions | jq .
 ```
 
-**Endpoints:** frontend `https://orbit.local.clearroute.io:8443`, inference gateway `https://api.orbit.local.clearroute.io:8443/v1`.
+**Endpoints:** dashboard `https://orbit.local.clearroute.io`, backend API `https://api.orbit.local.clearroute.io`.
 
 **In-cluster ports** (each service binds these inside the mesh):
 | Service | Port |
@@ -243,15 +243,14 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
   | `example` | `postgres_test.go` | the reference repository |
 
-  Run them against the docker-compose Postgres (after `make migrate-up`):
+  Run them against the local Postgres:
 
   ```bash
-  ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
-    go test ./... -run Postgres
+  make test-postgres
   ```
 
   Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever its author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. **CI does not run these**, so a change to that SQL still needs them run locally.
-- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
+- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-platform` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
 Write tests alongside new code; unit tests are the default and must pass in `make check`.

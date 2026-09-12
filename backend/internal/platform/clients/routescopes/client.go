@@ -1,5 +1,5 @@
-// Package routescopes provides the client for registering a service's route→scope
-// mappings and scope vocabulary with the policy service at startup.
+// Package routescopes publishes a service's route→scope mappings and scope
+// vocabulary to the policy service, and keeps them published.
 //
 // Each service declares which scopes are required to access its HTTP routes, and
 // declares the scopes it owns. The policy service upserts those scopes into the
@@ -11,21 +11,32 @@
 //   - SYSTEM principal  → global registration, compiled into every tenant bundle
 //   - SERVICE principal → tenant-scoped registration, compiled into that tenant's bundle only
 //
+// # Register through KeepRegistered, not once at startup
+//
+// The policy service holds route registrations in memory, so they are lost when
+// it restarts, and Layer 1 enforcement denies an unregistered path outright. A
+// service that registers once at boot is therefore one policy-service restart
+// away from having every scoped request denied, with nothing to recover it.
+// That is not hypothetical: it is what [issue #170] was.
+//
+// So [KeepRegistered] owns registration. Give it a register function; it retries
+// until the first success and then re-publishes on a fixed cadence. Call
+// [Client.Register] directly only from inside that function. Use
+// [RepublishOnEvent] when a domain event changes what the service publishes and
+// waiting for the next tick would leave the vocabulary stale.
+//
 // Usage:
 //
 //	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", logger)
-//	if err := client.Register(ctx, "inference-gateway",
-//	    []routescopes.RouteScope{
-//	        {PathPrefix: "/v1/inference/", Method: "POST", RequiredScope: "inference:invoke"},
-//	        {PathPrefix: "/v1/inference/", Method: "GET",  RequiredScope: "inference:list"},
-//	    },
-//	    []routescopes.ScopeDeclaration{
-//	        {Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Invoke any inference model"},
-//	        {Scope: "inference:list",   ResourceType: "inference", PathSegments: []string{}, Action: "list",   Description: "List inference models"},
-//	    },
-//	); err != nil {
-//	    logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+//	register := func(ctx context.Context) error {
+//	    return client.Register(ctx, "inference-gateway",
+//	        routescopes.FilterScopedRoutes(inferenceRoutes()),
+//	        inferenceScopes(),
+//	    )
 //	}
+//	go routescopes.KeepRegistered(ctx, logger, "inference-gateway", register)
+//
+// [issue #170]: https://github.com/clear-route/orbit/issues/170
 package routescopes
 
 import (
@@ -83,38 +94,21 @@ type registrationRequest struct {
 // Client registers a service's routes and scopes with the policy service.
 type Client struct {
 	*httpclient.Base
-	serviceURL   string
-	initialDelay time.Duration
+	serviceURL string
 }
 
 const (
-	tracerName          = "orbit.routescopes-client"
-	clientTimeout       = 10 * time.Second
-	defaultInitialDelay = 15 * time.Second
+	tracerName    = "orbit.routescopes-client"
+	clientTimeout = 10 * time.Second
 )
-
-// Option configures the Client.
-type Option func(*Client)
-
-// WithInitialDelay overrides the default 15-second startup delay that allows
-// the identity-proxy sidecar to acquire a platform token before the first
-// registration attempt.
-func WithInitialDelay(d time.Duration) Option {
-	return func(c *Client) { c.initialDelay = d }
-}
 
 // NewClient creates a Client targeting the given policy service base URL,
 // e.g. "http://orbit-policy-service.orbit-system.svc".
-func NewClient(serviceURL string, logger logging.Logger, opts ...Option) *Client {
-	c := &Client{
-		Base:         httpclient.New(tracerName, logger, clientTimeout),
-		serviceURL:   serviceURL,
-		initialDelay: defaultInitialDelay,
+func NewClient(serviceURL string, logger logging.Logger) *Client {
+	return &Client{
+		Base:       httpclient.New(tracerName, logger, clientTimeout),
+		serviceURL: serviceURL,
 	}
-	for _, o := range opts {
-		o(c)
-	}
-	return c
 }
 
 // Register sends the service's route→scope mappings and scope declarations to
@@ -122,9 +116,11 @@ func NewClient(serviceURL string, logger logging.Logger, opts ...Option) *Client
 // grants and roles can reference them. Routes are compiled into OPA bundles for
 // Envoy enforcement.
 //
-// Retries up to maxAttempts times with exponential backoff (capped at 30s). An
-// initial delay allows the identity-proxy sidecar to exchange its SPIFFE SVID
-// for a platform token before the first attempt.
+// One attempt, no retry: the caller's loop owns recovery. [KeepRegistered] is
+// that loop for every service that keeps itself registered, and it already
+// retries with backoff until the policy service (and the identity-proxy sidecar
+// minting this call's token) is up. A second retry layer here only stacks
+// underneath it, turning one tick of the caller's loop into minutes of blocking.
 func (c *Client) Register(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration) error {
 	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes})
 }
@@ -138,54 +134,18 @@ func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes [
 	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes, SkipPrune: !prune})
 }
 
+// register makes exactly one registration call. Failure is returned to the
+// caller, which owns whatever retry policy it wants.
 func (c *Client) register(ctx context.Context, reg registrationRequest) error {
-	const (
-		maxAttempts = 15
-		maxBackoff  = 30 * time.Second
+	if err := c.doRegister(ctx, reg); err != nil {
+		return err
+	}
+	c.Logger().Info(ctx, "route scopes registered",
+		logging.Field{Key: "service", Value: reg.Service},
+		logging.Field{Key: "route_count", Value: len(reg.Routes)},
+		logging.Field{Key: "scope_count", Value: len(reg.Scopes)},
 	)
-
-	if c.initialDelay > 0 {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(c.initialDelay):
-		}
-	}
-
-	service := reg.Service
-	routes := reg.Routes
-	backoff := 2 * time.Second
-
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := c.doRegister(ctx, reg); err != nil {
-			lastErr = err
-			c.Logger().Warn(ctx, "route scope registration attempt failed, retrying",
-				logging.Field{Key: "service", Value: service},
-				logging.Field{Key: "attempt", Value: attempt},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-				if backoff < maxBackoff {
-					backoff *= 2
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-				}
-			}
-			continue
-		}
-		c.Logger().Info(ctx, "route scopes registered",
-			logging.Field{Key: "service", Value: service},
-			logging.Field{Key: "route_count", Value: len(routes)},
-			logging.Field{Key: "scope_count", Value: len(reg.Scopes)},
-		)
-		return nil
-	}
-	return fmt.Errorf("route scope registration failed after %d attempts: %w", maxAttempts, lastErr)
+	return nil
 }
 
 func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error {

@@ -1,14 +1,9 @@
 # syntax=docker/dockerfile:1
 #
-# Dockerfile.operator — builds the orbit-operator binary and bakes the
-# Helm charts into the image at /etc/orbit/charts.
-#
-# The operator uses charts at /etc/orbit/charts at runtime (base.yaml default).
-# In local dev outside the container, cmd/operator/config/local.yaml overrides
-# chartDir to ../charts (relative to the backend/ working directory).
+# Build the orbit-operator binary.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 WORKDIR /app
 
@@ -26,46 +21,34 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator/main.go
 
-# Collect every */config/*.yaml file into /configs/ maintaining relative paths.
-RUN find /app -path "*/config/*.yaml" | while read f; do \
+# Stage only the YAML config files the operator binary loads at runtime,
+# keeping Go source (config.go) out of the runtime image. Operator does not
+# import internal/platform/storage.
+RUN mkdir -p /configs && \
+    find /app/cmd/operator/config \
+         /app/internal/platform/observability/config \
+         -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
         cp "$f" "/configs/$rel"; \
     done
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
-# Create non-root user that matches the securityContext in the Helm chart.
+# Non-root user matching the securityContext in the chart.
 RUN addgroup -g 65532 nonroot && adduser -u 65532 -G nonroot -s /sbin/nologin -D nonroot
 
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates
 
-# Config files (same relative layout as local dev) — owned by nonroot.
+# Process-default config files, same relative layout as local development.
 COPY --from=builder --chown=65532:65532 /configs/ ./
 
-# Operator binary — owned by nonroot.
 COPY --from=builder --chown=65532:65532 /orbit-operator ./orbit
-
-# Helm charts baked into the image at the path the operator expects.
-# base.yaml: chartDir: /etc/orbit/charts
-COPY --chown=65532:65532 charts/orbit-platform/ /etc/orbit/charts/orbit-platform/
-COPY --chown=65532:65532 charts/orbit/ /etc/orbit/charts/orbit/
-
-# Environment-specific Helm values files — baked in at /etc/orbit/values/.
-# loadValuesFile() probes this path as the production fallback after
-# the local-dev path ({ChartDir}/../deploy/local/) is tried first.
-COPY --chown=65532:65532 deploy/local/ /etc/orbit/values/
-
-# Helm cache directory — operator writes here at runtime.
-RUN mkdir -p /tmp/orbit-helm-cache && chown 65532:65532 /tmp/orbit-helm-cache
-
-# SPIRE and Istio charts are fetched remotely by the Helm client at runtime —
-# they are not baked into the image (too large and versioned independently).
 
 USER 65532
 
-EXPOSE 8081
+EXPOSE 8081 9443
 CMD ["./orbit"]

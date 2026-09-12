@@ -32,6 +32,9 @@ func main() {
 }
 
 func realMain() error {
+	if err := agentsConfig.Validate(agentsConfig.Current); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -59,7 +62,9 @@ func realMain() error {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
-	initScopeRegistration(ctx, logger, repo, atSvc)
+	// Register now and keep the registration alive across policy-service
+	// restarts; the shared helper owns the retry and re-registration cadence.
+	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
@@ -124,19 +129,28 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// calls: its mesh-attested exchange yields the SERVICE platform token used
 	// as the bearer for the policy client and for delegation revocation. One
 	// cached token source serves both, so the exchange stays off the hot path.
-	var idClient *identityclient.Client
-	var selfToken func(context.Context) (string, error)
-	if cfg.Platform.IdentityServiceURL != "" {
-		idClient = identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
-		selfToken = idClient.SelfTokenSource()
+	// Required, not optional. Without it orbit-agents has no bearer for the
+	// policy client, no bearer for the session-manager API, and no delegation
+	// broker, so the process would come up having silently dropped three
+	// security controls. Local development runs in Kubernetes with a real
+	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
+	// so an empty value is a broken deployment, not a mode.
+	if cfg.Platform.IdentityServiceURL == "" {
+		return nil, nil, nil, nil, nil, fmt.Errorf("platform.identityServiceURL is required")
 	}
+	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
+	selfToken := idClient.SelfTokenSource()
 
-	// Build a policy client for grant management at agent provision/deprovision time.
-	// When policyServiceURL is empty (local dev), the provisioner skips grant management.
-	var pc *policyclient.Client
-	if cfg.Platform.PolicyServiceURL != "" && idClient != nil {
-		pc = policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
+	// Required for the same reason as the identity service. An empty value used
+	// to mean "skip grant management", so agent types would provision with no
+	// grants written, and initScopeRegistration returned nil, so this service
+	// never published its routes. Under fail-closed Layer 1 enforcement an
+	// unregistered route denies every request, so a blank string took out both
+	// grant management and the entire agents API, silently.
+	if cfg.Platform.PolicyServiceURL == "" {
+		return nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
 	}
+	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
 	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
 	for _, key := range malformedOverrideKeys {
@@ -146,22 +160,27 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
-		SessionManagerImage:       cfg.Agents.SessionManagerImage,
-		SandboxImage:              cfg.Agents.SandboxImage,
-		SandboxGRPCPort:           int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
-		GitAuthorName:             cfg.Agents.SandboxGitAuthorName,
-		GitAuthorEmail:            cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
-		TrustDomain:               cfg.Platform.TrustDomain,
-		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
-		ManifestOverrides:         manifestOverrides,
+		SessionManagerImage:        cfg.Agents.SessionManagerImage,
+		SandboxImage:               cfg.Agents.SandboxImage,
+		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
+		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
+		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
+		TrustDomain:                cfg.Platform.TrustDomain,
+		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
+		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		ManifestOverrides:          manifestOverrides,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	repo := agents.NewPostgresRepository(db.Pool())
-	sm := smclient.NewClient(logger)
+	// The session-manager on each agent pod authenticates its caller and checks
+	// the principal is orbit-agents, so the same self-token source that bears
+	// the policy client's calls bears these.
+	sm := smclient.NewClient(logger, selfToken)
 	pubsub := agents.NewPubSub()
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
@@ -231,37 +250,39 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
 
+// agentTypeSlugLister is the single repository method scope registration needs:
+// the slugs that expand into the per-agent-type scope vocabulary.
+type agentTypeSlugLister interface {
+	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
+}
+
 // initScopeRegistration wires the policy-service scope vocabulary for orbit-agents.
-// It registers static route→scope bindings and per-agent-type vocabulary entries,
-// re-registering whenever an agent type is created or deleted.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.AgentTypeRepository, atSvc *agents.AgentTypeService) {
-	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
-		return
-	}
+// It installs a hook on the agent type service so the vocabulary is re-synced
+// whenever an agent type is created or deleted, and returns the register
+// function; the caller hands it to routescopes.KeepRegistered, which owns the
+// initial registration and the periodic self-heal loop.
+func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
 	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
 
-	register := func() {
-		slugs, err := repo.ListAllAgentTypeSlugs(ctx)
+	register := func(registerCtx context.Context) error {
+		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)
 		if err != nil {
-			logger.Error(ctx, "list agent type slugs for scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			return
+			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		// Drop routes whose RequiredScope is empty — those are
-		// "authenticated-only" and enforced locally (ScopeEnforcementMiddleware
-		// passes them through after auth; the service layer holds the real
-		// check). Registering them with empty scopes would deny everyone when
-		// Layer 1 sidecar enforcement is enabled in the future.
-		if err := client.Register(ctx, "orbit-agents", filterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
-			logger.Error(ctx, "route scope registration failed",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
+		if err := client.Register(registerCtx, "orbit-agents", routescopes.FilterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
+			return fmt.Errorf("register routes: %w", err)
 		}
+		return nil
 	}
 
-	atSvc.SetAgentTypeHook(func() { go register() })
-	go register()
+	// The hook fires whenever an agent type is written, which changes the
+	// per-slug scopes and so has to be republished without waiting for the next
+	// tick. SetAgentTypeHook invokes it synchronously inside the write, so the
+	// callback must not block on a policy-service round trip; RepublishOnEvent
+	// guarantees that.
+	atSvc.SetAgentTypeHook(routescopes.RepublishOnEvent(logger, "orbit-agents", register))
+
+	return register
 }
 
 // agentRoutes returns the static route→scope bindings for orbit-agents.
@@ -280,8 +301,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// is visible to a static route map. The authoritative check lives in
 		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
 		// routes are excluded from policy-service registration (see
-		// filterScopedRoutes), the established pattern for locally enforced
-		// routes.
+		// routescopes.FilterScopedRoutes), the established pattern for locally
+		// enforced routes.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
@@ -321,21 +342,6 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
 	}
-}
-
-// filterScopedRoutes returns the subset of routes that require a non-empty
-// scope. Used to exclude "authenticated-only" routes from policy-service
-// registration; those are enforced by the local ScopeEnforcementMiddleware
-// (pass-through after auth) plus the service-layer check that owns them.
-// Mirrors cmd/inference-gateway.
-func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
-	out := make([]routescopes.RouteScope, 0, len(in))
-	for _, r := range in {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // agentScopes builds the full scope declaration list from the current agent type slugs.

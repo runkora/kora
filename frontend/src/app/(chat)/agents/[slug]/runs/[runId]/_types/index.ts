@@ -13,13 +13,7 @@ export type RunState =
   | 'budget_exhausted';
 
 export type ToolIconName =
-  | 'square-terminal'
-  | 'file-text'
-  | 'edit'
-  | 'search'
-  | 'database'
-  | 'external-link'
-  | 'wrench';
+  'square-terminal' | 'file-text' | 'edit' | 'search' | 'database' | 'external-link' | 'wrench';
 
 // ── Turn types ────────────────────────────────────────────────────────────────
 

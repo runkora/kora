@@ -11,11 +11,11 @@ import (
 //
 // Values are loaded from:
 //
-//  1. cmd/egress-gateway/config/base.yaml        — service defaults
-//  2. cmd/egress-gateway/config/{env}.yaml       — env overrides (optional)
+//  1. cmd/egress-gateway/config/base.yaml        service defaults
+//  2. cmd/egress-gateway/config/{env}.yaml       env overrides (optional)
 //
-// Secrets (DB password, K8s service-account token if any) are NOT in this
-// struct — they come from the environment via internal/platform/storage.
+// No secret is in this struct. The gateway reads credential material from the
+// mounted per-tenant secret and CA volumes, and links no database.
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -56,8 +56,8 @@ type Config struct {
 	Secrets struct {
 		// TenantCARoot is the directory containing per-tenant CA material.
 		// For tenant {tenant}, the gateway expects:
-		//   {TenantCARoot}/{tenant}/ca.crt
-		//   {TenantCARoot}/{tenant}/ca.key
+		//   {TenantCARoot}/{tenant}.ca.crt
+		//   {TenantCARoot}/{tenant}.ca.key
 		TenantCARoot string `yaml:"tenantCARoot"`
 
 		// ConnectionSecretRoot is the directory containing per-connection

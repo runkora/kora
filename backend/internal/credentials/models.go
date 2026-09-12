@@ -1,9 +1,8 @@
 // Package credentials is the connection registry and credential-minting core of
 // the Orbit credential broker. A Connection is a tenant-scoped registration of
-// one external service (GitHub, AWS, an OAuth2 app, an API-key SaaS); a
-// CredentialAdapter turns a Connection into a short-lived, scoped Credential
-// that the egress gateway injects on the outbound leg. The agent never holds the
-// secret.
+// one external service; an Adapter opens a Connector that mints a short-lived,
+// Credential the egress gateway injects on the outbound leg. The agent never
+// holds the secret.
 //
 // See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
 package credentials
@@ -18,23 +17,19 @@ import (
 // adapter implementation serves every connection of that type, so adding a
 // service that fits an existing adapter is a registration, not new code.
 //
-// The set is closed in code (each constant maps to one subpackage under
-// internal/credentials/adapters/) but the database column is intentionally an
-// unconstrained TEXT — adding a new adapter must not require a schema
-// migration. Validation happens at resolve time via ErrUnsupportedAdapter.
+// Each constant maps to one subpackage under internal/credentials/adapters/.
+// The stored value is unconstrained text so a new adapter needs no schema
+// change; an unknown value is rejected at resolve time with
+// ErrUnsupportedAdapter.
 type AdapterType string
 
 const (
-	AdapterGitHubApp         AdapterType = "github_app"
-	AdapterKubernetesBearer  AdapterType = "kubernetes"
-	AdapterOAuth2ClientCreds AdapterType = "oauth2_client_credentials"
-	AdapterAPIKey            AdapterType = "api_key"
-	AdapterAWSSTS            AdapterType = "aws_sts"
-	// AdapterPassthrough injects NO credential — the connection is governed
-	// (egress posture + connection grant + audit) and the gateway re-originates
-	// to the upstream unchanged. The "agent reaches a public, unauthenticated
-	// resource" case (Pattern D), alongside minted (A), static-secret (B), and
-	// native-endpoint (C). See the egress-gateway ADR.
+	AdapterGitHubApp        AdapterType = "github_app"
+	AdapterKubernetesBearer AdapterType = "kubernetes"
+
+	// AdapterPassthrough injects no credential. It is not registrable: the
+	// broker holds the passthrough adapter directly and uses it for hosts with
+	// no connection, which the egress whitelist alone authorizes.
 	AdapterPassthrough AdapterType = "passthrough"
 )
 
@@ -43,13 +38,10 @@ const (
 // reference to the per-tenant secret store (never a raw secret), and
 // adapter-specific configuration.
 //
-// Since Amendment 3 a Connection is sourced from the operator-aggregated
-// registry the gateway mounts (configmap.go), not a Postgres row. The
-// scope_ceiling field is dropped — the adapter declares the grantable action
-// vocabulary and the PDP authorizes; nothing read the ceiling. ID is derived
-// (tenant|name) by the registry reader so the github_app adapter's token cache
-// key stays stable; CreatedAt/UpdatedAt are retained for API/observability shape
-// and are zero when sourced from the registry.
+// Connections come from the operator-aggregated registry the gateway mounts
+// (configmap.go). The registry reader derives ID as "tenant|name" to keep the
+// github_app adapter's token cache key stable. CreatedAt and UpdatedAt are zero
+// there; they exist for API shape.
 type Connection struct {
 	ID        string          `json:"id"`
 	TenantID  string          `json:"tenant_id"`
@@ -57,9 +49,15 @@ type Connection struct {
 	Adapter   AdapterType     `json:"adapter"`
 	BaseHost  string          `json:"base_host"`  // e.g. "github.com"
 	SecretRef string          `json:"secret_ref"` // reference, never a raw value
-	Config    json.RawMessage `json:"config"`     // adapter-specific
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	Config    json.RawMessage `json:"config"`     // adapter-specific keys only
+
+	// CACert is the PEM authority the gateway verifies this upstream against,
+	// for an upstream not signed by a public root. It is a property of the
+	// connection, not of any adapter: the gateway owns the outbound TLS leg,
+	// and no adapter dials the upstream.
+	CACert    string    `json:"ca_cert,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CallerIdentity is the verified identity of the agent whose run is making the
@@ -90,17 +88,15 @@ var (
 	// absent or malformed.
 	ErrInvalidConfig = errors.New("invalid connection config")
 
-	// ErrUnsupportedAction is returned by ClassifyAction when the request shape
+	// ErrUnsupportedAction is returned by Classify when the request shape
 	// has no policy mapping for this adapter (e.g. an unsupported verb on a
 	// REST adapter). The gateway treats this as a deny.
 	ErrUnsupportedAction = errors.New("unsupported action for adapter")
 
-	// ErrCredentialScopeRejected is returned by an adapter's Resolve when the
-	// upstream authority refuses to issue a credential for the requested scope —
-	// Orbit's policy allowed the call, but the underlying credential (e.g. a
-	// GitHub App installation) is not itself granted that level of access. The
-	// broker maps this to a client-facing forbidden, distinct from an internal
-	// mint failure. This is the "defer to the upstream as the authority"
-	// principle surfacing as its own error class.
+	// ErrCredentialScopeRejected is returned by Mint when the
+	// upstream refuses to issue a credential for the requested scope. Orbit's
+	// policy allowed the call, but the underlying credential (a GitHub App
+	// installation, say) does not itself hold that access. The broker maps this
+	// to a client-facing forbidden, distinct from an internal mint failure.
 	ErrCredentialScopeRejected = errors.New("upstream refused to issue a credential for the requested scope")
 )

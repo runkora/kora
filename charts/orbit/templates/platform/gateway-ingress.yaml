@@ -1,0 +1,40 @@
+{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
+{{- if .Values.gateway.tls.enabled }}
+{{- fail "gateway.ingress.enabled with gateway.tls.enabled creates an HTTP-to-HTTPS redirect loop: the Ingress forwards terminated TLS to the gateway HTTP port, which redirects it back to HTTPS. Set gateway.tls.enabled=false when an Ingress terminates TLS in front of the gateway." }}
+{{- end }}
+# Kubernetes Ingress in front of Orbit's Istio gateway Service, for an edge
+# controller such as Traefik or an ALB. TLS terminates there; the API
+# VirtualService forces x-forwarded-proto=https so OAuth metadata stays https.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.gateway.name }}
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+  {{- with .Values.gateway.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.gateway.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  rules:
+    {{- range (.Values.gateway.ingress.hosts | default (list (include "orbit.frontendHost" .) (include "orbit.apiHost" .))) }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Values.ingressGateway.name }}
+                port:
+                  number: 80
+    {{- end }}
+  {{- with .Values.gateway.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

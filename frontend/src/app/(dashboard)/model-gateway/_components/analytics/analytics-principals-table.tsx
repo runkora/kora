@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Stack, Text, Button } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { ApiRoute, APP_ROUTES } from '@orbit/lib/routing';
 import type {
@@ -263,7 +263,7 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         </Text>
       )}
 
-      <DataTable
+      <SmartTable
         tableId="analyticsPrincipals"
         data={data?.data ?? []}
         columns={COLUMNS}
@@ -281,7 +281,7 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         emptyMessage="No inference activity in this period."
         filteredEmptyMessage="No users match your search."
         onRowClick={(row) => router.push(principalUsageHref(row))}
-        onRowClickLabel="View full usage"
+        rowLabel={() => 'View full usage'}
       />
 
       {totalPages > 1 && (

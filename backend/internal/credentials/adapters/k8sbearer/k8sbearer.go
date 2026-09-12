@@ -1,12 +1,12 @@
 // Package k8sbearer implements the credential adapter for a Kubernetes
 // connection whose credential is a static, admin-supplied ServiceAccount
 // bearer token. Unlike githubapp, there is no minting: the egress gateway
-// calls Adapter.Resolve to read the token from the mounted secret and inject
+// calls Mint to read the token from the mounted secret and inject
 // it verbatim on the re-originated leg. Rotation is a Secret update, picked
-// up on the next resolve via the existing fsnotify reload — no adapter-side
+// up on the next resolve via the existing fsnotify reload, with no adapter-side
 // cache to invalidate.
 //
-// ClassifyAction is resource-category-scoped rather than one coarse
+// Classify is resource-category-scoped rather than one coarse
 // read/write pair: it parses the Kubernetes API request path to determine
 // which resource category (workloads, config, secrets, networking, storage,
 // rbac, or the cluster catch-all) a call touches, combined with a verb class
@@ -16,7 +16,7 @@
 // Amendment 1.
 //
 // Each connection-type lives in its own subpackage so adding a new external
-// service is a new directory behind the same credentials.CredentialAdapter
+// service is a new directory behind the same credentials.Adapter
 // interface, never a change to the parent package.
 package k8sbearer
 
@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -31,7 +32,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Action constants returned by ClassifyAction. Sourced from the shared
+// Action constants returned by Classify. Sourced from the shared
 // adapter metadata table so the classifier and the published vocabulary
 // cannot drift. They combine with the connection name to form
 // "connection:<name>:<action>".
@@ -56,7 +57,7 @@ const (
 	ActionRBACWrite       = platformconns.ActionRBACWrite
 )
 
-// categoryCluster is the resource-category name for the catch-all bucket —
+// categoryCluster is the resource-category name for the catch-all bucket,
 // both a literal category returned by categorizeRequest for well-known
 // cluster-scoped/admin resources, and the category assigned to non-resource
 // API discovery paths.
@@ -64,12 +65,12 @@ const categoryCluster = "cluster"
 
 // resourceCategories maps a Kubernetes resource's plural, lowercase REST name
 // to the coarse category this adapter authorizes by. Only the adapter needs
-// to know this shape — the broker and policy layer treat the resulting
+// to know this shape. The broker and policy layer treat the resulting
 // "<category>:<verb>" action as an opaque string. Unlisted resources
 // (including CRDs) are NOT auto-bucketed into "cluster": categorizeRequest
-// returns ok=false for them, and ClassifyAction denies the call outright
-// (ErrUnsupportedAction) rather than guessing. Extend this map — one line per
-// resource — as new categories or resources need coverage.
+// returns ok=false for them, and Classify denies the call outright
+// (ErrUnsupportedAction) rather than guessing. Extend this map, one line per
+// resource, as new categories or resources need coverage.
 var resourceCategories = map[string]string{
 	// workloads
 	"pods":                   "workloads",
@@ -80,11 +81,16 @@ var resourceCategories = map[string]string{
 	"jobs":                   "workloads",
 	"cronjobs":               "workloads",
 	"replicationcontrollers": "workloads",
+	// HorizontalPodAutoscalers size a workload's replica count, so they belong
+	// with the workload they scale rather than in a category of their own.
+	// VerticalPodAutoscalers are deliberately absent: they are a CRD
+	// (autoscaling.k8s.io), and this map covers built-in resources only.
+	"horizontalpodautoscalers": "workloads",
 
 	// config
 	"configmaps": "config",
 
-	// secrets — split out from config: materially more sensitive, so an
+	// secrets, split out from config as materially more sensitive so an
 	// admin can grant ConfigMap access without also granting Secret access.
 	"secrets": "secrets",
 
@@ -109,7 +115,7 @@ var resourceCategories = map[string]string{
 	"clusterrolebindings": "rbac",
 	"serviceaccounts":     "rbac",
 
-	// cluster — well-known cluster-scoped/administrative resources not
+	// cluster: well-known cluster-scoped and administrative resources not
 	// covered by a more specific category above.
 	"namespaces":     categoryCluster,
 	"nodes":          categoryCluster,
@@ -119,7 +125,7 @@ var resourceCategories = map[string]string{
 }
 
 // Adapter resolves the static ServiceAccount bearer token mounted for a
-// Kubernetes connection. Adapter implements credentials.CredentialAdapter.
+// Kubernetes connection. Adapter implements credentials.Adapter.
 type Adapter struct {
 	secrets credentials.SecretResolver
 	logger  logging.Logger
@@ -133,34 +139,39 @@ func New(secrets credentials.SecretResolver, logger logging.Logger) *Adapter {
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterKubernetesBearer }
 
-// Actions enumerates every action ClassifyAction can return, delegating to
+// Actions enumerates every action Classify can return, delegating to
 // the shared metadata table (internal/platform/connections) so the
 // connection:<name>:<action> vocabulary the egress gateway publishes has
 // exactly one source of truth.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
-	metas := platformconns.Actions(platformconns.AdapterKubernetesBearer)
-	out := make([]credentials.ActionDeclaration, len(metas))
-	for i, m := range metas {
-		out[i] = credentials.ActionDeclaration{Action: m.Action, Description: m.Description}
-	}
-	return out
+	return credentials.DeclaredActions(platformconns.AdapterKubernetesBearer)
 }
 
-// ClassifyAction maps a Kubernetes API request to the policy action that
-// authorizes it: a resource category (workloads, config, secrets,
-// networking, storage, rbac, or the cluster catch-all) combined with a verb
-// class (read/write) derived from the HTTP method.
+// Open binds the adapter to one connection. A cluster connection carries no
+// adapter configuration: its certificate authority is a connection field the
+// gateway reads, not an adapter key.
+func (a *Adapter) Open(conn credentials.Connection) (credentials.Connector, error) {
+	return &connector{adapter: a, conn: conn}, nil
+}
+
+// connector serves one cluster.
+type connector struct {
+	adapter *Adapter
+	conn    credentials.Connection
+}
+
+// Classify maps a Kubernetes API request to the action that authorizes it: a
+// resource category (workloads, config, secrets, networking, storage, rbac, or
+// the cluster catch-all) combined with a read or write verb from the method.
 //
-// kubectl exec/port-forward are SPDY/WebSocket-upgraded requests, not plain
-// REST — they are denied outright (ErrUnsupportedAction) rather than
-// misclassified as a REST verb, so they fail cleanly and audibly.
+// Two shapes are denied outright rather than misclassified. kubectl exec and
+// port-forward are SPDY or WebSocket upgrades, not REST. A resource absent from
+// resourceCategories, a CRD or anything not yet enumerated, is denied rather
+// than folded into the catch-all.
 //
-// A resource type not present in resourceCategories (a CRD, or any resource
-// not yet enumerated) is denied outright rather than folded into the
-// "cluster" catch-all — see resourceCategories' doc comment. Fine-grained
-// (namespace/resource-name/verb) authorization within a granted category is
-// delegated to the target cluster's own RBAC on the injected identity.
-func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (credentials.Classification, error) {
+// Authorization within a granted category, by namespace, resource name or
+// verb, is the target cluster's own RBAC on the injected identity.
+func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -168,13 +179,16 @@ func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (c
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
-	category, ok := categorizeRequest(req.URL.Path)
+	// Classify the resolved path. The API server resolves dot segments, so
+	// classifying the raw path would let "/api/v1/.../pods/../../../secrets"
+	// be authorized as workloads while the upstream serves it as secrets.
+	category, ok := categorizeRequest(path.Clean(req.URL.Path))
 	if !ok {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
 	// The namespace qualifier instance is deferred to an amendment of the
-	// Kubernetes connection ADR — until then no qualifier is extracted, per
+	// Kubernetes connection ADR. Until then no qualifier is extracted, per
 	// docs/adr/2026-07-22-connection-scope-qualifiers.md (Instances).
 	switch strings.ToUpper(req.Method) {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
@@ -189,13 +203,13 @@ func (a *Adapter) ClassifyAction(req *http.Request, _ credentials.Connection) (c
 // categorizeRequest maps a Kubernetes API server request path to a resource
 // category. It recognizes the two REST prefixes the API server serves:
 //
-//	/api/v1/...                     — the core (unnamed) API group
-//	/apis/{group}/{version}/...     — every named API group
+//	/api/v1/...                     the core (unnamed) API group
+//	/apis/{group}/{version}/...     every named API group
 //
 // and, within either, both namespaced (".../namespaces/{ns}/{resource}/...")
 // and cluster-scoped (".../{resource}/...") resource shapes. Anything that
-// isn't a resource path at all — bare /api, /apis, /apis/{group}, /version,
-// /openapi/*, /healthz/livez/readyz, or the root — is API discovery, which
+// isn't a resource path at all (bare /api, /apis, /apis/{group}, /version,
+// /openapi/*, /healthz/livez/readyz, or the root) is API discovery, which
 // kubectl/client-go always call before any real request; it is bucketed into
 // the "cluster" category rather than denied (mirroring upstream Kubernetes'
 // own RBAC, which binds discovery to every authenticated user regardless of
@@ -210,7 +224,7 @@ func categorizeRequest(path string) (category string, ok bool) {
 		rest = segments[2:]
 	case len(segments) >= 1 && segments[0] == "apis":
 		if len(segments) < 3 {
-			return categoryCluster, true // bare /apis or /apis/{group} — discovery
+			return categoryCluster, true // bare /apis or /apis/{group}: discovery
 		}
 		rest = segments[3:]
 	default:
@@ -218,7 +232,7 @@ func categorizeRequest(path string) (category string, ok bool) {
 	}
 
 	if len(rest) == 0 {
-		return categoryCluster, true // bare group/version root — discovery
+		return categoryCluster, true // bare group/version root: discovery
 	}
 	if rest[0] == "watch" { // deprecated /api/v1/watch/... form
 		rest = rest[1:]
@@ -230,11 +244,11 @@ func categorizeRequest(path string) (category string, ok bool) {
 	resource := rest[0]
 	if resource == "namespaces" {
 		if len(rest) <= 2 {
-			// ["namespaces"] or ["namespaces", name] — the Namespace object
+			// ["namespaces"] or ["namespaces", name]: the Namespace object
 			// itself, not a namespaced resource beneath it.
 			resource = "namespaces"
 		} else {
-			// ["namespaces", ns, resource, ...] — the actual resource is the
+			// ["namespaces", ns, resource, ...]: the actual resource is the
 			// third segment; "namespaces/{ns}/" is just the scoping prefix.
 			resource = rest[2]
 		}
@@ -273,17 +287,17 @@ func isUpgradeRequest(req *http.Request) bool {
 }
 
 // Resolve reads the static bearer token from the mounted secret and returns
-// it as-is. There is no minting and no cache — the token is already an
+// it as-is. There is no minting and no cache, since the token is already an
 // in-memory string once read, so caching it buys nothing k8sfile's own
 // mount-read doesn't already give for free.
-func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id credentials.CallerIdentity) (credentials.Credential, error) {
-	tok, err := a.secrets.Resolve(ctx, conn.SecretRef)
+func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
+	tok, err := c.adapter.secrets.Resolve(ctx, c.conn.SecretRef)
 	if err != nil {
 		return credentials.Credential{}, fmt.Errorf("resolve k8s bearer secret: %w", err)
 	}
 
-	a.logger.Debug(ctx, "resolved k8s bearer credential",
-		logging.Field{Key: "connection", Value: conn.Name},
+	c.adapter.logger.Debug(ctx, "resolved k8s bearer credential",
+		logging.Field{Key: "connection", Value: c.conn.Name},
 		logging.Field{Key: "tenant_id", Value: id.TenantID},
 		logging.Field{Key: "run_id", Value: id.RunID},
 	)

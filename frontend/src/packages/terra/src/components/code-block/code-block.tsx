@@ -47,47 +47,139 @@ export interface CodeBlockProps {
 // ── JSON highlighting ─────────────────────────────────────────────────────────
 
 /**
- * One regex pass, four token kinds. Keys carry the accent, values carry the
+ * JSON is split into tokens in one pass, then each token is rendered with the
+ * class for its kind: keys carry the accent, string and number values the
  * healthy green, true/false/null the amber literal tone, and everything else
  * (punctuation, whitespace) recedes to subtle, so the eye lands on data.
+ *
+ * Strings are scanned by hand rather than by regex. A global regex restarts
+ * from every quote inside an unterminated string, which is quadratic on long
+ * escaped runs; this tokenizer reads each character once and renders an
+ * unterminated string as plain text.
  */
-const JSON_TOKEN =
-  /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+(?:\.\d+)?)/g;
+type JsonTokenKind = 'key' | 'value' | 'literal' | 'plain';
+
+interface JsonToken {
+  kind: JsonTokenKind;
+  text: string;
+}
+
+const JSON_TOKEN_CLASS: Record<JsonTokenKind, string> = {
+  key: 'text-accent',
+  value: 'text-status-healthy',
+  literal: 'text-status-degraded',
+  plain: 'text-subtle',
+};
+
+const JSON_LITERALS = ['true', 'false', 'null'];
+
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && /\w/.test(ch);
+}
+
+function isDigit(ch: string | undefined): boolean {
+  return ch !== undefined && ch >= '0' && ch <= '9';
+}
+
+/** Index just past the closing quote of the string opening at `start`, or -1 if unterminated. */
+function findStringEnd(src: string, start: number): number {
+  let i = start + 1;
+  while (i < src.length) {
+    if (src[i] === '\\') {
+      i += 2;
+    } else if (src[i] === '"') {
+      return i + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return -1;
+}
+
+/** Index of the first non-whitespace character at or after `start`. */
+function skipWhitespace(src: string, start: number): number {
+  let i = start;
+  while (i < src.length && /\s/.test(src[i])) i += 1;
+  return i;
+}
+
+/** Length of the literal (true/false/null) starting at `start`, or 0 if there is none. */
+function literalLengthAt(src: string, start: number): number {
+  if (isWordChar(src[start - 1])) return 0;
+  for (const literal of JSON_LITERALS) {
+    if (src.startsWith(literal, start) && !isWordChar(src[start + literal.length])) {
+      return literal.length;
+    }
+  }
+  return 0;
+}
+
+/** Length of the number (optional sign, digits, optional fraction) starting at `start`, or 0. */
+function numberLengthAt(src: string, start: number): number {
+  let i = start;
+  if (src[i] === '-') i += 1;
+  if (!isDigit(src[i])) return 0;
+  while (isDigit(src[i])) i += 1;
+  if (src[i] === '.' && isDigit(src[i + 1])) {
+    i += 1;
+    while (isDigit(src[i])) i += 1;
+  }
+  return i - start;
+}
+
+function tokenizeJson(src: string): JsonToken[] {
+  const tokens: JsonToken[] = [];
+  let plainStart = 0;
+  let i = 0;
+
+  const pushPlainUpTo = (end: number) => {
+    if (end > plainStart) tokens.push({ kind: 'plain', text: src.slice(plainStart, end) });
+  };
+  const pushToken = (kind: JsonTokenKind, end: number) => {
+    pushPlainUpTo(i);
+    tokens.push({ kind, text: src.slice(i, end) });
+    i = end;
+    plainStart = end;
+  };
+
+  while (i < src.length) {
+    if (src[i] === '"') {
+      const stringEnd = findStringEnd(src, i);
+      if (stringEnd === -1) break;
+      const afterWhitespace = skipWhitespace(src, stringEnd);
+      if (src[afterWhitespace] === ':') {
+        pushToken('key', afterWhitespace + 1);
+      } else {
+        pushToken('value', stringEnd);
+      }
+      continue;
+    }
+
+    const literalLength = literalLengthAt(src, i);
+    if (literalLength > 0) {
+      pushToken('literal', i + literalLength);
+      continue;
+    }
+
+    const numberLength = numberLengthAt(src, i);
+    if (numberLength > 0) {
+      pushToken('value', i + numberLength);
+      continue;
+    }
+
+    i += 1;
+  }
+
+  pushPlainUpTo(src.length);
+  return tokens;
+}
 
 function highlightJson(src: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  for (const m of src.matchAll(JSON_TOKEN)) {
-    const at = m.index ?? 0;
-    if (at > last) {
-      parts.push(
-        <span key={key++} className="text-subtle">
-          {src.slice(last, at)}
-        </span>,
-      );
-    }
-    const cls =
-      m[1] !== undefined
-        ? 'text-accent'
-        : m[3] !== undefined
-          ? 'text-status-degraded'
-          : 'text-status-healthy';
-    parts.push(
-      <span key={key++} className={cls}>
-        {m[0]}
-      </span>,
-    );
-    last = at + m[0].length;
-  }
-  if (last < src.length) {
-    parts.push(
-      <span key={key++} className="text-subtle">
-        {src.slice(last)}
-      </span>,
-    );
-  }
-  return parts;
+  return tokenizeJson(src).map((token, index) => (
+    <span key={index} className={JSON_TOKEN_CLASS[token.kind]}>
+      {token.text}
+    </span>
+  ));
 }
 
 // ── CodeBlock ─────────────────────────────────────────────────────────────────

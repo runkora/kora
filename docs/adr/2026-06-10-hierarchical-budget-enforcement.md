@@ -6,6 +6,8 @@
 **Extends:** [Budget Enforcement Corrections ADR](2026-06-10-budget-enforcement-corrections-and-budgets-page.md)
 **Technical Story:** [PRD: Hierarchical Budgets](../prd/hierarchical-budgets.md)
 
+> **Amended 2026-09-02** — the tenant cap is a ceiling for **every** principal type, not just AGENT/SERVICE. See [Amendment — 2026-09-02](#amendment--2026-09-02-tenant-cap-applies-to-every-principal-type), which supersedes the "blocking agents/services only" statements below.
+
 ---
 
 ## Context
@@ -136,3 +138,28 @@ When the subprocess surfaces `BUDGET_EXCEEDED` (gateway **403**), the runner emi
 - [Budget Enforcement Corrections](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) — canonical-counter model this extends.
 - [Budget Model Redesign](2026-06-10-budget-model-redesign.md) — inline JSONB carriers (shape revised here).
 - [Envoy ext_proc sidecar token injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — the future home of hardened run identity.
+
+---
+
+## Amendment — 2026-09-02: Tenant cap applies to every principal type
+
+**Status:** Accepted — corrects the **Decision** (§6) and **Consequences** statements restricting the tenant cap to AGENT/SERVICE principals.
+
+### What was wrong
+
+The original decision scoped the tenant cap's deny rule to `principal.type ∈ {AGENT, SERVICE}` (§6), and `budget.rego` implemented that literally: the `ceilings` rule for `scope: "tenant"` only fired when `input.principal.type in {"AGENT", "SERVICE"}`. Human spend still accumulated into the tenant rollup counter (the gateway always populates `spends.tenant` for every principal type — nothing in the Go read/write path was type-gated), but it was never checked against the cap.
+
+The cap is described in Consequences as giving "tenants a bill guarantee." A ceiling that the majority of an org's spend (human usage) can freely exceed is not a bill guarantee — reported live on `orbit-dev`: a $2,500 monthly cap reached $2,688.51, with the entire $188.51 overage being human spend the cap could not stop (agents alone sat at $227.21, well under the cap). See [issue #222](https://github.com/clear-route/orbit/issues/222).
+
+### Decision
+
+The tenant cap is a ceiling on total tenant spend for the period, for **every** principal type. `budget.rego`'s tenant ceiling rule drops the `input.principal.type in {"AGENT", "SERVICE"}` guard entirely: it fires whenever a tenant budget is configured (`tb.limit_usd > 0`), regardless of who is asking. Once `spends.tenant[cap.window] >= cap.limit_usd`, further inference is denied for agents, services, and humans alike.
+
+No other change was required: `budgetScopesFor` (inference gateway) already resolves `TenantWindow` from the tenant budget unconditionally, and `CheckBudget` passes every principal type through to OPA without branching — the human personal-budget endpoint (`GET /usage/budget`) now surfaces the `{"scope":"tenant",...}` ceiling the same way the admin tenant-cap card already did at the tenant level.
+
+### Consequences
+
+- **Positive:** the cap now means what §6 and the Consequences section always claimed it did — one uniform ceiling, AND'd with every other applicable ceiling, regardless of principal type. Humans see the tenant ceiling in their personal budget status alongside their own window/role ceilings.
+- **Negative:** a human's individual budget being under its own limit no longer guarantees their request succeeds if the tenant is over cap — this is the intended hard-ceiling behavior, but it is a new way for a human request to be denied that admins should communicate to end users.
+- **Neutral:** the counter and rehydration machinery is unchanged; this was a policy (Rego) correction, not a data-model change.
+

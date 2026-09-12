@@ -33,9 +33,15 @@ const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 const allBudgetsQuery = "x := data.budgets"
 const tenantBudgetQuery = "x := data.tenant_budget.tenant_budget"
 
+// preparedQuery is the subset of rego.PreparedEvalQuery the authz decision path
+// calls.
+type preparedQuery interface {
+	Eval(ctx context.Context, options ...rego.EvalOption) (rego.ResultSet, error)
+}
+
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
-	query             rego.PreparedEvalQuery
+	query             preparedQuery
 	scopesQuery       rego.PreparedEvalQuery
 	grantDetailQuery  rego.PreparedEvalQuery
 	roleDetailQuery   rego.PreparedEvalQuery
@@ -269,6 +275,11 @@ const (
 	// or the stripped /run/{run_id} path prefix). A token lifted from one run
 	// is useless anywhere run identity is independently known.
 	ReasonDelegationRunMismatch = "deny:delegation_run_mismatch"
+	// ReasonDelegationRunUnbound — the delegation carries no run_id claim, so it
+	// is bound to no run at all. Every delegation the identity service mints
+	// carries one (required at mint; NOT NULL on the issuance row), so an absent
+	// claim means a malformed token and is refused rather than waved through.
+	ReasonDelegationRunUnbound = "deny:delegation_run_unbound"
 )
 
 // checkDelegationBinding rejects a delegation token presented outside the run
@@ -282,8 +293,11 @@ func checkDelegationBinding(input CheckInput) string {
 	if d.ActSub != "" && d.ActSub != input.Claims.Subject {
 		return ReasonDelegationActSubMismatch
 	}
+	// An unbound delegation is refused outright. Returning "" here would have
+	// skipped both binding checks below and let a run-less token be presented
+	// against any run — the Layer-2 twin of the rego undefined-comparison bypass.
 	if d.RunID == "" {
-		return ""
+		return ReasonDelegationRunUnbound
 	}
 	// Sandbox mode: the platform token carries the per-run SVID's run_id claim.
 	if tokenRunID := input.Claims.Orbit.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
@@ -340,17 +354,41 @@ func (e *engine) Query(ctx context.Context, input QueryInput) ([]string, error) 
 	}
 
 	allowed := make([]string, 0, len(input.Candidates))
+	// Candidate.ID never reaches the rego input, so candidates building an
+	// identical opaInput always decide identically: evaluations scale with
+	// distinct inputs, not candidate count. Keyed on the whole marshaled input
+	// so any field buildOPAInput adds is covered without a second edit here.
+	decided := make(map[string]bool, len(input.Candidates))
 	for _, c := range input.Candidates {
 		opaInput := buildOPAInput(input.Claims, input.Delegation, input.ResourceType, c.PathSegments, input.Action, c.Attributes)
-		rs, err := tb.query.Eval(ctx, rego.EvalInput(opaInput))
+		key, err := decisionKey(opaInput)
 		if err != nil {
-			return nil, fmt.Errorf("rego eval for candidate %s: %w", c.ID, err)
+			return nil, fmt.Errorf("decision key for candidate %s: %w", c.ID, err)
 		}
-		if evalResult(rs).Allow {
+		allow, seen := decided[key]
+		if !seen {
+			rs, evalErr := tb.query.Eval(ctx, rego.EvalInput(opaInput))
+			if evalErr != nil {
+				return nil, fmt.Errorf("rego eval for candidate %s: %w", c.ID, evalErr)
+			}
+			allow = evalResult(rs).Allow
+			decided[key] = allow
+		}
+		if allow {
 			allowed = append(allowed, c.ID)
 		}
 	}
 	return allowed, nil
+}
+
+// decisionKey returns a stable identity for an opaInput. encoding/json sorts map
+// keys, so inputs differing only in attribute iteration order share a key.
+func decisionKey(in opaInput) (string, error) {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return "", fmt.Errorf("marshal opa input: %w", err)
+	}
+	return string(b), nil
 }
 
 // Scopes returns all scopes the principal holds (grants + roles). Implements Evaluator.

@@ -91,6 +91,7 @@ import {
   Send,
   Server,
   Settings,
+  Settings2,
   Shield,
   ShieldCheck,
   ShieldOff,
@@ -196,6 +197,7 @@ export type IconName =
   | 'send'
   | 'server'
   | 'settings'
+  | 'settings-2'
   | 'shield'
   | 'shield-check'
   | 'shield-off'
@@ -298,6 +300,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   send: Send,
   server: Server,
   settings: Settings,
+  'settings-2': Settings2,
   shield: Shield,
   'shield-check': ShieldCheck,
   'shield-off': ShieldOff,

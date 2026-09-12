@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
-# =============================================================================
-# install-tools-cluster.sh — Install cluster tooling for local dev environment
+# Install Helmfile and the helm-diff plugin, plus k3d, kubectl and helm.
 #
-# Installs (if not already present at the correct version):
-#   - k3d        >= 5.6   (local k3s cluster manager)
-#   - kubectl    >= 1.29  (Kubernetes CLI)
-#   - helm       >= 3.14  (Kubernetes package manager)
+# Versions are pinned in scripts/cluster/versions.env. Change them there.
 #
-# Versions are pinned in scripts/cluster/versions.env — change them there.
-#
-# Note: istioctl is NOT required. SPIRE and Istio are installed by the orbit
-# operator (charts/orbit-operator) via the Helm Go SDK — no CLI tooling needed.
+# istioctl is not required; SPIRE and Istio come from their upstream charts
+# via the reference Helmfile.
 # =============================================================================
 set -euo pipefail
 
@@ -26,7 +20,7 @@ RESET="\033[0m"
 step()    { echo -e "\n${BLUE}▶ $*${RESET}"; }
 ok()      { echo -e "${GREEN}✓ $*${RESET}"; }
 warn()    { echo -e "${YELLOW}⚠ $*${RESET}"; }
-already() { echo -e "${GREEN}✓ $* already installed at correct version — skipping${RESET}"; }
+already() { echo -e "${GREEN}✓ $* already installed at correct version: skipping${RESET}"; }
 
 # Prefer GOPATH/bin when Go is available so cluster tools share the same
 # PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
@@ -37,7 +31,7 @@ else
 fi
 mkdir -p "${INSTALL_DIR}"
 
-# uname -s returns 'Darwin' on macOS — lower-cased for download URLs.
+# uname -s returns 'Darwin' on macOS, lower-cased for download URLs.
 # Note: for release assets that use 'osx' instead of 'darwin', see helm below.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -56,7 +50,7 @@ if command -v k3d >/dev/null; then
   if [ "${INSTALLED}" = "${K3D_VERSION}" ]; then
     already "k3d ${INSTALLED}"
   else
-    warn "k3d ${INSTALLED} is installed but ${K3D_VERSION} is required — reinstalling"
+    warn "k3d ${INSTALLED} is installed but ${K3D_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-${OS}-${ARCH_K3D}" \
       -o "${INSTALL_DIR}/k3d"
@@ -78,7 +72,7 @@ if command -v kubectl >/dev/null; then
   if [ "${INSTALLED}" = "${KUBECTL_VERSION}" ]; then
     already "kubectl ${INSTALLED}"
   else
-    warn "kubectl ${INSTALLED} is installed but ${KUBECTL_VERSION} is required — reinstalling"
+    warn "kubectl ${INSTALLED} is installed but ${KUBECTL_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH_KUBE}/kubectl" \
       -o "${INSTALL_DIR}/kubectl"
@@ -102,7 +96,7 @@ if command -v helm >/dev/null; then
   if [ "${INSTALLED}" = "${HELM_VERSION}" ]; then
     already "helm ${INSTALLED}"
   else
-    warn "helm ${INSTALLED} is installed but ${HELM_VERSION} is required — reinstalling"
+    warn "helm ${INSTALLED} is installed but ${HELM_VERSION} is required, reinstalling"
     curl -sSfL \
       "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_HELM}.tar.gz" \
       | tar -xz -C /tmp
@@ -117,6 +111,39 @@ else
   mv "/tmp/${OS}-${ARCH_HELM}/helm" "${INSTALL_DIR}/helm"
   rm -rf "/tmp/${OS}-${ARCH_HELM}"
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
+fi
+
+# ── helmfile ──────────────────────────────────────────────────────────────────
+step "helmfile ${HELMFILE_VERSION}"
+HELMFILE_BARE="${HELMFILE_VERSION#v}"
+if command -v helmfile >/dev/null && [ "v$(helmfile version -o short 2>/dev/null)" = "${HELMFILE_VERSION}" ]; then
+  already "helmfile ${HELMFILE_VERSION}"
+else
+  curl -sSfL \
+    "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_BARE}_${OS}_${ARCH_HELM}.tar.gz" \
+    | tar -xz -C "${INSTALL_DIR}" helmfile
+  ok "helmfile ${HELMFILE_VERSION} installed → ${INSTALL_DIR}/helmfile"
+fi
+
+# ── helm-diff ─────────────────────────────────────────────────────────────────
+step "helm-diff ${HELM_DIFF_VERSION}"
+INSTALLED="$(helm plugin list 2>/dev/null | awk '$1 == "diff" {print "v"$2}')"
+if [ "${INSTALLED}" = "${HELM_DIFF_VERSION}" ]; then
+  already "helm-diff ${HELM_DIFF_VERSION}"
+else
+  [ -n "${INSTALLED}" ] && helm plugin uninstall diff >/dev/null
+  helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}" --verify=false >/dev/null
+  ok "helm-diff ${HELM_DIFF_VERSION} installed"
+fi
+
+# ── yq ────────────────────────────────────────────────────────────────────────
+step "yq ${YQ_VERSION}"
+if command -v yq >/dev/null && [ "$(yq --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)" = "${YQ_VERSION}" ]; then
+  already "yq ${YQ_VERSION}"
+else
+  curl -sSfL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_${OS}_${ARCH_HELM}" -o "${INSTALL_DIR}/yq"
+  chmod +x "${INSTALL_DIR}/yq"
+  ok "yq ${YQ_VERSION} installed → ${INSTALL_DIR}/yq"
 fi
 
 echo ""

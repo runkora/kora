@@ -37,35 +37,36 @@ Every rule above fires in `src/**/*.tsx` and is ignored only inside `src/package
 
 The most common migrations at a glance.
 
-| Raw HTML                                              | Terra replacement                                                                                                                         |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `<div className="flex flex-col gap-4">`               | `<Stack gap="comfortable">`                                                                                                               |
-| `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                                                                               |
-| `<div className="grid grid-cols-3 gap-4">`            | `<Grid cols={3} gap="comfortable">`                                                                                                       |
-| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">`                                                                         |
-| `<section>`                                           | `<Section>` from `@orbit/terra`                                                                                                           |
-| `<section className="flex flex-col gap-8 p-6">`       | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
-| `<aside className="grid grid-cols-2">`                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                                          |
-| `<button onClick={…}>label</button>`                  | `<Button onClick={…}>label</Button>`                                                                                                      |
-| `<button onClick={…}><Icon /></button>`               | `<Button variant="ghost" size="icon-sm" aria-label="…"><Icon /></Button>`                                                                 |
-| `<h1>Page title</h1>`                                 | `<Heading variant="title">Page title</Heading>`                                                                                           |
-| `<h2>Section heading</h2>`                            | `<Heading variant="section">Section heading</Heading>`                                                                                    |
-| `<p>Body copy</p>`                                    | `<Text>Body copy</Text>`                                                                                                                  |
-| `<p className="text-sm text-muted">Helper</p>`        | `<Text size="supporting" color="muted">Helper</Text>`                                                                                     |
-| `<span>Inline label</span>`                           | `<Text as="span" size="supporting">Inline label</Text>` (inline context) or `<Text size="supporting">Inline label</Text>` (block context) |
-| `<strong>Important</strong>`                          | `<Text weight="heavy">Important</Text>`                                                                                                   |
-| `<b>Bold text</b>`                                    | `<Text weight="heavy">Bold text</Text>`                                                                                                   |
-| `<em>Emphasised</em>`                                 | No Terra equivalent yet: propose one for human approval before proceeding                                                                 |
-| `<i>Italic</i>`                                       | No Terra equivalent yet: propose one for human approval before proceeding                                                                 |
-| `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                                                   |
-| `<kbd>Ctrl+K</kbd>`                                   | `<Code>Ctrl+K</Code>` (keyboard input)                                                                                                    |
-| `<code className="font-mono text-xs">…</code>`        | `<Code>…</Code>` (inline) or `<Code variant="bare">…</Code>` (inside a container)                                                         |
+| Raw HTML                                                              | Terra replacement                                                                                                                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `<div className="flex flex-col gap-4">`                               | `<Stack gap="comfortable">`                                                                                                               |
+| `<div className="flex flex-row gap-2">`                               | `<Stack direction="horizontal" gap="snug">`                                                                                               |
+| `<div className="grid grid-cols-3 gap-4">`                            | `<Grid cols={3} gap="comfortable">`                                                                                                       |
+| `<div style={{ display: 'grid', gridTemplateColumns: '1fr 372px' }}>` | `<SidebarLayout sidebarWidth="detail-panel" gap="relaxed">`                                                                               |
+| `<div className="flex items-center justify-between">`                 | `<Stack direction="horizontal" align="center" justify="between">`                                                                         |
+| `<section>`                                                           | `<Section>` from `@orbit/terra`                                                                                                           |
+| `<section className="flex flex-col gap-8 p-6">`                       | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
+| `<aside className="grid grid-cols-2">`                                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                                          |
+| `<button onClick={…}>label</button>`                                  | `<Button onClick={…}>label</Button>`                                                                                                      |
+| `<button onClick={…}><Icon /></button>`                               | `<Button variant="ghost" size="icon-sm" aria-label="…"><Icon /></Button>`                                                                 |
+| `<h1>Page title</h1>`                                                 | `<Heading variant="title">Page title</Heading>`                                                                                           |
+| `<h2>Section heading</h2>`                                            | `<Heading variant="section">Section heading</Heading>`                                                                                    |
+| `<p>Body copy</p>`                                                    | `<Text>Body copy</Text>`                                                                                                                  |
+| `<p className="text-sm text-muted">Helper</p>`                        | `<Text size="supporting" color="muted">Helper</Text>`                                                                                     |
+| `<span>Inline label</span>`                                           | `<Text as="span" size="supporting">Inline label</Text>` (inline context) or `<Text size="supporting">Inline label</Text>` (block context) |
+| `<strong>Important</strong>`                                          | `<Text weight="heavy">Important</Text>`                                                                                                   |
+| `<b>Bold text</b>`                                                    | `<Text weight="heavy">Bold text</Text>`                                                                                                   |
+| `<em>Emphasised</em>`                                                 | No Terra equivalent yet: propose one for human approval before proceeding                                                                 |
+| `<i>Italic</i>`                                                       | No Terra equivalent yet: propose one for human approval before proceeding                                                                 |
+| `<code>agent-id</code>`                                               | `<Code>agent-id</Code>`                                                                                                                   |
+| `<kbd>Ctrl+K</kbd>`                                                   | `<Code>Ctrl+K</Code>` (keyboard input)                                                                                                    |
+| `<code className="font-mono text-xs">…</code>`                        | `<Code>…</Code>` (inline) or `<Code variant="bare">…</Code>` (inside a container)                                                         |
 
 ---
 
 ## Layout: Replacing `<div>`
 
-Every `<div>` must become a `Stack` (flex) or `Grid` (CSS grid). These are the two layout primitives in Terra.
+Every `<div>` must become a `Stack` (flex), `Grid` (equal-column CSS grid), or `SidebarLayout` (fluid main + fixed sidebar). These are the layout primitives in Terra.
 
 ### Stack: flex layouts
 
@@ -154,6 +155,61 @@ import { Grid } from '@orbit/terra';
   ))}
 </Grid>
 ```
+
+### SidebarLayout: fluid main + fixed sidebar
+
+`SidebarLayout` addresses a layout that neither `Stack` nor `Grid` can express: a two-column grid where one column is fluid (`1fr`) and the other is a fixed-width sidebar. Use it instead of the inline-style workaround.
+
+```tsx
+import { SidebarLayout } from '@orbit/terra';
+
+// ❌ Banned — inline style workaround
+<div style={{ display: 'grid', gridTemplateColumns: '1fr 372px', gap: 24 }}>
+  <div>…main…</div>
+  <div>…sidebar…</div>
+</div>
+
+// ✅ Correct
+<SidebarLayout sidebarWidth="detail-panel" gap="relaxed">
+  <SidebarLayout.Main>…main…</SidebarLayout.Main>
+  <SidebarLayout.Sidebar>…sidebar…</SidebarLayout.Sidebar>
+</SidebarLayout>
+```
+
+**SidebarLayout props:**
+
+| Prop              | Type                                        | Default   | Purpose                                         |
+| ----------------- | ------------------------------------------- | --------- | ----------------------------------------------- |
+| `sidebarWidth`    | `SidebarWidthToken \| number \| string`     | required  | Width of the fixed column. Prefer a token.      |
+| `sidebarPosition` | `'start' \| 'end'`                          | `'end'`   | Which column is fixed (`'end'` = right sidebar) |
+| `gap`             | `SpacingSize`                               |           | Gap between the two columns and rows            |
+| `align`           | `'start' \| 'center' \| 'end' \| 'stretch'` | `'start'` | `align-items` for both columns                  |
+
+**`SidebarWidthToken` values:**
+
+| Token            | Value | Use case                                      |
+| ---------------- | ----- | --------------------------------------------- |
+| `'detail-panel'` | 372px | Fixed sidebar in a main+sidebar detail layout |
+
+For one-off widths with no token, pass a number (`sidebarWidth={300}`) or a string (`sidebarWidth="20rem"`). If the same ad-hoc width recurs across two or more surfaces, add a token to `sizing.ts`.
+
+```tsx
+// Sticky sidebar — apply position via the inner Stack, not the layout shell
+<SidebarLayout sidebarWidth="detail-panel" gap="relaxed" align="start">
+  <SidebarLayout.Main>
+    <Stack gap="comfortable" style={{ minWidth: 0 }}>
+      {/* main content */}
+    </Stack>
+  </SidebarLayout.Main>
+  <SidebarLayout.Sidebar>
+    <Stack gap="comfortable" style={{ position: 'sticky', top: 0 }}>
+      {/* sticky sidebar cards */}
+    </Stack>
+  </SidebarLayout.Sidebar>
+</SidebarLayout>
+```
+
+> **Note:** `SidebarLayout` does not currently support `asChild`. If you need the grid to render on a semantic element (`<main>`, `<aside>`, etc.), wrap the semantic element inside `SidebarLayout.Main` or `SidebarLayout.Sidebar` using `<Stack asChild>`.
 
 ---
 

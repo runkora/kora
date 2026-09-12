@@ -240,7 +240,13 @@ export type {
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
 
-export { Stack, Grid } from './components/layout';
+export {
+  Stack,
+  Grid,
+  SidebarLayout,
+  SidebarLayoutMain,
+  SidebarLayoutSidebar,
+} from './components/layout';
 export type {
   StackProps,
   StackDirection,
@@ -248,11 +254,16 @@ export type {
   StackJustify,
   GridProps,
   ColCount,
+  SidebarLayoutProps,
+  SidebarLayoutMainProps,
+  SidebarLayoutSidebarProps,
+  SidebarWidth,
   SpacingSize,
   Responsive,
   ContainerWidth,
   ContainerHeight,
   TextAlign,
+  SidebarWidthToken,
 } from './components/layout';
 
 export { List, ListItem } from './components/list';
@@ -333,8 +344,6 @@ export {
   TableToolbarShell,
   // Table column header
   TableColumnHeader,
-  // Data table (TanStack-backed, fully opinionated)
-  DataTable,
 } from './components/table';
 export type {
   SortDir,
@@ -345,29 +354,18 @@ export type {
   TableColumnHeaderProps,
   TableColumnFilter,
   TableColumnFilterOption,
+} from './components/table';
+
+// DataTable — CSS-grid list surface with sort, filter, column visibility, and pagination.
+export { DataTable } from './components/data-table';
+export type {
   DataTableProps,
   DataTableColumn,
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
-} from './components/table';
-
-export {
-  DataGrid,
-  DataGridToolbar,
-  DataGridHeader,
-  DataGridRow,
-  DataGridFooter,
-  DataGridEmpty,
-  DataGridPagination,
-} from './components/data-grid';
-export type {
-  DataGridProps,
-  DataGridHeaderProps,
-  DataGridHeaderCell,
-  DataGridRowProps,
-  DataGridPaginationProps,
-} from './components/data-grid';
+  DataTableFilterOption,
+} from './components/data-table';
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 

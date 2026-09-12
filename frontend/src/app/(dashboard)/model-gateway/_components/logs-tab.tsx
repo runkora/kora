@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Callout, Stack, Text } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { Badge, Button, Callout, SegmentedControl, Stack, Text } from '@orbit/terra';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
@@ -41,6 +41,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // this from searchParams; we own it here.
   const [activeKeyId, setActiveKeyId] = useState(selectedKeyId);
   const [selectedRecord, setSelectedRecord] = useState<InferenceUsageRecord | null>(null);
+  const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'success' | 'error'>('all');
 
   // Key filter changes update the URL for shareability (deep-links) and call
   // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
@@ -69,6 +70,21 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
 
   // PAT ID → full PAT record lookup for the Key status column cell.
   const patMap = useMemo(() => new Map(pats.map((p) => [p.id, p])), [pats]);
+
+  const outcomeCounts = useMemo(
+    () => ({
+      all: records.length,
+      success: records.filter((r) => r.status === 'success').length,
+      error: records.filter((r) => r.status !== 'success').length,
+    }),
+    [records],
+  );
+
+  const outcomeFilteredRecords = useMemo(() => {
+    if (outcomeFilter === 'all') return records;
+    if (outcomeFilter === 'success') return records.filter((r) => r.status === 'success');
+    return records.filter((r) => r.status !== 'success');
+  }, [records, outcomeFilter]);
 
   const keyOptions = useMemo(
     () =>
@@ -324,9 +340,9 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         </Callout>
       )}
 
-      <DataTable
+      <SmartTable
         tableId="inferenceLogs"
-        data={records}
+        data={outcomeFilteredRecords}
         columns={columns}
         getRowKey={(row) => row.id}
         noun="requests"
@@ -342,6 +358,18 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         emptyMessage="No inference requests yet."
         filteredEmptyMessage="No logs match your filters."
         onRowClick={setSelectedRecord}
+        quickFilters={
+          <SegmentedControl
+            aria-label="Filter logs by outcome"
+            value={outcomeFilter}
+            onChange={(v) => setOutcomeFilter(v as typeof outcomeFilter)}
+            options={[
+              { value: 'all', label: 'All', count: outcomeCounts.all },
+              { value: 'success', label: 'Success', count: outcomeCounts.success },
+              { value: 'error', label: 'Error', count: outcomeCounts.error },
+            ]}
+          />
+        }
         toolbarActions={
           <Button
             variant="outline"

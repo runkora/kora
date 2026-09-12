@@ -1,8 +1,8 @@
-// MCPServer reconciler (Phase 3 — MCP Tool Gateway).
+// MCPServer reconciler (Phase 3: MCP Tool Gateway).
 //
 // Unlike Connection (which has no status and is aggregated off the tenant
 // reconcile), an MCPServer carries its own Status and can live in orbit-system
-// (global) where there is no owning OrbitTenant — so it gets its own
+// (global) where there is no owning OrbitTenant. It gets its own
 // reconciler. On each MCPServer change this validates the spec, sets the CR's
 // reconciliation Status (Pending|Aggregated|Invalid), and re-renders the
 // orbit-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
@@ -22,7 +22,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -46,7 +48,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	srv := &MCPServer{}
 	if err := r.Get(ctx, req.NamespacedName, srv); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — re-aggregate so the removed server drops out of the
+			// CR deleted: re-aggregate so the removed server drops out of the
 			// registry (and its scopes are pruned by the gateway on next sync).
 			return ctrl.Result{}, r.Aggregator.Sync(ctx)
 		}
@@ -82,10 +84,10 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metav1.ConditionTrue, "Aggregated", "rendered into the orbit-mcp-servers registry")
 }
 
-// setStatus patches the MCPServer phase + Aggregated condition. It is a no-op
-// when the phase and condition are already in the desired state, which prevents
-// a status-update event from triggering an endless reconcile loop (the operator
-// uses no controller-runtime predicates).
+// setStatus patches the MCPServer phase, LastReconciledAt and Aggregated
+// condition on every call. SetupWithManager's GenerationChangedPredicate
+// filters out the resulting status-only update; this never re-triggers its
+// own reconcile.
 func (r *MCPServerReconciler) setStatus(
 	ctx context.Context,
 	srv *MCPServer,
@@ -93,16 +95,6 @@ func (r *MCPServerReconciler) setStatus(
 	condStatus metav1.ConditionStatus,
 	reason, message string,
 ) error {
-	existing := meta.FindStatusCondition(srv.Status.Conditions, conditionAggregated)
-	condCurrent := existing != nil &&
-		existing.Status == condStatus &&
-		existing.Reason == reason &&
-		existing.Message == message &&
-		existing.ObservedGeneration == srv.Generation
-	if srv.Status.Phase == phase && condCurrent {
-		return nil
-	}
-
 	patch := client.MergeFrom(srv.DeepCopy())
 	now := metav1.Now()
 	srv.Status.Phase = phase
@@ -123,6 +115,6 @@ func (r *MCPServerReconciler) setStatus(
 // SetupWithManager registers the controller with the controller-runtime Manager.
 func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&MCPServer{}).
+		For(&MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }

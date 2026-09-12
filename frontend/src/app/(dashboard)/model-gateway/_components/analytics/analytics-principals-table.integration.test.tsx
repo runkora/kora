@@ -153,6 +153,10 @@ describe('AnalyticsPrincipalsTable — row click navigation', () => {
 
     await screen.findByText('Dev User');
 
-    await waitFor(() => expect(screen.getByText('View full usage')).toBeInTheDocument());
+    // The new DataTable places the accessible label on the row element's
+    // aria-label attribute (rowLabel prop) rather than in a hidden span.
+    await waitFor(() =>
+      expect(screen.getByRole('row', { name: 'View full usage' })).toBeInTheDocument(),
+    );
   });
 });

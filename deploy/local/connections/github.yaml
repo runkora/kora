@@ -1,23 +1,5 @@
-# =============================================================================
-# Local dev — GitHub App connection (GitOps registration)
-# =============================================================================
-#
-# This is the code-first way to register a GitHub connection in local dev.
-# Apply it with:  make register-github-connection
-#
-# That target creates the App-private-key Secret (`github-app-key`) from
-# secrets/orbit-github-app.pem and applies this Connection CR. The operator's
-# ConnectionAggregator then reconciles both into the orbit-system registry the
-# egress gateway and orbit-agents read — no API call, no manual kubectl.
-#
-# The App private key is NEVER in this file — only a `secretRef` to the Secret.
-# `app_id` / `installation_id` are non-secret identifiers; REPLACE them with
-# your own GitHub App's values (and install that App on the org/repos you want
-# the agent to reach). The key file goes at secrets/orbit-github-app.pem.
-#
-# Namespace: orbit-tenant-example (the operator derives "orbit-tenant-{name}"
-# from the OrbitTenant CR in deploy/local/tenants/example.yaml).
-# =============================================================================
+# Example GitHub App connection for the local example tenant.
+# make cluster-deploy applies this resource when secrets/orbit-github-app.pem exists.
 apiVersion: orbit.io/v1alpha1
 kind: Connection
 metadata:
@@ -29,10 +11,6 @@ spec:
   secretRef: github-app-key
   secretKey: key.pem
   config:
-    app_id: "4015347"          # string — your GitHub App's App ID
-    installation_id: 139299720 # number — the installation on your org/repos
-    owner: clear-route         # the account the installation is bound to —
-                               # enables repository-qualifier extraction and
-                               # foreign-owner denial (2026-07-22 ADRs); omit
-                               # and the connection keeps unqualified-only
-                               # (pre-qualifier) semantics
+    app_id: "4015347"          # string: your GitHub App's App ID
+    installation_id: 139299720 # number: the installation on your org/repos
+    owner: clear-route         # Restrict repository access to this owner.

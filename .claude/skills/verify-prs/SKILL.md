@@ -91,7 +91,7 @@ If pods CrashLoop after a Colima/k3d restart (DNS `no such host` for `orbit-post
 SPIRE `Trust Bundle and Server don't agree`), **rebuild — don't debug Istio/SPIRE** (confirm
 with the user first; ~20-40 min):
 ```bash
-make dev-cluster-down && make dev-cluster && make cluster-operator && make cluster-deploy
+make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy
 ```
 Infra (Postgres/Redis/Dex) runs in docker-compose; k3d services reach it over the shared
 network. `make cluster-restore` only re-pushes images after a restart — it won't fix DNS/SPIRE.
@@ -122,11 +122,11 @@ Then **prove behaviour**, not just that it built:
   now behave differently), then deploy the branch and hit the real endpoint with curl; read
   pod logs (`kubectl -n orbit-system logs <pod> -c orbit-<svc>`) to confirm the code path,
   region/endpoint, error codes.
-- **Frontend** — served at `https://orbit.local.clearroute.io:8443` (k3d maps 443→8443;
+- **Frontend** — served at `https://orbit.local.clearroute.io` (an HAProxy container maps host 443 to the k3d load balancer;
   mkcert cert trusted). Drive Safari + screenshot (a locked Private window blocks scripting;
   `open location` opens a normal one), then `Read` the PNG:
   ```bash
-  osascript -e 'tell application "Safari" to open location "https://orbit.local.clearroute.io:8443/<route>"'
+  osascript -e 'tell application "Safari" to open location "https://orbit.local.clearroute.io/<route>"'
   WID=$(osascript -e 'tell application "Safari" to id of front window')
   screencapture -x -o -l "$WID" .scratch/shots/prNN-<view>.png
   ```
@@ -192,11 +192,11 @@ ones** (cite exact lines), then re-run CI to green.
 | --- | --- |
 | Switch to local cluster | `kubectl config use-context k3d-orbit-local` |
 | Cluster health | `kubectl get pods -A \| grep -vE 'Running\|Completed'` |
-| Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-operator && make cluster-deploy` |
+| Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy` |
 | Auth / refresh | `make auth-device-k3d` · `make auth-refresh-k3d` (token: `/tmp/orbit_credentials.json`) |
 | Redeploy a service | `make redeploy SERVICE=<svc>` · `make redeploy-frontend` · `make redeploy-list` |
 | Postgres | `docker exec orbit-postgres psql -U orbit -d orbit -c "…"` |
-| Frontend URL | `https://orbit.local.clearroute.io:8443` |
+| Frontend URL | `https://orbit.local.clearroute.io` |
 | CI failure log / re-run | `gh run view <run-id> --log-failed` · `gh run rerun <run-id> --failed` |
 | Quality gate | `make check` (backend) · `cd frontend && pnpm lint && pnpm tsc --noEmit` |
 

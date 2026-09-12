@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,13 +13,30 @@ import (
 	"sync/atomic"
 	"time"
 
+	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // sandboxLivenessTimeout bounds the TCP dial used to check whether a cached
 // sandbox endpoint still points at a live pod before reusing it.
 const sandboxLivenessTimeout = 2 * time.Second
+
+// egressCanaryMaxWait is the upper bound for waiting on egress to settle after
+// a sandbox pod becomes Ready. Istio-proxy, SPIRE workload SVIDs, and the egress
+// path can take up to ~60s to warm on a fresh pod — this covers that window with
+// a margin, so agents never receive the "ready" signal until a real outbound call
+// can actually succeed.
+const egressCanaryMaxWait = 90 * time.Second
+
+// egressCanaryInterval is the retry interval for the egress canary probe.
+const egressCanaryInterval = 5 * time.Second
+
+// egressCanaryCommand is the shell command run inside the sandbox to check
+// outbound egress. A successful exit (0) means egress is settled.
+const egressCanaryCommand = "curl -sf --max-time 8 -o /dev/null https://api.github.com"
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
@@ -243,6 +261,13 @@ func (reg *Registry) ActiveCount() int {
 // evicted/killed, leaving a stale pointer), it is treated as a miss and a fresh
 // sandbox is provisioned — otherwise callers (orbit-shell) would keep dialing a
 // corpse. orbit-agents replaces the dead pod and returns the new endpoint.
+//
+// After a fresh provision, ProvisionSandbox gates on egress readiness: it probes
+// outbound connectivity from inside the sandbox (via its gRPC exec server) and
+// retries until a canary request to api.github.com succeeds or the context
+// deadline is reached. This eliminates the first-minute window where
+// connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
+// egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
 	endpointFile := filepath.Join(reg.workspaces, runID, ".sandbox", "endpoint")
 	if data, err := os.ReadFile(endpointFile); err == nil && len(data) > 0 {
@@ -264,6 +289,24 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err != nil {
 		return "", err
 	}
+
+	// Gate on egress readiness before handing the endpoint to the agent.
+	// The sandbox pod is Running (gRPC exec accepting connections) but the
+	// istio-proxy sidecar, SPIRE workload SVID, and egress path can take
+	// up to ~60s to fully settle. Returning before they are ready causes the
+	// first git/GitHub calls to land "connection reset by peer" — the exact
+	// failure that triggered orphan-branch PRs in issue #161.
+	if canaryErr := reg.awaitEgressReady(ctx, runID, endpoint); canaryErr != nil {
+		reg.logger.Warn(ctx, "Egress canary did not pass within timeout — proceeding anyway",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: canaryErr.Error()},
+		)
+		// Non-fatal: if the canary times out (e.g. no outbound access configured,
+		// or the context was canceled), hand back the endpoint unchanged so the
+		// agent can still run local-only work. The agent will retry git operations
+		// on its own if they fail.
+	}
+
 	if err := os.MkdirAll(filepath.Dir(endpointFile), 0o700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
 	}
@@ -271,6 +314,85 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 		return "", fmt.Errorf("write endpoint: %w", err)
 	}
 	return endpoint, nil
+}
+
+// awaitEgressReady polls outbound connectivity from inside the sandbox by running
+// a canary curl command via the sandbox gRPC exec server. It retries on any
+// non-zero exit or exec error until the command succeeds (exit 0) or
+// egressCanaryMaxWait elapses. The canary is bounded by a sub-context so
+// individual probes don't outlive the overall wait budget.
+func (reg *Registry) awaitEgressReady(ctx context.Context, runID, endpoint string) error {
+	return reg.awaitEgressReadyWithInterval(ctx, runID, endpoint, egressCanaryInterval, egressCanaryMaxWait)
+}
+
+// awaitEgressReadyWithInterval is the testable core of awaitEgressReady.
+// interval controls how long to wait between probe attempts; maxWait caps the
+// total wait. Tests pass short values to avoid slow tests.
+func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID, endpoint string, interval, maxWait time.Duration) error {
+	deadline := time.Now().Add(maxWait)
+	canaryCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	attempt := 0
+	for {
+		attempt++
+		ok, execErr := reg.sandboxExec(canaryCtx, endpoint, egressCanaryCommand)
+		if execErr == nil && ok {
+			reg.logger.Info(ctx, "Sandbox egress canary passed",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "attempt", Value: attempt},
+			)
+			return nil
+		}
+
+		msg := "non-zero exit"
+		if execErr != nil {
+			msg = execErr.Error()
+		}
+		reg.logger.Info(ctx, "Sandbox egress canary pending — retrying",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "attempt", Value: attempt},
+			logging.Field{Key: "reason", Value: msg},
+		)
+
+		select {
+		case <-canaryCtx.Done():
+			return fmt.Errorf("egress canary timed out after %d attempt(s): %w", attempt, canaryCtx.Err())
+		case <-time.After(interval):
+		}
+	}
+}
+
+// sandboxExec dials the sandbox gRPC exec server, runs the given shell command,
+// and returns (true, nil) when the command exits 0. A non-zero exit returns
+// (false, nil); an infrastructure error (dial/stream) returns (false, err).
+func (reg *Registry) sandboxExec(ctx context.Context, endpoint, command string) (bool, error) {
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return false, fmt.Errorf("dial sandbox %s: %w", endpoint, err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	client := execpb.NewExecServiceClient(conn)
+	stream, err := client.Execute(ctx, &execpb.ExecuteRequest{Command: command})
+	if err != nil {
+		return false, fmt.Errorf("execute canary: %w", err)
+	}
+
+	exitCode := 0
+	for {
+		resp, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			return false, fmt.Errorf("recv canary: %w", recvErr)
+		}
+		if ec, ok := resp.Output.(*execpb.ExecuteResponse_ExitCode); ok {
+			exitCode = int(ec.ExitCode)
+		}
+	}
+	return exitCode == 0, nil
 }
 
 // endpointAlive reports whether a "host:port" sandbox endpoint accepts a TCP

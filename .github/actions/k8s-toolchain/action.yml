@@ -1,0 +1,52 @@
+name: k8s-toolchain
+description: Install pinned helm, helmfile, yq and kubeconform from versions.env.
+
+inputs:
+  helm:
+    description: Install helm.
+    default: "true"
+  helmfile:
+    description: Install helmfile.
+    default: "false"
+  yq:
+    description: Install yq.
+    default: "false"
+  kubeconform:
+    description: Install kubeconform.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned chart tools
+      shell: bash
+      env:
+        WANT_HELM: ${{ inputs.helm }}
+        WANT_HELMFILE: ${{ inputs.helmfile }}
+        WANT_YQ: ${{ inputs.yq }}
+        WANT_KUBECONFORM: ${{ inputs.kubeconform }}
+      run: |
+        set -euo pipefail
+        source scripts/cluster/versions.env
+        bindir="${HOME}/.local/bin"
+        mkdir -p "${bindir}"
+        echo "${bindir}" >> "${GITHUB_PATH}"
+
+        if [ "${WANT_HELM}" = "true" ]; then
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp linux-amd64/helm
+          install /tmp/linux-amd64/helm "${bindir}/helm"
+        fi
+        if [ "${WANT_HELMFILE}" = "true" ]; then
+          bare="${HELMFILE_VERSION#v}"
+          curl -fsSL "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${bare}_linux_amd64.tar.gz" \
+            | tar -xz -C "${bindir}" helmfile
+        fi
+        if [ "${WANT_YQ}" = "true" ]; then
+          curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o "${bindir}/yq"
+          chmod +x "${bindir}/yq"
+        fi
+        if [ "${WANT_KUBECONFORM}" = "true" ]; then
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C "${bindir}" kubeconform
+        fi

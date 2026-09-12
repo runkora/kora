@@ -15,43 +15,34 @@ spec:
       labels:
         {{- include "orbit.orbitMcp.selectorLabels" . | nindent 8 }}
         {{- include "orbit.orbitMcp.labels" . | nindent 8 }}
-        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
-        # orbit-system-component to issue:
-        #   spiffe://<trust-domain>/system/orbit-mcp
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: orbit-mcp
+        {{- include "orbit.podLabels" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
       annotations:
-        # NOTE: orbit-mcp deliberately does NOT enable the identity-proxy template.
-        # It forwards the CALLER's platform token to each Orbit API (passthrough);
-        # the identity-proxy would overwrite the outbound Authorization header with
-        # this pod's own token and defeat that model. The sidecar (mesh mTLS) and
-        # spire (workload identity) templates are all it needs.
-        inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
     spec:
       serviceAccountName: orbit-mcp
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "orbitMcp") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
       containers:
         - name: orbit-mcp
-          image: "{{ .Values.orbitMcp.image.repository }}:{{ include "orbit.orbitMcp.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.orbitMcp.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "orbitMcp") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "orbitMcp") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.orbitMcp.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "orbitMcp" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.orbitMcp.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "orbitMcp" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "orbitMcp") | nindent 12 }}
           ports:
             - name: http
               containerPort: 8095
@@ -75,6 +66,5 @@ spec:
           resources:
             {{- toYaml .Values.orbitMcp.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "orbitMcp") | nindent 12 }}

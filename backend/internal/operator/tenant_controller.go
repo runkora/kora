@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -12,25 +13,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// TenantReconciler reconciles OrbitTenant resources.
-//
-// For each OrbitTenant it:
-//  1. Creates the tenant namespace with the required Istio/SPIRE labels.
-//  2. Syncs the orbit-tenants ConfigMap (via TenantRegistry) so the
-//     identity service picks up the new OIDC provider.
-//  3. Syncs the orbit-tenant-oidc-secrets Secret (via ClientSecretAggregator)
-//     so confidential tenants have their client_secret available to the
-//     identity service without a pod restart.
-//  4. Marks the tenant Ready and records the last-reconciled timestamp.
-//
-// See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
+// TenantReconciler provisions tenant resources and aggregates tenant configuration.
 type TenantReconciler struct {
 	client.Client
 	Scheme          *runtime.Scheme
@@ -47,6 +39,40 @@ type TenantReconciler struct {
 
 	// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
 	BundlePollingMaxDelay int
+
+	// IstioRevision selects the injection label written on tenant namespaces:
+	// istio.io/rev=<revision> when set, istio-injection=enabled otherwise.
+	IstioRevision string
+
+	// PodSecurity holds the Pod Security Admission levels labeled onto every
+	// tenant namespace. Empty entries are not written.
+	PodSecurity PodSecurityLabels
+
+	// ImagePullSecrets are the platform pull Secrets replicated from the system
+	// namespace into every tenant namespace.
+	ImagePullSecrets []string
+
+	// Preflight reports the latest prerequisites result. While it fails, tenants
+	// are reconciled but held at Degraded so no workload is admitted.
+	Preflight PreflightSource
+}
+
+// PreflightSource is the narrow view of the preflight runner the reconciler needs.
+type PreflightSource interface {
+	Latest() (PreflightResult, bool)
+}
+
+// PreflightResult is what the reconciler gates on.
+type PreflightResult struct {
+	OK       bool
+	Failures string
+}
+
+// PodSecurityLabels are the Pod Security Admission levels for tenant namespaces.
+type PodSecurityLabels struct {
+	Enforce string
+	Warn    string
+	Audit   string
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitTenant is
@@ -57,7 +83,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &OrbitTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — re-run every aggregator so the removed tenant is no
+			// CR deleted: re-run every aggregator so the removed tenant is no
 			// longer served (registry, OIDC secrets, CAs, connections, MCP
 			// servers, OAuth clients).
 			for _, sync := range []func(context.Context) error{
@@ -85,14 +111,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logging.Field{Key: "phase", Value: tenant.Status.Phase},
 	)
 
-	// Handle suspended tenants — update registry and status, no namespace work.
+	// Handle suspended tenants: update registry and status, no namespace work.
 	if !tenant.Spec.Active {
 		return r.reconcileSuspended(ctx, tenant)
 	}
 
 	// Only transition to Provisioning from an initial/unset state. Once the
 	// tenant has reached Ready, we do not regress it to Provisioning at the
-	// start of every reconcile — that would generate a status patch, trigger a
+	// start of every reconcile, since that would generate a status patch, trigger a
 	// new reconcile event, and produce an infinite Ready↔Provisioning loop.
 	if tenant.Status.Phase == "" || tenant.Status.Phase == TenantPhasePending {
 		if err := r.setTenantPhase(ctx, tenant, TenantPhaseProvisioning); err != nil {
@@ -132,9 +158,15 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"Synced", "orbit-tenants ConfigMap updated")
 
 	// Steps 3-7: per-tenant resource ensure-steps. Each follows the same
-	// failure shape — log, degrade, requeue — so they're collapsed into a
+	// failure shape: log, degrade, requeue. They're collapsed into a
 	// table rather than duplicating the boilerplate per step.
 	steps := []reconcileStep{
+		{
+			// Pull Secrets first: runtime pods and injected containers in this
+			// namespace cannot pull without them.
+			name: "image pull secrets",
+			run:  func(ctx context.Context) error { return r.ensureImagePullSecrets(ctx, tenant) },
+		},
 		{
 			name: "OPA config",
 			run:  func(ctx context.Context) error { return r.ensureOPAConfig(ctx, tenant) },
@@ -150,19 +182,19 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Lock sandbox egress to the per-tenant gateway. Without this
 			// the structural credential-isolation guarantee weakens to a
-			// convention — agents could dial external hosts directly.
+			// convention: agents could dial external hosts directly.
 			name: "sandbox egress NetworkPolicy",
 			run:  func(ctx context.Context) error { return r.ensureSandboxEgressPolicy(ctx, tenant) },
 		},
 		{
-			// Aggregated OIDC client secrets — confidential tenants need
+			// Aggregated OIDC client secrets: confidential tenants need
 			// their client_secret available to the identity service
 			// without a pod restart.
 			name: "aggregated client secrets",
 			run:  func(ctx context.Context) error { return r.Aggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated tenant CAs — pods can only mount Secrets from
+			// Aggregated tenant CAs: pods can only mount Secrets from
 			// their own namespace, so the per-tenant orbit-tenant-ca
 			// Secrets are aggregated into one orbit-system Secret the
 			// egress gateway projects.
@@ -170,7 +202,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated connections — each tenant's Connection CRs (and
+			// Aggregated connections: each tenant's Connection CRs (and
 			// their referenced Secrets) are aggregated into the
 			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
 			// Secret in orbit-system the egress gateway mounts (Amendment 3).
@@ -178,7 +210,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated MCP servers — every MCPServer CR across all namespaces
+			// Aggregated MCP servers: every MCPServer CR across all namespaces
 			// is rendered into the orbit-mcp-servers ConfigMap in orbit-system
 			// the tool-gateway mounts. Re-aggregated here so a tenant suspend /
 			// reactivate includes/excludes that tenant's servers.
@@ -186,7 +218,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.MCPAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated OAuth clients — each tenant's OAuthClient CRs are
+			// Aggregated OAuth clients: each tenant's OAuthClient CRs are
 			// rendered into the orbit-tenant-oauth-clients ConfigMap in
 			// orbit-system the identity service mounts, so a pre-registered
 			// hosted-app client appears without a pod restart. Re-aggregated
@@ -206,33 +238,51 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Step 8: mark ready and record timestamp.
-	now := metav1.Now()
-	tenant.Status.Namespace = ns
-	tenant.Status.LastReconciledAt = &now
+	if result, blocked := r.applyPreflightGate(ctx, tenant); blocked {
+		return result, nil
+	}
 
-	_ = r.setTenantPhase(ctx, tenant, TenantPhaseReady)
+	if err := r.markReady(ctx, tenant, ns); err != nil {
+		log.Error(ctx, "failed to patch OrbitTenant status",
+			logging.Field{Key: "tenant", Value: tenant.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 
 	log.Info(ctx, "OrbitTenant reconciliation complete",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 		logging.Field{Key: "namespace", Value: ns},
 	)
 
-	// Periodic re-check every 5 minutes — catches namespace label drift.
+	// Periodic re-check every 5 minutes: catches namespace label drift.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
+// markReady patches Namespace, LastReconciledAt and Phase in one call.
+// setTenantPhase alone would skip this: it no-ops when the phase is already
+// Ready, which is every reconcile after the first, so Namespace and
+// LastReconciledAt would never reach the API server on steady-state
+// reconciles.
+func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, ns string) error {
+	patch := client.MergeFrom(tenant.DeepCopy())
+	now := metav1.Now()
+	tenant.Status.Namespace = ns
+	tenant.Status.LastReconciledAt = &now
+	tenant.Status.Phase = TenantPhaseReady
+	if err := r.Status().Patch(ctx, tenant, patch); err != nil {
+		return fmt.Errorf("patch OrbitTenant %q status: %w", tenant.Name, err)
+	}
+	return nil
+}
+
 // SetupWithManager registers the controller with the controller-runtime Manager.
-// In addition to watching OrbitTenant CRs, it watches corev1.Secret objects
-// so that a rotation of a referenced clientSecretRef immediately triggers a
-// reconcile of the affected tenant — no manual sync required.
+// Do not watch Secrets: a cluster-wide informer would cache every Secret.
+// Periodic reconciliation picks up rotations.
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&OrbitTenant{}).
-		Watches(
-			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.secretToTenants),
-		).
+		// markReady patches status on every pass; without this predicate that
+		// patch re-enqueues the tenant and the reconciler spins.
+		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -310,41 +360,6 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	return reqs
 }
 
-// secretToTenants maps a Secret event to the set of OrbitTenant reconcile
-// requests whose spec.oidc.clientSecretRef points to that Secret.
-func (r *TenantReconciler) secretToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
-	secret, ok := obj.(*corev1.Secret)
-	if !ok {
-		return nil
-	}
-
-	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "failed to list OrbitTenants for secret watch",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return nil
-	}
-
-	var reqs []reconcile.Request
-	for _, t := range list.Items {
-		ref := t.Spec.OIDC.ClientSecretRef
-		if ref == nil {
-			continue
-		}
-		ns := ref.Namespace
-		if ns == "" {
-			ns = systemNamespace
-		}
-		if ref.Name == secret.Name && ns == secret.Namespace {
-			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
-			})
-		}
-	}
-	return reqs
-}
-
 // -----------------------------------------------------------------------------
 // private helpers
 // -----------------------------------------------------------------------------
@@ -364,7 +379,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 		obj := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   ns,
-				Labels: tenantNamespaceLabels(tenant),
+				Labels: r.tenantNamespaceLabels(tenant),
 				Annotations: map[string]string{
 					"orbit.io/managed-by": "orbit-operator",
 					"orbit.io/tenant":     tenant.Name,
@@ -381,13 +396,18 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 	case err != nil:
 		return fmt.Errorf("get namespace %q: %w", ns, err)
 	default:
-		// Namespace exists — ensure required labels are present.
-		if !hasRequiredLabels(existing.Labels, tenantNamespaceLabels(tenant)) {
+		// Namespace exists: ensure required labels are present and the
+		// injection label for the other Istio mode is gone. Istio's revision
+		// webhook only matches namespaces without istio-injection.
+		stale := staleInjectionLabel(r.IstioRevision)
+		_, hasStale := existing.Labels[stale]
+		if !hasRequiredLabels(existing.Labels, r.tenantNamespaceLabels(tenant)) || hasStale {
 			patch := client.MergeFrom(existing.DeepCopy())
 			if existing.Labels == nil {
 				existing.Labels = make(map[string]string)
 			}
-			maps.Copy(existing.Labels, tenantNamespaceLabels(tenant))
+			maps.Copy(existing.Labels, r.tenantNamespaceLabels(tenant))
+			delete(existing.Labels, stale)
 			if err := r.Patch(ctx, existing, patch); err != nil {
 				return fmt.Errorf("patch namespace %q labels: %w", ns, err)
 			}
@@ -472,10 +492,9 @@ func (r *TenantReconciler) setTenantCondition(
 }
 
 // ensureOPAConfig creates or updates the orbit-opa-config ConfigMap in the
-// tenant namespace. The OPA injection template mounts this ConfigMap to
-// configure the OPA Envoy plugin sidecar — specifically the policy-service
-// bundle endpoint and the tenant-specific bundle path (resolved at runtime
-// from the pod's orbit.io/tenant-id annotation via env var substitution).
+// tenant namespace. The webhook mounts it into the OPA sidecar it injects: the
+// policy-service bundle endpoint and the tenant bundle path, resolved at runtime
+// from the pod's orbit.io/tenant-id annotation.
 func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
@@ -493,7 +512,7 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTen
 	}
 	opaConfigYAML := fmt.Sprintf(`services:
   policy-service:
-    url: http://orbit-policy-service.orbit-system.svc/api/v1/policy
+    url: http://orbit-policy-service.%s.svc/api/v1/policy
 
 bundles:
   authz:
@@ -511,7 +530,17 @@ plugins:
 
 decision_logs:
   console: true
-`, minDelay, maxDelay)
+`, systemNamespace, minDelay, maxDelay)
+
+	// --authorization=basic (pod_webhook.go) applies to every listener the
+	// process serves, diagnostics included: without this rule the liveness
+	// and readiness probes on the diagnostic port get denied too.
+	const authzRego = `package system.authz
+
+default allow := false
+
+allow if input.path == ["health"]
+`
 
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -524,6 +553,7 @@ decision_logs:
 		},
 		Data: map[string]string{
 			"config.yaml": opaConfigYAML,
+			"authz.rego":  authzRego,
 		},
 	}
 
@@ -543,8 +573,11 @@ decision_logs:
 		return fmt.Errorf("get orbit-opa-config in %q: %w", ns, err)
 	}
 
-	// Update if data has drifted.
-	if existing.Data["config.yaml"] != opaConfigYAML {
+	// Update if data has drifted. Compares the whole map, not one key: an
+	// existing ConfigMap could be missing a key added since it was written
+	// (config.yaml unchanged, authz.rego new) and a single-key comparison
+	// would never see that as drift.
+	if !reflect.DeepEqual(existing.Data, desired.Data) {
 		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Data = desired.Data
 		if err := r.Patch(ctx, existing, patch); err != nil {
@@ -557,16 +590,63 @@ decision_logs:
 	return nil
 }
 
-// tenantNamespaceLabels returns the required set of labels for a tenant
-// namespace. These are checked on every reconcile and added if missing.
-func tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
-	return map[string]string{
-		"istio-injection":              "enabled",
+// applyPreflightGate marks the tenant Degraded until prerequisites pass.
+func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, bool) {
+	if r.Preflight == nil {
+		return ctrl.Result{}, false
+	}
+	res, ok := r.Preflight.Latest()
+	switch {
+	case !ok:
+		_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionUnknown,
+			"Pending", "preflight has not completed yet")
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseProvisioning)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, true
+	case !res.OK:
+		_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionFalse,
+			"PreflightFailed", res.Failures)
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: time.Minute}, true
+	}
+	_ = r.setTenantCondition(ctx, tenant, ConditionPrerequisitesSatisfied, metav1.ConditionTrue,
+		"Satisfied", "Istio and SPIRE prerequisites verified")
+	return ctrl.Result{}, false
+}
+
+// tenantNamespaceLabels returns the labels every tenant namespace must carry:
+// Orbit's markers, the Istio injection label for the configured revision, and
+// the Pod Security Admission levels. Re-applied on every reconcile.
+// staleInjectionLabel is the Istio injection label the configured mode does
+// not use: istio-injection under a named revision, istio.io/rev otherwise.
+func staleInjectionLabel(revision string) string {
+	if revision != "" {
+		return "istio-injection"
+	}
+	return "istio.io/rev"
+}
+
+func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
+	labels := map[string]string{
 		"spiffe.io/spire-managed":      "true",
 		"orbit.io/role":                "tenant",
 		"orbit.io/tenant":              tenant.Name,
 		"app.kubernetes.io/managed-by": "orbit-operator",
 	}
+	if r.IstioRevision != "" {
+		labels["istio.io/rev"] = r.IstioRevision
+	} else {
+		labels["istio-injection"] = "enabled"
+	}
+	if r.PodSecurity.Enforce != "" {
+		labels["pod-security.kubernetes.io/enforce"] = r.PodSecurity.Enforce
+	}
+	if r.PodSecurity.Warn != "" {
+		labels["pod-security.kubernetes.io/warn"] = r.PodSecurity.Warn
+	}
+	if r.PodSecurity.Audit != "" {
+		labels["pod-security.kubernetes.io/audit"] = r.PodSecurity.Audit
+	}
+	return labels
 }
 
 // hasRequiredLabels returns true when all entries in required are present in

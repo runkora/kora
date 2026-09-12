@@ -15,116 +15,78 @@ spec:
       labels:
         {{- include "orbit.identity.selectorLabels" . | nindent 8 }}
         {{- include "orbit.identity.labels" . | nindent 8 }}
-        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
-        # orbit-system-component to issue:
-        #   spiffe://<trust-domain>/system/identity
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: identity
+        {{- include "orbit.podLabels" (dict "root" $ "name" "identity") | nindent 8 }}
       annotations:
-        # Inject the Istio sidecar + SPIRE CSI volume template.
-        # The "spire" template adds SPIFFE_ENDPOINT_SOCKET and the CSI volume
-        # so Envoy can acquire its SVID from the SPIRE agent via SDS.
-        inject.istio.io/templates: "sidecar,spire"
-        # Hold the application container until the Envoy proxy is ready.
-        # Prevents identity service from accepting traffic before mTLS is established.
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Exclude PostgreSQL and Redis ports from sidecar interception.
-        # Both orbit-postgres and orbit-redis are external containers on
-        # orbit-network (external to the mesh). Envoy cannot route plain TCP
-        # traffic through mTLS to these hosts; bypass so connections go directly
-        # to their container IPs without Envoy interception.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        # Postgres, Redis and the OIDC issuer are outside the mesh.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "identity") | nindent 8 }}
     spec:
-      {{- if .Values.identity.hostAliases }}
+      {{- with .Values.identity.hostAliases }}
       hostAliases:
-        {{- toYaml .Values.identity.hostAliases | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: orbit-identity
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "identity") | nindent 6 }}
+      securityContext:
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        # SPIFFE CSI volume — delivers the SVID workload socket to the container.
-        # Mounted at /run/secrets/workload-spiffe-uds by the identity service
-        # for SPIFFE SVID exchange via the SVID exchange endpoint.
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
-        {{- if .Values.identity.existingTenantsConfigMap }}
-        # Tenant registry ConfigMap volume — mounted read-only at /etc/orbit.
-        # The identity service reads tenants.yaml from this path at startup
-        # via the ORBIT_TENANTS_CONFIG env var (/etc/orbit/tenants.yaml).
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        # Operator-owned tenant registries. All optional so identity starts before
+        # any tenant exists; identity watches the files and reloads on change.
         - name: tenants-config
           configMap:
-            name: {{ .Values.identity.existingTenantsConfigMap }}
-        {{- end }}
-        {{- if .Values.identity.existingClientSecretsSecret }}
-        # Aggregated OIDC client secrets Secret — written by orbit-operator
-        # from per-tenant spec.oidc.clientSecretRef Secrets. The identity
-        # service watches this file and hot-reloads without a pod restart.
-        # optional: true so the pod starts cleanly when no confidential
-        # tenants are provisioned and the Secret does not yet exist.
+            name: {{ .Values.identity.tenantsConfigMap }}
+            optional: true
         - name: tenant-client-secrets
           secret:
-            secretName: {{ .Values.identity.existingClientSecretsSecret }}
+            secretName: {{ .Values.identity.clientSecretsSecret }}
             optional: true
-        {{- end }}
+        - name: oauth-clients
+          configMap:
+            name: {{ .Values.identity.oauthClientsConfigMap }}
+            optional: true
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "identity") | nindent 8 }}
       containers:
         - name: orbit-identity
-          image: "{{ .Values.identity.image.repository }}:{{ include "orbit.identity.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.identity.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "identity") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "identity") }}
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            # Security-sensitive tunables injected explicitly so consumers never
-            # need to set APP_ENV. Production values are the chart defaults;
-            # deploy/local/orbit-values.yaml overrides them for local dev clusters.
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.identity.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.identity.config.postgresCaptureQueryText | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_REDIS_TLS_ENABLED
               value: {{ .Values.identity.config.redisTLSEnabled | quote }}
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.identity.config.otlpInsecure | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.identity.config.logFormat | quote }}
             - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
               value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
-            {{- if .Values.publicHosts }}
-            # Trusted-host allowlist for host-derived OAuth discovery metadata
-            # (ADR 2026-07-04). Canonical host first.
-            - name: ORBIT_PUBLIC_HOSTS
-              value: {{ join "," .Values.publicHosts | quote }}
-            {{- end }}
-            # SPIFFE Workload API socket — used for SVID exchange and SPIRE SDS.
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            {{- if .Values.identity.existingTenantsConfigMap }}
-            # Path to the tenant registry YAML — sourced from the orbit-tenants
-            # ConfigMap mounted at /etc/orbit by the orbit-operator.
             - name: ORBIT_TENANTS_CONFIG
               value: "/etc/orbit/tenants.yaml"
-            {{- end }}
-            {{- if .Values.identity.existingClientSecretsSecret }}
-            # Path to the aggregated OIDC client secrets YAML file, sourced
-            # from the orbit-tenant-oidc-secrets Secret managed by the
-            # orbit-operator. Unset this env var to disable confidential
-            # client support (all tenants treated as public OIDC clients).
             - name: ORBIT_TENANT_SECRETS_CONFIG
               value: "/etc/orbit/tenant-secrets/client-secrets.yaml"
+            - name: ORBIT_OAUTH_CLIENTS_CONFIG
+              value: "/etc/orbit/oauth-clients/oauth-clients.json"
+            {{- $publicHosts := include "orbit.publicHosts" . }}
+            {{- if $publicHosts }}
+            - name: ORBIT_PUBLIC_HOSTS
+              value: {{ $publicHosts | quote }}
             {{- end }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "identity") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
-          {{- if or .Values.identity.existingConfigMap .Values.identity.existingSecret }}
-          envFrom:
-            {{- if .Values.identity.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.identity.existingConfigMap }}
-            {{- end }}
-            {{- if .Values.identity.existingSecret }}
-            - secretRef:
-                name: {{ .Values.identity.existingSecret }}
-            {{- end }}
-          {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -144,16 +106,14 @@ spec:
           resources:
             {{- toYaml .Values.identity.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
-            {{- if .Values.identity.existingTenantsConfigMap }}
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             - name: tenants-config
               mountPath: /etc/orbit
               readOnly: true
-            {{- end }}
-            {{- if .Values.identity.existingClientSecretsSecret }}
             - name: tenant-client-secrets
               mountPath: /etc/orbit/tenant-secrets
               readOnly: true
-            {{- end }}
+            - name: oauth-clients
+              mountPath: /etc/orbit/oauth-clients
+              readOnly: true
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "identity") | nindent 12 }}

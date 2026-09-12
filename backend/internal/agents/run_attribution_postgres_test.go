@@ -103,7 +103,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 
 	// The list path shares selectRun, so the attribution has to survive it too:
 	// the runs list is where a person notices a run they did not start.
-	runs, err := r.ListRuns(ctx, tenant, at.ID, RunVisibility{SeeAll: true})
+	runs, err := r.ListRuns(ctx, tenant, at.ID, RunVisibility{SeeAll: true}, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}

@@ -214,53 +214,27 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // register function; the caller hands it to routescopes.KeepRegistered, which
 // owns the initial registration and the periodic self-heal loop.
 func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) error {
-	// WithInitialDelay(0): the default 15s startup grace (waiting for the
-	// identity-proxy sidecar) would be added to *every* Register call, including
-	// each periodic self-heal tick and catalog-refresh — pure latency that
-	// delays recovery after a policy-service restart. The very first
-	// registration races the sidecar coming up, but that is already covered by
-	// the client's own retry-with-backoff, so no upfront delay is needed.
-	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger, routescopes.WithInitialDelay(0))
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
 
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		// Drop routes whose RequiredScope is empty — those are
-		// "authenticated-only" and enforced locally by ScopeEnforcementMiddleware,
-		// not by OPA. Registering them with empty scopes would deny everyone
-		// when Layer 1 sidecar enforcement is enabled in the future.
-		scopedRoutes := filterScopedRoutes(inferenceRoutes())
+		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
 		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
 	}
 
-	// The hook fires whenever GET /v1/models refreshes the catalog, long after
-	// startup. Use a fresh context.Background() rather than capturing the
-	// startup ctx, which by then may be stale/canceled.
-	router.SetCatalogUpdateHook(func(catalogScopes []inferencegw.CatalogScope) {
-		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := filterScopedRoutes(inferenceRoutes())
-		if err := client.Register(context.Background(), "inference-gateway", scopedRoutes, scopeDecls); err != nil {
-			logger.Error(context.Background(), "route registration failed", logging.Field{Key: "error", Value: err.Error()})
-		}
-	})
+	// The hook fires whenever a catalog load adds or removes a model, so the
+	// per-model inference:<provider>:<model>:use scopes change and have to be
+	// republished without waiting for the next tick. It re-reads the catalog
+	// through register rather than using the CatalogScope argument: the router
+	// stores the snapshot before firing, so the two are the same value.
+	republish := routescopes.RepublishOnEvent(logger, "inference-gateway", register)
+	router.SetCatalogUpdateHook(func([]inferencegw.CatalogScope) { republish() })
 
 	return register
-}
-
-// filterScopedRoutes returns the subset of routes that require a non-empty
-// scope. Used to exclude "authenticated-only" routes from policy-service
-// registration; those are enforced by the local ScopeEnforcementMiddleware.
-func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
-	out := make([]routescopes.RouteScope, 0, len(in))
-	for _, r := range in {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // inferenceRoutes returns the static route->scope bindings for the inference gateway.
@@ -268,8 +242,8 @@ func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
-// passes them through after AuthMiddleware. They are filtered out by the
-// policy registration in registerRoutes.
+// passes them through after AuthMiddleware. They are filtered out of the
+// policy registration by routescopes.FilterScopedRoutes.
 //
 // Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
 // the more-specific (sub-path) entry over the broader prefix for the same
@@ -290,6 +264,14 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
+		// The /v1/usage tree splits into personal and privileged reads, so each
+		// path is listed explicitly rather than inheriting one prefix entry.
+		// Personal: the response is derived from the caller's own claims and
+		// cannot be widened by a query parameter, so authentication is enough.
+		// Privileged: the response aggregates spend across the whole tenant, so
+		// it requires platform:analytics:read, the same scope guarding the
+		// tenant-wide /v1/analytics reads above.
+		//
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
@@ -297,6 +279,37 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// caller in the tenant; spend is tenant-scoped in the query. More-specific
 		// than /v1/usage, so listed before it.
 		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
+		// principal only.
+		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/agent-types and /v1/usage/agent-type/{id} report spend
+		// per agent type rather than the caller's own usage, so they need a scope.
+		//
+		// That scope is agents:types:read, because an agent's spend is an
+		// attribute of the agent: authority to see what it cost follows authority
+		// to see it at all. These two endpoints line up exactly with the reads
+		// that scope already guards in orbit-agents (GET /api/v1/agent-types and
+		// GET /api/v1/agent-types/{id}), so whoever can list an agent can list
+		// what it spent, and nobody gains sight of an agent they could not
+		// already see.
+		//
+		// Deliberately not platform:analytics:read. That scope covers tenant-wide
+		// analytics across every principal, and requiring it here would make cost
+		// an admin-only figure, so the people building agents could not see what
+		// their own agents spend. A caller's own spend, including spend on runs
+		// they delegated, comes from the personal endpoints below and from
+		// /v1/analytics/me, which attribute delegated rows back to the delegator.
+		//
+		// The scope is declared by orbit-agents, not here. The vocabulary is
+		// global once registered, and /v1/budgets below already depends on
+		// platform:budgets:read from the policy service in the same way.
+		//
+		// Prefix matching is segment-bounded, so "/v1/usage/agent-type" does not
+		// cover "/v1/usage/agent-types"; both are listed.
+		{PathPrefix: "/v1/usage/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// GET /v1/usage is the caller's own inference usage log; tenant and
+		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 		// GET /v1/budgets/principals is the tenant-wide budget status listing.
 		// The platform:budgets:* scopes are declared by the policy-service.
@@ -367,7 +380,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	go routescopes.KeepRegistered(runCtx, logger, "inference-gateway", igc.Current.Policy.ReregistrationInterval(), register)
+	go routescopes.KeepRegistered(runCtx, logger, "inference-gateway", register)
 
 	<-runCtx.Done()
 	logger.Info(ctx, "Shutting down inference gateway...")

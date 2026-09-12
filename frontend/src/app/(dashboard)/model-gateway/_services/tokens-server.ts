@@ -35,8 +35,7 @@ export type GetPATAttributionResult =
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type CreatePATResult =
-  | { ok: true; pat: CreatePATResponse }
-  | { ok: false; status: number; message: string };
+  { ok: true; pat: CreatePATResponse } | { ok: false; status: number; message: string };
 
 export type RevokePATResult = { ok: true } | { ok: false; status: number; message: string };
 
@@ -130,8 +129,7 @@ interface IdentityUsersResponse {
 }
 
 export type GetUsersResult =
-  | { ok: true; users: PATAttributionEntry[] }
-  | { ok: false; status: number; message: string };
+  { ok: true; users: PATAttributionEntry[] } | { ok: false; status: number; message: string };
 
 export async function fetchUsersByIDs(
   accessToken: string,
@@ -168,14 +166,27 @@ export async function searchUsers(
   }
 }
 
-// Fetches all tenant users from the identity service (up to 500).
+// Fetches all tenant users from the identity service, walking pages until every
+// user has been collected. The identity API clamps `limit` to 100 server-side, so a
+// single request cannot return more than one page — tenants with >100 users would
+// otherwise silently lose everyone past position 100 (sorted by display_name).
 // Used to seed the principals list with users who have no recent inference activity.
+const TENANT_USERS_PAGE_LIMIT = 100;
+const TENANT_USERS_MAX_PAGES = 100; // sane cap: 10,000 users
+
 export async function fetchAllTenantUsers(accessToken: string): Promise<GetUsersResult> {
+  const users: PATAttributionEntry[] = [];
   try {
-    const data = await orbitClient.get<IdentityUsersResponse>('/identity/users?limit=500', {
-      Authorization: `Bearer ${accessToken}`,
-    });
-    return { ok: true, users: data?.users ?? [] };
+    for (let page = 1; page <= TENANT_USERS_MAX_PAGES; page++) {
+      const data = await orbitClient.get<IdentityUsersResponse>(
+        `/identity/users?limit=${TENANT_USERS_PAGE_LIMIT}&page=${page}`,
+        { Authorization: `Bearer ${accessToken}` },
+      );
+      users.push(...(data?.users ?? []));
+      const total = data?.total ?? users.length;
+      if (users.length >= total || !data?.users?.length) break;
+    }
+    return { ok: true, users };
   } catch (err) {
     return fromApiError(err);
   }

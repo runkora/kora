@@ -1,0 +1,8 @@
+# What Orbit requires of istiod: CNI mode and a discovery address. The trust
+# domain is injected by the Helmfile from the shared environment fact.
+meshConfig:
+  defaultConfig:
+    discoveryAddress: istiod.istio-system.svc:15012
+pilot:
+  cni:
+    enabled: true

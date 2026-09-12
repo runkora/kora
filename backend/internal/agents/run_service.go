@@ -332,15 +332,24 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// ListRuns returns all runs the principal in ctx may read, optionally filtered
-// by agent type. Tenant is derived from ctx claims (never from a query string),
-// and the result is filtered by per-agent-type grants via authz.filterRuns.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, error) {
+// ListRuns returns the runs the principal in ctx may read, newest first,
+// optionally filtered by agent type. Tenant is derived from ctx claims (never
+// from a query string), and the result is filtered by per-agent-type grants via
+// authz.filterRuns.
+//
+// limit <= 0 returns every matching run. The UI presents this as a complete
+// activity history, so truncating server-side silently drops rows a caller
+// cannot tell are missing: filterRuns runs after the row cap, so the response
+// length never reveals whether more exist. A caller that wants a bound passes
+// one explicitly. See issue #209 for offset pagination with the visibility
+// filter pushed into the query, which is what makes a bound safe to default.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int) ([]Run, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
 			attribute.String("agent_type_id", agentTypeID),
+			attribute.Int("limit", limit),
 		),
 	)
 	defer span.End()
@@ -348,7 +357,7 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, e
 	// agent's runs only where created_by matches their verified subject. The
 	// filter is applied inside the repository query — never by trimming the
 	// result in memory — so counts stay correct. Autonomous runs are unfiltered.
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx))
+	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx), limit)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")

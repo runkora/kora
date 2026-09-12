@@ -6,11 +6,175 @@ on:
   pull_request:
     branches: [main]
 
+# The default token only reads the repository. Jobs that need more
+# declare it themselves.
+permissions:
+  contents: read
+
 jobs:
+  # Runs each suite only when its inputs changed. The two suites are
+  # independent, so a backend-only change does not run the frontend suite.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      charts: ${{ steps.filter.outputs.charts }}
+      docs: ${{ steps.filter.outputs.docs }}
+      images: ${{ steps.filter.outputs.imageworkflow == 'true' || steps.imagecode.outputs.code == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'rules/**'
+              - '.golangci.yml'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/backend-ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/frontend-ci.yml'
+            charts:
+              - 'charts/**'
+              - 'deploy/reference/**'
+              - 'backend/internal/operator/**'
+              - 'backend/internal/agents/k8s*.go'
+              - 'Makefile'
+              - '.github/actions/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/charts-ci.yml'
+            docs:
+              - '**/*.md'
+              - '**/*.excalidraw'
+              - 'docs/**'
+              - 'tools/diagrams/**'
+              - 'scripts/docs/**'
+              - 'backend/cmd/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/docs-ci.yml'
+            imageworkflow:
+              - 'docker-bake.hcl'
+              - '.github/actions/**'
+              - '.github/workflows/images.yml'
+
+      # The every quantifier makes each negation exclude; the patterns mirror
+      # .dockerignore.
+      - id: imagecode
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!.github/**'
+
   backend:
-    name: Backend
+    name: Backend CI
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     uses: ./.github/workflows/backend-ci.yml
 
   frontend:
-    name: Frontend
+    name: Frontend CI
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     uses: ./.github/workflows/frontend-ci.yml
+
+  charts:
+    name: Charts CI
+    needs: changes
+    if: needs.changes.outputs.charts == 'true'
+    uses: ./.github/workflows/charts-ci.yml
+
+  docs:
+    name: Docs CI
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/docs-ci.yml
+
+  images:
+    name: Images
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      # Publish sha-tagged images on a merge to main so the dev environment can
+      # track it; PRs build only.
+      push: ${{ github.event_name == 'push' }}
+    secrets: inherit
+
+  # A reusable workflow call reports per inner job only, never the calling job.
+  backend-gate:
+    name: Backend
+    needs: [changes, backend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and the backend suite passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "backend: ${{ needs.backend.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.backend.result }}" in success|skipped) ;; *) exit 1 ;; esac
+
+  frontend-gate:
+    name: Frontend
+    needs: [changes, frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless change detection and the frontend suite passed
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "frontend: ${{ needs.frontend.result }}"
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.frontend.result }}" in success|skipped) ;; *) exit 1 ;; esac
+
+  charts-gate:
+    name: Charts
+    needs: [changes, charts]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.charts.result }}" in success|skipped) ;; *) exit 1 ;; esac
+
+  images-gate:
+    name: Images
+    needs: [changes, images]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.images.result }}" in success|skipped) ;; *) exit 1 ;; esac
+
+  docs-gate:
+    name: Docs
+    needs: [changes, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          case "${{ needs.docs.result }}" in success|skipped) ;; *) exit 1 ;; esac

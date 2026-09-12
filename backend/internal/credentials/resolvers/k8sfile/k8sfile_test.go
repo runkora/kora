@@ -21,7 +21,7 @@ func TestResolve_ReadsRelativeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := New(root, logging.NewLoggerWithOutput(io.Discard))
+	r, err := New(t.Context(), root, logging.NewLoggerWithOutput(io.Discard))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestResolve_MissingFile(t *testing.T) {
 }
 
 func TestNew_RootMustExist(t *testing.T) {
-	if _, err := New("", logging.NewLoggerWithOutput(io.Discard)); err == nil {
+	if _, err := New(t.Context(), "", logging.NewLoggerWithOutput(io.Discard)); err == nil {
 		t.Error("expected error on empty root")
 	}
 	tmp := t.TempDir()
@@ -74,7 +74,7 @@ func TestNew_RootMustExist(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(file, logging.NewLoggerWithOutput(io.Discard)); err == nil {
+	if _, err := New(t.Context(), file, logging.NewLoggerWithOutput(io.Discard)); err == nil {
 		t.Error("expected error when root is a file")
 	}
 }
@@ -82,7 +82,7 @@ func TestNew_RootMustExist(t *testing.T) {
 func TestNew_TolerantOfMissingRoot(t *testing.T) {
 	// Operator hasn't mounted the secret yet. New should succeed; Resolve fails per call.
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	r, err := New("/no/such/dir/at/all", logger)
+	r, err := New(t.Context(), "/no/such/dir/at/all", logger)
 	if err != nil {
 		t.Fatalf("New on missing dir: want graceful start, got: %v", err)
 	}

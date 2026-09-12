@@ -11,11 +11,12 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  SegmentedControl,
   Stack,
   Text,
   Toggle,
 } from '@orbit/terra';
-import { DataTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
@@ -24,11 +25,6 @@ import { ProviderBadge } from './provider-badge';
 import { providerLabel } from '../_utils/catalog-constants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-const STATUS_OPTIONS = [
-  { value: 'enabled', label: 'Enabled' },
-  { value: 'disabled', label: 'Disabled' },
-];
 
 interface ProviderCatalogSectionProps {
   models: ProviderModel[];
@@ -377,6 +373,21 @@ function PricingOverlay({
 export function ProviderCatalogSection({ models: initialModels }: ProviderCatalogSectionProps) {
   const [localModels, setLocalModels] = useState(initialModels);
   const [detailModel, setDetailModel] = useState<ProviderModel | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+
+  const statusCounts = useMemo(
+    () => ({
+      all: localModels.length,
+      enabled: localModels.filter((m) => m.enabled).length,
+      disabled: localModels.filter((m) => !m.enabled).length,
+    }),
+    [localModels],
+  );
+
+  const filteredModels = useMemo(() => {
+    if (statusFilter === 'all') return localModels;
+    return localModels.filter((m) => (statusFilter === 'enabled') === m.enabled);
+  }, [localModels, statusFilter]);
 
   const providerOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -385,6 +396,32 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       if (!seen.has(m.provider)) {
         seen.add(m.provider);
         opts.push({ value: m.provider, label: providerLabel(m.provider) });
+      }
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [localModels]);
+
+  const familyOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+    for (const m of localModels) {
+      if (m.family && !seen.has(m.family)) {
+        seen.add(m.family);
+        opts.push({ value: m.family, label: m.family });
+      }
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [localModels]);
+
+  const capabilityOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+    for (const m of localModels) {
+      for (const c of m.capabilities) {
+        if (!seen.has(c)) {
+          seen.add(c);
+          opts.push({ value: c, label: c });
+        }
       }
     }
     return opts.sort((a, b) => a.label.localeCompare(b.label));
@@ -466,6 +503,11 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         header: 'Family',
         sortable: true,
         sortAccessor: (m) => m.family,
+        filter: {
+          mode: 'client',
+          options: familyOptions,
+          filterFn: (m, selected) => selected.has(m.family),
+        },
         cell: (m) => (
           <Text size="supporting" color="muted" mono>
             {m.family || '—'}
@@ -482,6 +524,11 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'capabilities',
         header: 'Capabilities',
+        filter: {
+          mode: 'client',
+          options: capabilityOptions,
+          filterFn: (m, selected) => [...selected].some((c) => m.capabilities.includes(c)),
+        },
         cell: (m) => <Chips values={m.capabilities} />,
       },
       {
@@ -506,11 +553,6 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         id: 'enabled',
         header: 'Enabled',
         locked: true,
-        filter: {
-          mode: 'client',
-          options: STATUS_OPTIONS,
-          filterFn: (m, selected) => selected.has(m.enabled ? 'enabled' : 'disabled'),
-        },
         cell: (m) => (
           <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <Toggle checked={m.enabled} onChange={(v) => void toggle(m.provider, m.modelId, v)} />
@@ -518,14 +560,14 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         ),
       },
     ],
-    [toggle, providerOptions],
+    [toggle, providerOptions, familyOptions, capabilityOptions],
   );
 
   return (
     <>
-      <DataTable
+      <SmartTable
         tableId="catalogProviders"
-        data={localModels}
+        data={filteredModels}
         columns={columns}
         getRowKey={(m) => `${m.provider}/${m.modelId}`}
         noun="provider models"
@@ -536,6 +578,18 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         emptyMessage="No provider models discovered yet."
         filteredEmptyMessage="No provider models match your filters."
         onRowClick={setDetailModel}
+        quickFilters={
+          <SegmentedControl
+            aria-label="Filter provider models by status"
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+            options={[
+              { value: 'all', label: 'All', count: statusCounts.all },
+              { value: 'enabled', label: 'Enabled', count: statusCounts.enabled },
+              { value: 'disabled', label: 'Disabled', count: statusCounts.disabled },
+            ]}
+          />
+        }
       />
 
       {detailModel && (

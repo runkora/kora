@@ -3,6 +3,8 @@ package inferencegw
 import (
 	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // ─── validateVirtualModelRequest ─────────────────────────────────────────────
@@ -71,6 +73,92 @@ func TestValidateVirtualModelRequest_MissingFields(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.wantMsg) {
 				t.Errorf("error %q should contain %q", err.Error(), tc.wantMsg)
+			}
+		})
+	}
+}
+
+func TestValidateVirtualModelRequest_InvalidScopeChars(t *testing.T) {
+	t.Parallel()
+	base := virtualModelRequest{
+		Family:      "anthropic",
+		Name:        "claude-sonnet-4-6",
+		DisplayName: "Claude Sonnet 4.6",
+		Strategy:    "priority",
+	}
+
+	cases := []struct {
+		name     string
+		mutate   func(*virtualModelRequest)
+		wantMsgs []string
+	}{
+		{
+			name:     "dot in name (issue 207 repro)",
+			mutate:   func(r *virtualModelRequest) { r.Name = "uk.claude-sonnet-4-6" },
+			wantMsgs: []string{`name "uk.claude-sonnet-4-6"`, `"."`, "must match"},
+		},
+		{
+			name:     "slash in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "foo/bar" },
+			wantMsgs: []string{`"/"`, "must match"},
+		},
+		{
+			name:     "uppercase in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "Claude" },
+			wantMsgs: []string{`"C"`, "must match"},
+		},
+		{
+			name:     "space in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "foo bar" },
+			wantMsgs: []string{`" "`, "must match"},
+		},
+		{
+			// Locks in that regex-based rejection reports whole runes, not
+			// bytes, for multi-byte UTF-8 input.
+			name:     "multi-byte rune in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "café" },
+			wantMsgs: []string{`name "café"`, `"é"`, "must match"},
+		},
+		{
+			name:     "dot in family",
+			mutate:   func(r *virtualModelRequest) { r.Family = "an.thropic" },
+			wantMsgs: []string{`family "an.thropic"`, `"."`, "must match"},
+		},
+		{
+			name:     "colon in family",
+			mutate:   func(r *virtualModelRequest) { r.Family = "an:thropic" },
+			wantMsgs: []string{`family "an:thropic"`, `":"`, "must match"},
+		},
+		{
+			name:     "colon in name",
+			mutate:   func(r *virtualModelRequest) { r.Name = "claude:sonnet" },
+			wantMsgs: []string{`name "claude:sonnet"`, `":"`, "must match"},
+		},
+		{
+			name:     "name over 255 chars",
+			mutate:   func(r *virtualModelRequest) { r.Name = strings.Repeat("a", 256) },
+			wantMsgs: []string{`name "`, "must be 1–255 characters", policy.ScopeSegmentGrammar},
+		},
+		{
+			name:     "family over 255 chars",
+			mutate:   func(r *virtualModelRequest) { r.Family = strings.Repeat("a", 256) },
+			wantMsgs: []string{`family "`, "must be 1–255 characters", policy.ScopeSegmentGrammar},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := base
+			tc.mutate(&req)
+			err := validateVirtualModelRequest(req)
+			if err == nil {
+				t.Fatalf("expected error containing %v, got nil", tc.wantMsgs)
+			}
+			for _, want := range tc.wantMsgs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should contain %q", err.Error(), want)
+				}
 			}
 		})
 	}

@@ -1,0 +1,16 @@
+# Non-secret platform config every service imports through envFrom.
+# Credentials live in the Secret named by config.platformSecretName.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-config
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+data:
+  DB_HOST: {{ required "config.db.host must be set" .Values.config.db.host | quote }}
+  DB_PORT: {{ .Values.config.db.port | quote }}
+  DB_NAME: {{ .Values.config.db.name | quote }}
+  DB_USER: {{ .Values.config.db.user | quote }}
+  REDIS_HOST: {{ required "config.redis.host must be set" .Values.config.redis.host | quote }}
+  REDIS_PORT: {{ .Values.config.redis.port | quote }}
