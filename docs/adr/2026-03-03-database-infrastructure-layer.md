@@ -1,6 +1,6 @@
 # Database Infrastructure Layer
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-10)
 **Date:** 2026-03-03
 **Deciders:** Engineering Team
 **Technical Story:** Establishing the foundational database abstraction layer that supports feature repositories with connection pooling, transactions, and observability.
@@ -651,7 +651,7 @@ func main() {
     }
     defer db.Close()
     
-    // NOTE: Migrations are run via `make migrate-up` before deployment
+    // Migrations are applied by the cmd/migrate hook Job before any workload rolls.
     // Never run migrations at application startup in production!
     
     // Create feature repositories with dependency injection
@@ -769,7 +769,7 @@ The default pgxpool configuration is quite conservative. For production, we'll t
 
 **On migrations:**
 
-Goose requires `database/sql`, but pgx provides `stdlib` package for compatibility. We embed migration files in the binary for deployment simplicity.
+Goose requires `database/sql`, but pgx provides `stdlib` package for compatibility. Migration files are embedded in the dedicated `cmd/migrate` binary, not in service binaries; see [Database Migrations](2026-09-10-database-migrations.md).
 
 **On testing:**
 

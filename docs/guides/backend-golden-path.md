@@ -134,10 +134,10 @@ Constructors (`ValidationError`, `NotFoundError`, `ConflictError`, `InternalErro
 Never hand-write migrations. Generate one per owning binary:
 
 ```bash
-make migrate-create service=example name=create_users
+make migrate-create service=identity name=create_users
 ```
 
-Fill the generated `-- +goose Up` / `-- +goose Down` in `backend/cmd/example/migrations/`, then `make migrate-up`.
+Fill the generated `-- +goose Up` / `-- +goose Down` in that service's `migrations/` directory. DDL only; `make migrate-lint` enforces the [content rule](../adr/2026-09-10-database-migrations.md). `make redeploy` re-runs the schema hook when migration files changed. `cmd/example` is outside the product schema; its migrations are not part of this flow.
 
 ## 5. Wire it into the binary
 

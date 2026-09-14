@@ -74,10 +74,11 @@ func realMain() error {
 		FrontendHost: psc.Current.Bundle.FrontendHost,
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(), logger)
 
-	// Pre-compile bundles for all tenants that have grants.
-	if tenantIDs, err := grantRepo.ListDistinctTenants(ctx); err == nil {
+	// Pre-compile bundles for every known tenant: registered, with grants, or
+	// with routes.
+	if tenantIDs, err := bundleSrv.KnownTenantIDs(ctx); err == nil {
 		bundleSrv.Bootstrap(ctx, tenantIDs)
 	} else {
 		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: err.Error()})

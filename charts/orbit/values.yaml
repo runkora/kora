@@ -227,6 +227,36 @@ identityProxy:
       cpu: 200m
       memory: 64Mi
 
+# Schema migration Job, run as a pre-install and pre-upgrade hook before any
+# workload rolls (docs/adr/2026-09-10-database-migrations.md).
+migrate:
+  image:
+    registry: ""
+    repository: orbit-migrate
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  # Must stay below the Helm timeout (helm's default is 300s) or Helm fails the
+  # release while the Job is still applying and the next upgrade deletes it
+  # mid-flight.
+  activeDeadlineSeconds: 240
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  config: {}
+
 identity:
   image:
     registry: ""
@@ -483,6 +513,8 @@ policyService:
     tag: ""
     digest: ""
     pullPolicy: ""
+  # -- Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it.
+  tenantsConfigMap: orbit-tenants
   replicas: 1
   resources:
     requests:

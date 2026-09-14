@@ -247,6 +247,25 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | istio.namespace | string | `"istio-system"` |  |
 | istio.outboundTrafficPolicy | string | `"ALLOW_ANY"` |  |
 | istio.revision | string | `""` |  |
+| migrate.activeDeadlineSeconds | int | `240` |  |
+| migrate.affinity | object | `{}` |  |
+| migrate.config | object | `{}` |  |
+| migrate.extraEnv | list | `[]` |  |
+| migrate.image.digest | string | `""` |  |
+| migrate.image.pullPolicy | string | `""` |  |
+| migrate.image.registry | string | `""` |  |
+| migrate.image.repository | string | `"orbit-migrate"` |  |
+| migrate.image.tag | string | `""` |  |
+| migrate.nodeSelector | object | `{}` |  |
+| migrate.podAnnotations | object | `{}` |  |
+| migrate.podLabels | object | `{}` |  |
+| migrate.priorityClassName | string | `""` |  |
+| migrate.resources.limits.cpu | string | `"500m"` |  |
+| migrate.resources.limits.memory | string | `"256Mi"` |  |
+| migrate.resources.requests.cpu | string | `"50m"` |  |
+| migrate.resources.requests.memory | string | `"64Mi"` |  |
+| migrate.tolerations | list | `[]` |  |
+| migrate.topologySpreadConstraints | list | `[]` |  |
 | networkPolicy.apiServerCIDRs[0] | string | `"0.0.0.0/0"` |  |
 | networkPolicy.enabled | bool | `true` |  |
 | networkPolicy.externalServices | list | `[]` |  |
@@ -367,6 +386,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | policyService.resources.requests.cpu | string | `"100m"` |  |
 | policyService.resources.requests.memory | string | `"64Mi"` |  |
 | policyService.serviceAccount.annotations | object | `{}` |  |
+| policyService.tenantsConfigMap | string | `"orbit-tenants"` | Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it. |
 | policyService.tolerations | list | `[]` |  |
 | policyService.topologySpreadConstraints | list | `[]` |  |
 | publicHosts | list | `[]` |  |

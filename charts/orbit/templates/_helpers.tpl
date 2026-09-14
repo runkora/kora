@@ -317,6 +317,12 @@ app.kubernetes.io/component: operator
 app: orbit-operator
 {{- end }}
 
+{{- define "orbit.migrate.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-migrate
+app.kubernetes.io/component: migrate
+{{- end }}
+
 {{- define "orbit.identity.labels" -}}
 {{ include "orbit.labels" . }}
 app.kubernetes.io/name: orbit-identity

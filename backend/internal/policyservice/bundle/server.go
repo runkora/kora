@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -21,6 +23,12 @@ import (
 // non-existent tenants.
 var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
+// tenantLister names the tenants that exist, whether or not they have policy
+// rows yet. The operator-written tenant registry is the implementation.
+type tenantLister interface {
+	ActiveTenantIDs(ctx context.Context) ([]string, error)
+}
+
 // Server serves per-tenant OPA bundles at GET /v1/policy/bundles/{tenant_id}.
 // On startup it compiles all tenants' bundles from the current DB state.
 // On every grant or role write the policy service recompiles the affected tenant's bundle.
@@ -31,11 +39,12 @@ type Server struct {
 	roleRepo           roles.Repository
 	tenantBudgetRepo   tenantbudget.Repository
 	principalRolesRepo principalroles.Repository
+	tenants            tenantLister
 	logger             logging.Logger
 }
 
 // NewServer creates a bundle Server wired to the provided repositories.
-func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, principalRolesRepo principalroles.Repository, logger logging.Logger) *Server {
+func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, principalRolesRepo principalroles.Repository, tenants tenantLister, logger logging.Logger) *Server {
 	return &Server{
 		compiler:           compiler,
 		grantRepo:          grantRepo,
@@ -43,8 +52,34 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 		roleRepo:           roleRepo,
 		tenantBudgetRepo:   tenantBudgetRepo,
 		principalRolesRepo: principalRolesRepo,
+		tenants:            tenants,
 		logger:             logger,
 	}
+}
+
+// KnownTenantIDs unions every tenant source: the registry, tenants with
+// grants, and tenants with registered routes. A registered tenant with no
+// rows is still a tenant; its reserved roles must reach the gateway bundle.
+func (s *Server) KnownTenantIDs(ctx context.Context) ([]string, error) {
+	set := map[string]struct{}{}
+	registered, err := s.tenants.ActiveTenantIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list registered tenants: %w", err)
+	}
+	for _, tid := range registered {
+		set[tid] = struct{}{}
+	}
+	grantTenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list tenants with grants: %w", err)
+	}
+	for _, tid := range grantTenantIDs {
+		set[tid] = struct{}{}
+	}
+	for _, tid := range s.compiler.RouteTenantIDs() {
+		set[tid] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(set)), nil
 }
 
 // principalRolesForTenant loads the tenant's user→role membership snapshot for
@@ -83,25 +118,9 @@ func (s *Server) BootstrapGateway(ctx context.Context) {
 // DB state. Called after any grant, role, or route change that affects the
 // gateway enforcement point.
 func (s *Server) RecompileGateway(ctx context.Context) error {
-	grantTenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	tenantIDs, err := s.KnownTenantIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("list tenants for gateway bundle: %w", err)
-	}
-
-	// Union grant-tenant IDs with route-tenant IDs so that tenants with
-	// registered routes but no grants are still included in the bundle.
-	// Without this, requests to those routes return deny:no_route_match
-	// instead of the more accurate deny:invalid_token.
-	tenantSet := make(map[string]struct{}, len(grantTenantIDs))
-	for _, tid := range grantTenantIDs {
-		tenantSet[tid] = struct{}{}
-	}
-	for _, tid := range s.compiler.RouteTenantIDs() {
-		tenantSet[tid] = struct{}{}
-	}
-	tenantIDs := make([]string, 0, len(tenantSet))
-	for tid := range tenantSet {
-		tenantIDs = append(tenantIDs, tid)
 	}
 
 	vocab, err := s.vocabRepo.List(ctx, "")

@@ -205,6 +205,11 @@ spec:
         pod-security.kubernetes.io/warn: restricted
         pod-security.kubernetes.io/audit: restricted
     automated: { prune: true, selfHeal: true }
+    # A failed migration hook fails the sync; automated sync does not reattempt
+    # the same revision without a retry policy.
+    retry:
+      limit: 3
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }
     syncOptions: [CreateNamespace=true, ServerSideApply=true, RespectIgnoreDifferences=true]
   # Operator-owned fields.
   ignoreDifferences:

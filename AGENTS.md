@@ -95,7 +95,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Data & Storage
 - **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
 - **No `database/sql`**: Use `pgx/v5` exclusively. `errors.Is(err, pgx.ErrNoRows)` for not-found checks.
-- **No hand-written migrations**: Generate with `make migrate-create service=X name=Y` (Goose format); migrations live per-binary under `backend/cmd/{service}/migrations/`
+- **No hand-written migrations**: Generate with `make migrate-create service=X name=Y` (Goose format); migrations live per-binary under `backend/cmd/{service}/migrations/` and must pass `make migrate-lint` (DDL only, own tables only; see [database migrations](docs/adr/2026-09-10-database-migrations.md))
 
 ### HTTP & Routing
 - **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`. No gin, chi, echo, or gorilla/mux.
@@ -171,6 +171,7 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 | `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
 | `orbit-agents` | `cmd/orbit-agents/` | Agent control plane: runs, sessions, event streaming, k8s orchestration |
 | `orbit-triggers` | `cmd/orbit-triggers/` | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097) |
+| `migrate` | `cmd/migrate/` | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job |
 | `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
 | `operator` | `cmd/operator/` | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars |
 | `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls |
@@ -241,9 +242,9 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
   | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
   | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
-  | `example` | `postgres_test.go` | the reference repository |
+  | `example` | `postgres_test.go` | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema |
 
-  Run them against the local Postgres:
+  Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 
   ```bash
   make test-postgres

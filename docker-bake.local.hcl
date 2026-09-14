@@ -60,6 +60,12 @@ target "orbit-tool-gateway" {
     "localhost:5001/orbit-tool-gateway:${GIT_SHA}",
   ]
 }
+target "orbit-migrate" {
+  tags = [
+    "localhost:5001/orbit-migrate:latest",
+    "localhost:5001/orbit-migrate:${GIT_SHA}",
+  ]
+}
 target "orbit-example" {
   tags = [
     "localhost:5001/orbit-example:latest",
@@ -139,6 +145,7 @@ group "local-platform" {
     "orbit-frontend",
     "orbit-mcp",
     "orbit-tool-gateway",
+    "orbit-migrate",
     "orbit-operator",
     "orbit-session-manager",
     "orbit-sandbox-exec",

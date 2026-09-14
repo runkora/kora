@@ -14,6 +14,8 @@ istio:
   cni: required
 spire:
   chart: "${SPIRE_CHART_VERSION}"
+postgresql:
+  supported: ["13", "14", "15", "16", "17"]
 tooling:
   helm: "${HELM_VERSION}"
   helmfile: "${HELMFILE_VERSION}"
