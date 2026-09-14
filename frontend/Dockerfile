@@ -19,7 +19,9 @@
 # Install all workspace dependencies with a frozen lockfile.
 # Separated from the build stage so Docker layer caching skips re-installs
 # when only source files change (not package.json or pnpm-lock.yaml).
-FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
+# deps and builder run on the build platform. The standalone output is
+# platform-independent JavaScript, so only the runner stage builds per target.
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
 
 WORKDIR /app
 
