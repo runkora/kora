@@ -139,7 +139,7 @@ On smaller VMs, leave the flag unset. Concurrent build pressure can wedge the VM
 
 ## Database migrations
 
-Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job; the same binary runs locally through `go run`. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
+Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
 
 **Never write migration files by hand.** Generate them:
 
@@ -158,7 +158,7 @@ Both `service=` and `name=` are required. It writes a timestamped file with the 
 
 `make up` applies the schema through the hook, including after `make db-reset`: the reset stamps a marker annotation on the Job so the next `make up` re-runs it against the empty database. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did. A branch that adds a migration never boots a service against a stale schema. `make redeploy-migrate` forces the hook.
 
-Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an `ALTER TABLE` on the same table in the same file, nothing in `Down` that changes rows, and no statement that touches a table another service creates. `make migrate-lint` rejects violations. Seeds and reference data are registered at boot by the service that owns them.
+Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an `ALTER TABLE` on the same table in the same file. There should be nothing in `Down` that changes rows, and table modifications should be isolated to the service that owns and creates that table. `make migrate-lint` rejects any violation of DDL. Operational seed data should be handled by the running service using an idempotent upsert and not managed as a migration.
 
 `Down` sections exist for local development only. To roll back one migration against the compose Postgres:
 
@@ -166,7 +166,7 @@ Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an 
 cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_HOST=localhost DB_NAME=orbit DB_USER=orbit DB_PASSWORD=orbit go run ./cmd/migrate down
 ```
 
-Production never runs `Down`; rollback is `helm rollback` with the schema left in place.
+There are no migration `Down` triggers in Orbit, a rollback via `helm rollback` will leave the database schema in place.
 
 ## Environment configuration
 
