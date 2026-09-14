@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -79,10 +80,10 @@ type K8sProvisionerConfig struct {
 	// Also used to derive the egress-gateway service URL for sandbox
 	// HTTPS_PROXY (the gateway always lives in this namespace).
 	SystemNamespace string
-	// ManifestOverrides holds per-Kind, per-slug field patches sourced from
-	// ORBIT_MANIFEST__<Kind>__<name>__<path>=<value> env vars.
-	// Applied to each provisioned resource after the default manifest is built.
-	ManifestOverrides ManifestOverrides
+	// Patches are kustomize-style Strategic Merge and JSON6902 patches loaded
+	// from disk at startup and applied to each provisioned resource after the
+	// default manifest is built. See docs/adr/2026-09-15-manifest-patches-configmap.md.
+	Patches []manifestpatch.Patch
 	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
 	// each agent StatefulSet restricting its session-manager port to the
 	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
@@ -370,7 +371,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// sandbox creation is never gated on the ownerRef path.
 	applyOwnerRef(&pod.ObjectMeta, p.statefulSetOwnerRef(ctx, agentTypeSlug, namespace))
 
-	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
+	podVal, err := manifestpatch.ApplyToResource(*pod, p.cfg.Patches, "Pod", pod.Name, pod.Labels, pod.Annotations)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "apply Pod overrides")
@@ -1157,7 +1158,7 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	}
 	applyOwnerRef(&sa.ObjectMeta, owner)
 	var err error
-	sa, err = applyOverrides(sa, overridesForSlug(p.cfg.ManifestOverrides["ServiceAccount"], name))
+	sa, err = manifestpatch.ApplyToResource(sa, p.cfg.Patches, "ServiceAccount", sa.Name, sa.Labels, sa.Annotations)
 	if err != nil {
 		return fmt.Errorf("apply ServiceAccount overrides: %w", err)
 	}
@@ -1185,12 +1186,13 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	applyOwnerRef(&ss.ObjectMeta, owner)
 
 	var err error
-	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
+	ss, err = manifestpatch.ApplyToResource(ss, p.cfg.Patches, "StatefulSet", ss.Name, ss.Labels, ss.Annotations)
 	if err != nil {
 		return fmt.Errorf("apply StatefulSet overrides: %w", err)
 	}
-	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
+	if len(ss.Spec.VolumeClaimTemplates) > 0 {
+		pvc := ss.Spec.VolumeClaimTemplates[0]
+		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.ApplyToResource(pvc, p.cfg.Patches, "PersistentVolumeClaim", pvc.Name, pvc.Labels, pvc.Annotations)
 		if err != nil {
 			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
 		}
@@ -1381,7 +1383,7 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	}
 	applyOwnerRef(&svc.ObjectMeta, owner)
 	var err error
-	svc, err = applyOverrides(svc, overridesForSlug(p.cfg.ManifestOverrides["Service"], name))
+	svc, err = manifestpatch.ApplyToResource(svc, p.cfg.Patches, "Service", svc.Name, svc.Labels, svc.Annotations)
 	if err != nil {
 		return fmt.Errorf("apply Service overrides: %w", err)
 	}
@@ -1446,7 +1448,7 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	}
 	applyOwnerRef(&hpa.ObjectMeta, owner)
 	var err error
-	hpa, err = applyOverrides(hpa, overridesForSlug(p.cfg.ManifestOverrides["HorizontalPodAutoscaler"], name))
+	hpa, err = manifestpatch.ApplyToResource(hpa, p.cfg.Patches, "HorizontalPodAutoscaler", hpa.Name, hpa.Labels, hpa.Annotations)
 	if err != nil {
 		return fmt.Errorf("apply HorizontalPodAutoscaler overrides: %w", err)
 	}
@@ -1477,7 +1479,7 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	}
 	applyOwnerRef(&pdb.ObjectMeta, owner)
 	var err error
-	pdb, err = applyOverrides(pdb, overridesForSlug(p.cfg.ManifestOverrides["PodDisruptionBudget"], name))
+	pdb, err = manifestpatch.ApplyToResource(pdb, p.cfg.Patches, "PodDisruptionBudget", pdb.Name, pdb.Labels, pdb.Annotations)
 	if err != nil {
 		return fmt.Errorf("apply PodDisruptionBudget overrides: %w", err)
 	}

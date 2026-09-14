@@ -481,7 +481,10 @@ agents:
     enabled: true
   tenantConnectionsConfigMapName: orbit-tenant-connections
   # Applied to the StatefulSets and sandbox pods orbit-agents creates in tenant
-  # namespaces, as ORBIT_MANIFEST__ overrides (ADR 2026-06-12).
+  # namespaces. Named knobs below are translated into generated patch files;
+  # `manifestPatches` below takes raw kustomize-style patch YAML bodies for
+  # anything the named knobs don't cover
+  # (docs/adr/2026-09-15-manifest-patches-configmap.md).
   runtimePods:
     nodeSelector: {}
     tolerations: []
@@ -492,6 +495,18 @@ agents:
       accessModes: []
     # e.g. eks.amazonaws.com/role-arn for IRSA.
     serviceAccountAnnotations: {}
+  # Freeform map of filename -> patch YAML body, merged into the manifest
+  # patches ConfigMap alongside the chart-generated files above. Use 5NN+
+  # numeric prefixes so operator patches sort after the built-ins.
+  # Example:
+  #   manifestPatches:
+  #     500-inject-label.yaml: |
+  #       apiVersion: apps/v1
+  #       kind: StatefulSet
+  #       metadata:
+  #         labels:
+  #           team: platform
+  manifestPatches: {}
   imageWarmer:
     enabled: false
   warmHeadroom:

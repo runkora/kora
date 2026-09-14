@@ -1,0 +1,31 @@
+{{- /*
+Manifest patches ConfigMap (docs/adr/2026-09-15-manifest-patches-configmap.md).
+
+Merges two sources into a single ConfigMap mounted at
+/etc/orbit/manifest-patches inside the orbit-agents pod:
+
+  1. Chart-generated patches for the named knobs on
+     .Values.agents.runtimePods (nodeSelector, tolerations, priorityClassName,
+     sandboxResources, workspace, serviceAccountAnnotations) — see
+     `orbit.agents.generatedPatches` in _manifestpatches.tpl.
+
+  2. Operator-supplied raw patches under .Values.agents.manifestPatches
+     (map of filename -> full patch YAML body).
+
+Filename order is lexicographic; generated files use 0NN- prefixes and
+operator files should use 5NN+ (or any prefix that sorts after the built-ins)
+if they need to layer on top.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-agents-manifest-patches
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.agents.labels" . | nindent 4 }}
+data:
+{{- include "orbit.agents.generatedPatches" . | nindent 2 }}
+{{- range $filename, $body := .Values.agents.manifestPatches }}
+  {{ $filename }}: |
+{{ $body | indent 4 }}
+{{- end }}

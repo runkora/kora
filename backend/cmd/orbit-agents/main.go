@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
+	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/platform/api"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
@@ -24,7 +26,29 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
+// defaultManifestPatchDir is where the Helm chart mounts the manifest patches
+// ConfigMap. Overridable via ORBIT_MANIFEST_PATCH_DIR.
+const defaultManifestPatchDir = "/etc/orbit/manifest-patches"
+
 func main() {
+	var (
+		renderMode      = flag.Bool("render", false, "render final manifests to stdout and exit")
+		renderPatchDir  = flag.String("patch-dir", defaultManifestPatchDir, "manifest patches directory")
+		renderAgentSlug = flag.String("agent-slug", "", "agent type slug to render (required with -render)")
+		renderTenantID  = flag.String("tenant-id", "example", "tenant ID for the rendered manifests")
+		renderNamespace = flag.String("namespace", "tenant-example", "tenant namespace for the rendered manifests")
+		renderSandbox   = flag.Bool("sandbox", false, "also render a sample sandbox pod")
+	)
+	flag.Parse()
+
+	if *renderMode {
+		if err := renderManifests(*renderPatchDir, *renderAgentSlug, *renderTenantID, *renderNamespace, *renderSandbox); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := realMain(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -152,12 +176,21 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
-	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
-	for _, key := range malformedOverrideKeys {
-		logger.Warn(ctx, "ignoring malformed ORBIT_MANIFEST override: expected ORBIT_MANIFEST__Kind__name__path",
-			logging.Field{Key: "key", Value: key},
-		)
+	patchDir := os.Getenv("ORBIT_MANIFEST_PATCH_DIR")
+	if patchDir == "" {
+		patchDir = defaultManifestPatchDir
 	}
+	patches, err := manifestpatch.Load(patchDir)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("load manifest patches from %s: %w", patchDir, err)
+	}
+	if verr := manifestpatch.Validate(patches); verr != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("validate manifest patches in %s: %w", patchDir, verr)
+	}
+	logger.Info(ctx, "loaded manifest patches",
+		logging.Field{Key: "dir", Value: patchDir},
+		logging.Field{Key: "count", Value: len(patches)},
+	)
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
 		SessionManagerImage:        cfg.Agents.SessionManagerImage,
@@ -170,7 +203,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
 		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
-		ManifestOverrides:          manifestOverrides,
+		Patches:                    patches,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)

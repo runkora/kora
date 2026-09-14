@@ -23,6 +23,9 @@ spec:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        # Roll the pod when the manifest patches ConfigMap changes
+        # (docs/adr/2026-09-15-manifest-patches-configmap.md).
+        checksum/patches: {{ include (print $.Template.BasePath "/agents/patches-configmap.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
@@ -38,6 +41,11 @@ spec:
           configMap:
             name: {{ .Values.agents.tenantConnectionsConfigMapName }}
             optional: true
+        # Kustomize-style manifest patches applied to every provisioned
+        # resource (docs/adr/2026-09-15-manifest-patches-configmap.md).
+        - name: manifest-patches
+          configMap:
+            name: orbit-agents-manifest-patches
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
         - name: orbit-agents
@@ -72,45 +80,6 @@ spec:
               value: {{ .Values.agents.config.sandboxGitAuthorEmail | quote }}
             - name: ORBIT_AGENTS_IMAGE_PULL_SECRETS
               value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
-            {{- /* Scheduling and storage for the StatefulSets and sandbox pods orbit-agents creates in tenant namespaces (ADR 2026-06-12). */}}
-            {{- $rp := .Values.agents.runtimePods }}
-            {{- $ns := $rp.nodeSelector | default .Values.global.nodeSelector }}
-            {{- $tol := $rp.tolerations | default .Values.global.tolerations }}
-            {{- $pc := $rp.priorityClassName | default .Values.global.priorityClassName }}
-            {{- with $ns }}
-            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__nodeSelector
-              value: {{ toJson . | quote }}
-            - name: ORBIT_MANIFEST__Pod__*__spec__nodeSelector
-              value: {{ toJson . | quote }}
-            {{- end }}
-            {{- with $tol }}
-            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__tolerations
-              value: {{ toJson . | quote }}
-            - name: ORBIT_MANIFEST__Pod__*__spec__tolerations
-              value: {{ toJson . | quote }}
-            {{- end }}
-            {{- with $pc }}
-            - name: ORBIT_MANIFEST__StatefulSet__*__spec__template__spec__priorityClassName
-              value: {{ . | quote }}
-            - name: ORBIT_MANIFEST__Pod__*__spec__priorityClassName
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with $rp.sandboxResources }}
-            - name: ORBIT_MANIFEST__Pod__*__spec__containers__0__resources
-              value: {{ toJson . | quote }}
-            {{- end }}
-            {{- with $rp.workspace.storageClassName }}
-            - name: ORBIT_MANIFEST__PersistentVolumeClaim__*__spec__storageClassName
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with $rp.workspace.accessModes }}
-            - name: ORBIT_MANIFEST__PersistentVolumeClaim__*__spec__accessModes
-              value: {{ toJson . | quote }}
-            {{- end }}
-            {{- with $rp.serviceAccountAnnotations }}
-            - name: ORBIT_MANIFEST__ServiceAccount__*__metadata__annotations
-              value: {{ toJson . | quote }}
-            {{- end }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "agents") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
@@ -139,6 +108,9 @@ spec:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             - name: tenant-connections
               mountPath: /var/run/orbit/connections
+              readOnly: true
+            - name: manifest-patches
+              mountPath: /etc/orbit/manifest-patches
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}
         {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}
