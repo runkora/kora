@@ -739,6 +739,7 @@ func buildGatewayBundle(
 	// Expand requires here as the per-tenant bundle does; edge and sidecar
 	// must authorize on the same effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
+	adminScopes := AdminScopes(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
@@ -756,7 +757,7 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		mergedRoles := map[string][]string{PlatformAdminRole: AdminScopes(vocabEntries)}
+		mergedRoles := map[string][]string{PlatformAdminRole: adminScopes}
 		for _, e := range allRoles[tenantID] {
 			if e.Role != PlatformAdminRole {
 				mergedRoles[e.Role] = e.Scopes

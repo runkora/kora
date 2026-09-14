@@ -274,8 +274,8 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
-// scoped to a specific tenant. The admin role is not stored, so its usage is
-// added here.
+// scoped to a specific tenant. The admin role's scopes are derived, not
+// stored, so role_count is raised here for each scope the admin holds.
 func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
 	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
 	if err != nil {
@@ -407,14 +407,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
 	}
 	expandScopeFamily(allVocab, scopeSet)
-	for _, sc := range bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab) {
-		scopeSet[sc] = struct{}{}
-	}
-
-	result := make([]string, 0, len(scopeSet))
-	for sc := range scopeSet {
-		result = append(result, sc)
-	}
+	result := bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab)
 	sort.Strings(result)
 	return result, nil
 }

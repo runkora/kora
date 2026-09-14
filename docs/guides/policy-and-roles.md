@@ -186,7 +186,7 @@ Response:
 DELETE /api/v1/policy/roles/engineer
 ```
 
-Deleting a role removes the scope mapping. Users who previously received access via this role lose it on the next bundle polling cycle (default: ≤ 30 seconds). Reserved roles (`tenant-admin`, `platform-admin`) cannot be deleted.
+Deleting a role removes the scope mapping. Users who previously received access via this role lose it on the next bundle polling cycle (default: ≤ 30 seconds). The reserved `platform-admin` role cannot be deleted.
 
 > Role management requires `platform:roles:write`.
 

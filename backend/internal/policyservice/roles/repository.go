@@ -4,7 +4,7 @@
 // scopes without a per-user grant.
 //
 // The platform-admin role is derived from the vocabulary in the
-// bundle compiler and are not managed here.
+// bundle compiler and is not managed here.
 package roles
 
 import (

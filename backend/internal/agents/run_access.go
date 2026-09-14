@@ -28,7 +28,7 @@ import (
 const rolePlatformAdmin = "platform-admin"
 
 // ErrDelegatedRunSteer is returned when someone other than the starter — a
-// tenant admin included — tries to steer (message or interrupt) a delegated
+// platform admin included — tries to steer (message or interrupt) a delegated
 // run. Messages execute with the starter's authority under the starter's name,
 // so nobody else may direct the work.
 var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person who started this run can steer it (messages execute with the starter's authority)")
@@ -37,7 +37,7 @@ var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person
 // The filter is applied in the query itself, never by trimming pages in
 // memory, so counts and ordering stay correct under any future pagination.
 type RunVisibility struct {
-	// SeeAll returns every run unfiltered. Set for tenant admins (governance
+	// SeeAll returns every run unfiltered. Set for platform admins (governance
 	// read over the whole tenant).
 	SeeAll bool
 	// Subject is the caller's verified token subject. When SeeAll is false,
@@ -94,7 +94,7 @@ func isRunStarter(ctx context.Context, run *Run) bool {
 }
 
 // checkDelegatedRunVisibility enforces run-ownership privacy on a single run:
-// for a delegated agent, only the starter and tenant admins may read it.
+// for a delegated agent, only the starter and platform admins may read it.
 // Returns ErrNotFound on deny so existence is not leaked (the same mapping
 // loadRunForAction applies to scope denials). No-op for autonomous agents.
 func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run) error {
