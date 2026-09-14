@@ -18,7 +18,6 @@ GOLINT=golangci-lint
 # Project directories
 BACKEND_DIR=./backend
 FRONTEND_DIR=./frontend
-CMD_DIR=./backend/cmd/orbit
 
 # Binary output
 BINARY_DIR=.bin
@@ -364,9 +363,15 @@ redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit
 	RECORDED=$$(yq -r '.migrate.sourceHash // ""' deploy/reference/environments/local.generated.yaml 2>/dev/null); \
 	if [ "$$HASH" = "$$RECORDED" ]; then \
 		echo "$(COLOR_BLUE)ℹ migrations unchanged ($$HASH), migrate image not rebuilt$(COLOR_RESET)"; \
+	elif [ -n "$(NO_BUILD)$(BUILD_ONLY)" ]; then \
+		echo "$(COLOR_RED)✗ migrations changed; NO_BUILD and BUILD_ONLY cannot apply them. Run: make redeploy-migrate$(COLOR_RESET)"; exit 1; \
 	else \
-		bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS); \
+		bash scripts/cluster/redeploy.sh migrate; \
 	fi
+
+.PHONY: redeploy-migrate
+redeploy-migrate: ## Rebuild the migrate image and re-apply the orbit release so the schema hook runs
+	@bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS)
 
 # ===========================================
 # Backing services (Postgres, Redis, Dex, glauth) via docker-compose
@@ -721,6 +726,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
 	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
+	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
 	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
 	@# `kubectl rollout restart` is NOT enough: redeploy.sh pins workloads to an
@@ -774,7 +780,9 @@ REDEPLOY_FLAGS := \
 
 .PHONY: redeploy
 redeploy: ## Rebuild and roll every service. SERVICE=<name> narrows it to one (see: make redeploy-list)
-	@if [ "$(SERVICE)" != "migrate" ]; then \
+	@# A single-service redeploy applies pending migrations first. The full
+	@# redeploy builds migrate and re-applies the release in cluster-update.
+	@if [ -n "$(SERVICE)" ] && [ "$(SERVICE)" != "migrate" ]; then \
 		$(MAKE) --no-print-directory redeploy-migrate-if-changed; \
 	fi
 	@if [ -n "$(SERVICE)" ]; then \

@@ -535,10 +535,6 @@ GENERATED="$ROOT_DIR/deploy/reference/environments/local.generated.yaml"
 if [ -n "$DIGEST" ] && [ -n "$VALUES_KEY" ]; then
   [ -f "$GENERATED" ] || echo "{}" > "$GENERATED"
   yq -i ".${VALUES_KEY}.image.digest = \"${DIGEST}\"" "$GENERATED"
-  # `make redeploy` skips the migrate rebuild while this hash matches the tree.
-  if [ "$SERVICE" = "migrate" ]; then
-    yq -i ".migrate.sourceHash = \"$(bash "$ROOT_DIR/scripts/cluster/migrations-hash.sh")\"" "$GENERATED"
-  fi
 fi
 
 # ── restart ───────────────────────────────────────────────────────────────────
@@ -560,6 +556,11 @@ case "$WORKLOAD" in
     # digest rolls system pods (tenant pods on next creation) or fires the hook.
     log "Re-applying the orbit release with the new $SERVICE digest..."
     (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=orbit)
+    # Recorded only once the hook has run: `make redeploy` skips the migrate
+    # rebuild while this hash matches the tree.
+    if [ "$SERVICE" = "migrate" ]; then
+      yq -i ".migrate.sourceHash = \"$(bash "$ROOT_DIR/scripts/cluster/migrations-hash.sh")\"" "$GENERATED"
+    fi
     ok "$SERVICE rolled via the orbit release"
     ;;
   on-demand)
