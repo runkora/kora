@@ -77,14 +77,9 @@ The `tenant_id` is derived from your platform token. SYSTEM principals may suppl
 
 ### Reserved Roles
 
-`tenant-admin` and `platform-admin` are hardcoded platform roles that cannot be created, modified, or deleted via the API. They are compiled directly into every bundle by the policy service.
+`platform-admin` is the one reserved role. It cannot be created, modified, or deleted via the API. At every bundle compile the policy service derives them from the registered vocabulary. 
 
-| Role | Scopes |
-|---|---|
-| `tenant-admin` | `platform:grants:read`, `platform:grants:write`, `platform:roles:read`, `platform:roles:write`, `platform:agents:read` |
-| `platform-admin` | All `tenant-admin` scopes plus `platform:tenants:manage` |
-
-Any user with the `tenant-admin` OIDC role can manage grants and roles for their tenant without a prior grant record existing. This is the bootstrapping mechanism: you do not need to create a grant to allow your first administrator to configure policy.
+Any user with the `platform-admin` OIDC role can manage grants and roles without a prior grant record existing.
 
 ---
 

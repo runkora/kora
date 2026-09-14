@@ -46,17 +46,18 @@ func TestAuthz_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 	}
 }
 
-// A reserved role held by the delegator (e.g. tenant-admin) also counts:
-// role-provisioned admins are not bounded to nothing under delegation.
+// The reserved role held by the delegator also counts: role-provisioned
+// admins are not bounded to nothing under delegation.
 func TestAuthz_DelegatorLeg_ReservedRoleDerivedAllow(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants:         []*grants.Grant{delegatedAgentGrant(testAgentID, "agents:runs:read")},
-		principalRoles: map[string][]string{testDelegateID: {"tenant-admin"}},
+		vocab:          adminVocab(),
+		principalRoles: map[string][]string{testDelegateID: {"platform-admin"}},
 	})
 
 	allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), humanDelegation(testDelegateID), "agents", []string{"runs"}, "read")
 	if !allow {
-		t.Errorf("expected allow via the delegator's tenant-admin role, got deny (reason: %s)", reason)
+		t.Errorf("expected allow via the delegator's platform-admin role, got deny (reason: %s)", reason)
 	}
 }
 

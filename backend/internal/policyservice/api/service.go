@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -272,31 +274,32 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
-// scoped to a specific tenant. Reserved roles (tenant-admin, platform-admin)
-// are not stored in the DB, so their scope usage is counted in-memory.
+// scoped to a specific tenant. The admin role is not stored, so its usage is
+// added here.
 func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
 	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
 	if err != nil {
 		return nil, err
 	}
-
-	// Build a set of scopes used by reserved roles and count how many
-	// reserved roles reference each scope.
-	reservedCounts := make(map[string]int)
-	for _, scopes := range reservedRoleScopes {
-		for _, s := range scopes {
-			reservedCounts[s]++
-		}
+	admin, err := s.adminScopes(ctx)
+	if err != nil {
+		return nil, err
 	}
-
-	// Add reserved role counts to the DB-sourced role_count.
 	for _, e := range entries {
-		if extra, ok := reservedCounts[e.Scope]; ok {
-			e.RoleCount += extra
+		if slices.Contains(admin, e.Scope) {
+			e.RoleCount++
 		}
 	}
-
 	return entries, nil
+}
+
+// adminScopes derives the platform-admin scopes from the current vocabulary.
+func (s *Service) adminScopes(ctx context.Context) ([]string, error) {
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary: %w", err)
+	}
+	return bundle.AdminScopes(vocab), nil
 }
 
 // Stats returns aggregate counts across grants, roles, vocabulary, routes,
@@ -351,8 +354,8 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 			ByPrincipalType: grantByType,
 		},
 		Roles: roleStats{
-			Total:    len(reservedRoles) + customRoleCount,
-			Reserved: len(reservedRoles),
+			Total:    1 + customRoleCount,
+			Reserved: 1,
 			Custom:   customRoleCount,
 		},
 		Vocabulary: vocabStats{
@@ -397,12 +400,16 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	// Expand family-level scopes (e.g. "inference:anthropic:use") to also include
 	// any more-specific vocabulary entries they cover (e.g. "inference:anthropic:claude-sonnet-4-6:use").
 	// This lets users create PATs with finer-grained scopes when they hold a
-	// parent scope that implies access to all children.
+	// parent scope that implies access to all children. Requires are expanded
+	// too, so the ceiling matches what the bundle grants.
 	allVocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
 	}
 	expandScopeFamily(allVocab, scopeSet)
+	for _, sc := range bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab) {
+		scopeSet[sc] = struct{}{}
+	}
 
 	result := make([]string, 0, len(scopeSet))
 	for sc := range scopeSet {
@@ -419,8 +426,12 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 		if role == "" {
 			continue
 		}
-		if scopes, ok := reservedRoleScopes[role]; ok {
-			for _, sc := range scopes {
+		if role == bundle.PlatformAdminRole {
+			admin, err := s.adminScopes(ctx)
+			if err != nil {
+				return err
+			}
+			for _, sc := range admin {
 				scopeSet[sc] = struct{}{}
 			}
 			continue
@@ -499,22 +510,11 @@ func scopeCovers(a, b string) bool {
 	return true
 }
 
-// reservedRoles are the hardcoded platform admin roles that cannot be managed
-// via the API — they are compiled directly into every bundle.
-var reservedRoles = map[string]bool{
-	"tenant-admin":   true,
-	"platform-admin": true,
-}
-
-// reservedRoleScopes is bundle.DefaultRoleScopes — single source of truth so
-// the API layer returns the same scopes as are compiled into the OPA bundle.
-var reservedRoleScopes = bundle.DefaultRoleScopes
-
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
 // All scopes must exist in the vocabulary. Reserved platform admin roles cannot
 // be modified.
 func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
-	if reservedRoles[role] {
+	if role == bundle.PlatformAdminRole {
 		return nil, &ReservedRoleError{Role: role}
 	}
 	for _, scope := range scopes {
@@ -541,9 +541,8 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 	return s.roleRepo.GetByRole(ctx, tenantID, role)
 }
 
-// ListRoles returns all role→scope mappings for a tenant, including the
-// hardcoded reserved roles (tenant-admin, platform-admin) prepended on
-// the first page so the dashboard can display them.
+// ListRoles returns all role→scope mappings for a tenant, with the derived
+// admin role prepended on the first page so the dashboard can display it.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
 	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
 	if err != nil {
@@ -555,21 +554,22 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset 
 		return custom, nil
 	}
 
-	reserved := make([]*roles.RoleEntry, 0, len(reservedRoleScopes))
-	for _, name := range []string{"tenant-admin", "platform-admin"} {
-		reserved = append(reserved, &roles.RoleEntry{
-			ID:       "reserved-" + name,
-			TenantID: tenantID,
-			Role:     name,
-			Scopes:   reservedRoleScopes[name],
-		})
+	admin, err := s.adminScopes(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return append(reserved, custom...), nil
+	reserved := &roles.RoleEntry{
+		ID:       "reserved-" + bundle.PlatformAdminRole,
+		TenantID: tenantID,
+		Role:     bundle.PlatformAdminRole,
+		Scopes:   admin,
+	}
+	return append([]*roles.RoleEntry{reserved}, custom...), nil
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.
 func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
-	if reservedRoles[role] {
+	if role == bundle.PlatformAdminRole {
 		return &ReservedRoleError{Role: role}
 	}
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {

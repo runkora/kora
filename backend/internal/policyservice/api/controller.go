@@ -19,8 +19,8 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
-// ReservedRoleError is returned when a request attempts to modify a hardcoded
-// platform admin role (tenant-admin, platform-admin).
+// ReservedRoleError is returned when a request attempts to modify the
+// reserved platform-admin role.
 type ReservedRoleError struct {
 	Role string
 }
