@@ -5,7 +5,7 @@ CREATE TABLE trigger_retention_settings (
     payload_days SMALLINT DEFAULT 30 NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     CONSTRAINT trigger_retention_settings_pkey PRIMARY KEY (tenant_id),
-    CONSTRAINT trigger_retention_settings_payload_days_check CHECK ((payload_days >= 1) AND (payload_days <= 30))
+    CONSTRAINT trigger_retention_settings_payload_days_check CHECK (payload_days BETWEEN 1 AND 30)
 );
 -- +goose StatementEnd
 

@@ -12,7 +12,7 @@ CREATE TABLE identity_refresh_tokens (
     CONSTRAINT identity_refresh_tokens_session_id_fkey FOREIGN KEY (session_id) REFERENCES identity_sessions(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_identity_refresh_tokens_expires_at ON identity_refresh_tokens (expires_at) WHERE (revoked_at IS NULL);
+CREATE INDEX idx_identity_refresh_tokens_expires_at ON identity_refresh_tokens (expires_at) WHERE revoked_at IS NULL;
 
 CREATE INDEX idx_identity_refresh_tokens_session_id ON identity_refresh_tokens (session_id);
 -- +goose StatementEnd

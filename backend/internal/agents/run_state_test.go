@@ -144,7 +144,7 @@ func TestPodOccupancySQLList_MatchesPartialIndex(t *testing.T) {
 	}
 
 	upSQL := embeddedIndexDefinition(t, "idx_runs_active")
-	if !strings.Contains(upSQL, "WHERE (state IN ("+wantList+"))") {
+	if !strings.Contains(upSQL, "WHERE state IN ("+wantList+")") {
 		t.Errorf("idx_runs_active predicate does not match the query predicate %s: %s", wantList, upSQL)
 	}
 }

@@ -42,8 +42,8 @@ func TestMergeMigrationFS_MergesAndOrders(t *testing.T) {
 	if string(body) != "b" {
 		t.Errorf("read %q, want b", body)
 	}
-	if _, err := fs.Glob(merged, "*.sql"); err != nil {
-		t.Errorf("glob, which is how goose lists a set: %v", err)
+	if err := fstest.TestFS(merged, want...); err != nil {
+		t.Errorf("fs contract: %v", err)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestMergeMigrationFS_RejectsCollisions(t *testing.T) {
 	for name, sources := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := mergeMigrationFS(sources); !errors.Is(err, ErrDuplicateMigration) {
-				t.Fatalf("err = %v, want ErrDuplicateMigration", err)
+			if _, err := mergeMigrationFS(sources); !errors.Is(err, errDuplicateMigration) {
+				t.Fatalf("err = %v, want errDuplicateMigration", err)
 			}
 		})
 	}
@@ -76,8 +76,8 @@ func TestMergeMigrationFS_RejectsMalformedName(t *testing.T) {
 	_, err := mergeMigrationFS(map[string]fs.FS{
 		"a": fstest.MapFS{"create_a.sql": {}},
 	})
-	if !errors.Is(err, ErrMalformedMigration) {
-		t.Fatalf("err = %v, want ErrMalformedMigration", err)
+	if !errors.Is(err, errMalformedMigration) {
+		t.Fatalf("err = %v, want errMalformedMigration", err)
 	}
 }
 

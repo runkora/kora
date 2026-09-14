@@ -5,36 +5,40 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
-// ErrMigrationContent is returned when a migration violates the content rule in
+// errMigrationContent reports a violation of the content rule in
 // docs/adr/2026-09-10-database-migrations.md, Decision 7.
-var ErrMigrationContent = errors.New("migration content rule violated")
+var errMigrationContent = errors.New("migration content rule violated")
+
+// ident matches a table name with an optional schema prefix and captures the
+// bare name.
+const ident = `(?:"?\w+"?\.)?"?(\w+)"?`
+
+// cte is the optional WITH prefix a DML statement may carry.
+const cte = `(?:WITH\b.*?\)\s*)?`
 
 var (
 	lineComment   = regexp.MustCompile(`--[^\n]*`)
 	blockComment  = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	createTable   = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)`)
-	dmlStart      = regexp.MustCompile(`(?i)^\s*(INSERT|DELETE|UPDATE)\b`)
-	updateTarget  = regexp.MustCompile(`(?i)^\s*UPDATE\s+(?:ONLY\s+)?(\w+)`)
-	alterTarget   = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(\w+)`)
-	renameTable   = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?\w+\s+RENAME\s+TO\b`)
+	createTable   = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` + ident)
+	dmlStart      = regexp.MustCompile(`(?is)^\s*` + cte + `(INSERT|DELETE|UPDATE|SELECT)\b`)
+	updateTarget  = regexp.MustCompile(`(?is)^\s*` + cte + `UPDATE\s+(?:ONLY\s+)?` + ident)
+	insertTarget  = regexp.MustCompile(`(?is)^\s*` + cte + `INSERT\s+INTO\s+` + ident)
+	deleteTarget  = regexp.MustCompile(`(?is)^\s*` + cte + `DELETE\s+FROM\s+` + ident)
+	alterTarget   = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?` + ident)
+	renameTable   = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?` + ident + `\s+RENAME\s+TO\b`)
+	dropTables    = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(.+)`)
+	dropTarget    = regexp.MustCompile(`^` + ident)
+	references    = regexp.MustCompile(`(?i)\bREFERENCES\s+` + ident)
+	indexTarget   = regexp.MustCompile(`(?i)^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\s+)?ON\s+(?:ONLY\s+)?` + ident)
 	concurrently  = regexp.MustCompile(`(?i)\bCONCURRENTLY\b`)
 	noTransaction = regexp.MustCompile(`(?i)--\s*\+goose\s+NO\s+TRANSACTION`)
 
-	// tableReferences lists every form in which a statement names a table.
-	tableReferences = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\bREFERENCES\s+(\w+)`),
-		regexp.MustCompile(`(?i)\bFROM\s+(\w+)`),
-		regexp.MustCompile(`(?i)\bJOIN\s+(\w+)`),
-		regexp.MustCompile(`(?i)^\s*UPDATE\s+(?:ONLY\s+)?(\w+)`),
-		regexp.MustCompile(`(?i)^\s*INSERT\s+INTO\s+(\w+)`),
-		regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(\w+)`),
-		regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)`),
-		regexp.MustCompile(`(?i)^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+(?:ONLY\s+)?(\w+)`),
-	}
+	// tableReferences lists every form in which a statement names one table.
+	tableReferences = []*regexp.Regexp{references, insertTarget, deleteTarget, updateTarget, alterTarget, indexTarget}
 )
 
 // migration is one parsed file: its two directions as comment-free statements.
@@ -47,35 +51,27 @@ type migration struct {
 }
 
 // lintMigrations checks every service's files against the content rule and
-// returns one error per violation, joined.
+// returns every violation in one error. Merging first means a duplicate
+// filename or version across services fails lint, not only up.
 func lintMigrations(sources map[string]fs.FS) error {
-	services := make([]string, 0, len(sources))
-	for name := range sources {
-		services = append(services, name)
+	merged, err := mergeMigrationFS(sources)
+	if err != nil {
+		return err
 	}
-	sort.Strings(services)
 
 	var files []migration
 	owners := map[string]string{}
-	for _, service := range services {
-		entries, err := fs.ReadDir(sources[service], ".")
+	for _, name := range merged.names {
+		service := merged.owners[name]
+		body, err := fs.ReadFile(merged.files[name], name)
 		if err != nil {
-			return fmt.Errorf("read %s migrations: %w", service, err)
+			return fmt.Errorf("read %s/%s: %w", service, name, err)
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-				continue
-			}
-			body, err := fs.ReadFile(sources[service], entry.Name())
-			if err != nil {
-				return fmt.Errorf("read %s/%s: %w", service, entry.Name(), err)
-			}
-			m := parseMigration(service, entry.Name(), string(body))
-			files = append(files, m)
-			for _, stmt := range m.up {
-				if match := createTable.FindStringSubmatch(stmt); match != nil {
-					owners[strings.ToLower(match[1])] = service
-				}
+		m := parseMigration(service, name, string(body))
+		files = append(files, m)
+		for _, stmt := range m.up {
+			if match := createTable.FindStringSubmatch(stmt); match != nil {
+				owners[strings.ToLower(match[1])] = service
 			}
 		}
 	}
@@ -89,7 +85,7 @@ func lintMigrations(sources map[string]fs.FS) error {
 	if len(violations) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w:\n  %s", ErrMigrationContent, strings.Join(violations, "\n  "))
+	return fmt.Errorf("%w:\n  %s", errMigrationContent, strings.Join(violations, "\n  "))
 }
 
 // parseMigration splits a goose file into Up and Down statements with comments
@@ -122,14 +118,17 @@ func statements(sql string) []string {
 func (m migration) violations(owners map[string]string) []string {
 	out := m.dmlViolations()
 	out = append(out, m.tableViolations(owners)...)
+	if len(m.up) == 0 {
+		out = append(out, "Up has no statements")
+	}
 	if !migrationName.MatchString(m.name) {
 		out = append(out, "filename is not <version>_<slug>.sql")
 	}
 	return out
 }
 
-// dmlViolations covers clauses 1 to 3: no seeds, backfills only beside the
-// ALTER that needs them, and no row changes on the way down.
+// dmlViolations covers clauses 1 to 3: no seeds or queries, a backfill only
+// beside the ALTER that needs it, and no row changes on the way down.
 func (m migration) dmlViolations() []string {
 	var out []string
 
@@ -141,19 +140,24 @@ func (m migration) dmlViolations() []string {
 	}
 
 	for _, stmt := range m.up {
-		switch kind := strings.ToUpper(firstWord(dmlStart, stmt)); kind {
+		switch kind := strings.ToUpper(firstMatch(dmlStart, stmt)); kind {
 		case "INSERT", "DELETE":
 			out = append(out, kind+" in Up: seeds and reference data are registered at boot by the owning service")
+		case "SELECT":
+			out = append(out, "SELECT in Up: replace the create template's placeholder with DDL")
 		case "UPDATE":
-			target := strings.ToLower(updateTarget.FindStringSubmatch(stmt)[1])
-			if !altered[target] {
+			target := strings.ToLower(firstMatch(updateTarget, stmt))
+			switch {
+			case target == "":
+				out = append(out, "UPDATE in Up with a target the content check cannot read")
+			case !altered[target]:
 				out = append(out, "UPDATE "+target+" in Up without an ALTER TABLE "+target+" in the same file")
 			}
 		}
 	}
 	for _, stmt := range m.down {
-		if kind := firstWord(dmlStart, stmt); kind != "" {
-			out = append(out, strings.ToUpper(kind)+" in Down: Down never changes rows")
+		if kind := firstMatch(dmlStart, stmt); kind != "" {
+			out = append(out, strings.ToUpper(kind)+" in Down: Down never touches rows")
 		}
 	}
 	return out
@@ -163,7 +167,7 @@ func (m migration) dmlViolations() []string {
 // table, and CONCURRENTLY needs the NO TRANSACTION directive.
 func (m migration) tableViolations(owners map[string]string) []string {
 	var out []string
-	for _, stmt := range append(append([]string{}, m.up...), m.down...) {
+	for _, stmt := range slices.Concat(m.up, m.down) {
 		for _, table := range referencedTables(stmt) {
 			owner, known := owners[table]
 			switch {
@@ -183,7 +187,8 @@ func (m migration) tableViolations(owners map[string]string) []string {
 	return out
 }
 
-func firstWord(re *regexp.Regexp, stmt string) string {
+// firstMatch returns the first capture group, or "" when re does not match.
+func firstMatch(re *regexp.Regexp, stmt string) string {
 	if match := re.FindStringSubmatch(stmt); match != nil {
 		return match[1]
 	}
@@ -194,12 +199,22 @@ func firstWord(re *regexp.Regexp, stmt string) string {
 func referencedTables(stmt string) []string {
 	seen := map[string]bool{}
 	var out []string
+	add := func(table string) {
+		table = strings.ToLower(table)
+		if !seen[table] {
+			seen[table] = true
+			out = append(out, table)
+		}
+	}
 	for _, re := range tableReferences {
 		for _, match := range re.FindAllStringSubmatch(stmt, -1) {
-			table := strings.ToLower(match[1])
-			if !seen[table] {
-				seen[table] = true
-				out = append(out, table)
+			add(match[1])
+		}
+	}
+	if match := dropTables.FindStringSubmatch(stmt); match != nil {
+		for target := range strings.SplitSeq(match[1], ",") {
+			if name := dropTarget.FindStringSubmatch(strings.TrimSpace(target)); name != nil {
+				add(name[1])
 			}
 		}
 	}

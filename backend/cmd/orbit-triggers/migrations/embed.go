@@ -4,8 +4,7 @@ package migrations
 
 import "embed"
 
-// FS holds the migration files. go:embed cannot reach a parent directory, so
-// each service embeds its own.
+// FS holds the migration files. go:embed cannot reach a parent directory.
 //
 //go:embed *.sql
 var FS embed.FS

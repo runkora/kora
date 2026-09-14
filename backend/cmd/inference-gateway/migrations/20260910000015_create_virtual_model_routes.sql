@@ -10,7 +10,7 @@ CREATE TABLE virtual_model_routes (
     enabled BOOLEAN DEFAULT true NOT NULL,
     CONSTRAINT virtual_model_routes_pkey PRIMARY KEY (id),
     CONSTRAINT virtual_model_routes_virtual_model_id_provider_model_id_key UNIQUE (virtual_model_id, provider, model_id),
-    CONSTRAINT virtual_model_routes_provider_check CHECK ((provider IN ('bedrock', 'vertexai', 'azure')) OR (provider ~ '^bedrock:[a-z][a-z0-9_]*$')),
+    CONSTRAINT virtual_model_routes_provider_check CHECK (provider IN ('bedrock', 'vertexai', 'azure') OR provider ~ '^bedrock:[a-z][a-z0-9_]*$'),
     CONSTRAINT virtual_model_routes_virtual_model_id_fkey FOREIGN KEY (virtual_model_id) REFERENCES virtual_models(id) ON DELETE CASCADE
 );
 

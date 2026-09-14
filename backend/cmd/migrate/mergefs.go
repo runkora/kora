@@ -3,37 +3,37 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"regexp"
 	"sort"
 	"strconv"
+	"time"
 )
 
 var (
-	// ErrDuplicateMigration reports the same filename or version prefix in two
-	// services. goose keys its version table by prefix, so a collision would
-	// silently drop one service's migration.
-	ErrDuplicateMigration = errors.New("duplicate migration across services")
+	// errDuplicateMigration reports the same filename or version prefix in two
+	// services. goose rejects such a set; failing here names both services.
+	errDuplicateMigration = errors.New("duplicate migration across services")
 
-	// ErrMalformedMigration reports a filename that is not <version>_<slug>.sql.
-	ErrMalformedMigration = errors.New("migration filename is not <version>_<slug>.sql")
+	// errMalformedMigration reports a filename that is not <version>_<slug>.sql.
+	errMalformedMigration = errors.New("migration filename is not <version>_<slug>.sql")
 
 	migrationName = regexp.MustCompile(`^(\d+)_[a-z0-9_]+\.sql$`)
 )
 
 // mergedFS serves every service's migration files from one root directory,
-// which is how goose reads a migration set. Each name maps to the embedded FS
-// that owns it.
+// which is how goose reads a migration set.
 type mergedFS struct {
-	files map[string]fs.FS
-	names []string
+	files  map[string]fs.FS  // filename to the embedded FS that holds it
+	owners map[string]string // filename to service
+	names  []string          // sorted filenames
 }
 
 // mergeMigrationFS merges the named service filesystems, failing on a
 // duplicate filename or version prefix.
 func mergeMigrationFS(sources map[string]fs.FS) (*mergedFS, error) {
-	m := &mergedFS{files: map[string]fs.FS{}}
-	owners := map[string]string{}
+	m := &mergedFS{files: map[string]fs.FS{}, owners: map[string]string{}}
 	versions := map[int64]string{}
 
 	services := make([]string, 0, len(sources))
@@ -54,16 +54,19 @@ func mergeMigrationFS(sources map[string]fs.FS) (*mergedFS, error) {
 			}
 			match := migrationName.FindStringSubmatch(name)
 			if match == nil {
-				return nil, fmt.Errorf("%s/%s: %w", service, name, ErrMalformedMigration)
+				return nil, fmt.Errorf("%s/%s: %w", service, name, errMalformedMigration)
 			}
-			version, _ := strconv.ParseInt(match[1], 10, 64)
-			if other, ok := owners[name]; ok {
-				return nil, fmt.Errorf("%s and %s both carry %s: %w", other, service, name, ErrDuplicateMigration)
+			version, err := strconv.ParseInt(match[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s/%s: %w", service, name, errMalformedMigration)
+			}
+			if other, ok := m.owners[name]; ok {
+				return nil, fmt.Errorf("%s and %s both carry %s: %w", other, service, name, errDuplicateMigration)
 			}
 			if other, ok := versions[version]; ok {
-				return nil, fmt.Errorf("%s and %s both carry version %d: %w", other, service, version, ErrDuplicateMigration)
+				return nil, fmt.Errorf("%s and %s both carry version %d: %w", other, service, version, errDuplicateMigration)
 			}
-			owners[name] = service
+			m.owners[name] = service
 			versions[version] = service
 			m.files[name] = sources[service]
 			m.names = append(m.names, name)
@@ -73,8 +76,11 @@ func mergeMigrationFS(sources map[string]fs.FS) (*mergedFS, error) {
 	return m, nil
 }
 
-// Open serves a migration file from the service FS that owns it.
+// Open serves the root directory or a migration file from the FS that owns it.
 func (m *mergedFS) Open(name string) (fs.File, error) {
+	if name == "." {
+		return &rootDir{fs: m}, nil
+	}
 	source, ok := m.files[name]
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
@@ -97,3 +103,40 @@ func (m *mergedFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	return entries, nil
 }
+
+// rootDir is the open root directory; offset tracks successive ReadDir calls.
+type rootDir struct {
+	fs     *mergedFS
+	offset int
+}
+
+func (d *rootDir) Stat() (fs.FileInfo, error) { return rootInfo{}, nil }
+func (d *rootDir) Read([]byte) (int, error)   { return 0, errors.New("is a directory") }
+func (d *rootDir) Close() error               { return nil }
+
+func (d *rootDir) ReadDir(n int) ([]fs.DirEntry, error) {
+	entries, err := d.fs.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+	rest := entries[d.offset:]
+	if n <= 0 {
+		d.offset = len(entries)
+		return rest, nil
+	}
+	if len(rest) == 0 {
+		return nil, io.EOF
+	}
+	rest = rest[:min(n, len(rest))]
+	d.offset += len(rest)
+	return rest, nil
+}
+
+type rootInfo struct{}
+
+func (rootInfo) Name() string       { return "." }
+func (rootInfo) Size() int64        { return 0 }
+func (rootInfo) Mode() fs.FileMode  { return fs.ModeDir | 0o555 }
+func (rootInfo) ModTime() time.Time { return time.Time{} }
+func (rootInfo) IsDir() bool        { return true }
+func (rootInfo) Sys() any           { return nil }

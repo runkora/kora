@@ -21,13 +21,13 @@ CREATE TABLE runs (
     CONSTRAINT runs_agent_type_id_fkey FOREIGN KEY (agent_type_id) REFERENCES agent_types(id)
 );
 
-CREATE INDEX idx_runs_active ON runs (agent_type_id, pod_ordinal) WHERE (state IN ('pending', 'starting', 'active', 'idle', 'completing'));
+CREATE INDEX idx_runs_active ON runs (agent_type_id, pod_ordinal) WHERE state IN ('pending', 'starting', 'active', 'idle', 'completing');
 
 CREATE INDEX idx_runs_agent_type_id ON runs (agent_type_id, created_at DESC);
 
 CREATE INDEX idx_runs_tenant_id ON runs (tenant_id, created_at DESC);
 
-CREATE INDEX idx_runs_trigger_id ON runs (trigger_id, created_at DESC) WHERE (trigger_id IS NOT NULL);
+CREATE INDEX idx_runs_trigger_id ON runs (trigger_id, created_at DESC) WHERE trigger_id IS NOT NULL;
 -- +goose StatementEnd
 
 -- +goose Down

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"text/template"
 
 	identityMigrations "github.com/clear-route/orbit/cmd/identity/migrations"
 	inferenceMigrations "github.com/clear-route/orbit/cmd/inference-gateway/migrations"
@@ -189,8 +190,22 @@ func create(args []string) error {
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("run create from backend/: %w", err)
 	}
-	return goose.Create(nil, dir, slug, "sql")
+	return goose.CreateWithTemplate(nil, dir, migrationTemplate, slug, "sql")
 }
+
+// migrationTemplate is the blank file create writes: the goose markers and
+// nothing else, so an unedited file fails the content check instead of
+// carrying a placeholder query.
+var migrationTemplate = template.Must(template.New("migration").Parse(`-- +goose Up
+-- +goose StatementBegin
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+-- +goose StatementEnd
+`))
 
 // gooseLogger routes goose's own output through the injected logger.
 type gooseLogger struct {

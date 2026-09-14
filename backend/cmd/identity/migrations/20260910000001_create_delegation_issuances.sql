@@ -13,9 +13,9 @@ CREATE TABLE delegation_issuances (
     CONSTRAINT delegation_issuances_pkey PRIMARY KEY (jti)
 );
 
-CREATE UNIQUE INDEX delegation_issuances_active_run_idx ON delegation_issuances (run_id) WHERE (revoked_at IS NULL);
+CREATE UNIQUE INDEX delegation_issuances_active_run_idx ON delegation_issuances (run_id) WHERE revoked_at IS NULL;
 
-CREATE INDEX delegation_issuances_delegator_idx ON delegation_issuances (tenant_id, delegator_principal_id) WHERE (revoked_at IS NULL);
+CREATE INDEX delegation_issuances_delegator_idx ON delegation_issuances (tenant_id, delegator_principal_id) WHERE revoked_at IS NULL;
 -- +goose StatementEnd
 
 -- +goose Down

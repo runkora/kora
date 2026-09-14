@@ -740,9 +740,8 @@ func buildGatewayBundle(
 		{"vocabulary/data.json", vocabJSON},
 	}
 
-	// Grants and roles carry their transitive requires, exactly as the
-	// per-tenant bundle compiles them, so the edge authorizes on the same
-	// effective set the sidecar does.
+	// Expand requires here as the per-tenant bundle does; edge and sidecar
+	// must authorize on the same effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}

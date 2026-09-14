@@ -27,7 +27,7 @@ CREATE TABLE agent_types (
     CONSTRAINT agent_types_environment_id_fkey FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_agent_types_environment_id ON agent_types (environment_id) WHERE (environment_id IS NOT NULL);
+CREATE INDEX idx_agent_types_environment_id ON agent_types (environment_id) WHERE environment_id IS NOT NULL;
 
 CREATE INDEX idx_agent_types_tenant_id ON agent_types (tenant_id, created_at DESC);
 -- +goose StatementEnd

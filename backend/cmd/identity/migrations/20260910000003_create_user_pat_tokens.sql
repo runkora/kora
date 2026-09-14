@@ -19,7 +19,7 @@ CREATE TABLE user_pat_tokens (
 
 CREATE INDEX idx_user_pat_tokens_tenant_id ON user_pat_tokens (tenant_id);
 
-CREATE INDEX idx_user_pat_tokens_user_id ON user_pat_tokens (user_id, tenant_id) WHERE (revoked_at IS NULL);
+CREATE INDEX idx_user_pat_tokens_user_id ON user_pat_tokens (user_id, tenant_id) WHERE revoked_at IS NULL;
 -- +goose StatementEnd
 
 -- +goose Down

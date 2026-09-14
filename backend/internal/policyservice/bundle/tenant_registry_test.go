@@ -19,8 +19,8 @@ func TestTenantRegistry_ActiveTenantIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 2 || ids[0] != "acme" || ids[1] != "unstated" {
-		t.Fatalf("ids = %v, want [acme unstated]", ids)
+	if len(ids) != 1 || ids[0] != "acme" {
+		t.Fatalf("ids = %v, want [acme]", ids)
 	}
 }
 
@@ -30,7 +30,7 @@ func TestTenantRegistry_UnsetAndMissing(t *testing.T) {
 	if ids, err := (&TenantRegistry{}).ActiveTenantIDs(context.Background()); err != nil || ids != nil {
 		t.Fatalf("unset path: ids=%v err=%v", ids, err)
 	}
-	if _, err := (&TenantRegistry{path: filepath.Join(t.TempDir(), "absent.yaml")}).ActiveTenantIDs(context.Background()); err == nil {
-		t.Fatal("missing file should error")
+	if ids, err := (&TenantRegistry{path: filepath.Join(t.TempDir(), "absent.yaml")}).ActiveTenantIDs(context.Background()); err != nil || ids != nil {
+		t.Fatalf("absent file: ids=%v err=%v, want none", ids, err)
 	}
 }

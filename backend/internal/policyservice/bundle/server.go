@@ -23,9 +23,9 @@ import (
 // non-existent tenants.
 var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
-// TenantLister names the tenants that exist, whether or not they have policy
-// rows yet. The tenant registry the operator writes is the implementation.
-type TenantLister interface {
+// tenantLister names the tenants that exist, whether or not they have policy
+// rows yet. The operator-written tenant registry is the implementation.
+type tenantLister interface {
 	ActiveTenantIDs(ctx context.Context) ([]string, error)
 }
 
@@ -39,12 +39,12 @@ type Server struct {
 	roleRepo           roles.Repository
 	tenantBudgetRepo   tenantbudget.Repository
 	principalRolesRepo principalroles.Repository
-	tenants            TenantLister
+	tenants            tenantLister
 	logger             logging.Logger
 }
 
 // NewServer creates a bundle Server wired to the provided repositories.
-func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, principalRolesRepo principalroles.Repository, tenants TenantLister, logger logging.Logger) *Server {
+func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, principalRolesRepo principalroles.Repository, tenants tenantLister, logger logging.Logger) *Server {
 	return &Server{
 		compiler:           compiler,
 		grantRepo:          grantRepo,
@@ -62,14 +62,12 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 // rows is still a tenant; its reserved roles must reach the gateway bundle.
 func (s *Server) KnownTenantIDs(ctx context.Context) ([]string, error) {
 	set := map[string]struct{}{}
-	if s.tenants != nil {
-		registered, err := s.tenants.ActiveTenantIDs(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list registered tenants: %w", err)
-		}
-		for _, tid := range registered {
-			set[tid] = struct{}{}
-		}
+	registered, err := s.tenants.ActiveTenantIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list registered tenants: %w", err)
+	}
+	for _, tid := range registered {
+		set[tid] = struct{}{}
 	}
 	grantTenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
 	if err != nil {

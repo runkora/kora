@@ -16,7 +16,7 @@ CREATE TABLE identity_sessions (
     CONSTRAINT identity_sessions_jti_key UNIQUE (jti)
 );
 
-CREATE INDEX idx_identity_sessions_expires_at ON identity_sessions (expires_at) WHERE (revoked_at IS NULL);
+CREATE INDEX idx_identity_sessions_expires_at ON identity_sessions (expires_at) WHERE revoked_at IS NULL;
 
 CREATE INDEX idx_identity_sessions_principal_id ON identity_sessions (principal_id, tenant_id);
 -- +goose StatementEnd

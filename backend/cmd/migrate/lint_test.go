@@ -90,6 +90,34 @@ func TestLintMigrations_RejectsEachClause(t *testing.T) {
 			body: "-- +goose Up\nALTER TABLE widgets RENAME TO gizmos;\n-- +goose Down\n",
 			want: "renames a table",
 		},
+		"select placeholder": {
+			body: "-- +goose Up\nSELECT 'up SQL query';\n-- +goose Down\n",
+			want: "SELECT in Up",
+		},
+		"empty up": {
+			body: "-- +goose Up\n-- +goose StatementBegin\n-- +goose StatementEnd\n-- +goose Down\n",
+			want: "Up has no statements",
+		},
+		"cte insert": {
+			body: "-- +goose Up\nWITH s AS (SELECT 1) INSERT INTO widgets (id) SELECT 'x' FROM s;\n-- +goose Down\n",
+			want: "INSERT in Up",
+		},
+		"quoted update target": {
+			body: "-- +goose Up\nUPDATE \"widgets\" SET kind = 'a';\n-- +goose Down\n",
+			want: "UPDATE widgets in Up without an ALTER TABLE widgets",
+		},
+		"schema-qualified foreign table": {
+			body: "-- +goose Up\nALTER TABLE public.gadgets ADD COLUMN size INTEGER;\n-- +goose Down\n",
+			want: "references table gadgets, owned by b",
+		},
+		"unnamed index on foreign table": {
+			body: "-- +goose Up\nCREATE INDEX ON gadgets (id);\n-- +goose Down\n",
+			want: "references table gadgets, owned by b",
+		},
+		"drop table list": {
+			body: "-- +goose Up\nALTER TABLE widgets ADD COLUMN size INTEGER;\n-- +goose Down\nDROP TABLE widgets, gadgets;\n",
+			want: "references table gadgets, owned by b",
+		},
 		"concurrently in transaction": {
 			body: "-- +goose Up\nCREATE INDEX CONCURRENTLY idx_widgets_kind ON widgets (kind);\n-- +goose Down\n",
 			want: "CONCURRENTLY without -- +goose NO TRANSACTION",
@@ -107,13 +135,39 @@ func TestLintMigrations_RejectsEachClause(t *testing.T) {
 					"20260103000000_create_gadgets.sql": file("-- +goose Up\nCREATE TABLE gadgets (id TEXT PRIMARY KEY);\n-- +goose Down\nDROP TABLE gadgets;\n"),
 				},
 			})
-			if !errors.Is(err, ErrMigrationContent) {
-				t.Fatalf("err = %v, want ErrMigrationContent", err)
+			if !errors.Is(err, errMigrationContent) {
+				t.Fatalf("err = %v, want errMigrationContent", err)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLintMigrations_IgnoresNonTableFrom(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_add_year.sql":       file("-- +goose Up\nALTER TABLE widgets ADD COLUMN year INTEGER GENERATED ALWAYS AS (EXTRACT(YEAR FROM created_at)) STORED;\nALTER TABLE widgets ADD CONSTRAINT widgets_kind_size CHECK (kind IS DISTINCT FROM size);\n-- +goose Down\nALTER TABLE widgets DROP COLUMN year;\n"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("FROM inside an expression is not a table reference: %v", err)
+	}
+}
+
+func TestLintMigrations_RejectsDuplicateVersion(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{"20260101000000_create_widgets.sql": file(cleanUp)},
+		"b": fstest.MapFS{"20260101000000_create_gadgets.sql": file("-- +goose Up\nCREATE TABLE gadgets (id TEXT PRIMARY KEY);\n-- +goose Down\nDROP TABLE gadgets;\n")},
+	})
+	if !errors.Is(err, errDuplicateMigration) {
+		t.Fatalf("err = %v, want errDuplicateMigration", err)
 	}
 }
 

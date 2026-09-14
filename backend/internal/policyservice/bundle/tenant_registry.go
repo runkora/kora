@@ -2,7 +2,9 @@ package bundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 
 	"sigs.k8s.io/yaml"
@@ -10,7 +12,8 @@ import (
 
 // TenantRegistry lists the tenants the operator has registered, read from the
 // orbit-tenants ConfigMap mounted at ORBIT_TENANTS_CONFIG. It is read on every
-// call so a recompile sees the current file. An unset path lists nothing.
+// call so a recompile sees the current file. An unset path or an absent file
+// (the mount is optional) lists nothing.
 type TenantRegistry struct {
 	path string
 }
@@ -25,12 +28,16 @@ type registryTenant struct {
 	State string `json:"state"`
 }
 
-// ActiveTenantIDs returns the id of every registered tenant that is active.
+// ActiveTenantIDs returns the id of every registered tenant whose state is
+// active, the same rule identity applies to this file.
 func (r *TenantRegistry) ActiveTenantIDs(context.Context) ([]string, error) {
 	if r.path == "" {
 		return nil, nil
 	}
 	data, err := os.ReadFile(r.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read tenant registry: %w", err)
 	}
@@ -42,7 +49,7 @@ func (r *TenantRegistry) ActiveTenantIDs(context.Context) ([]string, error) {
 	}
 	var ids []string
 	for _, t := range reg.Tenants {
-		if t.ID != "" && (t.State == "" || t.State == "active") {
+		if t.ID != "" && t.State == "active" {
 			ids = append(ids, t.ID)
 		}
 	}

@@ -28,13 +28,13 @@ CREATE TABLE triggers (
     consecutive_failures INTEGER DEFAULT 0 NOT NULL,
     auto_paused_at TIMESTAMPTZ,
     CONSTRAINT triggers_pkey PRIMARY KEY (id),
-    CONSTRAINT triggers_max_parallel_check CHECK ((max_parallel >= 1) AND (max_parallel <= 16)),
+    CONSTRAINT triggers_max_parallel_check CHECK (max_parallel BETWEEN 1 AND 16),
     CONSTRAINT triggers_overflow_check CHECK (overflow IN ('wait', 'replace', 'refuse')),
     CONSTRAINT triggers_target_kind_check CHECK (target_kind = 'agent'),
     CONSTRAINT triggers_source_id_fkey FOREIGN KEY (source_id) REFERENCES webhook_sources(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_triggers_kind ON triggers (kind) WHERE (enabled = true);
+CREATE INDEX idx_triggers_kind ON triggers (kind) WHERE enabled = true;
 
 CREATE INDEX idx_triggers_source_id ON triggers (source_id);
 
