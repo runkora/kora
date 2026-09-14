@@ -10,18 +10,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Postgres integration tests for the example repository. They run only when
-// ORBIT_TEST_DB_URL points at a database with the example tables migrated
-// (the local docker-compose Postgres after `make migrate-up`); otherwise they
-// skip. Each test isolates itself under random ids and cleans up after.
+// Postgres integration tests for the example repository. The example tables
+// are not part of the product schema, so cmd/migrate does not create them and
+// `make test-postgres` does not run these. They run only when
+// ORBIT_EXAMPLE_TEST_DB_URL points at a database where cmd/example/migrations
+// has been applied by hand; otherwise they skip.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	ORBIT_EXAMPLE_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/example/ -run Postgres
 func testRepo(t *testing.T) *PostgresRepository {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("ORBIT_EXAMPLE_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run example Postgres integration tests")
+		t.Skip("set ORBIT_EXAMPLE_TEST_DB_URL to run example Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
