@@ -73,6 +73,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7.3.0
+        # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
         with:
           source: .
           files: docker-bake.hcl
