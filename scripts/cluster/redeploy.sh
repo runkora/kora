@@ -58,7 +58,9 @@ EOF
 #   build_arg   Optional --build-arg, KEY=VALUE; empty if not needed.
 #   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
-#   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}).
+#   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}),
+#               'sidecar' or 'release' for images with no workload of their own,
+#               rolled by re-applying the orbit release.
 #               Use {slug} as a placeholder for the agent slug (== tenant).
 #   extra_workloads  Optional space-separated list of additional workloads that
 #               run the same image and must be rolled alongside `workload`.
@@ -210,6 +212,20 @@ extra_workloads=deployment/orbit-tool-gateway-publisher
 restart=true
 EOF
       ;;
+    migrate)
+      # Runs as a pre-upgrade hook Job, not a Deployment; re-applying the orbit
+      # release with the new digest fires the hook.
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=migrate
+image=orbit-migrate
+values_key=migrate
+namespace=orbit-system
+workload=release
+restart=true
+EOF
+      ;;
     operator)
       cat <<'EOF'
 dockerfile=Dockerfile.operator
@@ -279,6 +295,7 @@ frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
 orbit-triggers      (deployment, orbit-system)
+migrate             (hook Job; re-applies the orbit release so the schema migration runs)
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
@@ -518,6 +535,10 @@ GENERATED="$ROOT_DIR/deploy/reference/environments/local.generated.yaml"
 if [ -n "$DIGEST" ] && [ -n "$VALUES_KEY" ]; then
   [ -f "$GENERATED" ] || echo "{}" > "$GENERATED"
   yq -i ".${VALUES_KEY}.image.digest = \"${DIGEST}\"" "$GENERATED"
+  # `make redeploy` skips the migrate rebuild while this hash matches the tree.
+  if [ "$SERVICE" = "migrate" ]; then
+    yq -i ".migrate.sourceHash = \"$(bash "$ROOT_DIR/scripts/cluster/migrations-hash.sh")\"" "$GENERATED"
+  fi
 fi
 
 # ── restart ───────────────────────────────────────────────────────────────────
@@ -533,10 +554,11 @@ if [ "$RESTART" != "true" ]; then
 fi
 
 case "$WORKLOAD" in
-  sidecar)
-    # Referenced by chart templates and the operator's injection config;
-    # re-applying the release rolls system pods, tenant pods on next creation.
-    log "$SERVICE is a sidecar, re-applying the orbit release with the new digest..."
+  sidecar|release)
+    # Sidecars are referenced by chart templates and the operator's injection
+    # config; hook Jobs run on upgrade. Re-applying the release with the new
+    # digest rolls system pods (tenant pods on next creation) or fires the hook.
+    log "Re-applying the orbit release with the new $SERVICE digest..."
     (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=orbit)
     ok "$SERVICE rolled via the orbit release"
     ;;

@@ -19,7 +19,6 @@ GOLINT=golangci-lint
 BACKEND_DIR=./backend
 FRONTEND_DIR=./frontend
 CMD_DIR=./backend/cmd/orbit
-MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 
 # Binary output
 BINARY_DIR=.bin
@@ -27,7 +26,6 @@ BINARY_DIR=.bin
 # Tool versions (pin for reproducible installs)
 GITLEAKS_VERSION=v8.27.2
 GOLANGCI_LINT_VERSION=v2.11.3
-GOOSE_VERSION=v3.24.1
 NODE_VERSION=24
 PNPM_VERSION=10.32.1
 PROTOC_GEN_GO_VERSION=v1.36.11
@@ -225,10 +223,8 @@ worktree-list: ## List all active worktrees
 	@git worktree list
 
 .PHONY: install-tools
-install-tools: ## Install development tools (goose, golangci-lint, gitleaks, buf, protoc-gen-go)
+install-tools: ## Install development tools (golangci-lint, gitleaks, buf, protoc-gen-go)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
-	@echo "  Installing goose $(GOOSE_VERSION)..."
-	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	@echo "  Installing protoc-gen-go $(PROTOC_GEN_GO_VERSION)..."
 	@$(GOCMD) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	@echo "  Installing protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION)..."
@@ -284,12 +280,6 @@ check-tool-versions: ## Verify installed tool versions match pinned versions in 
 	else \
 		echo "  $(COLOR_YELLOW)⚠ gitleaks: installed=$${INSTALLED:-none}  expected=$(GITLEAKS_VERSION) — run: make install-tools$(COLOR_RESET)"; \
 	fi
-	@INSTALLED=$$(goose --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$INSTALLED" = "$(GOOSE_VERSION)" ]; then \
-		echo "  $(COLOR_GREEN)✓ goose $$INSTALLED$(COLOR_RESET)"; \
-	else \
-		echo "  $(COLOR_YELLOW)⚠ goose: installed=$${INSTALLED:-none}  expected=$(GOOSE_VERSION) — run: make install-tools$(COLOR_RESET)"; \
-	fi
 	@. scripts/cluster/versions.env && \
 	INSTALLED=$$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$${HELM_VERSION}" ]; then \
@@ -337,35 +327,21 @@ db-logs: ## Show database logs
 db-shell: ## Open a psql shell to the database
 	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
 
-# Collect all per-service migration files into a temp directory for local dev.
-# Each service owns its migrations under backend/cmd/{service}/migrations/.
-# Goose orders them by timestamp prefix so cross-service ordering is preserved.
-COLLECT_MIGRATIONS = \
-	MIGRATIONS_TEMP=$$(mktemp -d); \
-	find backend/cmd -path '*/migrations/*.sql' -exec cp {} "$$MIGRATIONS_TEMP/" \; ;
-
-.PHONY: migrate-up
-migrate-up: ## Run all database migrations up (collects all per-service migrations)
-	@echo "$(COLOR_YELLOW)Running migrations up...$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" up; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
-	@echo "$(COLOR_GREEN)✓ Migrations up complete$(COLOR_RESET)"
-
-.PHONY: migrate-down
-migrate-down: ## Roll back the last database migration
-	@echo "$(COLOR_YELLOW)Rolling back last migration...$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" down; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
-	@echo "$(COLOR_GREEN)✓ Migration rolled back$(COLOR_RESET)"
+# cmd/migrate embeds every service's migrations and is what the chart runs as a
+# pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
+# runs through `go run` against the compose Postgres.
+MIGRATE_ENV = APP_ENV=local DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_NAME=$(DB_NAME) DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) ORBIT_POSTGRES_SSL_MODE=disable ORBIT_LOG_FORMAT=console
+MIGRATE = cd $(BACKEND_DIR) && $(MIGRATE_ENV) $(GOCMD) run ./cmd/migrate
 
 .PHONY: migrate-status
-migrate-status: ## Show migration status
-	@echo "$(COLOR_YELLOW)Migration status:$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" status; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
+migrate-status: ## Show applied and pending migrations against the local Postgres
+	@$(MIGRATE) status
+
+.PHONY: migrate-lint
+migrate-lint: ## Check every migration against the content rule (DDL only, own tables, coupled backfills)
+	@echo "$(COLOR_YELLOW)Linting migrations...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate lint
+	@echo "$(COLOR_GREEN)✓ Migrations pass the content rule$(COLOR_RESET)"
 
 .PHONY: migrate-create
 migrate-create: ## Create a new migration (usage: make migrate-create service=identity name=migration_name)
@@ -374,13 +350,23 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 		echo "$(COLOR_YELLOW)  e.g. make migrate-create service=identity name=add_sessions_index$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	@if [ ! -d "backend/cmd/$(service)/migrations" ]; then \
-		echo "$(COLOR_RED)Error: backend/cmd/$(service)/migrations does not exist$(COLOR_RESET)"; \
-		exit 1; \
-	fi
-	@echo "$(COLOR_YELLOW)Creating migration for service '$(service)': $(name)$(COLOR_RESET)"
-	@goose -dir backend/cmd/$(service)/migrations create $(name) sql
+	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate create --service $(service) $(name)
 	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
+
+# The migrate image is rebuilt and the orbit release re-applied only when the
+# migration files changed since the last push. redeploy.sh records the content
+# hash beside the digest in local.generated.yaml. A redeploy of any service on
+# a branch that added a migration fires the hook before the service boots
+# against the stale schema.
+.PHONY: redeploy-migrate-if-changed
+redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit release when the migration files changed
+	@HASH=$$(bash scripts/cluster/migrations-hash.sh); \
+	RECORDED=$$(yq -r '.migrate.sourceHash // ""' deploy/reference/environments/local.generated.yaml 2>/dev/null); \
+	if [ "$$HASH" = "$$RECORDED" ]; then \
+		echo "$(COLOR_BLUE)ℹ migrations unchanged ($$HASH), migrate image not rebuilt$(COLOR_RESET)"; \
+	else \
+		bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS); \
+	fi
 
 # ===========================================
 # Backing services (Postgres, Redis, Dex, glauth) via docker-compose
@@ -432,10 +418,10 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # Each composes the granular recipes below.
 # ===========================================
 
-# dev-cluster starts the compose services first, so migrations can run before the
-# operator brings up services that expect their tables to exist.
+# The schema is applied by the orbit chart's pre-install hook during
+# cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster migrate-up cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, migrations, SPIRE + Istio + Orbit from the reference Helmfile, tenants. Idempotent.
+up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + Orbit (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
@@ -473,7 +459,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers operator \
+	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
 	session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
@@ -597,7 +583,7 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
-	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers \
+	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
 	orbit-operator orbit-session-manager orbit-sandbox-exec
 
 .PHONY: redeploy-platform-bake
@@ -788,12 +774,8 @@ REDEPLOY_FLAGS := \
 
 .PHONY: redeploy
 redeploy: ## Rebuild and roll every service. SERVICE=<name> narrows it to one (see: make redeploy-list)
-	@# Pull a branch that adds a migration, redeploy, and the service would boot
-	@# against a stale schema with nothing saying why. A no-op migrate-up costs
-	@# ~0.1s, so the inner loop just keeps the schema current. Skipped when
-	@# Postgres is down, so redeploy.sh's preflight can give the better message.
-	@if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx orbit-postgres; then \
-		$(MAKE) --no-print-directory migrate-up; \
+	@if [ "$(SERVICE)" != "migrate" ]; then \
+		$(MAKE) --no-print-directory redeploy-migrate-if-changed; \
 	fi
 	@if [ -n "$(SERVICE)" ]; then \
 		bash scripts/cluster/redeploy.sh $(SERVICE) $(REDEPLOY_FLAGS); \
@@ -904,7 +886,8 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		exit $$STATUS
 
 .PHONY: test-postgres
-test-postgres: migrate-up ## Postgres-backed repository tests against the local Postgres. Needs `make up`. Not run by CI or `make check`.
+test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
+	@$(MIGRATE) up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
 	@cd $(BACKEND_DIR) && ORBIT_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
@@ -1226,7 +1209,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: tidy fmt vet fix lint deadcode secrets docs-check test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, test, frontend-check)
+check: tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
