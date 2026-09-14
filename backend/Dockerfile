@@ -22,7 +22,7 @@ COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}/main.go
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}
 
 # Stage only the YAML config files this binary actually loads at runtime,
 # preserving relative paths under /app. Filtering to *.yaml keeps Go source
