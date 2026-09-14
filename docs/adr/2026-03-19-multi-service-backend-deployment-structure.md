@@ -1,6 +1,6 @@
 # Multi-Service Backend Deployment Structure
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-10)
 **Date:** 2026-03-19
 **Deciders:** Engineering Team
 **Technical Story:** The enforcement architecture defined in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), and 0015 requires each platform service to run as a separate Kubernetes workload with its own SPIFFE identity, Istio sidecar, and Cilium network policy. The current single-binary backend cannot satisfy this requirement. This ADR defines how the Go monorepo is restructured to produce multiple independently deployable binaries without abandoning the monorepo model.
@@ -242,7 +242,7 @@ migrate-up:
     rm -rf $$TMP_MIGRATIONS
 ```
 
-**Production — dedicated migration Job (planned, not yet implemented):**
+**Production — dedicated migration Job** (delivered by [Database Migrations](2026-09-10-database-migrations.md), which also replaces the Makefile aggregation with per-directory embedding):
 
 In the k8s deployment, migrations are run by a dedicated `cmd/migrate/` binary executed as a k8s `Job` before any service `Deployment` rolls out. This Job embeds all migration files at build time via `go:embed`, runs Goose, and exits. The service Deployments proceed only after the Job completes successfully. This pattern is deferred until the first Helm chart is written — the per-service migration directory structure established here is fully compatible with this approach and requires no structural change when the migration Job is introduced.
 
@@ -331,7 +331,7 @@ Each service's `cmd/{service}/config/` directory contains the standard environme
 
 - **Deployment model is legible from the codebase** — `cmd/identity/` maps directly to `k8s/identity.yaml`, its pod label `spiffe.io/component: identity`, its Istio sidecar, and its Cilium network policy
 - **Schema isolation** — each service's migrations are co-located with the service code; changes to identity schema do not touch credentials migration files
-- **Independent Docker images** — each service image contains only its binary and migrations; an unrelated feature's code is not present in the image
+- **Independent Docker images** — each service image contains only its binary and configuration; migrations ship in the `migrate` image alone
 - **Correct security surface** — a vulnerability in the agents feature package does not affect the identity service image because the identity binary does not import `internal/agents/`
 - **Zero infrastructure overhead for new services** — adding a new service requires no new `ClusterSPIFFEID` resource; a pod label is sufficient
 
