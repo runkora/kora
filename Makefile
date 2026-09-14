@@ -613,7 +613,7 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
-		printf 'FROM localhost:5001/orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
+		printf 'FROM localhost:5001/orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
 			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
 		docker tag localhost:5001/orbit-identity:latest "localhost:5001/orbit-identity:$$GIT_SHA"; \
 	fi; \
