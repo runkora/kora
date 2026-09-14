@@ -21,7 +21,7 @@ make setup
 ```
 
 - `env`: Generates `.env` with machine-local secrets. No-op if `.env` exists.
-- `install-tools`: Installs `goose`, `golangci-lint`, `gitleaks`, `buf`, protoc plugins.
+- `install-tools`: Installs `golangci-lint`, `gitleaks`, `buf`, protoc plugins.
 - `install-tools-cluster`: Installs `k3d`, `kubectl`, `helm`, `helmfile` and the `helm-diff` plugin.
 - `tidy`: `go mod tidy`.
 - `frontend-install`: Enforces Node 24 and pnpm 10, runs `pnpm install`.
@@ -39,8 +39,7 @@ make up
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
-- `migrate-up`: Applies every service's Goose migrations.
-- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two Orbit charts in dependency order, the same sequence on any cluster. Helmfile diffs before applying, so an unchanged environment is a no-op.
+- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two Orbit charts in dependency order, the same sequence on any cluster. The `orbit` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `OrbitTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
@@ -140,7 +139,7 @@ On smaller VMs, leave the flag unset. Concurrent build pressure can wedge the VM
 
 ## Database migrations
 
-Orbit uses [Goose](https://github.com/pressly/goose). Each service owns its migrations under `backend/cmd/{service}/migrations/`.
+Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job; the same binary runs locally through `go run`. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
 
 **Never write migration files by hand.** Generate them:
 
@@ -152,12 +151,22 @@ Both `service=` and `name=` are required. It writes a timestamped file with the 
 
 | Command | Does |
 |---|---|
-| `make migrate-up` | Apply all pending migrations across every service. |
-| `make migrate-down` | Roll back the last applied migration. |
-| `make migrate-status` | Show applied and pending migrations. |
 | `make migrate-create service=X name=Y` | Generate a new migration file for a service. |
+| `make migrate-lint` | Check every migration against the content rule. Part of `make check`. |
+| `make migrate-status` | Show applied and pending migrations against the compose Postgres. |
+| `make redeploy SERVICE=migrate` | Rebuild the migrate image and re-apply the `orbit` release so the hook runs. |
 
-`make up` and `make redeploy` both apply pending migrations first. The manual targets are for inspecting or rolling back.
+`make up` applies the schema through the hook. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did, so a branch that adds a migration never boots a service against a stale schema.
+
+Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an `ALTER TABLE` on the same table in the same file, nothing in `Down` that changes rows, and no statement that touches a table another service creates. `make migrate-lint` rejects violations. Seeds and reference data are registered at boot by the service that owns them.
+
+`Down` sections exist for local development only. To roll back one migration against the compose Postgres:
+
+```bash
+cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_HOST=localhost DB_NAME=orbit DB_USER=orbit DB_PASSWORD=orbit go run ./cmd/migrate down
+```
+
+Production never runs `Down`; rollback is `helm rollback` with the schema left in place.
 
 ## Environment configuration
 

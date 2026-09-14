@@ -30,6 +30,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | none | none |
+| `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
 > The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
@@ -245,13 +246,13 @@ cfg := config.MustLoadService[AppConfig]("identity", config.Environment())
 
 ### 7. Migrations via Goose (per-binary)
 
-SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. **Never hand-write migration files**, always generate them, specifying the owning service:
+SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. Each directory is also a Go package exposing an `embed.FS`; `cmd/migrate` embeds all of them and runs them as one set, as the chart's pre-install and pre-upgrade hook Job ([database migrations ADR](adr/2026-09-10-database-migrations.md)). **Never hand-write migration files**, always generate them, specifying the owning service:
 
 ```bash
 make migrate-create service=identity name=add_sessions_index
 ```
 
-Apply / roll back / inspect with `make migrate-up`, `make migrate-down`, `make migrate-status`.
+`make migrate-lint` (part of `make check`) enforces the content rule: DDL only, own tables only, an `UPDATE` only beside an `ALTER TABLE` on the same table, no row changes in `Down`. Inspect with `make migrate-status`; re-run the hook locally with `make redeploy SERVICE=migrate`.
 
 ---
 

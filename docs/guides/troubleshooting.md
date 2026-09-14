@@ -156,11 +156,11 @@ Regenerating the key invalidates platform tokens signed with the previous key. R
 
 ## A query fails with `relation does not exist`
 
-Check whether the service's migrations have been applied, then apply any that are pending:
+Check whether the service's migrations have been applied, then re-run the migrate hook:
 
 ```bash
 make migrate-status
-make migrate-up
+make redeploy SERVICE=migrate
 ```
 
 If the migration is present but the error remains, confirm that the failing service is using the same database configured in the local environment before changing the schema.

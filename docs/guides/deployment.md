@@ -53,7 +53,9 @@ The platform's SPIFFE trust domain is part of every workload identity Orbit issu
 
 ### Database, cache, and storage
 
-PostgreSQL and Redis must be reachable from the system namespace. Orbit runs its own schema migrations against the provided infrastructure. Orbit does not provision, back up, patch, or replicate either service.
+PostgreSQL and Redis must be reachable from the system namespace. Orbit does not provision, back up, patch, or replicate either service.
+
+The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the same credentials as the services, so the database role needs `CREATE` on schema `public` and owns every table it creates. PostgreSQL 13 through 17 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
@@ -257,11 +259,13 @@ helm upgrade orbit oci://ghcr.io/clear-route/charts/orbit \
 ```
 
 - Under GitOps, bump the chart `targetRevision` on both Applications in the same order.
-- Skipping minors is fine.
+- Skipping minors migrates the schema in one pass. Pods from the old release may return errors between the migration hook completing and the rollout finishing, and rollback is supported to the immediately preceding revision only.
 - Review the release notes for trust-domain, CRD, database migration, and identity-provider changes before upgrading.
 - Do not change `trustDomain` as part of a routine upgrade.
 
-Rollback the `orbit` release with `helm rollback orbit`, or revert the release revision under GitOps. This reverts the workloads only, not the database or the CRDs. Migrations are expand-contract and backward-compatible.
+Rollback the `orbit` release with `helm rollback orbit <previous revision>`, or revert the release revision under GitOps. This reverts the workloads only, not the database or the CRDs. Migrations are expand-contract: the schema at release N works with the binaries of release N-1, and the rolled-back release never runs a `Down` migration.
+
+A failed migration fails the upgrade before any workload changes. Under Helm the failed Job is kept for inspection; under Argo CD the next retry replaces it and the failure is visible in the sync history.
 
 ## References
 
