@@ -30,7 +30,7 @@ ARG INSTALL_BROWSERS=false
 ARG INSTALL_KUBECTL=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
-FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 WORKDIR /app
 
@@ -44,9 +44,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
+# The builder runs on the native build platform and Go cross-compiles for the
+# target, so multi-arch builds never compile under QEMU emulation.
+ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /sandbox-exec ./cmd/sandbox-exec/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec/main.go
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
