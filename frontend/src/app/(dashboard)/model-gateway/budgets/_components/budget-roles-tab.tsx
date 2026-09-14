@@ -22,7 +22,7 @@ import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
 
 // Reserved roles cannot carry budgets — the bundle compiler skips them.
-const RESERVED_ROLES = new Set(['tenant-admin', 'platform-admin']);
+const RESERVED_ROLES = new Set(['platform-admin']);
 
 interface BudgetRolesTabProps {
   roles: RoleEntry[];

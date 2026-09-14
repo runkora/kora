@@ -15,7 +15,7 @@ import (
 
 // withUserCtx builds verified HUMAN claims with a subject and an optional
 // comma-separated roles claim — the shape the identity service stamps and the
-// shape isTenantAdmin/isRunStarter read.
+// shape isPlatformAdmin/isRunStarter read.
 func withRunCallerCtx(ctx context.Context, tenantID, sub, roles string) context.Context {
 	claims := map[string]string{}
 	if roles != "" {
@@ -59,7 +59,7 @@ func TestDelegatedRun_SteerMatrix(t *testing.T) {
 		roles   string
 	}{
 		{"starter", starter, ""},
-		{"tenant admin", "admin-1", "tenant-admin"},
+		{"platform admin", "admin-1", "platform-admin"},
 		{"platform admin", "admin-2", "some-role,platform-admin"},
 		{"other user", "bob", "developer"},
 	}
@@ -155,7 +155,7 @@ func TestDelegatedRun_GetRunVisibility(t *testing.T) {
 		wantOwner string
 	}{
 		{"starter sees own run", "alice", "", nil, "alice"},
-		{"tenant admin sees any run", "admin-1", "tenant-admin", nil, "alice"},
+		{"platform admin sees any run", "admin-1", "platform-admin", nil, "alice"},
 		{"other user gets not-found", "bob", "developer", ErrNotFound, ""},
 	}
 	for _, tc := range tests {
@@ -221,7 +221,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 			map[string]bool{"run-alice": true, "run-auto": true}},
 		{"other starter sees own delegated + all autonomous", "bob", "",
 			map[string]bool{"run-bob": true, "run-auto": true}},
-		{"tenant admin sees everything", "admin-1", "tenant-admin",
+		{"platform admin sees everything", "admin-1", "platform-admin",
 			map[string]bool{"run-alice": true, "run-bob": true, "run-auto": true}},
 		{"third user sees only autonomous", "charlie", "",
 			map[string]bool{"run-auto": true}},
@@ -298,7 +298,7 @@ func TestDelegatedRun_EventAccess(t *testing.T) {
 		wantCode int
 	}{
 		{"starter may attach", "alice", "", http.StatusOK},
-		{"tenant admin may attach", "admin-1", "tenant-admin", http.StatusOK},
+		{"platform admin may attach", "admin-1", "platform-admin", http.StatusOK},
 		{"other user is refused with not-found", "bob", "", http.StatusNotFound},
 	}
 	for _, accept := range []string{"", "application/json"} {
@@ -343,7 +343,7 @@ func TestHandleSendMessage_DelegatedAdminRefusal(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages",
 		strings.NewReader(`{"content":"do the thing"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withRunCallerCtx(req.Context(), "t1", "admin-1", "tenant-admin"))
+	req = req.WithContext(withRunCallerCtx(req.Context(), "t1", "admin-1", "platform-admin"))
 	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)

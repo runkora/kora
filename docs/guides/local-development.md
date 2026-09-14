@@ -69,7 +69,7 @@ Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their defau
 
 | Account | Roles | Use it for |
 |---|---|---|
-| `dev@orbit.local.clearroute.io` | `platform-admin`, `tenant-admin`, `engineer` | The admin. Policy administration and everything else. |
+| `dev@orbit.local.clearroute.io` | `platform-admin`, `engineer` | The admin. Policy administration and everything else. |
 | `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
 
 Access tokens last four hours locally, set by `identity.accessTokenTtlMinutes` in `deploy/reference/environments/local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
@@ -82,7 +82,7 @@ Access tokens last four hours locally, set by `identity.accessTokenTtlMinutes` i
 
 The local certificates come from a private CA. `curl` needs `-k`, and any other client needs the mkcert root or TLS verification off.
 
-A `403` on a route you expected to reach means your principal lacks its scope. [Policy and roles](policy-and-roles.md) covers grants, roles, and the `tenant-admin` bootstrap.
+A `403` on a route you expected to reach means your principal lacks its scope. [Policy and roles](policy-and-roles.md) covers grants, roles, and the `platform-admin` bootstrap.
 
 ## Deploying a change
 

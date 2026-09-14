@@ -25,7 +25,7 @@ const ServiceName = "egress-gateway"
 const readConnectionsScope = "platform:connections:read"
 
 // writeConnectionsScope is the connection-management scope. Connections are
-// GitOps-managed CRs, so no write route binds it. The reserved tenant-admin and
+// GitOps-managed CRs, so no write route binds it. The reserved
 // platform-admin roles reference it, so it must exist in the vocabulary to be
 // grantable, for instance via a PAT. It is published without a route binding.
 const writeConnectionsScope = "platform:connections:write"

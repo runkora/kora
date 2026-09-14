@@ -3,8 +3,8 @@
 // of platform scopes. Users carrying that role in their JWT are granted those
 // scopes without a per-user grant.
 //
-// Platform admin roles (tenant-admin, platform-admin) are hardcoded in the
-// bundle compiler and are not managed here.
+// The platform-admin role is derived from the vocabulary in the
+// bundle compiler and is not managed here.
 package roles
 
 import (

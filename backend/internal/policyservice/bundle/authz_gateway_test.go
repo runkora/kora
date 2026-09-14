@@ -91,7 +91,7 @@ func startJWKSServer(t *testing.T) *httptest.Server {
 
 // signTestJWT signs a JWT with the test RSA key for gateway evaluation tests.
 // principalType is "AGENT", "HUMAN", or "PAT". orbitExtra is merged into the
-// orbit claim (e.g. {"claims": {"roles": "tenant-admin"}} for HUMAN principals).
+// orbit claim (e.g. {"claims": {"roles": "platform-admin"}} for HUMAN principals).
 func signTestJWT(t *testing.T, principalType, tenantID, principalID string, orbitExtra map[string]any) string {
 	t.Helper()
 	orbitClaims := map[string]any{
@@ -889,27 +889,28 @@ func TestGateway_XAPIKey_InvalidToken_Denied(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestGateway_HUMAN_RoleAllow verifies that a HUMAN principal with a reserved
-// OIDC role (tenant-admin) is allowed to access a route that the role grants.
+// OIDC role (platform-admin) is allowed to access a route that the role grants.
 func TestGateway_HUMAN_RoleAllow(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
 		tenantIDs: []string{testTenantID},
+		vocab:     adminVocab(),
 		globalRoutes: []routes.RouteScope{
 			{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
 		},
 	})
 
 	signed := signTestJWT(t, "HUMAN", testTenantID, "user-admin-001", map[string]any{
-		"claims": map[string]any{"roles": "tenant-admin"},
+		"claims": map[string]any{"roles": "platform-admin"},
 	})
 
 	allow, reason := evalGateway(t, pq, "GET", "/api/v1/policy/grants", map[string]string{
 		"authorization": "Bearer " + signed,
 	})
 	if !allow {
-		t.Errorf("expected tenant-admin role to allow platform:grants:read, got deny (reason: %s)", reason)
+		t.Errorf("expected platform-admin role to allow platform:grants:read, got deny (reason: %s)", reason)
 	}
 	if !strings.HasPrefix(reason, "role:") {
 		t.Errorf("expected role: reason prefix, got %q", reason)

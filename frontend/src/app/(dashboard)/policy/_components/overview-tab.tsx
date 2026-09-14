@@ -350,7 +350,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
               <Separator />
               <Stack direction="horizontal" gap="tight" wrap>
                 {roles.map((role) => {
-                  const isReserved = role.role === 'tenant-admin' || role.role === 'platform-admin';
+                  const isReserved = role.role === 'platform-admin';
                   return (
                     <Badge
                       key={role.id}
