@@ -740,6 +740,10 @@ func buildGatewayBundle(
 		{"vocabulary/data.json", vocabJSON},
 	}
 
+	// Grants and roles carry their transitive requires, exactly as the
+	// per-tenant bundle compiles them, so the edge authorizes on the same
+	// effective set the sidecar does.
+	requiresMap := requiresFromVocab(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
@@ -747,7 +751,7 @@ func buildGatewayBundle(
 				ID:                 g.ID,
 				PrincipalType:      string(g.PrincipalType),
 				PrincipalID:        g.PrincipalID,
-				Scopes:             g.Scopes,
+				Scopes:             expandRequires(g.Scopes, requiresMap),
 				DelegationRequired: g.DelegationRequired,
 			})
 		}
@@ -763,6 +767,9 @@ func buildGatewayBundle(
 			if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
 				mergedRoles[e.Role] = e.Scopes
 			}
+		}
+		for role, scopes := range mergedRoles {
+			mergedRoles[role] = expandRequires(scopes, requiresMap)
 		}
 		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergedRoles})
 		if err != nil {

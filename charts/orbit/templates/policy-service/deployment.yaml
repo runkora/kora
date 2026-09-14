@@ -30,6 +30,13 @@ spec:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        # Operator-owned tenant registry: the gateway bundle lists every
+        # registered tenant, with or without policy rows. Optional so the
+        # service starts before any tenant exists; it watches for changes.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.policyService.tenantsConfigMap }}
+            optional: true
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "policyService") | nindent 8 }}
       containers:
         - name: orbit-policy-service
@@ -38,6 +45,8 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
+            - name: ORBIT_TENANTS_CONFIG
+              value: "/etc/orbit/tenants.yaml"
             - name: ORBIT_POSTGRES_SSL_MODE
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
@@ -74,4 +83,7 @@ spec:
             {{- toYaml .Values.policyService.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            - name: tenants-config
+              mountPath: /etc/orbit
+              readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "policyService") | nindent 12 }}
