@@ -10,7 +10,7 @@ Local development runs Orbit in a k3d cluster on your machine ([kubernetes-only-
 - nvm
 - Homebrew, on macOS
 
-`make setup` installs Node (`>=24 <25`) and pnpm (`>=10 <11`) through nvm and Corepack, plus `goose`, `golangci-lint`, `gitleaks`, `buf`, `mkcert`, `k3d`, `kubectl`, and `helm`.
+`make setup` installs Node (`>=24 <25`) and pnpm (`>=10 <11`) through nvm and Corepack, plus `golangci-lint`, `gitleaks`, `buf`, `mkcert`, `k3d`, `kubectl`, and `helm`.
 
 It also runs `mkcert -install`, which adds a local CA to your system trust store and prompts for your password once. The CA makes `https://orbit.local.clearroute.io` trusted in your browser. On Linux without `mkcert`, certificates are skipped and `make up` generates a self-signed fallback.
 
@@ -156,7 +156,7 @@ Both `service=` and `name=` are required. It writes a timestamped file with the 
 | `make migrate-status` | Show applied and pending migrations against the compose Postgres. |
 | `make redeploy SERVICE=migrate` | Rebuild the migrate image and re-apply the `orbit` release so the hook runs. |
 
-`make up` applies the schema through the hook. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did, so a branch that adds a migration never boots a service against a stale schema.
+`make up` applies the schema through the hook. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did. A branch that adds a migration never boots a service against a stale schema. `make redeploy-migrate` forces the hook.
 
 Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an `ALTER TABLE` on the same table in the same file, nothing in `Down` that changes rows, and no statement that touches a table another service creates. `make migrate-lint` rejects violations. Seeds and reference data are registered at boot by the service that owns them.
 

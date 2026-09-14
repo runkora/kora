@@ -15,7 +15,7 @@ Orbit stores all control-plane state in one PostgreSQL database, one `public` sc
 
 The only runner is the developer workstation. `make migrate-up` copies every service's files into a temp directory and runs the goose CLI against Postgres on localhost. goose is not a Go module dependency. No runtime image contains migration files or a migration runner. The chart has no migration Job or hook.
 
-Six files carry row changes alongside schema changes: a scope vocabulary seed that the vocabulary repository also registers at boot, a JSONB key rename, two backfills, a `Down` that rewrites `runs.state`, a `Down` that deletes lineage rows, and a data repair that joins tables owned by another service.
+Six files carry row changes alongside schema changes: a scope vocabulary seed that the vocabulary repository also registers at boot, a JSONB key rename, a backfill, a `Down` that rewrites `runs.state`, a `Down` that deletes lineage rows, and a data repair that joins tables owned by another service.
 
 session-manager pods run in tenant namespaces with the platform `DB_PASSWORD` and insert `run_events` directly.
 
@@ -119,7 +119,7 @@ The goose CLI is removed from `make install-tools`.
 
 ### Decision 3: One database, one schema, one version table
 
-The migrate binary runs one goose pass over the merged set, which goose reads as a single migration set. Version prefixes are ordered globally across services and must be unique across all directories.
+The migrate binary runs one goose pass over the merged set. Version prefixes are ordered globally across services and must be unique across all directories.
 
 A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted; the `triggers` join into `runs` and the session-manager insert into `run_events` are the existing instances.
 
@@ -127,7 +127,7 @@ One run covers every tenant.
 
 ### Decision 4: Packaging
 
-`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `orbit-migrate`. The Dockerfile builds the package path `./cmd/${SERVICE}` rather than `main.go` alone; `cmd/migrate` is more than one file. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
+`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `orbit-migrate`. The Dockerfile builds `./cmd/${SERVICE}`. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
 
 Service runtime images contain their binary and YAML configuration only.
 
@@ -142,21 +142,20 @@ goose applies every pending file in ascending version order; a skipped minor mig
 
 The compatibility rule is checked in review, by reading contract steps against the previous release's code. CI does not exercise upgrade chains.
 
-The compatibility statement each release publishes gains a supported PostgreSQL major range. The floor is 13, the first release with `gen_random_uuid()` in core. The database role Orbit connects with needs `CREATE` on schema `public` and owns every object the migrations create.
+The compatibility statement each release publishes gains a supported PostgreSQL major range, 13 through 17. The database role Orbit connects with needs `CREATE` on schema `public` and owns every object the migrations create.
 
 ### Decision 6: Rollback never runs Down
 
-Production rollback is `helm rollback orbit <previous revision>` or the GitOps equivalent, with the schema left in place. Argo CD runs the previous revision's hook on rollback; the older image's `up` is a no-op against the newer schema, since goose only applies versions present in its filesystem. `Down` sections stay in every file for local development.
+Production rollback is `helm rollback orbit <previous revision>` or the GitOps equivalent, with the schema left in place. Argo CD runs the previous revision's hook on rollback. The older image's `up` is a no-op against the newer schema: goose applies only versions present in its filesystem. `Down` sections stay in every file for local development.
 
 ### Decision 7: Migration content rule
 
 The rule is implemented as the `lint` subcommand of `cmd/migrate`, run by `make migrate-lint` inside `make check` and covered by its own unit tests. It reads the goose directives, strips `--` and `/* */` comments, derives table ownership from `CREATE TABLE` statements per directory, and rejects a migration that:
 
-1. Contains `INSERT` or `DELETE` in either direction. Seeds and reference data are registered idempotently at boot by the owning service.
+1. Contains `INSERT`, `DELETE` or `SELECT` in either direction, or has an empty `Up`. Seeds and reference data are registered idempotently at boot by the owning service.
 2. Contains `UPDATE` in `Up` unless the same file also alters the same table.
 3. Contains any DML in `Down`.
-4. References a table created in another service's directory, or a table no directory creates, in `REFERENCES`, `FROM`, `JOIN`, `UPDATE`, `ALTER TABLE`, `DROP TABLE` or `CREATE INDEX ... ON`, or renames a table.
-
+4. References a table created in another service's directory, or a table no directory creates, in `REFERENCES`, `INSERT INTO`, `DELETE FROM`, `UPDATE`, `ALTER TABLE`, `DROP TABLE` or `CREATE INDEX ... ON`, or renames a table.
 5. Uses `CONCURRENTLY` without `-- +goose NO TRANSACTION`.
 6. Has a filename that does not match `<version>_<slug>.sql`, or a version prefix that another directory also uses.
 
@@ -166,24 +165,22 @@ Exceptions are not annotated inline.
 
 Development history is discarded. Each table-owning service's directory is rewritten as a baseline of one file per table, named `<version>_create_<table>.sql`, carrying the table, its indexes and constraints, with a `Down` that drops the table. Baseline versions are sequential within a service in dependency order and unique across services; files created afterwards carry the timestamp `create` assigns. Tables dropped during development do not appear. The baseline carries no functions, triggers, extensions, types or views; none exist.
 
-`run_state_test.go` reads the index it asserts on from the embedded filesystem instead of a file path.
-
 ### Decision 9: Chart
 
 `charts/orbit/templates/migrate/job.yaml` renders the Job with:
 
 - `helm.sh/hook: pre-install,pre-upgrade`, `helm.sh/hook-weight: "-10"`, `helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`.
 - `sidecar.istio.io/inject: "false"`. The Job needs no SVID and no Envoy for a Postgres connection.
-- `command: ["./orbit"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 300, below the Helm timeout of 600 the reference Helmfile sets.
+- `command: ["./orbit"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 240, below Helm's default timeout of 300 and the 600 the reference Helmfile sets.
 - The restricted security context the services use.
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` rendered inline from `.Values.config.db`, `DB_PASSWORD` from the pre-existing platform Secret, and `ORBIT_POSTGRES_SSL_MODE` through `orbit.serviceConfig` with `global.postgres.sslMode` as the default and `migrate.config.postgresSSLMode` as the override. A pre-install hook runs before the release's ConfigMaps exist; the Job cannot mount `orbit-config`.
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` rendered inline from `.Values.config.db`, `DB_PASSWORD` from the pre-existing platform Secret, and `ORBIT_POSTGRES_SSL_MODE` and `ORBIT_LOG_FORMAT` through `orbit.serviceConfig`, with the `global` values as defaults and `migrate.config` as the override. A pre-install hook runs before the release's ConfigMaps exist; the Job cannot mount `orbit-config`.
 - The namespace default ServiceAccount with no token mounted. The Job needs no API access.
 
-The Job has no NetworkPolicy of its own. `allow-external-services` selects every pod in the namespace and grants the database CIDR.
+The Job has no NetworkPolicy of its own. When `networkPolicy.externalServices` lists the database, `allow-external-services` selects every pod in the namespace and covers the Job.
 
 Argo CD runs `pre-install` and `pre-upgrade` hooks as `PreSync` on every sync. A failed Job is retained under Helm. Automated sync does not reattempt a failed revision; the reference Argo CD application sets a `retry` policy, and `before-hook-creation` deletes the failed Job on each attempt, leaving the failure visible in sync history.
 
-Values: `migrate.image`, `migrate.activeDeadlineSeconds`.
+Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and the scheduling, resources, annotation and extraEnv block every workload has.
 
 ### Decision 10: Local development
 
@@ -191,7 +188,7 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`.
 
 `make redeploy`, for any service, hashes `backend/cmd/*/migrations/*.sql` and compares it with the hash recorded in `local.generated.yaml`. On a change it rebuilds and pushes the migrate image, records the digest under `migrate.image.digest` and the hash beside it, and runs `helmfile -e local apply` for the `orbit` release. Helmfile upgrades the release on the digest change and the hook fires.
 
-`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `ORBIT_EXAMPLE_TEST_DB_URL`, which nothing sets, since its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
+`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `ORBIT_EXAMPLE_TEST_DB_URL`. Nothing sets it; its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
 
 ---
 
@@ -224,6 +221,7 @@ release N                         consumer cluster
 - Every contract change is a two-release change with a release-notes entry.
 - One more image to build, sign, pin and list.
 - The baseline resets every development database once.
+- The `orbit-example` tenant workload still deploys locally but its tables are not created; only its health endpoint works.
 - Under Argo CD a failed migration Job is deleted on the next attempt; the failure is visible only in sync history.
 - On a skipped upgrade, pods from the old release may return errors between the hook completing and the rollout finishing.
 
@@ -238,7 +236,7 @@ release N                         consumer cluster
 
 1. `embed.go` in each of the six `migrations/` directories.
 2. `cmd/migrate`: merged filesystem, `up` with `WithAllowOutofOrder`, `status`, `create`, guarded `down`; goose in `go.mod`; bake matrix entry.
-3. Baseline: rewrite the six directories as one file per table; update `run_state_test.go`.
+3. Baseline: rewrite the six directories as one file per table; `run_state_test.go` reads the index it asserts on from the embedded filesystem.
 4. `lint` subcommand and `make migrate-lint` wired into `make check`.
 5. Chart: Job template, values, helm-docs; a `retry` policy on the reference Argo CD application.
 6. Makefile and `redeploy.sh`: remove the goose CLI install, `migrate-up` and `migrate-down`; `make up`, `redeploy`, `test-postgres`, `migrate-create` and `migrate-status` on the binary.

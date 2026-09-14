@@ -32,7 +32,7 @@ spec:
         {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
         # Operator-owned tenant registry: the gateway bundle lists every
         # registered tenant, with or without policy rows. Optional so the
-        # service starts before any tenant exists; it watches for changes.
+        # service starts before any tenant exists; re-read on every compile.
         - name: tenants-config
           configMap:
             name: {{ .Values.policyService.tenantsConfigMap }}

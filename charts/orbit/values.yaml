@@ -236,9 +236,10 @@ migrate:
     tag: ""
     digest: ""
     pullPolicy: ""
-  # Must stay below the Helm timeout, or Helm fails the release while the Job
-  # is still applying and the next upgrade deletes it mid-flight.
-  activeDeadlineSeconds: 300
+  # Must stay below the Helm timeout (helm's default is 300s) or Helm fails the
+  # release while the Job is still applying and the next upgrade deletes it
+  # mid-flight.
+  activeDeadlineSeconds: 240
   resources:
     requests:
       cpu: 50m
@@ -512,7 +513,7 @@ policyService:
     tag: ""
     digest: ""
     pullPolicy: ""
-  # Operator-owned tenant registry the gateway bundle is compiled from.
+  # -- Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it.
   tenantsConfigMap: orbit-tenants
   replicas: 1
   resources:

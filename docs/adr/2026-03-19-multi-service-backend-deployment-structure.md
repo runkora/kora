@@ -1,6 +1,6 @@
 # Multi-Service Backend Deployment Structure
 
-**Status:** Accepted (amended 2026-09-10)
+**Status:** Accepted (amended 2026-09-10: the Makefile aggregation and `make migrate-up` are replaced by [Database Migrations](2026-09-10-database-migrations.md))
 **Date:** 2026-03-19
 **Deciders:** Engineering Team
 **Technical Story:** The enforcement architecture defined in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), and 0015 requires each platform service to run as a separate Kubernetes workload with its own SPIFFE identity, Istio sidecar, and Cilium network policy. The current single-binary backend cannot satisfy this requirement. This ADR defines how the Go monorepo is restructured to produce multiple independently deployable binaries without abandoning the monorepo model.
@@ -244,7 +244,7 @@ migrate-up:
 
 **Production — dedicated migration Job** (delivered by [Database Migrations](2026-09-10-database-migrations.md), which also replaces the Makefile aggregation with per-directory embedding):
 
-In the k8s deployment, migrations are run by a dedicated `cmd/migrate/` binary executed as a k8s `Job` before any service `Deployment` rolls out. This Job embeds all migration files at build time via `go:embed`, runs Goose, and exits. The service Deployments proceed only after the Job completes successfully. This pattern is deferred until the first Helm chart is written — the per-service migration directory structure established here is fully compatible with this approach and requires no structural change when the migration Job is introduced.
+In the k8s deployment, migrations are run by a dedicated `cmd/migrate/` binary executed as a k8s `Job` before any service `Deployment` rolls out. This Job embeds all migration files at build time via `go:embed`, runs Goose, and exits. The service Deployments proceed only after the Job completes successfully.
 
 ### Service-to-Service Communication
 

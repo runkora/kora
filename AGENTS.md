@@ -242,7 +242,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
   | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
   | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
-  | `example` | `postgres_test.go` | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead. Its tables are outside the product schema |
+  | `example` | `postgres_test.go` | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 

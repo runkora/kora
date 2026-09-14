@@ -651,7 +651,7 @@ func main() {
     }
     defer db.Close()
     
-    // NOTE: Migrations are run via `make migrate-up` before deployment
+    // Migrations are applied by the cmd/migrate hook Job before any workload rolls.
     // Never run migrations at application startup in production!
     
     // Create feature repositories with dependency injection
