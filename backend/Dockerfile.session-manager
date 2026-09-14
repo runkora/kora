@@ -5,7 +5,7 @@
 # can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 WORKDIR /app
 
@@ -19,12 +19,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
+# The builder runs on the native build platform and Go cross-compiles for the
+# target, so multi-arch builds never compile under QEMU emulation.
+ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit-session-runner ./cmd/orbit-session-runner/
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/session-manager/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-session-runner ./cmd/orbit-session-runner/
 
 # Stage only the YAML config files the session-manager binary loads at
 # runtime, keeping Go source (config.go) out of the runtime image.

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 # SERVICE must be the name of the directory under cmd/ (e.g. identity, example).
 ARG SERVICE
@@ -20,9 +20,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
+# The builder runs on the native build platform and Go cross-compiles for the
+# target, so multi-arch builds never compile under QEMU emulation.
+ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/${SERVICE}
 
 # Stage only the YAML config files this binary actually loads at runtime,
 # preserving relative paths under /app. Filtering to *.yaml keeps Go source
