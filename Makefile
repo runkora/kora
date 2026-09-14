@@ -316,7 +316,17 @@ db-reset: ## DESTRUCTIVE: destroy the Postgres volume and recreate it. Every loc
 	@echo "$(COLOR_YELLOW)Resetting database...$(COLOR_RESET)"
 	@docker compose down -v
 	@docker compose up -d --wait postgres
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ Database reset complete$(COLOR_RESET)"
+
+# Helmfile only upgrades a release whose rendered output changed, and the
+# migrate hook only runs on an upgrade. After the database is destroyed the
+# chart is unchanged, so an annotation on the Job carries the reset time; the
+# next `make up` renders a different Job and the hook re-applies the schema.
+.PHONY: schema-reset-marker
+schema-reset-marker:
+	@[ -f deploy/reference/environments/local.generated.yaml ] || echo "{}" > deploy/reference/environments/local.generated.yaml
+	@yq -i '.migrate.podAnnotations."orbit.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
 
 .PHONY: db-logs
 db-logs: ## Show database logs
@@ -406,6 +416,7 @@ dev-down: ## Stop Postgres + Redis
 dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Stopping local services and removing volumes...$(COLOR_RESET)"
 	@docker compose down -v
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
 
 # ===========================================
@@ -1108,6 +1119,7 @@ clean: ## Clean build artifacts and temporary files
 clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres and Redis volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Cleaning all artifacts and stopping services...$(COLOR_RESET)"
 	@docker compose down -v
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================

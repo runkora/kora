@@ -184,7 +184,7 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 
 ### Decision 10: Local development
 
-`make up` no longer runs `migrate-up`. The reference Helmfile applies the `orbit` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP.
+`make up` no longer runs `migrate-up`. The reference Helmfile applies the `orbit` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP. Helmfile upgrades only a release whose rendered output changed, so every target that destroys the Postgres volume stamps a reset time onto the Job as a pod annotation in `local.generated.yaml`; the next `make up` renders a different Job and the hook re-applies the schema.
 
 `make redeploy`, for any service, hashes `backend/cmd/*/migrations/*.sql` and compares it with the hash recorded in `local.generated.yaml`. On a change it rebuilds and pushes the migrate image, records the digest under `migrate.image.digest` and the hash beside it, and runs `helmfile -e local apply` for the `orbit` release. Helmfile upgrades the release on the digest change and the hook fires.
 

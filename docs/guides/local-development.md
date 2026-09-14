@@ -156,7 +156,7 @@ Both `service=` and `name=` are required. It writes a timestamped file with the 
 | `make migrate-status` | Show applied and pending migrations against the compose Postgres. |
 | `make redeploy SERVICE=migrate` | Rebuild the migrate image and re-apply the `orbit` release so the hook runs. |
 
-`make up` applies the schema through the hook. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did. A branch that adds a migration never boots a service against a stale schema. `make redeploy-migrate` forces the hook.
+`make up` applies the schema through the hook, including after `make db-reset`: the reset stamps a marker annotation on the Job so the next `make up` re-runs it against the empty database. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did. A branch that adds a migration never boots a service against a stale schema. `make redeploy-migrate` forces the hook.
 
 Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an `ALTER TABLE` on the same table in the same file, nothing in `Down` that changes rows, and no statement that touches a table another service creates. `make migrate-lint` rejects violations. Seeds and reference data are registered at boot by the service that owns them.
 
