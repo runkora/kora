@@ -41,7 +41,7 @@ services:
   # glauth — lightweight LDAP directory for local dev identity
   #
   # Backs the Dex LDAP connector so that group membership (platform-admin,
-  # tenant-admin, etc.) flows through the OIDC token — replicating the
+  # engineer, etc.) flows through the OIDC token — replicating the
   # production pattern where roles come from the corporate directory.
   #
   # Test user: dev@orbit.local.clearroute.io / password

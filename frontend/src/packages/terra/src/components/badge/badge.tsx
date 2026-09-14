@@ -134,11 +134,11 @@ const badgeVariants = cva(
 
         /**
          * Reserved — subtle accent tint for elevated/privileged roles such as
-         * `tenant-admin` and `platform-admin`. Uses a very light accent fill so
+         * `platform-admin`. Uses a very light accent fill so
          * the chip reads as "special" without competing with primary CTAs.
          *
          * ```tsx
-         * <Badge variant="reserved" shape="pill" size="lg" mono>tenant-admin</Badge>
+         * <Badge variant="reserved" shape="pill" size="lg" mono>platform-admin</Badge>
          * ```
          */
         reserved: 'bg-accent/5 text-accent border border-accent/30 font-medium',
@@ -170,7 +170,7 @@ const badgeVariants = cva(
          * status indicators where more breathing room is appropriate.
          *
          * ```tsx
-         * <Badge variant="default" shape="pill" size="lg" mono>tenant-admin</Badge>
+         * <Badge variant="default" shape="pill" size="lg" mono>platform-admin</Badge>
          * ```
          */
         lg: 'px-2.5 py-1 text-xs',
@@ -187,7 +187,7 @@ const badgeVariants = cva(
        * ```tsx
        * <Badge variant="healthy" shape="pill" dot>Enabled</Badge>
        * <Badge variant="elevated" shape="sharp" size="sm" mono>inference:anthropic:use</Badge>
-       * <Badge variant="elevated" shape="pill" size="lg" mono>tenant-admin</Badge>
+       * <Badge variant="elevated" shape="pill" size="lg" mono>platform-admin</Badge>
        * ```
        */
       shape: {
@@ -265,7 +265,7 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
  * <Badge variant="elevated" size="sm" mono>models:read</Badge>
  * <Badge variant="provider-bedrock" size="sm">AWS Bedrock</Badge>
  * <Badge variant="strategy-weighted" size="sm">Weighted</Badge>
- * <Badge variant="default" shape="pill" size="lg" mono>tenant-admin</Badge>
+ * <Badge variant="default" shape="pill" size="lg" mono>platform-admin</Badge>
  * ```
  */
 const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(

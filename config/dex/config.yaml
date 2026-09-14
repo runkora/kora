@@ -79,7 +79,7 @@ staticClients:
 # ─── Identity backend ────────────────────────────────────────────────────────
 #
 # Uses the LDAP connector backed by glauth (lightweight Go LDAP server) so
-# that group membership (platform-admin, tenant-admin, etc.) flows through
+# that group membership (platform-admin, engineer, etc.) flows through
 # the OIDC token — replicating the production pattern where roles come from
 # the corporate directory.
 

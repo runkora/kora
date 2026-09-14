@@ -41,7 +41,7 @@ import { ViewToggle } from './view-toggle';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 
-const RESERVED_ROLES = new Set(['tenant-admin', 'platform-admin']);
+const RESERVED_ROLES = new Set(['platform-admin']);
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
