@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -66,6 +67,10 @@ var (
 	// ErrUnexpectedStatus is returned when GitHub responds with any other
 	// non-2xx status.
 	ErrUnexpectedStatus = errors.New("unexpected status from github")
+
+	// ErrReadBody is returned when a successful (2xx) response body cannot be
+	// fully read.
+	ErrReadBody = errors.New("failed to read raw file body")
 )
 
 // tokenSource resolves the GitHub bearer token to use for a given repository.
@@ -155,4 +160,42 @@ func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, e
 		return Tree{}, err
 	}
 	return tree, nil
+}
+
+// GetFile fetches the raw bytes of path in repo at branch, directly from
+// raw.githubusercontent.com (no base64 decoding required, unlike the
+// Contents API).
+func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([]byte, error) {
+	token, err := c.tokens.Token(ctx, org, repo)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTokenSource, err)
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s", c.rawBaseURL, org, repo, branch, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build get file request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	_, span, resp, err := c.Do(ctx, "skills.Client.GetFile", req)
+	defer span.End()
+	if err != nil {
+		return nil, fmt.Errorf("get file call: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, c.HandleErrorResponse(span, resp, ErrFileNotFound)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_ = c.RecordError(span, ErrReadBody)
+		return nil, fmt.Errorf("%w: %w", ErrReadBody, err)
+	}
+	return body, nil
 }

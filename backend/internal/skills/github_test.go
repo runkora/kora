@@ -111,3 +111,91 @@ func TestGetTree_UnexpectedStatus(t *testing.T) {
 		t.Errorf("err = %v, want ErrUnexpectedStatus", err)
 	}
 }
+
+func TestGetFile_ReturnsBytes(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("---\nname: React Expert\n---\nBody"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	content, err := c.GetFile(context.Background(), "platform-engineering", "skills", "main", "skills/react-expert/SKILL.md")
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	wantPath := "/platform-engineering/skills/main/skills/react-expert/SKILL.md"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+	if gotAuth != "Bearer test-token" {
+		t.Errorf("auth = %q, want Bearer test-token", gotAuth)
+	}
+	if string(content) != "---\nname: React Expert\n---\nBody" {
+		t.Errorf("content = %q, unexpected", string(content))
+	}
+}
+
+func TestGetFile_FileNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "missing.md")
+	if !errors.Is(err, ErrFileNotFound) {
+		t.Errorf("err = %v, want ErrFileNotFound", err)
+	}
+}
+
+func TestGetFile_TokenSourceError(t *testing.T) {
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{err: errors.New("mint failed")})
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "path.md")
+	if !errors.Is(err, ErrTokenSource) {
+		t.Errorf("err = %v, want ErrTokenSource", err)
+	}
+}
+
+func TestGetFile_UnexpectedStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "path.md")
+	if !errors.Is(err, ErrUnexpectedStatus) {
+		t.Errorf("err = %v, want ErrUnexpectedStatus", err)
+	}
+}
+
+func TestGetFile_ReadBodyError(t *testing.T) {
+	// Declare a Content-Length longer than what's actually written, then
+	// return immediately. The client reads based on Content-Length, so it
+	// hits an unexpected-EOF partway through — simulating a dropped
+	// connection or truncated stream, without needing a real network fault.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("short"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "path.md")
+	if !errors.Is(err, ErrReadBody) {
+		t.Errorf("err = %v, want ErrReadBody", err)
+	}
+}
