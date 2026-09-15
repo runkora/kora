@@ -1,174 +1,157 @@
-# Config-Driven Kustomize-Style Manifest Patches for orbit-agents
+# Config-Driven Kustomize Manifest Patches for orbit-agents
 
 <!-- Filename: 2026-09-15-manifest-patches-configmap.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-15
-**Deciders:** Tom Morelly
+**Deciders:** Tom Morelly, Justin Wilkin
 **Technical Story:** Productionise the operator surface for customising the Kubernetes resources orbit-agents provisions in tenant namespaces. Supersedes [2026-06-12: K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md).
 
 ---
 
 ## Context
 
-`orbit-agents` provisions a fixed set of Kubernetes resources for each managed agent type — a `StatefulSet`, a headless `Service`, a `ServiceAccount`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `VolumeClaimTemplate` on the StatefulSet — plus a `Pod` for every run's sandbox. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
+`orbit-agents` provisions a fixed set of Kubernetes resources for each managed agent type: a `StatefulSet`, a headless `Service`, a `ServiceAccount`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `VolumeClaimTemplate` on the StatefulSet. It also creates a `Pod` for every run's sandbox. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
 
-[ADR 2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md) introduced a per-field override mechanism: env vars of the form `ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>` parsed at startup and applied to the built typed object via a JSON round-trip using `github.com/tidwall/sjson`. The mechanism works for shallow scalar overrides but has hard limits that are showing up as we broaden the operator surface:
+[ADR 2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md) introduced a per-field override mechanism: env vars of the form `ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>` parsed at startup and applied to the built typed object via a JSON round-trip using `github.com/tidwall/sjson`. The mechanism works for shallow scalar overrides but has hard limits:
 
-- **Poor ergonomics for structured fields.** Anything list-shaped — `imagePullSecrets`, `tolerations`, `resources`, node affinities — must be embedded as a raw JSON string inside an env var value. The Helm chart already does this seven times for `runtimePods.*` (`charts/orbit/templates/agents/deployment.yaml:75-113`) and the pattern does not scale.
-- **One env var per field.** Non-trivial customisations bloat the orbit-agents pod spec and cross the fields-per-container-env comfort threshold quickly.
-- **No selector semantics beyond `Kind + slug|*`.** No `labelSelector`, no `annotationSelector`, no way to say "every sandbox pod, whatever the slug"; and no way to touch a specific list index (e.g. `container[0].resources`) without JSON-string overrides.
-- **No debug/preview path.** An operator authoring an override has to `kubectl apply` and diff by hand — there is no way to render the final manifest before it hits the API server.
-
-We want a productionised, file-driven approach that borrows from a mechanism that is already battle-tested and familiar to every Kubernetes operator: kustomize patches.
+- **Poor ergonomics for structured fields.** Anything list-shaped (`imagePullSecrets`, `tolerations`, `resources`, node affinities) must be embedded as a raw JSON string inside an env var value. The Helm chart did this seven times for `runtimePods.*`.
+- **One env var per field.** Non-trivial customisations bloat the orbit-agents pod spec.
+- **No selector semantics beyond `Kind + slug|*`.** No `labelSelector`, no `annotationSelector`, no way to say "every sandbox pod, whatever the slug", and no way to touch a specific list index without JSON-string overrides.
+- **No debug or preview path.** An operator authoring an override has to `kubectl apply` and diff by hand.
 
 ### Background
 
-Kustomize's [patches reference](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/) defines two production-grade patch flavours:
+Kustomize's [patches reference](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/) defines one `patches:` entry shape carrying either of two patch flavours:
 
-- **Strategic Merge Patch (SMP)** — a partial Kubernetes object; the target is either inferred from the patch's own `apiVersion`/`kind`/`metadata.name`, or supplied via a `target:` selector. List merging is driven by `patchMergeKey`/`patchStrategy` OpenAPI tags baked into the k8s API types.
-- **JSON6902** — an RFC 6902 op array (`add`/`remove`/`replace`/`move`/`copy`/`test`) applied against the target selected by `target:`.
+- **Strategic Merge Patch (SMP):** a partial Kubernetes object. List merging is driven by `patchMergeKey`/`patchStrategy` metadata from the Kubernetes API types.
+- **JSON6902:** an RFC 6902 op array (`add`/`remove`/`replace`/`move`/`copy`/`test`).
 
-Both are widely used across Flux, Argo CD, and Cluster API. Argo CD's `spec.source.kustomize.patches` and Flux's `spec.patches[]` both accept the exact same shape as kustomize's own `patches:` list.
+Each entry carries the patch body in `patch:` and an optional `target:` selector (kind, name, namespace, `labelSelector`, `annotationSelector`). Argo CD's `spec.source.kustomize.patches` and Flux's `spec.patches[]` accept the same shape.
 
 ### Problem Statement
 
-Give operators a maintainable, familiar mechanism for customising the Kubernetes resources orbit-agents provisions, with selector semantics rich enough to cover the real needs (image pull secrets, storage class, labels/annotations, resource limits, tolerations, priority class, node selector), and a way to preview the final manifest before deploying.
+Give operators a maintainable, familiar mechanism for customising the Kubernetes resources orbit-agents provisions, with selector semantics rich enough to cover the real needs (image pull secrets, storage class, labels and annotations, resource limits, tolerations, priority class, node selector), and a way to preview the final manifest before deploying.
 
 ### Goals
 
-- Operators author patches in a ConfigMap using kustomize's SMP and JSON6902 syntax — the same file format they already know.
+- Operators author patches as kustomize `patches:` entries, the format they already know.
 - Patches are loaded at orbit-agents startup and applied to every provisioned resource without a code change per new field.
-- Selectors match by `kind` + `name` + optional `labelSelector` + optional `annotationSelector`, matching kustomize's semantics.
+- Patches cannot change the identity, security context or workspace isolation orbit-agents builds.
 - A CLI mode renders the final YAML for a given agent slug (plus optional sandbox) so operators can diff patches locally or in CI before deploying.
-- Fail loud: a malformed patch file fails startup with the filename in the error. Silent no-ops are a regression from the current design.
+- Fail loud: a patch that does not load or apply fails startup with the filename in the error.
 
 ### Non-Goals
 
-- Full `kustomization.yaml` surface (`replacements`, `images`, `namePrefix`, `generators`, `components`, `commonLabels`, …). We want the patch mechanism, not the whole build.
-- Per-tenant patches. All tenants sharing an orbit-agents pod get the same patches. Per-tenant customisation is a separate ADR if it ever comes up.
-- Overriding Istio `DestinationRule` / `AuthorizationPolicy` (created as `unstructured` today). Adding them to the patch surface is a follow-up.
-- Editing patches at runtime. Patches are loaded once at startup; a `ConfigMap` change requires an orbit-agents pod restart, driven by a Helm-computed `checksum/patches` annotation.
+- Full `kustomization.yaml` surface (`replacements`, `images`, `namePrefix`, `generators`, `components`, `commonLabels`, …). Operators get `patches:` only.
+- Per-tenant patches. All tenants sharing an orbit-agents pod get the same patches.
+- Patching the Istio `DestinationRule` and `AuthorizationPolicy`, which are created as `unstructured`.
+- Editing patches at runtime. Patches are loaded once at startup; a `ConfigMap` change rolls the orbit-agents pod through a Helm-computed `checksum/patches` annotation.
 
 ---
 
 ## Decision Drivers
 
-- **Battle-tested UX.** Operators already know kustomize patch syntax; anything else is a learning tax that this platform doesn't need to charge.
-- **No process shell-outs.** Embedding the kustomize CLI or the full `sigs.k8s.io/kustomize/api/krusty` engine drags in a large public API surface that is still v0.x. We can get the patch behaviour without the build machinery.
-- **Zero new direct dependencies beyond what k8s.io already brings.** `github.com/evanphx/json-patch/v5` and `sigs.k8s.io/yaml` are already indirect in `go.mod`; `k8s.io/apimachinery` is already direct. Promoting the first two to direct imports carries no new supply-chain weight.
-- **Deterministic ordering.** Two operators authoring separate patches must be able to reason about which one wins. Kustomize-style lex-sorted filenames with a numeric prefix (`010-*.yaml`, `020-*.yaml`) is the established idiom.
-- **Fail loud.** A malformed patch is an operator error at startup, not a silent no-op later.
-- **Debug parity.** The renderer must produce the exact same YAML the runtime would produce; the same code path builds both.
+- **Battle-tested UX.** Operators already know kustomize patch syntax.
+- **Exact kustomize semantics.** A patch should behave in orbit-agents as it does under `kustomize build`, including `$patch: delete`, list-merge keys and selectors.
+- **Least code to maintain.** Parsing, flavour detection and patch application are solved problems.
+- **Protected invariants.** The typed builder stays the source of truth for identity, pod security and per-run workspace isolation.
+- **Deterministic ordering.** Lex-sorted filenames with a numeric prefix (`010-*.yaml`, `020-*.yaml`) decide which patch applies first.
+- **Fail loud.** A broken patch is an operator error at startup, not a silent no-op later.
+- **Debug parity.** The renderer and the runtime share one code path.
 
 ---
 
 ## Considered Options
 
-### Option 1: Embed the full kustomize engine (`sigs.k8s.io/kustomize/api/krusty`)
+### Option 1: Embed the kustomize engine, patches only (chosen)
 
-**Description:** Bring the kustomize build engine into orbit-agents. Each resource orbit-agents wants to provision becomes an in-memory "base"; operator-supplied `kustomization.yaml` fragments layer on top. The full patch surface plus `replacements`, `images`, `namePrefix`, `commonLabels`, generators, components.
-
-**Pros:**
-- Complete parity with kustomize; anything a Flux/Argo user knows carries over.
-- Long-term, easiest onboarding for teams who already ship `kustomization.yaml` in git.
-
-**Cons:**
-- Adds thousands of lines of imports (`sigs.k8s.io/kustomize/api`, `kyaml`, `resmap`, `resource`, `krusty`) — most of which we do not need.
-- `sigs.k8s.io/kustomize/api` is v0.x with an unstable public API; several packages call out that they are subject to change.
-- The `kyaml.RNode` intermediate representation is at odds with our client-go typed structs; every apply becomes a two-way marshal.
-- The build engine assumes a filesystem layout with `kustomization.yaml` at the root — designing this around orbit-agents' provisioning-time model is awkward.
-
-### Option 2: Strategic Merge Patch only, target inferred from the patch itself (chosen)
-
-**Description:** Support two patch flavours, but only the subset each needs to do the job we actually want done:
-- **SMP** — a partial Kubernetes object. Target inferred from the patch's own `apiVersion`/`kind`/`metadata.name`. Applied with `k8s.io/apimachinery/pkg/util/strategicpatch.StrategicMergePatch(orig, patch, typedInstance)` — the schema for `patchMergeKey`/`patchStrategy` comes free from the client-go struct being patched, so no OpenAPI plumbing.
-- **JSON6902** — an RFC 6902 op array wrapped in a `{target, patch}` envelope so the target selector travels with the ops. Applied with `github.com/evanphx/json-patch/v5.DecodePatch(...)` + `ApplyWithOptions({AllowMissingPathOnRemove: true, EnsurePathExistsOnAdd: true})`.
-
-Selectors are `kind` + optional `name` + optional `labelSelector` + optional `annotationSelector`; label/annotation selectors are parsed with `k8s.io/apimachinery/pkg/labels.Parse`.
+**Description:** Each patch file is one kustomize `patches:` entry. For every resource orbit-agents builds, it runs `sigs.k8s.io/kustomize/api/krusty` over an in-memory kustomization containing that one resource and one patch, once per matching patch in file order. Only the `patches:` field is exposed.
 
 **Pros:**
-- Uses the same syntax operators already know from kustomize.
-- Zero new direct dependencies; every library needed is already in `go.mod` as an indirect.
-- Small surface: ~350 LOC across a self-contained sub-package.
-- Fails closed on malformed input; no silent no-ops.
-- The two flavours together cover every override case we have identified (image pull secrets, storage class, labels/annotations, resource limits, tolerations, priority class, node selectors, sandbox container resources).
+- Exact kustomize behaviour, because it is kustomize: SMP, JSON6902, `$patch` directives and target selectors.
+- No patch parsing, flavour detection or selector matching code to maintain.
+- The file format is documented upstream.
 
 **Cons:**
-- Not identical to kustomize semantically — no `replacements`, no `namePrefix`, no automatic labelling. Operators who want those must fold them into their existing kustomize workflow upstream.
-- SMP's list-merge semantics depend on the client-go struct tags; a change to the k8s API version could shift merge behaviour on some fields. Mitigated by test coverage on the shapes we actually produce.
+- `sigs.k8s.io/kustomize/api` is v0.x.
+- Adds `sigs.k8s.io/kustomize/api` and `sigs.k8s.io/kustomize/kyaml` as direct dependencies, plus four small indirect modules. No Kubernetes module versions change.
+- Each patch costs a typed-to-YAML-to-typed round-trip, about 0.5ms per patch per resource.
+- Every entry needs `target.kind`, and SMP bodies need a placeholder `metadata.name`: kustomize requires a name in an SMP body and matches target-less SMP patches by exact name, which operators cannot know for runtime-named resources.
+
+### Option 2: Reimplement SMP and JSON6902 with `strategicpatch` and `evanphx/json-patch`
+
+**Description:** Apply SMP with `k8s.io/apimachinery/pkg/util/strategicpatch` and JSON6902 with `github.com/evanphx/json-patch/v5`, with a custom loader that autodetects each file's flavour and a custom selector matcher.
+
+**Pros:**
+- No new direct dependencies; both libraries are already indirect.
+
+**Cons:**
+- A custom loader, flavour autodetection, selector matching and path-based protection checks to maintain.
+- A file format that resembles kustomize without matching it (for example a YAML op array under `patch:` where kustomize takes a string), so operators cannot reuse existing patches.
+- Behaviour diverges from kustomize at the edges, such as whether a later patch's selector sees labels an earlier patch added.
 
 ### Option 3: SMP only
 
-**Description:** Ship strategic merge patch, drop JSON6902 for a v1.
+**Description:** Ship strategic merge patch, drop JSON6902.
 
 **Pros:**
-- Smallest possible surface (~150 LOC).
-- SMP alone covers most named knobs (image pull secrets, storage class, labels/annotations, tolerations, node selectors).
+- Smallest possible surface.
 
 **Cons:**
-- No precise list-index editing. Overriding `spec.containers[0].resources` on the sandbox container without disturbing anything else is awkward in SMP because the pod has one container today but the merge key is `name` — every operator would have to know and match it exactly.
-- No `remove` semantics: SMP can only merge, not delete an existing field without the `$patch: delete` directive (which we would then have to support). JSON6902 gives us `op: remove` for free.
-- Every operator hitting a limit will reach for JSON6902 anyway; adding it later is a breaking change to the file layout.
+- No precise list-index editing or `remove` semantics.
+- Every operator hitting a limit reaches for JSON6902; adding it later changes the file layout.
 
 ### Option 4: Full user-supplied manifests via a Helm-shipped ConfigMap
 
-**Description:** Instead of patching over orbit-agents' built manifests, the operator provides the *complete* Kubernetes manifests (StatefulSet, Service, ServiceAccount, HPA, PDB, sandbox Pod) as YAML in a Helm-managed ConfigMap. orbit-agents reads them at startup, mounts them at `/etc/orbit/manifest-templates`, and applies them directly (with minimal substitution) instead of building via typed Go structs.
+**Description:** Instead of patching over orbit-agents' built manifests, the operator provides the complete Kubernetes manifests (StatefulSet, Service, ServiceAccount, HPA, PDB, sandbox Pod) as YAML in a Helm-managed ConfigMap, which orbit-agents applies with minimal substitution instead of building typed Go structs.
 
-**Feasibility analysis.** For this to work, every field a manifest needs must either be static (identical across every tenant + agent type) or knowable at ConfigMap-generation time. Auditing what `buildSessionManagerStatefulSet` and `buildSandboxPod` in `backend/internal/agents/k8s.go` actually compute at provisioning time:
+**Feasibility analysis.** Every field a manifest needs must either be static across tenants and agent types or knowable at ConfigMap-generation time. What `buildSessionManagerStatefulSet` and `buildSandboxPod` compute at provisioning time:
 
-Fields orbit-agents computes per-agent-type at runtime:
-- `metadata.name` = agent type slug (`at.Slug`) — StatefulSet, Service, ServiceAccount, HPA, PDB all named after it.
-- `metadata.namespace` = the tenant namespace (`cfg.TenantNamespaceFn(at.TenantID)`), one namespace per tenant.
-- `metadata.labels` = `{app: {slug}, orbit.io/agent-type: {at.ID}, orbit.io/tenant: {at.TenantID}}`; the agent-type UUID is only known once the row is written.
-- `metadata.ownerReferences` = the OrbitTenant CR's UID, looked up from Kubernetes at provision time.
+Fields orbit-agents computes per agent type at runtime:
+- `metadata.name` = agent type slug (`at.Slug`); StatefulSet, Service, ServiceAccount, HPA and PDB are all named after it.
+- `metadata.namespace` = the tenant namespace, one per tenant.
+- `metadata.labels` = `{app: {slug}, orbit.io/agent-type: {at.ID}, orbit.io/tenant: {at.TenantID}}`; the agent-type UUID exists only once the row is written.
+- `metadata.ownerReferences` = the OrbitTenant CR's UID, looked up at provision time.
 - StatefulSet `spec.serviceName` = agent slug (must equal the headless Service name for DNS).
-- StatefulSet `spec.selector.matchLabels` + pod template `metadata.labels` share `podLabels(at)`, which includes `orbit.io/agent-type: {at.ID}` (UUID).
+- StatefulSet `spec.selector.matchLabels` and pod template labels share `podLabels(at)`, which includes the agent-type UUID.
 - StatefulSet pod template `spec.serviceAccountName` = agent slug.
-- StatefulSet pod template `spec.containers[0].envFrom` references a per-tenant `{at.TenantID}-config` ConfigMap.
-- StatefulSet pod template `spec.containers[0].env` includes URLs built from `p.cfg.SystemNamespace` (`ANTHROPIC_BASE_URL`, `ORBIT_AGENTS_URL`).
+- StatefulSet pod template `envFrom` references a per-tenant `{at.TenantID}-config` ConfigMap.
+- StatefulSet pod template `env` includes URLs built from the system namespace (`ANTHROPIC_BASE_URL`, `ORBIT_AGENTS_URL`).
 - HPA `spec.scaleTargetRef.name` = agent slug.
 
-Fields orbit-agents computes per-run at runtime for the sandbox Pod:
-- `metadata.name` = `sandbox-{run.ID}` — one Pod per run.
+Fields orbit-agents computes per run at runtime for the sandbox Pod:
+- `metadata.name` = `sandbox-{run.ID}`.
 - `metadata.labels` = `{orbit.io/role: sandbox, orbit.io/run-id: {run.ID}, orbit.io/agent-slug: {slug}}`; the run ID is a database-generated UUID.
-- PVC volume reference = `workspaces-{slug}-{run.PodOrdinal}` — the StatefulSet's per-ordinal claim name.
-- Container `volumeMounts[…].subPath` = `run.ID`, so this run's sandbox pod only ever mounts its own workspace subdirectory.
-- Container env includes `WORKSPACE` (subpath-scoped), `SANDBOX_EXEC_PORT` from `cfg.SandboxGRPCPort`, per-tenant CA-hint env vars pointing at `sandboxTenantCAPath`, and a base64-encoded kubeconfig blob built from the granted Kubernetes clusters (`kubeconfig.Encode(kubeClusters)`).
-- Owner reference on the sandbox Pod = the parent StatefulSet's UID, looked up from Kubernetes at provision time.
+- PVC volume reference = `workspaces-{slug}-{run.PodOrdinal}`, the StatefulSet's per-ordinal claim name.
+- Container `volumeMounts[…].subPath` = `run.ID`, so the sandbox only mounts its own workspace subdirectory.
+- Container env includes `WORKSPACE`, `SANDBOX_EXEC_PORT`, per-tenant CA paths and a base64-encoded kubeconfig built from the granted Kubernetes clusters.
+- Owner reference = the parent StatefulSet's UID, looked up at provision time.
 
-None of these fields is static across tenants or agent types. A "fully user-supplied manifest" can therefore never be literal YAML; it can only be a **template** that orbit-agents renders with the runtime variables above. In other words, Option 4 is not "the user provides plain manifests"; it is "the user provides a Go/Helm template of the manifest, and orbit-agents runs a template engine every time it provisions".
-
-That is a much bigger surface than Option 2:
-
-- Adds a template engine (Helm's Sprig, Go `text/template`, or CEL) as a runtime dependency of orbit-agents.
-- Every field orbit-agents currently guarantees (SPIFFE-attested pod labels, per-run subpath isolation, ownerReferences for GC, envFrom on the per-tenant ConfigMap) becomes an operator-authored template variable. A missing or misspelled placeholder silently produces a broken pod (spec.serviceName mismatched with the Service name → StatefulSet won't get DNS; wrong subPath → runs share a workspace directory).
-- Loses the strong typing that keeps `k8s_podsecurity_test.go` honest: the built Go struct is a compile-time check that securityContext, seccomp profile, capabilities-drop, and read-only-root are set correctly on every provisioned pod. A YAML template is a string until it's on the cluster.
-- Removes the layered-defence property of the current model: patches can only *override* fields, they cannot omit the security invariants orbit-agents bakes in. Full-manifest templating deletes that guarantee.
+None of these fields is static. A "fully user-supplied manifest" can only be a template that orbit-agents renders with the runtime variables above, which means a template engine plus a documented variable contract.
 
 **Pros:**
 - Maximum control for operators who want to hand-craft every field.
-- Conceptually simpler for someone who already ships Helm charts: "give me the ConfigMap, I'll fill in the YAML."
 
 **Cons:**
-- Not truly plain YAML — requires a template engine plus a documented variable contract, or per-tenant regeneration on every agent-type change.
-- Deletes the compile-time guarantees on pod security, SPIFFE labels, per-run subpath isolation, and cross-resource identity (StatefulSet ↔ Service ↔ SA ↔ HPA).
-- Every future field orbit-agents needs to add (a new SPIRE label, a new sidecar-injection annotation, a new env var pointing at a new platform component) becomes a breaking template contract change instead of a Go code change.
-- Debug-render (`orbit-agents -render`) becomes weaker: the tool can only echo the template with variables substituted, not verify against typed k8s API objects.
+- Requires a template engine and a variable contract, not plain YAML.
+- Deletes the compile-time guarantees on pod security, SPIFFE labels, per-run subpath isolation and cross-resource identity.
+- Every new field orbit-agents needs becomes a breaking template contract change.
+- The render mode can only echo the template with variables substituted.
 
 ---
 
 ## Decision
 
-**Chosen Option:** Option 2 — Strategic Merge Patch plus JSON6902, target selector by kind + name + optional label/annotation selectors, files loaded from a ConfigMap-mounted directory.
+**Chosen Option:** Option 1. orbit-agents embeds the kustomize engine and exposes only its `patches:` entries, loaded from a ConfigMap-mounted directory, one entry per file, with every entry targeting a kind.
 
 ### Rationale
 
-Option 2 is the smallest surface that still matches what operators expect from a Kubernetes-native patching mechanism. SMP alone (Option 3) will run out of expressive power the first time somebody needs to remove a field or edit a specific list index; every real deployment reaches JSON6902 eventually. The full kustomize engine (Option 1) is the opposite extreme — it drags in a v0.x public API to get a feature we can implement in ~350 lines with `strategicpatch` and `evanphx/json-patch/v5`, both of which are already in our indirect deps via `k8s.io/*`. Full user-supplied manifests (Option 4) sound simpler than they are: the feasibility analysis above shows that every provisioned resource depends on runtime state orbit-agents alone knows, so Option 4 is not "the operator gives us YAML" but "the operator gives us a template plus a variable contract, and we lose the compile-time guarantees on identity, SPIFFE labelling, subpath isolation, and pod security along the way". Patches keep the strong-typed manifest builder as the source of truth and let operators layer on top, which is the smaller change with the fewer failure modes.
+Option 1 gives operators kustomize itself rather than an approximation of it, with no patching code of our own beyond the resource round-trip and the invariant check. Option 2 avoids the dependency but reimplements parsing, selection and application that kustomize already gets right, in a format operators cannot carry over from their existing kustomizations. Option 3 runs out of expressive power at the first `remove` or list-index edit. Option 4 replaces typed builders with templates and loses the identity and isolation guarantees along the way.
 
-The chosen apply libraries are exactly what kustomize itself uses under the hood, so the semantic behaviour matches what an operator would see if they ran `kustomize build` locally. Selector matching is intentionally kept narrower than kustomize's full selector spec — no regex on names, no group/version matching — because orbit-agents provisions a small, closed set of Kinds and the extra machinery would be surface for no benefit.
+Protection is checked on the patched object, not on patch paths. After each patch, orbit-agents compares a fixed set of fields against the object it built and rejects the patch if any differ. This catches every way of reaching a field (an SMP merge, a JSON6902 op on the field, or a removal of its parent) with one check.
 
-Failing hard on malformed patch files is a deliberate departure from ADR 2026-06-12's WARN-and-continue posture on malformed env var keys. Env vars are a wide, ambient surface where a stray typo elsewhere in the shell environment could reasonably be non-fatal; a file explicitly authored into a ConfigMap is under direct operator control, and a broken file should behave like a broken YAML manifest anywhere else.
+Failing hard on a broken patch file departs from ADR 2026-06-12's warn-and-continue posture on malformed env var keys. A file explicitly authored into a ConfigMap is under direct operator control and behaves like a broken manifest anywhere else.
 
 ---
 
@@ -176,112 +159,65 @@ Failing hard on malformed patch files is a deliberate departure from ADR 2026-06
 
 ### Positive
 
-- Operators use a syntax they already know; no new mental model.
-- Every field on every provisioned resource is reachable without a code change; per-list-index precision is available via JSON6902.
-- Malformed patches fail at startup with the offending filename, not later as a silent bad manifest. `manifestpatch.Validate` runs after `Load` and rejects unknown target Kinds (typos like `Deployement`), unparseable JSON6902 op arrays, malformed selectors, and SMP bodies that don't decode onto the target type.
-- The `-render` CLI mode gives operators and CI a way to preview the final YAML before deploying — closes the gap ADR 2026-06-12 flagged as a Negative Consequence.
-- The Helm chart is a thin passthrough: `agents.manifestPatches` writes each entry straight into the ConfigMap, no chart-side translation or generated files. Operators write the patch they want in the syntax they already know.
-- The strong-typed manifest builder in `backend/internal/agents/k8s.go` remains the source of truth for the fields orbit-agents must control (pod security, SPIFFE labels, per-run subpath isolation, cross-resource identity), and patches layer on top — the layered-defence property Option 4 gives up.
+- Operators use kustomize's own `patches:` format and semantics.
+- Every field on every provisioned resource outside the protected set is reachable without a code change.
+- A patch that does not load, does not apply, names a field the target type does not have, or changes a protected field fails orbit-agents at startup with the filename.
+- The `-render` CLI mode previews the final YAML before deploying.
+- The Helm chart is a thin passthrough: each `agents.manifestPatches` entry is written into the ConfigMap as is.
+- Patch changes reach existing agents on the next reconcile, which runs before every run.
 
 ### Negative
 
-- Existing installations that consumed the `ORBIT_MANIFEST__*` env var API, or the chart's earlier `agents.runtimePods.*` named knobs, must migrate to a patch under `agents.manifestPatches`. No deprecation window is offered; this is a breaking change for both.
-- The strategic-merge behaviour depends on the client-go struct tags; a `k8s.io/api` bump could subtly change list-merge outcomes on some fields. Test coverage on our actual provisioned Kinds bounds the risk.
-- ConfigMap changes require an orbit-agents pod restart, driven by a Helm-computed `checksum/patches` annotation. There is no live reload.
+- Installations using the `ORBIT_MANIFEST__*` env vars or the chart's earlier `agents.runtimePods.*` values must migrate to `agents.manifestPatches`. No deprecation window is offered.
+- orbit-agents depends on the v0.x `sigs.k8s.io/kustomize/api`.
+- SMP bodies need a placeholder `metadata.name`, which reads oddly to operators used to name-targeted patches.
+- ConfigMap changes require an orbit-agents pod restart. There is no live reload.
 
 ### Neutral
 
-- `github.com/tidwall/sjson` drops from a direct dependency (its only usage was in the deleted `k8s_overrides.go`).
-- `github.com/evanphx/json-patch/v5` and `sigs.k8s.io/yaml` move from indirect to direct in `backend/go.mod`.
+- `github.com/tidwall/sjson` and `github.com/evanphx/json-patch/v5` become indirect dependencies.
+- `sigs.k8s.io/kustomize/api` and `sigs.k8s.io/kustomize/kyaml` become direct dependencies.
 
 ---
 
 ## Implementation
 
-### Patch data model
+### Package
 
-New feature-owned sub-package `backend/internal/agents/manifestpatch/`:
+Feature-owned sub-package `backend/internal/agents/manifestpatch/`:
 
 | File | Role |
 |------|------|
-| `patch.go` | `Patch` struct: `Kind, Name, LabelSelector, AnnotationSelector string; Body []byte; Flavour PatchFlavour`. Flavour is `strategicMerge` or `jsonPatch`. |
-| `load.go` | `Load(dir string) ([]Patch, error)` reads every `*.yaml`/`*.yml` file in `dir` (lex-sorted, non-recursive), autodetects flavour, wraps errors with the filename. Missing directory returns `(nil, nil)` — zero patches is a valid state. Malformed YAML fails hard. |
-| `apply.go` | `Apply[T any](obj T, patches []Patch) (T, error)` filters patches to those matching `obj`'s kind/name/labels/annotations, then dispatches to the strategic-merge or JSON6902 applier. |
-| `selector.go` | `matches(patch, kind, name, labels, annotations) bool` — kind and name equality (empty name = wildcard), labels and annotations via `k8s.io/apimachinery/pkg/labels.Parse`. |
+| `patch.go` | `Patch{File string; Entry types.Patch}` and the Kinds a patch may target, with their apiVersions. |
+| `load.go` | `Load(dir)` reads every `*.yaml`/`*.yml` file in filename order, strictly decodes each into a kustomize `types.Patch`, and rejects entries with a file `path`, an empty `patch`, a missing or unknown `target.kind`, or an unparseable selector. A missing directory means no patches. |
+| `apply.go` | `Apply[T](obj T, kind string, patches []Patch) (T, error)` runs each patch whose `target.kind` equals `kind` through krusty, one patch at a time, then checks protected fields and strictly decodes the result onto `T`. |
+| `protected.go` | The protected field list and the before/after comparison. |
 
-Apply implementations:
+### Patch format
 
-```go
-// Strategic merge — schema comes free from the typed struct.
-import "k8s.io/apimachinery/pkg/util/strategicpatch"
-import "sigs.k8s.io/yaml"
+Each file holds one kustomize `patches:` entry. `target.kind` is required. `target.name`, `target.labelSelector` and `target.annotationSelector` narrow it further.
 
-func applyStrategic[T any](obj T, patchYAML []byte) (T, error) {
-    patchJSON, err := yaml.YAMLToJSON(patchYAML)
-    if err != nil {
-        return obj, fmt.Errorf("patch yaml -> json: %w", err)
-    }
-    origJSON, err := json.Marshal(obj)
-    if err != nil {
-        return obj, fmt.Errorf("marshal typed obj: %w", err)
-    }
-    merged, err := strategicpatch.StrategicMergePatch(origJSON, patchJSON, obj)
-    if err != nil {
-        return obj, fmt.Errorf("strategic merge: %w", err)
-    }
-    var out T
-    if err := json.Unmarshal(merged, &out); err != nil {
-        return obj, fmt.Errorf("unmarshal merged: %w", err)
-    }
-    return out, nil
-}
-```
-
-```go
-// JSON6902 — direct RFC 6902 apply.
-import jsonpatch "github.com/evanphx/json-patch/v5"
-
-func applyJSON6902[T any](obj T, opsYAML []byte) (T, error) {
-    opsJSON, err := yaml.YAMLToJSON(opsYAML)
-    if err != nil { return obj, fmt.Errorf("ops yaml -> json: %w", err) }
-    p, err := jsonpatch.DecodePatch(opsJSON)
-    if err != nil { return obj, fmt.Errorf("decode json6902: %w", err) }
-    origJSON, err := json.Marshal(obj)
-    if err != nil { return obj, fmt.Errorf("marshal typed obj: %w", err) }
-    opts := jsonpatch.NewApplyOptions()
-    opts.AllowMissingPathOnRemove = true
-    opts.EnsurePathExistsOnAdd = true
-    merged, err := p.ApplyWithOptions(origJSON, opts)
-    if err != nil { return obj, fmt.Errorf("apply json6902: %w", err) }
-    var out T
-    if err := json.Unmarshal(merged, &out); err != nil { return obj, fmt.Errorf("unmarshal merged: %w", err) }
-    return out, nil
-}
-```
-
-### Patch file formats
-
-Strategic Merge — file looks like a Kubernetes object; target inferred from its own `apiVersion` + `kind` + `metadata.name`:
+Strategic merge, with a placeholder name:
 
 ```yaml
-# 050-pvc.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: workspaces        # matches the StatefulSet's VolumeClaimTemplates[0]
-spec:
-  storageClassName: gp3
-  accessModes: [ReadWriteOnce]
+target:
+  kind: PersistentVolumeClaim
+patch: |
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: any
+  spec:
+    storageClassName: gp3
 ```
 
-JSON6902 — wrapped so the target selector is co-located with the ops:
+JSON6902:
 
 ```yaml
-# 040-sandbox-resources.yaml
 target:
   kind: Pod
   labelSelector: orbit.io/role=sandbox
-patch:
+patch: |
   - op: replace
     path: /spec/containers/0/resources
     value:
@@ -289,100 +225,79 @@ patch:
       requests: { cpu: 500m, memory: 512Mi }
 ```
 
-Flavour autodetection: top-level `target:` **and** `patch:` keys → JSON6902; anything else (a `kind:`/`apiVersion:` root) → SMP. Anything that fails both parses is a malformed file, fatal at startup.
+Patches apply in filename order. Each runs against the output of the previous one, so a later patch's selector sees labels an earlier patch added, as in kustomize. A target that matches nothing is a no-op.
 
-Filenames are lex-sorted before apply, so a `NNN-` numeric prefix gives deterministic ordering. Non-recursive: files in nested subdirectories are ignored.
+### Protected fields
+
+A patch is rejected if, compared with the built object, it changes any of:
+
+- `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`, `metadata.ownerReferences`.
+- The identity labels `spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `orbit.io/identity-proxy`, `orbit.io/tenant`, `orbit.io/agent-type`, `orbit.io/role`, `orbit.io/run-id` and `orbit.io/agent-slug`, on the resource and on the StatefulSet pod template.
+- `spec.selector`, `spec.serviceName`, `spec.scaleTargetRef`, and the StatefulSet's VolumeClaimTemplate names.
+- `serviceAccountName` on the Pod and the StatefulSet pod template.
+- Pod `securityContext.runAsNonRoot`, `runAsUser` and `seccompProfile`, and every container's `securityContext`.
+- The sandbox Pod's PVC `claimName`s and the `volumeMounts` of every container and init container.
+
+Fields absent from both objects are equal, so a patch may add volumes, containers without a security context, tolerations and so on. Adding a container that mounts volumes changes the `volumeMounts` list and is rejected; this keeps a patch from mounting the shared workspace PVC without the per-run `subPath`.
 
 ### Wiring into `K8sProvisioner`
 
-- Replace `ManifestOverrides ManifestOverrides` on `K8sProvisionerConfig` with `Patches []manifestpatch.Patch` in `backend/internal/agents/k8s.go`.
-- Delete `backend/internal/agents/k8s_overrides.go` and its test.
-- At every existing override call site, swap `applyOverrides(obj, overridesForSlug(...))` for `manifestpatch.Apply(obj, filterForResource(p.cfg.Patches, kind, name, labels, annotations))`:
-  - `ensureServiceAccount` (`k8s.go:1160`)
-  - `ensureStatefulSet` (`k8s.go:1188`) plus the inline PVC apply on `VolumeClaimTemplates[0]` (`k8s.go:1192-1197`)
-  - `ensureHeadlessService` (`k8s.go:1384`)
-  - `ensureHPA` (`k8s.go:1449`)
-  - `ensurePDB` (`k8s.go:1480`)
-  - `ProvisionSandbox` for the `Pod` (`k8s.go:373-378`)
-- The resource's own labels (already computed via `agentTypeLabels(at)`) and annotations flow into `Apply` so label/annotation selectors resolve correctly.
-- SMP patches with `metadata.name: workspaces` target the PVC template regardless of the parent StatefulSet slug, which is the desired wildcard behaviour for an operator patch targeting `.storageClassName` or `.accessModes` on every tenant's workspace.
+- `K8sProvisionerConfig.Patches []manifestpatch.Patch` replaces `ManifestOverrides`.
+- `ensureServiceAccount`, `ensureStatefulSet` (and its `VolumeClaimTemplates[0]` as `PersistentVolumeClaim`), `ensureHeadlessService`, `ensureHPA`, `ensurePDB` and `ProvisionSandbox` call `manifestpatch.Apply` on the built object.
+- `ProvisionAgentType` runs on agent-type create and update and before every run. When the resource already exists, it writes the patched object's mutable fields onto the live one:
+
+  | Kind | Synced on reconcile | Create-only |
+  |------|--------------------|-------------|
+  | ServiceAccount | labels, annotations | |
+  | StatefulSet | the full pod template, keeping the live session-manager image that redeploy pins by digest | replicas (owned by the HPA), selector, VolumeClaimTemplates, other StatefulSet spec fields |
+  | Service | labels, annotations, ports | clusterIP, selector |
+  | HorizontalPodAutoscaler | labels, annotations, spec | |
+  | PodDisruptionBudget | labels, annotations, minAvailable | selector |
+
+  Sandbox Pods are created per run and always carry the current patches.
 
 ### Loading at startup
 
-In `backend/cmd/orbit-agents/main.go`, replace the current `ParseManifestOverrides` block with:
+`backend/cmd/orbit-agents/main.go` reads patches from `ORBIT_MANIFEST_PATCH_DIR` (default `/etc/orbit/manifest-patches`), then renders every patchable resource, sandbox Pod included, for a stand-in agent type. A patch that fails to load or apply, or that changes a protected field, fails the pod at boot. A patch scoped by name or label to a real agent type is a no-op in that pass and is checked again when it applies at provision time. The provisioner config is built by one function shared by the server and the render mode, so both see the same images, pull secrets, trust domain and ports.
 
-```go
-patchDir := os.Getenv("ORBIT_MANIFEST_PATCH_DIR")
-if patchDir == "" {
-    patchDir = "/etc/orbit/manifest-patches"
-}
-patches, err := manifestpatch.Load(patchDir)
-if err != nil {
-    return fmt.Errorf("load manifest patches from %s: %w", patchDir, err)
-}
-if err := manifestpatch.Validate(patches); err != nil {
-    return fmt.Errorf("validate manifest patches in %s: %w", patchDir, err)
-}
-logger.Info(ctx, "loaded manifest patches",
-    logging.Field{Key: "dir", Value: patchDir},
-    logging.Field{Key: "count", Value: len(patches)},
-)
-```
-
-Missing dir → 0 patches, no error. Malformed YAML → hard fail at startup. `manifestpatch.Validate` dry-checks every patch's shape (parseable body, known target Kind, decodable JSON6902 op array, parseable label/annotation selectors, SMP body that unmarshals onto the target type) so a broken patch fails the orbit-agents pod at boot instead of on the first agent-type provision.
+orbit-agents logs a warning for every `ORBIT_MANIFEST__*` env var it finds, since those are ignored.
 
 ### Debug render mode
 
-The `orbit-agents` binary has no CLI parsing today. Add stdlib `flag` at the top of `main()`:
+`orbit-agents -render -agent-slug=<slug> [-agent-type-id=<id>] [-tenant-id=<id>] [-namespace=<ns>] [-patch-dir=<dir>] [-sandbox]` loads the service config and patches, runs the same startup validation, calls `agents.RenderResources` and prints each object as YAML separated by `---`. It needs no kubeconfig or database. `-agent-type-id` sets the `orbit.io/agent-type` label so patches selecting on it match; it defaults to `render-<slug>`. `metadata.ownerReferences` is omitted: the runtime resolves it from live OrbitTenant and StatefulSet lookups.
 
-```go
-var (
-    renderMode      = flag.Bool("render", false, "render final manifests to stdout and exit")
-    renderPatchDir  = flag.String("patch-dir", "/etc/orbit/manifest-patches", "manifest patches directory")
-    renderAgentSlug = flag.String("agent-slug", "", "agent type slug to render (required with -render)")
-    renderNamespace = flag.String("namespace", "tenant-example", "tenant namespace for the rendered manifests")
-    renderSandbox   = flag.Bool("sandbox", false, "also render a sample sandbox pod")
-)
-flag.Parse()
-if *renderMode {
-    return renderManifests(*renderPatchDir, *renderAgentSlug, *renderNamespace, *renderSandbox)
-}
-```
+### Helm chart
 
-`renderManifests` (new file `backend/cmd/orbit-agents/render.go`) loads patches, calls a new package-level `agents.RenderResources(at AgentType, namespace string, patches []manifestpatch.Patch) ([]runtime.Object, error)` that reuses the same `build*` helpers the runtime uses, marshals each object with `sigs.k8s.io/yaml.Marshal`, and prints them separated by `---\n`. No kubeconfig, database, or observability initialisation. `metadata.ownerReferences` is the one field the preview cannot reproduce: the runtime resolves it from live OrbitTenant/StatefulSet lookups that `RenderResources` has no client to perform, so a rendered object omits owner references that the created object will have.
+- `templates/agents/patches-configmap.yaml` renders `agents.manifestPatches` into the `orbit-agents-manifest-patches` ConfigMap. `agents.manifestPatches` is a map from a bare patch name to a kustomize `patches:` entry; each entry is written as `<key>.yaml`, so keys decide apply order.
+- `templates/agents/deployment.yaml` drops the `ORBIT_MANIFEST__*` env stanzas, mounts the ConfigMap at `/etc/orbit/manifest-patches`, and adds a `checksum/patches` pod annotation.
+- `values.yaml` removes `agents.runtimePods.*` and adds `agents.manifestPatches: {}`.
 
-### Helm chart migration
-
-`charts/orbit/templates/agents/`:
-
-- New `patches-configmap.yaml`: renders `agents.manifestPatches` into a `ConfigMap` named `orbit-agents-manifest-patches`. `agents.manifestPatches` is a map keyed by a bare patch name (no extension); the chart writes each entry into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Each entry is an object with `content` (the patch body, verbatim), `required` in the template so a missing value fails `helm template`/`helm upgrade` immediately. The chart does no translation of its own — the operator's `content` is written byte-for-byte, so the patch the operator authors is the patch orbit-agents loads.
-
-- `deployment.yaml`: drop the seven `ORBIT_MANIFEST__*` env stanzas (lines 75-113), mount the `orbit-agents-manifest-patches` ConfigMap at `/etc/orbit/manifest-patches`, and add a `checksum/patches` pod annotation so `helm upgrade` rolls the pods when patches change.
-
-- `values.yaml`: remove the `agents.runtimePods.*` block entirely; add `agents.manifestPatches: {}` for operator-supplied patches.
-
-Both the old `ORBIT_MANIFEST__*` env var API and the chart's `agents.runtimePods.*` named knobs are removed with no deprecation window. Operators using either must write the equivalent patch under `agents.manifestPatches` themselves — see the examples below and `deploy/reference/values/orbit.yaml`.
-
-#### Operator-authored patch examples
-
-Two patches every operator eventually needs — an image pull secret for a private registry, and a node selector pinning agent pods to a node pool:
+Example:
 
 ```yaml
 agents:
   manifestPatches:
-    50-sandbox-imagepullsecret:
-      content: |
+    50-imagepullsecret:
+      target:
+        kind: StatefulSet
+      patch: |
         apiVersion: apps/v1
         kind: StatefulSet
+        metadata:
+          name: any
         spec:
           template:
             spec:
               imagePullSecrets:
                 - name: acme-registry
-    51-sandbox-nodeselector:
-      content: |
+    51-nodeselector:
+      target:
+        kind: StatefulSet
+      patch: |
         apiVersion: apps/v1
         kind: StatefulSet
+        metadata:
+          name: any
         spec:
           template:
             spec:
@@ -390,28 +305,24 @@ agents:
                 disktype: ssd
 ```
 
-The map key is a bare patch name (no extension); the chart writes it into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. The patch body itself declares its own target (`kind`, and `metadata.name` or a JSON6902 `target:` block) — there is no separate chart-side configuration of which manifest a patch applies to. See `deploy/reference/values/orbit.yaml` for a working example wired into the reference installation.
-
 ### Deletion
 
-Removed entirely, no deprecation window:
+Removed, with no deprecation window:
 
-- `backend/internal/agents/k8s_overrides.go` and its test
-- `K8sProvisionerConfig.ManifestOverrides`
-- The `ParseManifestOverrides` block in `main.go`
-- Every `ORBIT_MANIFEST__*` env stanza in the Helm chart
-- `github.com/tidwall/sjson` from `backend/go.mod` (grep-confirmed only used in the deleted file)
+- `backend/internal/agents/k8s_overrides.go` and its test.
+- `K8sProvisionerConfig.ManifestOverrides` and the `ParseManifestOverrides` block in `main.go`.
+- Every `ORBIT_MANIFEST__*` env stanza and the `agents.runtimePods.*` values in the Helm chart.
 
 This ADR supersedes ADR 2026-06-12.
 
 ### Migration Path
 
-- Operators using the chart's earlier `agents.runtimePods.*` named knobs: write the equivalent patch under `agents.manifestPatches` (see the operator-authored examples above and `deploy/reference/values/orbit.yaml`).
-- Operators who added raw `ORBIT_MANIFEST__*` env vars to the orbit-agents pod spec: translate each into a patch under `agents.manifestPatches`. `docs/guides/local-development.md` has a section on the `-render` mode so operators can preview the result before deploying.
+- `agents.runtimePods.*` users write the equivalent patches under `agents.manifestPatches`.
+- Users of raw `ORBIT_MANIFEST__*` env vars translate each into a patch under `agents.manifestPatches` and preview the result with `-render`.
 
 ### Timeline
 
-Ship as a single PR that touches the Go package, the Helm chart, and the ADR set together. Both `ORBIT_MANIFEST__*` and `agents.runtimePods.*` are removed with no deprecation window; operators on either must write a replacement patch before upgrading. The rollout itself is a rolling restart of `orbit-agents`; no coordination with tenants required.
+Ships as a single PR covering the Go package, the Helm chart and the ADR set. The rollout is a rolling restart of `orbit-agents`; no tenant coordination is required.
 
 ---
 
@@ -419,32 +330,29 @@ Ship as a single PR that touches the Go package, the Helm chart, and the ADR set
 
 ### Success Metrics
 
-- Every provisioned Kind still round-trips through `manifestpatch.Apply` when patches match, and stays byte-identical to the pre-change build when no patches are configured.
-- `make check` passes with the sub-package's table-driven tests exercising SMP list-merge, JSON6902 `add`/`remove`/`replace`/`move`, label-selector matching, missing-path-on-remove, and malformed-file fatal paths.
-- `orbit-agents -render -patch-dir=./testdata/patches -agent-slug=coder -sandbox | kubectl apply --dry-run=server -f -` accepts every rendered object against the local k3d API server.
+- With no patches configured, every provisioned object is identical to the pre-change build.
+- `make check` passes, with table-driven tests covering SMP merges, `$patch: delete`, JSON6902, selector matching, sequential application, strict decoding, protected-field rejection and loader errors.
+- `orbit-agents -render -patch-dir=<dir> -agent-slug=coder -sandbox | kubectl apply --dry-run=server -f -` is accepted by the local k3d API server.
 
 ### Monitoring
 
-- Startup log line records the loaded patch count; a jump to zero after a chart change is the smell-test for a mis-mounted ConfigMap.
-- Provisioning failures continue to surface as structured errors on the `agents.k8s.Ensure*` spans; a patch that produces an invalid manifest fails the first agent type it applies to, not silently later.
+- The startup log records the loaded patch count; a drop to zero after a chart change points at a mis-mounted ConfigMap.
+- Provisioning failures surface as structured errors on the `agents.k8s.*` spans.
 
 ---
 
 ## Related Decisions
 
-- [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — superseded by this ADR
-- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — describes the K8s resources being patched
-- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — overall orbit-agents architecture
+- [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md): superseded by this ADR.
+- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the Kubernetes resources being patched.
+- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md): overall orbit-agents architecture.
 
 ---
 
 ## References
 
 - [Kustomize patches reference](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/)
-- [`k8s.io/apimachinery/pkg/util/strategicpatch`](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/strategicpatch)
-- [`github.com/evanphx/json-patch/v5`](https://pkg.go.dev/github.com/evanphx/json-patch/v5)
-- [`sigs.k8s.io/yaml`](https://pkg.go.dev/sigs.k8s.io/yaml)
-- [Cluster API `ClusterClass` patches](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/write-clusterclass) — prior art on the `{target, patch}` envelope for provisioning-time patches
+- [`sigs.k8s.io/kustomize/api/krusty`](https://pkg.go.dev/sigs.k8s.io/kustomize/api/krusty)
 - [Flux Kustomize Controller `spec.patches`](https://fluxcd.io/flux/components/kustomize/kustomizations/#patches)
 
 ---

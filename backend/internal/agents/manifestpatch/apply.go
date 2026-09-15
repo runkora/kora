@@ -4,66 +4,85 @@ import (
 	"encoding/json"
 	"fmt"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/api/types"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
+	"sigs.k8s.io/yaml"
 )
 
-// Apply applies each of the given patches to obj in order, returning the
-// resulting object. Patches are dispatched by flavor: StrategicMerge uses
-// k8s strategic merge (schema from obj's struct tags); JSONPatch uses RFC
-// 6902.
-//
-// A zero-length patches slice returns obj unchanged.
-func Apply[T any](obj T, patches []Patch) (T, error) {
-	if len(patches) == 0 {
-		return obj, nil
-	}
-	origJSON, err := json.Marshal(obj)
-	if err != nil {
-		return obj, fmt.Errorf("marshal object: %w", err)
-	}
+// Apply runs every patch targeting kind over obj, one at a time in file order,
+// so a later patch sees what an earlier one changed. Each result must keep
+// the protected fields as built and decode strictly onto T, which rejects
+// field typos kustomize would otherwise pass through.
+func Apply[T any](obj T, kind string, patches []Patch) (T, error) {
+	var built, current []byte
+	result := obj
 	for _, p := range patches {
-		switch p.Flavor {
-		case StrategicMerge:
-			// StrategicMergePatch needs a value of the target type so it can
-			// read the patchMergeKey/patchStrategy struct tags. obj itself
-			// works here — the tags are on the type.
-			merged, err := strategicpatch.StrategicMergePatch(origJSON, p.Body, obj)
-			if err != nil {
-				return obj, fmt.Errorf("apply strategic merge patch %s: %w", p.File, err)
-			}
-			origJSON = merged
-		case JSONPatch:
-			decoded, err := jsonpatch.DecodePatch(p.Body)
-			if err != nil {
-				return obj, fmt.Errorf("decode json6902 patch %s: %w", p.File, err)
-			}
-			opts := jsonpatch.NewApplyOptions()
-			opts.AllowMissingPathOnRemove = true
-			opts.EnsurePathExistsOnAdd = true
-			applied, err := decoded.ApplyWithOptions(origJSON, opts)
-			if err != nil {
-				return obj, fmt.Errorf("apply json6902 patch %s: %w", p.File, err)
-			}
-			origJSON = applied
-		default:
-			return obj, fmt.Errorf("apply patch %s: unknown flavor %v", p.File, p.Flavor)
+		if p.Entry.Target.Kind != kind {
+			continue
 		}
+		if built == nil {
+			var err error
+			if built, err = toResource(obj, kind); err != nil {
+				return obj, err
+			}
+			current = built
+		}
+		out, err := kustomize(current, p.Entry)
+		if err != nil {
+			return obj, fmt.Errorf("patch %s: %w", p.File, err)
+		}
+		if err := checkProtected(built, out); err != nil {
+			return obj, fmt.Errorf("patch %s: %w", p.File, err)
+		}
+		var next T
+		if err := yaml.UnmarshalStrict(out, &next); err != nil {
+			return obj, fmt.Errorf("patch %s: %w", p.File, err)
+		}
+		current, result = out, next
 	}
-	var out T
-	if err := json.Unmarshal(origJSON, &out); err != nil {
-		return obj, fmt.Errorf("unmarshal patched object: %w", err)
-	}
-	return out, nil
+	return result, nil
 }
 
-// ApplyToResource is a convenience that filters patches by (kind, name,
-// labels, annotations) then applies. It is the shape every provisioner call
-// site wants.
-func ApplyToResource[T any](obj T, patches []Patch, kind, name string, resourceLabels, resourceAnnotations map[string]string) (T, error) {
-	filtered, err := FilterForResource(patches, kind, name, resourceLabels, resourceAnnotations)
+// toResource renders obj as YAML with apiVersion and kind set, which kustomize
+// needs to identify the resource. The typed builders leave TypeMeta empty.
+func toResource(obj any, kind string) ([]byte, error) {
+	b, err := json.Marshal(obj)
 	if err != nil {
-		return obj, err
+		return nil, fmt.Errorf("marshal %s: %w", kind, err)
 	}
-	return Apply(obj, filtered)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("unmarshal %s: %w", kind, err)
+	}
+	m["apiVersion"] = apiVersions[kind]
+	m["kind"] = kind
+	return yaml.Marshal(m)
+}
+
+// kustomize builds a one-resource kustomization with a single patch in an
+// in-memory filesystem and returns the patched resource.
+func kustomize(resource []byte, entry types.Patch) ([]byte, error) {
+	k, err := yaml.Marshal(types.Kustomization{
+		Resources: []string{"resource.yaml"},
+		Patches:   []types.Patch{entry},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal kustomization: %w", err)
+	}
+	fs := filesys.MakeFsInMemory()
+	if err = fs.WriteFile("/resource.yaml", resource); err != nil {
+		return nil, fmt.Errorf("write resource: %w", err)
+	}
+	if err = fs.WriteFile("/kustomization.yaml", k); err != nil {
+		return nil, fmt.Errorf("write kustomization: %w", err)
+	}
+	resMap, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(fs, "/")
+	if err != nil {
+		return nil, fmt.Errorf("kustomize: %w", err)
+	}
+	if resMap.Size() != 1 {
+		return nil, fmt.Errorf("patch must leave exactly one resource, got %d", resMap.Size())
+	}
+	return resMap.Resources()[0].AsYAML()
 }

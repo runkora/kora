@@ -61,7 +61,7 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
 - When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
-Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` targeting the `workspaces` PersistentVolumeClaim (see [ADR 2026-09-15](../adr/2026-09-15-manifest-patches-configmap.md)).
+Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` that targets the `PersistentVolumeClaim` kind.
 
 ### DNS and TLS
 
@@ -272,3 +272,4 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 - [Install and distribution model](../adr/2026-09-04-install-and-distribution-model.md): why Orbit ships as two charts and the operator manages only tenants.
 - [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how Orbit injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
+- [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.

@@ -480,31 +480,24 @@ agents:
   authorizationPolicy:
     enabled: true
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  # Freeform map of operator-authored kustomize-style patches applied to
-  # every resource orbit-agents provisions in tenant namespaces (StatefulSet,
-  # Service, ServiceAccount, HPA, PDB, PVC, sandbox Pod) — storage class,
-  # image pull secrets, node selectors, tolerations, resource limits,
-  # annotations, and anything else a field-level patch can express
-  # (docs/adr/2026-09-15-manifest-patches-configmap.md). The map key is a bare
-  # patch name (no extension) and controls apply order (lexicographic); the
-  # chart writes it into the ConfigMap as "<key>.yaml". `content` is the
-  # patch body (Strategic Merge or JSON6902), verbatim.
+  # Kustomize patches applied to the resources orbit-agents provisions in
+  # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's
+  # workspace template), Service, ServiceAccount, HorizontalPodAutoscaler,
+  # PodDisruptionBudget and the sandbox Pod. Each value is one kustomize
+  # `patches:` entry and needs target.kind; keys sort into apply order.
+  # Patches that change a resource's identity, security context or the
+  # sandbox workspace mount are rejected at startup.
   #
-  # Example — inject an image pull secret and a node selector:
+  # Example, pinning agent pods to a node pool:
   #   manifestPatches:
-  #     50-sandbox-imagepullsecret:
-  #       content: |
+  #     50-nodeselector:
+  #       target:
+  #         kind: StatefulSet
+  #       patch: |
   #         apiVersion: apps/v1
   #         kind: StatefulSet
-  #         spec:
-  #           template:
-  #             spec:
-  #               imagePullSecrets:
-  #                 - name: acme-registry
-  #     51-sandbox-nodeselector:
-  #       content: |
-  #         apiVersion: apps/v1
-  #         kind: StatefulSet
+  #         metadata:
+  #           name: any
   #         spec:
   #           template:
   #             spec:

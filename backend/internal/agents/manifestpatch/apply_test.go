@@ -1,242 +1,236 @@
 package manifestpatch
 
 import (
-	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/kustomize/api/types"
+	"sigs.k8s.io/yaml"
 )
 
-// applyJSONByKind decodes manifestJSON onto the concrete type for kind, runs
-// Apply with the given patches, and returns the result re-marshaled to JSON.
-// This lets the table below stay data-only (manifest/patch/expected as raw
-// JSON) while still exercising the real per-type strategicpatch/JSON6902
-// codepaths — Apply's generic type parameter has to be resolved at a
-// concrete type, so this switch is the one place that binds "kind string" to
-// "Go type", mirroring KnownKinds in validate.go.
-func applyJSONByKind(t *testing.T, kind string, manifestJSON []byte, patches []Patch) []byte {
+// patch parses one patch entry from YAML, as Load would.
+func patch(t *testing.T, file, entryYAML string) Patch {
 	t.Helper()
-	switch kind {
-	case "StatefulSet":
-		return applyTyped[appsv1.StatefulSet](t, manifestJSON, patches)
-	case "Service":
-		return applyTyped[corev1.Service](t, manifestJSON, patches)
-	case "ServiceAccount":
-		return applyTyped[corev1.ServiceAccount](t, manifestJSON, patches)
-	case "HorizontalPodAutoscaler":
-		return applyTyped[autoscalingv2.HorizontalPodAutoscaler](t, manifestJSON, patches)
-	case "PodDisruptionBudget":
-		return applyTyped[policyv1.PodDisruptionBudget](t, manifestJSON, patches)
-	case "PersistentVolumeClaim":
-		return applyTyped[corev1.PersistentVolumeClaim](t, manifestJSON, patches)
-	case "Pod":
-		return applyTyped[corev1.Pod](t, manifestJSON, patches)
-	default:
-		t.Fatalf("applyJSONByKind: unsupported kind %q", kind)
-		return nil
+	var e types.Patch
+	if err := yaml.UnmarshalStrict([]byte(entryYAML), &e); err != nil {
+		t.Fatal(err)
+	}
+	return Patch{File: file, Entry: e}
+}
+
+func statefulSet() appsv1.StatefulSet {
+	nonRoot := true
+	return appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: "tenant-example", Labels: map[string]string{"app": "coder", "orbit.io/tenant": "example"}},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: "coder",
+			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "coder"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "coder", "spiffe.io/agent": "coder"}},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "coder",
+					SecurityContext:    &corev1.PodSecurityContext{RunAsNonRoot: &nonRoot},
+					Containers: []corev1.Container{
+						{Name: "session-manager", Image: "sm:1", SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: new(false)}},
+						{Name: "helper", Image: "h:1"},
+					},
+				},
+			},
+		},
 	}
 }
 
-func applyTyped[T any](t *testing.T, manifestJSON []byte, patches []Patch) []byte {
-	t.Helper()
-	var obj T
-	require.NoError(t, json.Unmarshal(manifestJSON, &obj), "unmarshal manifest fixture")
-	got, err := Apply(obj, patches)
-	require.NoError(t, err, "Apply")
-	out, err := json.Marshal(got)
-	require.NoError(t, err, "marshal result")
-	return out
-}
-
-// suiteCase is one row of the table: a starting manifest, one or more
-// patches to apply in order, and the expected resulting manifest. All three
-// are raw JSON so the table reads like the fixtures it represents.
-type suiteCase struct {
-	name     string
-	kind     string
-	manifest string // starting object, JSON
-	patches  []Patch
-	expected string // resulting object, JSON
-	wantErr  string // non-empty: Apply must fail and the error must contain this substring
-}
-
-func TestApply_TableSuite(t *testing.T) {
-	cases := []suiteCase{
-		{
-			name:     "SMP scalar field sets storageClassName",
-			kind:     "PersistentVolumeClaim",
-			manifest: `{"metadata":{"name":"workspaces"}}`,
-			patches: []Patch{
-				{Flavor: StrategicMerge, Kind: "PersistentVolumeClaim", Name: "workspaces", Body: []byte(`{"spec":{"storageClassName":"gp3"}}`)},
-			},
-			expected: `{"metadata":{"name":"workspaces"},"spec":{"resources":{},"storageClassName":"gp3"},"status":{}}`,
-		},
-		{
-			name:     "SMP merges annotations, keeps existing keys",
-			kind:     "PersistentVolumeClaim",
-			manifest: `{"metadata":{"name":"workspaces","annotations":{"existing":"keep"}}}`,
-			patches: []Patch{
-				{Flavor: StrategicMerge, Kind: "PersistentVolumeClaim", Body: []byte(`{"metadata":{"annotations":{"custom.io/tag":"v2"}}}`)},
-			},
-			expected: `{"metadata":{"name":"workspaces","annotations":{"existing":"keep","custom.io/tag":"v2"}},"spec":{"resources":{}},"status":{}}`,
-		},
-		{
-			name: "SMP on Tolerations replaces the list in place (no patchMergeKey tag)",
-			kind: "StatefulSet",
-			manifest: `{"spec":{"template":{"spec":{"tolerations":[
-				{"key":"existing","operator":"Exists"}
-			]}}}}`,
-			patches: []Patch{
-				{Flavor: StrategicMerge, Kind: "StatefulSet", Body: []byte(`{"spec":{"template":{"spec":{"tolerations":[
-					{"key":"workload-tier","operator":"Equal","effect":"NoSchedule","value":"orbit"}
-				]}}}}`)},
-			},
-			expected: `{"metadata":{},"spec":{"selector":null,"template":{"metadata":{},"spec":{"containers":null,"tolerations":[
-				{"key":"workload-tier","operator":"Equal","value":"orbit","effect":"NoSchedule"}
-			]}},"serviceName":"","updateStrategy":{}},"status":{"replicas":0,"availableReplicas":0}}`,
-		},
-		{
-			name: "JSON6902 replace on a nested list index",
-			kind: "Pod",
-			manifest: `{"spec":{"containers":[
-				{"name":"sandbox-exec","resources":{"limits":{"cpu":"2","memory":"4Gi"}}}
-			]}}`,
-			patches: []Patch{
-				{Flavor: JSONPatch, Kind: "Pod", Body: []byte(`[
-					{"op":"replace","path":"/spec/containers/0/resources/limits/cpu","value":"4"},
-					{"op":"replace","path":"/spec/containers/0/resources/limits/memory","value":"8Gi"}
-				]`)},
-			},
-			expected: `{"metadata":{},"spec":{"containers":[
-				{"name":"sandbox-exec","resources":{"limits":{"cpu":"4","memory":"8Gi"}}}
-			]},"status":{}}`,
-		},
-		{
-			name:     "JSON6902 add appends to an existing array",
-			kind:     "Pod",
-			manifest: `{"spec":{"imagePullSecrets":[{"name":"existing-secret"}]}}`,
-			patches: []Patch{
-				{Flavor: JSONPatch, Kind: "Pod", Body: []byte(`[{"op":"add","path":"/spec/imagePullSecrets/-","value":{"name":"acme-registry"}}]`)},
-			},
-			expected: `{"metadata":{},"spec":{"containers":null,"imagePullSecrets":[{"name":"existing-secret"},{"name":"acme-registry"}]},"status":{}}`,
-		},
-		{
-			name:     "JSON6902 remove on a missing path is a no-op (AllowMissingPathOnRemove)",
-			kind:     "Pod",
-			manifest: `{}`,
-			patches: []Patch{
-				{Flavor: JSONPatch, Kind: "Pod", Body: []byte(`[{"op":"remove","path":"/spec/nodeSelector/gpu"}]`)},
-			},
-			expected: `{"metadata":{},"spec":{"containers":null},"status":{}}`,
-		},
-		{
-			name:     "multiple patches apply in order, last write wins",
-			kind:     "PersistentVolumeClaim",
-			manifest: `{}`,
-			patches: []Patch{
-				{Flavor: StrategicMerge, Kind: "PersistentVolumeClaim", Body: []byte(`{"spec":{"storageClassName":"slow"}}`)},
-				{Flavor: StrategicMerge, Kind: "PersistentVolumeClaim", Body: []byte(`{"spec":{"storageClassName":"fast"}}`)},
-			},
-			expected: `{"metadata":{},"spec":{"resources":{},"storageClassName":"fast"},"status":{}}`,
-		},
-		{
-			name:     "no patches returns the manifest unchanged",
-			kind:     "PersistentVolumeClaim",
-			manifest: `{"metadata":{"name":"workspaces"},"spec":{"storageClassName":"premium-ssd"}}`,
-			patches:  nil,
-			expected: `{"metadata":{"name":"workspaces"},"spec":{"resources":{},"storageClassName":"premium-ssd"},"status":{}}`,
+func sandboxPod() corev1.Pod {
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-r1", Namespace: "tenant-example", Labels: map[string]string{"orbit.io/role": "sandbox", "orbit.io/run-id": "r1"}},
+		Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-coder-0"}}}},
+			Containers: []corev1.Container{{
+				Name:         "sandbox",
+				Image:        "sb:1",
+				VolumeMounts: []corev1.VolumeMount{{Name: "workspaces", MountPath: "/workspaces/r1", SubPath: "r1"}},
+			}},
 		},
 	}
+}
 
+func TestApply_NoMatchingPatchReturnsObjectUnchanged(t *testing.T) {
+	ss := statefulSet()
+	got, err := Apply(ss, "StatefulSet", []Patch{patch(t, "10.yaml", "target: {kind: Pod}\npatch: |\n  - {op: add, path: /metadata/annotations, value: {a: b}}\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, ss) {
+		t.Fatalf("object changed without a matching patch:\n%+v", got)
+	}
+}
+
+func TestApply(t *testing.T) {
+	cases := []struct {
+		name    string
+		patches []string
+		check   func(t *testing.T, got appsv1.StatefulSet)
+	}{
+		{
+			name: "strategic merge adds a node selector",
+			patches: []string{`target: {kind: StatefulSet}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:
+      spec:
+        nodeSelector: {disktype: ssd}
+`},
+			check: func(t *testing.T, got appsv1.StatefulSet) {
+				if got.Spec.Template.Spec.NodeSelector["disktype"] != "ssd" {
+					t.Errorf("nodeSelector: got %v", got.Spec.Template.Spec.NodeSelector)
+				}
+			},
+		},
+		{
+			name: "json6902 with a matching label selector",
+			patches: []string{`target: {kind: StatefulSet, labelSelector: orbit.io/tenant=example}
+patch: |
+  - op: add
+    path: /spec/template/spec/containers/0/resources
+    value: {limits: {cpu: "2"}}
+`},
+			check: func(t *testing.T, got appsv1.StatefulSet) {
+				if got.Spec.Template.Spec.Containers[0].Resources.Limits.Cpu().String() != "2" {
+					t.Errorf("resources: got %v", got.Spec.Template.Spec.Containers[0].Resources)
+				}
+			},
+		},
+		{
+			name: "non-matching label selector is a no-op",
+			patches: []string{`target: {kind: StatefulSet, labelSelector: orbit.io/tenant=other}
+patch: |
+  - {op: add, path: /spec/template/spec/nodeSelector, value: {disktype: ssd}}
+`},
+			check: func(t *testing.T, got appsv1.StatefulSet) {
+				if got.Spec.Template.Spec.NodeSelector != nil {
+					t.Errorf("nodeSelector: got %v, want none", got.Spec.Template.Spec.NodeSelector)
+				}
+			},
+		},
+		{
+			name: "strategic merge delete directive removes a container",
+			patches: []string{`target: {kind: StatefulSet}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:
+      spec:
+        containers:
+        - name: helper
+          $patch: delete
+`},
+			check: func(t *testing.T, got appsv1.StatefulSet) {
+				if len(got.Spec.Template.Spec.Containers) != 1 || got.Spec.Template.Spec.Containers[0].Name != "session-manager" {
+					t.Errorf("containers: got %+v", got.Spec.Template.Spec.Containers)
+				}
+			},
+		},
+		{
+			name: "a later patch sees a label an earlier patch added",
+			patches: []string{
+				"target: {kind: StatefulSet}\npatch: |\n  - {op: add, path: /metadata/labels/tier, value: gold}\n",
+				"target: {kind: StatefulSet, labelSelector: tier=gold}\npatch: |\n  - {op: add, path: /spec/template/spec/priorityClassName, value: high}\n",
+			},
+			check: func(t *testing.T, got appsv1.StatefulSet) {
+				if got.Spec.Template.Spec.PriorityClassName != "high" {
+					t.Errorf("priorityClassName: got %q", got.Spec.Template.Spec.PriorityClassName)
+				}
+			},
+		},
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := applyJSONByKind(t, tc.kind, []byte(tc.manifest), tc.patches)
-			assert.JSONEq(t, tc.expected, string(got), "resulting manifest mismatch")
+			var patches []Patch
+			for _, p := range tc.patches {
+				patches = append(patches, patch(t, "10.yaml", p))
+			}
+			got, err := Apply(statefulSet(), "StatefulSet", patches)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.check(t, got)
 		})
 	}
 }
 
-// TestApplyToResource_TableSuite covers the selector-filtering layer
-// (kind/name/label/annotation) on top of Apply, using the same
-// manifest/patch/expected shape.
-func TestApplyToResource_TableSuite(t *testing.T) {
-	type resourceCase struct {
-		name      string
-		kind      string
-		podName   string
-		podLabels map[string]string
-		manifest  string
-		patches   []Patch
-		expected  string
-	}
-
-	cases := []resourceCase{
-		{
-			name:      "label-selector patch matches, kind-mismatched and label-mismatched patches are filtered out",
-			kind:      "Pod",
-			podName:   "sandbox-run-42",
-			podLabels: map[string]string{"orbit.io/role": "sandbox"},
-			manifest:  `{"metadata":{"name":"sandbox-run-42","labels":{"orbit.io/role":"sandbox"}}}`,
-			patches: []Patch{
-				{File: "010-other-kind.yaml", Flavor: StrategicMerge, Kind: "StatefulSet", Body: []byte(`{"spec":{"replicas":9}}`)},
-				{File: "020-sandbox-label.yaml", Flavor: StrategicMerge, Kind: "Pod", LabelSelector: "orbit.io/role=sandbox", Body: []byte(`{"metadata":{"annotations":{"matched":"true"}}}`)},
-				{File: "030-non-sandbox.yaml", Flavor: StrategicMerge, Kind: "Pod", LabelSelector: "orbit.io/role=session-manager", Body: []byte(`{"metadata":{"annotations":{"wrong":"true"}}}`)},
-			},
-			expected: `{"metadata":{"name":"sandbox-run-42","labels":{"orbit.io/role":"sandbox"},"annotations":{"matched":"true"}},"spec":{"containers":null},"status":{}}`,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var pod corev1.Pod
-			require.NoError(t, json.Unmarshal([]byte(tc.manifest), &pod))
-			filtered, err := FilterForResource(tc.patches, tc.kind, tc.podName, tc.podLabels, pod.Annotations)
-			require.NoError(t, err)
-			got, err := Apply(pod, filtered)
-			require.NoError(t, err)
-			gotJSON, err := json.Marshal(got)
-			require.NoError(t, err)
-			assert.JSONEq(t, tc.expected, string(gotJSON))
-		})
+func TestApply_RejectsFieldTypo(t *testing.T) {
+	p := patch(t, "20-typo.yaml", `target: {kind: StatefulSet}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:
+      spec:
+        nodeSeletor: {disktype: ssd}
+`)
+	_, err := Apply(statefulSet(), "StatefulSet", []Patch{p})
+	if err == nil || !strings.Contains(err.Error(), "20-typo.yaml") || !strings.Contains(err.Error(), "nodeSeletor") {
+		t.Fatalf("got %v, want a strict-decode error naming the file and field", err)
 	}
 }
 
-// TestApply_ErrorTableSuite covers the failure paths: bad flavor, malformed
-// JSON6902 ops, and a strategic merge body that cannot decode.
-func TestApply_ErrorTableSuite(t *testing.T) {
-	cases := []suiteCase{
-		{
-			name:     "unknown flavor is rejected",
-			kind:     "Pod",
-			manifest: `{}`,
-			patches:  []Patch{{Flavor: Flavor(99), Kind: "Pod", Body: []byte(`{}`)}},
-			wantErr:  "unknown flavor",
-		},
-		{
-			name:     "malformed json6902 op is rejected",
-			kind:     "Pod",
-			manifest: `{}`,
-			patches:  []Patch{{Flavor: JSONPatch, Kind: "Pod", Body: []byte(`not json`)}},
-			wantErr:  "decode json6902",
-		},
+func TestApply_RejectsProtectedFieldChanges(t *testing.T) {
+	cases := []struct{ name, kind, ops, wantPath string }{
+		{"rename", "StatefulSet", "- {op: replace, path: /metadata/name, value: evil}", "metadata.name"},
+		{"remove all labels", "StatefulSet", "- {op: remove, path: /metadata/labels}", "metadata.labels.orbit.io/tenant"},
+		{"change pod identity label", "StatefulSet", "- {op: replace, path: /spec/template/metadata/labels/spiffe.io~1agent, value: other}", "spec.template.metadata.labels.spiffe.io/agent"},
+		{"change service account", "StatefulSet", "- {op: replace, path: /spec/template/spec/serviceAccountName, value: default}", "spec.template.spec.serviceAccountName"},
+		{"drop pod security context", "StatefulSet", "- {op: remove, path: /spec/template/spec/securityContext}", "spec.template.spec.securityContext.runAsNonRoot"},
+		{"weaken container security context", "StatefulSet", "- {op: replace, path: /spec/template/spec/containers/0/securityContext/allowPrivilegeEscalation, value: true}", "spec.template.spec.containers.*.securityContext"},
+		{"change selector", "StatefulSet", "- {op: replace, path: /spec/selector/matchLabels/app, value: x}", "spec.selector"},
+		{"drop workspace subPath", "Pod", "- {op: remove, path: /spec/containers/0/volumeMounts/0/subPath}", "spec.containers.*.volumeMounts"},
+		{"add an unscoped workspace mount", "Pod", "- {op: add, path: /spec/containers/0/volumeMounts/-, value: {name: workspaces, mountPath: /all}}", "spec.containers.*.volumeMounts"},
+		{"point at another claim", "Pod", "- {op: replace, path: /spec/volumes/0/persistentVolumeClaim/claimName, value: other}", "spec.volumes.*.persistentVolumeClaim.claimName"},
+		{"init container mounting the workspace", "Pod", "- {op: add, path: /spec/initContainers, value: [{name: x, image: x, volumeMounts: [{name: workspaces, mountPath: /w}]}]}", "spec.initContainers.*.volumeMounts"},
+		{"change run id label", "Pod", "- {op: replace, path: /metadata/labels/orbit.io~1run-id, value: r2}", "metadata.labels.orbit.io/run-id"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			patches := []Patch{patch(t, "30-bad.yaml", "target: {kind: "+tc.kind+"}\npatch: |\n  "+tc.ops+"\n")}
+			var err error
 			switch tc.kind {
+			case "StatefulSet":
+				_, err = Apply(statefulSet(), tc.kind, patches)
 			case "Pod":
-				var pod corev1.Pod
-				require.NoError(t, json.Unmarshal([]byte(tc.manifest), &pod))
-				_, err := Apply(pod, tc.patches)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
-			default:
-				t.Fatalf("unsupported kind in error table: %s", tc.kind)
+				_, err = Apply(sandboxPod(), tc.kind, patches)
+			}
+			if err == nil || !strings.Contains(err.Error(), "30-bad.yaml") || !strings.Contains(err.Error(), tc.wantPath) {
+				t.Fatalf("got %v, want protected-field error on %s", err, tc.wantPath)
 			}
 		})
+	}
+}
+
+func TestApply_AllowsUnprotectedPodChanges(t *testing.T) {
+	p := patch(t, "40-ok.yaml", `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+patch: |
+  - op: add
+    path: /spec/volumes/-
+    value: {name: extra, emptyDir: {}}
+  - op: add
+    path: /spec/tolerations
+    value: [{key: dedicated, operator: Exists}]
+`)
+	got, err := Apply(sandboxPod(), "Pod", []Patch{p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Spec.Volumes) != 2 || len(got.Spec.Tolerations) != 1 {
+		t.Fatalf("got volumes %v tolerations %v", got.Spec.Volumes, got.Spec.Tolerations)
 	}
 }

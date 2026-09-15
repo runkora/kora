@@ -1,138 +1,111 @@
 package manifestpatch
 
 import (
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
+
+	"sigs.k8s.io/yaml"
 )
 
-// protectedPaths is the set of JSON paths (dotted / slash notation) that
-// patches are forbidden from touching, because orbit-agents' identity and
-// security invariants depend on them staying strong-typed. Overriding these
-// leaves a provisioned resource outside the SPIFFE/pod-security/cross-
-// resource-identity boundary the strong-typed builder guarantees.
-//
-// The ADR is explicit that patches layer on top; they never remove the
-// invariants the builder bakes in. Rejecting at Validate time enforces that.
-//
-// Paths are matched as prefixes: "metadata.ownerReferences" catches both
-// wholesale replacement and /metadata/ownerReferences/0/... in JSON6902.
-var protectedPaths = []string{
-	// Identity / cross-resource wiring — changing any of these orphans the
-	// StatefulSet from its Service / SA / HPA / PDB by name.
-	"metadata.name",
-	"metadata.namespace",
-	"metadata.ownerReferences",
-	// SPIFFE labels used by SPIRE ClusterSPIFFEID templates. Removing them
-	// makes the pod unattested; every downstream authz check fails closed
-	// but the failure mode is a mystery to the operator.
-	"metadata.labels.spiffe.io/agent",
-	"metadata.labels.spiffe.io/spire-managed-identity",
-	"metadata.labels.orbit.io/identity-proxy",
-	"metadata.labels.orbit.io/tenant",
-	"metadata.labels.orbit.io/agent-type",
-	// Sandbox pod identity labels. buildSandboxPod (k8s.go:442-458) sets these
-	// so the operator's pod webhook selects the sandbox for identity-proxy +
-	// opa-policy + SPIRE injection and the orbit-tenant-sandbox
-	// ClusterSPIFFEID template attests it as
-	// spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>. A patch
-	// changing or removing any of these disables injection or misattests the
-	// sandbox while Validate still succeeds.
-	"metadata.labels.orbit.io/role",
-	"metadata.labels.orbit.io/run-id",
-	"metadata.labels.orbit.io/agent-slug",
-	// Selectors must match pod labels; a mismatched selector produces a
-	// silently un-scheduled StatefulSet.
-	"spec.selector",
-	"spec.serviceName",
-	"spec.scaleTargetRef",
-	// ServiceAccount wiring. The pod's SPIFFE ID derives from this, so
-	// changing it silently drops the pod off its attested identity.
-	// Both forms: StatefulSet's pod template, and a bare Pod (sandbox).
-	"spec.template.spec.serviceAccountName",
-	"spec.serviceAccountName",
-	// Pod security context — the builder enforces restricted PSS
-	// (RunAsNonRoot, RunAsUser=100, SeccompProfile=RuntimeDefault). A patch
-	// that weakens these is a security regression the ADR forbids.
-	"spec.template.spec.securityContext.runAsNonRoot",
-	"spec.template.spec.securityContext.runAsUser",
-	"spec.template.spec.securityContext.seccompProfile",
-	"spec.securityContext.runAsNonRoot",
-	"spec.securityContext.runAsUser",
-	"spec.securityContext.seccompProfile",
+// protectedPaths are fields a patch must leave exactly as orbit-agents built
+// them: resource identity and wiring, pod and container security context,
+// and the sandbox's per-run workspace mount. "*" matches every list element.
+var protectedPaths = [][]string{
+	{"apiVersion"},
+	{"kind"},
+	{"metadata", "name"},
+	{"metadata", "namespace"},
+	{"metadata", "ownerReferences"},
+	{"spec", "selector"},
+	{"spec", "serviceName"},
+	{"spec", "scaleTargetRef"},
+	{"spec", "volumeClaimTemplates", "*", "metadata", "name"},
+	{"spec", "serviceAccountName"},
+	{"spec", "template", "spec", "serviceAccountName"},
+	{"spec", "securityContext", "runAsNonRoot"},
+	{"spec", "securityContext", "runAsUser"},
+	{"spec", "securityContext", "seccompProfile"},
+	{"spec", "template", "spec", "securityContext", "runAsNonRoot"},
+	{"spec", "template", "spec", "securityContext", "runAsUser"},
+	{"spec", "template", "spec", "securityContext", "seccompProfile"},
+	{"spec", "containers", "*", "securityContext"},
+	{"spec", "template", "spec", "containers", "*", "securityContext"},
+	{"spec", "volumes", "*", "persistentVolumeClaim", "claimName"},
+	{"spec", "containers", "*", "volumeMounts"},
+	{"spec", "initContainers", "*", "volumeMounts"},
 }
 
-// checkProtectedPathsSMP walks a strategic merge patch body and rejects any
-// key path that matches a protected invariant.
-func checkProtectedPathsSMP(body []byte) error {
-	var doc map[string]any
-	if err := json.Unmarshal(body, &doc); err != nil {
-		// Body is malformed as JSON; strict decode elsewhere will flag it.
-		return nil
-	}
-	return walkForProtected(doc, "")
+// identityLabels select a pod for SPIRE attestation and sidecar injection.
+// Changing one moves the pod off its attested identity. They are protected on
+// the resource and on the StatefulSet pod template.
+var identityLabels = []string{
+	"spiffe.io/agent",
+	"spiffe.io/spire-managed-identity",
+	"orbit.io/identity-proxy",
+	"orbit.io/tenant",
+	"orbit.io/agent-type",
+	"orbit.io/role",
+	"orbit.io/run-id",
+	"orbit.io/agent-slug",
 }
 
-func walkForProtected(v any, path string) error {
-	if hit := matchProtected(path); hit != "" {
-		return fmt.Errorf("patch touches protected path %q (matches %q); see ADR 2026-09-15-manifest-patches-configmap.md", path, hit)
+// checkProtected rejects a patched resource whose protected fields differ
+// from the built one.
+func checkProtected(built, patched []byte) error {
+	var before, after map[string]any
+	if err := yaml.Unmarshal(built, &before); err != nil {
+		return fmt.Errorf("decode built resource: %w", err)
 	}
-	m, ok := v.(map[string]any)
-	if !ok {
-		return nil
+	if err := yaml.Unmarshal(patched, &after); err != nil {
+		return fmt.Errorf("decode patched resource: %w", err)
 	}
-	for k, child := range m {
-		next := k
-		if path != "" {
-			next = path + "." + k
+	for _, path := range protectedPaths {
+		if err := unchanged(before, after, path); err != nil {
+			return err
 		}
-		if err := walkForProtected(child, next); err != nil {
+	}
+	for _, label := range identityLabels {
+		if err := unchanged(before, after, []string{"metadata", "labels", label}); err != nil {
+			return err
+		}
+		if err := unchanged(before, after, []string{"spec", "template", "metadata", "labels", label}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// checkProtectedPathsJSON6902 rejects RFC 6902 ops whose path touches a
-// protected invariant. Paths are JSON pointers ("/spec/serviceAccountName",
-// "/metadata/labels/spiffe.io~1agent"); convert to the dotted form used by
-// protectedPaths, unescaping "~1"->"/" and "~0"->"~" per RFC 6901 §3 so a
-// label key containing a literal "/" (e.g. "spiffe.io/agent") still matches.
-func checkProtectedPathsJSON6902(body []byte) error {
-	var ops []struct {
-		Op   string `json:"op"`
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(body, &ops); err != nil {
-		return nil
-	}
-	for _, op := range ops {
-		if op.Path == "" {
-			continue
-		}
-		segments := strings.Split(strings.TrimPrefix(op.Path, "/"), "/")
-		for i, seg := range segments {
-			seg = strings.ReplaceAll(seg, "~1", "/")
-			seg = strings.ReplaceAll(seg, "~0", "~")
-			segments[i] = seg
-		}
-		dotted := strings.Join(segments, ".")
-		if hit := matchProtected(dotted); hit != "" {
-			return fmt.Errorf("json6902 %s targets protected path %q (matches %q); see ADR 2026-09-15-manifest-patches-configmap.md", op.Op, op.Path, hit)
-		}
+// unchanged reports an error when the values at path differ.
+func unchanged(before, after map[string]any, path []string) error {
+	if !reflect.DeepEqual(collect(before, path), collect(after, path)) {
+		return fmt.Errorf("changes protected field %s", strings.Join(path, "."))
 	}
 	return nil
 }
 
-// matchProtected returns the protected prefix that path falls under, or "".
-func matchProtected(path string) string {
-	if path == "" {
-		return ""
+// collect returns every value at path in v, skipping branches where the path
+// does not exist.
+func collect(v any, path []string) []any {
+	if len(path) == 0 {
+		return []any{v}
 	}
-	for _, p := range protectedPaths {
-		if path == p || strings.HasPrefix(path, p+".") || strings.HasPrefix(path, p+"/") {
-			return p
+	switch node := v.(type) {
+	case map[string]any:
+		child, ok := node[path[0]]
+		if !ok {
+			return nil
 		}
+		return collect(child, path[1:])
+	case []any:
+		if path[0] != "*" {
+			return nil
+		}
+		var out []any
+		for _, el := range node {
+			out = append(out, collect(el, path[1:])...)
+		}
+		return out
 	}
-	return ""
+	return nil
 }

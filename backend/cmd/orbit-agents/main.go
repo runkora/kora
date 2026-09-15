@@ -12,7 +12,6 @@ import (
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/platform/api"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
@@ -27,15 +26,12 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// defaultManifestPatchDir is where the Helm chart mounts the manifest patches
-// ConfigMap. Overridable via ORBIT_MANIFEST_PATCH_DIR.
-const defaultManifestPatchDir = "/etc/orbit/manifest-patches"
-
 func main() {
 	var (
 		renderMode      = flag.Bool("render", false, "render final manifests to stdout and exit")
-		renderPatchDir  = flag.String("patch-dir", defaultManifestPatchDir, "manifest patches directory")
+		renderPatchDir  = flag.String("patch-dir", agentsConfig.Current.Agents.ManifestPatchDir, "manifest patches directory")
 		renderAgentSlug = flag.String("agent-slug", "", "agent type slug to render (required with -render)")
+		renderAgentID   = flag.String("agent-type-id", "", "agent type ID for the orbit.io/agent-type label (defaults to render-<slug>)")
 		renderTenantID  = flag.String("tenant-id", "example", "tenant ID for the rendered manifests")
 		renderNamespace = flag.String("namespace", "tenant-example", "tenant namespace for the rendered manifests")
 		renderSandbox   = flag.Bool("sandbox", false, "also render a sample sandbox pod")
@@ -43,7 +39,11 @@ func main() {
 	flag.Parse()
 
 	if *renderMode {
-		if err := renderManifests(*renderPatchDir, *renderAgentSlug, *renderTenantID, *renderNamespace, *renderSandbox); err != nil {
+		at := agents.AgentType{ID: *renderAgentID, Slug: *renderAgentSlug, TenantID: *renderTenantID}
+		if at.ID == "" {
+			at.ID = "render-" + at.Slug
+		}
+		if err := renderManifests(*renderPatchDir, at, *renderNamespace, *renderSandbox); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -177,10 +177,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
-	patchDir := os.Getenv("ORBIT_MANIFEST_PATCH_DIR")
-	if patchDir == "" {
-		patchDir = defaultManifestPatchDir
-	}
+	patchDir := cfg.Agents.ManifestPatchDir
 
 	// Legacy env-var overrides were removed in favor of the ConfigMap-mounted
 	// patch directory (docs/adr/2026-09-15-manifest-patches-configmap.md).
@@ -191,37 +188,22 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
 			key, _, _ := strings.Cut(e, "=")
 			logger.Warn(ctx,
-				"legacy ORBIT_MANIFEST__ env var detected and IGNORED — migrate to a patch file under "+patchDir+" (docs/adr/2026-09-15-manifest-patches-configmap.md)",
+				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/adr/2026-09-15-manifest-patches-configmap.md)",
 				logging.Field{Key: "key", Value: key},
 			)
 		}
 	}
 
-	patches, err := manifestpatch.Load(patchDir)
+	patches, err := loadPatches(cfg, patchDir)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("load manifest patches from %s: %w", patchDir, err)
-	}
-	if verr := manifestpatch.Validate(patches); verr != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("validate manifest patches in %s: %w", patchDir, verr)
+		return nil, nil, nil, nil, nil, err
 	}
 	logger.Info(ctx, "loaded manifest patches",
 		logging.Field{Key: "dir", Value: patchDir},
 		logging.Field{Key: "count", Value: len(patches)},
 	)
 
-	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
-		SessionManagerImage:        cfg.Agents.SessionManagerImage,
-		SandboxImage:               cfg.Agents.SandboxImage,
-		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
-		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
-		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
-		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
-		TrustDomain:                cfg.Platform.TrustDomain,
-		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
-		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
-		Patches:                    patches,
-	}, pc)
+	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches), pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}

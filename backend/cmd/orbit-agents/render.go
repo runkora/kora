@@ -3,71 +3,61 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"sigs.k8s.io/yaml"
 
+	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 )
 
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+// provisionerConfig builds the provisioner config from the service config, so
+// the server and -render produce the same manifests.
+func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch) agents.K8sProvisionerConfig {
+	return agents.K8sProvisionerConfig{
+		SessionManagerImage:        cfg.Agents.SessionManagerImage,
+		SandboxImage:               cfg.Agents.SandboxImage,
+		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
+		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
+		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
+		TrustDomain:                cfg.Platform.TrustDomain,
+		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
+		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		Patches:                    patches,
 	}
-	return def
 }
 
-func envInt32(key string, def int32) int32 {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.ParseInt(v, 10, 32)
+// validationAgentType is a stand-in agent type used to render every patchable
+// resource at startup, so a patch that fails to apply stops the pod at boot.
+var validationAgentType = agents.AgentType{ID: "validate", Slug: "validate", TenantID: "validate"}
+
+// loadPatches reads the patches in dir and renders every patchable resource
+// once to prove they apply.
+func loadPatches(cfg *agentsConfig.Config, dir string) ([]manifestpatch.Patch, error) {
+	patches, err := manifestpatch.Load(dir)
 	if err != nil {
-		return def
+		return nil, fmt.Errorf("load manifest patches from %s: %w", dir, err)
 	}
-	return int32(n)
+	if _, err := agents.RenderResources(provisionerConfig(cfg, patches), validationAgentType, "tenant-validate", true); err != nil {
+		return nil, fmt.Errorf("validate manifest patches in %s: %w", dir, err)
+	}
+	return patches, nil
 }
 
-// renderManifests prints the final YAML for every resource orbit-agents would
-// provision for the given agent slug, with all manifest patches applied.
-// Used by the `orbit-agents -render` CLI mode for pre-deploy previews.
-//
-// Image/port/system-namespace defaults are overridable via env vars so a
-// preview run under `helm template | orbit-agents -render` reflects the same
-// config the runtime would see:
-//
-//	ORBIT_SESSION_MANAGER_IMAGE, ORBIT_SANDBOX_IMAGE, ORBIT_SANDBOX_GRPC_PORT,
-//	ORBIT_SYSTEM_NAMESPACE, ORBIT_SANDBOX_GIT_AUTHOR_NAME,
-//	ORBIT_SANDBOX_GIT_AUTHOR_EMAIL.
-func renderManifests(patchDir, agentSlug, tenantID, namespace string, includeSandbox bool) error {
-	if agentSlug == "" {
+// renderManifests prints the YAML orbit-agents would provision for one agent
+// type with every manifest patch applied. It backs the -render CLI mode.
+func renderManifests(patchDir string, at agents.AgentType, namespace string, includeSandbox bool) error {
+	if at.Slug == "" {
 		return fmt.Errorf("-agent-slug is required")
 	}
-	patches, err := manifestpatch.Load(patchDir)
+	cfg := agentsConfig.Current
+	patches, err := loadPatches(cfg, patchDir)
 	if err != nil {
-		return fmt.Errorf("load patches: %w", err)
+		return err
 	}
-	if verr := manifestpatch.Validate(patches); verr != nil {
-		return fmt.Errorf("validate patches: %w", verr)
-	}
-
-	cfg := agents.K8sProvisionerConfig{
-		SessionManagerImage: envOr("ORBIT_SESSION_MANAGER_IMAGE", "orbit-session-manager:render"),
-		SandboxImage:        envOr("ORBIT_SANDBOX_IMAGE", "orbit-sandbox-exec:render"),
-		SandboxGRPCPort:     envInt32("ORBIT_SANDBOX_GRPC_PORT", 50051),
-		SystemNamespace:     envOr("ORBIT_SYSTEM_NAMESPACE", "orbit-system"),
-		GitAuthorName:       os.Getenv("ORBIT_SANDBOX_GIT_AUTHOR_NAME"),
-		GitAuthorEmail:      os.Getenv("ORBIT_SANDBOX_GIT_AUTHOR_EMAIL"),
-		Patches:             patches,
-	}
-	at := agents.AgentType{
-		ID:       "render-" + agentSlug,
-		Slug:     agentSlug,
-		TenantID: tenantID,
-	}
-	objs, err := agents.RenderResources(cfg, at, namespace, includeSandbox)
+	objs, err := agents.RenderResources(provisionerConfig(cfg, patches), at, namespace, includeSandbox)
 	if err != nil {
 		return err
 	}

@@ -80,9 +80,9 @@ type K8sProvisionerConfig struct {
 	// Also used to derive the egress-gateway service URL for sandbox
 	// HTTPS_PROXY (the gateway always lives in this namespace).
 	SystemNamespace string
-	// Patches are kustomize-style Strategic Merge and JSON6902 patches loaded
-	// from disk at startup and applied to each provisioned resource after the
-	// default manifest is built. See docs/adr/2026-09-15-manifest-patches-configmap.md.
+	// Patches are kustomize `patches:` entries loaded from disk at startup and
+	// applied to each provisioned resource after the default manifest is
+	// built. See docs/adr/2026-09-15-manifest-patches-configmap.md.
 	Patches []manifestpatch.Patch
 	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
 	// each agent StatefulSet restricting its session-manager port to the
@@ -371,18 +371,11 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// sandbox creation is never gated on the ownerRef path.
 	applyOwnerRef(&pod.ObjectMeta, p.statefulSetOwnerRef(ctx, agentTypeSlug, namespace))
 
-	podVal, err := manifestpatch.ApplyToResource(*pod, p.cfg.Patches, "Pod", pod.Name, pod.Labels, pod.Annotations)
+	podVal, err := manifestpatch.Apply(*pod, "Pod", p.cfg.Patches)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "apply Pod overrides")
-		return "", fmt.Errorf("apply Pod overrides: %w", err)
-	}
-	// Re-sync locals in case an override changed metadata.name or metadata.namespace.
-	if podVal.Name != "" {
-		podName = podVal.Name
-	}
-	if podVal.Namespace != "" {
-		namespace = podVal.Namespace
+		span.SetStatus(codes.Error, "apply Pod patches")
+		return "", fmt.Errorf("apply Pod patches: %w", err)
 	}
 
 	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
@@ -429,7 +422,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	return endpoint, nil
 }
 
-// buildSandboxPod renders the sandbox pod for a run before manifest overrides
+// buildSandboxPod renders the sandbox pod for a run before manifest patches
 // are applied.
 func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) *corev1.Pod {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
@@ -487,6 +480,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	}
 
 	return &corev1.Pod{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        podName,
 			Namespace:   namespace,
@@ -1154,6 +1148,7 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 
 func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[string]string) corev1.ServiceAccount {
 	return corev1.ServiceAccount{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 	}
 }
@@ -1162,9 +1157,9 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	sa := p.buildServiceAccount(name, namespace, labels)
 	applyOwnerRef(&sa.ObjectMeta, owner)
 	var err error
-	sa, err = manifestpatch.ApplyToResource(sa, p.cfg.Patches, "ServiceAccount", sa.Name, sa.Labels, sa.Annotations)
+	sa, err = manifestpatch.Apply(sa, "ServiceAccount", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply ServiceAccount overrides: %w", err)
+		return fmt.Errorf("apply ServiceAccount patches: %w", err)
 	}
 	_, err = p.client.CoreV1().ServiceAccounts(namespace).Create(ctx, &sa, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
@@ -1192,15 +1187,14 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	applyOwnerRef(&ss.ObjectMeta, owner)
 
 	var err error
-	ss, err = manifestpatch.ApplyToResource(ss, p.cfg.Patches, "StatefulSet", ss.Name, ss.Labels, ss.Annotations)
+	ss, err = manifestpatch.Apply(ss, "StatefulSet", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply StatefulSet overrides: %w", err)
+		return fmt.Errorf("apply StatefulSet patches: %w", err)
 	}
 	if len(ss.Spec.VolumeClaimTemplates) > 0 {
-		pvc := ss.Spec.VolumeClaimTemplates[0]
-		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.ApplyToResource(pvc, p.cfg.Patches, "PersistentVolumeClaim", pvc.Name, pvc.Labels, pvc.Annotations)
+		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", p.cfg.Patches)
 		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
+			return fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
 		}
 	}
 
@@ -1208,46 +1202,25 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	// Sync the rendered pod template's metadata, env and security settings onto
-	// an existing StatefulSet. The image is left alone: redeploy pins it by
-	// digest. Labels and annotations are replaced wholesale so an annotation
-	// an older release set (the istiod template list) does not survive.
-	//
-	// Manifest overrides applied to the StatefulSet above land on the rendered
-	// `ss`, so any override touching the pod template's labels, annotations,
-	// scheduling (nodeSelector/tolerations/priorityClassName/affinity),
-	// ImagePullSecrets, or the session-manager container's env, resources, or
-	// SecurityContext propagates to the existing object through the copy
-	// below. Overrides on OTHER fields (spec.replicas, .spec.updateStrategy,
-	// VolumeClaimTemplates …) are still only applied on Create; extending
-	// this path further needs to weigh HPA / storage semantics against the
-	// override reach and belongs to its own change.
+	// Replace the existing pod template with the rendered one so a patch change
+	// reaches existing agents on the next reconcile, keeping only the live
+	// session-manager image, which redeploy pins by digest. Replicas belong to
+	// the HPA, and the selector and VolumeClaimTemplates are immutable, so
+	// those stay create-only.
 	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing statefulset: %w", err)
 	}
-	existing.Spec.Template.Labels = ss.Spec.Template.Labels
-	existing.Spec.Template.Annotations = ss.Spec.Template.Annotations
-	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
-	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
-	// Scheduling fields operators commonly patch (nodeSelector, tolerations,
-	// priorityClassName). Propagating them on the update path means a
-	// manifest patch change that touches scheduling gets picked up on the
-	// next reconcile instead of only affecting fresh StatefulSets.
-	existing.Spec.Template.Spec.NodeSelector = ss.Spec.Template.Spec.NodeSelector
-	existing.Spec.Template.Spec.Tolerations = ss.Spec.Template.Spec.Tolerations
-	existing.Spec.Template.Spec.PriorityClassName = ss.Spec.Template.Spec.PriorityClassName
-	existing.Spec.Template.Spec.Affinity = ss.Spec.Template.Spec.Affinity
-	for i := range existing.Spec.Template.Spec.Containers {
-		if existing.Spec.Template.Spec.Containers[i].Name != sessionManagerContainerName {
-			continue
+	var liveImage string
+	for _, c := range existing.Spec.Template.Spec.Containers {
+		if c.Name == sessionManagerContainerName {
+			liveImage = c.Image
 		}
-		for _, rendered := range ss.Spec.Template.Spec.Containers {
-			if rendered.Name == sessionManagerContainerName {
-				existing.Spec.Template.Spec.Containers[i].Env = rendered.Env
-				existing.Spec.Template.Spec.Containers[i].SecurityContext = rendered.SecurityContext
-				existing.Spec.Template.Spec.Containers[i].Resources = rendered.Resources
-			}
+	}
+	existing.Spec.Template = ss.Spec.Template
+	for i, c := range existing.Spec.Template.Spec.Containers {
+		if c.Name == sessionManagerContainerName && liveImage != "" {
+			existing.Spec.Template.Spec.Containers[i].Image = liveImage
 		}
 	}
 	// Backfill the OrbitTenant owner reference on the existing StatefulSet.
@@ -1272,12 +1245,13 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 }
 
 // buildSessionManagerStatefulSet renders an agent type's StatefulSet before
-// manifest overrides are applied.
+// manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
 	uid := int64(100)
 	nonRoot := true
 	return appsv1.StatefulSet{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
@@ -1388,6 +1362,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 
 func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map[string]string) corev1.Service {
 	return corev1.Service{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
@@ -1403,9 +1378,9 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	svc := p.buildHeadlessService(name, namespace, labels)
 	applyOwnerRef(&svc.ObjectMeta, owner)
 	var err error
-	svc, err = manifestpatch.ApplyToResource(svc, p.cfg.Patches, "Service", svc.Name, svc.Labels, svc.Annotations)
+	svc, err = manifestpatch.Apply(svc, "Service", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply Service overrides: %w", err)
+		return fmt.Errorf("apply Service patches: %w", err)
 	}
 	_, err = p.client.CoreV1().Services(namespace).Create(ctx, &svc, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
@@ -1417,6 +1392,9 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	}
 	existing.Labels = svc.Labels
 	existing.Annotations = svc.Annotations
+	// ClusterIP and the selector are immutable or protected; ports are the
+	// mutable part of the spec a patch can change.
+	existing.Spec.Ports = svc.Spec.Ports
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1427,6 +1405,7 @@ func (p *K8sProvisioner) buildHPA(name, namespace string, labels map[string]stri
 	memTarget := int32(80)
 	minReplicas := int32(1)
 	return autoscalingv2.HorizontalPodAutoscaler{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
 			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
@@ -1471,9 +1450,9 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	hpa := p.buildHPA(name, namespace, labels)
 	applyOwnerRef(&hpa.ObjectMeta, owner)
 	var err error
-	hpa, err = manifestpatch.ApplyToResource(hpa, p.cfg.Patches, "HorizontalPodAutoscaler", hpa.Name, hpa.Labels, hpa.Annotations)
+	hpa, err = manifestpatch.Apply(hpa, "HorizontalPodAutoscaler", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply HorizontalPodAutoscaler overrides: %w", err)
+		return fmt.Errorf("apply HorizontalPodAutoscaler patches: %w", err)
 	}
 	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, &hpa, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
@@ -1485,6 +1464,7 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	}
 	existing.Labels = hpa.Labels
 	existing.Annotations = hpa.Annotations
+	existing.Spec = hpa.Spec
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1493,6 +1473,7 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 func (p *K8sProvisioner) buildPDB(name, namespace string, labels map[string]string) policyv1.PodDisruptionBudget {
 	minAvailable := intstr.FromInt32(1)
 	return policyv1.PodDisruptionBudget{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: policyv1.PodDisruptionBudgetSpec{
 			MinAvailable: &minAvailable,
@@ -1505,9 +1486,9 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	pdb := p.buildPDB(name, namespace, labels)
 	applyOwnerRef(&pdb.ObjectMeta, owner)
 	var err error
-	pdb, err = manifestpatch.ApplyToResource(pdb, p.cfg.Patches, "PodDisruptionBudget", pdb.Name, pdb.Labels, pdb.Annotations)
+	pdb, err = manifestpatch.Apply(pdb, "PodDisruptionBudget", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply PodDisruptionBudget overrides: %w", err)
+		return fmt.Errorf("apply PodDisruptionBudget patches: %w", err)
 	}
 	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, &pdb, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {

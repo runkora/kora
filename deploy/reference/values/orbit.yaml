@@ -72,29 +72,3 @@ inferenceGateway:
 frontend:
   config:
     nextPublicAppUrl: https://orbit.example.com
-
-agents:
-  # Kustomize-style patches applied to every resource orbit-agents provisions
-  # in tenant namespaces (docs/adr/2026-09-15-manifest-patches-configmap.md).
-  # The map key is a bare patch name (no extension); the chart writes it into
-  # the ConfigMap as "<key>.yaml", so the key controls apply order. `content`
-  # is the patch body verbatim. Remove the examples you don't need.
-  manifestPatches:
-    50-sandbox-imagepullsecret:
-      content: |
-        apiVersion: apps/v1
-        kind: StatefulSet
-        spec:
-          template:
-            spec:
-              imagePullSecrets:
-                - name: acme-registry
-    51-sandbox-nodeselector:
-      content: |
-        apiVersion: apps/v1
-        kind: StatefulSet
-        spec:
-          template:
-            spec:
-              nodeSelector:
-                disktype: ssd
