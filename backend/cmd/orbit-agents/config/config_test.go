@@ -56,6 +56,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 		"ORBIT_AGENTS_IMAGE_PULL_SECRETS":                    "ghcr-pull, private-pull,,",
 		"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE":            "require",
 		"ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED": "false",
+		"ORBIT_MANIFEST_PATCH_DIR":                           "/etc/custom/patches",
 	}
 	cfg := &Config{}
 	cfg.Kubernetes.SystemNamespace = "orbit-system"
@@ -85,6 +86,9 @@ func TestApplyEnvOverrides(t *testing.T) {
 	}
 	if cfg.Agents.SessionManager.AuthorizationPolicyEnabled {
 		t.Error("AuthorizationPolicyEnabled should be overridden to false")
+	}
+	if cfg.Agents.ManifestPatchDir != "/etc/custom/patches" {
+		t.Errorf("ManifestPatchDir = %q", cfg.Agents.ManifestPatchDir)
 	}
 }
 

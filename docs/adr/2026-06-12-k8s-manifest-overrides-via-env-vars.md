@@ -1,6 +1,6 @@
 # K8s Manifest Field Overrides via Environment Variables
 
-**Status:** Accepted
+**Status:** Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)
 **Date:** 2026-06-12
 **Deciders:** Tom Morelly
 **Technical Story:** Operators need a way to customise provisioned Kubernetes resource attributes (e.g. PVC storage class, StatefulSet replica count) without rebuilding the `orbit-agents` image or modifying Go source.

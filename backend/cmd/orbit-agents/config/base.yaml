@@ -46,6 +46,9 @@ agents:
   sandboxGRPCPort: 50051
   maxConcurrentRunsPerPod: 10
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
+  # Where the chart mounts the manifest patches ConfigMap. Overridden by
+  # ORBIT_MANIFEST_PATCH_DIR.
+  manifestPatchDir: /etc/orbit/manifest-patches
   sessionManager:
     postgresSSLMode: require
     # Restricts each agent pod's session-manager port to the orbit-agents

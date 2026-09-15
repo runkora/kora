@@ -480,18 +480,30 @@ agents:
   authorizationPolicy:
     enabled: true
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  # Applied to the StatefulSets and sandbox pods orbit-agents creates in tenant
-  # namespaces, as ORBIT_MANIFEST__ overrides (ADR 2026-06-12).
-  runtimePods:
-    nodeSelector: {}
-    tolerations: []
-    priorityClassName: ""
-    sandboxResources: {}
-    workspace:
-      storageClassName: ""
-      accessModes: []
-    # e.g. eks.amazonaws.com/role-arn for IRSA.
-    serviceAccountAnnotations: {}
+  # Kustomize patches applied to the resources orbit-agents provisions in
+  # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's
+  # workspace template), Service, ServiceAccount, HorizontalPodAutoscaler,
+  # PodDisruptionBudget and the sandbox Pod. Each value is one kustomize
+  # `patches:` entry and needs target.kind; keys sort into apply order.
+  # Patches that change a resource's identity, security context or the
+  # sandbox workspace mount are rejected at startup.
+  #
+  # Example, pinning agent pods to a node pool:
+  #   manifestPatches:
+  #     50-nodeselector:
+  #       target:
+  #         kind: StatefulSet
+  #       patch: |
+  #         apiVersion: apps/v1
+  #         kind: StatefulSet
+  #         metadata:
+  #           name: any
+  #         spec:
+  #           template:
+  #             spec:
+  #               nodeSelector:
+  #                 disktype: ssd
+  manifestPatches: {}
   imageWarmer:
     enabled: false
   warmHeadroom:

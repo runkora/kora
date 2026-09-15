@@ -79,6 +79,10 @@ type Config struct {
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
 		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
 		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
+		// ManifestPatchDir is the directory of kustomize patch files applied to
+		// the resources orbit-agents provisions. The chart mounts the manifest
+		// patches ConfigMap here. A missing directory means no patches.
+		ManifestPatchDir string `yaml:"manifestPatchDir"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
@@ -179,6 +183,7 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
 		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
 		{"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE", &cfg.Agents.SessionManager.PostgresSSLMode},
+		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
 	}
 	for _, o := range overrides {
 		if v := getenv(o.env); v != "" {
