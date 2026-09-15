@@ -56,12 +56,13 @@ func newSummarizer(logger logging.Logger) *summarizer {
 }
 
 // anthropic Messages API request/response shapes — the dialect the agent uses.
+// The request carries no sampling parameters: newer Anthropic models reject
+// temperature, and the label is short enough not to need it.
 type messagesRequest struct {
-	Model       string            `json:"model"`
-	MaxTokens   int               `json:"max_tokens"`
-	Temperature float64           `json:"temperature"`
-	System      string            `json:"system,omitempty"`
-	Messages    []messagesMessage `json:"messages"`
+	Model     string            `json:"model"`
+	MaxTokens int               `json:"max_tokens"`
+	System    string            `json:"system,omitempty"`
+	Messages  []messagesMessage `json:"messages"`
 }
 
 type messagesMessage struct {
@@ -80,10 +81,9 @@ type messagesResponse struct {
 // base (e.g. http://orbit-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
 	payload := messagesRequest{
-		Model:       model,
-		MaxTokens:   summaryMaxTokens,
-		Temperature: 0,
-		System:      summarizerSystemPrompt,
+		Model:     model,
+		MaxTokens: summaryMaxTokens,
+		System:    summarizerSystemPrompt,
 		Messages: []messagesMessage{
 			{Role: "user", Content: fmt.Sprintf(summaryPromptTemplate, initialMessage)},
 		},

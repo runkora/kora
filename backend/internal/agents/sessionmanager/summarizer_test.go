@@ -49,6 +49,31 @@ func TestSummarizer_CallsMessagesEndpointWithModel(t *testing.T) {
 	}
 }
 
+// Newer Anthropic models (claude-sonnet-5 on Bedrock) reject any request that
+// sets temperature with a 400, so the summary request must not send it at all.
+func TestSummarizer_OmitsTemperature(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"text","text":"Label"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL, "anthropic/claude-sonnet-5", "x"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body == nil {
+		t.Fatal("request body was not captured")
+	}
+	if _, ok := body["temperature"]; ok {
+		t.Errorf("request sent temperature=%v; it must be omitted", body["temperature"])
+	}
+}
+
 func TestSummarizer_TruncatesToMaxChars(t *testing.T) {
 	long := strings.Repeat("a", 200)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
