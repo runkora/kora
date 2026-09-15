@@ -3,8 +3,9 @@
 // raw.githubusercontent.com) — for the Agent Marketplace crawler.
 //
 // It lives in this feature package rather than internal/platform/clients,
-// deliberately deviating from that general convention: the Agent Marketplace
-// ADR's Service Layout and its Notion ticket both specify this exact path
+// deliberately deviating from that general convention: see
+// docs/adr/2026-09-09-agent-marketplace-startup-preload-per-repo-redis-keys.md
+// ("Service Layout"), which specifies this exact path
 // (backend/internal/skills/github.go) rather than a platform-clients
 // subpackage.
 //
@@ -73,10 +74,13 @@ var (
 	// fully read.
 	ErrReadBody = errors.New("failed to read raw file body")
 
-	// ErrInvalidPath is returned when GetFile's path argument contains a
-	// directory-traversal sequence ("..", "//") or starts with "/" — rejected
-	// before it's interpolated into the request URL, rather than sent as-is.
-	ErrInvalidPath = errors.New("invalid path: contains traversal sequences or is absolute")
+	// ErrInvalidPath is returned when an org, repo, branch, or path argument
+	// to GetTree or GetFile is empty, starts with "/", or contains a
+	// "/"-delimited ".." or empty segment — rejected before it's
+	// interpolated into the request URL, rather than sent as-is. Checking by
+	// segment (not substring) avoids rejecting a legitimate value that
+	// merely contains ".." inside a longer segment, e.g. "v1..2".
+	ErrInvalidPath = errors.New("invalid path: empty, absolute, or contains a traversal segment")
 )
 
 // tokenSource resolves the GitHub bearer token to use for a given repository.
@@ -127,6 +131,23 @@ func NewClient(logger logging.Logger, tokens tokenSource) *Client {
 	}
 }
 
+// validateRepoPath rejects an org, repo, branch, or file-path argument that
+// is empty, starts with "/", or contains a "/"-delimited ".." or empty
+// segment. It checks by segment rather than by substring so a legitimate
+// value that merely contains ".." inside a longer segment (e.g. "v1..2") is
+// not rejected.
+func validateRepoPath(value string) error {
+	if value == "" || strings.HasPrefix(value, "/") {
+		return ErrInvalidPath
+	}
+	for _, seg := range strings.Split(value, "/") {
+		if seg == "" || seg == ".." {
+			return ErrInvalidPath
+		}
+	}
+	return nil
+}
+
 // GetTree fetches the full recursive file tree of repo at branch (a branch
 // name, tag, or commit SHA — the source's configured branch in the
 // Marketplace ConfigMap).
@@ -134,6 +155,16 @@ func NewClient(logger logging.Logger, tokens tokenSource) *Client {
 // Check Tree.Truncated before assuming full coverage: GitHub caps the
 // recursive listing size and sets this flag rather than paginating.
 func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, error) {
+	if err := validateRepoPath(org); err != nil {
+		return Tree{}, err
+	}
+	if err := validateRepoPath(repo); err != nil {
+		return Tree{}, err
+	}
+	if err := validateRepoPath(branch); err != nil {
+		return Tree{}, err
+	}
+
 	token, err := c.tokens.Token(ctx, org, repo)
 	if err != nil {
 		return Tree{}, fmt.Errorf("%w: %w", ErrTokenSource, err)
@@ -172,8 +203,17 @@ func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, e
 // raw.githubusercontent.com (no base64 decoding required, unlike the
 // Contents API).
 func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([]byte, error) {
-	if strings.Contains(path, "..") || strings.Contains(path, "//") || strings.HasPrefix(path, "/") {
-		return nil, ErrInvalidPath
+	if err := validateRepoPath(org); err != nil {
+		return nil, err
+	}
+	if err := validateRepoPath(repo); err != nil {
+		return nil, err
+	}
+	if err := validateRepoPath(branch); err != nil {
+		return nil, err
+	}
+	if err := validateRepoPath(path); err != nil {
+		return nil, err
 	}
 
 	token, err := c.tokens.Token(ctx, org, repo)

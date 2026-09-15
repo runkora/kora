@@ -202,6 +202,94 @@ func TestGetFile_InvalidPath(t *testing.T) {
 	}
 }
 
+func TestGetFile_AllowsDoubleDotSubstringInFilename(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "resources/v1..2/notes.md")
+	if err != nil {
+		t.Fatalf("GetFile: %v, want no error for a filename that merely contains \"..\" as a substring", err)
+	}
+	wantPath := "/org/repo/main/resources/v1..2/notes.md"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+}
+
+func TestGetFile_EmptyPathRejected(t *testing.T) {
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{
+		err: errors.New("Token should not be called for an invalid path"),
+	})
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "")
+	if !errors.Is(err, ErrInvalidPath) {
+		t.Errorf("err = %v, want ErrInvalidPath", err)
+	}
+}
+
+func TestGetFile_InvalidOrgRepoBranch(t *testing.T) {
+	cases := []struct {
+		name           string
+		org, repo, ref string
+	}{
+		{"empty org", "", "repo", "main"},
+		{"empty repo", "org", "", "main"},
+		{"empty branch", "org", "repo", ""},
+		{"org with traversal segment", "..", "repo", "main"},
+		{"repo with traversal segment", "org", "..", "main"},
+		{"branch with traversal segment", "org", "repo", ".."},
+		{"org with leading slash", "/org", "repo", "main"},
+		{"branch with double slash", "org", "repo", "main//x"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{
+				err: errors.New("Token should not be called for an invalid org/repo/branch"),
+			})
+
+			_, err := c.GetFile(context.Background(), tc.org, tc.repo, tc.ref, "path.md")
+			if !errors.Is(err, ErrInvalidPath) {
+				t.Errorf("err = %v, want ErrInvalidPath", err)
+			}
+		})
+	}
+}
+
+func TestGetTree_InvalidOrgRepoBranch(t *testing.T) {
+	cases := []struct {
+		name           string
+		org, repo, ref string
+	}{
+		{"empty org", "", "repo", "main"},
+		{"empty repo", "org", "", "main"},
+		{"empty branch", "org", "repo", ""},
+		{"org with traversal segment", "..", "repo", "main"},
+		{"repo with traversal segment", "org", "..", "main"},
+		{"branch with traversal segment", "org", "repo", ".."},
+		{"org with leading slash", "/org", "repo", "main"},
+		{"branch with double slash", "org", "repo", "main//x"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{
+				err: errors.New("Token should not be called for an invalid org/repo/branch"),
+			})
+
+			_, err := c.GetTree(context.Background(), tc.org, tc.repo, tc.ref)
+			if !errors.Is(err, ErrInvalidPath) {
+				t.Errorf("err = %v, want ErrInvalidPath", err)
+			}
+		})
+	}
+}
+
 func TestGetFile_ReadBodyError(t *testing.T) {
 	// Declare a Content-Length longer than what's actually written, then
 	// return immediately. The client reads based on Content-Length, so it
