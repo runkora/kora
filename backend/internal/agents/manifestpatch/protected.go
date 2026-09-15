@@ -31,6 +31,16 @@ var protectedPaths = []string{
 	"metadata.labels.orbit.io/identity-proxy",
 	"metadata.labels.orbit.io/tenant",
 	"metadata.labels.orbit.io/agent-type",
+	// Sandbox pod identity labels. buildSandboxPod (k8s.go:442-458) sets these
+	// so the operator's pod webhook selects the sandbox for identity-proxy +
+	// opa-policy + SPIRE injection and the orbit-tenant-sandbox
+	// ClusterSPIFFEID template attests it as
+	// spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>. A patch
+	// changing or removing any of these disables injection or misattests the
+	// sandbox while Validate still succeeds.
+	"metadata.labels.orbit.io/role",
+	"metadata.labels.orbit.io/run-id",
+	"metadata.labels.orbit.io/agent-slug",
 	// Selectors must match pod labels; a mismatched selector produces a
 	// silently un-scheduled StatefulSet.
 	"spec.selector",

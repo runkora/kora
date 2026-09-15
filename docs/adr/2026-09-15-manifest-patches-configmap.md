@@ -349,7 +349,7 @@ if *renderMode {
 }
 ```
 
-`renderManifests` (new file `backend/cmd/orbit-agents/render.go`) loads patches, calls a new package-level `agents.RenderResources(at AgentType, namespace string, patches []manifestpatch.Patch) ([]runtime.Object, error)` that reuses the same `build*` helpers the runtime uses, marshals each object with `sigs.k8s.io/yaml.Marshal`, and prints them separated by `---\n`. No kubeconfig, database, or observability initialisation.
+`renderManifests` (new file `backend/cmd/orbit-agents/render.go`) loads patches, calls a new package-level `agents.RenderResources(at AgentType, namespace string, patches []manifestpatch.Patch) ([]runtime.Object, error)` that reuses the same `build*` helpers the runtime uses, marshals each object with `sigs.k8s.io/yaml.Marshal`, and prints them separated by `---\n`. No kubeconfig, database, or observability initialisation. `metadata.ownerReferences` is the one field the preview cannot reproduce: the runtime resolves it from live OrbitTenant/StatefulSet lookups that `RenderResources` has no client to perform, so a rendered object omits owner references that the created object will have.
 
 ### Helm chart migration
 

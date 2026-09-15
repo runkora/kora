@@ -1170,16 +1170,18 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	// Backfill owner refs on the existing object so upgraded clusters gain
-	// GitOps observability + native GC on the next reconcile
-	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-	if owner.Kind == "" {
-		return nil
-	}
+	// Sync patched labels/annotations onto an existing ServiceAccount so a
+	// patch (e.g. an IRSA role-arn annotation) takes effect on reconcile, not
+	// only for freshly-created agent types.
 	existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing serviceaccount: %w", err)
 	}
+	existing.Labels = sa.Labels
+	existing.Annotations = sa.Annotations
+	// Backfill owner refs on the existing object so upgraded clusters gain
+	// GitOps observability + native GC on the next reconcile
+	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1213,7 +1215,8 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	//
 	// Manifest overrides applied to the StatefulSet above land on the rendered
 	// `ss`, so any override touching the pod template's labels, annotations,
-	// SecurityContext, ImagePullSecrets, container env or container
+	// scheduling (nodeSelector/tolerations/priorityClassName/affinity),
+	// ImagePullSecrets, or the session-manager container's env, resources, or
 	// SecurityContext propagates to the existing object through the copy
 	// below. Overrides on OTHER fields (spec.replicas, .spec.updateStrategy,
 	// VolumeClaimTemplates …) are still only applied on Create; extending
@@ -1243,6 +1246,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			if rendered.Name == sessionManagerContainerName {
 				existing.Spec.Template.Spec.Containers[i].Env = rendered.Env
 				existing.Spec.Template.Spec.Containers[i].SecurityContext = rendered.SecurityContext
+				existing.Spec.Template.Spec.Containers[i].Resources = rendered.Resources
 			}
 		}
 	}
@@ -1407,13 +1411,12 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if owner.Kind == "" {
-		return nil
-	}
 	existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing service: %w", err)
 	}
+	existing.Labels = svc.Labels
+	existing.Annotations = svc.Annotations
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1476,13 +1479,12 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if owner.Kind == "" {
-		return nil
-	}
 	existing, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing hpa: %w", err)
 	}
+	existing.Labels = hpa.Labels
+	existing.Annotations = hpa.Annotations
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1511,13 +1513,16 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if owner.Kind == "" {
-		return nil
-	}
 	existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing pdb: %w", err)
 	}
+	existing.Labels = pdb.Labels
+	existing.Annotations = pdb.Annotations
+	existing.Spec.MinAvailable = pdb.Spec.MinAvailable
+	// spec.selector is immutable on PodDisruptionBudget; a patch changing it
+	// only takes effect on a fresh PDB (delete + recreate), not on this
+	// update path.
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err

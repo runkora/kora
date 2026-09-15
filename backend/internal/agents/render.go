@@ -20,6 +20,13 @@ import (
 // preview output matches the manifests actually written to the cluster (Ports,
 // selectors, security contexts, env, volumes, VolumeClaimTemplates …). No k8s
 // client, no database.
+//
+// Owner references are intentionally OMITTED: the runtime looks up the
+// OrbitTenant CR's and the StatefulSet's UID from the live cluster
+// (tenantOwnerRef/statefulSetOwnerRef in k8s.go) before calling applyOwnerRef,
+// and RenderResources has no client to do that lookup with. A rendered object
+// therefore differs from the one actually created on
+// metadata.ownerReferences only; every field a patch could reach is faithful.
 func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, renderSandbox bool) ([]runtime.Object, error) {
 	p := &K8sProvisioner{cfg: cfg}
 	labels := agentTypeLabels(at)

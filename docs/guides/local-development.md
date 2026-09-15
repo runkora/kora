@@ -157,6 +157,8 @@ go run ./cmd/orbit-agents -render \
 
 Invalid patches (unknown Kind, malformed JSON6902, a field typo, or a patch touching a protected identity/security path) fail immediately with the offending filename, the same validation orbit-agents runs at startup. Pipe the output through `kubectl apply --dry-run=server -f -` against the local k3d cluster to confirm the API server accepts every rendered object.
 
+The preview omits `metadata.ownerReferences`: the runtime resolves those from a live lookup of the OrbitTenant CR and StatefulSet UID, which `-render` has no cluster to query. Every field a patch could reach is otherwise faithful to what orbit-agents actually creates.
+
 ## Database migrations
 
 Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).

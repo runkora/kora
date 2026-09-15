@@ -18,16 +18,16 @@ func envOr(key, def string) string {
 	return def
 }
 
-func envInt(key string, def int) int {
+func envInt32(key string, def int32) int32 {
 	v := os.Getenv(key)
 	if v == "" {
 		return def
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.ParseInt(v, 10, 32)
 	if err != nil {
 		return def
 	}
-	return n
+	return int32(n)
 }
 
 // renderManifests prints the final YAML for every resource orbit-agents would
@@ -56,7 +56,7 @@ func renderManifests(patchDir, agentSlug, tenantID, namespace string, includeSan
 	cfg := agents.K8sProvisionerConfig{
 		SessionManagerImage: envOr("ORBIT_SESSION_MANAGER_IMAGE", "orbit-session-manager:render"),
 		SandboxImage:        envOr("ORBIT_SANDBOX_IMAGE", "orbit-sandbox-exec:render"),
-		SandboxGRPCPort:     int32(envInt("ORBIT_SANDBOX_GRPC_PORT", 50051)), //nolint:gosec
+		SandboxGRPCPort:     envInt32("ORBIT_SANDBOX_GRPC_PORT", 50051),
 		SystemNamespace:     envOr("ORBIT_SYSTEM_NAMESPACE", "orbit-system"),
 		GitAuthorName:       os.Getenv("ORBIT_SANDBOX_GIT_AUTHOR_NAME"),
 		GitAuthorEmail:      os.Getenv("ORBIT_SANDBOX_GIT_AUTHOR_EMAIL"),
