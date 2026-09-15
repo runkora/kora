@@ -371,7 +371,7 @@ operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, webhook: {...
 identityProxy: { image: {...}, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
 identity: ...
 inferenceGateway: ...             # includes bedrock.accounts[], serviceAccount.annotations
-agents: ...                       # includes config.sessionManagerImage, config.sandboxImage, extraEnv, runtimePods, imageWarmer, warmHeadroom
+agents: ...                       # includes config.sessionManagerImage, config.sandboxImage, extraEnv, manifestPatches, imageWarmer, warmHeadroom
 policyService: ...
 policyGateway: ...
 egressGateway: ...
@@ -382,7 +382,7 @@ frontend: ...                     # includes existingSecret, ingress
 opaGateway: ...                   # the gateway-level OPA's own image, distinct from the tenant sidecar OPA the webhook injects
 ```
 
-Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`, and the service-config keys (log format, Postgres SSL mode, OTLP) that default from `global`. Global values are defaults; component values override. The same scheduling values, and `global.imagePullSecrets`, reach pods orbit-agents creates at runtime through `agents.runtimePods.*`, which the chart renders into the existing `ORBIT_MANIFEST__*` overrides and a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
+Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`, and the service-config keys (log format, Postgres SSL mode, OTLP) that default from `global`. Global values are defaults; component values override. Pods orbit-agents creates at runtime (not managed by Helm directly) take scheduling, storage, and other field-level customisation through `agents.manifestPatches`, a map of operator-authored kustomize patches mounted into orbit-agents via a ConfigMap (see [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md)), plus a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting for `global.imagePullSecrets`. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
 
 ### Image reference helper
 

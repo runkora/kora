@@ -98,7 +98,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted` · 2026-06-04
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
-- [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Accepted` · 2026-06-12
+- [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
+- [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) — `Accepted` · 2026-09-15
 - [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Proposed` · 2026-06-17
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted` · 2026-06-20
@@ -223,7 +224,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-10 | [Budget Enforcement Corrections: Canonical Spend Counter, Request-Time Role Enforcement, All Principal Types, and the Budgets Management Surface](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) | Proposed | — |
 | 2026-06-10 | [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) | Proposed | — |
 | 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |
-| 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Accepted | — |
+| 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md) | — |
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Proposed | — |
 | 2026-06-19 | [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) | Accepted | — |
@@ -255,4 +256,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
+| 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

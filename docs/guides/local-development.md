@@ -137,6 +137,29 @@ colima stop && colima start --cpu 12 --memory 24   # persists in ~/.colima
 
 On smaller VMs, leave the flag unset. Concurrent build pressure can wedge the VM and cascade into mesh and Postgres failures.
 
+## Previewing manifest patches
+
+`orbit-agents` applies the kustomize patches in `agents.manifestPatches` to the StatefulSet, workspace PersistentVolumeClaim, Service, ServiceAccount, HPA, PDB and sandbox Pod it provisions for each agent type. Each patch file is one kustomize `patches:` entry with a `target.kind`. Before deploying a patch change, preview the exact YAML orbit-agents would produce with the `-render` CLI mode, no cluster or database required:
+
+```bash
+cd backend
+go run ./cmd/orbit-agents -render \
+  -patch-dir=/path/to/patches \
+  -agent-slug=coder \
+  -namespace=tenant-example \
+  -sandbox
+```
+
+- `-patch-dir`: directory of `*.yaml`/`*.yml` patch files (mirrors what the Helm chart mounts at `/etc/orbit/manifest-patches`).
+- `-agent-slug`: required, the agent type slug to render.
+- `-agent-type-id`: the agent type's ID, for patches that select on the `orbit.io/agent-type` label (defaults to `render-<slug>`).
+- `-namespace`: tenant namespace to render into (defaults to `tenant-example`).
+- `-sandbox`: also render a sample sandbox Pod.
+
+Invalid patches (a missing or unknown target kind, a patch kustomize cannot apply, a field typo, or a change to a protected identity or security field) fail immediately with the offending filename, the same validation orbit-agents runs at startup. Pipe the output through `kubectl apply --dry-run=server -f -` against the local k3d cluster to confirm the API server accepts every rendered object.
+
+The preview omits `metadata.ownerReferences`: the runtime resolves those from a live lookup of the OrbitTenant CR and StatefulSet UID, which `-render` has no cluster to query. Every field a patch could reach is otherwise faithful to what orbit-agents actually creates.
+
 ## Database migrations
 
 Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).

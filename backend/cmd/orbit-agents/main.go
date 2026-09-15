@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
@@ -25,6 +27,29 @@ import (
 )
 
 func main() {
+	var (
+		renderMode      = flag.Bool("render", false, "render final manifests to stdout and exit")
+		renderPatchDir  = flag.String("patch-dir", agentsConfig.Current.Agents.ManifestPatchDir, "manifest patches directory")
+		renderAgentSlug = flag.String("agent-slug", "", "agent type slug to render (required with -render)")
+		renderAgentID   = flag.String("agent-type-id", "", "agent type ID for the orbit.io/agent-type label (defaults to render-<slug>)")
+		renderTenantID  = flag.String("tenant-id", "example", "tenant ID for the rendered manifests")
+		renderNamespace = flag.String("namespace", "tenant-example", "tenant namespace for the rendered manifests")
+		renderSandbox   = flag.Bool("sandbox", false, "also render a sample sandbox pod")
+	)
+	flag.Parse()
+
+	if *renderMode {
+		at := agents.AgentType{ID: *renderAgentID, Slug: *renderAgentSlug, TenantID: *renderTenantID}
+		if at.ID == "" {
+			at.ID = "render-" + at.Slug
+		}
+		if err := renderManifests(*renderPatchDir, at, *renderNamespace, *renderSandbox); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := realMain(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -152,26 +177,33 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
-	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
-	for _, key := range malformedOverrideKeys {
-		logger.Warn(ctx, "ignoring malformed ORBIT_MANIFEST override: expected ORBIT_MANIFEST__Kind__name__path",
-			logging.Field{Key: "key", Value: key},
-		)
+	patchDir := cfg.Agents.ManifestPatchDir
+
+	// Legacy env-var overrides were removed in favor of the ConfigMap-mounted
+	// patch directory (docs/adr/2026-09-15-manifest-patches-configmap.md).
+	// Operators who set ORBIT_MANIFEST__* directly on the pod spec would
+	// silently lose their customisation, so warn loudly at startup with the
+	// migration path.
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
+			key, _, _ := strings.Cut(e, "=")
+			logger.Warn(ctx,
+				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/adr/2026-09-15-manifest-patches-configmap.md)",
+				logging.Field{Key: "key", Value: key},
+			)
+		}
 	}
 
-	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
-		SessionManagerImage:        cfg.Agents.SessionManagerImage,
-		SandboxImage:               cfg.Agents.SandboxImage,
-		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
-		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
-		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
-		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
-		TrustDomain:                cfg.Platform.TrustDomain,
-		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
-		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
-		ManifestOverrides:          manifestOverrides,
-	}, pc)
+	patches, err := loadPatches(cfg, patchDir)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	logger.Info(ctx, "loaded manifest patches",
+		logging.Field{Key: "dir", Value: patchDir},
+		logging.Field{Key: "count", Value: len(patches)},
+	)
+
+	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches), pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}

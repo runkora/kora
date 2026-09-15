@@ -37,6 +37,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.image.repository | string | `"orbit-agents"` |  |
 | agents.image.tag | string | `""` |  |
 | agents.imageWarmer.enabled | bool | `false` |  |
+| agents.manifestPatches | object | `{}` |  |
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |
 | agents.podLabels | object | `{}` |  |
@@ -46,13 +47,6 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
-| agents.runtimePods.nodeSelector | object | `{}` |  |
-| agents.runtimePods.priorityClassName | string | `""` |  |
-| agents.runtimePods.sandboxResources | object | `{}` |  |
-| agents.runtimePods.serviceAccountAnnotations | object | `{}` |  |
-| agents.runtimePods.tolerations | list | `[]` |  |
-| agents.runtimePods.workspace.accessModes | list | `[]` |  |
-| agents.runtimePods.workspace.storageClassName | string | `""` |  |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |
