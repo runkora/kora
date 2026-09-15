@@ -480,27 +480,14 @@ agents:
   authorizationPolicy:
     enabled: true
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  # Applied to the StatefulSets and sandbox pods orbit-agents creates in tenant
-  # namespaces. Named knobs below are translated into generated patch files;
-  # `manifestPatches` below takes raw kustomize-style patch YAML bodies for
-  # anything the named knobs don't cover
-  # (docs/adr/2026-09-15-manifest-patches-configmap.md).
-  runtimePods:
-    nodeSelector: {}
-    tolerations: []
-    priorityClassName: ""
-    sandboxResources: {}
-    workspace:
-      storageClassName: ""
-      accessModes: []
-    # e.g. eks.amazonaws.com/role-arn for IRSA.
-    serviceAccountAnnotations: {}
-  # Freeform map of operator-authored kustomize-style patches, merged into the
-  # manifest patches ConfigMap alongside the chart-generated files above
+  # Freeform map of operator-authored kustomize-style patches applied to
+  # every resource orbit-agents provisions in tenant namespaces (StatefulSet,
+  # Service, ServiceAccount, HPA, PDB, PVC, sandbox Pod) — storage class,
+  # image pull secrets, node selectors, tolerations, resource limits,
+  # annotations, and anything else a field-level patch can express
   # (docs/adr/2026-09-15-manifest-patches-configmap.md). The map key is a bare
   # patch name (no extension) and controls apply order (lexicographic); the
-  # chart writes it into the ConfigMap as "<key>.yaml". Use a 5N- numeric
-  # prefix so operator patches sort after the built-ins. `content` is the
+  # chart writes it into the ConfigMap as "<key>.yaml". `content` is the
   # patch body (Strategic Merge or JSON6902), verbatim.
   #
   # Example — inject an image pull secret and a node selector:

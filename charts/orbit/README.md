@@ -47,13 +47,6 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
-| agents.runtimePods.nodeSelector | object | `{}` |  |
-| agents.runtimePods.priorityClassName | string | `""` |  |
-| agents.runtimePods.sandboxResources | object | `{}` |  |
-| agents.runtimePods.serviceAccountAnnotations | object | `{}` |  |
-| agents.runtimePods.tolerations | list | `[]` |  |
-| agents.runtimePods.workspace.accessModes | list | `[]` |  |
-| agents.runtimePods.workspace.storageClassName | string | `""` |  |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |

@@ -61,7 +61,7 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
 - When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
-Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, you can point Orbit at a different class using `agents.runtimePods.workspace`.
+Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` targeting the `workspaces` PersistentVolumeClaim (see [ADR 2026-09-15](../adr/2026-09-15-manifest-patches-configmap.md)).
 
 ### DNS and TLS
 

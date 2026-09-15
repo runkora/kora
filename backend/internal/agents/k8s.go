@@ -1227,10 +1227,10 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	existing.Spec.Template.Annotations = ss.Spec.Template.Annotations
 	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
 	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
-	// Scheduling fields the chart routinely patches via runtimePods.*
-	// (nodeSelector, tolerations, priorityClassName). Propagating them on the
-	// update path means a Helm upgrade that changes scheduling gets picked up
-	// on the next reconcile instead of only affecting fresh StatefulSets.
+	// Scheduling fields operators commonly patch (nodeSelector, tolerations,
+	// priorityClassName). Propagating them on the update path means a
+	// manifest patch change that touches scheduling gets picked up on the
+	// next reconcile instead of only affecting fresh StatefulSets.
 	existing.Spec.Template.Spec.NodeSelector = ss.Spec.Template.Spec.NodeSelector
 	existing.Spec.Template.Spec.Tolerations = ss.Spec.Template.Spec.Tolerations
 	existing.Spec.Template.Spec.PriorityClassName = ss.Spec.Template.Spec.PriorityClassName

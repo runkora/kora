@@ -180,12 +180,12 @@ Failing hard on malformed patch files is a deliberate departure from ADR 2026-06
 - Every field on every provisioned resource is reachable without a code change; per-list-index precision is available via JSON6902.
 - Malformed patches fail at startup with the offending filename, not later as a silent bad manifest. `manifestpatch.Validate` runs after `Load` and rejects unknown target Kinds (typos like `Deployement`), unparseable JSON6902 op arrays, malformed selectors, and SMP bodies that don't decode onto the target type.
 - The `-render` CLI mode gives operators and CI a way to preview the final YAML before deploying — closes the gap ADR 2026-06-12 flagged as a Negative Consequence.
-- The Helm chart's operator UX (`values.yaml agents.runtimePods.*`) is preserved: the chart translates named knobs into generated patch files inside the ConfigMap, so existing installs are unaffected.
+- The Helm chart is a thin passthrough: `agents.manifestPatches` writes each entry straight into the ConfigMap, no chart-side translation or generated files. Operators write the patch they want in the syntax they already know.
 - The strong-typed manifest builder in `backend/internal/agents/k8s.go` remains the source of truth for the fields orbit-agents must control (pod security, SPIFFE labels, per-run subpath isolation, cross-resource identity), and patches layer on top — the layered-defence property Option 4 gives up.
 
 ### Negative
 
-- Existing installations that consumed the `ORBIT_MANIFEST__*` env var API directly (bypassing the Helm-chart-named knobs) must migrate to a ConfigMap patch. No deprecation window is offered; this is a breaking change for direct env-var consumers.
+- Existing installations that consumed the `ORBIT_MANIFEST__*` env var API, or the chart's earlier `agents.runtimePods.*` named knobs, must migrate to a patch under `agents.manifestPatches`. No deprecation window is offered; this is a breaking change for both.
 - The strategic-merge behaviour depends on the client-go struct tags; a `k8s.io/api` bump could subtly change list-merge outcomes on some fields. Test coverage on our actual provisioned Kinds bounds the risk.
 - ConfigMap changes require an orbit-agents pod restart, driven by a Helm-computed `checksum/patches` annotation. There is no live reload.
 
@@ -305,7 +305,7 @@ Filenames are lex-sorted before apply, so a `NNN-` numeric prefix gives determin
   - `ensurePDB` (`k8s.go:1480`)
   - `ProvisionSandbox` for the `Pod` (`k8s.go:373-378`)
 - The resource's own labels (already computed via `agentTypeLabels(at)`) and annotations flow into `Apply` so label/annotation selectors resolve correctly.
-- SMP patches with `metadata.name: workspaces` target the PVC template regardless of the parent StatefulSet slug, which is the desired wildcard behaviour for chart-generated patches on `.storageClassName` and `.accessModes`.
+- SMP patches with `metadata.name: workspaces` target the PVC template regardless of the parent StatefulSet slug, which is the desired wildcard behaviour for an operator patch targeting `.storageClassName` or `.accessModes` on every tenant's workspace.
 
 ### Loading at startup
 
@@ -355,24 +355,13 @@ if *renderMode {
 
 `charts/orbit/templates/agents/`:
 
-- New `patches-configmap.yaml`: renders `agents.manifestPatches` into a `ConfigMap` named `orbit-agents-manifest-patches`. `agents.manifestPatches` is a map keyed by a bare patch name (no extension); the chart writes each entry into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Each entry is an object with `content` (the patch body, verbatim), `required` in the template so a missing value fails `helm template`/`helm upgrade` immediately.
-- New helper `_manifestpatches.tpl`: translates each of the existing named knobs on `values.yaml.agents.runtimePods.*` into a generated patch file inside that same ConfigMap:
-
-  | Values key | Generated file |
-  |---|---|
-  | `agents.runtimePods.nodeSelector` | `010-statefulset-nodeselector.yaml`, `011-pod-nodeselector.yaml` |
-  | `agents.runtimePods.tolerations` | `020-statefulset-tolerations.yaml`, `021-pod-tolerations.yaml` |
-  | `agents.runtimePods.priorityClassName` | `030-statefulset-priorityclass.yaml`, `031-pod-priorityclass.yaml` |
-  | `agents.runtimePods.sandboxResources` | `040-sandbox-resources.yaml` (JSON6902 for `container[0].resources`) |
-  | `agents.runtimePods.workspace.storageClassName` | `050-pvc-storageclass.yaml` |
-  | `agents.runtimePods.workspace.accessModes` | `051-pvc-accessmodes.yaml` |
-  | `agents.runtimePods.serviceAccountAnnotations` | `060-serviceaccount-annotations.yaml` |
+- New `patches-configmap.yaml`: renders `agents.manifestPatches` into a `ConfigMap` named `orbit-agents-manifest-patches`. `agents.manifestPatches` is a map keyed by a bare patch name (no extension); the chart writes each entry into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Each entry is an object with `content` (the patch body, verbatim), `required` in the template so a missing value fails `helm template`/`helm upgrade` immediately. The chart does no translation of its own — the operator's `content` is written byte-for-byte, so the patch the operator authors is the patch orbit-agents loads.
 
 - `deployment.yaml`: drop the seven `ORBIT_MANIFEST__*` env stanzas (lines 75-113), mount the `orbit-agents-manifest-patches` ConfigMap at `/etc/orbit/manifest-patches`, and add a `checksum/patches` pod annotation so `helm upgrade` rolls the pods when patches change.
 
-- `values.yaml`: keep the entire `agents.runtimePods.*` block unchanged; add `agents.manifestPatches: {}` for operator-supplied patches.
+- `values.yaml`: remove the `agents.runtimePods.*` block entirely; add `agents.manifestPatches: {}` for operator-supplied patches.
 
-Operators consuming the chart via `values.yaml` see no breaking change. Operators who wrote `ORBIT_MANIFEST__*` env vars directly on their pod spec must move those values into `agents.manifestPatches`.
+Both the old `ORBIT_MANIFEST__*` env var API and the chart's `agents.runtimePods.*` named knobs are removed with no deprecation window. Operators using either must write the equivalent patch under `agents.manifestPatches` themselves — see the examples below and `deploy/reference/values/orbit.yaml`.
 
 #### Operator-authored patch examples
 
@@ -401,7 +390,7 @@ agents:
                 disktype: ssd
 ```
 
-The map key is a bare patch name (no extension); the chart writes it into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Numeric prefixes 5N- keep operator patches sorting after the chart-generated 0NN files. See `deploy/reference/values/orbit.yaml` for a working example wired into the reference installation.
+The map key is a bare patch name (no extension); the chart writes it into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. The patch body itself declares its own target (`kind`, and `metadata.name` or a JSON6902 `target:` block) — there is no separate chart-side configuration of which manifest a patch applies to. See `deploy/reference/values/orbit.yaml` for a working example wired into the reference installation.
 
 ### Deletion
 
@@ -417,12 +406,12 @@ This ADR supersedes ADR 2026-06-12.
 
 ### Migration Path
 
-- Operators using only the chart's named knobs (`agents.runtimePods.*`): no action required; the chart migrates the same values into generated patch files.
-- Operators who added raw `ORBIT_MANIFEST__*` env vars to the orbit-agents pod spec: translate each into a patch file in `values.yaml agents.manifestPatches`. The docs page in `docs/guides/local-development.md` gets a section on the `-render` mode so operators can preview the result.
+- Operators using the chart's earlier `agents.runtimePods.*` named knobs: write the equivalent patch under `agents.manifestPatches` (see the operator-authored examples above and `deploy/reference/values/orbit.yaml`).
+- Operators who added raw `ORBIT_MANIFEST__*` env vars to the orbit-agents pod spec: translate each into a patch under `agents.manifestPatches`. `docs/guides/local-development.md` has a section on the `-render` mode so operators can preview the result before deploying.
 
 ### Timeline
 
-Ship as a single PR that touches the Go package, the Helm chart, and the ADR set together. The chart's operator UX is preserved, so the rollout is a rolling restart of `orbit-agents`; no coordination with tenants required.
+Ship as a single PR that touches the Go package, the Helm chart, and the ADR set together. Both `ORBIT_MANIFEST__*` and `agents.runtimePods.*` are removed with no deprecation window; operators on either must write a replacement patch before upgrading. The rollout itself is a rolling restart of `orbit-agents`; no coordination with tenants required.
 
 ---
 

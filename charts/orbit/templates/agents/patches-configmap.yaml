@@ -1,23 +1,11 @@
 {{- /*
 Manifest patches ConfigMap (docs/adr/2026-09-15-manifest-patches-configmap.md).
 
-Merges two sources into a single ConfigMap mounted at
-/etc/orbit/manifest-patches inside the orbit-agents pod:
-
-  1. Chart-generated patches for the named knobs on
-     .Values.agents.runtimePods (nodeSelector, tolerations, priorityClassName,
-     sandboxResources, workspace, serviceAccountAnnotations), see
-     `orbit.agents.generatedPatches` in _manifestpatches.tpl.
-
-  2. Operator-supplied patches under .Values.agents.manifestPatches: a map
-     keyed by a bare patch name (no extension, e.g.
-     "01-sandbox-imagepullsecret"), each entry an object with `content` (the
-     patch body, verbatim). The key controls apply order (lexicographic) and
-     is written into the ConfigMap as "<key>.yaml".
-
-Filename order is lexicographic; generated files use 0NN- prefixes and
-operator files should use 5NN+ (or any prefix that sorts after the built-ins)
-if they need to layer on top.
+Mounted at /etc/orbit/manifest-patches inside the orbit-agents pod. Data
+comes entirely from .Values.agents.manifestPatches: a map keyed by a bare
+patch name (no extension, e.g. "01-sandbox-imagepullsecret"), each entry an
+object with `content` (the patch body, verbatim). The key controls apply
+order (lexicographic) and is written into the ConfigMap as "<key>.yaml".
 */}}
 apiVersion: v1
 kind: ConfigMap
@@ -27,7 +15,6 @@ metadata:
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
 data:
-{{- include "orbit.agents.generatedPatches" . | nindent 2 }}
 {{- range $name, $patch := .Values.agents.manifestPatches }}
   {{ $name }}.yaml: |
 {{ required (printf "agents.manifestPatches.%s.content is required" $name) $patch.content | indent 4 }}
