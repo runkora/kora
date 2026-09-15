@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -71,6 +72,11 @@ var (
 	// ErrReadBody is returned when a successful (2xx) response body cannot be
 	// fully read.
 	ErrReadBody = errors.New("failed to read raw file body")
+
+	// ErrInvalidPath is returned when GetFile's path argument contains a
+	// directory-traversal sequence ("..", "//") or starts with "/" — rejected
+	// before it's interpolated into the request URL, rather than sent as-is.
+	ErrInvalidPath = errors.New("invalid path: contains traversal sequences or is absolute")
 )
 
 // tokenSource resolves the GitHub bearer token to use for a given repository.
@@ -166,6 +172,10 @@ func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, e
 // raw.githubusercontent.com (no base64 decoding required, unlike the
 // Contents API).
 func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([]byte, error) {
+	if strings.Contains(path, "..") || strings.Contains(path, "//") || strings.HasPrefix(path, "/") {
+		return nil, ErrInvalidPath
+	}
+
 	token, err := c.tokens.Token(ctx, org, repo)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTokenSource, err)

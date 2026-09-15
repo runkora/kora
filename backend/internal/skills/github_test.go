@@ -179,6 +179,29 @@ func TestGetFile_UnexpectedStatus(t *testing.T) {
 	}
 }
 
+func TestGetFile_InvalidPath(t *testing.T) {
+	cases := []string{
+		"../config.json",
+		"skills/react-expert/../../../etc/passwd",
+		"//etc/passwd",
+		"/etc/passwd",
+	}
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			// No server needed: an invalid path must be rejected before any
+			// network call, so tokenSource.Token must never even be called.
+			c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{
+				err: errors.New("Token should not be called for an invalid path"),
+			})
+
+			_, err := c.GetFile(context.Background(), "org", "repo", "main", path)
+			if !errors.Is(err, ErrInvalidPath) {
+				t.Errorf("err = %v, want ErrInvalidPath", err)
+			}
+		})
+	}
+}
+
 func TestGetFile_ReadBodyError(t *testing.T) {
 	// Declare a Content-Length longer than what's actually written, then
 	// return immediately. The client reads based on Content-Length, so it
