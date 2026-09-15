@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -45,6 +46,13 @@ const (
 	DefaultRawBaseURL = "https://raw.githubusercontent.com"
 
 	acceptHeader = "application/vnd.github+json"
+
+	// MaxFileSize caps the bytes read from a single GetFile response. Skill
+	// content (Markdown plus small bundled resources) is expected to be well
+	// under this; anything larger is rejected rather than buffered fully
+	// into memory, since GetFile reads from third-party repositories the
+	// crawler does not control.
+	MaxFileSize = 10 * 1024 * 1024 // 10 MiB
 )
 
 // Sentinel errors. Callers may test for these with errors.Is to branch on
@@ -73,6 +81,10 @@ var (
 	// ErrReadBody is returned when a successful (2xx) response body cannot be
 	// fully read.
 	ErrReadBody = errors.New("failed to read raw file body")
+
+	// ErrFileTooLarge is returned when a GetFile response body exceeds
+	// MaxFileSize.
+	ErrFileTooLarge = errors.New("github file exceeds maximum allowed size")
 
 	// ErrInvalidPath is returned when an org, repo, branch, or path argument
 	// to GetTree or GetFile is empty, starts with "/", or contains a
@@ -140,12 +152,26 @@ func validateRepoPath(value string) error {
 	if value == "" || strings.HasPrefix(value, "/") {
 		return ErrInvalidPath
 	}
-	for _, seg := range strings.Split(value, "/") {
+	for seg := range strings.SplitSeq(value, "/") {
 		if seg == "" || seg == ".." {
 			return ErrInvalidPath
 		}
 	}
 	return nil
+}
+
+// escapePathSegments percent-encodes each "/"-delimited segment of value
+// independently and rejoins them with "/", so a segment containing a URL
+// metacharacter (e.g. "#", "?", a space) cannot alter the shape of the
+// request. fmt.Sprintf, used to build the endpoint below, does no escaping
+// of its own — this mirrors the url.PathEscape precedent already used in
+// internal/platform/clients/agents/client.go.
+func escapePathSegments(value string) string {
+	segs := strings.Split(value, "/")
+	for i, seg := range segs {
+		segs[i] = url.PathEscape(seg)
+	}
+	return strings.Join(segs, "/")
 }
 
 // GetTree fetches the full recursive file tree of repo at branch (a branch
@@ -170,7 +196,8 @@ func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, e
 		return Tree{}, fmt.Errorf("%w: %w", ErrTokenSource, err)
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.apiBaseURL, org, repo, branch)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1",
+		c.apiBaseURL, escapePathSegments(org), escapePathSegments(repo), escapePathSegments(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return Tree{}, fmt.Errorf("build get tree request: %w", err)
@@ -221,7 +248,8 @@ func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([
 		return nil, fmt.Errorf("%w: %w", ErrTokenSource, err)
 	}
 
-	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s", c.rawBaseURL, org, repo, branch, path)
+	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s",
+		c.rawBaseURL, escapePathSegments(org), escapePathSegments(repo), escapePathSegments(branch), escapePathSegments(path))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build get file request: %w", err)
@@ -242,10 +270,13 @@ func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([
 		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFileSize+1))
 	if err != nil {
 		_ = c.RecordError(span, ErrReadBody)
 		return nil, fmt.Errorf("%w: %w", ErrReadBody, err)
+	}
+	if len(body) > MaxFileSize {
+		return nil, c.RecordError(span, ErrFileTooLarge)
 	}
 	return body, nil
 }

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,9 +34,10 @@ func TestNewClient_SetsBaseURLs(t *testing.T) {
 }
 
 func TestGetTree_ReturnsEntries(t *testing.T) {
-	var gotPath, gotAuth, gotAccept string
+	var gotPath, gotQuery, gotAuth, gotAccept string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
 		gotAuth = r.Header.Get("Authorization")
 		gotAccept = r.Header.Get("Accept")
 		_ = json.NewEncoder(w).Encode(Tree{
@@ -58,6 +60,9 @@ func TestGetTree_ReturnsEntries(t *testing.T) {
 	}
 	if gotPath != "/repos/platform-engineering/skills/git/trees/main" {
 		t.Errorf("path = %q, want /repos/platform-engineering/skills/git/trees/main", gotPath)
+	}
+	if gotQuery != "recursive=1" {
+		t.Errorf("query = %q, want %q", gotQuery, "recursive=1")
 	}
 	if gotAuth != "Bearer test-token" {
 		t.Errorf("auth = %q, want Bearer test-token", gotAuth)
@@ -287,6 +292,87 @@ func TestGetTree_InvalidOrgRepoBranch(t *testing.T) {
 				t.Errorf("err = %v, want ErrInvalidPath", err)
 			}
 		})
+	}
+}
+
+func TestGetFile_EscapesURLMetacharacters(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "weird#name?.md")
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	wantPath := "/org/repo/main/weird#name?.md"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q (a raw '#'/'?' in the path must not truncate or redirect the request)", gotPath, wantPath)
+	}
+}
+
+func TestGetTree_EscapesURLMetacharactersAndKeepsQuery(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(Tree{SHA: "abc123"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.apiBaseURL = srv.URL
+
+	_, err := c.GetTree(context.Background(), "org", "repo", "release#1")
+	if err != nil {
+		t.Fatalf("GetTree: %v", err)
+	}
+	wantPath := "/repos/org/repo/git/trees/release#1"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+	if gotQuery != "recursive=1" {
+		t.Errorf("query = %q, want %q (a raw '#' in branch must not drop ?recursive=1 as a URL fragment)", gotQuery, "recursive=1")
+	}
+}
+
+func TestGetFile_TooLarge(t *testing.T) {
+	oversized := bytes.Repeat([]byte("a"), MaxFileSize+1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(oversized)
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "big.md")
+	if !errors.Is(err, ErrFileTooLarge) {
+		t.Errorf("err = %v, want ErrFileTooLarge", err)
+	}
+}
+
+func TestGetFile_AtMaxSizeSucceeds(t *testing.T) {
+	exact := bytes.Repeat([]byte("a"), MaxFileSize)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(exact)
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	content, err := c.GetFile(context.Background(), "org", "repo", "main", "exact.md")
+	if err != nil {
+		t.Fatalf("GetFile: %v, want no error at exactly MaxFileSize bytes", err)
+	}
+	if len(content) != MaxFileSize {
+		t.Errorf("len(content) = %d, want %d", len(content), MaxFileSize)
 	}
 }
 
