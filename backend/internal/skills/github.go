@@ -3,9 +3,10 @@
 // raw.githubusercontent.com) — for the Agent Marketplace crawler.
 //
 // It lives in this feature package rather than internal/platform/clients,
-// deliberately deviating from that general convention; see the repo root's
-// flags.md for why, and what to check if that deviation ever causes a
-// problem.
+// deliberately deviating from that general convention: the Agent Marketplace
+// ADR's Service Layout and its Notion ticket both specify this exact path
+// (backend/internal/skills/github.go) rather than a platform-clients
+// subpackage.
 //
 // It is deliberately narrower than internal/platform/clients/github, which is
 // scoped to minting GitHub App installation tokens for the credential broker.
@@ -36,8 +37,6 @@ const (
 	// DefaultRawBaseURL is GitHub.com's raw-content host, used to fetch file
 	// bytes directly without a base64-encoded blob response.
 	DefaultRawBaseURL = "https://raw.githubusercontent.com"
-
-	acceptHeader = "application/vnd.github+json"
 )
 
 // tokenSource resolves the GitHub bearer token to use for a given repository.
