@@ -137,6 +137,26 @@ colima stop && colima start --cpu 12 --memory 24   # persists in ~/.colima
 
 On smaller VMs, leave the flag unset. Concurrent build pressure can wedge the VM and cascade into mesh and Postgres failures.
 
+## Previewing manifest patches
+
+`orbit-agents` provisions StatefulSets, Services, ServiceAccounts, HPAs, PDBs, and sandbox Pods per agent type from kustomize-style Strategic Merge and JSON6902 patches loaded from a ConfigMap-mounted directory (see [ADR 2026-09-15](../adr/2026-09-15-manifest-patches-configmap.md)). Before deploying a patch change, preview the exact YAML orbit-agents would produce with the `-render` CLI mode, no cluster or database required:
+
+```bash
+cd backend
+go run ./cmd/orbit-agents -render \
+  -patch-dir=/path/to/patches \
+  -agent-slug=coder \
+  -namespace=tenant-example \
+  -sandbox
+```
+
+- `-patch-dir`: directory of `*.yaml`/`*.yml` patch files (mirrors what the Helm chart mounts at `/etc/orbit/manifest-patches`).
+- `-agent-slug`: required, the agent type slug to render.
+- `-namespace`: tenant namespace to render into (defaults to `tenant-example`).
+- `-sandbox`: also render a sample sandbox Pod.
+
+Invalid patches (unknown Kind, malformed JSON6902, a field typo, or a patch touching a protected identity/security path) fail immediately with the offending filename, the same validation orbit-agents runs at startup. Pipe the output through `kubectl apply --dry-run=server -f -` against the local k3d cluster to confirm the API server accepts every rendered object.
+
 ## Database migrations
 
 Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).

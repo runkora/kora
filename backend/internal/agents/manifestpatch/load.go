@@ -85,12 +85,33 @@ func parse(file string, body []byte) (Patch, error) {
 		return Patch{}, fmt.Errorf("yaml -> json: %w", err)
 	}
 
-	// JSON6902: {target, patch} envelope. Autodetect by non-empty patch array.
-	var env jsonPatchEnvelope
-	if envErr := json.Unmarshal(bodyJSON, &env); envErr == nil && len(env.Patch) > 0 {
-		if env.Target == nil || env.Target.Kind == "" {
-			return Patch{}, fmt.Errorf("json6902: target.kind is required")
+	// Autodetect priority: SMP has a top-level apiVersion+kind (a Kubernetes
+	// object shape); JSON6902 has the {target, patch} envelope. We check SMP
+	// FIRST so a Kubernetes object with a spec.patch field (e.g. a ConfigMap
+	// data key literally named "patch") isn't misdetected as JSON6902.
+	var head strategicMergeHead
+	if headErr := json.Unmarshal(bodyJSON, &head); headErr == nil && head.Kind != "" && head.APIVersion != "" {
+		var name string
+		if head.Metadata != nil {
+			name = head.Metadata.Name
 		}
+		stripped, err := stripHead(bodyJSON)
+		if err != nil {
+			return Patch{}, err
+		}
+		return Patch{
+			File:   file,
+			Flavor: StrategicMerge,
+			Kind:   head.Kind,
+			Name:   name,
+			Body:   stripped,
+		}, nil
+	}
+
+	// JSON6902: {target, patch} envelope. Requires both target.kind AND a
+	// non-empty patch array.
+	var env jsonPatchEnvelope
+	if envErr := json.Unmarshal(bodyJSON, &env); envErr == nil && env.Target != nil && env.Target.Kind != "" && len(env.Patch) > 0 {
 		if !isJSONArray(env.Patch) {
 			return Patch{}, fmt.Errorf("json6902: patch must be an array of RFC 6902 operations")
 		}
@@ -105,31 +126,12 @@ func parse(file string, body []byte) (Patch, error) {
 		}, nil
 	}
 
-	// Strategic merge: partial kubernetes object.
-	var head strategicMergeHead
-	if headErr := json.Unmarshal(bodyJSON, &head); headErr != nil {
-		return Patch{}, fmt.Errorf("unmarshal strategic merge head: %w", headErr)
-	}
-	if head.Kind == "" {
-		return Patch{}, fmt.Errorf("strategic merge: kind is required")
-	}
-	var name string
-	if head.Metadata != nil {
-		name = head.Metadata.Name
-	}
-	// Strip apiVersion+kind so StrategicMergePatch treats the body as a
-	// partial spec against the caller-supplied typed instance.
-	stripped, err := stripHead(bodyJSON)
-	if err != nil {
-		return Patch{}, err
-	}
-	return Patch{
-		File:   file,
-		Flavor: StrategicMerge,
-		Kind:   head.Kind,
-		Name:   name,
-		Body:   stripped,
-	}, nil
+	// Neither shape matched. Give the operator a specific error explaining
+	// what each flavor requires so a typo (missing kind, missing target) is
+	// clear at startup.
+	return Patch{}, fmt.Errorf(
+		"unrecognized patch shape: strategic merge requires top-level apiVersion+kind; " +
+			"JSON6902 requires target.kind and a non-empty patch array")
 }
 
 func isJSONArray(raw json.RawMessage) bool {
@@ -143,9 +145,18 @@ func isJSONArray(raw json.RawMessage) bool {
 	return false
 }
 
-// stripHead removes apiVersion and kind from a JSON object so
-// strategicpatch.StrategicMergePatch does not fight the typed instance's own
-// type discriminators.
+// stripHead removes apiVersion, kind, and metadata.name from a JSON object.
+//
+// apiVersion/kind are stripped so strategicpatch.StrategicMergePatch does not
+// fight the typed instance's own type discriminators.
+//
+// metadata.name is stripped because in the kustomize SMP convention it is
+// purely a TARGET SELECTOR (already captured in Patch.Name by the caller),
+// not a field the patch intends to set. Leaving it in the body would apply it
+// as a literal metadata.name override — which the protected-paths check in
+// Validate correctly rejects as identity-invariant tampering, even though the
+// operator's intent was only "target the resource named workspaces", not
+// "rename this resource to workspaces".
 func stripHead(bodyJSON []byte) ([]byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(bodyJSON, &raw); err != nil {
@@ -153,6 +164,21 @@ func stripHead(bodyJSON []byte) ([]byte, error) {
 	}
 	delete(raw, "apiVersion")
 	delete(raw, "kind")
+	if metaRaw, ok := raw["metadata"]; ok {
+		var meta map[string]json.RawMessage
+		if err := json.Unmarshal(metaRaw, &meta); err == nil {
+			delete(meta, "name")
+			if len(meta) == 0 {
+				delete(raw, "metadata")
+			} else {
+				remeta, err := json.Marshal(meta)
+				if err != nil {
+					return nil, fmt.Errorf("strip head remarshal metadata: %w", err)
+				}
+				raw["metadata"] = remeta
+			}
+		}
+	}
 	out, err := json.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("strip head remarshal: %w", err)

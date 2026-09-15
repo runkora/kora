@@ -123,6 +123,43 @@ metadata:
 	}
 }
 
+func TestLoad_SMPTakesPrecedenceOverPatchKey(t *testing.T) {
+	// A Kubernetes object that legitimately has a top-level `patch` field
+	// (unusual but valid — e.g. a ConfigMap.data entry) must not be misdetected
+	// as JSON6902. SMP head detection wins when apiVersion+kind are present.
+	dir := t.TempDir()
+	writeFile(t, dir, "010-configmap-with-patch-key.yaml", `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foo
+data:
+  patch: some literal value
+`)
+	// ConfigMap isn't in KnownKinds for Validate, but Load must parse it as SMP.
+	patches, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+	if patches[0].Flavor != StrategicMerge || patches[0].Kind != "ConfigMap" {
+		t.Errorf("expected SMP ConfigMap, got flavor=%v kind=%q", patches[0].Flavor, patches[0].Kind)
+	}
+}
+
+func TestLoad_UnrecognisedShapeIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "010-random.yaml", `
+some_random: content
+without_kind_or_target: true
+`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected error on unrecognized shape, got nil")
+	}
+}
+
 func TestLoad_JSON6902RequiresTargetKind(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "010-no-target-kind.yaml", `

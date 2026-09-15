@@ -495,17 +495,34 @@ agents:
       accessModes: []
     # e.g. eks.amazonaws.com/role-arn for IRSA.
     serviceAccountAnnotations: {}
-  # Freeform map of filename -> patch YAML body, merged into the manifest
-  # patches ConfigMap alongside the chart-generated files above. Use 5NN+
-  # numeric prefixes so operator patches sort after the built-ins.
-  # Example:
+  # Freeform map of operator-authored kustomize-style patches, merged into the
+  # manifest patches ConfigMap alongside the chart-generated files above
+  # (docs/adr/2026-09-15-manifest-patches-configmap.md). The map key is a bare
+  # patch name (no extension) and controls apply order (lexicographic); the
+  # chart writes it into the ConfigMap as "<key>.yaml". Use a 5N- numeric
+  # prefix so operator patches sort after the built-ins. `content` is the
+  # patch body (Strategic Merge or JSON6902), verbatim.
+  #
+  # Example — inject an image pull secret and a node selector:
   #   manifestPatches:
-  #     500-inject-label.yaml: |
-  #       apiVersion: apps/v1
-  #       kind: StatefulSet
-  #       metadata:
-  #         labels:
-  #           team: platform
+  #     50-sandbox-imagepullsecret:
+  #       content: |
+  #         apiVersion: apps/v1
+  #         kind: StatefulSet
+  #         spec:
+  #           template:
+  #             spec:
+  #               imagePullSecrets:
+  #                 - name: acme-registry
+  #     51-sandbox-nodeselector:
+  #       content: |
+  #         apiVersion: apps/v1
+  #         kind: StatefulSet
+  #         spec:
+  #           template:
+  #             spec:
+  #               nodeSelector:
+  #                 disktype: ssd
   manifestPatches: {}
   imageWarmer:
     enabled: false

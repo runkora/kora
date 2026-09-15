@@ -355,7 +355,7 @@ if *renderMode {
 
 `charts/orbit/templates/agents/`:
 
-- New `patches-configmap.yaml`: renders `agents.manifestPatches` (a freeform `map[string]string` of filename → YAML body) into a `ConfigMap` named `orbit-agents-manifest-patches`.
+- New `patches-configmap.yaml`: renders `agents.manifestPatches` into a `ConfigMap` named `orbit-agents-manifest-patches`. `agents.manifestPatches` is a map keyed by a bare patch name (no extension); the chart writes each entry into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Each entry is an object with `content` (the patch body, verbatim), `required` in the template so a missing value fails `helm template`/`helm upgrade` immediately.
 - New helper `_manifestpatches.tpl`: translates each of the existing named knobs on `values.yaml.agents.runtimePods.*` into a generated patch file inside that same ConfigMap:
 
   | Values key | Generated file |
@@ -364,14 +364,44 @@ if *renderMode {
   | `agents.runtimePods.tolerations` | `020-statefulset-tolerations.yaml`, `021-pod-tolerations.yaml` |
   | `agents.runtimePods.priorityClassName` | `030-statefulset-priorityclass.yaml`, `031-pod-priorityclass.yaml` |
   | `agents.runtimePods.sandboxResources` | `040-sandbox-resources.yaml` (JSON6902 for `container[0].resources`) |
-  | `agents.runtimePods.workspace.storageClassName`, `.accessModes` | `050-pvc.yaml` |
+  | `agents.runtimePods.workspace.storageClassName` | `050-pvc-storageclass.yaml` |
+  | `agents.runtimePods.workspace.accessModes` | `051-pvc-accessmodes.yaml` |
   | `agents.runtimePods.serviceAccountAnnotations` | `060-serviceaccount-annotations.yaml` |
 
 - `deployment.yaml`: drop the seven `ORBIT_MANIFEST__*` env stanzas (lines 75-113), mount the `orbit-agents-manifest-patches` ConfigMap at `/etc/orbit/manifest-patches`, and add a `checksum/patches` pod annotation so `helm upgrade` rolls the pods when patches change.
 
-- `values.yaml`: keep the entire `agents.runtimePods.*` block unchanged; add `agents.manifestPatches: {}` for operator-supplied raw patch files.
+- `values.yaml`: keep the entire `agents.runtimePods.*` block unchanged; add `agents.manifestPatches: {}` for operator-supplied patches.
 
-Operators consuming the chart via `values.yaml` see no breaking change. Operators who wrote `ORBIT_MANIFEST__*` env vars directly on their pod spec must move those values into `agents.manifestPatches` as patch files.
+Operators consuming the chart via `values.yaml` see no breaking change. Operators who wrote `ORBIT_MANIFEST__*` env vars directly on their pod spec must move those values into `agents.manifestPatches`.
+
+#### Operator-authored patch examples
+
+Two patches every operator eventually needs — an image pull secret for a private registry, and a node selector pinning agent pods to a node pool:
+
+```yaml
+agents:
+  manifestPatches:
+    50-sandbox-imagepullsecret:
+      content: |
+        apiVersion: apps/v1
+        kind: StatefulSet
+        spec:
+          template:
+            spec:
+              imagePullSecrets:
+                - name: acme-registry
+    51-sandbox-nodeselector:
+      content: |
+        apiVersion: apps/v1
+        kind: StatefulSet
+        spec:
+          template:
+            spec:
+              nodeSelector:
+                disktype: ssd
+```
+
+The map key is a bare patch name (no extension); the chart writes it into the ConfigMap as `<key>.yaml`, so the key directly controls apply order. Numeric prefixes 5N- keep operator patches sorting after the chart-generated 0NN files. See `deploy/reference/values/orbit.yaml` for a working example wired into the reference installation.
 
 ### Deletion
 

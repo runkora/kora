@@ -65,3 +65,52 @@ func TestValidate_BadLabelSelectorRejected(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestValidate_BadAnnotationSelectorRejected(t *testing.T) {
+	// Name matches so Patch.Matches short-circuits before it would ever
+	// reach the annotation selector; independent validation must still
+	// reject the malformed selector at startup.
+	patches := []Patch{{
+		File:               "040-bad-annot.yaml",
+		Flavor:             StrategicMerge,
+		Kind:               "Pod",
+		Name:               "sentinel",
+		AnnotationSelector: "===bad===",
+		Body:               []byte(`{"spec":{"nodeName":"node-1"}}`),
+	}}
+	if err := Validate(patches); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestValidate_EmptyBodyRejected(t *testing.T) {
+	patches := []Patch{{
+		File:   "050-empty.yaml",
+		Flavor: StrategicMerge,
+		Kind:   "Pod",
+		Body:   nil,
+	}}
+	err := Validate(patches)
+	if err == nil || !strings.Contains(err.Error(), "body is empty") {
+		t.Fatalf("expected empty-body error, got %v", err)
+	}
+}
+
+func TestValidate_SMPStrictRejectsUnknownField(t *testing.T) {
+	// `nodeSeletor` (typo) is not a real field on PodSpec. Under lax
+	// json.Unmarshal it would be silently dropped, producing a no-op
+	// patch. Strict decoding must reject it at startup.
+	patches := []Patch{{
+		File:   "060-typo.yaml",
+		Flavor: StrategicMerge,
+		Kind:   "Pod",
+		Body:   []byte(`{"spec":{"nodeSeletor":{"disk":"ssd"}}}`),
+	}}
+	err := Validate(patches)
+	if err == nil {
+		t.Fatal("expected strict decode to reject typo, got nil")
+	}
+	if !strings.Contains(err.Error(), "nodeSeletor") && !strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("expected unknown-field error naming the typo, got %v", err)
+	}
+}

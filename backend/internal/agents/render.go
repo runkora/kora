@@ -3,12 +3,8 @@ package agents
 import (
 	"fmt"
 
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
@@ -20,18 +16,17 @@ import (
 // would create them. When renderSandbox is true, a sample sandbox pod is
 // appended.
 //
-// This runs entirely in-memory. No k8s client, no database. Used by the
-// orbit-agents `-render` CLI mode for pre-deploy previews and by tests that
-// pin the rendered manifests against golden files.
+// Uses the same private buildX helpers the runtime ensureX functions call, so
+// preview output matches the manifests actually written to the cluster (Ports,
+// selectors, security contexts, env, volumes, VolumeClaimTemplates …). No k8s
+// client, no database.
 func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, renderSandbox bool) ([]runtime.Object, error) {
 	p := &K8sProvisioner{cfg: cfg}
 	labels := agentTypeLabels(at)
 	var out []runtime.Object
 
-	sa := corev1.ServiceAccount{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
-	}
+	sa := p.buildServiceAccount(at.Slug, namespace, labels)
+	sa.TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"}
 	sa, err := manifestpatch.ApplyToResource(sa, cfg.Patches, "ServiceAccount", sa.Name, sa.Labels, sa.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("render ServiceAccount: %w", err)
@@ -53,60 +48,24 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	}
 	out = append(out, &ss)
 
-	svc := corev1.Service{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
-		Spec: corev1.ServiceSpec{
-			ClusterIP: "None",
-			Selector:  labels,
-			Ports: []corev1.ServicePort{
-				{Name: "http", Port: sessionManagerPort, Protocol: corev1.ProtocolTCP},
-			},
-		},
-	}
+	svc := p.buildHeadlessService(at.Slug, namespace, labels)
+	svc.TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "Service"}
 	svc, err = manifestpatch.ApplyToResource(svc, cfg.Patches, "Service", svc.Name, svc.Labels, svc.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("render Service: %w", err)
 	}
 	out = append(out, &svc)
 
-	cpuTarget := int32(70)
-	memTarget := int32(80)
-	minReplicas := int32(1)
-	hpa := autoscalingv2.HorizontalPodAutoscaler{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
-		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
-			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: "StatefulSet", Name: at.Slug},
-			MinReplicas:    &minReplicas,
-			MaxReplicas:    10,
-			Metrics: []autoscalingv2.MetricSpec{
-				{Type: autoscalingv2.ResourceMetricSourceType, Resource: &autoscalingv2.ResourceMetricSource{
-					Name:   corev1.ResourceCPU,
-					Target: autoscalingv2.MetricTarget{Type: autoscalingv2.UtilizationMetricType, AverageUtilization: &cpuTarget},
-				}},
-				{Type: autoscalingv2.ResourceMetricSourceType, Resource: &autoscalingv2.ResourceMetricSource{
-					Name:   corev1.ResourceMemory,
-					Target: autoscalingv2.MetricTarget{Type: autoscalingv2.UtilizationMetricType, AverageUtilization: &memTarget},
-				}},
-			},
-		},
-	}
+	hpa := p.buildHPA(at.Slug, namespace, labels)
+	hpa.TypeMeta = metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"}
 	hpa, err = manifestpatch.ApplyToResource(hpa, cfg.Patches, "HorizontalPodAutoscaler", hpa.Name, hpa.Labels, hpa.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("render HorizontalPodAutoscaler: %w", err)
 	}
 	out = append(out, &hpa)
 
-	minAvailable := intstr.FromInt32(1)
-	pdb := policyv1.PodDisruptionBudget{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
-		Spec: policyv1.PodDisruptionBudgetSpec{
-			MinAvailable: &minAvailable,
-			Selector:     &metav1.LabelSelector{MatchLabels: labels},
-		},
-	}
+	pdb := p.buildPDB(at.Slug, namespace, labels)
+	pdb.TypeMeta = metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"}
 	pdb, err = manifestpatch.ApplyToResource(pdb, cfg.Patches, "PodDisruptionBudget", pdb.Name, pdb.Labels, pdb.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("render PodDisruptionBudget: %w", err)

@@ -1152,10 +1152,14 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 
 // ── resource builders ─────────────────────────────────────────────────────────
 
-func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
-	sa := corev1.ServiceAccount{
+func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[string]string) corev1.ServiceAccount {
+	return corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 	}
+}
+
+func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+	sa := p.buildServiceAccount(name, namespace, labels)
 	applyOwnerRef(&sa.ObjectMeta, owner)
 	var err error
 	sa, err = manifestpatch.ApplyToResource(sa, p.cfg.Patches, "ServiceAccount", sa.Name, sa.Labels, sa.Annotations)
@@ -1223,6 +1227,14 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	existing.Spec.Template.Annotations = ss.Spec.Template.Annotations
 	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
 	existing.Spec.Template.Spec.ImagePullSecrets = ss.Spec.Template.Spec.ImagePullSecrets
+	// Scheduling fields the chart routinely patches via runtimePods.*
+	// (nodeSelector, tolerations, priorityClassName). Propagating them on the
+	// update path means a Helm upgrade that changes scheduling gets picked up
+	// on the next reconcile instead of only affecting fresh StatefulSets.
+	existing.Spec.Template.Spec.NodeSelector = ss.Spec.Template.Spec.NodeSelector
+	existing.Spec.Template.Spec.Tolerations = ss.Spec.Template.Spec.Tolerations
+	existing.Spec.Template.Spec.PriorityClassName = ss.Spec.Template.Spec.PriorityClassName
+	existing.Spec.Template.Spec.Affinity = ss.Spec.Template.Spec.Affinity
 	for i := range existing.Spec.Template.Spec.Containers {
 		if existing.Spec.Template.Spec.Containers[i].Name != sessionManagerContainerName {
 			continue
@@ -1370,8 +1382,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	}
 }
 
-func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
-	svc := corev1.Service{
+func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map[string]string) corev1.Service {
+	return corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
@@ -1381,6 +1393,10 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 			},
 		},
 	}
+}
+
+func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+	svc := p.buildHeadlessService(name, namespace, labels)
 	applyOwnerRef(&svc.ObjectMeta, owner)
 	var err error
 	svc, err = manifestpatch.ApplyToResource(svc, p.cfg.Patches, "Service", svc.Name, svc.Labels, svc.Annotations)
@@ -1403,16 +1419,11 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	return err
 }
 
-// ensureHPA creates an HPA targeting the agent StatefulSet.
-// Note: when the HPA scales the StatefulSet down, Kubernetes does NOT delete the
-// PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
-// accumulate silently. A cleanup controller or CronJob should prune PVCs whose
-// owning pod no longer exists. Track in the sandbox hardening story.
-func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) buildHPA(name, namespace string, labels map[string]string) autoscalingv2.HorizontalPodAutoscaler {
 	cpuTarget := int32(70)
 	memTarget := int32(80)
 	minReplicas := int32(1)
-	hpa := autoscalingv2.HorizontalPodAutoscaler{
+	return autoscalingv2.HorizontalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
 			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
@@ -1446,6 +1457,15 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 			},
 		},
 	}
+}
+
+// ensureHPA creates an HPA targeting the agent StatefulSet.
+// Note: when the HPA scales the StatefulSet down, Kubernetes does NOT delete the
+// PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
+// accumulate silently. A cleanup controller or CronJob should prune PVCs whose
+// owning pod no longer exists. Track in the sandbox hardening story.
+func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+	hpa := p.buildHPA(name, namespace, labels)
 	applyOwnerRef(&hpa.ObjectMeta, owner)
 	var err error
 	hpa, err = manifestpatch.ApplyToResource(hpa, p.cfg.Patches, "HorizontalPodAutoscaler", hpa.Name, hpa.Labels, hpa.Annotations)
@@ -1468,15 +1488,19 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	return err
 }
 
-func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) buildPDB(name, namespace string, labels map[string]string) policyv1.PodDisruptionBudget {
 	minAvailable := intstr.FromInt32(1)
-	pdb := policyv1.PodDisruptionBudget{
+	return policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: policyv1.PodDisruptionBudgetSpec{
 			MinAvailable: &minAvailable,
 			Selector:     &metav1.LabelSelector{MatchLabels: labels},
 		},
 	}
+}
+
+func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+	pdb := p.buildPDB(name, namespace, labels)
 	applyOwnerRef(&pdb.ObjectMeta, owner)
 	var err error
 	pdb, err = manifestpatch.ApplyToResource(pdb, p.cfg.Patches, "PodDisruptionBudget", pdb.Name, pdb.Labels, pdb.Annotations)
