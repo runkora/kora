@@ -21,6 +21,9 @@ package skills
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -37,6 +40,32 @@ const (
 	// DefaultRawBaseURL is GitHub.com's raw-content host, used to fetch file
 	// bytes directly without a base64-encoded blob response.
 	DefaultRawBaseURL = "https://raw.githubusercontent.com"
+
+	acceptHeader = "application/vnd.github+json"
+)
+
+// Sentinel errors. Callers may test for these with errors.Is to branch on
+// failure category without string matching.
+var (
+	// ErrTokenSource is returned when the injected tokenSource fails to
+	// resolve a token for the requested repository.
+	ErrTokenSource = errors.New("failed to resolve github token")
+
+	// ErrRepositoryNotFound is returned when GitHub responds 404 to a tree
+	// request — the org/repo/branch combination does not exist or the token
+	// cannot see it. Distinct from ErrFileNotFound: this means the whole
+	// source is unreachable, not that one file within it is missing.
+	ErrRepositoryNotFound = errors.New("github repository or branch not found")
+
+	// ErrFileNotFound is returned when GitHub responds 404 to a raw-content
+	// request — the repository/branch exists but path does not. Distinct
+	// from ErrRepositoryNotFound so a caller can skip one missing file
+	// without treating the whole source as failed.
+	ErrFileNotFound = errors.New("github file not found at path")
+
+	// ErrUnexpectedStatus is returned when GitHub responds with any other
+	// non-2xx status.
+	ErrUnexpectedStatus = errors.New("unexpected status from github")
 )
 
 // tokenSource resolves the GitHub bearer token to use for a given repository.
@@ -85,4 +114,45 @@ func NewClient(logger logging.Logger, tokens tokenSource) *Client {
 		apiBaseURL: DefaultAPIBaseURL,
 		rawBaseURL: DefaultRawBaseURL,
 	}
+}
+
+// GetTree fetches the full recursive file tree of repo at branch (a branch
+// name, tag, or commit SHA — the source's configured branch in the
+// Marketplace ConfigMap).
+//
+// Check Tree.Truncated before assuming full coverage: GitHub caps the
+// recursive listing size and sets this flag rather than paginating.
+func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, error) {
+	token, err := c.tokens.Token(ctx, org, repo)
+	if err != nil {
+		return Tree{}, fmt.Errorf("%w: %w", ErrTokenSource, err)
+	}
+
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.apiBaseURL, org, repo, branch)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return Tree{}, fmt.Errorf("build get tree request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, "skills.Client.GetTree", req)
+	defer span.End()
+	if err != nil {
+		return Tree{}, fmt.Errorf("get tree call: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return Tree{}, c.HandleErrorResponse(span, resp, ErrRepositoryNotFound)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Tree{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var tree Tree
+	if err := c.DecodeJSON(span, resp, &tree); err != nil {
+		return Tree{}, err
+	}
+	return tree, nil
 }
