@@ -157,12 +157,6 @@ func (c *Controller) handleChatCompletionsStream(
 
 // ─── GET /models ──────────────────────────────────────────────────────────────
 
-// modelsResponse is the OpenAI-compatible /v1/models response shape.
-type modelsResponse struct {
-	Object string        `json:"object"`
-	Data   []modelObject `json:"data"`
-}
-
 // modelObjectPricing carries effective per-million-token prices for display.
 // It reflects the lowest-cost enabled route so clients can show a floor price.
 type modelObjectPricing struct {
@@ -170,10 +164,22 @@ type modelObjectPricing struct {
 	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
 }
 
+// modelObject is the unified /v1/models response shape supporting both OpenAI and Anthropic clients.
+// Fields are tagged so that:
+//   - OpenAI clients read: id, object, created, owned_by, family, display_name, status, and extended fields
+//   - Anthropic clients read: id, type, created_at, display_name, has_more, first_id, last_id
+//
+// The response is unconditional rather than gated on the "anthropic-version" header: several
+// agent harnesses (e.g. Claude Code via ANTHROPIC_BASE_URL) issue Anthropic-shaped requests
+// without ever sending that header, so header presence is not a reliable dialect signal.
+// Both sets of clients ignore unknown fields, so a single response satisfies both dialects
+// without needing to detect which one is asking.
 type modelObject struct {
 	ID               string              `json:"id"`
-	Object           string              `json:"object"`
-	Created          int64               `json:"created"`
+	Object           string              `json:"object"`     // always "model" (OpenAI format)
+	Type             string              `json:"type"`       // always "model" (Anthropic format)
+	Created          int64               `json:"created"`    // Unix timestamp (OpenAI format)
+	CreatedAt        string              `json:"created_at"` // RFC3339 UTC (Anthropic format)
 	OwnedBy          string              `json:"owned_by"`
 	Family           string              `json:"family,omitempty"`
 	DisplayName      string              `json:"display_name,omitempty"`
@@ -184,6 +190,17 @@ type modelObject struct {
 	Dialects         []APIDialect        `json:"dialects,omitempty"`
 	Capabilities     []ModelCapability   `json:"capabilities,omitempty"`
 	Pricing          *modelObjectPricing `json:"pricing,omitempty"`
+}
+
+// modelsResponse is the unified /v1/models response shape supporting both OpenAI and Anthropic clients.
+// OpenAI clients use: object, data. Anthropic clients use: data, has_more, first_id, last_id.
+// See modelObject for why this is unconditional rather than header-gated.
+type modelsResponse struct {
+	Object  string        `json:"object"` // always "list" (OpenAI format)
+	Data    []modelObject `json:"data"`
+	HasMore bool          `json:"has_more"` // false for now (Anthropic format)
+	FirstID *string       `json:"first_id"` // ID of first model (Anthropic format)
+	LastID  *string       `json:"last_id"`  // ID of last model (Anthropic format)
 }
 
 // pmKey is the composite key used to look up provider models by (provider, modelID).
@@ -394,7 +411,9 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		data = append(data, modelObject{
 			ID:               vm.FullID(),
 			Object:           "model",
+			Type:             "model",
 			Created:          now,
+			CreatedAt:        time.Unix(now, 0).UTC().Format(time.RFC3339),
 			OwnedBy:          vm.Family,
 			Family:           vm.Family,
 			DisplayName:      vm.DisplayName,
@@ -407,10 +426,18 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, modelsResponse{
-		Object: "list",
-		Data:   data,
-	})
+	resp := modelsResponse{
+		Object:  "list",
+		Data:    data,
+		HasMore: false,
+	}
+	if len(data) > 0 {
+		firstID := data[0].ID
+		lastID := data[len(data)-1].ID
+		resp.FirstID = &firstID
+		resp.LastID = &lastID
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
 // ─── SSE serialization ────────────────────────────────────────────────────────
