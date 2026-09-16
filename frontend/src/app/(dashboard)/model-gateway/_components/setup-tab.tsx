@@ -7,7 +7,7 @@
 //
 // Structure:
 //   1. Shared intro — how to self-service provision an API key
-//   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode
+//   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode, VS Code
 
 import Link from 'next/link';
 import {
@@ -208,6 +208,90 @@ function OpenCodeGuide() {
   );
 }
 
+function VSCodeGuide() {
+  return (
+    <Stack gap="none">
+      <Step number={1} title="Export the key where VS Code can see it">
+        <Text size="supporting" color="muted">
+          VS Code inherits environment variables from the shell that launched it. Export your key in
+          your shell profile, then start VS Code from that shell with <Code>code .</Code> so the
+          value is picked up.
+        </Text>
+        <CodeBlock
+          text={`export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"
+export ANTHROPIC_BASE_URL="https://api.orbit.dev.clearroute.io"
+export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
+          filename="~/.zshrc"
+        />
+        <Text size="caption" color="subtle">
+          Then reload: <Code>source ~/.zshrc</Code>
+        </Text>
+      </Step>
+
+      <Step number={2} title="Point the Claude Code extension at the gateway">
+        <Text size="supporting" color="muted">
+          The Claude Code extension runs the same CLI underneath, so it reads the same variables.
+          Pin them in your workspace settings if you prefer not to rely on the launching shell.
+        </Text>
+        <CodeBlock
+          text={`{
+  "claude.environmentVariables": {
+    "ANTHROPIC_BASE_URL": "https://api.orbit.dev.clearroute.io",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic/claude-sonnet-4-6",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic/claude-haiku-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "anthropic/claude-opus-4-7",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
+  }
+}`}
+          filename=".vscode/settings.json"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">Keep the key out of settings files</Heading>
+            <Text size="caption" color="muted">
+              <Code>.vscode/settings.json</Code> is commonly committed. Set{' '}
+              <Code>ANTHROPIC_API_KEY</Code> in your shell profile only, never here.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+
+      <Step number={3} title="Or register Orbit as an OpenAI-compatible provider" isLast>
+        <Text size="supporting" color="muted">
+          Extensions that accept a custom OpenAI-compatible endpoint (Continue, Cline, Roo Code and
+          similar) take the gateway directly. Point them at the <Code>/v1</Code> base URL and your
+          virtual model IDs.
+        </Text>
+        <CodeBlock
+          text={`{
+  "models": [
+    {
+      "title": "Orbit — Claude Sonnet 4.6",
+      "provider": "openai",
+      "model": "anthropic/claude-sonnet-4-6",
+      "apiBase": "https://api.orbit.dev.clearroute.io/v1",
+      "apiKey": "\${env:ORBIT_API_KEY}"
+    }
+  ]
+}`}
+          filename="~/.continue/config.json"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">
+              <Code>apiBase</Code> must include the <Code>/v1</Code> suffix
+            </Heading>
+            <Text size="caption" color="muted">
+              The OpenAI-compatible surface is served under <Code>/v1</Code>. Omitting it causes
+              every request to return 403.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+    </Stack>
+  );
+}
+
 // ── SetupTab (exported) ──────────────────────────────────────────────────────
 
 export function SetupTab() {
@@ -306,6 +390,7 @@ export function SetupTab() {
               <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
               <TabsTrigger value="codex">Codex CLI</TabsTrigger>
               <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+              <TabsTrigger value="vscode">VS Code</TabsTrigger>
             </TabsList>
 
             <TabsContent value="claude-code">
@@ -318,6 +403,10 @@ export function SetupTab() {
 
             <TabsContent value="opencode">
               <OpenCodeGuide />
+            </TabsContent>
+
+            <TabsContent value="vscode">
+              <VSCodeGuide />
             </TabsContent>
           </Tabs>
         </CardContent>
