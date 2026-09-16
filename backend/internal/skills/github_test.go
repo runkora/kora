@@ -146,17 +146,66 @@ func TestGetFile_ReturnsBytes(t *testing.T) {
 }
 
 func TestGetFile_FileNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	rawSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer srv.Close()
+	defer rawSrv.Close()
+
+	// The repo/ref itself resolves fine — only the file is missing.
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apiSrv.Close()
 
 	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
-	c.rawBaseURL = srv.URL
+	c.rawBaseURL = rawSrv.URL
+	c.apiBaseURL = apiSrv.URL
 
 	_, err := c.GetFile(context.Background(), "org", "repo", "main", "missing.md")
 	if !errors.Is(err, ErrFileNotFound) {
 		t.Errorf("err = %v, want ErrFileNotFound", err)
+	}
+}
+
+func TestGetFile_RawNotFoundButRepoRefMissing_ReturnsRepositoryNotFound(t *testing.T) {
+	rawSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer rawSrv.Close()
+
+	// The repo/ref itself doesn't resolve either — the raw 404 wasn't just a
+	// missing file, the whole source is unreachable.
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer apiSrv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = rawSrv.URL
+	c.apiBaseURL = apiSrv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "path.md")
+	if !errors.Is(err, ErrRepositoryNotFound) {
+		t.Errorf("err = %v, want ErrRepositoryNotFound", err)
+	}
+}
+
+func TestGetFile_RawNotFoundAndRefCheckFails_ReturnsRepositoryNotFound(t *testing.T) {
+	rawSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer rawSrv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = rawSrv.URL
+	// apiBaseURL left as the real GitHub API host is avoided by pointing it
+	// at an address nothing listens on, so the ref-existence check fails as
+	// a transport error rather than hitting the network.
+	c.apiBaseURL = "http://127.0.0.1:0"
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "main", "path.md")
+	if !errors.Is(err, ErrRepositoryNotFound) {
+		t.Errorf("err = %v, want ErrRepositoryNotFound (an unverifiable ref must not be assumed to exist)", err)
 	}
 }
 
@@ -338,6 +387,52 @@ func TestGetTree_EscapesURLMetacharactersAndKeepsQuery(t *testing.T) {
 	}
 	if gotQuery != "recursive=1" {
 		t.Errorf("query = %q, want %q (a raw '#' in branch must not drop ?recursive=1 as a URL fragment)", gotQuery, "recursive=1")
+	}
+}
+
+func TestGetTree_EncodesSlashInBranchAsSingleSegment(t *testing.T) {
+	var gotEscapedPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(Tree{SHA: "abc123"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.apiBaseURL = srv.URL
+
+	_, err := c.GetTree(context.Background(), "org", "repo", "release/v1")
+	if err != nil {
+		t.Fatalf("GetTree: %v", err)
+	}
+	wantEscapedPath := "/repos/org/repo/git/trees/release%2Fv1"
+	if gotEscapedPath != wantEscapedPath {
+		t.Errorf("escaped path = %q, want %q (branch is a single opaque tree_sha/ref path parameter for the Trees API; a '/' inside it must be percent-encoded, not sent as an extra path segment)", gotEscapedPath, wantEscapedPath)
+	}
+	if gotQuery != "recursive=1" {
+		t.Errorf("query = %q, want %q", gotQuery, "recursive=1")
+	}
+}
+
+func TestGetFile_EncodesSlashInBranchAsSingleSegment(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), stubTokenSource{token: "test-token"})
+	c.rawBaseURL = srv.URL
+
+	_, err := c.GetFile(context.Background(), "org", "repo", "release/v1", "path/to/file.md")
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	wantEscapedPath := "/org/repo/release%2Fv1/path/to/file.md"
+	if gotEscapedPath != wantEscapedPath {
+		t.Errorf("escaped path = %q, want %q (branch must be a single opaque segment; path keeps its own '/' separators)", gotEscapedPath, wantEscapedPath)
 	}
 }
 

@@ -69,9 +69,13 @@ var (
 	ErrRepositoryNotFound = errors.New("github repository or branch not found")
 
 	// ErrFileNotFound is returned when GitHub responds 404 to a raw-content
-	// request — the repository/branch exists but path does not. Distinct
-	// from ErrRepositoryNotFound so a caller can skip one missing file
-	// without treating the whole source as failed.
+	// request AND a follow-up check confirms org/repo/branch itself resolves
+	// — i.e. the repository/branch exists but path does not. Distinct from
+	// ErrRepositoryNotFound so a caller can skip one missing file without
+	// treating the whole source as failed. Without that follow-up check, a
+	// raw-content 404 is ambiguous: raw.githubusercontent.com returns the
+	// same status for a missing file, a missing repo/branch, and a private
+	// repo the token can't see. See repoRefExists.
 	ErrFileNotFound = errors.New("github file not found at path")
 
 	// ErrUnexpectedStatus is returned when GitHub responds with any other
@@ -164,14 +168,54 @@ func validateRepoPath(value string) error {
 // independently and rejoins them with "/", so a segment containing a URL
 // metacharacter (e.g. "#", "?", a space) cannot alter the shape of the
 // request. fmt.Sprintf, used to build the endpoint below, does no escaping
-// of its own — this mirrors the url.PathEscape precedent already used in
-// internal/platform/clients/agents/client.go.
+// of its own. Use this only for a value that is genuinely multi-segment,
+// like a file path — for org, repo, or branch, which the GitHub API treats
+// as a single opaque path component, use escapeSegment instead, since a "/"
+// inside one of those (e.g. a branch named "release/v1") must itself be
+// percent-encoded rather than preserved as a path separator.
 func escapePathSegments(value string) string {
 	segs := strings.Split(value, "/")
 	for i, seg := range segs {
 		segs[i] = url.PathEscape(seg)
 	}
 	return strings.Join(segs, "/")
+}
+
+// escapeSegment percent-encodes value as a single opaque path segment,
+// including any "/" it contains — this mirrors the url.PathEscape
+// precedent already used in internal/platform/clients/agents/client.go, and
+// is the correct choice for org, repo, and branch (never for a
+// multi-segment value like a file path; use escapePathSegments for that).
+func escapeSegment(value string) string {
+	return url.PathEscape(value)
+}
+
+// repoRefExists reports whether org/repo/branch resolves to an accessible
+// repository and ref, using a lean, non-recursive call to the Trees API
+// (i.e. GetTree's request without "?recursive=1", so it doesn't buffer a
+// full tree just to check existence). GetFile calls this only after a
+// raw-content 404, to tell "repo/branch doesn't exist or isn't visible"
+// apart from "the file just isn't there" — raw.githubusercontent.com
+// returns the same 404 for both. A transport error or non-2xx response from
+// this check itself is treated as "does not exist," since GetFile cannot
+// confirm the ref is valid in that case either.
+func (c *Client) repoRefExists(ctx context.Context, token, org, repo, branch string) bool {
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s",
+		c.apiBaseURL, escapeSegment(org), escapeSegment(repo), escapeSegment(branch))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, "skills.Client.repoRefExists", req)
+	defer span.End()
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode == http.StatusOK
 }
 
 // GetTree fetches the full recursive file tree of repo at branch (a branch
@@ -197,7 +241,7 @@ func (c *Client) GetTree(ctx context.Context, org, repo, branch string) (Tree, e
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1",
-		c.apiBaseURL, escapePathSegments(org), escapePathSegments(repo), escapePathSegments(branch))
+		c.apiBaseURL, escapeSegment(org), escapeSegment(repo), escapeSegment(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return Tree{}, fmt.Errorf("build get tree request: %w", err)
@@ -249,7 +293,7 @@ func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s",
-		c.rawBaseURL, escapePathSegments(org), escapePathSegments(repo), escapePathSegments(branch), escapePathSegments(path))
+		c.rawBaseURL, escapeSegment(org), escapeSegment(repo), escapeSegment(branch), escapePathSegments(path))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build get file request: %w", err)
@@ -264,6 +308,9 @@ func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) ([
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
+		if !c.repoRefExists(ctx, token, org, repo, branch) {
+			return nil, c.HandleErrorResponse(span, resp, ErrRepositoryNotFound)
+		}
 		return nil, c.HandleErrorResponse(span, resp, ErrFileNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
