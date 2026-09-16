@@ -141,6 +141,10 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) — `Accepted` · 2026-06-19
 - [Profile Page Architecture](2026-05-13-profile-page-architecture.md) — `Proposed` · 2026-05-13
 
+### Agent Marketplace
+
+- [Agent Marketplace — Startup Preload, Per-Repo Redis Keys, and Resource-Aware Skills](2026-09-09-agent-marketplace-startup-preload-per-repo-redis-keys.md) — `Proposed` · 2026-09-09 (supersedes the deleted `2026-08-27-marketplace_adr_backend.md`, which chose a singleton in-memory store; this ADR's "Considered Options" section documents that rejection as Option B)
+
 ## All ADRs (chronological)
 
 | Date | Decision | Status | Former # |
@@ -250,3 +254,4 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Proposed | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
+| 2026-09-09 | [Agent Marketplace — Startup Preload, Per-Repo Redis Keys, and Resource-Aware Skills](2026-09-09-agent-marketplace-startup-preload-per-repo-redis-keys.md) | Proposed | — |
