@@ -1168,7 +1168,7 @@ func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[
 			Labels:    labels,
 			// Cloud identity for the session-manager, which is the only pod
 			// running under this account.
-			Annotations: mergeMaps(nil, p.cfg.Workloads.SessionManager.ServiceAccount.Annotations),
+			Annotations: cloneOrNil(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations),
 		},
 	}
 }
@@ -1206,16 +1206,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
 	applyOwnerRef(&ss.ObjectMeta, owner)
 
-	var err error
-	ss, err = manifestpatch.Apply(ss, "StatefulSet", p.cfg.Patches)
+	ss, err := p.applyStatefulSetPatches(ss)
 	if err != nil {
-		return fmt.Errorf("apply StatefulSet patches: %w", err)
-	}
-	if len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", p.cfg.Patches)
-		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
-		}
+		return err
 	}
 
 	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})

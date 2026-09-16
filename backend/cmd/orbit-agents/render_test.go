@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
+	"github.com/clear-route/orbit/internal/agents"
 )
 
 func writePatch(t *testing.T, name, body string) string {
@@ -111,6 +115,101 @@ func TestLoadWorkloads_RejectsUnparseableSize(t *testing.T) {
 
 	if _, err := loadWorkloads(path); err == nil {
 		t.Fatal("expected an error for an unparseable workspace size")
+	}
+}
+
+// defaultChartWorkloads is what charts/orbit renders with no values set. Every
+// key is present and empty, which is the case most likely to leak an empty
+// struct into a provisioned manifest.
+const defaultChartWorkloads = `workloads:
+  common:
+    podAnnotations: {}
+    podLabels: {}
+  sandbox:
+    affinity: {}
+    nodeSelector: {}
+    podAnnotations: {}
+    podLabels: {}
+    priorityClassName: ""
+    tolerations: []
+    topologySpreadConstraints: []
+  sessionManager:
+    affinity: {}
+    nodeSelector: {}
+    podAnnotations: {}
+    podLabels: {}
+    priorityClassName: ""
+    serviceAccount:
+      annotations: {}
+    tolerations: []
+    topologySpreadConstraints: []
+workspace:
+  accessModes:
+  - ReadWriteOnce
+  size: 10Gi
+  storageClassName: ""
+`
+
+// A deployment that customized nothing must provision exactly what it did
+// before these values existed, empty structs included.
+func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workloads.yaml")
+	if err := os.WriteFile(path, []byte(defaultChartWorkloads), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workloads, err := loadWorkloads(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := provisionerConfig(&agentsConfig.Config{}, nil, workloads)
+	at := agents.AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
+	objs, err := agents.RenderResources(cfg, at, "tenant-example", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sa, ok := objs[0].(*corev1.ServiceAccount)
+	if !ok {
+		t.Fatalf("objs[0] not *corev1.ServiceAccount: %T", objs[0])
+	}
+	if sa.Annotations != nil {
+		t.Errorf("ServiceAccount annotations: got %v, want none", sa.Annotations)
+	}
+
+	ss, ok := objs[1].(*appsv1.StatefulSet)
+	if !ok {
+		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
+	}
+	pod, ok := objs[5].(*corev1.Pod)
+	if !ok {
+		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
+	}
+	for name, spec := range map[string]corev1.PodSpec{"StatefulSet": ss.Spec.Template.Spec, "sandbox Pod": pod.Spec} {
+		if spec.Affinity != nil {
+			t.Errorf("%s affinity: got %+v, want none", name, spec.Affinity)
+		}
+		if spec.NodeSelector != nil {
+			t.Errorf("%s nodeSelector: got %v, want none", name, spec.NodeSelector)
+		}
+		if spec.Tolerations != nil {
+			t.Errorf("%s tolerations: got %v, want none", name, spec.Tolerations)
+		}
+		if spec.PriorityClassName != "" {
+			t.Errorf("%s priorityClassName: got %q, want empty", name, spec.PriorityClassName)
+		}
+	}
+
+	claim := ss.Spec.VolumeClaimTemplates[0]
+	if claim.Spec.StorageClassName != nil {
+		t.Errorf("storageClassName: got %q, want the cluster default", *claim.Spec.StorageClassName)
+	}
+	if len(claim.Spec.AccessModes) != 1 || claim.Spec.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Errorf("accessModes: got %v", claim.Spec.AccessModes)
+	}
+	if got := claim.Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != "10Gi" {
+		t.Errorf("workspace size: got %s, want 10Gi", got.String())
 	}
 }
 

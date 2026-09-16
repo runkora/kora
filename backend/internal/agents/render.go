@@ -34,15 +34,9 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	}
 	out = append(out, &sa)
 
-	ss, err := manifestpatch.Apply(p.buildSessionManagerStatefulSet(at, namespace, labels), "StatefulSet", cfg.Patches)
+	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, namespace, labels))
 	if err != nil {
-		return nil, fmt.Errorf("render StatefulSet: %w", err)
-	}
-	if len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", cfg.Patches)
-		if err != nil {
-			return nil, fmt.Errorf("render PersistentVolumeClaim: %w", err)
-		}
+		return nil, err
 	}
 	out = append(out, &ss)
 
@@ -65,9 +59,9 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	out = append(out, &pdb)
 
 	if renderSandbox {
-		pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: "sample-run"}, at.Slug, namespace, []kubeconfig.Cluster{}), "Pod", cfg.Patches)
+		pod, err := p.patchedSandboxPod("sample-run", at.Slug, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("render sandbox Pod: %w", err)
+			return nil, err
 		}
 		if err := checkSplitPoolWorkspace(ss, pod); err != nil {
 			return nil, err
@@ -78,32 +72,51 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	return out, nil
 }
 
-// checkSandboxPlacement runs the split-pool workspace check for a real agent
-// type, applying the patches exactly as the ensure functions do.
-//
-// RenderResources covers the same ground at startup, but it renders a stand-in
-// agent type, so a patch selected by an agent's own name or labels matches
-// nothing there. Running it again per agent type catches those before anything
-// is created, rather than on that agent's first run.
-func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) error {
-	labels := agentTypeLabels(at)
-
-	ss, err := manifestpatch.Apply(p.buildSessionManagerStatefulSet(at, namespace, labels), "StatefulSet", p.cfg.Patches)
+// applyStatefulSetPatches applies the manifest patches to a built StatefulSet
+// and to its workspace claim template, which patches target as a
+// PersistentVolumeClaim of its own.
+func (p *K8sProvisioner) applyStatefulSetPatches(ss appsv1.StatefulSet) (appsv1.StatefulSet, error) {
+	ss, err := manifestpatch.Apply(ss, "StatefulSet", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply StatefulSet patches: %w", err)
+		return ss, fmt.Errorf("apply StatefulSet patches: %w", err)
 	}
 	if len(ss.Spec.VolumeClaimTemplates) > 0 {
 		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", p.cfg.Patches)
 		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
+			return ss, fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
 		}
 	}
+	return ss, nil
+}
 
-	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: "placement-check"}, at.Slug, namespace, []kubeconfig.Cluster{}), "Pod", p.cfg.Patches)
+// patchedSandboxPod builds a sandbox Pod for a run and applies the patches.
+func (p *K8sProvisioner) patchedSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
+	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, []kubeconfig.Cluster{}), "Pod", p.cfg.Patches)
 	if err != nil {
-		return fmt.Errorf("apply Pod patches: %w", err)
+		return pod, fmt.Errorf("apply Pod patches: %w", err)
+	}
+	return pod, nil
+}
+
+// checkSandboxPlacement runs the split-pool workspace check for a real agent
+// type, applying the patches exactly as the ensure functions do.
+//
+// Only patches need this. Workload values apply to every agent type, so the
+// startup validation already renders them; a patch can be selected by one
+// agent's name or labels, which the stand-in agent type there never matches.
+func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) error {
+	if len(p.cfg.Patches) == 0 {
+		return nil
 	}
 
+	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, namespace, agentTypeLabels(at)))
+	if err != nil {
+		return err
+	}
+	pod, err := p.patchedSandboxPod("placement-check", at.Slug, namespace)
+	if err != nil {
+		return err
+	}
 	return checkSplitPoolWorkspace(ss, pod)
 }
 

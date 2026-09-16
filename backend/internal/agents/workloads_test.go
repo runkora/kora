@@ -162,6 +162,20 @@ func TestBuilders_EmptyCustomizationChangesNothing(t *testing.T) {
 	}
 }
 
+// The chart renders every key, so a default install decodes `affinity: {}` into
+// a non-nil empty struct. Applying that would stamp an empty affinity onto every
+// pod, which is a manifest diff for a deployment that customized nothing.
+func TestApplyToPodSpec_EmptyAffinityIsNotApplied(t *testing.T) {
+	w := WorkloadCustomization{Affinity: &corev1.Affinity{}}
+	var spec corev1.PodSpec
+
+	w.applyToPodSpec(&spec)
+
+	if spec.Affinity != nil {
+		t.Errorf("empty affinity should be treated as unset, got %+v", spec.Affinity)
+	}
+}
+
 func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 	cases := map[string]WorkloadsConfig{
 		"identity label on the sandbox": {

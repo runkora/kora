@@ -75,9 +75,7 @@ var reservedAnnotations = []string{
 // reservedLabels select a pod for SPIRE attestation, sidecar injection and its
 // StatefulSet. Setting one from config would move the pod off its attested
 // identity, which is why manifest patches protect the same keys.
-func reservedLabels() []string {
-	return append([]string{"app", "orbit.io/managed-agent"}, manifestpatch.IdentityLabels...)
-}
+var reservedLabels = append([]string{"app", "orbit.io/managed-agent"}, manifestpatch.IdentityLabels...)
 
 // ForSessionManager returns the session-manager's customization with the common
 // pod metadata merged underneath it.
@@ -106,7 +104,9 @@ func (w WorkloadCustomization) applyToPodMeta(meta *metav1.ObjectMeta) {
 }
 
 // applyToPodSpec sets the scheduling fields. Each is left untouched when unset,
-// so an empty customization renders exactly what the builder produced.
+// so an empty customization renders exactly what the builder produced. The
+// chart renders every key, so "unset" includes the empty values a deployment
+// that customized nothing produces.
 func (w WorkloadCustomization) applyToPodSpec(spec *corev1.PodSpec) {
 	if len(w.NodeSelector) > 0 {
 		spec.NodeSelector = maps.Clone(w.NodeSelector)
@@ -114,7 +114,7 @@ func (w WorkloadCustomization) applyToPodSpec(spec *corev1.PodSpec) {
 	if len(w.Tolerations) > 0 {
 		spec.Tolerations = slices.Clone(w.Tolerations)
 	}
-	if w.Affinity != nil {
+	if w.Affinity != nil && *w.Affinity != (corev1.Affinity{}) {
 		spec.Affinity = w.Affinity.DeepCopy()
 	}
 	if len(w.TopologySpreadConstraints) > 0 {
@@ -134,30 +134,48 @@ func (c WorkspaceConfig) applyToClaim(claim *corev1.PersistentVolumeClaim) {
 		claim.Spec.AccessModes = slices.Clone(c.AccessModes)
 	}
 	if c.Size != nil {
+		if claim.Spec.Resources.Requests == nil {
+			claim.Spec.Resources.Requests = corev1.ResourceList{}
+		}
 		claim.Spec.Resources.Requests[corev1.ResourceStorage] = *c.Size
 	}
 }
 
 // Validate rejects configuration that would break the pod identity or mesh
-// wiring the platform owns, and a workspace size Kubernetes cannot parse.
+// wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
-	for name, workload := range map[string]WorkloadCustomization{
-		"common":         {PodLabels: w.Common.PodLabels, PodAnnotations: w.Common.PodAnnotations},
-		"sessionManager": w.SessionManager,
-		"sandbox":        w.Sandbox,
+	// Ordered, so a file with several problems always reports the same one.
+	for _, workload := range []struct {
+		name        string
+		labels      map[string]string
+		annotations map[string]string
+	}{
+		{"common", w.Common.PodLabels, w.Common.PodAnnotations},
+		{"sessionManager", w.SessionManager.PodLabels, w.SessionManager.PodAnnotations},
+		{"sandbox", w.Sandbox.PodLabels, w.Sandbox.PodAnnotations},
 	} {
-		for _, label := range reservedLabels() {
-			if _, taken := workload.PodLabels[label]; taken {
-				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its StatefulSet", name, label)
+		for _, label := range reservedLabels {
+			if _, taken := workload.labels[label]; taken {
+				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its StatefulSet", workload.name, label)
 			}
 		}
 		for _, annotation := range reservedAnnotations {
-			if _, taken := workload.PodAnnotations[annotation]; taken {
-				return fmt.Errorf("agents.workloads.%s.podAnnotations sets %q, which wires the pod into the mesh", name, annotation)
+			if _, taken := workload.annotations[annotation]; taken {
+				return fmt.Errorf("agents.workloads.%s.podAnnotations sets %q, which wires the pod into the mesh", workload.name, annotation)
 			}
 		}
 	}
 	return nil
+}
+
+// cloneOrNil copies m, returning nil when it is empty so an unset field stays
+// off the rendered manifest. The chart renders every key, so "unset" arrives
+// here as an empty map rather than a missing one.
+func cloneOrNil(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	return maps.Clone(m)
 }
 
 // mergeMaps returns base overlaid with overrides, and nil when both are empty

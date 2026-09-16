@@ -4,11 +4,21 @@ Workload customisation ConfigMap (docs/adr/2026-09-16-first-class-workload-place
 Mounted at /etc/orbit/workloads inside the orbit-agents pod and applied to the
 resources it provisions in tenant namespaces, before manifest patches.
 */}}
+{{- /*
+  A sandbox mounts its session-manager's workspace, so pinning the two to
+  different nodes over a volume that cannot cross them fails at attach time on
+  the first run. Reject it here instead, matching the check orbit-agents runs
+  for splits expressed as manifest patches: only constraints set on both sides
+  are conclusive, and only required node affinity, since preferred affinity is
+  advisory and pod anti-affinity names no pool.
+*/}}
 {{- $sandbox := .Values.agents.workloads.sandbox }}
 {{- $sessionManager := .Values.agents.workloads.sessionManager }}
-{{- $split := and $sandbox.nodeSelector $sessionManager.nodeSelector (ne (toYaml $sandbox.nodeSelector) (toYaml $sessionManager.nodeSelector)) }}
-{{- $splitByAffinity := and $sandbox.affinity $sessionManager.affinity (ne (toYaml $sandbox.affinity) (toYaml $sessionManager.affinity)) }}
-{{- if or $split $splitByAffinity }}
+{{- $sandboxNodes := dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sandbox.affinity | default dict) }}
+{{- $sessionManagerNodes := dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sessionManager.affinity | default dict) }}
+{{- $splitBySelector := and $sandbox.nodeSelector $sessionManager.nodeSelector (ne (toYaml $sandbox.nodeSelector) (toYaml $sessionManager.nodeSelector)) }}
+{{- $splitByAffinity := and $sandboxNodes $sessionManagerNodes (ne (toYaml $sandboxNodes) (toYaml $sessionManagerNodes)) }}
+{{- if or $splitBySelector $splitByAffinity }}
   {{- if not (has "ReadWriteMany" .Values.agents.workspace.accessModes) }}
     {{- fail "agents.workloads.sandbox and agents.workloads.sessionManager are scheduled on different nodes, so agents.workspace.accessModes must include ReadWriteMany: a sandbox mounts its session-manager's workspace, and ReadWriteOnce cannot cross nodes" }}
   {{- end }}
