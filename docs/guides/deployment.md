@@ -61,20 +61,59 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
 - When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
-Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` that targets the `PersistentVolumeClaim` kind. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
+Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. Set `agents.workspace.storageClassName`, `accessModes` and `size` to use a different class. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
 
 ### Sandbox node pools
 
-Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving live sessions, and lets each pool be sized and scaled independently. Place them with two manifest patches, selecting the sandbox `Pod` kind on `orbit.io/role=sandbox` and the agent `StatefulSet` on `orbit.io/agent-type`.
+Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving live sessions, and lets each pool be sized and scaled independently.
 
-A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem. Patch the `PersistentVolumeClaim` kind to a class that supports it. `orbit-agents` checks this when it starts and when it provisions an agent type, and refuses to proceed when sandbox and session-manager pods are pinned to different nodes over a `ReadWriteOnce` workspace, rather than letting the deployment look healthy until the first run fails to attach its volume. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
+Place each workload with `agents.workloads.sessionManager` and `agents.workloads.sandbox`. Both take `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` and `priorityClassName`:
 
-Adopt this topology before creating agents where you can. A `StatefulSet`'s `volumeClaimTemplates` are immutable and its claims outlive it, so an agent created against a `ReadWriteOnce` class keeps that volume even after the patch changes the class. Migrating an existing agent means moving its workspace data to a new claim, or deleting and recreating the agent.
+```yaml
+agents:
+  workloads:
+    sessionManager:
+      nodeSelector: { workload-tier: orbit }
+      tolerations:
+        - { key: workload-tier, operator: Equal, value: orbit, effect: NoSchedule }
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
+      tolerations:
+        - { key: workload-tier, operator: Equal, value: orbit-sandbox, effect: NoSchedule }
+  workspace:
+    storageClassName: efs
+    accessModes: [ReadWriteMany]
+```
 
-A dedicated pool that scales to zero means a sandbox waits for a node to boot and the image to pull. Two values trade cost for that latency, each scheduling from its own `nodeSelector`, `tolerations`, `affinity` and `topologySpreadConstraints`, falling back to `agents.*` and then `global.*`:
+A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type, so a split expressed as a manifest patch is caught too. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
 
-- `agents.warmHeadroom` runs a placeholder holding one sandbox's worth of capacity on a warm node, under a PriorityClass below every real workload. Point it at the sandbox pool and a sandbox starts on a node that already exists with the image already cached.
+Adopt this topology before creating agents where you can. A `StatefulSet`'s `volumeClaimTemplates` are immutable and its claims outlive it, so an agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent means moving its workspace data to a new claim, or deleting and recreating the agent.
+
+A dedicated pool that scales to zero means a sandbox waits for a node to boot and the image to pull. Two values trade cost for that latency. Both default their scheduling from `agents.workloads.sandbox`, then `agents.*`, then `global.*`, so warm capacity lands where sandboxes run without being configured twice:
+
+- `agents.warmHeadroom` runs a placeholder holding one sandbox's worth of capacity on a warm node, under a PriorityClass below every real workload, so a sandbox starts on a node that already exists with the image already cached.
 - `agents.imageWarmer` runs a DaemonSet keeping the sandbox image cached on the nodes it runs on. It helps where those nodes outlive individual sandboxes. On a pool that scales from zero it does not, because its pod starts on the new node alongside the sandbox that caused the node to exist and pulls the same image.
+
+### Pod metadata and cloud identity for agents
+
+`agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.
+
+Orbit owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `orbit-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
+
+`agents.workloads.sessionManager.serviceAccount.annotations` annotates the ServiceAccount provisioned for each agent, which is where cloud identity goes:
+
+```yaml
+agents:
+  workloads:
+    sessionManager:
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orbit-agent
+```
+
+Sandbox pods run under the tenant namespace's `default` ServiceAccount and never receive a cloud identity. That is deliberate: the code in a sandbox is the agent's, and it reaches external systems through Connections and the egress gateway, which mint scoped short-lived credentials per request and attribute them to the run.
+
+Everything in `agents.workloads` and `agents.workspace` applies before manifest patches, so a patch still wins on any field both set.
 
 ### DNS and TLS
 

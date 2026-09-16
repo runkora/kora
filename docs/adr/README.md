@@ -100,6 +100,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
 - [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) — `Accepted` · 2026-09-15
+- [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) — `Accepted` · 2026-09-16
 - [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Proposed` · 2026-06-17
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted` · 2026-06-20
@@ -257,4 +258,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
+| 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

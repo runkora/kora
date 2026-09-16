@@ -504,11 +504,58 @@ agents:
   #               nodeSelector:
   #                 disktype: ssd
   manifestPatches: {}
+  # Customisation for the workloads orbit-agents provisions in tenant
+  # namespaces. Applied before manifestPatches, so a patch still wins on a
+  # field both set. See docs/adr/2026-09-16-first-class-workload-placement.md.
+  #
+  # Identity labels (spiffe.io/agent, orbit.io/tenant, orbit.io/agent-type,
+  # orbit.io/role and the rest), the mesh annotations, security context and
+  # service account name stay platform-owned: podLabels or podAnnotations that
+  # collide with them fail orbit-agents at startup.
+  workloads:
+    # Applied to the session-manager pods and sandbox pods alike.
+    common:
+      podLabels: {}
+      podAnnotations: {}
+    # Session-manager pods multiplex an agent's sessions and are long-lived.
+    sessionManager:
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+      priorityClassName: ""
+      podLabels: {}
+      podAnnotations: {}
+      serviceAccount:
+        # Cloud identity for the agent (eks.amazonaws.com/role-arn,
+        # iam.gke.io/gcp-service-account). Sandbox pods run under the tenant's
+        # default ServiceAccount and never receive these.
+        annotations: {}
+    # Sandbox pods are per-run, bursty, and execute the agent's own code. Giving
+    # them their own pool keeps a heavy sandbox off the nodes serving live
+    # sessions. A sandbox mounts its session-manager's workspace, so placing
+    # them apart requires a ReadWriteMany workspace below.
+    sandbox:
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+      priorityClassName: ""
+      podLabels: {}
+      podAnnotations: {}
+  # The agent workspace volume, mounted by the session-manager and by every
+  # sandbox of that agent's runs. Empty keeps the cluster's default
+  # StorageClass. A StatefulSet's volumeClaimTemplates are immutable and its
+  # claims outlive it, so changing these affects agents created afterwards.
+  workspace:
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
   # Warm-start for sandboxes. Both workloads run the sandbox image and schedule
-  # from their own keys below, falling back to agents.* and then global.*. Set
-  # them when a manifest patch puts sandbox pods on a node pool of their own:
-  # the agents values place the orbit-agents Deployment, which is not where
-  # sandboxes run.
+  # from their own keys below, falling back to agents.workloads.sandbox, then
+  # agents.*, then global.*, so warm capacity lands where sandboxes run without
+  # being configured twice.
   #
   # A DaemonSet keeping the sandbox image cached on the nodes it runs on. It
   # earns its keep where those nodes outlive individual sandboxes. On a pool

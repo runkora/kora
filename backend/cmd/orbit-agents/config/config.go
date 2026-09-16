@@ -83,6 +83,12 @@ type Config struct {
 		// the resources orbit-agents provisions. The chart mounts the manifest
 		// patches ConfigMap here. A missing directory means no patches.
 		ManifestPatchDir string `yaml:"manifestPatchDir"`
+		// WorkloadsFile is the mounted YAML the chart renders from
+		// agents.workloads and agents.workspace: placement, pod metadata,
+		// service account annotations and workspace storage for the resources
+		// orbit-agents provisions. A missing file means no customization.
+		// See docs/adr/2026-09-16-first-class-workload-placement.md.
+		WorkloadsFile string `yaml:"workloadsFile"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
@@ -184,6 +190,7 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
 		{"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE", &cfg.Agents.SessionManager.PostgresSSLMode},
 		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
+		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
 	}
 	for _, o := range overrides {
 		if v := getenv(o.env); v != "" {

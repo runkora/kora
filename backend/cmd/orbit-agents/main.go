@@ -182,7 +182,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Legacy env-var overrides were removed in favor of the ConfigMap-mounted
 	// patch directory (docs/adr/2026-09-15-manifest-patches-configmap.md).
 	// Operators who set ORBIT_MANIFEST__* directly on the pod spec would
-	// silently lose their customisation, so warn loudly at startup with the
+	// silently lose their customization, so warn loudly at startup with the
 	// migration path.
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
@@ -194,16 +194,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		}
 	}
 
-	patches, err := loadPatches(cfg, patchDir)
+	patches, workloads, err := loadProvisioning(cfg, patchDir)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	logger.Info(ctx, "loaded manifest patches",
-		logging.Field{Key: "dir", Value: patchDir},
-		logging.Field{Key: "count", Value: len(patches)},
+	logger.Info(ctx, "loaded provisioning config",
+		logging.Field{Key: "patch_dir", Value: patchDir},
+		logging.Field{Key: "patch_count", Value: len(patches)},
+		logging.Field{Key: "workloads_file", Value: cfg.Agents.WorkloadsFile},
 	)
 
-	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches), pc)
+	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches, workloads), pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}

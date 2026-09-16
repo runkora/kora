@@ -26,6 +26,9 @@ spec:
         # Roll the pod when the manifest patches ConfigMap changes
         # (docs/adr/2026-09-15-manifest-patches-configmap.md).
         checksum/patches: {{ include (print $.Template.BasePath "/agents/patches-configmap.yaml") . | sha256sum }}
+        # Roll the pod when the workload customisation ConfigMap changes
+        # (docs/adr/2026-09-16-first-class-workload-placement.md).
+        checksum/workloads: {{ include (print $.Template.BasePath "/agents/workloads-configmap.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
@@ -46,6 +49,11 @@ spec:
         - name: manifest-patches
           configMap:
             name: orbit-agents-manifest-patches
+        # Placement, pod metadata and workspace storage for provisioned
+        # workloads (docs/adr/2026-09-16-first-class-workload-placement.md).
+        - name: workloads
+          configMap:
+            name: orbit-agents-workloads
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
         - name: orbit-agents
@@ -111,6 +119,9 @@ spec:
               readOnly: true
             - name: manifest-patches
               mountPath: /etc/orbit/manifest-patches
+              readOnly: true
+            - name: workloads
+              mountPath: /etc/orbit/workloads
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}
         {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

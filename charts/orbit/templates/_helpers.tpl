@@ -155,32 +155,33 @@ priorityClassName: {{ . }}
 
 {{/*
 Scheduling for a sandbox warm-start workload: the workload's own value when
-set, else the agents value, else the global default. Takes
-(dict "root" $ "warmer" <the warmer's values>).
+set, else the sandbox placement, else the agents value, else the global
+default. Takes (dict "root" $ "warmer" <the warmer's values>).
 
-These pods exist to hold and warm the nodes sandboxes run on. A manifest patch
-can place sandbox pods on a node pool of their own, which is not the pool the
-agents Deployment runs on, so they need scheduling independent of the agents
-block. priorityClassName is left to the caller, because the headroom Deployment
-sets its own.
+These pods exist to hold and warm the nodes sandboxes run on, so they follow
+agents.workloads.sandbox by default and warm capacity never needs configuring
+twice. The agents block places the orbit-agents Deployment, which is not where
+sandboxes run. priorityClassName is left to the caller, because the headroom
+Deployment sets its own.
 */}}
 {{- define "orbit.warmerScheduling" -}}
 {{- $w := .warmer -}}
+{{- $s := .root.Values.agents.workloads.sandbox -}}
 {{- $c := .root.Values.agents -}}
 {{- $g := .root.Values.global -}}
-{{- with ($w.nodeSelector | default $c.nodeSelector | default $g.nodeSelector) }}
+{{- with ($w.nodeSelector | default $s.nodeSelector | default $c.nodeSelector | default $g.nodeSelector) }}
 nodeSelector:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- with ($w.tolerations | default $c.tolerations | default $g.tolerations) }}
+{{- with ($w.tolerations | default $s.tolerations | default $c.tolerations | default $g.tolerations) }}
 tolerations:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- with ($w.affinity | default $c.affinity | default $g.affinity) }}
+{{- with ($w.affinity | default $s.affinity | default $c.affinity | default $g.affinity) }}
 affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- with ($w.topologySpreadConstraints | default $c.topologySpreadConstraints | default $g.topologySpreadConstraints) }}
+{{- with ($w.topologySpreadConstraints | default $s.topologySpreadConstraints | default $c.topologySpreadConstraints | default $g.topologySpreadConstraints) }}
 topologySpreadConstraints:
   {{- toYaml . | nindent 2 }}
 {{- end }}

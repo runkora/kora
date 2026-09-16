@@ -1,0 +1,28 @@
+{{- /*
+Workload customisation ConfigMap (docs/adr/2026-09-16-first-class-workload-placement.md).
+
+Mounted at /etc/orbit/workloads inside the orbit-agents pod and applied to the
+resources it provisions in tenant namespaces, before manifest patches.
+*/}}
+{{- $sandbox := .Values.agents.workloads.sandbox }}
+{{- $sessionManager := .Values.agents.workloads.sessionManager }}
+{{- $split := and $sandbox.nodeSelector $sessionManager.nodeSelector (ne (toYaml $sandbox.nodeSelector) (toYaml $sessionManager.nodeSelector)) }}
+{{- $splitByAffinity := and $sandbox.affinity $sessionManager.affinity (ne (toYaml $sandbox.affinity) (toYaml $sessionManager.affinity)) }}
+{{- if or $split $splitByAffinity }}
+  {{- if not (has "ReadWriteMany" .Values.agents.workspace.accessModes) }}
+    {{- fail "agents.workloads.sandbox and agents.workloads.sessionManager are scheduled on different nodes, so agents.workspace.accessModes must include ReadWriteMany: a sandbox mounts its session-manager's workspace, and ReadWriteOnce cannot cross nodes" }}
+  {{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-agents-workloads
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.agents.labels" . | nindent 4 }}
+data:
+  workloads.yaml: |
+    workloads:
+      {{- toYaml .Values.agents.workloads | nindent 6 }}
+    workspace:
+      {{- toYaml .Values.agents.workspace | nindent 6 }}

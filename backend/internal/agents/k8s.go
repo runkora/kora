@@ -84,6 +84,14 @@ type K8sProvisionerConfig struct {
 	// applied to each provisioned resource after the default manifest is
 	// built. See docs/adr/2026-09-15-manifest-patches-configmap.md.
 	Patches []manifestpatch.Patch
+	// Workloads customizes the pods provisioned in tenant namespaces: their
+	// placement, pod metadata and service account annotations. Applied before
+	// Patches, so a patch still wins on a field both set.
+	// See docs/adr/2026-09-16-first-class-workload-placement.md.
+	Workloads WorkloadsConfig
+	// Workspace is the storage backing each agent's workspace volume, which the
+	// session-manager and every sandbox of its runs mount.
+	Workspace WorkspaceConfig
 	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
 	// each agent StatefulSet restricting its session-manager port to the
 	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
@@ -487,7 +495,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
 	}
 
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        podName,
@@ -503,6 +511,12 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			Containers:       []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
 		},
 	}
+
+	sandbox := p.cfg.Workloads.ForSandbox()
+	sandbox.applyToPodMeta(&pod.ObjectMeta)
+	sandbox.applyToPodSpec(&pod.Spec)
+
+	return pod
 }
 
 // imagePullSecretRefs turns configured Secret names into pod references, or
@@ -1147,8 +1161,15 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 
 func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[string]string) corev1.ServiceAccount {
 	return corev1.ServiceAccount{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+			// Cloud identity for the session-manager, which is the only pod
+			// running under this account.
+			Annotations: mergeMaps(nil, p.cfg.Workloads.SessionManager.ServiceAccount.Annotations),
+		},
 	}
 }
 
@@ -1272,7 +1293,7 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
-	return appsv1.StatefulSet{
+	ss := appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
@@ -1371,6 +1392,13 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			},
 		},
 	}
+
+	sessionManager := p.cfg.Workloads.ForSessionManager()
+	sessionManager.applyToPodMeta(&ss.Spec.Template.ObjectMeta)
+	sessionManager.applyToPodSpec(&ss.Spec.Template.Spec)
+	p.cfg.Workspace.applyToClaim(&ss.Spec.VolumeClaimTemplates[0])
+
+	return ss
 }
 
 func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map[string]string) corev1.Service {
