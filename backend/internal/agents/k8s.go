@@ -165,6 +165,16 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 	// operator still works.
 	tenantRef := p.tenantOwnerRef(ctx, at.TenantID)
 
+	// Patches selected by this agent type's own name or labels match nothing
+	// in the startup validation, which renders a stand-in, so a sandbox pinned
+	// away from its session-manager over a ReadWriteOnce workspace is caught
+	// here instead of on the agent's first run.
+	if err := p.checkSandboxPlacement(at, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "check sandbox placement")
+		return err
+	}
+
 	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure service account")

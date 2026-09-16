@@ -3,6 +3,8 @@ package agents
 import (
 	"fmt"
 	"maps"
+	"reflect"
+	"slices"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +78,35 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	return out, nil
 }
 
+// checkSandboxPlacement runs the split-pool workspace check for a real agent
+// type, applying the patches exactly as the ensure functions do.
+//
+// RenderResources covers the same ground at startup, but it renders a stand-in
+// agent type, so a patch selected by an agent's own name or labels matches
+// nothing there. Running it again per agent type catches those before anything
+// is created, rather than on that agent's first run.
+func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) error {
+	labels := agentTypeLabels(at)
+
+	ss, err := manifestpatch.Apply(p.buildSessionManagerStatefulSet(at, namespace, labels), "StatefulSet", p.cfg.Patches)
+	if err != nil {
+		return fmt.Errorf("apply StatefulSet patches: %w", err)
+	}
+	if len(ss.Spec.VolumeClaimTemplates) > 0 {
+		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", p.cfg.Patches)
+		if err != nil {
+			return fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
+		}
+	}
+
+	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: "placement-check"}, at.Slug, namespace, []kubeconfig.Cluster{}), "Pod", p.cfg.Patches)
+	if err != nil {
+		return fmt.Errorf("apply Pod patches: %w", err)
+	}
+
+	return checkSplitPoolWorkspace(ss, pod)
+}
+
 // checkSplitPoolWorkspace rejects patches that pin a sandbox and its
 // session-manager to different node pools while leaving the workspace claim
 // ReadWriteOnce. A sandbox mounts its session-manager's claim, so from another
@@ -83,27 +114,50 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 // this the patches apply cleanly and the deployment looks healthy until the
 // first run asks for a sandbox.
 //
-// Only a nodeSelector on both sides is conclusive. Where one side is
-// unconstrained the scheduler may still place both pods on one node, so that
-// combination is left alone. Node affinity is not inspected.
+// Both arguments are post-patch: callers apply every patch, the
+// PersistentVolumeClaim one included, before calling. Checking the built
+// objects instead would miss the placement and storage class the patches set,
+// which is the whole subject of the check.
 func checkSplitPoolWorkspace(ss appsv1.StatefulSet, pod corev1.Pod) error {
-	agentNodes := ss.Spec.Template.Spec.NodeSelector
-	sandboxNodes := pod.Spec.NodeSelector
-	if len(agentNodes) == 0 || len(sandboxNodes) == 0 || maps.Equal(agentNodes, sandboxNodes) {
+	split, reason := splitAcrossNodes(ss.Spec.Template.Spec, pod.Spec)
+	if !split {
 		return nil
 	}
 	if len(ss.Spec.VolumeClaimTemplates) == 0 {
 		return nil
 	}
 	modes := ss.Spec.VolumeClaimTemplates[0].Spec.AccessModes
-	for _, mode := range modes {
-		if mode == corev1.ReadWriteMany {
-			return nil
-		}
+	if slices.Contains(modes, corev1.ReadWriteMany) {
+		return nil
 	}
 	return fmt.Errorf(
-		"sandbox pods (nodeSelector %v) and their session-manager (nodeSelector %v) are scheduled on different nodes, but the workspace volume is %v: "+
+		"sandbox pods and their session-manager are scheduled on different nodes (%s), but the workspace volume is %v: "+
 			"a sandbox mounts its session-manager's workspace, which needs a ReadWriteMany storage class to cross nodes. "+
 			"Patch the PersistentVolumeClaim kind with a ReadWriteMany class, or schedule both on the same nodes",
-		sandboxNodes, agentNodes, modes)
+		reason, modes)
+}
+
+// splitAcrossNodes reports whether two pod specs are pinned to node pools that
+// cannot overlap, and why.
+//
+// Only constraints present on both sides are conclusive. Where one side is
+// unconstrained the scheduler may still place both pods on one node, so that
+// combination is treated as unsplit. Preferred affinity is advisory and pod
+// anti-affinity separates pods without naming a pool, so neither is inspected.
+func splitAcrossNodes(agent, sandbox corev1.PodSpec) (bool, string) {
+	if len(agent.NodeSelector) > 0 && len(sandbox.NodeSelector) > 0 && !maps.Equal(agent.NodeSelector, sandbox.NodeSelector) {
+		return true, fmt.Sprintf("sandbox nodeSelector %v, session-manager nodeSelector %v", sandbox.NodeSelector, agent.NodeSelector)
+	}
+	agentNodes, sandboxNodes := requiredNodeAffinity(agent), requiredNodeAffinity(sandbox)
+	if agentNodes != nil && sandboxNodes != nil && !reflect.DeepEqual(agentNodes, sandboxNodes) {
+		return true, "their required node affinities select different nodes"
+	}
+	return false, ""
+}
+
+func requiredNodeAffinity(spec corev1.PodSpec) *corev1.NodeSelector {
+	if spec.Affinity == nil || spec.Affinity.NodeAffinity == nil {
+		return nil
+	}
+	return spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
 }

@@ -215,6 +215,99 @@ patch: |
 	}
 }
 
+// Required node affinity separates pools just as a nodeSelector does.
+func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *testing.T) {
+	nodeAffinity := func(tier string) string {
+		return `
+  spec:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - {key: workload-tier, operator: In, values: [` + tier + `]}
+`
+	}
+	cfg := K8sProvisionerConfig{
+		SessionManagerImage: "orbit-session-manager:render",
+		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxGRPCPort:     50051,
+		SystemNamespace:     "orbit-system",
+		Patches: loadTestPatches(t, map[string]string{
+			"10-agent.yaml": `target: {kind: StatefulSet}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:` + strings.ReplaceAll(nodeAffinity("orbit"), "\n  ", "\n      ") + `
+`,
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+patch: |
+  apiVersion: v1
+  kind: Pod
+  metadata: {name: any}` + nodeAffinity("orbit-sandbox"),
+		}),
+	}
+	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
+
+	_, err := RenderResources(cfg, at, "tenant-example", true)
+	if err == nil {
+		t.Fatal("expected an error for pools split by required node affinity")
+	}
+	if !strings.Contains(err.Error(), "ReadWriteMany") {
+		t.Errorf("error should name the fix, got: %v", err)
+	}
+}
+
+// A patch selected by an agent type's own labels matches nothing when the
+// startup validation renders its stand-in, so the same check runs per agent
+// type at provisioning time.
+func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
+	cfg := K8sProvisionerConfig{
+		SessionManagerImage: "orbit-session-manager:render",
+		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxGRPCPort:     50051,
+		SystemNamespace:     "orbit-system",
+		Patches: loadTestPatches(t, map[string]string{
+			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "orbit.io/agent-type=render-coder"}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:
+      spec:
+        nodeSelector: {workload-tier: orbit}
+`,
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "orbit.io/agent-slug=coder"}
+patch: |
+  apiVersion: v1
+  kind: Pod
+  metadata: {name: any}
+  spec:
+    nodeSelector: {workload-tier: orbit-sandbox}
+`,
+		}),
+	}
+
+	// The stand-in the startup validation renders carries neither label.
+	standIn := AgentType{ID: "validate", Slug: "validate", TenantID: "validate"}
+	if _, err := RenderResources(cfg, standIn, "tenant-validate", true); err != nil {
+		t.Fatalf("scoped patches should be a no-op for the stand-in: %v", err)
+	}
+
+	p := &K8sProvisioner{cfg: cfg}
+	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
+	err := p.checkSandboxPlacement(at, "tenant-example")
+	if err == nil {
+		t.Fatal("expected an error for the agent type the patches select")
+	}
+	if !strings.Contains(err.Error(), "ReadWriteMany") {
+		t.Errorf("error should name the fix, got: %v", err)
+	}
+}
+
 // One side unconstrained is not conclusive: the scheduler may still co-locate
 // the pods, so a ReadWriteOnce workspace stays valid.
 func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
