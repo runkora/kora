@@ -157,19 +157,28 @@ func checkSplitPoolWorkspace(ss appsv1.StatefulSet, pod corev1.Pod) error {
 // splitAcrossNodes reports whether two pod specs are pinned to node pools that
 // cannot overlap, and why.
 //
-// Only constraints present on both sides are conclusive. Where one side is
-// unconstrained the scheduler may still place both pods on one node, so that
-// combination is treated as unsplit. Preferred affinity is advisory and pod
-// anti-affinity separates pods without naming a pool, so neither is inspected.
+// Both sides must be pinned for the answer to be conclusive: where one is
+// unconstrained the scheduler may still place both pods on one node. Pinning
+// is read across both forms together, because a nodeSelector on one side and
+// required node affinity on the other separates the pods just as surely as two
+// different selectors. Identical pinning on both sides is the same pool.
+//
+// Preferred affinity is advisory and pod anti-affinity separates pods without
+// naming a pool, so neither is inspected.
 func splitAcrossNodes(agent, sandbox corev1.PodSpec) (bool, string) {
-	if len(agent.NodeSelector) > 0 && len(sandbox.NodeSelector) > 0 && !maps.Equal(agent.NodeSelector, sandbox.NodeSelector) {
+	agentNodes, sandboxNodes := requiredNodeAffinity(agent), requiredNodeAffinity(sandbox)
+	agentPinned := len(agent.NodeSelector) > 0 || agentNodes != nil
+	sandboxPinned := len(sandbox.NodeSelector) > 0 || sandboxNodes != nil
+	if !agentPinned || !sandboxPinned {
+		return false, ""
+	}
+	if maps.Equal(agent.NodeSelector, sandbox.NodeSelector) && reflect.DeepEqual(agentNodes, sandboxNodes) {
+		return false, ""
+	}
+	if !maps.Equal(agent.NodeSelector, sandbox.NodeSelector) {
 		return true, fmt.Sprintf("sandbox nodeSelector %v, session-manager nodeSelector %v", sandbox.NodeSelector, agent.NodeSelector)
 	}
-	agentNodes, sandboxNodes := requiredNodeAffinity(agent), requiredNodeAffinity(sandbox)
-	if agentNodes != nil && sandboxNodes != nil && !reflect.DeepEqual(agentNodes, sandboxNodes) {
-		return true, "their required node affinities select different nodes"
-	}
-	return false, ""
+	return true, "their required node affinities select different nodes"
 }
 
 func requiredNodeAffinity(spec corev1.PodSpec) *corev1.NodeSelector {

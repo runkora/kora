@@ -1,6 +1,8 @@
 package agents
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"slices"
@@ -64,18 +66,26 @@ type WorkspaceConfig struct {
 	Size             *resource.Quantity                  `json:"size,omitempty"`
 }
 
-// reservedAnnotations are set by the builders to wire a pod into the mesh.
-// Overwriting one breaks sidecar startup ordering or the gRPC port exclusion.
+// reservedAnnotations are set by the builders to wire a pod into the mesh, or
+// are refused outright by the operator's pod validator. Overwriting one breaks
+// sidecar startup ordering or the gRPC port exclusion; opting out of injection
+// or interception makes the validator deny every provisioned pod, so it is
+// rejected here rather than at admission.
 var reservedAnnotations = []string{
 	"proxy.istio.io/config",
 	"traffic.sidecar.istio.io/excludeInboundPorts",
 	"traffic.sidecar.istio.io/excludeOutboundPorts",
+	"sidecar.istio.io/inject",
+	"sidecar.istio.io/interceptionMode",
+	serviceAccountHashAnnotation,
 }
 
 // reservedLabels select a pod for SPIRE attestation, sidecar injection and its
 // StatefulSet. Setting one from config would move the pod off its attested
-// identity, which is why manifest patches protect the same keys.
-var reservedLabels = append([]string{"app", "orbit.io/managed-agent"}, manifestpatch.IdentityLabels...)
+// identity, which is why manifest patches protect the same keys. Istio honors
+// sidecar.istio.io/inject as a label too, and the operator denies pods that
+// opt out.
+var reservedLabels = append([]string{"app", "orbit.io/managed-agent", "sidecar.istio.io/inject"}, manifestpatch.IdentityLabels...)
 
 // ForSessionManager returns the session-manager's customization with the common
 // pod metadata merged underneath it.
@@ -166,6 +176,28 @@ func (w WorkloadsConfig) Validate() error {
 		}
 	}
 	return nil
+}
+
+// serviceAccountHashAnnotation carries a digest of the agent ServiceAccount's
+// annotations on the pod template.
+const serviceAccountHashAnnotation = "orbit.io/service-account-hash"
+
+// serviceAccountAnnotationHash digests the ServiceAccount annotations, empty
+// when there are none.
+//
+// Cloud identity attaches when a pod is created: the provider's webhook reads
+// the ServiceAccount then and mounts the token. Reconciling the annotation
+// alone would leave running agents without it, so the digest rides on the pod
+// template and a change rolls the StatefulSet.
+func serviceAccountAnnotationHash(annotations map[string]string) string {
+	if len(annotations) == 0 {
+		return ""
+	}
+	sum := sha256.New()
+	for _, k := range slices.Sorted(maps.Keys(annotations)) {
+		fmt.Fprintf(sum, "%s=%s\n", k, annotations[k])
+	}
+	return hex.EncodeToString(sum.Sum(nil))[:16]
 }
 
 // cloneOrNil copies m, returning nil when it is empty so an unset field stays

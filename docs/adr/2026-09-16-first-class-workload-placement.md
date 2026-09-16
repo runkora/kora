@@ -187,7 +187,7 @@ Sandbox warming is one block, `agents.sandboxWarming`, with `mode: none | image 
 Values are not a way around the protections patches respect. `orbit-agents` rejects at startup, naming the offending key:
 
 - `podLabels` that collide with an identity label (`spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `orbit.io/identity-proxy`, `orbit.io/tenant`, `orbit.io/agent-type`, `orbit.io/role`, `orbit.io/run-id`, `orbit.io/agent-slug`, `orbit.io/managed-agent`) or with the `app` selector label. These select pods for SPIRE attestation and sidecar injection; a silent overwrite breaks identity.
-- `podAnnotations` that collide with the mesh annotations the builders set.
+- `podAnnotations` that collide with the mesh annotations the builders set, and the Istio opt-outs (`sidecar.istio.io/inject`, `sidecar.istio.io/interceptionMode`) that the operator's pod validator denies. `sidecar.istio.io/inject` is reserved as a label too, since Istio honours both.
 
 Security context, service account name, volume mounts and the sandbox workspace `subPath` have no values key at all. They remain patch-protected and platform-owned.
 

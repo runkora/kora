@@ -176,6 +176,79 @@ func TestApplyToPodSpec_EmptyAffinityIsNotApplied(t *testing.T) {
 	}
 }
 
+// Cloud identity attaches when a pod is created, so a changed ServiceAccount
+// annotation has to roll the StatefulSet or running agents never receive it.
+func TestBuildStatefulSet_ServiceAccountAnnotationsRollThePods(t *testing.T) {
+	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
+	hashOf := func(annotations map[string]string) string {
+		cfg := splitPoolConfig()
+		cfg.Workloads.SessionManager.ServiceAccount.Annotations = annotations
+		p := &K8sProvisioner{cfg: cfg}
+		return p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at)).
+			Spec.Template.Annotations[serviceAccountHashAnnotation]
+	}
+
+	first := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"})
+	if first == "" {
+		t.Fatal("expected a service account hash on the pod template")
+	}
+	if second := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/other"}); second == first {
+		t.Error("changing the annotation must change the hash, or the pods never roll")
+	}
+	if none := hashOf(nil); none != "" {
+		t.Errorf("no annotations should leave the pod template alone, got %q", none)
+	}
+}
+
+// A nodeSelector on one side and required node affinity on the other separates
+// the pods just as surely as two different selectors.
+func TestSplitAcrossNodes_MixedForms(t *testing.T) {
+	affinity := func(tier string) *corev1.Affinity {
+		return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{tier},
+					}},
+				}},
+			},
+		}}
+	}
+	cases := map[string]struct {
+		agent, sandbox corev1.PodSpec
+		want           bool
+	}{
+		"selector against affinity": {
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			sandbox: corev1.PodSpec{Affinity: affinity("orbit-sandbox")},
+			want:    true,
+		},
+		"affinity against selector": {
+			agent:   corev1.PodSpec{Affinity: affinity("orbit")},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit-sandbox"}},
+			want:    true,
+		},
+		"identical pinning is one pool": {
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			want:    false,
+		},
+		"one side unconstrained is inconclusive": {
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			sandbox: corev1.PodSpec{},
+			want:    false,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, _ := splitAcrossNodes(c.agent, c.sandbox)
+			if got != c.want {
+				t.Errorf("splitAcrossNodes = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 	cases := map[string]WorkloadsConfig{
 		"identity label on the sandbox": {
@@ -189,6 +262,17 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 		},
 		"mesh annotation": {
 			Sandbox: WorkloadCustomization{PodAnnotations: map[string]string{"proxy.istio.io/config": "{}"}},
+		},
+		// The operator's pod validator denies these, so accepting them at
+		// startup would move the failure to every provisioned pod.
+		"istio injection opt-out annotation": {
+			Sandbox: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/inject": "false"}},
+		},
+		"istio injection opt-out label": {
+			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"sidecar.istio.io/inject": "false"}},
+		},
+		"istio interception opt-out": {
+			SessionManager: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}},
 		},
 	}
 	for name, cfg := range cases {

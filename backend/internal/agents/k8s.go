@@ -1286,6 +1286,17 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
+	podAnnotations := map[string]string{
+		// The operator's pod webhook adds the SPIRE and identity-proxy
+		// wiring; Istio itself injects only the sidecar.
+		"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
+		"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
+	}
+	// Rolls the pods when the ServiceAccount's cloud identity changes, which
+	// they would otherwise pick up only on an unrelated restart.
+	if hash := serviceAccountAnnotationHash(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations); hash != "" {
+		podAnnotations[serviceAccountHashAnnotation] = hash
+	}
 	ss := appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
@@ -1295,13 +1306,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			Selector:    &metav1.LabelSelector{MatchLabels: podLabels(at)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels(at),
-					Annotations: map[string]string{
-						// The operator's pod webhook adds the SPIRE and identity-proxy
-						// wiring; Istio itself injects only the sidecar.
-						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
-						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
-					},
+					Labels:      podLabels(at),
+					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
