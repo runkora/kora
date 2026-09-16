@@ -58,6 +58,17 @@ func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 	if sc.SELinuxOptions == nil || sc.SELinuxOptions.Level != "s0" {
 		t.Errorf("pod seLinuxOptions = %+v, want level s0 kept", sc.SELinuxOptions)
 	}
+	// Without fsGroup the workspace claim is root-owned on storage classes that
+	// format volumes, and every run fails to create its workspace directory.
+	if sc.FSGroup == nil || *sc.FSGroup != 100 {
+		t.Errorf("pod fsGroup = %v, want 100", sc.FSGroup)
+	}
+	if sc.FSGroupChangePolicy == nil || *sc.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
+		t.Errorf("pod fsGroupChangePolicy = %v, want OnRootMismatch", sc.FSGroupChangePolicy)
+	}
+	if sc.RunAsGroup == nil || *sc.RunAsGroup != 100 {
+		t.Errorf("pod runAsGroup = %v, want 100", sc.RunAsGroup)
+	}
 	for _, c := range spec.Containers {
 		csc := c.SecurityContext
 		if csc == nil {
