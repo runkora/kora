@@ -28,7 +28,7 @@ type WorkloadCustomization struct {
 	// ServiceAccount annotations carry cloud identity (IRSA, Workload Identity)
 	// and apply to the agent's ServiceAccount, which only session-manager pods
 	// use. Sandbox pods run under the tenant's default account.
-	ServiceAccount ServiceAccountCustomization `json:"serviceAccount,omitempty"`
+	ServiceAccount ServiceAccountCustomization `json:"serviceAccount"`
 }
 
 // ServiceAccountCustomization customizes the ServiceAccount provisioned per
@@ -40,9 +40,9 @@ type ServiceAccountCustomization struct {
 // WorkloadsConfig is the full set of workload customizations. Common applies to
 // both workloads; the per-workload entries win on a key both set.
 type WorkloadsConfig struct {
-	Common         CommonCustomization   `json:"common,omitempty"`
-	SessionManager WorkloadCustomization `json:"sessionManager,omitempty"`
-	Sandbox        WorkloadCustomization `json:"sandbox,omitempty"`
+	Common         CommonCustomization   `json:"common"`
+	SessionManager WorkloadCustomization `json:"sessionManager"`
+	Sandbox        WorkloadCustomization `json:"sandbox"`
 }
 
 // CommonCustomization is the pod metadata applied to every provisioned pod.
