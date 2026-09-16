@@ -59,7 +59,7 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	out = append(out, &pdb)
 
 	if renderSandbox {
-		pod, err := p.patchedSandboxPod("sample-run", at.Slug, namespace)
+		pod, err := p.sampleSandboxPod("sample-run", at.Slug, namespace)
 		if err != nil {
 			return nil, err
 		}
@@ -89,8 +89,12 @@ func (p *K8sProvisioner) applyStatefulSetPatches(ss appsv1.StatefulSet) (appsv1.
 	return ss, nil
 }
 
-// patchedSandboxPod builds a sandbox Pod for a run and applies the patches.
-func (p *K8sProvisioner) patchedSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
+// sampleSandboxPod renders a stand-in sandbox Pod for preview and validation.
+//
+// Not for provisioning: it carries no pod ordinal, so it claims the ordinal-0
+// workspace, and no granted Kubernetes clusters, so it has no kubeconfig.
+// ProvisionSandbox builds the real pod from the run.
+func (p *K8sProvisioner) sampleSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
 	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, []kubeconfig.Cluster{}), "Pod", p.cfg.Patches)
 	if err != nil {
 		return pod, fmt.Errorf("apply Pod patches: %w", err)
@@ -113,7 +117,7 @@ func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) e
 	if err != nil {
 		return err
 	}
-	pod, err := p.patchedSandboxPod("placement-check", at.Slug, namespace)
+	pod, err := p.sampleSandboxPod("placement-check", at.Slug, namespace)
 	if err != nil {
 		return err
 	}
