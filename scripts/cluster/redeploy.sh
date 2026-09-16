@@ -367,7 +367,9 @@ layer_mkcert_ca() {
     return 0
   fi
   log "Layering mkcert CA into orbit-identity for local Dex TLS trust..."
-  printf 'FROM orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
+  # The base image runs as uid 65532; update-ca-certificates needs root to
+  # write /etc/ssl/certs, so switch for that step and drop back.
+  printf 'FROM orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
     docker build -t orbit-identity:latest -f - secrets/
   ok "orbit-identity:latest (with mkcert CA)"
 }
