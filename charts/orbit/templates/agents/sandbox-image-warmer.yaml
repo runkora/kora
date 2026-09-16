@@ -22,7 +22,10 @@ spec:
         sidecar.istio.io/inject: "false"
     spec:
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
-      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
+      {{- include "orbit.warmerScheduling" (dict "root" $ "warmer" .Values.agents.imageWarmer) | nindent 6 }}
+      {{- with (.Values.agents.imageWarmer.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) }}
+      priorityClassName: {{ . }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 5
       securityContext:

@@ -504,12 +504,36 @@ agents:
   #               nodeSelector:
   #                 disktype: ssd
   manifestPatches: {}
+  # Warm-start for sandboxes. Both workloads run the sandbox image and schedule
+  # from their own keys below, falling back to agents.* and then global.*. Set
+  # them when a manifest patch puts sandbox pods on a node pool of their own:
+  # the agents values place the orbit-agents Deployment, which is not where
+  # sandboxes run.
+  #
+  # A DaemonSet keeping the sandbox image cached on the nodes it runs on. It
+  # earns its keep where those nodes outlive individual sandboxes. On a pool
+  # that scales from zero it does not, because the DaemonSet pod starts on the
+  # new node alongside the sandbox that caused the node to exist and pulls the
+  # same image.
   imageWarmer:
     enabled: false
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    priorityClassName: ""
+  # A placeholder Deployment holding one sandbox's worth of capacity on a warm
+  # node, so a sandbox starts without waiting for a node to boot and an image to
+  # pull. It runs under its own PriorityClass at `priority`, below every real
+  # workload, so a sandbox takes the capacity when the node has no room left.
   warmHeadroom:
     enabled: false
     replicas: 1
     priority: -10
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
     resources:
       requests:
         cpu: "1"

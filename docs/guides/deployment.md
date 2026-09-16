@@ -63,6 +63,17 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 
 Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` that targets the `PersistentVolumeClaim` kind. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
 
+### Sandbox node pools
+
+Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving live sessions, and lets each pool be sized and scaled independently. Place them with two manifest patches, selecting the sandbox `Pod` kind on `orbit.io/role=sandbox` and the agent `StatefulSet` on `orbit.io/agent-type`.
+
+A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem. Patch the `PersistentVolumeClaim` kind to a class that supports it. `orbit-agents` checks this at startup and refuses to start when sandbox and session-manager pods carry different node selectors over a `ReadWriteOnce` workspace, rather than letting the deployment look healthy until the first run fails to attach its volume.
+
+A dedicated pool that scales to zero means a sandbox waits for a node to boot and the image to pull. Two values trade cost for that latency, each scheduling from its own `nodeSelector`, `tolerations`, `affinity` and `topologySpreadConstraints`, falling back to `agents.*` and then `global.*`:
+
+- `agents.warmHeadroom` runs a placeholder holding one sandbox's worth of capacity on a warm node, under a PriorityClass below every real workload. Point it at the sandbox pool and a sandbox starts on a node that already exists with the image already cached.
+- `agents.imageWarmer` runs a DaemonSet keeping the sandbox image cached on the nodes it runs on. It helps where those nodes outlive individual sandboxes. On a pool that scales from zero it does not, because its pod starts on the new node alongside the sandbox that caused the node to exist and pulls the same image.
+
 ### DNS and TLS
 
 Choose a hostname for your dashboard, for example `orbit.example.com`. Orbit derives the API hostname by adding the `api.` prefix:

@@ -36,7 +36,7 @@ spec:
     spec:
       priorityClassName: orbit-sandbox-headroom
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
-      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
+      {{- include "orbit.warmerScheduling" (dict "root" $ "warmer" .Values.agents.warmHeadroom) | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 0
       securityContext:
