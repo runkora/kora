@@ -36,12 +36,6 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.image.registry | string | `""` |  |
 | agents.image.repository | string | `"orbit-agents"` |  |
 | agents.image.tag | string | `""` |  |
-| agents.imageWarmer.affinity | object | `{}` |  |
-| agents.imageWarmer.enabled | bool | `false` |  |
-| agents.imageWarmer.nodeSelector | object | `{}` |  |
-| agents.imageWarmer.priorityClassName | string | `""` |  |
-| agents.imageWarmer.tolerations | list | `[]` |  |
-| agents.imageWarmer.topologySpreadConstraints | list | `[]` |  |
 | agents.manifestPatches | object | `{}` |  |
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |
@@ -52,21 +46,20 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
+| agents.sandboxWarming.affinity | object | `{}` |  |
+| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet caching the sandbox image on the nodes it runs on, worth it only where those nodes outlive individual sandboxes. `capacity` runs a low-priority placeholder holding a node open with the image already cached, the choice for a pool that scales to zero. |
+| agents.sandboxWarming.nodeSelector | object | `{}` |  |
+| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to whichever workload the mode runs. `capacity` already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away; set them here to override. |
+| agents.sandboxWarming.podLabels | object | `{}` | Applied to whichever workload the mode runs. Orbit's own selector labels win on a collision. |
+| agents.sandboxWarming.priority | int | `-10` | The placeholder's PriorityClass value. Stays below real pods at 0, or it competes with the sandbox it exists for instead of yielding to it. |
+| agents.sandboxWarming.replicas | int | `1` | `capacity` mode. Nodes held warm. Above one, placeholders repel each other by hostname so they land on separate nodes; set `affinity` with your own podAntiAffinity to replace that. |
+| agents.sandboxWarming.resources | object | `{"limits":{"cpu":"1","memory":"4Gi"},"requests":{"cpu":"1","memory":"4Gi"}}` | Capacity each placeholder reserves, and the size a node is fitted to. At or above a sandbox pod's total requests, sidecars included, or the sandbox taking the capacity will not fit on the node that was holding it. |
+| agents.sandboxWarming.tolerations | list | `[]` |  |
+| agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |
 | agents.topologySpreadConstraints | list | `[]` |  |
-| agents.warmHeadroom.affinity | object | `{}` |  |
-| agents.warmHeadroom.enabled | bool | `false` |  |
-| agents.warmHeadroom.nodeSelector | object | `{}` |  |
-| agents.warmHeadroom.priority | int | `-10` |  |
-| agents.warmHeadroom.replicas | int | `1` |  |
-| agents.warmHeadroom.resources.limits.cpu | string | `"1"` |  |
-| agents.warmHeadroom.resources.limits.memory | string | `"4Gi"` |  |
-| agents.warmHeadroom.resources.requests.cpu | string | `"1"` |  |
-| agents.warmHeadroom.resources.requests.memory | string | `"4Gi"` |  |
-| agents.warmHeadroom.tolerations | list | `[]` |  |
-| agents.warmHeadroom.topologySpreadConstraints | list | `[]` |  |
 | agents.workloads.common.podAnnotations | object | `{}` |  |
 | agents.workloads.common.podLabels | object | `{}` |  |
 | agents.workloads.sandbox.affinity | object | `{}` |  |

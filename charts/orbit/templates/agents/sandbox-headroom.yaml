@@ -1,6 +1,7 @@
-{{- if .Values.agents.warmHeadroom.enabled }}
+{{- if eq (include "orbit.sandboxWarmingMode" $) "capacity" }}
 # Low-priority placeholder holding one sandbox's worth of capacity on a warm
 # node. A real sandbox preempts it and starts without a cold node or image pull.
+{{- $warming := .Values.agents.sandboxWarming }}
 {{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -9,7 +10,7 @@ metadata:
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-headroom
-value: {{ .Values.agents.warmHeadroom.priority | int }}
+value: {{ $warming.priority | int }}
 globalDefault: false
 preemptionPolicy: Never
 description: Low-priority placeholder for Orbit sandbox warm capacity.
@@ -23,20 +24,31 @@ metadata:
     {{- include "orbit.agents.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-headroom
 spec:
-  replicas: {{ .Values.agents.warmHeadroom.replicas | int }}
+  replicas: {{ $warming.replicas | int }}
   selector:
     matchLabels:
       app: orbit-sandbox-headroom
   template:
     metadata:
+      # Values are quoted because label and annotation values are strings, and
+      # an unquoted `true` in values.yaml reaches the API server as a boolean.
       labels:
-        app: orbit-sandbox-headroom
+        {{- range $k, $v := merge (dict "app" "orbit-sandbox-headroom") $warming.podLabels }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      # A node holding only this placeholder reads as idle, so both mainstream
+      # autoscalers are told to leave it alone. Each annotation is inert where
+      # that autoscaler is not installed. Precedence: the mesh annotation wins,
+      # then podAnnotations, then these defaults.
       annotations:
-        sidecar.istio.io/inject: "false"
+        {{- $defaults := dict "karpenter.sh/do-not-disrupt" "true" "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}
+        {{- range $k, $v := merge (dict "sidecar.istio.io/inject" "false") $warming.podAnnotations $defaults }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
     spec:
       priorityClassName: orbit-sandbox-headroom
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
-      {{- include "orbit.warmerScheduling" (dict "root" $ "warmer" .Values.agents.warmHeadroom) | nindent 6 }}
+      {{- include "orbit.sandboxWarmingScheduling" (dict "root" $ "spreadApp" "orbit-sandbox-headroom") | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 0
       securityContext:
@@ -47,7 +59,7 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "while true; do sleep 86400; done"]
           resources:
-            {{- toYaml .Values.agents.warmHeadroom.resources | nindent 12 }}
+            {{- toYaml $warming.resources | nindent 12 }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
 {{- end }}

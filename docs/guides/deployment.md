@@ -22,7 +22,7 @@ The cluster must provide:
 
 - Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
 - A CNI that enforces Kubernetes `NetworkPolicy`. The `orbit` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
-- A default `ReadWriteOnce` StorageClass, or a storage-class override, for agent workspace volumes.
+- A default `ReadWriteOnce` StorageClass for agent workspace volumes. `ReadWriteMany` when sandboxes run on their own nodepool.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
 - Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst Orbit namespaces run at restricted.
@@ -65,7 +65,7 @@ Each agent runs against its own workspace on a persistent volume. Orbit requests
 
 ### Sandbox node pools
 
-Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving live sessions, and lets each pool be sized and scaled independently.
+Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex agent sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving concurrent live agents and sessions, and lets each pool be sized and scaled independently. It is not required to run sandboxes on separate nodes if your agents will not require heavy build or run activity, and instead use sandboxes as scratchpads. It is recommended to run sandboxes on separate nodes if your agents will do intensive work, where one run can saturate a node's CPU, memory or disk and slow sibling runs.
 
 Place each workload with `agents.workloads.sessionManager` and `agents.workloads.sandbox`. Both take `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` and `priorityClassName`:
 
@@ -85,14 +85,34 @@ agents:
     accessModes: [ReadWriteMany]
 ```
 
-A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type, so a split expressed as a manifest patch is caught too. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
+A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
 
-Adopt this topology before creating agents where you can. A `StatefulSet`'s `volumeClaimTemplates` are immutable and its claims outlive it, so an agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent means moving its workspace data to a new claim, or deleting and recreating the agent.
+When adopting this topology, you should do so before creating agents. A `StatefulSet`'s `volumeClaimTemplates` are immutable. An agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent requires moving its workspace data to a new claim, or deleting and recreating the agent.
 
-A dedicated pool that scales to zero means a sandbox waits for a node to boot and the image to pull. Two values trade cost for that latency. Both default their scheduling from `agents.workloads.sandbox`, then `agents.*`, then `global.*`, so warm capacity lands where sandboxes run without being configured twice:
+#### Sandbox warming
 
-- `agents.warmHeadroom` runs a placeholder holding one sandbox's worth of capacity on a warm node, under a PriorityClass below every real workload, so a sandbox starts on a node that already exists with the image already cached.
-- `agents.imageWarmer` runs a DaemonSet keeping the sandbox image cached on the nodes it runs on. It helps where those nodes outlive individual sandboxes. On a pool that scales from zero it does not, because its pod starts on the new node alongside the sandbox that caused the node to exist and pulls the same image.
+When running on a dedicated pool that scales to zero, a new sandbox request has to wait for a node to boot and the image to pull. Orbit provides an out of the box sandbox warmer that provisions a low-priority placeholder pod, holding a node open with the sandbox image already cached.
+
+Warming is off by default. Enable it in the chart values:
+
+```yaml
+agents:
+  sandboxWarming:
+    mode: capacity
+    replicas: 1
+    priority: -10          # below real agent workloads
+    resources:             # reserved per replica
+      requests: { cpu: "1", memory: 4Gi }
+      limits: { cpu: "1", memory: 4Gi }
+```
+
+Placement of sandbox warmers follows `agents.workloads.sandbox`.
+
+`resources` is the capacity each placeholder reserves on a node. Leave at default, or raise to hold a larger warm node for a heavier sandbox image.
+
+`replicas` is how many warm nodes you need.
+
+`mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
 
 ### Pod metadata and cloud identity for agents
 
@@ -113,7 +133,7 @@ agents:
 
 Sandbox pods run under the tenant namespace's `default` ServiceAccount and never receive a cloud identity. That is deliberate: the code in a sandbox is the agent's, and it reaches external systems through Connections and the egress gateway, which mint scoped short-lived credentials per request and attribute them to the run.
 
-Everything in `agents.workloads` and `agents.workspace` applies before manifest patches, so a patch still wins on any field both set.
+Everything in `agents.workloads` and `agents.workspace` applies before manifest patches.
 
 ### DNS and TLS
 

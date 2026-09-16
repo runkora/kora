@@ -552,35 +552,26 @@ agents:
     accessModes:
       - ReadWriteOnce
     size: 10Gi
-  # Warm-start for sandboxes. Both workloads run the sandbox image and schedule
-  # from their own keys below, falling back to agents.workloads.sandbox, then
-  # agents.*, then global.*, so warm capacity lands where sandboxes run without
-  # being configured twice.
-  #
-  # A DaemonSet keeping the sandbox image cached on the nodes it runs on. It
-  # earns its keep where those nodes outlive individual sandboxes. On a pool
-  # that scales from zero it does not, because the DaemonSet pod starts on the
-  # new node alongside the sandbox that caused the node to exist and pulls the
-  # same image.
-  imageWarmer:
-    enabled: false
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-    topologySpreadConstraints: []
-    priorityClassName: ""
-  # A placeholder Deployment holding one sandbox's worth of capacity on a warm
-  # node, so a sandbox starts without waiting for a node to boot and an image to
-  # pull. It runs under its own PriorityClass at `priority`, below every real
-  # workload, so a sandbox takes the capacity when the node has no room left.
-  warmHeadroom:
-    enabled: false
+  # Warm-start for sandboxes, so a run does not wait for a node to boot and the
+  # sandbox image to pull. Placement follows agents.workloads.sandbox, so the
+  # pool is configured once; the keys below override it.
+  sandboxWarming:
+    # -- Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet
+    # caching the sandbox image on the nodes it runs on, worth it only where those
+    # nodes outlive individual sandboxes. `capacity` runs a low-priority
+    # placeholder holding a node open with the image already cached, the choice
+    # for a pool that scales to zero.
+    mode: none
+    # -- `capacity` mode. Nodes held warm. Above one, placeholders repel each
+    # other by hostname so they land on separate nodes; set `affinity` with your
+    # own podAntiAffinity to replace that.
     replicas: 1
+    # -- The placeholder's PriorityClass value. Stays below real pods at 0, or it
+    # competes with the sandbox it exists for instead of yielding to it.
     priority: -10
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-    topologySpreadConstraints: []
+    # -- Capacity each placeholder reserves, and the size a node is fitted to. At
+    # or above a sandbox pod's total requests, sidecars included, or the sandbox
+    # taking the capacity will not fit on the node that was holding it.
     resources:
       requests:
         cpu: "1"
@@ -588,6 +579,17 @@ agents:
       limits:
         cpu: "1"
         memory: 4Gi
+    # -- Applied to whichever workload the mode runs. Orbit's own selector labels
+    # win on a collision.
+    podLabels: {}
+    # -- Applied to whichever workload the mode runs. `capacity` already carries
+    # the Karpenter and Cluster Autoscaler annotations that keep a held node
+    # from being scaled away; set them here to override.
+    podAnnotations: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
 
 policyService:
   image:

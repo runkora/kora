@@ -21,7 +21,7 @@ Installing 0.1.0-rc.4 into a production cluster exercised the mechanism properly
 
 Patches handled it. Three problems sat around them:
 
-1. **The chart's own warm-start workloads could not follow the sandboxes.** `agents.imageWarmer` and `agents.warmHeadroom` are Helm-owned workloads in the system namespace, not resources `orbit-agents` provisions, so no patch can reach them. They took their scheduling from the `agents` block, which places the `orbit-agents` Deployment, so they warmed nodes no sandbox runs on. #311 gives them their own scheduling keys.
+1. **The chart's own warm-start workloads could not follow the sandboxes.** They are Helm-owned workloads in the system namespace, not resources `orbit-agents` provisions, so no patch can reach them. They took their scheduling from the `agents` block, which places the `orbit-agents` Deployment, so they warmed nodes no sandbox runs on. #311 moves them onto the sandbox placement.
 
 2. **Placement ends up expressed twice**, once in the sandbox patch and once in the warmer values, with nothing checking the two agree. When they drift the platform holds a warm node in a pool no sandbox schedules onto: the deployment pays for the node and still cold-starts, with no error anywhere.
 
@@ -180,7 +180,7 @@ agents:
 
 Precedence for any field, last wins: the builder's default, then `agents.workloads.common`, then the per-workload block, then manifest patches.
 
-`agents.imageWarmer` and `agents.warmHeadroom` default their scheduling from `agents.workloads.sandbox`, then `agents`, then `global`. Their own keys, added in #311, still win when set.
+Sandbox warming is one block, `agents.sandboxWarming`, with `mode: none | image | capacity` replacing the two independent `enabled` flags it had. The two workloads are not independent choices: both exist to warm sandbox starts, both belong on the sandbox pool, and the capacity placeholder caches the image itself. Separate blocks also let their placement diverge, which is silently useless. Scheduling defaults from `agents.workloads.sandbox`, then `agents`, then `global`, and the block's own keys win when set.
 
 ### Invariants
 
