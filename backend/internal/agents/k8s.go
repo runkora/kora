@@ -426,8 +426,6 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 // are applied.
 func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) *corev1.Pod {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
-	uid := int64(100)
-	nonRoot := true
 	// PVC name follows StatefulSet volumeClaimTemplate convention:
 	// {volumeName}-{statefulSetName}-{ordinal}
 	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
@@ -490,18 +488,9 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		Spec: corev1.PodSpec{
 			RestartPolicy:    corev1.RestartPolicyNever,
 			ImagePullSecrets: imagePullSecretRefs(p.cfg.ImagePullSecrets),
-			// Restricted Pod Security Standard: the pod-level seccomp profile is
-			// what istio-proxy inherits, since Istio sets none of its own.
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsUser:      &uid,
-				RunAsNonRoot:   &nonRoot,
-				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-				SELinuxOptions: &corev1.SELinuxOptions{
-					Level: "s0",
-				},
-			},
-			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
-			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
+			SecurityContext:  restrictedPodSecurityContext(),
+			Volumes:          sandboxVolumes(workspacesPVC, p.cfg),
+			Containers:       []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
 		},
 	}
 }
@@ -1233,6 +1222,31 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"
 
+// restrictedPodSecurityContext is the pod half of the restricted Pod Security
+// Standard, shared by the agent pod and the sandboxes that mount its workspace
+// claim. fsGroup is what makes that claim writable on storage classes which
+// format volumes root-owned, and OnRootMismatch keeps a large workspace from
+// being re-chowned on every start. The seccomp profile is inherited by
+// istio-proxy, which sets none of its own.
+func restrictedPodSecurityContext() *corev1.PodSecurityContext {
+	uid := int64(100)
+	// Both agent images run as uid 100, but their primary groups differ
+	// (session-manager 101, sandbox 100). Pinning the group makes files on the
+	// shared claim look the same from either pod.
+	gid := int64(100)
+	nonRoot := true
+	onRootMismatch := corev1.FSGroupChangeOnRootMismatch
+	return &corev1.PodSecurityContext{
+		RunAsUser:           &uid,
+		RunAsGroup:          &gid,
+		RunAsNonRoot:        &nonRoot,
+		FSGroup:             &gid,
+		FSGroupChangePolicy: &onRootMismatch,
+		SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+		SELinuxOptions:      &corev1.SELinuxOptions{Level: "s0"},
+	}
+}
+
 // restrictedContainerSecurityContext is the container half of the restricted
 // Pod Security Standard for processes that still need a writable root filesystem.
 func restrictedContainerSecurityContext() *corev1.SecurityContext {
@@ -1248,8 +1262,6 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
-	uid := int64(100)
-	nonRoot := true
 	return appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
@@ -1270,16 +1282,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
 					ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
-					// Restricted Pod Security Standard: the pod-level seccomp profile is
-					// what istio-proxy inherits, since Istio sets none of its own.
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsUser:      &uid,
-						RunAsNonRoot:   &nonRoot,
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-						SELinuxOptions: &corev1.SELinuxOptions{
-							Level: "s0",
-						},
-					},
+					SecurityContext:    restrictedPodSecurityContext(),
 					Containers: []corev1.Container{
 						{
 							Name:            sessionManagerContainerName,
