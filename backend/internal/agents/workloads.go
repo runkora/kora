@@ -151,6 +151,37 @@ func (c WorkspaceConfig) applyToClaim(claim *corev1.PersistentVolumeClaim) {
 	}
 }
 
+// crossesNodes reports whether the workspace volume can be mounted from more
+// than one node at a time.
+func (c WorkspaceConfig) crossesNodes() bool {
+	return slices.Contains(c.AccessModes, corev1.ReadWriteMany)
+}
+
+// requireCoLocation pins a pod to the node already running podName.
+//
+// A ReadWriteOnce workspace attaches to one node, and a sandbox mounts its
+// session-manager's workspace, so the two have to share a node. Matching node
+// selectors do not deliver that: a pool has many nodes. The term is appended,
+// leaving any configured affinity in place, and required terms are ANDed.
+func requireCoLocation(spec *corev1.PodSpec, podName string) {
+	term := corev1.PodAffinityTerm{
+		TopologyKey: "kubernetes.io/hostname",
+		LabelSelector: &metav1.LabelSelector{
+			// Set by Kubernetes on every StatefulSet pod, so it names the one
+			// replica holding this run's workspace.
+			MatchLabels: map[string]string{"statefulset.kubernetes.io/pod-name": podName},
+		},
+	}
+	if spec.Affinity == nil {
+		spec.Affinity = &corev1.Affinity{}
+	}
+	if spec.Affinity.PodAffinity == nil {
+		spec.Affinity.PodAffinity = &corev1.PodAffinity{}
+	}
+	spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = append(
+		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
+}
+
 // Validate rejects configuration that would break the pod identity or mesh
 // wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {

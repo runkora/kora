@@ -22,7 +22,7 @@ The cluster must provide:
 
 - Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
 - A CNI that enforces Kubernetes `NetworkPolicy`. The `orbit` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
-- A default `ReadWriteOnce` StorageClass for agent workspace volumes. `ReadWriteMany` when sandboxes run on their own nodepool.
+- A StorageClass for agent workspace volumes, either the cluster default or one named in `agents.workspace.storageClassName`. `ReadWriteMany` when sandboxes run on their own node pool.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
 - Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst Orbit namespaces run at restricted.
@@ -86,6 +86,8 @@ agents:
 ```
 
 A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
+
+On a `ReadWriteOnce` workspace, Orbit pins each sandbox to the node running the session-manager replica whose workspace it mounts, since matching node selectors alone leave a pool free to place them apart. A sandbox waits for room on that node rather than starting elsewhere and failing to attach.
 
 When adopting this topology, you should do so before creating agents. A `StatefulSet`'s `volumeClaimTemplates` are immutable. An agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent requires moving its workspace data to a new claim, or deleting and recreating the agent.
 

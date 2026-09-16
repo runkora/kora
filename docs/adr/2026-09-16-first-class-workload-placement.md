@@ -196,6 +196,8 @@ Security context, service account name, volume mounts and the sandbox workspace 
 - **Chart.** `fail` when `agents.workloads.sandbox` and `agents.workloads.sessionManager` select different nodes and `agents.workspace.accessModes` does not include `ReadWriteMany`.
 - **`orbit-agents`.** Keep the post-patch check from #311, which stays the backstop for splits expressed as patches and now also covers splits expressed as values.
 
+Neither check proves co-location. Matching placement is not enough, because a pool has many nodes and nothing stops a sandbox landing on a different one from its session-manager. A `ReadWriteOnce` workspace therefore gets required pod affinity binding the sandbox to the StatefulSet replica whose workspace it mounts, appended after configured placement so it cannot be dropped. `ReadWriteMany` skips it, because crossing nodes is the point of a separate sandbox pool.
+
 ---
 
 ## Consequences
@@ -205,14 +207,16 @@ Security context, service account name, volume mounts and the sandbox workspace 
 - Node pools, pod metadata, workspace storage and cloud identity become values, which is what an evaluator expects of a chart.
 - Sandbox placement is stated once and warm capacity follows it.
 - The dedicated sandbox pool topology can be documented as supported, with the chart rejecting the combination that fails at runtime.
-- Cloud identity for agents stops requiring a patch to a `ServiceAccount`.
+- Cloud identity for agents stops requiring a patch to a `ServiceAccount`, and reaches running agents rather than only ones created afterwards.
+- A `ReadWriteOnce` workspace becomes safe on a multi-node pool, where matching placement alone left the sandbox free to land away from the volume.
 - Deployments that never customise see no change: every key defaults to today's behaviour.
 
 ### Negative
 
 - Two mechanisms can set the same field. The guide has to be explicit that values are the supported path and patches the escape hatch.
 - A second ConfigMap, volume and checksum annotation on the `orbit-agents` pod.
-- Changing these values rolls `orbit-agents`, and agent StatefulSets pick the change up on their next reconcile rather than instantly.
+- Changing these values rolls `orbit-agents`, and agent StatefulSets pick the change up on their next reconcile rather than instantly. Changing the ServiceAccount annotations also rolls the agent's own pods, because cloud identity attaches at pod creation.
+- On a `ReadWriteOnce` workspace a sandbox now waits for room on its session-manager's node instead of scheduling elsewhere. The failure it replaces is a Multi-Attach error mid-run, but a busy node delays a start that used to proceed and then break.
 - More values to keep documented and tested, including a collision check that did not exist before.
 
 ### Neutral
@@ -226,7 +230,7 @@ Security context, service account name, volume mounts and the sandbox workspace 
 
 1. Chart values, the rendered ConfigMap, the mount and the `checksum/` annotation, following `agents/patches-configmap.yaml`.
 2. `K8sProvisionerConfig` gains the workload and workspace fields; `cmd/orbit-agents` loads the mounted file as it already does for patches, and fails startup on an identity-label or mesh-annotation collision.
-3. `buildSessionManagerStatefulSet`, `buildSandboxPod`, `buildServiceAccount` and the `volumeClaimTemplate` apply them before `manifestpatch.Apply`.
+3. `buildSessionManagerStatefulSet`, `buildSandboxPod`, `buildServiceAccount` and the `volumeClaimTemplate` apply them before `manifestpatch.Apply`. The StatefulSet pod template carries a digest of the ServiceAccount annotations so a change rolls the pods, and a sandbox on a `ReadWriteOnce` workspace gets required pod affinity on its session-manager replica.
 4. Warmers default from `agents.workloads.sandbox`.
 5. Chart-side `fail` for the incompatible combination; keep the Go check from #311.
 6. Deployment guide: the values, the precedence rule, when to reach for a patch instead, and the existing-agent migration note.

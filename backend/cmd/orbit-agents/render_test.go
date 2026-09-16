@@ -187,9 +187,6 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
 	}
 	for name, spec := range map[string]corev1.PodSpec{"StatefulSet": ss.Spec.Template.Spec, "sandbox Pod": pod.Spec} {
-		if spec.Affinity != nil {
-			t.Errorf("%s affinity: got %+v, want none", name, spec.Affinity)
-		}
 		if spec.NodeSelector != nil {
 			t.Errorf("%s nodeSelector: got %v, want none", name, spec.NodeSelector)
 		}
@@ -199,6 +196,14 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		if spec.PriorityClassName != "" {
 			t.Errorf("%s priorityClassName: got %q, want empty", name, spec.PriorityClassName)
 		}
+	}
+	if ss.Spec.Template.Spec.Affinity != nil {
+		t.Errorf("StatefulSet affinity: got %+v, want none", ss.Spec.Template.Spec.Affinity)
+	}
+	// The default workspace is ReadWriteOnce, so the sandbox is pinned to the
+	// node holding it.
+	if pod.Spec.Affinity == nil || pod.Spec.Affinity.PodAffinity == nil {
+		t.Error("sandbox Pod: expected co-location with its session-manager")
 	}
 
 	claim := ss.Spec.VolumeClaimTemplates[0]

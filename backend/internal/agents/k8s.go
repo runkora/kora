@@ -516,6 +516,13 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	sandbox.applyToPodMeta(&pod.ObjectMeta)
 	sandbox.applyToPodSpec(&pod.Spec)
 
+	// Applied last, so configured placement cannot drop it: a ReadWriteOnce
+	// workspace attaches to one node, and this sandbox mounts the workspace of
+	// session-manager pod {slug}-{ordinal}.
+	if !p.cfg.Workspace.crossesNodes() {
+		requireCoLocation(&pod.Spec, fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal))
+	}
+
 	return pod
 }
 

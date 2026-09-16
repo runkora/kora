@@ -176,6 +176,71 @@ func TestApplyToPodSpec_EmptyAffinityIsNotApplied(t *testing.T) {
 	}
 }
 
+// A ReadWriteOnce workspace attaches to one node, so the sandbox has to land on
+// the node running the session-manager replica that owns it. Matching node
+// selectors do not deliver that, because a pool has many nodes.
+func TestBuildSandboxPod_CoLocatesOnReadWriteOnceWorkspace(t *testing.T) {
+	cfg := splitPoolConfig()
+	cfg.Workspace.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+	p := &K8sProvisioner{cfg: cfg}
+
+	pod := p.buildSandboxPod(Run{ID: "run-1", PodOrdinal: 2}, "coder", "tenant-example", nil)
+
+	if pod.Spec.Affinity == nil || pod.Spec.Affinity.PodAffinity == nil {
+		t.Fatal("expected pod affinity binding the sandbox to its session-manager")
+	}
+	terms := pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if len(terms) != 1 {
+		t.Fatalf("expected one required term, got %d", len(terms))
+	}
+	if terms[0].TopologyKey != "kubernetes.io/hostname" {
+		t.Errorf("topologyKey: got %q", terms[0].TopologyKey)
+	}
+	if got := terms[0].LabelSelector.MatchLabels["statefulset.kubernetes.io/pod-name"]; got != "coder-2" {
+		t.Errorf("selector names %q, want the replica holding this run's workspace", got)
+	}
+}
+
+// ReadWriteMany crosses nodes, which is the whole point of a separate sandbox
+// pool, so the sandbox must stay free to schedule away.
+func TestBuildSandboxPod_NoCoLocationOnReadWriteManyWorkspace(t *testing.T) {
+	p := &K8sProvisioner{cfg: splitPoolConfig()}
+
+	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", nil)
+
+	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAffinity != nil {
+		t.Errorf("ReadWriteMany should not pin the sandbox: got %+v", pod.Spec.Affinity.PodAffinity)
+	}
+}
+
+// Configured affinity is kept: required terms are ANDed, so co-location cannot
+// be dropped by setting placement.
+func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
+	cfg := splitPoolConfig()
+	cfg.Workspace.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+	cfg.Workloads.Sandbox.Affinity = &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{"orbit"},
+					}},
+				}},
+			},
+		},
+	}
+	p := &K8sProvisioner{cfg: cfg}
+
+	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", nil)
+
+	if pod.Spec.Affinity.NodeAffinity == nil {
+		t.Error("configured node affinity was dropped")
+	}
+	if pod.Spec.Affinity.PodAffinity == nil {
+		t.Error("co-location was dropped by configured affinity")
+	}
+}
+
 // Cloud identity attaches when a pod is created, so a changed ServiceAccount
 // annotation has to roll the StatefulSet or running agents never receive it.
 func TestBuildStatefulSet_ServiceAccountAnnotationsRollThePods(t *testing.T) {
