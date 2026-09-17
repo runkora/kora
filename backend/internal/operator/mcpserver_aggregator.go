@@ -57,7 +57,15 @@ var (
 	// ErrMCPServerNoWorkloadSelector is returned when spec.workload is present
 	// with no selector, which would classify every pod in the namespace.
 	ErrMCPServerNoWorkloadSelector = errors.New("spec.workload.selector is required when spec.workload is set")
+	// ErrMCPServerNameTooLong is returned for a name that cannot be a label
+	// value. The generated policies carry the name in a label, so a longer one
+	// would be rejected by the API server when the policy is written.
+	ErrMCPServerNameTooLong = fmt.Errorf("metadata.name must be at most %d characters", maxLabelValueLength)
 )
+
+// maxLabelValueLength is the Kubernetes limit on a label value, which is
+// shorter than the limit on an object name.
+const maxLabelValueLength = 63
 
 // mcpServerRegistryEntry is one element of servers.json — the runtime contract
 // the tool-gateway's introspection worker agrees on. tenant_id is "" for global
@@ -171,7 +179,7 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 			continue
 		}
 
-		if err := validateMCPServerSpec(srv.Spec, srv.Namespace); err != nil {
+		if err := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace); err != nil {
 			skipped = append(skipped, mcpServerSkip{srv.Name, srv.Namespace, err.Error()})
 			continue
 		}
@@ -210,10 +218,13 @@ func resolveTenantID(namespace string, nsToTenant map[string]string) (string, bo
 	return tenantID, ok
 }
 
-// validateMCPServerSpec checks an MCPServer spec against the namespace it was
-// applied in. It is the single source of truth for both the per-CR Status the
-// reconciler sets and the aggregator's include/exclude decision.
-func validateMCPServerSpec(spec MCPServerSpec, namespace string) error {
+// validateMCPServerSpec checks an MCPServer spec against the name and namespace
+// it was applied under. It is the single source of truth for both the per-CR
+// Status the reconciler sets and the aggregator's include/exclude decision.
+func validateMCPServerSpec(spec MCPServerSpec, name, namespace string) error {
+	if len(name) > maxLabelValueLength {
+		return ErrMCPServerNameTooLong
+	}
 	if spec.Endpoint == "" {
 		return ErrMCPServerNoEndpoint
 	}

@@ -108,18 +108,13 @@ func TestMCPServer_IngressPolicy(t *testing.T) {
 	}
 }
 
-// Istio prepends spiffe://, so the principal is written without it. Without a
-// trust domain the policy is skipped rather than written to match nothing.
+// Istio prepends spiffe://, so the principal is written without it.
 func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 	srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
 
-	trustDomain = ""
-	if got := srv.authorizationPolicy(8000); got != nil {
-		t.Error("expected no policy without a trust domain")
-	}
-
+	original := trustDomain
+	t.Cleanup(func() { trustDomain = original })
 	trustDomain = "orbit.example.com"
-	t.Cleanup(func() { trustDomain = "" })
 
 	policy := srv.authorizationPolicy(8000)
 	if policy == nil {
@@ -144,8 +139,21 @@ func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 // A workload block with no selector would classify every pod in the namespace.
 func TestValidateMCPServerSpec_WorkloadSelectorRequired(t *testing.T) {
 	spec := MCPServerSpec{Endpoint: "http://gh:8000/mcp", Workload: &MCPServerWorkload{}}
-	if err := validateMCPServerSpec(spec, "orbit-tenant-acme"); err != ErrMCPServerNoWorkloadSelector {
+	if err := validateMCPServerSpec(spec, "gh", "orbit-tenant-acme"); err != ErrMCPServerNoWorkloadSelector {
 		t.Errorf("got %v, want ErrMCPServerNoWorkloadSelector", err)
+	}
+}
+
+// The name goes into a label value on the generated policies, so a name the API
+// server would accept on the CR but reject on a label is caught up front.
+func TestValidateMCPServerSpec_NameBoundedByLabelValue(t *testing.T) {
+	spec := MCPServerSpec{Endpoint: "http://gh:8000/mcp"}
+
+	if err := validateMCPServerSpec(spec, strings.Repeat("g", 63), "orbit-tenant-acme"); err != nil {
+		t.Errorf("63 characters should be accepted, got %v", err)
+	}
+	if err := validateMCPServerSpec(spec, strings.Repeat("g", 64), "orbit-tenant-acme"); err != ErrMCPServerNameTooLong {
+		t.Errorf("got %v, want ErrMCPServerNameTooLong", err)
 	}
 }
 

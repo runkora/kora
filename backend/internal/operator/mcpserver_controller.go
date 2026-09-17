@@ -89,7 +89,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Validate the spec for this CR's Status. Whether valid or not we still run
 	// the aggregator: a valid server must be (re)included, and an invalid one
 	// must be excluded (e.g. it was valid before and the spec just regressed).
-	vErr := validateMCPServerSpec(srv.Spec, srv.Namespace)
+	vErr := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace)
 
 	if syncErr := r.Aggregator.Sync(ctx); syncErr != nil {
 		return ctrl.Result{}, syncErr
@@ -147,13 +147,20 @@ func (r *MCPServerReconciler) reconcilePolicies(ctx context.Context, srv *MCPSer
 		return mcpPolicyResult{}, err
 	}
 
-	if authz := srv.authorizationPolicy(port); authz != nil {
-		if err := controllerutil.SetControllerReference(srv, authz, r.Scheme); err != nil {
-			return mcpPolicyResult{}, fmt.Errorf("own authorization policy for %q: %w", srv.Name, err)
-		}
-		if err := r.apply(ctx, authz); err != nil {
-			return mcpPolicyResult{}, err
-		}
+	// The NetworkPolicy alone admits the gateway's address, not its identity.
+	// Applying it without the AuthorizationPolicy would leave the server open to
+	// anything that reaches the port, so an unset trust domain fails the
+	// reconcile rather than half-applying.
+	if trustDomain == "" {
+		return mcpPolicyResult{}, fmt.Errorf(
+			"MCPServer %q needs a trust domain to name the tool-gateway's identity: set global.trustDomain", srv.Name)
+	}
+	authz := srv.authorizationPolicy(port)
+	if err := controllerutil.SetControllerReference(srv, authz, r.Scheme); err != nil {
+		return mcpPolicyResult{}, fmt.Errorf("own authorization policy for %q: %w", srv.Name, err)
+	}
+	if err := r.apply(ctx, authz); err != nil {
+		return mcpPolicyResult{}, err
 	}
 
 	return mcpPolicyResult{applies: true, pods: len(pods.Items)}, nil

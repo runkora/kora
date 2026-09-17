@@ -125,12 +125,9 @@ func (m *MCPServer) ingressPolicy(port int32) *networkingv1.NetworkPolicy {
 
 // authorizationPolicy allows only the tool-gateway's principal to call the
 // serving pods. Istio prepends "spiffe://" to the principal, so the value here
-// omits it. Without a trust domain the policy is skipped rather than written
-// with a principal that matches nothing.
+// omits it. The caller checks the trust domain is set: a principal built from an
+// empty one matches nothing.
 func (m *MCPServer) authorizationPolicy(port int32) *unstructured.Unstructured {
-	if trustDomain == "" {
-		return nil
-	}
 	policy := &unstructured.Unstructured{Object: map[string]any{
 		"spec": map[string]any{
 			"selector": map[string]any{
