@@ -24,6 +24,12 @@ const (
 	podLabelOPAPolicy     = "orbit.io/opa-policy"
 	podLabelIdentityProxy = "orbit.io/identity-proxy"
 
+	// podLabelSpiffeService is matched by the orbit-tenant-service
+	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
+	// An MCP server pod needs it: Orbit's sidecars take their certificates from
+	// SPIRE, so a pod with no registration has no mesh identity.
+	podLabelSpiffeService = "spiffe.io/service"
+
 	// Pod annotations: the tenant id the OPA sidecar reads through the downward
 	// API, and the two Istio annotations that make the sidecar use SPIRE and
 	// mount the shared sockets.
@@ -87,8 +93,13 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		return admission.Denied("tenant namespace is missing the orbit.io/tenant label")
 	}
 
+	server, err := m.mcpServerFor(ctx, pod, req.Namespace)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
 	mutated := pod.DeepCopy()
-	if err := m.mutate(mutated, tenantName); err != nil {
+	if err = m.mutate(mutated, tenantName, server); err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -99,18 +110,50 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 	return admission.PatchResponseFromRaw(req.Object.Raw, raw)
 }
 
+// mcpServerFor names the MCPServer whose workload selector matches the pod, or
+// "" when none does. The CR is the authority: a pod carrying the class label
+// without a CR selecting it is injected and validated as an agent pod
+// (docs/adr/2026-09-17-mcp-workload-class.md).
+func (m *PodMutator) mcpServerFor(ctx context.Context, pod *corev1.Pod, namespace string) (string, error) {
+	servers := &MCPServerList{}
+	if err := m.Client.List(ctx, servers, client.InNamespace(namespace)); err != nil {
+		return "", fmt.Errorf("list MCPServers in %q: %w", namespace, err)
+	}
+	for i := range servers.Items {
+		if servers.Items[i].classifies(pod.Labels) {
+			return servers.Items[i].Name, nil
+		}
+	}
+	return "", nil
+}
+
 // mutate applies the injection to pod in place. It is idempotent so a
 // reinvoked webhook produces the same pod.
-func (m *PodMutator) mutate(pod *corev1.Pod, tenantName string) error {
+//
+// mcpServer names the MCPServer that selected this pod, empty for an agent pod.
+// An MCP server pod gets the mesh certificate wiring and stops there:
+// identity-proxy would overwrite the credential it authenticates to its own
+// upstream with, and OPA governs agent egress, which it does not perform
+// (docs/adr/2026-09-17-mcp-workload-class.md).
+func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error {
 	if pod.Labels == nil {
 		pod.Labels = map[string]string{}
 	}
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
-	pod.Labels[podLabelOPAPolicy] = "enabled"
-	pod.Labels[podLabelIdentityProxy] = "enabled"
-	pod.Annotations[podAnnotationTenantID] = tenantName
+	if mcpServer != "" {
+		pod.Labels[podLabelMCPServer] = mcpServer
+		pod.Labels[podLabelSpiffeService] = mcpServer
+		// Set by the pod itself, these would attach the EnvoyFilters this class
+		// exists to keep off it.
+		delete(pod.Labels, podLabelIdentityProxy)
+		delete(pod.Labels, podLabelOPAPolicy)
+	} else {
+		pod.Labels[podLabelOPAPolicy] = "enabled"
+		pod.Labels[podLabelIdentityProxy] = "enabled"
+		pod.Annotations[podAnnotationTenantID] = tenantName
+	}
 
 	// Orbit's own containers below are overwritten by name. Istio's are not
 	// Orbit's to overwrite, and a pod that declares them itself is trying to
@@ -125,24 +168,31 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName string) error {
 	}
 	pod.Annotations[podAnnotationProxyConfig] = proxyCfg
 
-	mounts, err := mergeUserVolumeMounts(pod.Annotations[podAnnotationUserVolumeMount])
-	if err != nil {
-		return fmt.Errorf("merge %s: %w", podAnnotationUserVolumeMount, err)
-	}
-	pod.Annotations[podAnnotationUserVolumeMount] = mounts
-
 	for _, name := range m.Config.ImagePullSecrets {
 		if !hasPullSecret(pod.Spec.ImagePullSecrets, name) {
 			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: name})
 		}
 	}
 
+	// istio-proxy mounts a volume of this name, which is how the sidecar reaches
+	// the SPIFFE socket for its certificate. Both classes need it.
 	ensureVolume(&pod.Spec, corev1.Volume{
 		Name: volumeSpireSocket,
 		VolumeSource: corev1.VolumeSource{
 			CSI: &corev1.CSIVolumeSource{Driver: "csi.spiffe.io", ReadOnly: new(true)},
 		},
 	})
+
+	if mcpServer != "" {
+		return nil
+	}
+
+	mounts, err := mergeUserVolumeMounts(pod.Annotations[podAnnotationUserVolumeMount])
+	if err != nil {
+		return fmt.Errorf("merge %s: %w", podAnnotationUserVolumeMount, err)
+	}
+	pod.Annotations[podAnnotationUserVolumeMount] = mounts
+
 	ensureVolume(&pod.Spec, corev1.Volume{
 		Name:         volumeIdentityProxy,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},

@@ -54,6 +54,9 @@ var (
 	// ErrMCPServerForwardNotGlobal is returned when a tenant-namespaced CR sets
 	// callerIdentity: forward — forward is global-only.
 	ErrMCPServerForwardNotGlobal = errors.New("callerIdentity: forward is valid only on global (orbit-system) servers")
+	// ErrMCPServerNoWorkloadSelector is returned when spec.workload is present
+	// with no selector, which would classify every pod in the namespace.
+	ErrMCPServerNoWorkloadSelector = errors.New("spec.workload.selector is required when spec.workload is set")
 )
 
 // mcpServerRegistryEntry is one element of servers.json — the runtime contract
@@ -222,6 +225,11 @@ func validateMCPServerSpec(spec MCPServerSpec, namespace string) error {
 	// full-power token via a pod they control. Reject it structurally.
 	if spec.CallerIdentity == CallerIdentityForward && namespace != systemNamespace {
 		return ErrMCPServerForwardNotGlobal
+	}
+	// A workload block with no selector would classify every pod in the
+	// namespace, stripping enforcement from the agents there.
+	if spec.Workload != nil && len(spec.Workload.Selector) == 0 {
+		return ErrMCPServerNoWorkloadSelector
 	}
 	return nil
 }

@@ -38,7 +38,7 @@ func sandboxLikePod() *corev1.Pod {
 func TestMutate_AttachesEnforcement(t *testing.T) {
 	m := testMutator()
 	pod := sandboxLikePod()
-	if err := m.mutate(pod, "example"); err != nil {
+	if err := m.mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,7 +109,7 @@ func TestMutate_RejectsPreDeclaredIstioContainers(t *testing.T) {
 	for _, name := range []string{"istio-proxy", "istio-validation", "istio-init"} {
 		pod := sandboxLikePod()
 		pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{Name: name, Image: "busybox"})
-		if err := testMutator().mutate(pod, "example"); err == nil {
+		if err := testMutator().mutate(pod, "example", ""); err == nil {
 			t.Errorf("pod declaring %q was mutated instead of rejected", name)
 		}
 	}
@@ -118,11 +118,11 @@ func TestMutate_RejectsPreDeclaredIstioContainers(t *testing.T) {
 func TestMutate_Idempotent(t *testing.T) {
 	m := testMutator()
 	pod := sandboxLikePod()
-	if err := m.mutate(pod, "example"); err != nil {
+	if err := m.mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
 	once := pod.DeepCopy()
-	if err := m.mutate(pod, "example"); err != nil {
+	if err := m.mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(pod.Spec.Containers) != len(once.Spec.Containers) || len(pod.Spec.Volumes) != len(once.Spec.Volumes) || len(pod.Spec.ImagePullSecrets) != 1 {

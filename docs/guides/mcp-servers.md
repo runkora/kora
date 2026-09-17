@@ -30,6 +30,7 @@ spec:
 - `transport`: `streamable-http`, the default and only supported transport.
 - `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.
 - `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party Orbit APIs. `forward` is allowed only on a global (`orbit-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
+- `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets Orbit skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
 
 An `MCPServer` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. Check its status:
 
@@ -53,10 +54,7 @@ spec:
   template:
     metadata:
       labels:
-        app: github-mcp
-        orbit.io/skip-injection: "true"      # skip the identity-proxy and OPA injection
-      annotations:
-        sidecar.istio.io/inject: "false"     # tenant MCP servers run outside the mesh
+        app: github-mcp                      # matched by spec.workload.selector
     spec:
       containers:
         - name: github-mcp
@@ -81,31 +79,15 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy                          # only the tool-gateway may reach the endpoint
-metadata:
-  name: github-mcp-ingress
-  namespace: orbit-tenant-example
-spec:
-  podSelector:
-    matchLabels:
-      app: github-mcp
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: orbit-system
-      ports:
-        - protocol: TCP
-          port: 8000
 ```
 
-A tenant-namespaced MCP workload runs outside the Orbit mesh. Set `sidecar.istio.io/inject: "false"` and `orbit.io/skip-injection: "true"` on its pods. Orbit's platform identity does not federate into a tenant MCP, and any identity-proxy would otherwise overwrite the server's own outbound `Authorization` header.
+Point `spec.workload.selector` at those pod labels and Orbit handles the rest. It skips the identity-proxy and OPA it injects into agent pods: identity-proxy would overwrite the credential the server authenticates upstream with, and OPA governs agent egress, which this pod does not perform. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity. Both go when the `MCPServer` does.
 
-The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. Restrict its ingress to the tool-gateway with a `NetworkPolicy` in the server's namespace that admits only `orbit-system`. Nothing else in the cluster should reach it. Tool access is then governed by the `mcp:<server>:<tool>:use` scopes.
+Do not set `sidecar.istio.io/inject: "false"` on these pods. The sidecar carries the mesh identity the `AuthorizationPolicy` matches on, and a tenant pod opting out of injection is denied at admission.
+
+`kubectl describe mcpserver github` reports how many pods the selector matched, so a mistyped label shows up there rather than as an unreachable server.
+
+The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. The generated policies are what keep it reachable by the tool-gateway alone; tool access is then governed by the `mcp:<server>:<tool>:use` scopes.
 
 ## Reference
 

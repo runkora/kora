@@ -10,12 +10,17 @@ var (
 	// istioNamespace is where the customer's istiod runs; tenant network policies
 	// admit xDS traffic to it.
 	istioNamespace = "istio-system"
+
+	// trustDomain is the SPIFFE trust domain, which names platform principals in
+	// the AuthorizationPolicies the operator generates.
+	trustDomain = ""
 )
 
 // Settings are the install-time values main wires in before starting the manager.
 type Settings struct {
 	SystemNamespace string
 	IstioNamespace  string
+	TrustDomain     string
 }
 
 // Apply sets the package-level install settings. Call once, before any
@@ -26,5 +31,8 @@ func Apply(s Settings) {
 	}
 	if s.IstioNamespace != "" {
 		istioNamespace = s.IstioNamespace
+	}
+	if s.TrustDomain != "" {
+		trustDomain = s.TrustDomain
 	}
 }

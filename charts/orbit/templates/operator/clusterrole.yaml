@@ -15,9 +15,15 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch", "create", "patch"]
-  # Sandbox egress policy in each tenant namespace.
+  # Sandbox egress policy in each tenant namespace, and an MCP server's ingress
+  # policy. Both are owned by the CR that generated them, so deleting it is the
+  # garbage collector's work rather than the operator's.
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Restricts an MCP server's callers to the tool-gateway principal.
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
     verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
