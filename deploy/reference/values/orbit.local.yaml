@@ -9,7 +9,7 @@ global:
     sslMode: disable
     captureQueryText: true
   observability:
-    otlpInsecure: true
+    otlpEndpoint: ""
 
 frontendHost: orbit.local.clearroute.io
 

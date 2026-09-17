@@ -14,10 +14,9 @@ import (
 
 // setPlatformObs overwrites platform-level observability tunables for a single
 // test and returns a restore function to be called via defer.
-func setPlatformObs(endpoint string, insecure bool, samplingRate *float64) func() {
+func setPlatformObs(endpoint string, samplingRate *float64) func() {
 	prev := *DefaultConfig
 	DefaultConfig.OTLPEndpoint = endpoint
-	DefaultConfig.OTLPInsecure = insecure
 	DefaultConfig.SamplingRate = samplingRate
 	return func() { *DefaultConfig = prev }
 }
@@ -35,7 +34,7 @@ func testConfig() Config {
 
 // TestSetup verifies basic observability setup.
 func TestSetup(t *testing.T) {
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -83,7 +82,7 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 		t.Skip("Skipping OTLP test in CI")
 	}
 
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -105,7 +104,7 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 // production misconfiguration and development cluster without a collector).
 func TestSetupProductionNoOTLP(t *testing.T) {
 
-	restore := setPlatformObs("", false, nil)
+	restore := setPlatformObs("", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -133,7 +132,7 @@ func TestSetupProductionNoOTLP(t *testing.T) {
 // TestSetupDefaultSamplingRate verifies the default 0.1 sampling rate is applied
 // when no sampling rate is set in the platform config.
 func TestSetupDefaultSamplingRate(t *testing.T) {
-	restore := setPlatformObs("localhost:4317", true, nil) // nil → default 0.1
+	restore := setPlatformObs("http://localhost:4317", nil) // nil → default 0.1
 	defer restore()
 
 	ctx := context.Background()
@@ -176,7 +175,7 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rate := tt.samplingRate
-			restore := setPlatformObs("localhost:4317", true, &rate)
+			restore := setPlatformObs("http://localhost:4317", &rate)
 			defer restore()
 
 			ctx := context.Background()
@@ -191,7 +190,7 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 
 // TestSetupShutdown verifies shutdown functionality.
 func TestSetupShutdown(t *testing.T) {
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -212,7 +211,7 @@ func TestSetupShutdown(t *testing.T) {
 
 // TestSetupShutdownTimeout verifies shutdown respects the caller's context deadline.
 func TestSetupShutdownTimeout(t *testing.T) {
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -231,7 +230,7 @@ func TestSetupShutdownTimeout(t *testing.T) {
 func TestTracerProviderGlobalSet(t *testing.T) {
 	otel.SetTracerProvider(nil)
 
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -254,7 +253,7 @@ func TestTracerProviderGlobalSet(t *testing.T) {
 
 // TestPropagatorGlobalSet verifies W3C TraceContext propagator is set globally.
 func TestPropagatorGlobalSet(t *testing.T) {
-	restore := setPlatformObs("localhost:4317", true, nil)
+	restore := setPlatformObs("http://localhost:4317", nil)
 	defer restore()
 
 	ctx := context.Background()
@@ -275,7 +274,7 @@ func TestPropagatorGlobalSet(t *testing.T) {
 // producing no stdout output in pod logs.
 func TestSpanExportWithDevelopment(t *testing.T) {
 	rate := 1.0
-	restore := setPlatformObs("", false, &rate) // No OTLP endpoint configured.
+	restore := setPlatformObs("", &rate) // No OTLP endpoint configured.
 	defer restore()
 
 	ctx := context.Background()

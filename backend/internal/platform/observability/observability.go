@@ -73,7 +73,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 
 	switch {
 	case DefaultConfig.OTLPEndpoint != "":
-		exporter, err = createOTLPExporter(ctx, DefaultConfig.OTLPEndpoint, DefaultConfig.OTLPInsecure)
+		exporter, err = createOTLPExporter(ctx, DefaultConfig.OTLPEndpoint)
 	case cfg.Environment == "local":
 		exporter, err = createStdoutExporter()
 	default:
@@ -129,29 +129,24 @@ func createStdoutExporter() (sdktrace.SpanExporter, error) {
 	return exporter, nil
 }
 
-// createOTLPExporter creates an OTLP trace exporter for production.
-// Uses TLS by default, with optional insecure mode for local development only.
+// createOTLPExporter creates an OTLP trace exporter. The endpoint's scheme
+// decides plaintext or TLS.
 //
 // TODO: Add retry logic with exponential backoff for network failures
 // TODO: Add configurable timeout for gRPC connections
-func createOTLPExporter(ctx context.Context, endpoint string, insecure bool) (sdktrace.SpanExporter, error) {
-	var client otlptrace.Client
-
-	if insecure {
-		// Insecure mode - ONLY for local development
-		client = otlptracegrpc.NewClient(
-			otlptracegrpc.WithEndpoint(endpoint),
-			otlptracegrpc.WithInsecure(),
-		)
-	} else {
-		// Production mode - use TLS
-		client = otlptracegrpc.NewClient(
-			otlptracegrpc.WithEndpoint(endpoint),
-			otlptracegrpc.WithTLSCredentials(
-				credentials.NewClientTLSFromCert(nil, ""),
-			),
-		)
+func createOTLPExporter(ctx context.Context, endpoint string) (sdktrace.SpanExporter, error) {
+	addr, insecure, err := otlpTarget(endpoint)
+	if err != nil {
+		return nil, err
 	}
+
+	opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(addr)}
+	if insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	} else {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")))
+	}
+	client := otlptracegrpc.NewClient(opts...)
 
 	exporter, err := otlptrace.New(ctx, client)
 	if err != nil {

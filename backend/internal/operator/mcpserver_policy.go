@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -39,6 +40,13 @@ var authorizationPolicyGVK = schema.GroupVersionKind{
 	Group:   "security.istio.io",
 	Version: "v1beta1",
 	Kind:    "AuthorizationPolicy",
+}
+
+// destinationRuleGVK is Istio's client-side policy, also unstructured.
+var destinationRuleGVK = schema.GroupVersionKind{
+	Group:   "networking.istio.io",
+	Version: "v1",
+	Kind:    "DestinationRule",
 }
 
 // classifies reports whether this MCPServer names pods, and if so whether the
@@ -153,6 +161,70 @@ func (m *MCPServer) authorizationPolicy(port int32) *unstructured.Unstructured {
 	policy.SetNamespace(m.Namespace)
 	policy.SetLabels(m.managedPolicyLabels())
 	return policy
+}
+
+// destinationRuleName is the client policy naming the SAN callers must expect.
+func (m *MCPServer) destinationRuleName() string { return "mcp-" + m.Name + "-client-policy" }
+
+// destinationRule tells a calling Envoy which SPIFFE SAN to expect on this
+// server's workload.
+//
+// Istio otherwise derives the expected SAN from the destination's
+// ServiceAccount (spiffe://<td>/ns/<ns>/sa/<sa>), which never matches the
+// SPIRE-issued identity (spiffe://<td>/tenant/<ns>/service/<name>), so the
+// handshake fails and the caller sees a 503. It carries exportTo ["*"] because
+// the caller is the tool-gateway in the system namespace: a rule in the
+// destination's own namespace applies to clients elsewhere, which keeps it
+// owned by this CR rather than stranded in a namespace the CR cannot own.
+func (m *MCPServer) destinationRule(port int32, host string) *unstructured.Unstructured {
+	rule := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{
+			"host":     host,
+			"exportTo": []any{"*"},
+			"trafficPolicy": map[string]any{
+				"portLevelSettings": []any{map[string]any{
+					"port": map[string]any{"number": int64(port)},
+					"tls": map[string]any{
+						"mode":            "ISTIO_MUTUAL",
+						"subjectAltNames": []any{m.workloadSpiffeID()},
+					},
+				}},
+			},
+		},
+	}}
+	rule.SetGroupVersionKind(destinationRuleGVK)
+	rule.SetName(m.destinationRuleName())
+	rule.SetNamespace(m.Namespace)
+	rule.SetLabels(m.managedPolicyLabels())
+	return rule
+}
+
+// workloadSpiffeID is the identity SPIRE issues to the serving pods, from the
+// orbit-tenant-service ClusterSPIFFEID.
+func (m *MCPServer) workloadSpiffeID() string {
+	return fmt.Sprintf("spiffe://%s/tenant/%s/service/%s", trustDomain, m.Namespace, m.Name)
+}
+
+// endpointHost is the FQDN the tool-gateway dials, which is what a
+// DestinationRule matches on. Kubernetes short forms are expanded so the rule
+// matches however the endpoint was written.
+func (m *MCPServer) endpointHost() (string, error) {
+	u, err := url.Parse(m.Spec.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse endpoint %q: %w", m.Spec.Endpoint, err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("endpoint %q has no host", m.Spec.Endpoint)
+	}
+	switch {
+	case strings.HasSuffix(host, ".svc.cluster.local"):
+		return host, nil
+	case strings.HasSuffix(host, ".svc"):
+		return host + ".cluster.local", nil
+	default:
+		return host, nil
+	}
 }
 
 func toAnyMap(in map[string]string) map[string]any {

@@ -43,8 +43,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET

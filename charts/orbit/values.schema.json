@@ -63,11 +63,11 @@
         "observability": {
           "type": "object",
           "properties": {
-            "otlpInsecure": {
-              "type": [
-                "boolean",
-                "string"
-              ]
+            "otlpEndpoint": {
+              "type": "string"
+            },
+            "collectorNamespace": {
+              "type": "string"
             }
           }
         }

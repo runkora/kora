@@ -172,7 +172,8 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | global.imageTag | string | `""` |  |
 | global.logFormat | string | `"json"` |  |
 | global.nodeSelector | object | `{}` |  |
-| global.observability.otlpInsecure | bool | `false` |  |
+| global.observability.collectorNamespace | string | `""` |  |
+| global.observability.otlpEndpoint | string | `""` |  |
 | global.postgres.captureQueryText | bool | `false` |  |
 | global.postgres.sslMode | string | `"require"` |  |
 | global.priorityClassName | string | `""` |  |

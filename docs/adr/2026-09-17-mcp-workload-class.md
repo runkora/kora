@@ -180,10 +180,11 @@ spec:
 
 ### Generated resources
 
-Two per `MCPServer` with a `workload.selector`, both in the CR's namespace and both owner-referenced by it, so deregistering the server removes them:
+Three per `MCPServer` with a `workload.selector`, all in the CR's namespace and all owner-referenced by it, so deregistering the server removes them:
 
 - **`NetworkPolicy`** selecting the workload, `policyTypes: [Ingress]`, admitting only the system namespace on the endpoint's port.
 - **Istio `AuthorizationPolicy`** selecting the same pods, admitting only the tool-gateway's principal.
+- **Istio `DestinationRule`** naming the SPIFFE SAN a caller must expect, with `exportTo: ["*"]` so the tool-gateway in the system namespace picks it up. Istio otherwise derives the SAN from the destination's ServiceAccount, which never matches a SPIRE-issued identity, and the caller's handshake fails with a 503 against a server that is running normally.
 
 The port comes from parsing `spec.endpoint`, defaulting to the scheme's port when absent.
 
@@ -227,7 +228,7 @@ The existing `Aggregated` condition's message reports how many pods the selector
 2. `PodMutator`: look up `MCPServer` CRs in the pod's namespace, match labels, and on a match skip the identity-proxy and OPA containers, their volumes and the two labels, setting the marker label instead.
 3. `PodValidator`: for marker pods require the Istio sidecar and the namespace injection label, and drop the identity-proxy and OPA requirements. `inject=false` and `interceptionMode=NONE` stay denied for every pod.
 4. `MCPServer` controller: reconcile the two policies with owner references, and report the matched pod count in the `Aggregated` condition's message.
-5. Operator RBAC: `create` and `patch` on `networkpolicies` and `security.istio.io/authorizationpolicies`. The ClusterRole has neither.
+5. Operator RBAC: `create` and `patch` on `networkpolicies` and `security.istio.io/authorizationpolicies`, and `get`/`list` on `pods` for the matched count. The ClusterRole has none of them. The pod count reads through the API server rather than the manager's cache, which would otherwise start a cluster-wide Pod informer and need a watch on every pod in the cluster.
 6. The tool-gateway egress rule in the platform NetworkPolicies.
 7. Rewrite the MCP guide: no `inject=false`, no `orbit.io/skip-injection`, no hand-written `NetworkPolicy`, and document `workload.selector`.
 8. Tests: webhook match and no-match, a forged marker label on an unmatched pod, endpoint port parsing, and policy generation.

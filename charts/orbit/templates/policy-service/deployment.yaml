@@ -51,8 +51,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST

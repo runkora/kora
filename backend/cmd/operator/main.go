@@ -322,6 +322,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 	mcpServerReconciler := &operator.MCPServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
+		PodReader:  mgr.GetAPIReader(),
 		Aggregator: mcpAggregator,
 		Logger:     logger,
 	}

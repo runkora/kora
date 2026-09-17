@@ -4,24 +4,37 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
+
+// otlpTarget splits a configured endpoint into the gRPC address and whether the
+// connection is plaintext, from the scheme alone as the OpenTelemetry SDKs do.
+// An endpoint without a scheme is rejected: guessing either fails the handshake
+// against a plaintext collector or ships telemetry in the clear to a TLS one.
+func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
+	switch {
+	case strings.HasPrefix(endpoint, "http://"):
+		return strings.TrimSuffix(strings.TrimPrefix(endpoint, "http://"), "/"), true, nil
+	case strings.HasPrefix(endpoint, "https://"):
+		return strings.TrimSuffix(strings.TrimPrefix(endpoint, "https://"), "/"), false, nil
+	default:
+		return "", false, fmt.Errorf("otlpEndpoint %q needs an http:// or https:// scheme", endpoint)
+	}
+}
 
 // ObservabilityConfig holds the shared observability tunables that are identical
 // across every service binary. Loaded from
 // internal/platform/observability/config/base.yaml and its environment overrides.
 type ObservabilityConfig struct {
-	// OTLPEndpoint is the gRPC address of the OpenTelemetry collector.
-	// Leave empty to disable OTLP export.
+	// OTLPEndpoint is the OpenTelemetry collector's gRPC URL, e.g.
+	// http://otel-collector.observability.svc:4317. The scheme decides whether
+	// the connection is plaintext or TLS. Leave empty to disable OTLP export.
 	OTLPEndpoint string `yaml:"otlpEndpoint"`
 
 	// SamplingRate is the fraction of root spans to sample (0.0–1.0).
 	SamplingRate *float64 `yaml:"samplingRate,omitempty"`
-
-	// OTLPInsecure disables TLS on the OTLP gRPC connection.
-	// Set to true only for local development.
-	OTLPInsecure bool `yaml:"otlpInsecure"`
 
 	// LogFormat controls log output style: "console" or "json".
 	LogFormat string `yaml:"logFormat"`
@@ -47,9 +60,6 @@ func mustLoadConfig() *ObservabilityConfig {
 func applyEnvOverrides(cfg *ObservabilityConfig) {
 	if v := os.Getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
-	}
-	if v := os.Getenv("ORBIT_OTLP_INSECURE"); v != "" {
-		cfg.OTLPInsecure = v == "true" || v == "1"
 	}
 	if v := os.Getenv("ORBIT_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v
