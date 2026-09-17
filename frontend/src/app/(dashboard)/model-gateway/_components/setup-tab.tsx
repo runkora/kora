@@ -235,13 +235,13 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
         </Text>
         <CodeBlock
           text={`{
-  "claude.environmentVariables": {
-    "ANTHROPIC_BASE_URL": "https://api.orbit.dev.clearroute.io",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic/claude-sonnet-4-6",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic/claude-haiku-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "anthropic/claude-opus-4-7",
-    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
-  }
+  "claudeCode.environmentVariables": [
+    { "name": "ANTHROPIC_BASE_URL", "value": "https://api.orbit.dev.clearroute.io" },
+    { "name": "ANTHROPIC_DEFAULT_SONNET_MODEL", "value": "anthropic/claude-sonnet-4-6" },
+    { "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL", "value": "anthropic/claude-haiku-4-5" },
+    { "name": "ANTHROPIC_DEFAULT_OPUS_MODEL", "value": "anthropic/claude-opus-4-7" },
+    { "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "value": "1" }
+  ]
 }`}
           filename=".vscode/settings.json"
         />
