@@ -81,13 +81,9 @@ spec:
       targetPort: 8000
 ```
 
-Point `spec.workload.selector` at those pod labels and Orbit handles the rest. It skips the identity-proxy and OPA it injects into agent pods: identity-proxy would overwrite the credential the server authenticates upstream with, and OPA governs agent egress, which this pod does not perform. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity. Both go when the `MCPServer` does.
+Point `spec.workload.selector` at those pod labels and Orbit handles the rest. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity.
 
-Do not set `sidecar.istio.io/inject: "false"` on these pods. The sidecar carries the mesh identity the `AuthorizationPolicy` matches on, and a tenant pod opting out of injection is denied at admission.
-
-`kubectl describe mcpserver github` reports how many pods the selector matched, so a mistyped label shows up there rather than as an unreachable server.
-
-The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. The generated policies are what keep it reachable by the tool-gateway alone; tool access is then governed by the `mcp:<server>:<tool>:use` scopes.
+The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. The generated policies and scope vocabulary are what control access to the server via the tool-gateway.
 
 ## Reference
 
