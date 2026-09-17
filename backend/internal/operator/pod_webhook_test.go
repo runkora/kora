@@ -13,6 +13,7 @@ func testMutator() *PodMutator {
 	return &PodMutator{Config: InjectionConfig{
 		SystemNamespace:         "orbit-system",
 		ImagePullSecrets:        []string{"regcred"},
+		OTLPEndpoint:            "http://otel-collector.observability.svc:4317",
 		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
 		OPAImage:                "docker.io/openpolicyagent/opa:1.15.2-envoy-static",
@@ -32,6 +33,42 @@ func sandboxLikePod() *corev1.Pod {
 			},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "sandbox-exec", Image: "x"}}},
+	}
+}
+
+// A sandbox's egress is brokered and never reaches the collector, so its
+// identity-proxy is given no endpoint rather than a target it cannot route to.
+// An agent pod, whose egress is not restricted that way, keeps it.
+func TestMutate_OTLPEndpointSkippedForSandboxes(t *testing.T) {
+	endpointOf := func(pod *corev1.Pod) string {
+		for _, c := range pod.Spec.Containers {
+			if c.Name != containerIdentityProxy {
+				continue
+			}
+			for _, e := range c.Env {
+				if e.Name == "ORBIT_OTLP_ENDPOINT" {
+					return e.Value
+				}
+			}
+		}
+		return "<absent>"
+	}
+
+	sandbox := sandboxLikePod()
+	if err := testMutator().mutate(sandbox, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := endpointOf(sandbox); got != "" {
+		t.Errorf("sandbox identity-proxy endpoint = %q, want empty", got)
+	}
+
+	agent := sandboxLikePod()
+	agent.Labels = map[string]string{}
+	if err := testMutator().mutate(agent, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := endpointOf(agent), "http://otel-collector.observability.svc:4317"; got != want {
+		t.Errorf("agent identity-proxy endpoint = %q, want %q", got, want)
 	}
 }
 

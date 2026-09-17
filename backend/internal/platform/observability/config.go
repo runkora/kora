@@ -16,12 +16,20 @@ import (
 func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
 	switch {
 	case strings.HasPrefix(endpoint, "http://"):
-		return strings.TrimSuffix(strings.TrimPrefix(endpoint, "http://"), "/"), true, nil
+		addr, insecure = strings.TrimPrefix(endpoint, "http://"), true
 	case strings.HasPrefix(endpoint, "https://"):
-		return strings.TrimSuffix(strings.TrimPrefix(endpoint, "https://"), "/"), false, nil
+		addr, insecure = strings.TrimPrefix(endpoint, "https://"), false
 	default:
 		return "", false, fmt.Errorf("otlpEndpoint %q needs an http:// or https:// scheme", endpoint)
 	}
+
+	// A bare scheme leaves nothing to dial. Rejecting it here stops the empty
+	// address reaching the gRPC client, which would fall back to its own
+	// default target instead of failing.
+	if addr = strings.TrimSuffix(addr, "/"); addr == "" {
+		return "", false, fmt.Errorf("otlpEndpoint %q has no host", endpoint)
+	}
+	return addr, insecure, nil
 }
 
 // ObservabilityConfig holds the shared observability tunables that are identical

@@ -20,7 +20,8 @@ func TestOTLPTarget(t *testing.T) {
 		"no scheme rejected":       {"collector:4317", "", false, true},
 		"empty rejected":           {"", "", false, true},
 		"unknown scheme rejected":  {"grpc://collector:4317", "", false, true},
-		"scheme without host part": {"http://", "", true, false},
+		"bare scheme rejected":     {"http://", "", false, true},
+		"bare scheme with slash":   {"https://", "", false, true},
 	}
 
 	for name, c := range cases {

@@ -17,7 +17,11 @@ import (
 
 const (
 	// Namespace labels set by TenantReconciler.ensureNamespace.
-	nsLabelRole   = "orbit.io/role"
+	nsLabelRole = "orbit.io/role"
+	// podLabelRole carries the same key on a pod. orbit-agents sets it to
+	// "sandbox" on the pods it provisions per run.
+	podLabelRole    = "orbit.io/role"
+	podRoleSandbox  = "sandbox"
 	nsLabelTenant = "orbit.io/tenant"
 
 	// Pod labels that activate the identity-proxy and OPA EnvoyFilters.
@@ -210,12 +214,19 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 		},
 	})
 
-	ensureContainer(&pod.Spec, m.identityProxyContainer())
+	// A sandbox's egress is brokered: its NetworkPolicy admits DNS, the mesh,
+	// identity, policy-service and the egress gateway, and nothing else. Handing
+	// its identity-proxy a collector it cannot route to only buys export retries.
+	otlpEndpoint := m.Config.OTLPEndpoint
+	if pod.Labels[podLabelRole] == podRoleSandbox {
+		otlpEndpoint = ""
+	}
+	ensureContainer(&pod.Spec, m.identityProxyContainer(otlpEndpoint))
 	ensureContainer(&pod.Spec, m.opaContainer())
 	return nil
 }
 
-func (m *PodMutator) identityProxyContainer() corev1.Container {
+func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Container {
 	return corev1.Container{
 		Name:            containerIdentityProxy,
 		Image:           m.Config.IdentityProxyImage,
@@ -223,7 +234,7 @@ func (m *PodMutator) identityProxyContainer() corev1.Container {
 		Env: []corev1.EnvVar{
 			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
-			{Name: "ORBIT_OTLP_ENDPOINT", Value: m.Config.OTLPEndpoint},
+			{Name: "ORBIT_OTLP_ENDPOINT", Value: otlpEndpoint},
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),

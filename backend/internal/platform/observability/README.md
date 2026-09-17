@@ -18,8 +18,12 @@ import "github.com/clear-route/orbit/internal/platform/observability"
 func main() {
     ctx := context.Background()
     
-    // Initialize OTEL from environment variables
-    shutdown, err := observability.SetupFromEnv(ctx)
+    // Service name and version are the binary's; the rest comes from config.
+    shutdown, err := observability.Setup(ctx, observability.Config{
+        ServiceName:    "my-service",
+        ServiceVersion: version,
+        Environment:    config.Environment(),
+    })
     if err != nil {
         log.Fatalf("Failed to setup observability: %v", err)
     }
@@ -49,13 +53,13 @@ Service name and version are not environment variables: each binary passes them 
 
 ## Behavior by Environment
 
-### Development Mode (`ENVIRONMENT=development`)
+### Development Mode (`APP_ENV=local`)
 - Uses **stdout exporter** with pretty-printing
 - Trace spans printed to console for immediate visibility
 - No external dependencies required
 - Best for local development and debugging
 
-### Production Mode (`ENVIRONMENT=production`)
+### Production Mode (`APP_ENV=production`)
 - **With OTLP endpoint**: Exports traces to collector via gRPC
 - **Without OTLP endpoint**: No-op mode (logs work, traces not exported)
 - Allows deployment without observability backend
@@ -77,7 +81,7 @@ go run ./cmd/identity/main.go
 
 ```bash
 # Export to local OTEL collector
-export ENVIRONMENT=production
+export APP_ENV=production
 export ORBIT_OTLP_ENDPOINT=http://localhost:4317
 go run ./cmd/identity/main.go
 
@@ -89,7 +93,7 @@ go run ./cmd/identity/main.go
 
 ```bash
 # Production mode, no trace export
-export ENVIRONMENT=production
+export APP_ENV=production
 go run ./cmd/identity/main.go
 
 # Logs work normally (with trace_id when spans present)

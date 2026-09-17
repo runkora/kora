@@ -168,7 +168,9 @@ nothing dials, or miss one that something does.
 {{- end }}
 {{- $otlpPorts := list }}
 {{- range $endpoint := $endpoints }}
-  {{- $otlpPorts = append $otlpPorts (regexFind "[0-9]+$" (trimSuffix "/" $endpoint) | default "4317") }}
+  {{- /* The colon is required: a host ending in digits is not a port. */}}
+  {{- $explicit := regexFind ":[0-9]+$" (trimSuffix "/" $endpoint) }}
+  {{- $otlpPorts = append $otlpPorts (trimPrefix ":" $explicit | default "4317") }}
 {{- end }}
 {{- $otlpPorts = $otlpPorts | uniq }}
 {{- with .Values.global.observability }}
