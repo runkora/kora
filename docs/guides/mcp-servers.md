@@ -77,9 +77,13 @@ spec:
   selector:
     app: github-mcp
   ports:
-    - port: 8000
+    - name: http               # Istio reads the protocol from this
+      appProtocol: http
+      port: 8000
       targetPort: 8000
 ```
+
+Name the Service port `http` and set `appProtocol: http`. Istio derives a port's protocol from that name, and treats an unnamed or unrecognised one as plain TCP.
 
 Point `spec.workload.selector` at those pod labels and Orbit handles the rest. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity.
 

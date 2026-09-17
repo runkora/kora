@@ -62,7 +62,12 @@ func (res mcpPolicyResult) message() string {
 // Status and re-aggregates the orbit-mcp-servers registry ConfigMap.
 type MCPServerReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
+	Scheme *runtime.Scheme
+	// PodReader counts the pods a workload selector matches. It reads through
+	// the API server rather than the manager's cache: caching pods would start
+	// a cluster-wide Pod informer, which needs a watch on every pod in the
+	// cluster to report one number per MCPServer.
+	PodReader  client.Reader
 	Aggregator *MCPServerAggregator
 	Logger     logging.Logger
 }
@@ -132,7 +137,7 @@ func (r *MCPServerReconciler) reconcilePolicies(ctx context.Context, srv *MCPSer
 	// Taken before the policies are written, so the condition reports whether
 	// anything is actually being fronted.
 	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods,
+	if err := r.PodReader.List(ctx, pods,
 		client.InNamespace(srv.Namespace),
 		client.MatchingLabels(srv.Spec.Workload.Selector),
 	); err != nil {
