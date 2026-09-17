@@ -62,7 +62,7 @@ func TestValidateMCPServerSpec(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := validateMCPServerSpec(c.spec, c.namespace)
+			err := validateMCPServerSpec(c.spec, "github", c.namespace)
 			if !errors.Is(err, c.wantErr) {
 				t.Errorf("validateMCPServerSpec = %v, want %v", err, c.wantErr)
 			}

@@ -22,6 +22,8 @@
 package operator
 
 import (
+	"maps"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -106,6 +108,42 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Enum=none;forward
 	// +optional
 	CallerIdentity string `json:"callerIdentity,omitempty"`
+
+	// Workload names the pods in this CR's namespace that serve Endpoint. It
+	// classifies them as MCP workloads: the pod webhook skips the identity-proxy
+	// and OPA injection an agent pod requires, and the operator generates the
+	// policies that let the tool-gateway reach them.
+	//
+	// Omit it for a global server or one reached at an external URL; neither has
+	// pods in this namespace to classify.
+	// See docs/adr/2026-09-17-mcp-workload-class.md.
+	// +optional
+	Workload *MCPServerWorkload `json:"workload,omitempty"`
+}
+
+// MCPServerWorkload identifies the pods serving an MCPServer's endpoint.
+type MCPServerWorkload struct {
+	// Selector matches the serving pods by label, in the CR's own namespace.
+	// +optional
+	Selector map[string]string `json:"selector,omitempty"`
+}
+
+// DeepCopyInto copies all fields into out.
+func (w *MCPServerWorkload) DeepCopyInto(out *MCPServerWorkload) {
+	*out = *w
+	if w.Selector != nil {
+		out.Selector = make(map[string]string, len(w.Selector))
+		maps.Copy(out.Selector, w.Selector)
+	}
+}
+
+// DeepCopyInto copies all fields into out.
+func (s *MCPServerSpec) DeepCopyInto(out *MCPServerSpec) {
+	*out = *s
+	if s.Workload != nil {
+		out.Workload = new(MCPServerWorkload)
+		s.Workload.DeepCopyInto(out.Workload)
+	}
 }
 
 // MCPServerStatus is reconciliation state owned by the operator — whether the
@@ -151,7 +189,7 @@ func (m *MCPServer) DeepCopyInto(out *MCPServer) {
 	*out = *m
 	out.TypeMeta = m.TypeMeta
 	m.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	out.Spec = m.Spec
+	m.Spec.DeepCopyInto(&out.Spec)
 	m.Status.DeepCopyInto(&out.Status)
 }
 

@@ -98,6 +98,20 @@ spec:
                   enum:
                     - none
                     - forward
+                workload:
+                  description: >
+                    The pods in this namespace that serve the endpoint. Naming
+                    them classifies them as MCP workloads: the operator skips the
+                    identity-proxy and OPA injection an agent pod requires, and
+                    generates the policies that let the tool-gateway reach them.
+                    Omit for a global server, or one reached at an external URL.
+                  type: object
+                  properties:
+                    selector:
+                      description: Labels matching the serving pods.
+                      type: object
+                      additionalProperties:
+                        type: string
             status:
               type: object
               properties:

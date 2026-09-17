@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -32,6 +34,29 @@ import (
 // conditionAggregated is the MCPServer status condition reporting whether the CR
 // was accepted into the registry.
 const conditionAggregated = "Aggregated"
+
+// mcpPolicyResult is what reconciling one server's policies produced. It rides
+// on the Aggregated condition's message, so a selector matching no pods is
+// visible in kubectl describe rather than silently inert.
+type mcpPolicyResult struct {
+	// applies is false for a server with no workload selector, which has no pods
+	// in this namespace to front.
+	applies bool
+	// pods is how many pods the selector matched.
+	pods int
+}
+
+func (res mcpPolicyResult) message() string {
+	const base = "rendered into the orbit-mcp-servers registry"
+	switch {
+	case !res.applies:
+		return base
+	case res.pods == 0:
+		return base + "; policies applied, but spec.workload.selector matches no pods"
+	default:
+		return fmt.Sprintf("%s; tool-gateway admitted to %d pod(s), all other callers denied", base, res.pods)
+	}
+}
 
 // MCPServerReconciler reconciles MCPServer CRs: it sets each CR's reconciliation
 // Status and re-aggregates the orbit-mcp-servers registry ConfigMap.
@@ -64,7 +89,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Validate the spec for this CR's Status. Whether valid or not we still run
 	// the aggregator: a valid server must be (re)included, and an invalid one
 	// must be excluded (e.g. it was valid before and the spec just regressed).
-	vErr := validateMCPServerSpec(srv.Spec, srv.Namespace)
+	vErr := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace)
 
 	if syncErr := r.Aggregator.Sync(ctx); syncErr != nil {
 		return ctrl.Result{}, syncErr
@@ -80,8 +105,82 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			metav1.ConditionFalse, "SpecInvalid", vErr.Error())
 	}
 
+	policies, pErr := r.reconcilePolicies(ctx, srv)
+	if pErr != nil {
+		return ctrl.Result{}, pErr
+	}
+
 	return ctrl.Result{}, r.setStatus(ctx, srv, MCPServerPhaseAggregated,
-		metav1.ConditionTrue, "Aggregated", "rendered into the orbit-mcp-servers registry")
+		metav1.ConditionTrue, "Aggregated", policies.message())
+}
+
+// reconcilePolicies applies the policies fronting a server's workload, both in
+// the CR's namespace and owned by it: ingress admitting the tool-gateway, and an
+// AuthorizationPolicy naming its principal. The gateway's own egress is a single
+// chart rule, so there is nothing to reconcile in the system namespace. A server
+// with no workload selector has no pods here, so nothing is applied.
+func (r *MCPServerReconciler) reconcilePolicies(ctx context.Context, srv *MCPServer) (mcpPolicyResult, error) {
+	if srv.Spec.Workload == nil || len(srv.Spec.Workload.Selector) == 0 {
+		return mcpPolicyResult{}, nil
+	}
+
+	port, err := srv.endpointPort()
+	if err != nil {
+		return mcpPolicyResult{}, err
+	}
+
+	// Taken before the policies are written, so the condition reports whether
+	// anything is actually being fronted.
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods,
+		client.InNamespace(srv.Namespace),
+		client.MatchingLabels(srv.Spec.Workload.Selector),
+	); err != nil {
+		return mcpPolicyResult{}, fmt.Errorf("list pods for MCPServer %q: %w", srv.Name, err)
+	}
+
+	ingress := srv.ingressPolicy(port)
+	if err := controllerutil.SetControllerReference(srv, ingress, r.Scheme); err != nil {
+		return mcpPolicyResult{}, fmt.Errorf("own ingress policy for %q: %w", srv.Name, err)
+	}
+	if err := r.apply(ctx, ingress); err != nil {
+		return mcpPolicyResult{}, err
+	}
+
+	// The NetworkPolicy alone admits the gateway's address, not its identity.
+	// Applying it without the AuthorizationPolicy would leave the server open to
+	// anything that reaches the port, so an unset trust domain fails the
+	// reconcile rather than half-applying.
+	if trustDomain == "" {
+		return mcpPolicyResult{}, fmt.Errorf(
+			"MCPServer %q needs a trust domain to name the tool-gateway's identity: set global.trustDomain", srv.Name)
+	}
+	authz := srv.authorizationPolicy(port)
+	if err := controllerutil.SetControllerReference(srv, authz, r.Scheme); err != nil {
+		return mcpPolicyResult{}, fmt.Errorf("own authorization policy for %q: %w", srv.Name, err)
+	}
+	if err := r.apply(ctx, authz); err != nil {
+		return mcpPolicyResult{}, err
+	}
+
+	return mcpPolicyResult{applies: true, pods: len(pods.Items)}, nil
+}
+
+// apply creates an operator-owned object, or merges the desired state onto the
+// one already there. A merge patch needs the object to exist, hence the create
+// first, and it leaves fields the API server owns alone.
+func (r *MCPServerReconciler) apply(ctx context.Context, obj client.Object) error {
+	err := r.Create(ctx, obj)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
+	}
+	if err := r.Patch(ctx, obj, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+		return fmt.Errorf("patch %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
+	}
+	return nil
 }
 
 // setStatus patches the MCPServer phase, LastReconciledAt and Aggregated

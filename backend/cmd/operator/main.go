@@ -52,6 +52,7 @@ func main() {
 	operator.Apply(operator.Settings{
 		SystemNamespace: oc.Current.Install.SystemNamespace,
 		IstioNamespace:  oc.Current.Install.IstioNamespace,
+		TrustDomain:     oc.Current.Install.TrustDomain,
 	})
 
 	restCfg, err := buildRestConfig(ctx, logger)

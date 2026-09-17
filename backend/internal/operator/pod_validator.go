@@ -63,6 +63,15 @@ func (v *PodValidator) rejectionReason(pod *corev1.Pod, ns *corev1.Namespace) st
 	if !hasContainer(pod, "istio-proxy") {
 		return "pod has no istio-proxy sidecar; Istio injection did not run"
 	}
+	// An MCP server pod carries neither container by design: identity-proxy
+	// would overwrite the credential it authenticates to its upstream with, and
+	// OPA governs agent egress, which this pod does not perform. The mutating
+	// webhook sets the label only for a pod a registered MCPServer selects, so
+	// a pod cannot claim the class itself
+	// (docs/adr/2026-09-17-mcp-workload-class.md).
+	if pod.Labels[podLabelMCPServer] != "" {
+		return ""
+	}
 	if !hasContainer(pod, containerIdentityProxy) {
 		return "pod has no identity-proxy container; Orbit injection did not run"
 	}
