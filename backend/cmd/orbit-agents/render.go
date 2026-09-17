@@ -10,6 +10,7 @@ import (
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/clear-route/orbit/internal/platform/observability"
 )
 
 // workloadsFile is the shape of the ConfigMap the chart renders from
@@ -56,6 +57,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
 		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
+		OTLPEndpoint:               observability.DefaultConfig.OTLPEndpoint,
 		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,

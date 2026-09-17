@@ -152,11 +152,33 @@ spec:
             matchLabels:
               orbit.io/role: tenant
 ---
+{{- /*
+Ports for the collector egress rule below, taken from every endpoint a pod in
+this namespace can actually dial: the global one, and any component overriding
+it in its own config block. Deriving them means the rule cannot open a port
+nothing dials, or miss one that something does.
+*/}}
+{{- $endpoints := list (.Values.global.observability.otlpEndpoint | default "") }}
+{{- range $name, $component := .Values }}
+  {{- if kindIs "map" $component }}
+    {{- with (dig "config" "otlpEndpoint" "" $component) }}
+      {{- $endpoints = append $endpoints . }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- $otlpPorts := list }}
+{{- range $endpoint := $endpoints }}
+  {{- /* The colon is required: a host ending in digits is not a port. */}}
+  {{- $explicit := regexFind ":[0-9]+$" (trimSuffix "/" $endpoint) }}
+  {{- $otlpPorts = append $otlpPorts (trimPrefix ":" $explicit | default "4317") }}
+{{- end }}
+{{- $otlpPorts = $otlpPorts | uniq }}
 {{- with .Values.global.observability }}
 {{- if .collectorNamespace }}
 # Traces and metrics to the collector named by global.observability.otlpEndpoint,
 # which runs outside this namespace and is otherwise dropped by default-deny.
-# The port comes from the endpoint so the two cannot disagree.
+# Ports come from the endpoints themselves, so the rule cannot disagree with
+# what the pods dial.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -174,8 +196,10 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .collectorNamespace }}
       ports:
-        - port: {{ regexFind "[0-9]+$" (.otlpEndpoint | default "") | default "4317" }}
+        {{- range $port := $otlpPorts }}
+        - port: {{ $port }}
           protocol: TCP
+        {{- end }}
 ---
 {{- end }}
 {{- end }}

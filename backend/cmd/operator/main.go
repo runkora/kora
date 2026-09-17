@@ -260,6 +260,7 @@ func initWebhooks(mgr ctrl.Manager) {
 			Config: operator.InjectionConfig{
 				SystemNamespace:         install.SystemNamespace,
 				ImagePullSecrets:        install.ImagePullSecrets,
+				OTLPEndpoint:            observability.DefaultConfig.OTLPEndpoint,
 				IdentityProxyImage:      install.Injection.IdentityProxyImage,
 				IdentityProxyPullPolicy: corev1.PullPolicy(install.Injection.IdentityProxyPullPolicy),
 				IdentityProxyResources:  install.Injection.IdentityProxyResources,
