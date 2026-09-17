@@ -20,7 +20,7 @@ export const MARKETPLACE_FIXTURES: Marketplace[] = [
 // ⟦REVIEW⟧
 
 export const PACKAGE_FIXTURES_BY_MARKETPLACE: Record<string, PackageOverview[]> = {
-  'platform-engineering/skills': [
+  'Platform Engineering': [
     {
       slug: 'platform-engineering/skills/react-expert',
       title_of_package: 'React Expert',
@@ -327,7 +327,7 @@ export const PACKAGE_FIXTURES_BY_MARKETPLACE: Record<string, PackageOverview[]> 
       description: 'Audits Terraform state for drift. Variant B.',
     },
   ],
-  'clearroute/core-skills': [
+  'ClearRoute Core': [
     {
       slug: 'clearroute/core-skills/incident-triage',
       title_of_package: 'Incident Triage',
@@ -359,7 +359,7 @@ export const PACKAGE_FIXTURES_BY_MARKETPLACE: Record<string, PackageOverview[]> 
       description: 'Drafts a customer-facing status update.',
     },
   ],
-  'clearroute/platform-skills': [
+  'ClearRoute Platform': [
     {
       slug: 'clearroute/platform-skills/incident-triage',
       title_of_package: 'Incident Triage',
@@ -371,122 +371,27 @@ export const PACKAGE_FIXTURES_BY_MARKETPLACE: Record<string, PackageOverview[]> 
       description: 'Summarises spend by environment.',
     },
   ],
-  'partner/reference-skills': [],
+  'Partner Reference': [],
 };
 // ⟦REVIEW⟧
 
-export const PACKAGE_DETAIL_FIXTURES: PackageDetail[] = [
-  {
-    slug: 'platform-engineering/skills/react-expert',
-    title_of_package: 'React Expert',
-    description: 'Senior React developer.',
-    package: {
-      path_of_package_in_repo: 'skills/react-expert/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package: '# React Expert\n\n## When to use this skill\nSenior React developer.',
-    },
-    resources_of_package: [
-      {
-        path_of_resource_in_repo: 'skills/react-expert/resources/examples.md',
-        name_of_resource: 'examples.md',
-        body_of_resource: '# examples.md\n\nExample content for React Expert.',
+
+export const PACKAGE_DETAIL_FIXTURES: PackageDetail[] = Object.entries(
+  PACKAGE_FIXTURES_BY_MARKETPLACE,
+).flatMap(([marketplaceName, skills]) =>
+  skills.map((skill) => {
+    const skillName = skill.slug.split('/')[2];
+
+    return {
+      ...skill,
+      package: {
+        path_of_package_in_repo: `skills/${skillName}/SKILL.md`,
+        name_of_package: 'SKILL.md',
+        body_of_package: `# ${skill.title_of_package}\n\n${skill.description}`,
       },
-      {
-        path_of_resource_in_repo: 'skills/react-expert/resources/patterns.md',
-        name_of_resource: 'patterns.md',
-        body_of_resource: '# patterns.md\n\nExample content for React Expert.',
-      },
-    ],
-    name_of_marketplace: 'Platform Engineering',
-  },
-  {
-    slug: 'platform-engineering/skills/react-reviewer',
-    title_of_package: 'React Reviewer',
-    description: 'Reviews React components for accessibility and state handling.',
-    package: {
-      path_of_package_in_repo: 'skills/react-reviewer/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package:
-        '# React Reviewer\n\n## When to use this skill\nReviews React components for accessibility and state handling.',
-    },
-    resources_of_package: [],
-    name_of_marketplace: 'Platform Engineering',
-  },
-  {
-    slug: 'platform-engineering/skills/terraform-audit-a',
-    title_of_package: 'Terraform Audit',
-    description: 'Audits Terraform state for drift. Variant A.',
-    package: {
-      path_of_package_in_repo: 'skills/terraform-audit-a/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package:
-        '# Terraform Audit\n\n## When to use this skill\nAudits Terraform state for drift. Variant A.',
-    },
-    resources_of_package: [
-      {
-        path_of_resource_in_repo: 'skills/terraform-audit-a/resources/examples.md',
-        name_of_resource: 'examples.md',
-        body_of_resource: '# examples.md\n\nExample content for Terraform Audit.',
-      },
-    ],
-    name_of_marketplace: 'Platform Engineering',
-  },
-  {
-    slug: 'platform-engineering/skills/terraform-audit-b',
-    title_of_package: 'Terraform Audit',
-    description: 'Audits Terraform state for drift. Variant B.',
-    package: {
-      path_of_package_in_repo: 'skills/terraform-audit-b/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package:
-        '# Terraform Audit\n\n## When to use this skill\nAudits Terraform state for drift. Variant B.',
-    },
-    resources_of_package: [
-      {
-        path_of_resource_in_repo: 'skills/terraform-audit-b/resources/examples.md',
-        name_of_resource: 'examples.md',
-        body_of_resource: '# examples.md\n\nExample content for Terraform Audit.',
-      },
-    ],
-    name_of_marketplace: 'Platform Engineering',
-  },
-  {
-    slug: 'clearroute/core-skills/incident-triage',
-    title_of_package: 'Incident Triage',
-    description: 'Triages incoming incidents by severity.',
-    package: {
-      path_of_package_in_repo: 'skills/incident-triage/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package:
-        '# Incident Triage\n\n## When to use this skill\nTriages incoming incidents by severity.',
-    },
-    resources_of_package: [
-      {
-        path_of_resource_in_repo: 'skills/incident-triage/resources/runbook.md',
-        name_of_resource: 'runbook.md',
-        body_of_resource: '# runbook.md\n\nExample content for Incident Triage.',
-      },
-    ],
-    name_of_marketplace: 'ClearRoute Core',
-  },
-  {
-    slug: 'clearroute/platform-skills/incident-triage',
-    title_of_package: 'Incident Triage',
-    description: 'Triages incoming incidents by owning team.',
-    package: {
-      path_of_package_in_repo: 'skills/incident-triage/SKILL.md',
-      name_of_package: 'SKILL.md',
-      body_of_package:
-        '# Incident Triage\n\n## When to use this skill\nTriages incoming incidents by owning team.',
-    },
-    resources_of_package: [
-      {
-        path_of_resource_in_repo: 'skills/incident-triage/resources/runbook.md',
-        name_of_resource: 'runbook.md',
-        body_of_resource: '# runbook.md\n\nExample content for Incident Triage.',
-      },
-    ],
-    name_of_marketplace: 'ClearRoute Platform',
-  },
-];
+      resources_of_package: [],
+      name_of_marketplace: marketplaceName,
+    };
+  }),
+);
 // ⟦REVIEW⟧
