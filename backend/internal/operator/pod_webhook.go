@@ -57,6 +57,10 @@ type InjectionConfig struct {
 	SystemNamespace  string
 	ImagePullSecrets []string
 
+	// OTLPEndpoint is passed to the injected identity-proxy so it exports to
+	// the same collector as the rest of the platform. Empty disables its export.
+	OTLPEndpoint string
+
 	IdentityProxyImage      string
 	IdentityProxyPullPolicy corev1.PullPolicy
 	IdentityProxyResources  corev1.ResourceRequirements
@@ -219,6 +223,7 @@ func (m *PodMutator) identityProxyContainer() corev1.Container {
 		Env: []corev1.EnvVar{
 			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
+			{Name: "ORBIT_OTLP_ENDPOINT", Value: m.Config.OTLPEndpoint},
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),

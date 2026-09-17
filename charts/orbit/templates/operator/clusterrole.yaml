@@ -15,11 +15,11 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch", "create", "patch"]
-  # Counting the pods an MCPServer's workload selector matches. Read directly,
+  # Counting the pods an MCPServer's workload selector matches. Listed directly,
   # not watched, so this starts no cluster-wide Pod cache.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
   # Sandbox egress policy in each tenant namespace, and an MCP server's ingress
   # policy. Both are owned by the CR that generated them, so deleting it is the
   # garbage collector's work rather than the operator's.

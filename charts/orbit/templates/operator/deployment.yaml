@@ -40,6 +40,10 @@ spec:
               value: /tmp
             - name: ORBIT_TRUST_DOMAIN
               value: {{ include "orbit.trustDomain" . | quote }}
+            # The operator traces its own reconciles, and passes this to the
+            # identity-proxy it injects into tenant pods.
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ .Values.global.observability.otlpEndpoint | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
               value: {{ include "orbit.systemNamespace" . | quote }}
             - name: ORBIT_ISTIO_NAMESPACE

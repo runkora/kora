@@ -40,10 +40,12 @@ The package uses environment variables for configuration:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OTEL_SERVICE_NAME` | `orbit` | Service name in traces/logs |
-| `OTEL_SERVICE_VERSION` | `dev` | Service version |
-| `ENVIRONMENT` | `development` | Environment (development/production) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | (none) | OTLP collector URL (e.g., `http://localhost:4317`); the scheme sets plaintext or TLS |
+| `APP_ENV` | `production` | Selects the config overlay and sets the `deployment.environment` attribute |
+| `ORBIT_OTLP_ENDPOINT` | (none) | OTLP collector URL (e.g., `http://localhost:4317`); the scheme sets plaintext or TLS |
+| `ORBIT_SAMPLING_RATE` | from YAML | Fraction of root spans sampled (0.0–1.0) |
+| `ORBIT_LOG_FORMAT` | from YAML | `console` or `json` |
+
+Service name and version are not environment variables: each binary passes them in its `Config`.
 
 ## Behavior by Environment
 
@@ -76,7 +78,7 @@ go run ./cmd/identity/main.go
 ```bash
 # Export to local OTEL collector
 export ENVIRONMENT=production
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export ORBIT_OTLP_ENDPOINT=http://localhost:4317
 go run ./cmd/identity/main.go
 
 # Traces sent to collector via gRPC
