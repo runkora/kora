@@ -49,6 +49,10 @@ agents:
   # Where the chart mounts the manifest patches ConfigMap. Overridden by
   # ORBIT_MANIFEST_PATCH_DIR.
   manifestPatchDir: /etc/orbit/manifest-patches
+  # Where the chart mounts the workload customization ConfigMap (placement, pod
+  # metadata, service account annotations and workspace storage). A missing file
+  # means no customization. Overridden by ORBIT_WORKLOADS_FILE.
+  workloadsFile: /etc/orbit/workloads/workloads.yaml
   sessionManager:
     postgresSSLMode: require
     # Restricts each agent pod's session-manager port to the orbit-agents

@@ -84,6 +84,14 @@ type K8sProvisionerConfig struct {
 	// applied to each provisioned resource after the default manifest is
 	// built. See docs/adr/2026-09-15-manifest-patches-configmap.md.
 	Patches []manifestpatch.Patch
+	// Workloads customizes the pods provisioned in tenant namespaces: their
+	// placement, pod metadata and service account annotations. Applied before
+	// Patches, so a patch still wins on a field both set.
+	// See docs/adr/2026-09-16-first-class-workload-placement.md.
+	Workloads WorkloadsConfig
+	// Workspace is the storage backing each agent's workspace volume, which the
+	// session-manager and every sandbox of its runs mount.
+	Workspace WorkspaceConfig
 	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
 	// each agent StatefulSet restricting its session-manager port to the
 	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
@@ -164,6 +172,16 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 	// merge and provisioning proceeds unowned so local-dev without the
 	// operator still works.
 	tenantRef := p.tenantOwnerRef(ctx, at.TenantID)
+
+	// Patches selected by this agent type's own name or labels match nothing
+	// in the startup validation, which renders a stand-in, so a sandbox pinned
+	// away from its session-manager over a ReadWriteOnce workspace is caught
+	// here instead of on the agent's first run.
+	if err := p.checkSandboxPlacement(at, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "check sandbox placement")
+		return err
+	}
 
 	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef); err != nil {
 		span.RecordError(err)
@@ -477,7 +495,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
 	}
 
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        podName,
@@ -493,6 +511,19 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			Containers:       []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
 		},
 	}
+
+	sandbox := p.cfg.Workloads.ForSandbox()
+	sandbox.applyToPodMeta(&pod.ObjectMeta)
+	sandbox.applyToPodSpec(&pod.Spec)
+
+	// Applied last, so configured placement cannot drop it: a ReadWriteOnce
+	// workspace attaches to one node, and this sandbox mounts the workspace of
+	// session-manager pod {slug}-{ordinal}.
+	if !p.cfg.Workspace.crossesNodes() {
+		requireCoLocation(&pod.Spec, fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal))
+	}
+
+	return pod
 }
 
 // imagePullSecretRefs turns configured Secret names into pod references, or
@@ -1137,8 +1168,15 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 
 func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[string]string) corev1.ServiceAccount {
 	return corev1.ServiceAccount{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+			// Cloud identity for the session-manager, which is the only pod
+			// running under this account.
+			Annotations: cloneOrNil(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations),
+		},
 	}
 }
 
@@ -1175,16 +1213,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
 	applyOwnerRef(&ss.ObjectMeta, owner)
 
-	var err error
-	ss, err = manifestpatch.Apply(ss, "StatefulSet", p.cfg.Patches)
+	ss, err := p.applyStatefulSetPatches(ss)
 	if err != nil {
-		return fmt.Errorf("apply StatefulSet patches: %w", err)
-	}
-	if len(ss.Spec.VolumeClaimTemplates) > 0 {
-		ss.Spec.VolumeClaimTemplates[0], err = manifestpatch.Apply(ss.Spec.VolumeClaimTemplates[0], "PersistentVolumeClaim", p.cfg.Patches)
-		if err != nil {
-			return fmt.Errorf("apply PersistentVolumeClaim patches: %w", err)
-		}
+		return err
 	}
 
 	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
@@ -1262,7 +1293,18 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := int32(1)
-	return appsv1.StatefulSet{
+	podAnnotations := map[string]string{
+		// The operator's pod webhook adds the SPIRE and identity-proxy
+		// wiring; Istio itself injects only the sidecar.
+		"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
+		"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
+	}
+	// Rolls the pods when the ServiceAccount's cloud identity changes, which
+	// they would otherwise pick up only on an unrelated restart.
+	if hash := serviceAccountAnnotationHash(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations); hash != "" {
+		podAnnotations[serviceAccountHashAnnotation] = hash
+	}
+	ss := appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
@@ -1271,13 +1313,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			Selector:    &metav1.LabelSelector{MatchLabels: podLabels(at)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels(at),
-					Annotations: map[string]string{
-						// The operator's pod webhook adds the SPIRE and identity-proxy
-						// wiring; Istio itself injects only the sidecar.
-						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
-						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
-					},
+					Labels:      podLabels(at),
+					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
@@ -1361,6 +1398,13 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			},
 		},
 	}
+
+	sessionManager := p.cfg.Workloads.ForSessionManager()
+	sessionManager.applyToPodMeta(&ss.Spec.Template.ObjectMeta)
+	sessionManager.applyToPodSpec(&ss.Spec.Template.Spec)
+	p.cfg.Workspace.applyToClaim(&ss.Spec.VolumeClaimTemplates[0])
+
+	return ss
 }
 
 func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map[string]string) corev1.Service {

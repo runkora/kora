@@ -1,6 +1,7 @@
-{{- if .Values.agents.imageWarmer.enabled }}
-# Keeps the sandbox image cached on every node, avoiding a cold pull inside
-# the provisioning timeout. The container only idles.
+{{- if eq (include "orbit.sandboxWarmingMode" $) "image" }}
+# Keeps the sandbox image cached on every node it runs on, avoiding a cold pull
+# inside the provisioning timeout. The container only idles.
+{{- $warming := .Values.agents.sandboxWarming }}
 {{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
 apiVersion: apps/v1
 kind: DaemonSet
@@ -16,13 +17,23 @@ spec:
       app: orbit-sandbox-image-warmer
   template:
     metadata:
+      # Orbit's own keys win the merge, and every value is quoted: label and
+      # annotation values are strings, and an unquoted `true` in values.yaml
+      # reaches the API server as a boolean.
       labels:
-        app: orbit-sandbox-image-warmer
+        {{- range $k, $v := merge (dict "app" "orbit-sandbox-image-warmer") $warming.podLabels }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
       annotations:
-        sidecar.istio.io/inject: "false"
+        {{- range $k, $v := merge (dict "sidecar.istio.io/inject" "false") $warming.podAnnotations }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
     spec:
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
-      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
+      {{- include "orbit.sandboxWarmingScheduling" (dict "root" $) | nindent 6 }}
+      {{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) }}
+      priorityClassName: {{ . }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 5
       securityContext:

@@ -154,6 +154,61 @@ priorityClassName: {{ . }}
 {{- end }}
 
 {{/*
+The validated sandbox warming mode. A typo would otherwise render no warming at
+all and look like it worked.
+*/}}
+{{- define "orbit.sandboxWarmingMode" -}}
+{{- $mode := .Values.agents.sandboxWarming.mode | default "none" -}}
+{{- if not (has $mode (list "none" "image" "capacity")) -}}
+{{- fail (printf "agents.sandboxWarming.mode is %q: expected none, image or capacity" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
+{{/*
+Scheduling for a sandbox warm-start workload: agents.sandboxWarming when set,
+else the sandbox placement, else the agents value, else the global default.
+Takes (dict "root" $).
+
+These pods exist to hold and warm the nodes sandboxes run on, so they follow
+agents.workloads.sandbox and warm capacity is never configured twice. The
+agents block places the orbit-agents Deployment, which is not where sandboxes
+run. priorityClassName is left to the caller, because the placeholder
+Deployment sets its own.
+
+With "spreadApp" and more than one replica, placeholders repel each other by
+hostname, so replicas warm that many nodes rather than stacking on one. An
+operator-supplied podAntiAffinity replaces it.
+*/}}
+{{- define "orbit.sandboxWarmingScheduling" -}}
+{{- $w := .root.Values.agents.sandboxWarming -}}
+{{- $s := .root.Values.agents.workloads.sandbox -}}
+{{- $c := .root.Values.agents -}}
+{{- $g := .root.Values.global -}}
+{{- with ($w.nodeSelector | default $s.nodeSelector | default $c.nodeSelector | default $g.nodeSelector) }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($w.tolerations | default $s.tolerations | default $c.tolerations | default $g.tolerations) }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- $affinity := ($w.affinity | default $s.affinity | default $c.affinity | default $g.affinity) | default dict -}}
+{{- if and .spreadApp (gt ($w.replicas | int) 1) (not (hasKey $affinity "podAntiAffinity")) -}}
+{{- $spread := dict "podAntiAffinity" (dict "requiredDuringSchedulingIgnoredDuringExecution" (list (dict "topologyKey" "kubernetes.io/hostname" "labelSelector" (dict "matchLabels" (dict "app" .spreadApp))))) -}}
+{{- $affinity = mergeOverwrite (deepCopy $affinity) $spread -}}
+{{- end -}}
+{{- with $affinity }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with ($w.topologySpreadConstraints | default $s.topologySpreadConstraints | default $c.topologySpreadConstraints | default $g.topologySpreadConstraints) }}
+topologySpreadConstraints:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
 Pod-level security context for the restricted Pod Security Standard. The
 seccomp profile is inherited by istio-proxy and istio-validation, neither of
 which sets its own. Takes (dict "uid" <int>).

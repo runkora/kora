@@ -36,10 +36,11 @@ var protectedPaths = [][]string{
 	{"spec", "initContainers", "*", "volumeMounts"},
 }
 
-// identityLabels select a pod for SPIRE attestation and sidecar injection.
+// IdentityLabels select a pod for SPIRE attestation and sidecar injection.
 // Changing one moves the pod off its attested identity. They are protected on
-// the resource and on the StatefulSet pod template.
-var identityLabels = []string{
+// the resource and on the StatefulSet pod template, and are equally off limits
+// to the first-class pod labels in agents.WorkloadsConfig.
+var IdentityLabels = []string{
 	"spiffe.io/agent",
 	"spiffe.io/spire-managed-identity",
 	"orbit.io/identity-proxy",
@@ -65,7 +66,7 @@ func checkProtected(built, patched []byte) error {
 			return err
 		}
 	}
-	for _, label := range identityLabels {
+	for _, label := range IdentityLabels {
 		if err := unchanged(before, after, []string{"metadata", "labels", label}); err != nil {
 			return err
 		}

@@ -22,7 +22,7 @@ The cluster must provide:
 
 - Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
 - A CNI that enforces Kubernetes `NetworkPolicy`. The `orbit` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
-- A default `ReadWriteOnce` StorageClass, or a storage-class override, for agent workspace volumes.
+- A StorageClass for agent workspace volumes, either the cluster default or one named in `agents.workspace.storageClassName`. `ReadWriteMany` when sandboxes run on their own node pool.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
 - Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst Orbit namespaces run at restricted.
@@ -61,7 +61,81 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
 - When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
 
-Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. If you have multiple StorageClasses, point Orbit at a different class with a manifest patch under `agents.manifestPatches` that targets the `PersistentVolumeClaim` kind. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
+Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. Set `agents.workspace.storageClassName`, `accessModes` and `size` to use a different class. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
+
+### Sandbox node pools
+
+Sandboxes are per-run and bursty, and they execute the agent's own code. Session-managers are long-lived and multiplex agent sessions. Giving sandboxes a node pool of their own keeps a heavy sandbox off the nodes serving concurrent live agents and sessions, and lets each pool be sized and scaled independently. It is not required to run sandboxes on separate nodes if your agents will not require heavy build or run activity, and instead use sandboxes as scratchpads. It is recommended to run sandboxes on separate nodes if your agents will do intensive work, where one run can saturate a node's CPU, memory or disk and slow sibling runs.
+
+Place each workload with `agents.workloads.sessionManager` and `agents.workloads.sandbox`. Both take `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` and `priorityClassName`:
+
+```yaml
+agents:
+  workloads:
+    sessionManager:
+      nodeSelector: { workload-tier: orbit }
+      tolerations:
+        - { key: workload-tier, operator: Equal, value: orbit, effect: NoSchedule }
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
+      tolerations:
+        - { key: workload-tier, operator: Equal, value: orbit-sandbox, effect: NoSchedule }
+  workspace:
+    storageClassName: efs
+    accessModes: [ReadWriteMany]
+```
+
+A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
+
+On a `ReadWriteOnce` workspace, Orbit pins each sandbox to the node running the session-manager replica whose workspace it mounts, since matching node selectors alone leave a pool free to place them apart. A sandbox waits for room on that node rather than starting elsewhere and failing to attach.
+
+When adopting this topology, you should do so before creating agents. A `StatefulSet`'s `volumeClaimTemplates` are immutable. An agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent requires moving its workspace data to a new claim, or deleting and recreating the agent.
+
+#### Sandbox warming
+
+When running on a dedicated pool that scales to zero, a new sandbox request has to wait for a node to boot and the image to pull. Orbit provides an out of the box sandbox warmer that provisions a low-priority placeholder pod, holding a node open with the sandbox image already cached.
+
+Warming is off by default. Enable it in the chart values:
+
+```yaml
+agents:
+  sandboxWarming:
+    mode: capacity
+    replicas: 1
+    priority: -10          # below real agent workloads
+    resources:             # reserved per replica
+      requests: { cpu: "1", memory: 4Gi }
+      limits: { cpu: "1", memory: 4Gi }
+```
+
+Placement of sandbox warmers follows `agents.workloads.sandbox`.
+
+`resources` is the capacity each placeholder reserves on a node. Leave at default, or raise to hold a larger warm node for a heavier sandbox image.
+
+`replicas` is how many warm nodes you need.
+
+`mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
+
+### Pod metadata and cloud identity for agents
+
+`agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.
+
+Orbit owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `orbit-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
+
+`agents.workloads.sessionManager.serviceAccount.annotations` annotates the ServiceAccount provisioned for each agent, which is where cloud identity goes:
+
+```yaml
+agents:
+  workloads:
+    sessionManager:
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orbit-agent
+```
+
+Sandbox pods run under the tenant namespace's `default` ServiceAccount and never receive a cloud identity. That is deliberate: the code in a sandbox is the agent's, and it reaches external systems through Connections and the egress gateway, which mint scoped short-lived credentials per request and attribute them to the run.
+
+Everything in `agents.workloads` and `agents.workspace` applies before manifest patches.
 
 ### DNS and TLS
 
