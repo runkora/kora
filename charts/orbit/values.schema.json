@@ -68,6 +68,12 @@
             },
             "collectorNamespace": {
               "type": "string"
+            },
+            "samplingRate": {
+              "type": [
+                "string",
+                "number"
+              ]
             }
           }
         }

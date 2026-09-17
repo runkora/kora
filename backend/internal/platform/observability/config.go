@@ -9,6 +9,16 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
+// SamplingRateString renders the configured sampling rate for passing to a
+// workload this process provisions or injects, so it samples at the same rate.
+// Empty when unset, which leaves that image on its own per-environment default.
+func SamplingRateString() string {
+	if DefaultConfig.SamplingRate == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*DefaultConfig.SamplingRate, 'f', -1, 64)
+}
+
 // otlpTarget splits a configured endpoint into the gRPC address and whether the
 // connection is plaintext, from the scheme alone as the OpenTelemetry SDKs do.
 // An endpoint without a scheme is rejected: guessing either fails the handshake

@@ -26,6 +26,8 @@ global:
     # The scheme sets the transport: http:// is plaintext, https:// is TLS.
     # Empty exports no traces or metrics.
     otlpEndpoint: ""
+    # Fraction of root traces sampled, 0.0 to 1.0.
+    samplingRate: ""
     # The namespace running that collector, when it runs in this cluster.
     # Setting it opens the egress the export needs, on the endpoint's port, and
     # only takes effect while networkPolicy.enabled is true. For a collector

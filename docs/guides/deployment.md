@@ -238,6 +238,7 @@ global:
   observability:
     otlpEndpoint: http://otel-collector.observability.svc:4317
     collectorNamespace: observability
+    samplingRate: "1.0"
 ```
 
 `collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty and add the collector's CIDR and port to `networkPolicy.externalServices`.
