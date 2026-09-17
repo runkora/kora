@@ -45,6 +45,11 @@ export const APP_ROUTES = {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
+  marketplace: {
+    overview: '/marketplace',
+    /** `slug` is the backend's source-qualified identifier, `org/repo/name`. */
+    detail: (slug: string) => `/marketplace/${slug}` as const,
+  },
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {

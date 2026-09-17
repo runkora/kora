@@ -1,6 +1,5 @@
 import { Skeleton, Stack } from '@orbit/terra';
 
-
 export default function MarketplaceLoading() {
   return (
     <Stack gap="comfortable">
