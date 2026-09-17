@@ -110,7 +110,15 @@ function FileCard({ name, body }: { name: string; body: string }) {
   );
 }
 
-function SourceRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function SourceRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <Stack gap="none" style={{ minWidth: 0 }}>
       <Text as="span" size="caption" color="subtle">

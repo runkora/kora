@@ -375,7 +375,6 @@ export const PACKAGE_FIXTURES_BY_MARKETPLACE: Record<string, PackageOverview[]> 
 };
 // ⟦REVIEW⟧
 
-
 export const PACKAGE_DETAIL_FIXTURES: PackageDetail[] = Object.entries(
   PACKAGE_FIXTURES_BY_MARKETPLACE,
 ).flatMap(([marketplaceName, skills]) =>

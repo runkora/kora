@@ -25,7 +25,6 @@ import { MarketplacePage } from './marketplace-page';
 import { MarketplacePagination } from './marketplace-pagination';
 import { SkillList } from './marketplace-skill-list';
 
-
 type ViewMode = 'list' | 'card';
 
 interface MarketplaceShellProps {

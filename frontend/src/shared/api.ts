@@ -842,7 +842,7 @@ export interface Marketplace {
   name: string;
   org: string;
   repo: string;
-  branch: string;
+  branch?: string | null;
 }
 
 export interface GetMarketplaces {
