@@ -1,1 +1,0 @@
-// Marketplace detail loading placeholder.
