@@ -13,15 +13,15 @@ func TestOTLPTarget(t *testing.T) {
 		wantInsecure bool
 		wantErr      bool
 	}{
-		"http is plaintext":        {"http://collector:4317", "collector:4317", true, false},
-		"https is TLS":             {"https://collector:4317", "collector:4317", false, false},
-		"trailing slash trimmed":   {"http://collector:55680/", "collector:55680", true, false},
-		"in-cluster service":       {"http://otel.observability.svc:4317", "otel.observability.svc:4317", true, false},
-		"no scheme rejected":       {"collector:4317", "", false, true},
-		"empty rejected":           {"", "", false, true},
-		"unknown scheme rejected":  {"grpc://collector:4317", "", false, true},
-		"bare scheme rejected":     {"http://", "", false, true},
-		"bare scheme with slash":   {"https://", "", false, true},
+		"http is plaintext":       {"http://collector:4317", "collector:4317", true, false},
+		"https is TLS":            {"https://collector:4317", "collector:4317", false, false},
+		"trailing slash trimmed":  {"http://collector:55680/", "collector:55680", true, false},
+		"in-cluster service":      {"http://otel.observability.svc:4317", "otel.observability.svc:4317", true, false},
+		"no scheme rejected":      {"collector:4317", "", false, true},
+		"empty rejected":          {"", "", false, true},
+		"unknown scheme rejected": {"grpc://collector:4317", "", false, true},
+		"bare scheme rejected":    {"http://", "", false, true},
+		"bare scheme with slash":  {"https://", "", false, true},
 	}
 
 	for name, c := range cases {

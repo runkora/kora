@@ -20,9 +20,9 @@ const (
 	nsLabelRole = "orbit.io/role"
 	// podLabelRole carries the same key on a pod. orbit-agents sets it to
 	// "sandbox" on the pods it provisions per run.
-	podLabelRole    = "orbit.io/role"
-	podRoleSandbox  = "sandbox"
-	nsLabelTenant = "orbit.io/tenant"
+	podLabelRole   = "orbit.io/role"
+	podRoleSandbox = "sandbox"
+	nsLabelTenant  = "orbit.io/tenant"
 
 	// Pod labels that activate the identity-proxy and OPA EnvoyFilters.
 	podLabelOPAPolicy     = "orbit.io/opa-policy"
