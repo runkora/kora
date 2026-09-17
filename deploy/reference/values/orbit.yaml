@@ -14,7 +14,8 @@ global:
     sslMode: require
     captureQueryText: false
   observability:
-    otlpInsecure: false
+    # Set to your collector, e.g. http://otel-collector.observability.svc:4317.
+    otlpEndpoint: ""
 
 frontendHost: orbit.example.com
 # publicHosts defaults to api.<frontendHost> and <frontendHost>; set to override.

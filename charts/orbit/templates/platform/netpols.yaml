@@ -152,6 +152,33 @@ spec:
             matchLabels:
               orbit.io/role: tenant
 ---
+{{- with .Values.global.observability }}
+{{- if .collectorNamespace }}
+# Traces and metrics to the collector named by global.observability.otlpEndpoint,
+# which runs outside this namespace and is otherwise dropped by default-deny.
+# The port comes from the endpoint so the two cannot disagree.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otlp-collector-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .collectorNamespace }}
+      ports:
+        - port: {{ regexFind "[0-9]+$" (.otlpEndpoint | default "") | default "4317" }}
+          protocol: TCP
+---
+{{- end }}
+{{- end }}
 # orbit-agents creates, messages and terminates the session-manager process on
 # any agent pod in any tenant; scoped to app=orbit-agents so no other
 # orbit-system pod inherits that reach.

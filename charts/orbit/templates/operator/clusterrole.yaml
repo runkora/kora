@@ -30,6 +30,10 @@ rules:
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # Names the SPIFFE SAN a caller must expect on an MCP server's workload.
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]

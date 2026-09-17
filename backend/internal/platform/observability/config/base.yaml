@@ -1,4 +1,3 @@
 otlpEndpoint: ""
 samplingRate: 1.0
-otlpInsecure: true
 logFormat: console

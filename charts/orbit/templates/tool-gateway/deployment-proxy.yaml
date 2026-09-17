@@ -47,8 +47,8 @@ spec:
           env:
             - name: ORBIT_TOOL_GATEWAY_MODE
               value: proxy
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "otlpInsecure" "default" .Values.global.observability.otlpInsecure) | quote }}
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_POSTGRES_SSL_MODE

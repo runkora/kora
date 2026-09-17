@@ -136,6 +136,67 @@ func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 	}
 }
 
+// A DestinationRule matches on the FQDN, so a short in-cluster endpoint has to
+// be expanded or the rule never applies to the call the gateway actually makes.
+func TestMCPServer_EndpointHost(t *testing.T) {
+	cases := map[string]string{
+		"http://gh.acme.svc:8000/mcp":               "gh.acme.svc.cluster.local",
+		"http://gh.acme.svc.cluster.local:8000/mcp": "gh.acme.svc.cluster.local",
+		"https://mcp.example.com/mcp":               "mcp.example.com",
+	}
+	for endpoint, want := range cases {
+		t.Run(endpoint, func(t *testing.T) {
+			srv := mcpWorkloadSrv("gh", "acme", endpoint, map[string]string{"app": "gh"})
+			got, err := srv.endpointHost()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("endpointHost = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// Istio derives the expected SAN from the destination ServiceAccount, which
+// never matches a SPIRE-issued identity, so the rule names it explicitly.
+func TestMCPServer_DestinationRule(t *testing.T) {
+	srv := mcpWorkloadSrv("github", "orbit-tenant-acme", "http://github-mcp.orbit-tenant-acme.svc:8000/mcp", map[string]string{"app": "gh"})
+
+	original := trustDomain
+	t.Cleanup(func() { trustDomain = original })
+	trustDomain = "orbit.example.com"
+
+	rule := srv.destinationRule(8000, "github-mcp.orbit-tenant-acme.svc.cluster.local")
+
+	if rule.GetKind() != "DestinationRule" || rule.GetNamespace() != "orbit-tenant-acme" {
+		t.Errorf("got %s in %q", rule.GetKind(), rule.GetNamespace())
+	}
+	spec, _ := rule.Object["spec"].(map[string]any)
+	if spec["host"] != "github-mcp.orbit-tenant-acme.svc.cluster.local" {
+		t.Errorf("host: got %v", spec["host"])
+	}
+	// The caller is in the system namespace, so a rule in the server's own
+	// namespace only reaches it when exported.
+	exportTo, _ := spec["exportTo"].([]any)
+	if len(exportTo) != 1 || exportTo[0] != "*" {
+		t.Errorf("exportTo: got %v, want [*]", exportTo)
+	}
+	settings, _ := spec["trafficPolicy"].(map[string]any)["portLevelSettings"].([]any)
+	first, _ := settings[0].(map[string]any)
+	if got := first["port"].(map[string]any)["number"]; got != int64(8000) {
+		t.Errorf("port: got %v", got)
+	}
+	tls, _ := first["tls"].(map[string]any)
+	if tls["mode"] != "ISTIO_MUTUAL" {
+		t.Errorf("tls mode: got %v", tls["mode"])
+	}
+	sans, _ := tls["subjectAltNames"].([]any)
+	if want := "spiffe://orbit.example.com/tenant/orbit-tenant-acme/service/github"; sans[0] != want {
+		t.Errorf("SAN: got %v, want %q", sans[0], want)
+	}
+}
+
 // A workload block with no selector would classify every pod in the namespace.
 func TestValidateMCPServerSpec_WorkloadSelectorRequired(t *testing.T) {
 	spec := MCPServerSpec{Endpoint: "http://gh:8000/mcp", Workload: &MCPServerWorkload{}}

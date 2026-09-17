@@ -168,6 +168,21 @@ func (r *MCPServerReconciler) reconcilePolicies(ctx context.Context, srv *MCPSer
 		return mcpPolicyResult{}, err
 	}
 
+	// Without this the caller expects the SAN Istio derives from the
+	// destination's ServiceAccount, which no SPIRE-issued identity matches, and
+	// the tool-gateway's handshake fails with a 503.
+	host, hostErr := srv.endpointHost()
+	if hostErr != nil {
+		return mcpPolicyResult{}, hostErr
+	}
+	rule := srv.destinationRule(port, host)
+	if err := controllerutil.SetControllerReference(srv, rule, r.Scheme); err != nil {
+		return mcpPolicyResult{}, fmt.Errorf("own destination rule for %q: %w", srv.Name, err)
+	}
+	if err := r.apply(ctx, rule); err != nil {
+		return mcpPolicyResult{}, err
+	}
+
 	return mcpPolicyResult{applies: true, pods: len(pods.Items)}, nil
 }
 

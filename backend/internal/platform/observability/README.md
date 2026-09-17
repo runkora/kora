@@ -43,7 +43,7 @@ The package uses environment variables for configuration:
 | `OTEL_SERVICE_NAME` | `orbit` | Service name in traces/logs |
 | `OTEL_SERVICE_VERSION` | `dev` | Service version |
 | `ENVIRONMENT` | `development` | Environment (development/production) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | (none) | OTLP collector endpoint (e.g., `localhost:4317`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (none) | OTLP collector URL (e.g., `http://localhost:4317`); the scheme sets plaintext or TLS |
 
 ## Behavior by Environment
 
@@ -76,7 +76,7 @@ go run ./cmd/identity/main.go
 ```bash
 # Export to local OTEL collector
 export ENVIRONMENT=production
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 go run ./cmd/identity/main.go
 
 # Traces sent to collector via gRPC

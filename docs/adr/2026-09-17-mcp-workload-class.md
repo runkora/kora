@@ -180,10 +180,11 @@ spec:
 
 ### Generated resources
 
-Two per `MCPServer` with a `workload.selector`, both in the CR's namespace and both owner-referenced by it, so deregistering the server removes them:
+Three per `MCPServer` with a `workload.selector`, all in the CR's namespace and all owner-referenced by it, so deregistering the server removes them:
 
 - **`NetworkPolicy`** selecting the workload, `policyTypes: [Ingress]`, admitting only the system namespace on the endpoint's port.
 - **Istio `AuthorizationPolicy`** selecting the same pods, admitting only the tool-gateway's principal.
+- **Istio `DestinationRule`** naming the SPIFFE SAN a caller must expect, with `exportTo: ["*"]` so the tool-gateway in the system namespace picks it up. Istio otherwise derives the SAN from the destination's ServiceAccount, which never matches a SPIRE-issued identity, and the caller's handshake fails with a 503 against a server that is running normally.
 
 The port comes from parsing `spec.endpoint`, defaulting to the scheme's port when absent.
 
