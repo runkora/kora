@@ -33,7 +33,7 @@ func TestEnsureAuthorizationPolicy_DisabledCreatesNothing(t *testing.T) {
 		AuthorizationPolicyEnabled: false,
 	})
 
-	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, "orbit-tenant-acme"); err != nil {
+	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, "orbit-tenant-acme", metav1.OwnerReference{}); err != nil {
 		t.Fatalf("ensureAuthorizationPolicy: %v", err)
 	}
 
@@ -53,7 +53,7 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToOrbitAgents(t *testing.T) {
 	})
 
 	const ns = "orbit-tenant-acme"
-	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, ns); err != nil {
+	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, ns, metav1.OwnerReference{}); err != nil {
 		t.Fatalf("ensureAuthorizationPolicy: %v", err)
 	}
 
@@ -114,12 +114,12 @@ func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 	at := AgentType{Slug: "coder"}
-	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme"); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}); err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
 	// Provisioning re-runs on every agent-type update; an AlreadyExists must
 	// not fail the reconcile.
-	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme"); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}); err != nil {
 		t.Fatalf("second ensure: %v", err)
 	}
 }

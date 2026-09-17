@@ -36,6 +36,11 @@ step "Deleting k3d cluster '${CLUSTER_NAME}'"
 if k3d cluster list --no-headers | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
   k3d cluster delete "${CLUSTER_NAME}"
   ok "Cluster '${CLUSTER_NAME}' deleted"
+  GENERATED="${REPO_ROOT}/deploy/reference/environments/local.generated.yaml"
+  if [ -f "${GENERATED}" ] && command -v yq >/dev/null 2>&1; then
+    yq -i 'del(.images)' "${GENERATED}"
+    ok "Cleared recorded image digests from local.generated.yaml"
+  fi
 else
   warn "Cluster '${CLUSTER_NAME}' not found — nothing to do"
 fi

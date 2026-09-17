@@ -412,9 +412,7 @@ export function deliveryDotStatus(status: string): 'healthy' | 'degraded' | 'err
  * a list into a wall.
  */
 export type DeliveryTriggerIdentity =
-  | { kind: 'name'; label: string }
-  | { kind: 'id'; label: string }
-  | { kind: 'none' };
+  { kind: 'name'; label: string } | { kind: 'id'; label: string } | { kind: 'none' };
 
 export function deliveryTriggerIdentity(d: DeliveryRow): DeliveryTriggerIdentity {
   if (d.triggerName) return { kind: 'name', label: d.triggerName };
@@ -553,8 +551,7 @@ function clip(text: string): string {
  * which is where a person goes once the summary tells them to look.
  */
 export type DeliverySummary =
-  | { kind: 'runs' | 'error' | 'runId' | 'excerpt'; text: string }
-  | { kind: 'none' };
+  { kind: 'runs' | 'error' | 'runId' | 'excerpt'; text: string } | { kind: 'none' };
 
 export function deliverySummary(row: DeliveryRow): DeliverySummary {
   const detail = deliveryDetail(row);

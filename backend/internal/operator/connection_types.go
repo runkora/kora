@@ -47,9 +47,9 @@ type Connection struct {
 // deliberately not restated here.
 type ConnectionSpec struct {
 	// Adapter selects the credential mechanism (e.g. "github_app",
-	// "passthrough"). Validated at resolve time by the gateway's adapter
-	// registry, not by the CRD schema — adding an adapter must not require a
-	// CRD bump.
+	// "kubernetes"). Validated at resolve time by the gateway's adapter
+	// registry rather than by the CRD schema, so adding an adapter does not
+	// require a CRD bump.
 	// +kubebuilder:validation:MinLength=1
 	Adapter string `json:"adapter"`
 
@@ -70,6 +70,13 @@ type ConnectionSpec struct {
 	// key is used.
 	// +optional
 	SecretKey string `json:"secretKey,omitempty"`
+
+	// CACert is the PEM certificate authority the gateway verifies this
+	// upstream against, for an upstream not signed by a public root. It
+	// belongs to the connection rather than to any adapter: the gateway owns
+	// the outbound TLS leg, and no adapter dials the upstream.
+	// +optional
+	CACert string `json:"caCert,omitempty"`
 
 	// Config is the connection's adapter-specific configuration, passed
 	// through to the gateway verbatim. For github_app the adapter parses

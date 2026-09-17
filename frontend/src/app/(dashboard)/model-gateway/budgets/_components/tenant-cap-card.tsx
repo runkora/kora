@@ -64,8 +64,8 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
           <Stack gap="snug">
             {cap.reached && (
               <Alert variant="error">
-                Tenant cap reached. Agent and service inference is blocked until the next period or
-                a raised cap. Humans continue under their individual budgets.
+                Tenant cap reached. All inference is blocked, for every principal type, until the
+                next period or a raised cap.
               </Alert>
             )}
             <Stack direction="horizontal" align="center" justify="between">
@@ -85,14 +85,13 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               showValue
             />
             <Text size="caption" color="subtle">
-              Blocks agents and services at the limit; humans accumulate spend but are never blocked
-              by the cap.
+              Blocks all inference at the limit, for every principal type, until the period resets.
             </Text>
           </Stack>
         ) : (
           <Text size="caption" color="muted">
-            No tenant cap configured. All spend in the tenant rolls up against the cap; agents and
-            services are blocked when it is reached.
+            No tenant cap configured. All spend in the tenant rolls up against the cap; every
+            principal type is blocked when it is reached.
           </Text>
         )}
       </CardContent>

@@ -626,7 +626,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ### Related Documents
 
-- [Design Session Notes](../archive/agent-control-plane-design.md) — raw design decisions and tradeoff analysis (archived)
 - [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified Principal model
 - [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) — Agent execution flow and delegation
 - [spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload identity

@@ -329,14 +329,27 @@ func TestScopes_AgentWithNoGrants(t *testing.T) {
 	}
 }
 
-func TestScopes_HumanWithRoleOnly(t *testing.T) {
-	pq := compileAndPrepareScopesQuery(t, bundleOpts{})
+// adminVocab is the registered vocabulary the derived admin role is tested
+// against; the admin holds every scope here that no other entry covers.
+func adminVocab() []*vocabulary.ScopeEntry {
+	var out []*vocabulary.ScopeEntry
+	for _, sc := range []string{
+		"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write",
+		"agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write",
+		"inference:invoke", "inference:list",
+	} {
+		out = append(out, &vocabulary.ScopeEntry{Scope: sc})
+	}
+	return out
+}
 
-	// tenant-admin is a reserved role with hardcoded scopes.
-	claims := humanClaims(testHumanID, "tenant-admin")
+func TestScopes_HumanWithRoleOnly(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{vocab: adminVocab()})
+
+	claims := humanClaims(testHumanID, "platform-admin")
 	scopes := evalScopes(t, pq, claims)
 
-	// Must contain the hardcoded tenant-admin scopes.
+	// Must contain the derived admin scopes.
 	for _, expected := range []string{
 		"platform:grants:read",
 		"platform:grants:write",
@@ -348,7 +361,7 @@ func TestScopes_HumanWithRoleOnly(t *testing.T) {
 		"agents:runs:write",
 	} {
 		if !scopeSetContains(scopes, expected) {
-			t.Errorf("expected %s in tenant-admin scopes, got %v", expected, scopes)
+			t.Errorf("expected %s in platform-admin scopes, got %v", expected, scopes)
 		}
 	}
 }
@@ -356,9 +369,10 @@ func TestScopes_HumanWithRoleOnly(t *testing.T) {
 func TestScopes_HumanWithGrantsAndRole(t *testing.T) {
 	pq := compileAndPrepareScopesQuery(t, bundleOpts{
 		grants: []*grants.Grant{humanGrant(testHumanID, "inference:invoke")},
+		vocab:  adminVocab(),
 	})
 
-	claims := humanClaims(testHumanID, "tenant-admin")
+	claims := humanClaims(testHumanID, "platform-admin")
 	scopes := evalScopes(t, pq, claims)
 
 	// Must contain both the grant scope and the role scopes.
@@ -366,7 +380,7 @@ func TestScopes_HumanWithGrantsAndRole(t *testing.T) {
 		t.Errorf("expected inference:invoke from grant, got %v", scopes)
 	}
 	if !scopeSetContains(scopes, "platform:grants:read") {
-		t.Errorf("expected platform:grants:read from tenant-admin role, got %v", scopes)
+		t.Errorf("expected platform:grants:read from platform-admin role, got %v", scopes)
 	}
 }
 
@@ -609,12 +623,12 @@ func TestAuthz_ScopeHierarchy_DifferentAction(t *testing.T) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 func TestAuthz_HumanWithRoleAllowed(t *testing.T) {
-	pq := compileAndPrepare(t, bundleOpts{})
+	pq := compileAndPrepare(t, bundleOpts{vocab: adminVocab()})
 
-	claims := humanClaims(testHumanID, "tenant-admin")
+	claims := humanClaims(testHumanID, "platform-admin")
 	allow, reason := evalLayer2(t, pq, claims, nil, "platform", []string{"grants"}, "read")
 	if !allow {
-		t.Errorf("expected tenant-admin role to allow, got deny (reason: %s)", reason)
+		t.Errorf("expected platform-admin role to allow, got deny (reason: %s)", reason)
 	}
 	if !strings.HasPrefix(reason, "role:") {
 		t.Errorf("expected role reason, got %q", reason)
@@ -640,22 +654,23 @@ func TestAuthz_CustomRole(t *testing.T) {
 
 func TestAuthz_ReservedRoleCannotBeOverridden(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
+		vocab: adminVocab(),
 		roles: []*roles.RoleEntry{
-			{TenantID: testTenantID, Role: "tenant-admin", Scopes: []string{"inference:invoke"}},
+			{TenantID: testTenantID, Role: "platform-admin", Scopes: []string{"inference:invoke"}},
 		},
 	})
 
-	claims := humanClaims(testHumanID, "tenant-admin")
+	claims := humanClaims(testHumanID, "platform-admin")
 	allow, _ := evalLayer2(t, pq, claims, nil, "platform", []string{"grants"}, "read")
 	if !allow {
-		t.Error("expected hardcoded tenant-admin to still work after override attempt")
+		t.Error("expected the derived platform-admin to still work after override attempt")
 	}
 }
 
 func TestAuthz_HumanRoleDeniedWhenDelegated(t *testing.T) {
-	pq := compileAndPrepare(t, bundleOpts{})
+	pq := compileAndPrepare(t, bundleOpts{vocab: adminVocab()})
 
-	claims := humanClaims(testHumanID, "tenant-admin")
+	claims := humanClaims(testHumanID, "platform-admin")
 	delegation := &policy.DelegationClaims{
 		Sub:                    testDelegateID,
 		DelegatorPrincipalType: "HUMAN",

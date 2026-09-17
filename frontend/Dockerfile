@@ -19,7 +19,10 @@
 # Install all workspace dependencies with a frozen lockfile.
 # Separated from the build stage so Docker layer caching skips re-installs
 # when only source files change (not package.json or pnpm-lock.yaml).
-FROM node:24-alpine AS deps
+# deps and builder run on the build platform, and only the runner stage builds
+# per target. The standalone output traces sharp for /_next/image, so pnpm
+# installs its linux musl binaries for both image architectures.
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
 
 WORKDIR /app
 
@@ -33,7 +36,7 @@ COPY src/packages/terra/package.json ./src/packages/terra/
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store/v3 \
     corepack prepare pnpm@10.32.1 --activate && \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --os=linux --cpu=x64 --cpu=arm64 --libc=musl
 
 # ── Stage 2: builder ──────────────────────────────────────────────────────────
 # Copy all source files and produce a standalone Next.js build.
@@ -82,7 +85,7 @@ RUN pnpm build
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine AS runner
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS runner
 
 WORKDIR /app
 

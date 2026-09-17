@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
 
 # SERVICE must be the name of the directory under cmd/ (e.g. identity, example).
 ARG SERVICE
@@ -20,22 +20,46 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
+# The builder runs on the native build platform and Go cross-compiles for the
+# target, so multi-arch builds never compile under QEMU emulation.
+ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/${SERVICE}
 
-# Collect every */config/*.yaml file into /configs/ maintaining the same relative
-# path structure. This means the runtime stage can do a single COPY regardless of
-# which internal packages have config dirs, and the loader sees the exact same
-# layout it sees on disk during local development.
-RUN find /app -path "*/config/*.yaml" | while read f; do \
+# Stage only the YAML config files this binary actually loads at runtime,
+# preserving relative paths under /app. Filtering to *.yaml keeps Go source
+# (config.go, etc.) out of the runtime image. Directories that do not exist
+# for a given SERVICE are tolerated silently, so config-less services
+# (orbit-shell, orbit-runtime-mcp) still build.
+#
+#   1. cmd/${SERVICE}/config          — service-owned settings.
+#   2. internal/platform/observability/config — imported by all runtime binaries.
+#   3. internal/platform/storage/config       — imported by binaries that touch
+#                                               Postgres/Redis; harmless for
+#                                               those that do not.
+#   4. internal/identity/config       — only consumed by the identity binary
+#                                       today, small enough to copy universally.
+RUN mkdir -p /configs && \
+    find /app/cmd/${SERVICE}/config \
+         /app/internal/platform/observability/config \
+         /app/internal/platform/storage/config \
+         /app/internal/identity/config \
+         -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
         cp "$f" "/configs/$rel"; \
     done
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+
+# Non-root user matching the chart securityContext (runAsUser: 65532,
+# runAsNonRoot: true, per charts/orbit/templates/*/deployment.yaml). Baking the
+# drop into the image keeps the guarantee wherever the chart is not the
+# deployment surface (direct docker run, forensics, ad-hoc orchestrators) and
+# mirrors Dockerfile.operator's user model.
+RUN addgroup -g 65532 nonroot && adduser -u 65532 -G nonroot -s /sbin/nologin -D nonroot
 
 WORKDIR /app
 
@@ -43,10 +67,12 @@ RUN apk add --no-cache ca-certificates
 
 # Config files: same relative structure as local dev so the loader resolves
 # paths identically in both environments. The staging dir from the builder
-# stage contains all */config/*.yaml files collected above.
-COPY --from=builder /configs/ ./
+# stage contains only the YAML config files this binary actually loads.
+COPY --from=builder --chown=65532:65532 /configs/ ./
 
-COPY --from=builder /orbit ./orbit
+COPY --from=builder --chown=65532:65532 /orbit ./orbit
+
+USER 65532:65532
 
 EXPOSE 8080
 CMD ["./orbit"]

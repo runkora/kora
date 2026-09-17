@@ -21,7 +21,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -43,38 +42,37 @@ var authzGatewayRego string
 //go:embed budget.rego
 var budgetRego string
 
-// DefaultRoleScopes maps OIDC role names to platform scopes.
-// The tenant-admin role is the bootstrapping exception — it grants
-// platform:grants:write without requiring a prior grant to exist.
-// Exported so the API layer can use the same set without duplication.
-//
-// The plural "triggers:*" and singular "trigger:*" scopes are a deliberate
-// split, not a typo to be tidied up: triggers:read/triggers:write are
-// management scopes over the collection (list, create, edit, delete), while
-// trigger:fire is the covering form of the per-instance scope trigger:<id>:fire.
-// Renaming either to match the other would either make fire authority
-// collection-wide by accident or make management authority per-instance.
-//
-// Fire authority is granted via the covering scope "trigger:fire" rather than
-// one scope per trigger. A covering scope keeps the action and drops the path,
-// so trigger:fire covers every trigger:<id>:fire. An admin can therefore fire
-// any trigger and — because a caller can only grant scopes they hold — delegate
-// fire permission for a single trigger to someone else. Without it the
-// per-trigger scope would be enforceable but ungrantable.
-//
-// MCP access is granted via the covering scope mcp:use rather than a
-// per-server scope (mcp:orbit:use). Under the prefix-coverage hierarchy the
-// tool-gateway enforces (see internal/toolgateway/scopes.go), mcp:use covers
-// every mcp:<server>:<tool>:use, so an admin can use any MCP server — orbit,
-// github, and any server added later — without enumerating each one here.
-// Hardcoded, and it should not stay that way: every service that declares a new
-// scope has to remember to add it here by hand, in both roles, and nothing fails
-// if it is forgotten. The policy service already receives every declared scope
-// through /routes/register, so this is a second hand-maintained copy of
-// information it already has. See #167.
-var DefaultRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:connections:read", "platform:connections:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "agents:environments:read", "agents:environments:write", "triggers:read", "triggers:write", "trigger:fire", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write", "mcp:invoke", "mcp:use"},
+// PlatformAdminRole is the one reserved role. Its scopes are not stored: they
+// are the vocabulary's covering set, derived at every compile, so a scope a
+// service registers is held by the admin with no further edit.
+const PlatformAdminRole = "platform-admin"
+
+// AdminScopes returns the covering scopes of the vocabulary: a scope is kept
+// unless a broader registered scope already implies it, so the admin holds
+// inference:use and not each model under it. Requires expansion happens
+// later, as for any role.
+func AdminScopes(vocab []*vocabulary.ScopeEntry) []string {
+	var out []string
+	for _, e := range vocab {
+		covered := false
+		for _, o := range vocab {
+			if o.Scope != e.Scope && policy.ScopeCovers(o.Scope, e.Scope) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, e.Scope)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ExpandRequires returns scopes plus every scope they transitively require in
+// vocab, the effective set the bundle grants.
+func ExpandRequires(scopes []string, vocab []*vocabulary.ScopeEntry) []string {
+	return expandRequires(scopes, requiresFromVocab(vocab))
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's
@@ -188,8 +186,8 @@ func buildRoleBudgets(roleEntries []*roles.RoleEntry) roleBudgetsDocument {
 		if e.Budget == nil {
 			continue
 		}
-		if _, reserved := DefaultRoleScopes[e.Role]; reserved {
-			continue // platform-admin / tenant-admin cannot carry budget here
+		if e.Role == PlatformAdminRole {
+			continue // the reserved role cannot carry a budget
 		}
 		doc.RoleBudgets[e.Role] = roleBudgetEntry{
 			LimitUSD:     e.Budget.LimitUSD,
@@ -576,13 +574,11 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", err
 	}
 
-	// Build roles data document: merge hardcoded platform admin roles with
-	// tenant-managed roles from the DB. Hardcoded roles take precedence so that
-	// tenant-admin and platform-admin cannot be overridden.
-	mergedRoles := make(map[string][]string, len(DefaultRoleScopes)+len(roleEntries))
-	maps.Copy(mergedRoles, DefaultRoleScopes)
+	// Roles data document: the derived admin role plus tenant-managed roles.
+	// The admin role is set first and skipped below so it cannot be overridden.
+	mergedRoles := map[string][]string{PlatformAdminRole: AdminScopes(vocabEntries)}
 	for _, e := range roleEntries {
-		if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
+		if e.Role != PlatformAdminRole {
 			mergedRoles[e.Role] = e.Scopes
 		}
 	}
@@ -740,6 +736,10 @@ func buildGatewayBundle(
 		{"vocabulary/data.json", vocabJSON},
 	}
 
+	// Expand requires here as the per-tenant bundle does; edge and sidecar
+	// must authorize on the same effective set.
+	requiresMap := requiresFromVocab(vocabEntries)
+	adminScopes := AdminScopes(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
@@ -747,7 +747,7 @@ func buildGatewayBundle(
 				ID:                 g.ID,
 				PrincipalType:      string(g.PrincipalType),
 				PrincipalID:        g.PrincipalID,
-				Scopes:             g.Scopes,
+				Scopes:             expandRequires(g.Scopes, requiresMap),
 				DelegationRequired: g.DelegationRequired,
 			})
 		}
@@ -757,12 +757,14 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		mergedRoles := make(map[string][]string, len(DefaultRoleScopes)+len(allRoles[tenantID]))
-		maps.Copy(mergedRoles, DefaultRoleScopes)
+		mergedRoles := map[string][]string{PlatformAdminRole: adminScopes}
 		for _, e := range allRoles[tenantID] {
-			if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
+			if e.Role != PlatformAdminRole {
 				mergedRoles[e.Role] = e.Scopes
 			}
+		}
+		for role, scopes := range mergedRoles {
+			mergedRoles[role] = expandRequires(scopes, requiresMap)
 		}
 		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergedRoles})
 		if err != nil {

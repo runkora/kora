@@ -5,8 +5,8 @@
 // targets pods labeled orbit.io/role=sandbox in the tenant namespace and
 // constrains their egress to:
 //
-//   - DNS (port 53) — service discovery, including resolving the gateway
-//   - The egress-gateway in orbit-system on its CONNECT port — the only
+//   - DNS (port 53): service discovery, including resolving the gateway
+//   - The egress-gateway in orbit-system on its CONNECT port: the only
 //     governed egress path
 //
 // All other egress is denied. The default-deny posture is implicit: a
@@ -64,7 +64,7 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
-				// DNS — to CoreDNS only (kube-system, k8s-app=kube-dns), NOT
+				// DNS: to CoreDNS only (kube-system, k8s-app=kube-dns), NOT
 				// 53-to-anywhere. An open 53 lets a hostile agent tunnel data
 				// out via an arbitrary upstream resolver; restricting to the
 				// in-cluster resolver removes that path (residual: CoreDNS ->
@@ -85,17 +85,16 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(53)},
 					},
 				},
-				// istiod xDS (15012). The sandbox is in the mesh; without
-				// this its Envoy sidecar can't fetch Listener/Cluster/Route
-				// config and fails its postStart probe — which in turn drags
-				// every other container in the pod down. Without xDS the
-				// pod literally cannot start.
+				// istiod xDS (15012). The sandbox is in the mesh, so its
+				// Envoy sidecar needs xDS to fetch Listener/Cluster/Route
+				// config. Without it the sidecar never becomes ready and the
+				// pod cannot start.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"kubernetes.io/metadata.name": "istio-system",
+									"kubernetes.io/metadata.name": istioNamespace,
 								},
 							},
 						},
@@ -104,12 +103,12 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(15012)},
 					},
 				},
-				// orbit-system services. The mesh sidecars (identity-proxy,
-				// opa) injected into the sandbox need to call orbit-identity
-				// (for SVID→token exchange + JWKS) and orbit-policy-service
-				// (for OPA bundle polling and route registration). These are
-				// platform-internal calls — not agent traffic — so they
-				// bypass the credential broker by design.
+				// orbit-identity and orbit-policy-service, on their own ports
+				// only: the mesh sidecars (identity-proxy for SVID→token
+				// exchange and JWKS, opa for bundle polling and route
+				// registration) call these platform-internal endpoints
+				// directly, bypassing the credential broker by design. Not
+				// agent traffic.
 				//
 				// Critically, the sandbox-exec container's user code does
 				// NOT reach orbit-system this way: the sandbox Envoy
@@ -125,7 +124,30 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 									"kubernetes.io/metadata.name": systemNamespace,
 								},
 							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"app": "orbit-identity"},
+							},
 						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(8080)},
+					},
+				},
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": systemNamespace,
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"app": "orbit-policy-service"},
+							},
+						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(8083)},
 					},
 				},
 				// NOTE: there is deliberately NO kube-API egress rule here. A
@@ -135,13 +157,13 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 				// istiod, not in the pod. An earlier `ipBlock 0.0.0.0/0` on
 				// 443/6443 (added to reach the host-networked API server)
 				// reopened the entire internet on 443 and let tools bypass the
-				// egress gateway entirely — defeating the chokepoint. If a
+				// egress gateway entirely, defeating the chokepoint. If a
 				// future component genuinely needs the API server, scope it to
 				// the resolved `kubernetes` Service ClusterIP (/32 on 443) and
-				// Endpoints (/32 on 6443) — never 0.0.0.0/0.
+				// Endpoints (/32 on 6443), never 0.0.0.0/0.
 				//
 				// The egress gateway in orbit-system. We match by namespace
-				// label + service name (via pod label) — Kubernetes
+				// label + service name (via pod label): Kubernetes
 				// NetworkPolicy does not have a native "Service" matcher,
 				// but the gateway's pods carry an app=orbit-egress-gateway
 				// label set by its chart so this selects them.

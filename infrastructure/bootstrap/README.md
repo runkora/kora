@@ -9,7 +9,7 @@ Run this **once** to create the k3d cluster. After the cluster exists, use
 
 - [k3d](https://k3d.io/) ≥ v5
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [helm](https://helm.sh/) ≥ v3.12
+- [helm](https://helm.sh/) and [helmfile](https://helmfile.readthedocs.io/)
 - Docker running with the `orbit-network` bridge network (created by `make dev-up`)
 
 ## Create the cluster
@@ -27,20 +27,17 @@ This will:
 
 ## After cluster creation
 
-Install Orbit and its full platform layer via the operator:
+Install SPIRE, Istio and Orbit from the reference Helmfile:
 
 ```bash
-make cluster-operator   # build + push orbit-operator image, install the operator
-                        # Helm chart, and apply the OrbitPlatform + OrbitTenant CRs.
-                        # The operator then drives the full release sequence:
-                        # spire-crds → spire → istio-base → istiod → gateway
-                        #   → orbit-platform → orbit
+make cluster-platform   # build + push missing images; secrets and TLS;
+                        # helmfile -e local apply from deploy/reference/
 
-make cluster-deploy     # build + push service images; create orbit-secrets;
-                        # apply workload fixtures in deploy/local/fixtures/
+make cluster-deploy     # build + push tenant images; apply OrbitTenant
+                        # resources and workload fixtures in deploy/local/
 ```
 
-See `deploy/local/README.md` for the full annotated install sequence.
+See [docs/guides/local-development.md](../../docs/guides/local-development.md) for the full annotated install sequence.
 
 
 ## What lives here vs deploy/local/
@@ -48,8 +45,8 @@ See `deploy/local/README.md` for the full annotated install sequence.
 | Concern | Location |
 |---------|----------|
 | Create / delete k3d cluster | `infrastructure/bootstrap/` (here) |
-| Operator + platform CRDs / CRs | `deploy/local/operator/`, `deploy/local/platform/`, `deploy/local/tenants/` |
-| Helm values for local overrides | `deploy/local/operator/values.yaml`, `deploy/local/platform/values.yaml` |
+| Helmfile, values and environments | `deploy/reference/` |
+| Tenant and connection resources | `deploy/local/tenants/`, `deploy/local/connections/` |
 | Non-Helm fixtures (example tenant) | `deploy/local/fixtures/` |
 
 ## Tear down

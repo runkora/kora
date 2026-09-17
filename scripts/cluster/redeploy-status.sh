@@ -33,6 +33,7 @@ SERVICES=(
   "example             orbit-example             orbit-tenant-example    deployment/orbit-example"
   "session-manager     orbit-session-manager     orbit-tenant-example    statefulset/example"
   "identity-proxy      orbit-identity-proxy      orbit-system            sidecar"
+  "migrate             orbit-migrate             orbit-system            release"
   "sandbox-exec        orbit-sandbox-exec        -                       on-demand"
 )
 
@@ -57,7 +58,7 @@ registry_digest() {
 # carries istio-proxy/identity-proxy sidecars we must not read the digest from.
 cluster_digest() {
   local namespace="$1" workload="$2" image="$3"
-  if [ "$namespace" = "-" ] || [ "$workload" = "on-demand" ] || [ "$workload" = "sidecar" ]; then
+  if [ "$namespace" = "-" ] || [ "$workload" = "on-demand" ] || [ "$workload" = "sidecar" ] || [ "$workload" = "release" ]; then
     echo ""
     return
   fi
@@ -90,7 +91,7 @@ for row in "${SERVICES[@]}"; do
   reg_short="${reg#sha256:}"; reg_short="${reg_short:0:12}"
   cluster_short="${cluster#sha256:}"; cluster_short="${cluster_short:0:12}"
 
-  if [ "$workload" = "on-demand" ] || [ "$workload" = "sidecar" ]; then
+  if [ "$workload" = "on-demand" ] || [ "$workload" = "sidecar" ] || [ "$workload" = "release" ]; then
     if [ -z "$reg" ]; then
       status="${C_DIM}— not built —${C_RESET}"
     else

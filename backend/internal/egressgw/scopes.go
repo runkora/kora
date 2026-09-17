@@ -1,14 +1,16 @@
 package egressgw
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // ServiceName is the service identity the egress gateway uses when registering
@@ -17,25 +19,20 @@ import (
 const ServiceName = "egress-gateway"
 
 // readConnectionsScope is the scope guarding the read-only connections catalog
-// (GET /api/v1/connections). It is declared and bound to the route so the
-// policy service accepts the registration with a non-empty routes list and
-// publishes the scope into the vocabulary. The read controller itself stays
-// AuthMiddleware-only (no scope-enforcement middleware) — registering the route
-// is only to satisfy the policy service and publish the connection vocabulary.
+// (GET /api/v1/connections). Binding it to the route gives the policy-service
+// registration a non-empty routes list, which it requires. The controller
+// itself stays AuthMiddleware-only, with no scope-enforcement middleware.
 const readConnectionsScope = "platform:connections:read"
 
 // writeConnectionsScope is the connection-management scope. Connections are
-// GitOps-managed CRs, so there is no write HTTP route to bind it to — but the
-// reserved tenant-admin/platform-admin roles reference it, so it must exist in
-// the vocabulary to be grantable (e.g. via a PAT). It is published as a
-// declaration-only scope (no route binding).
+// GitOps-managed CRs, so no write route binds it. The reserved
+// platform-admin roles reference it, so it must exist in the vocabulary to be
+// grantable, for instance via a PAT. It is published without a route binding.
 const writeConnectionsScope = "platform:connections:write"
 
-// ReadRoutes returns the route→scope binding for the gateway's read-only admin
-// API. It binds GET /api/v1/connections to readConnectionsScope so the
-// policy-service registration carries a non-empty routes list (an empty routes
-// list is rejected with 400 missing_required_field). This non-empty route is
-// the sole reason connections_read_controller.go is retained — see its doc.
+// ReadRoutes returns the route-to-scope binding for the gateway's read-only
+// admin API. The policy service rejects a registration whose routes list is
+// empty, so this binding must exist for the vocabulary to publish at all.
 func ReadRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/connections", Method: "GET", RequiredScope: readConnectionsScope},
@@ -54,7 +51,7 @@ func ReadScope() routescopes.ScopeDeclaration {
 }
 
 // WriteScope returns the declaration for the connection-management scope. It is
-// declaration-only (no bound route) — see writeConnectionsScope.
+// declaration-only, with no bound route. See writeConnectionsScope.
 func WriteScope() routescopes.ScopeDeclaration {
 	return routescopes.ScopeDeclaration{
 		Scope:        writeConnectionsScope,
@@ -65,29 +62,30 @@ func WriteScope() routescopes.ScopeDeclaration {
 	}
 }
 
+// scopesPerConnectionHint sizes the declaration slice up front: every
+// connection contributes the two covering parents plus at least one adapter
+// action. It is a capacity hint, never a limit.
+const scopesPerConnectionHint = 3
+
 // ConnectionScopes builds the per-connection scope vocabulary for the policy
 // service from the supplied connections and their registered adapters.
 //
-// For each connection it emits one ScopeDeclaration per action the connection's
-// adapter can classify — carrying the adapter's declared requires edges,
-// resolved to full same-connection scopes — plus the covering parents
-// "connection:<name>:read" / "connection:<name>:write", which the scope_covers
-// prefix rule makes the umbrella over every category and qualifier beneath
-// them. (The former "connection:<name>:*" wildcard entry is gone: no wildcard
-// rule exists in scope_covers, so it never authorized anything. See
-// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.) The
-// returned list is sorted by Scope so registration is order-stable across calls.
+// Each connection emits one declaration per action its adapter can classify,
+// carrying the adapter's requires edges resolved to full same-connection
+// scopes. It also emits the covering parents "connection:<name>:read" and
+// "connection:<name>:write", which the scope_covers prefix rule makes the
+// umbrella over every category and qualifier beneath them. The result is sorted
+// by Scope so registration is order-stable.
 //
-// Connections whose adapter is not in the registry are silently skipped — the
-// broker will reject calls to those connections at request time with
-// ErrUnsupportedAdapter, so it is correct to omit their scopes from the
-// vocabulary rather than register dangling entries.
+// A connection whose adapter is not registered is skipped. The broker rejects
+// calls to it with ErrUnsupportedAdapter, so publishing its scopes would leave
+// dangling vocabulary entries.
 func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
 	if registry == nil {
 		return nil
 	}
 
-	decls := make([]routescopes.ScopeDeclaration, 0, len(conns)*3) //nolint:mnd // initial capacity hint, not magic
+	decls := make([]routescopes.ScopeDeclaration, 0, len(conns)*scopesPerConnectionHint)
 	seen := make(map[string]struct{})
 
 	for _, conn := range conns {
@@ -103,8 +101,8 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 		// category (and repository qualifier) of the matching verb by prefix.
 		for _, verb := range []string{"read", "write"} {
 			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
-				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, verb),
-				ResourceType: "connection",
+				Scope:        policy.DeriveRequiredScope(resourceType, []string{conn.Name}, verb),
+				ResourceType: resourceType,
 				PathSegments: []string{conn.Name},
 				Action:       verb,
 				Description:  fmt.Sprintf("Every %s action on the %q connection, all resources (covering parent)", verb, conn.Name),
@@ -116,7 +114,8 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 		for _, action := range adapter.Actions() {
 			requires := make([]string, 0, len(action.Requires))
 			for _, r := range action.Requires {
-				requires = append(requires, fmt.Sprintf("connection:%s:%s", conn.Name, r))
+				segs, verb := connectionScopeParts(conn.Name, r)
+				requires = append(requires, policy.DeriveRequiredScope(resourceType, segs, verb))
 			}
 			// An adapter action fragment ("issues:write", "repo:read", "use")
 			// carries its own category. Split it so the stored PathSegments and
@@ -126,11 +125,11 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 			// action "issues:write". The Scope string itself is unchanged.
 			pathSegs, verb := connectionScopeParts(conn.Name, action.Action)
 			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
-				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, action.Action),
-				ResourceType: "connection",
+				Scope:        policy.DeriveRequiredScope(resourceType, pathSegs, verb),
+				ResourceType: resourceType,
 				PathSegments: pathSegs,
 				Action:       verb,
-				Description:  fmt.Sprintf("%s — %s", conn.Name, action.Description),
+				Description:  fmt.Sprintf("%s: %s", conn.Name, action.Description),
 				Requires:     requires,
 			}); fresh {
 				decls = append(decls, d)
@@ -138,21 +137,22 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 		}
 	}
 
-	sort.Slice(decls, func(i, j int) bool { return decls[i].Scope < decls[j].Scope })
+	slices.SortFunc(decls, func(a, b routescopes.ScopeDeclaration) int { return cmp.Compare(a.Scope, b.Scope) })
 	return decls
 }
 
-// connectionScopeParts splits a connection scope into the grammar's path
-// segments and final action, given the connection name and the adapter action
-// fragment. The fragment's own segments (all but its last, e.g. the "issues" of
-// "issues:write") become path suffixes after the connection name; its last
-// segment is the action. A single-word fragment ("use") yields path [name] and
-// that word as the action.
+// connectionScopeParts renders a connection scope in the grammar's shape: the
+// path segments and the final action. The fragment's category becomes a path
+// suffix after the connection name, so "issues:write" on connection "gh" is
+// path [gh, issues] with action "write". A category-less fragment ("use")
+// yields path [gh] and "use" as the action.
 func connectionScopeParts(name, actionFragment string) (path []string, action string) {
-	parts := strings.Split(actionFragment, ":")
-	action = parts[len(parts)-1]
-	path = append([]string{name}, parts[:len(parts)-1]...)
-	return path, action
+	category, verb := splitActionFragment(actionFragment)
+	path = []string{name}
+	if category != "" {
+		path = append(path, strings.Split(category, ":")...)
+	}
+	return path, verb
 }
 
 // AllScopes is the full set of scope declarations the gateway publishes: the
@@ -175,29 +175,31 @@ func dedupe(seen map[string]struct{}, d routescopes.ScopeDeclaration) (routescop
 	return d, true
 }
 
-// ScopePublisher (re)publishes the gateway's connection scope vocabulary to the
-// policy service: the connection:<name>:<action> scopes for the registered
-// connections.
+// connLister enumerates the connections whose vocabulary is being published,
+// and whose catalog the read controller serves.
+type connLister interface {
+	ListByTenant(ctx context.Context, tenantID string) ([]*credentials.Connection, error)
+}
+
+// ScopePublisher publishes the connection:<name>:<action> vocabulary to the
+// policy service. It is driven by the mounted connection registry:
 //
-// Since Amendment 3 it is driven by the mounted connection registry, not an
-// admin API:
-//   - at startup, Publish(ctx, "") registers the vocabulary for every connection
-//     across all tenants (ListByTenant("") returns ALL);
-//   - on a registry reload (a Connection CR / Secret change re-aggregated by the
-//     operator), the gateway calls Publish(ctx, "") again to republish.
+//   - at startup, Publish(ctx, "") registers every connection across all
+//     tenants, since ListByTenant("") returns all of them;
+//   - on a registry reload, the gateway republishes the same way.
 //
-// Scopes are upserted by the policy service, so republishing never disturbs an
+// The policy service upserts scopes, so republishing never disturbs an
 // unaffected entry.
 type ScopePublisher struct {
-	repo     credentials.ConnectionRepository
+	conns    connLister
 	registry *AdapterRegistry
 	client   *routescopes.Client
 	logger   logging.Logger
 }
 
 // NewScopePublisher constructs a ScopePublisher.
-func NewScopePublisher(repo credentials.ConnectionRepository, registry *AdapterRegistry, client *routescopes.Client, logger logging.Logger) *ScopePublisher {
-	return &ScopePublisher{repo: repo, registry: registry, client: client, logger: logger}
+func NewScopePublisher(conns connLister, registry *AdapterRegistry, client *routescopes.Client, logger logging.Logger) *ScopePublisher {
+	return &ScopePublisher{conns: conns, registry: registry, client: client, logger: logger}
 }
 
 // Publish lists tenantID's connections (tenantID == "" lists ALL) and registers
@@ -205,7 +207,7 @@ func NewScopePublisher(repo credentials.ConnectionRepository, registry *AdapterR
 // routescopes client retries until the identity-proxy sidecar is ready, so
 // callers run it in a goroutine.
 func (p *ScopePublisher) Publish(ctx context.Context, tenantID string) error {
-	conns, err := p.repo.ListByTenant(ctx, tenantID)
+	conns, err := p.conns.ListByTenant(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("list connections: %w", err)
 	}

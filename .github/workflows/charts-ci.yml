@@ -1,0 +1,65 @@
+name: Charts CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/go-toolchain
+      - uses: ./.github/actions/k8s-toolchain
+        with:
+          helm: true
+      - run: .github/scripts/build-chart-deps.sh
+      - run: make chart-lint
+      - run: make chart-docs-check
+
+  render:
+    name: Render (k8s ${{ matrix.k8s }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: ["1.35.0", "1.36.0", "1.37.0"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/k8s-toolchain
+        with:
+          helm: true
+          yq: true
+          kubeconform: true
+      - run: .github/scripts/build-chart-deps.sh
+      - name: Render and validate manifests
+        env:
+          K8S_VERSION: ${{ matrix.k8s }}
+        run: |
+          set -euo pipefail
+          .github/scripts/gen-crd-schemas.sh crd-schemas
+          {
+            helm template orbit-crds charts/orbit-crds -n orbit-system
+            echo '---'
+            helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml
+          } > rendered.yaml
+          # Schema coverage:
+          #   - Orbit CRs: extracted from charts/orbit-crds into crd-schemas/.
+          #   - Istio CRs (Gateway, VirtualService, DestinationRule, EnvoyFilter,
+          #     AuthorizationPolicy): pulled from the datreeio CRDs-catalog.
+          #   - CustomResourceDefinition: pulled from yannh/kubernetes-json-schema's
+          #     non-standalone dir (the standalone-strict dir omits it).
+          #   - SPIRE CRs (ClusterSPIFFEID, ClusterFederatedTrustDomain,
+          #     ClusterStaticEntry): skipped — no public JSON schema source
+          #     publishes them.
+          kubeconform -summary -strict \
+            -skip ClusterSPIFFEID,ClusterFederatedTrustDomain,ClusterStaticEntry \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location 'https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}/{{.ResourceKind}}.json' \
+            -schema-location 'https://json.schemastore.org/{{.ResourceKind}}.json' \
+            -schema-location 'crd-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            -kubernetes-version "${K8S_VERSION}" rendered.yaml

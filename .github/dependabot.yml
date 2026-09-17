@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base images are pinned by digest in the Dockerfiles so builds are
+  # reproducible; this keeps those digests moving with upstream tags.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
+    # The tags in the Dockerfiles (golang 1.26, node 24, alpine 3.23, ...)
+    # are chosen deliberately; a new major or minor is a decision, not an
+    # update. Dependabot moves only the digest and patch releases behind them.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor

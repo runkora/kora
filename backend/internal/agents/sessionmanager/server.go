@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -237,6 +238,12 @@ type CreateSessionRequest struct {
 
 // handleCreateSession starts an agent subprocess for the given run.
 // The runner type is selected based on the Framework field.
+// validRunID admits the UUIDs orbit-agents mints and nothing that could leave
+// the workspaces directory: the run ID becomes a path segment under
+// WorkspacesBasePath, so a separator or a dot-only segment would let a caller
+// place a run's files, and its Landlock scope, outside its own workspace.
+var validRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
 func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -246,6 +253,11 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	}
 	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" {
 		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, and tenant_id are required", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	if !validRunID.MatchString(req.RunID) {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}

@@ -5,6 +5,8 @@
 **Deciders:** Engineering Team
 **Technical Story:** [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) established that application manifests live in `k8s/` as raw Kustomize resources. As Orbit moves toward a model where operators deploy the platform into their own clusters via GitOps tooling (Flux, ArgoCD, Helmfile), the raw-Kustomize approach is the wrong distribution primitive. Operators need a versioned artifact with a documented values API they can override — not a copy of this repo's manifests. This ADR defines the target repository structure, two Helm charts as the distribution artifacts, and the "eat your own dog food" local deployment model.
 
+**Amended by:** [install-and-distribution-model](2026-09-04-install-and-distribution-model.md) (2026-09-04). The two-charts-plus-subcharts structure here becomes two charts with Istio and SPIRE as prerequisites rather than subcharts: `charts/orbit-platform/` folds into `charts/orbit/`, `charts/orbit-crds/` replaces the CRD templates this ADR placed in the operator chart, and publishing is no longer deferred. The three "Notes" sections on trust domain consistency and chart versioning describe the pre-amendment `deploy/local/` layout and no longer reflect the repository; see the newer ADR and `deploy/reference/` for the current model.
+
 ---
 
 ## Context
@@ -648,7 +650,7 @@ When a new platform service is introduced:
 - [ArgoCD Applications](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/)
 - [spiffe/spire Helm chart](https://github.com/spiffe/helm-charts-hardened) — `orbit-platform` sub-chart dependency
 - [istio/istiod Helm chart](https://istio.io/latest/docs/setup/install/helm/) — `orbit-platform` sub-chart dependency
-- [charts/orbit-platform/](../../charts/orbit-platform/) — Core Infrastructure Layer chart (created during implementation)
+- `charts/orbit-platform/`: Core Infrastructure Layer chart, folded into `charts/orbit/` by [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
 - [charts/orbit/](../../charts/orbit/) — Orbit services chart (created during implementation)
 - [deploy/local/](../../deploy/local/) — Local operator reference deployment (created during implementation)
 

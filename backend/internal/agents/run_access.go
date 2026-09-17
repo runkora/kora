@@ -23,15 +23,12 @@ import (
 //
 // Autonomous agents are untouched by every rule here.
 
-// Reserved platform admin roles (mirrors policyservice reservedRoles — they are
-// compiled into every bundle and cannot be redefined per tenant).
-const (
-	roleTenantAdmin   = "tenant-admin"
-	rolePlatformAdmin = "platform-admin"
-)
+// rolePlatformAdmin mirrors bundle.PlatformAdminRole: the reserved role,
+// compiled into every bundle and not redefinable per tenant.
+const rolePlatformAdmin = "platform-admin"
 
 // ErrDelegatedRunSteer is returned when someone other than the starter — a
-// tenant admin included — tries to steer (message or interrupt) a delegated
+// platform admin included — tries to steer (message or interrupt) a delegated
 // run. Messages execute with the starter's authority under the starter's name,
 // so nobody else may direct the work.
 var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person who started this run can steer it (messages execute with the starter's authority)")
@@ -40,7 +37,7 @@ var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person
 // The filter is applied in the query itself, never by trimming pages in
 // memory, so counts and ordering stay correct under any future pagination.
 type RunVisibility struct {
-	// SeeAll returns every run unfiltered. Set for tenant admins (governance
+	// SeeAll returns every run unfiltered. Set for platform admins (governance
 	// read over the whole tenant).
 	SeeAll bool
 	// Subject is the caller's verified token subject. When SeeAll is false,
@@ -53,7 +50,7 @@ type RunVisibility struct {
 // runVisibilityFromContext derives the caller's run visibility from verified
 // claims: admins see all, everyone else sees delegated runs they started.
 func runVisibilityFromContext(ctx context.Context) RunVisibility {
-	if isTenantAdmin(ctx) {
+	if isPlatformAdmin(ctx) {
 		return RunVisibility{SeeAll: true}
 	}
 	return RunVisibility{Subject: callerSubject(ctx)}
@@ -71,19 +68,18 @@ func callerSubject(ctx context.Context) string {
 	return claims.Subject
 }
 
-// isTenantAdmin reports whether the verified claims carry a reserved admin
+// isPlatformAdmin reports whether the verified claims carry a reserved admin
 // role. Roles travel as the comma-separated "roles" claim the identity service
 // stamps from the IdP — the same extraction the policy engine (extractRoles)
 // and policy-service API use. PAT tokens carry no roles claim and therefore
 // never count as admin here (fail closed to the non-admin rules).
-func isTenantAdmin(ctx context.Context) bool {
+func isPlatformAdmin(ctx context.Context) bool {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil || claims.Orbit.Claims == nil {
 		return false
 	}
 	for role := range strings.SplitSeq(claims.Orbit.Claims["roles"], ",") {
-		switch strings.TrimSpace(role) {
-		case roleTenantAdmin, rolePlatformAdmin:
+		if strings.TrimSpace(role) == rolePlatformAdmin {
 			return true
 		}
 	}
@@ -98,14 +94,14 @@ func isRunStarter(ctx context.Context, run *Run) bool {
 }
 
 // checkDelegatedRunVisibility enforces run-ownership privacy on a single run:
-// for a delegated agent, only the starter and tenant admins may read it.
+// for a delegated agent, only the starter and platform admins may read it.
 // Returns ErrNotFound on deny so existence is not leaked (the same mapping
 // loadRunForAction applies to scope denials). No-op for autonomous agents.
 func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run) error {
 	if at.IdentityMode.OrDefault() != IdentityModeDelegated {
 		return nil
 	}
-	if isRunStarter(ctx, run) || isTenantAdmin(ctx) {
+	if isRunStarter(ctx, run) || isPlatformAdmin(ctx) {
 		return nil
 	}
 	return ErrNotFound

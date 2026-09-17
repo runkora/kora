@@ -29,16 +29,11 @@ APP_ENV=production
 ### Trace Export
 
 ```bash
-# OTLP collector endpoint (gRPC)
-ORBIT_OTLP_ENDPOINT=localhost:4317
+# OTLP collector URL (gRPC)
+ORBIT_OTLP_ENDPOINT=http://localhost:4317
+# http:// is plaintext, https:// is TLS. Without a scheme the service fails to start.
 # Empty = OTLP export disabled
 # Default: from YAML (empty in base — no export unless APP_ENV=local)
-
-# Disable TLS on the OTLP connection
-ORBIT_OTLP_INSECURE=true
-# Values: "true" / "1" enable insecure; anything else keeps TLS on
-# Default: false (TLS enabled)
-# ⚠️ Only use in development/testing
 ```
 
 ### Sampling & Logging
@@ -98,13 +93,13 @@ ORBIT_SAMPLING_RATE=1.0  # Sample everything in dev (already the local default)
 - Exports to an OTLP collector (Jaeger, Tempo, etc.)
 - Triggered whenever `ORBIT_OTLP_ENDPOINT` is set, in any `APP_ENV`
 - Configurable sampling rate
-- TLS-secured connections unless `ORBIT_OTLP_INSECURE=true`
+- TLS when the endpoint is `https://`, plaintext when it is `http://`
 - Batched export for efficiency
 
 **Configuration:**
 ```bash
 APP_ENV=production
-ORBIT_OTLP_ENDPOINT=tempo.monitoring.svc.cluster.local:4317
+ORBIT_OTLP_ENDPOINT=http://tempo.monitoring.svc.cluster.local:4317
 ORBIT_SAMPLING_RATE=0.1
 ```
 
@@ -139,22 +134,21 @@ Use the stdout exporter to see traces directly in logs. This is perfect for unde
 
 ```bash
 APP_ENV=production
-ORBIT_OTLP_ENDPOINT=jaeger-collector.staging:4317
-ORBIT_OTLP_INSECURE=true  # If using internal network
+ORBIT_OTLP_ENDPOINT=http://jaeger-collector.staging:4317
 ORBIT_SAMPLING_RATE=0.5
 ```
 
-Higher sampling rate (50%) to catch issues before production. Can use insecure connection if within trusted network.
+Higher sampling rate (50%) to catch issues before production. `http://` keeps the hop plaintext, which is for a collector reached inside a trusted network or over a service mesh that encrypts it.
 
 ### Production
 
 ```bash
 APP_ENV=production
-ORBIT_OTLP_ENDPOINT=tempo.monitoring.svc.cluster.local:4317
+ORBIT_OTLP_ENDPOINT=https://tempo.monitoring.svc.cluster.local:4317
 ORBIT_SAMPLING_RATE=0.1
 ```
 
-Lower sampling rate (10%) to balance observability with cost. Always use TLS in production (leave `ORBIT_OTLP_INSECURE` unset).
+Lower sampling rate (10%) to balance observability with cost. Use `https://` in production, unless a service mesh already encrypts the hop and the collector serves plaintext.
 
 ### High-Traffic Production
 
@@ -185,8 +179,7 @@ APP_ENV=local go run ./cmd/identity
 
 # OTLP mode - verify connection to collector
 APP_ENV=production \
-ORBIT_OTLP_ENDPOINT=localhost:4317 \
-ORBIT_OTLP_INSECURE=true \
+ORBIT_OTLP_ENDPOINT=http://localhost:4317 \
 go run ./cmd/identity
 ```
 
@@ -204,7 +197,7 @@ go run ./cmd/identity
 
 **Solutions:**
 1. Verify TLS certificates are valid
-2. For internal testing, use `ORBIT_OTLP_INSECURE=true`
+2. For a collector serving plaintext, use an `http://` endpoint
 3. Check that endpoint uses correct port (4317 for gRPC, 4318 for HTTP)
 
 ### High overhead

@@ -2,70 +2,90 @@
 package operatorConfig
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
-// Config holds the operator's non-secret configuration.
-// Secrets (e.g. signing key) are passed via the platform Secret referenced
-// in the OrbitPlatform CR — the operator binary has no secrets of its own.
-//
-// Values are loaded from:
-//
-//  1. cmd/operator/config/base.yaml       — defaults
-//  2. cmd/operator/config/{env}.yaml      — env overrides (optional)
+// Config contains operator configuration.
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
 	} `yaml:"app"`
 
 	Operator struct {
-		// Namespace is the namespace the operator itself runs in.
-		// Defaults to orbit-system.
-		Namespace string `yaml:"namespace"`
-
-		// ChartDir is the path to the local charts directory.
-		// Used in local dev (charts/). In production the charts are
-		// embedded in the operator image at /etc/orbit/charts.
-		ChartDir string `yaml:"chartDir"`
-
-		// LeaderElection enables leader election for HA deployments.
+		// LeaderElection gates the reconcilers; webhooks serve from every replica.
 		LeaderElection bool `yaml:"leaderElection"`
 
-		// WebhookCertDir is the directory containing the TLS cert and key for
-		// the admission webhook server (tls.crt, tls.key). Provisioned by the
-		// Helm chart from the orbit-operator-webhook-tls Secret.
+		// WebhookCertDir is where the operator writes the serving certificate it
+		// manages (or where cert-manager mounts one).
 		WebhookCertDir string `yaml:"webhookCertDir"`
 
-		// SyncPeriod is how often the operator re-reconciles all resources
-		// even when no events are received (drift detection).
+		// SyncPeriodSecs is how often every object is re-reconciled without an event.
 		SyncPeriodSecs int `yaml:"syncPeriodSecs"`
 
 		// ShutdownTimeoutSecs is the graceful shutdown timeout.
 		ShutdownTimeoutSecs int `yaml:"shutdownTimeoutSecs"`
-
-		// OPAImage is the OPA Envoy plugin sidecar image injected into tenant pods.
-		// Override via ORBIT_OPA_IMAGE env var to patch CVEs without a code change.
-		OPAImage string `yaml:"opaImage"`
-
-		// OPALogLevel is the log level for the OPA sidecar (e.g. info, debug, error).
-		// Default: info. Override via ORBIT_OPA_LOG_LEVEL.
-		OPALogLevel string `yaml:"opaLogLevel"`
-
-		// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
-		// Override via ORBIT_BUNDLE_POLLING_MIN_DELAY.
-		BundlePollingMinDelay int `yaml:"bundlePollingMinDelay"`
-
-		// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
-		// Override via ORBIT_BUNDLE_POLLING_MAX_DELAY.
-		BundlePollingMaxDelay int `yaml:"bundlePollingMaxDelay"`
 	} `yaml:"operator"`
 
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	// Install is set from the environment; the fields are not in YAML.
+	Install Install `yaml:"-"`
+}
+
+// Install contains chart-supplied settings.
+type Install struct {
+	TrustDomain      string
+	SystemNamespace  string
+	IstioNamespace   string
+	IstioRevision    string
+	SPIREClassName   string
+	ImagePullSecrets []string
+
+	// WebhookCertManager is true when cert-manager issues the webhook certificate
+	// and the operator must not manage it.
+	WebhookCertManager bool
+
+	Injection   Injection
+	PodSecurity PodSecurity
+	Preflight   Preflight
+}
+
+// Injection describes the containers the webhook adds to every tenant pod.
+type Injection struct {
+	IdentityProxyImage      string
+	IdentityProxyPullPolicy string
+	IdentityProxyResources  corev1.ResourceRequirements
+
+	OPAImage              string
+	OPAPullPolicy         string
+	OPALogLevel           string
+	BundlePollingMinDelay int
+	BundlePollingMaxDelay int
+	OPAResources          corev1.ResourceRequirements
+}
+
+// PodSecurity holds the Pod Security Admission levels for tenant namespaces.
+type PodSecurity struct {
+	Enforce string
+	Warn    string
+	Audit   string
+}
+
+// Preflight configures prerequisite verification.
+type Preflight struct {
+	SupportedIstioMinors []string
+	Interval             time.Duration
 }
 
 // SyncPeriod returns the sync period as a time.Duration.
@@ -78,34 +98,91 @@ func (c *Config) ShutdownTimeout() time.Duration {
 	return time.Duration(c.Operator.ShutdownTimeoutSecs) * time.Second
 }
 
-// Current holds all non-secret configuration for the operator.
-// Explicit ORBIT_* env var overrides are applied after YAML loading so that
-// operators running in-cluster never need APP_ENV-based YAML branching.
+// Current is the loaded configuration: YAML defaults, then the install-time
+// environment the chart sets.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/operator", config.Environment())
-	// Allow in-cluster dev (Kind, minikube) to disable leader election without
-	// a separate APP_ENV YAML file.
 	if v := os.Getenv("ORBIT_LEADER_ELECTION"); v != "" {
 		cfg.Operator.LeaderElection = v == "true" || v == "1"
 	}
-	if v := os.Getenv("ORBIT_OPA_IMAGE"); v != "" {
-		cfg.Operator.OPAImage = v
-	}
-	if v := os.Getenv("ORBIT_OPA_LOG_LEVEL"); v != "" {
-		cfg.Operator.OPALogLevel = v
-	}
-	// Apply defaults for OPA settings if not set via YAML or env.
-	if cfg.Operator.OPAImage == "" {
-		cfg.Operator.OPAImage = "openpolicyagent/opa:1.15.2-envoy-static"
-	}
-	if cfg.Operator.OPALogLevel == "" {
-		cfg.Operator.OPALogLevel = "info"
-	}
-	if cfg.Operator.BundlePollingMinDelay == 0 {
-		cfg.Operator.BundlePollingMinDelay = 30
-	}
-	if cfg.Operator.BundlePollingMaxDelay == 0 {
-		cfg.Operator.BundlePollingMaxDelay = 60
-	}
+	cfg.Install = loadInstall()
 	return cfg
 }()
+
+func loadInstall() Install {
+	in := Install{
+		TrustDomain:        os.Getenv("ORBIT_TRUST_DOMAIN"),
+		SystemNamespace:    envOr("ORBIT_SYSTEM_NAMESPACE", "orbit-system"),
+		IstioNamespace:     envOr("ORBIT_ISTIO_NAMESPACE", "istio-system"),
+		IstioRevision:      os.Getenv("ORBIT_ISTIO_REVISION"),
+		SPIREClassName:     envOr("ORBIT_SPIRE_CLASS_NAME", "spire-system-spire"),
+		ImagePullSecrets:   splitList(os.Getenv("ORBIT_IMAGE_PULL_SECRETS")),
+		WebhookCertManager: os.Getenv("ORBIT_WEBHOOK_CERT_MANAGER") == "true",
+		Injection: Injection{
+			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),
+			IdentityProxyPullPolicy: envOr("ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY", "IfNotPresent"),
+			IdentityProxyResources:  resourcesEnv("ORBIT_INJECT_IDENTITY_PROXY_RESOURCES"),
+			OPAImage:                envOr("ORBIT_INJECT_OPA_IMAGE", "docker.io/openpolicyagent/opa:1.15.2-envoy-static"),
+			OPAPullPolicy:           envOr("ORBIT_INJECT_OPA_PULL_POLICY", "IfNotPresent"),
+			OPALogLevel:             envOr("ORBIT_OPA_LOG_LEVEL", "info"),
+			BundlePollingMinDelay:   intEnv("ORBIT_BUNDLE_POLLING_MIN_DELAY", 30),
+			BundlePollingMaxDelay:   intEnv("ORBIT_BUNDLE_POLLING_MAX_DELAY", 60),
+			OPAResources:            resourcesEnv("ORBIT_INJECT_OPA_RESOURCES"),
+		},
+		PodSecurity: PodSecurity{
+			Enforce: envOr("ORBIT_TENANT_PSA_ENFORCE", "restricted"),
+			Warn:    envOr("ORBIT_TENANT_PSA_WARN", "restricted"),
+			Audit:   envOr("ORBIT_TENANT_PSA_AUDIT", "restricted"),
+		},
+		Preflight: Preflight{
+			SupportedIstioMinors: splitList(os.Getenv("ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS")),
+			Interval:             time.Duration(max(intEnv("ORBIT_PREFLIGHT_INTERVAL_SECONDS", 300), 10)) * time.Second,
+		},
+	}
+	return in
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func intEnv(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func splitList(v string) []string {
+	var out []string
+	for part := range strings.SplitSeq(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ResourceParseErrors collects the keys resourcesEnv failed to parse, so
+// main can log them once the injected logger exists; Current is built before
+// that logger, so resourcesEnv cannot log directly.
+var ResourceParseErrors []error
+
+// resourcesEnv parses resource requirements from an environment variable.
+// Malformed JSON yields no requirements and is recorded in ResourceParseErrors
+// for main to log; the chart renders this JSON, and a chart bug is surfaced,
+// not crashed on.
+func resourcesEnv(key string) corev1.ResourceRequirements {
+	var rr corev1.ResourceRequirements
+	if v := os.Getenv(key); v != "" {
+		if err := json.Unmarshal([]byte(v), &rr); err != nil {
+			ResourceParseErrors = append(ResourceParseErrors, fmt.Errorf("%s: %w", key, err))
+		}
+	}
+	return rr
+}

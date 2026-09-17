@@ -5,7 +5,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -22,9 +27,19 @@ const relayDialTimeout = 10 * time.Second
 const relayIdleTimeout = 10 * time.Minute
 
 // serveRelay handles a CONNECT to a non-intercepted port. It opens a plain TCP
-// tunnel to the upstream and shuttles bytes both ways — no TLS termination, no
-// HTTP parsing, no credential injection — emitting open/close audit logs.
+// tunnel to the upstream and shuttles bytes both ways, with no TLS termination,
+// no HTTP parsing and no credential injection. Open and close are audit-logged.
 func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, host, port string) {
+	ctx, span := tracer.Start(ctx, "egress.relay "+host,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("server.address", host),
+			attribute.String("server.port", port),
+			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
+			attribute.String("orbit.principal_id", claims.Subject),
+		))
+	defer span.End()
+
 	target := net.JoinHostPort(host, port)
 
 	// Dial the upstream BEFORE hijack so a failure surfaces as a clean HTTP
@@ -32,6 +47,8 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	dialer := &net.Dialer{Timeout: relayDialTimeout}
 	upstream, dialErr := dialer.DialContext(ctx, "tcp", target)
 	if dialErr != nil {
+		span.RecordError(dialErr)
+		span.SetStatus(codes.Error, errRelayDial.Error())
 		h.logger.Warn(ctx, "egress relay upstream dial failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "port", Value: port},
@@ -68,12 +85,12 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	h.logger.Info(ctx, "egress relay opened",
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
-		logging.Field{Key: "principal", Value: claims.Subject},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
 	)
 
-	// Forward any bytes the tool pipelined after CONNECT (rare — clients
-	// normally wait for the 200 — but the hijacked reader may already hold them).
+	// Forward any bytes the tool pipelined after CONNECT. Clients normally wait
+	// for the 200, but the hijacked reader may already hold them.
 	if n := bufrw.Reader.Buffered(); n > 0 {
 		if pending, peekErr := bufrw.Peek(n); peekErr == nil {
 			if _, wErr := upstream.Write(pending); wErr != nil {
@@ -86,10 +103,14 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	start := time.Now()
 	sent, recv := relayTCP(clientConn, upstream, relayIdleTimeout)
 
+	span.SetAttributes(
+		attribute.Int64("orbit.relay.bytes_sent", sent),
+		attribute.Int64("orbit.relay.bytes_received", recv),
+	)
 	h.logger.Info(ctx, "egress relay closed",
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
-		logging.Field{Key: "principal", Value: claims.Subject},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
 		logging.Field{Key: "bytes_sent", Value: sent},
 		logging.Field{Key: "bytes_recv", Value: recv},
@@ -106,19 +127,19 @@ func relayTCP(client, upstream net.Conn, idle time.Duration) (sent, recv int64) 
 	c := &idleConn{Conn: client, idle: idle}
 	u := &idleConn{Conn: upstream, idle: idle}
 
-	done := make(chan struct{}, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
-		sent, _ = io.Copy(u, c) // client → upstream
+		defer wg.Done()
+		sent, _ = io.Copy(u, c) // client to upstream
 		closeWrite(upstream)
-		done <- struct{}{}
 	}()
 	go func() {
-		recv, _ = io.Copy(c, u) // upstream → client
+		defer wg.Done()
+		recv, _ = io.Copy(c, u) // upstream to client
 		closeWrite(client)
-		done <- struct{}{}
 	}()
-	<-done
-	<-done
+	wg.Wait()
 	return sent, recv
 }
 

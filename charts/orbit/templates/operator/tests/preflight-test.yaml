@@ -1,0 +1,46 @@
+# helm test entry point for the prerequisites preflight; same checks as the
+# operator's periodic run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orbit-preflight-test
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+    spiffe.io/component: operator
+    orbit.io/kube-api-client: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    sidecar.istio.io/inject: "false"
+spec:
+  serviceAccountName: orbit-operator
+  restartPolicy: Never
+  {{- include "orbit.imagePullSecrets" . | nindent 2 }}
+  securityContext:
+    {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 4 }}
+  volumes:
+    {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 4 }}
+  containers:
+    - name: preflight
+      image: {{ include "orbit.image" (dict "root" $ "name" "operator") | quote }}
+      imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "operator") }}
+      command: ["./orbit"]
+      args: ["preflight"]
+      securityContext:
+        {{- include "orbit.containerSecurityContext" (dict) | nindent 8 }}
+      env:
+        - name: ORBIT_TRUST_DOMAIN
+          value: {{ include "orbit.trustDomain" . | quote }}
+        - name: ORBIT_SYSTEM_NAMESPACE
+          value: {{ include "orbit.systemNamespace" . | quote }}
+        - name: ORBIT_ISTIO_NAMESPACE
+          value: {{ .Values.istio.namespace | quote }}
+        - name: ORBIT_ISTIO_REVISION
+          value: {{ .Values.istio.revision | quote }}
+        - name: ORBIT_SPIRE_CLASS_NAME
+          value: {{ .Values.spire.className | quote }}
+        - name: ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS
+          value: {{ join "," .Values.operator.preflight.supportedIstioMinors | quote }}
+      volumeMounts:
+        {{- include "orbit.spireVolumeMount" . | nindent 8 }}

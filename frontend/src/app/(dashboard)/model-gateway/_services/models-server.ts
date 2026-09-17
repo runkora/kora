@@ -22,8 +22,7 @@ type GatewayFetchError = { ok: false; status: number; message: string };
 export type GatewayModelsResult = { ok: true; models: ModelRow[] } | GatewayFetchError;
 
 export type GatewayRawModelsResult =
-  | { ok: true; models: ModelsListResponse['data'] }
-  | GatewayFetchError;
+  { ok: true; models: ModelsListResponse['data'] } | GatewayFetchError;
 
 async function fetchFromGateway(
   accessToken: string,

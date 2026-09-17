@@ -23,7 +23,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
           <Text size="caption" color="muted" align="center">
             {description}
           </Text>
-          {action && action}
+          {action}
         </Stack>
       </CardContent>
     </Card>

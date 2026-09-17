@@ -111,8 +111,7 @@ import type { WidgetRow } from '../_types';
 //   - RSC page: fall back to [] and pass initialError to the shell
 //   - BFF route: return an appropriate HTTP status to the client
 export type GatewayWidgetsResult =
-  | { ok: true; widgets: WidgetRow[] }
-  | { ok: false; status: number; message: string };
+  { ok: true; widgets: WidgetRow[] } | { ok: false; status: number; message: string };
 
 export async function fetchWidgetsFromGateway(accessToken: string): Promise<GatewayWidgetsResult> {
   let res: Response;

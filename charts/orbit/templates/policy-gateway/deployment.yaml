@@ -15,33 +15,32 @@ spec:
       labels:
         {{- include "orbit.policyGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.policyGateway.labels" . | nindent 8 }}
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: policy-gateway
+        {{- include "orbit.podLabels" (dict "root" $ "name" "policyGateway") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "policyGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-policy-gateway
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "policyGateway") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "policyGateway") | nindent 8 }}
       containers:
         - name: orbit-policy-gateway
-          image: "{{ .Values.policyGateway.image.repository }}:{{ include "orbit.policyGateway.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.policyGateway.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "policyGateway") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "policyGateway") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.policyGateway.config.otlpInsecure | quote }}
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.policyGateway.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "policyGateway") | nindent 12 }}
           ports:
             - name: http
               containerPort: 8084
@@ -65,6 +64,5 @@ spec:
           resources:
             {{- toYaml .Values.policyGateway.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "policyGateway") | nindent 12 }}

@@ -18,8 +18,6 @@ GOLINT=golangci-lint
 # Project directories
 BACKEND_DIR=./backend
 FRONTEND_DIR=./frontend
-CMD_DIR=./backend/cmd/orbit
-MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 
 # Binary output
 BINARY_DIR=.bin
@@ -27,7 +25,6 @@ BINARY_DIR=.bin
 # Tool versions (pin for reproducible installs)
 GITLEAKS_VERSION=v8.27.2
 GOLANGCI_LINT_VERSION=v2.11.3
-GOOSE_VERSION=v3.24.1
 NODE_VERSION=24
 PNPM_VERSION=10.32.1
 PROTOC_GEN_GO_VERSION=v1.36.11
@@ -225,10 +222,8 @@ worktree-list: ## List all active worktrees
 	@git worktree list
 
 .PHONY: install-tools
-install-tools: ## Install development tools (goose, golangci-lint, gitleaks, buf, protoc-gen-go)
+install-tools: ## Install development tools (golangci-lint, gitleaks, buf, protoc-gen-go)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
-	@echo "  Installing goose $(GOOSE_VERSION)..."
-	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	@echo "  Installing protoc-gen-go $(PROTOC_GEN_GO_VERSION)..."
 	@$(GOCMD) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	@echo "  Installing protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION)..."
@@ -284,12 +279,6 @@ check-tool-versions: ## Verify installed tool versions match pinned versions in 
 	else \
 		echo "  $(COLOR_YELLOW)⚠ gitleaks: installed=$${INSTALLED:-none}  expected=$(GITLEAKS_VERSION) — run: make install-tools$(COLOR_RESET)"; \
 	fi
-	@INSTALLED=$$(goose --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$INSTALLED" = "$(GOOSE_VERSION)" ]; then \
-		echo "  $(COLOR_GREEN)✓ goose $$INSTALLED$(COLOR_RESET)"; \
-	else \
-		echo "  $(COLOR_YELLOW)⚠ goose: installed=$${INSTALLED:-none}  expected=$(GOOSE_VERSION) — run: make install-tools$(COLOR_RESET)"; \
-	fi
 	@. scripts/cluster/versions.env && \
 	INSTALLED=$$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$${HELM_VERSION}" ]; then \
@@ -327,7 +316,17 @@ db-reset: ## DESTRUCTIVE: destroy the Postgres volume and recreate it. Every loc
 	@echo "$(COLOR_YELLOW)Resetting database...$(COLOR_RESET)"
 	@docker compose down -v
 	@docker compose up -d --wait postgres
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ Database reset complete$(COLOR_RESET)"
+
+# Helmfile only upgrades a release whose rendered output changed, and the
+# migrate hook only runs on an upgrade. After the database is destroyed the
+# chart is unchanged, so an annotation on the Job carries the reset time; the
+# next `make up` renders a different Job and the hook re-applies the schema.
+.PHONY: schema-reset-marker
+schema-reset-marker:
+	@[ -f deploy/reference/environments/local.generated.yaml ] || echo "{}" > deploy/reference/environments/local.generated.yaml
+	@yq -i '.migrate.podAnnotations."orbit.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
 
 .PHONY: db-logs
 db-logs: ## Show database logs
@@ -337,35 +336,21 @@ db-logs: ## Show database logs
 db-shell: ## Open a psql shell to the database
 	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
 
-# Collect all per-service migration files into a temp directory for local dev.
-# Each service owns its migrations under backend/cmd/{service}/migrations/.
-# Goose orders them by timestamp prefix so cross-service ordering is preserved.
-COLLECT_MIGRATIONS = \
-	MIGRATIONS_TEMP=$$(mktemp -d); \
-	find backend/cmd -path '*/migrations/*.sql' -exec cp {} "$$MIGRATIONS_TEMP/" \; ;
-
-.PHONY: migrate-up
-migrate-up: ## Run all database migrations up (collects all per-service migrations)
-	@echo "$(COLOR_YELLOW)Running migrations up...$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" up; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
-	@echo "$(COLOR_GREEN)✓ Migrations up complete$(COLOR_RESET)"
-
-.PHONY: migrate-down
-migrate-down: ## Roll back the last database migration
-	@echo "$(COLOR_YELLOW)Rolling back last migration...$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" down; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
-	@echo "$(COLOR_GREEN)✓ Migration rolled back$(COLOR_RESET)"
+# cmd/migrate embeds every service's migrations and is what the chart runs as a
+# pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
+# runs through `go run` against the compose Postgres.
+MIGRATE_ENV = APP_ENV=local DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_NAME=$(DB_NAME) DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) ORBIT_POSTGRES_SSL_MODE=disable ORBIT_LOG_FORMAT=console
+MIGRATE = cd $(BACKEND_DIR) && $(MIGRATE_ENV) $(GOCMD) run ./cmd/migrate
 
 .PHONY: migrate-status
-migrate-status: ## Show migration status
-	@echo "$(COLOR_YELLOW)Migration status:$(COLOR_RESET)"
-	@$(COLLECT_MIGRATIONS) \
-		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" status; \
-		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
+migrate-status: ## Show applied and pending migrations against the local Postgres
+	@$(MIGRATE) status
+
+.PHONY: migrate-lint
+migrate-lint: ## Check every migration against the content rule (DDL only, own tables, coupled backfills)
+	@echo "$(COLOR_YELLOW)Linting migrations...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate lint
+	@echo "$(COLOR_GREEN)✓ Migrations pass the content rule$(COLOR_RESET)"
 
 .PHONY: migrate-create
 migrate-create: ## Create a new migration (usage: make migrate-create service=identity name=migration_name)
@@ -374,13 +359,29 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 		echo "$(COLOR_YELLOW)  e.g. make migrate-create service=identity name=add_sessions_index$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	@if [ ! -d "backend/cmd/$(service)/migrations" ]; then \
-		echo "$(COLOR_RED)Error: backend/cmd/$(service)/migrations does not exist$(COLOR_RESET)"; \
-		exit 1; \
-	fi
-	@echo "$(COLOR_YELLOW)Creating migration for service '$(service)': $(name)$(COLOR_RESET)"
-	@goose -dir backend/cmd/$(service)/migrations create $(name) sql
+	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate create --service $(service) $(name)
 	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
+
+# The migrate image is rebuilt and the orbit release re-applied only when the
+# migration files changed since the last push. redeploy.sh records the content
+# hash beside the digest in local.generated.yaml. A redeploy of any service on
+# a branch that added a migration fires the hook before the service boots
+# against the stale schema.
+.PHONY: redeploy-migrate-if-changed
+redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit release when the migration files changed
+	@HASH=$$(bash scripts/cluster/migrations-hash.sh); \
+	RECORDED=$$(yq -r '.migrate.sourceHash // ""' deploy/reference/environments/local.generated.yaml 2>/dev/null); \
+	if [ "$$HASH" = "$$RECORDED" ]; then \
+		echo "$(COLOR_BLUE)ℹ migrations unchanged ($$HASH), migrate image not rebuilt$(COLOR_RESET)"; \
+	elif [ -n "$(NO_BUILD)$(BUILD_ONLY)" ]; then \
+		echo "$(COLOR_RED)✗ migrations changed; NO_BUILD and BUILD_ONLY cannot apply them. Run: make redeploy-migrate$(COLOR_RESET)"; exit 1; \
+	else \
+		bash scripts/cluster/redeploy.sh migrate; \
+	fi
+
+.PHONY: redeploy-migrate
+redeploy-migrate: ## Rebuild the migrate image and re-apply the orbit release so the schema hook runs
+	@bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS)
 
 # ===========================================
 # Backing services (Postgres, Redis, Dex, glauth) via docker-compose
@@ -415,6 +416,7 @@ dev-down: ## Stop Postgres + Redis
 dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Stopping local services and removing volumes...$(COLOR_RESET)"
 	@docker compose down -v
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
 
 # ===========================================
@@ -422,7 +424,7 @@ dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. 
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile, helm-diff)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
@@ -432,14 +434,14 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 # Each composes the granular recipes below.
 # ===========================================
 
-# dev-cluster starts the compose services first, so migrations can run before the
-# operator brings up services that expect their tables to exist.
+# The schema is applied by the orbit chart's pre-install hook during
+# cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster migrate-up cluster-operator cluster-deploy ## Bring up everything: backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants. Idempotent.
+up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + Orbit (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
-	@echo "  Frontend:          https://orbit.local.clearroute.io:8443"
-	@echo "  Inference gateway: https://api.orbit.local.clearroute.io:8443/v1"
+	@echo "  Dashboard:   https://orbit.local.clearroute.io"
+	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo ""
 	@echo "$(COLOR_BLUE)Next: 'make auth' for a token, 'make redeploy SERVICE=<name>' to iterate$(COLOR_RESET)"
 
@@ -459,7 +461,7 @@ auth: auth-device-k3d ## Authenticate against the cluster (Device Authorization 
 auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/orbit_credentials.json
 
 .PHONY: dev-cluster
-dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-operator' next.
+dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-platform' next.
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-up.sh
 
@@ -473,7 +475,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers operator \
+	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
 	session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
@@ -525,7 +527,7 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 # Cluster bring-up + bulk operations
 # ===========================================
 
-# Build + push every platform image in BUILD_ONLY mode. Used by cluster-operator
+# Build + push every platform image in BUILD_ONLY mode; used by cluster-platform.
 # and cluster-update — anything that needs the local registry seeded but does
 # its own restart logic later. Serial by default (parallel builds overload
 # low-spec Docker VMs and cascade into mesh/Postgres failures). On machines
@@ -597,7 +599,7 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
-	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers \
+	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
 	orbit-operator orbit-session-manager orbit-sandbox-exec
 
 .PHONY: redeploy-platform-bake
@@ -611,7 +613,7 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
-		printf 'FROM localhost:5001/orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
+		printf 'FROM localhost:5001/orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
 			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
 		docker tag localhost:5001/orbit-identity:latest "localhost:5001/orbit-identity:$$GIT_SHA"; \
 	fi; \
@@ -662,58 +664,30 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
-.PHONY: cluster-operator
-cluster-operator: redeploy-platform-missing docker-pull-third-party ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
-	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
-	@$(MAKE) cluster-operator-chart
-	@echo "$(COLOR_YELLOW)Applying OrbitPlatform CR...$(COLOR_RESET)"
-	@kubectl apply -f deploy/local/orbit-platform.yaml
-	@echo "  Waiting for orbit-system namespace (created by operator)..."
-	@until kubectl get namespace orbit-system &>/dev/null; do sleep 3; done
+.PHONY: cluster-platform
+cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
+	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
+	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
+	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set ORBIT_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
+	 fi
+	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
+	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
-	@echo "$(COLOR_YELLOW)Resolving Docker container IPs and patching OrbitPlatform CR...$(COLOR_RESET)"
-	@bash scripts/cluster/resolve-docker-ips.sh
-	@echo "$(COLOR_YELLOW)Waiting for SPIRE + Istio (operator is installing)...$(COLOR_RESET)"
-	@echo "  Waiting for spire-system namespace..."
-	@until kubectl get namespace spire-system &>/dev/null; do sleep 3; done
-	@echo "  Waiting for spire-agent daemonset..."
-	@until kubectl get daemonset spire-agent -n spire-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status daemonset/spire-agent -n spire-system --timeout=300s
-	@echo "  Waiting for istio-system namespace..."
-	@until kubectl get namespace istio-system &>/dev/null; do sleep 3; done
-	@echo "  Waiting for istiod deployment..."
-	@until kubectl get deployment istiod -n istio-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
-	@echo "$(COLOR_YELLOW)Creating TLS secret for Istio gateway...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Creating TLS secret for the Orbit ingress gateway...$(COLOR_RESET)"
 	@$(MAKE) cluster-tls-secret
-	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
-	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
-	@echo "  Waiting for orbit-frontend (operator reconciling orbit chart)..."
-	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
+	@echo "$(COLOR_YELLOW)Resolving Docker container IPs...$(COLOR_RESET)"
+	@bash scripts/cluster/resolve-docker-ips.sh
+	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
+	@cd deploy/reference && helmfile -e local apply
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
-	@echo "  Frontend:          https://orbit.local.clearroute.io:8443"
-	@echo "  Inference gateway: https://api.orbit.local.clearroute.io:8443/v1"
+	@echo "  Dashboard:   https://orbit.local.clearroute.io"
+	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
-
-.PHONY: cluster-operator-chart
-cluster-operator-chart: ## helm upgrade --install the operator chart (CRDs + operator deployment)
-	@# --force-conflicts: redeploy.sh pins the operator image with `kubectl set image`,
-	@# which takes server-side-apply ownership of .image away from helm. Without this
-	@# flag every upgrade after a redeploy fails with a field-manager conflict, so
-	@# chart/CRD changes never land. Helm reclaims the field and resets it to :latest;
-	@# callers re-pin the digest afterwards.
-	@helm upgrade --install orbit-operator charts/orbit-operator \
-		-f deploy/local/operator-values.yaml \
-		--namespace orbit-operator --create-namespace \
-		--server-side=true \
-		--force-conflicts \
-		--timeout 90s --wait
 
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)
@@ -724,7 +698,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
 	@echo "  Waiting for the operator to write the tenant registry ConfigMap..."
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
-	@# orbit-identity boots before the tenant exists (cluster-operator runs first) and
+	@# orbit-identity boots before the tenant exists (cluster-platform runs first) and
 	@# builds its OIDC providers at startup. It watches the ConfigMap, but the fsnotify
 	@# watcher dies with "too many open files" when the host's inotify limits are low,
 	@# leaving federated auth disabled and `make auth` failing with oidc_not_configured.
@@ -744,7 +718,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
-	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token — skipping Kubernetes connection; create it to enable)"
+	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
 	@if [ -f secrets/orbit-github-app.pem ]; then \
 		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
@@ -761,8 +735,9 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Upgrading the operator chart (picks up CRD + template changes)...$(COLOR_RESET)"
-	@$(MAKE) cluster-operator-chart
+	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
+	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
+	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
 	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
 	@# `kubectl rollout restart` is NOT enough: redeploy.sh pins workloads to an
@@ -782,6 +757,10 @@ cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image
 		bash scripts/cluster/redeploy.sh $$svc --no-build || exit $$?; \
 	done
 	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
+
+.PHONY: cluster-k8s-connection
+cluster-k8s-connection: ## Register the local k3d cluster as a Kubernetes connection for the example tenant
+	@bash scripts/cluster/register-k8s-connection.sh
 
 .PHONY: cluster-bedrock-creds
 cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
@@ -812,12 +791,10 @@ REDEPLOY_FLAGS := \
 
 .PHONY: redeploy
 redeploy: ## Rebuild and roll every service. SERVICE=<name> narrows it to one (see: make redeploy-list)
-	@# Pull a branch that adds a migration, redeploy, and the service would boot
-	@# against a stale schema with nothing saying why. A no-op migrate-up costs
-	@# ~0.1s, so the inner loop just keeps the schema current. Skipped when
-	@# Postgres is down, so redeploy.sh's preflight can give the better message.
-	@if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx orbit-postgres; then \
-		$(MAKE) --no-print-directory migrate-up; \
+	@# A single-service redeploy applies pending migrations first. The full
+	@# redeploy builds migrate and re-applies the release in cluster-update.
+	@if [ -n "$(SERVICE)" ] && [ "$(SERVICE)" != "migrate" ]; then \
+		$(MAKE) --no-print-directory redeploy-migrate-if-changed; \
 	fi
 	@if [ -n "$(SERVICE)" ]; then \
 		bash scripts/cluster/redeploy.sh $(SERVICE) $(REDEPLOY_FLAGS); \
@@ -874,7 +851,7 @@ redeploy-triggers: ## Redeploy orbit-triggers (webhook ingestion, management API
 	@bash scripts/cluster/redeploy.sh orbit-triggers $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
-redeploy-operator: ## Redeploy the orbit-operator (charts are baked into the image)
+redeploy-operator: ## Redeploy the orbit-operator (tenant lifecycle, webhooks, preflight)
 	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-example
@@ -902,25 +879,21 @@ prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
 # ===========================================
 
 .PHONY: build-backend
-build-backend: proto-gen ## Build the host-buildable service binaries to .bin (runs proto-gen first). Not every cmd/ binary.
+build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen first)
 	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-agents ./cmd/orbit-agents
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-mcp ./cmd/orbit-mcp
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
-	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
+	@for dir in $(BACKEND_DIR)/cmd/*/; do \
+		name=$$(basename "$$dir"); \
+		[ -f "$$dir/main.go" ] || continue; \
+		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/orbit-$${name#orbit-}" "./cmd/$$name") || exit 1; \
+	done
 
 # ===========================================
 # Testing & Quality
 # ===========================================
 
 .PHONY: test-integration
-test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-operator + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
+test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-platform + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
 	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
@@ -930,6 +903,12 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		kill $$PF_PID 2>/dev/null || true; \
 		if [ $$STATUS -eq 0 ]; then echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"; fi; \
 		exit $$STATUS
+
+.PHONY: test-postgres
+test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
+	@$(MIGRATE) up
+	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && ORBIT_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
@@ -963,6 +942,11 @@ test-coverage: test ## Run tests and generate HTML coverage report
 .PHONY: docs-check
 docs-check: ## Check docs for drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts)
 	@bash scripts/docs/check-docs.sh
+	@node tools/diagrams/check.mjs
+
+.PHONY: diagrams
+diagrams: ## Render architecture diagrams from Excalidraw sources (docs/diagrams/*.excalidraw -> *.svg)
+	@cd tools/diagrams && node export.mjs
 
 .PHONY: secrets
 secrets: ## Scan for secrets and leaked credentials (gitleaks)
@@ -1135,6 +1119,7 @@ clean: ## Clean build artifacts and temporary files
 clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres and Redis volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Cleaning all artifacts and stopping services...$(COLOR_RESET)"
 	@docker compose down -v
+	@$(MAKE) --no-print-directory schema-reset-marker
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================
@@ -1174,15 +1159,15 @@ setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.i
 	@bash scripts/setup-tls.sh
 
 .PHONY: cluster-tls-secret
-cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in istio-system (run after setup-tls)
+cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in orbit-system, where the ingress gateway runs (run after setup-tls)
 	@[ -f secrets/tls.crt ] && [ -f secrets/tls.key ] || \
 		(echo "$(COLOR_RED)✗ secrets/tls.crt / secrets/tls.key not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
 	@kubectl create secret tls orbit-gateway-tls \
 		--cert=secrets/tls.crt \
 		--key=secrets/tls.key \
-		--namespace istio-system \
+		--namespace orbit-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in istio-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in orbit-system$(COLOR_RESET)"
 
 .PHONY: cluster-ca-configmap
 cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-system (for Dex TLS verification)
@@ -1219,8 +1204,32 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 deadcode: ## Report Go functions no main package can reach
 	@DEADCODE_VERSION=$(DEADCODE_VERSION) ./scripts/check-deadcode.sh
 
+HELM_DOCS_VERSION := v1.14.2
+
+.PHONY: chart-lint
+chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
+	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml
+	@helm lint charts/orbit-crds
+
+.PHONY: chart-docs
+chart-docs: ## Regenerate charts/*/README.md from values with helm-docs
+	@go run github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) --chart-search-root=charts
+
+.PHONY: chart-docs-check
+chart-docs-check: chart-docs ## Fail if charts/*/README.md is out of date
+	@git diff --exit-code -- 'charts/**/README.md' \
+	  || { echo "$(COLOR_RED)✗ chart README out of date — run: make chart-docs$(COLOR_RESET)"; exit 1; }
+
+.PHONY: chart-check
+chart-check: chart-lint chart-docs-check ## Lint the charts and verify their generated docs
+	@echo "$(COLOR_GREEN)✓ chart checks passed$(COLOR_RESET)"
+
+.PHONY: chart-deps
+chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
+	@helm dependency update charts/orbit
+
 .PHONY: check
-check: tidy fmt vet fix lint deadcode secrets docs-check test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, test, frontend-check)
+check: tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all

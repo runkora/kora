@@ -1,0 +1,67 @@
+# Least-privilege permissions for tenant reconciliation, admission, and preflight.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orbit-operator
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+rules:
+  # Tenant namespaces: creation, injection and Pod Security labels.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Aggregated registries, tenant CA, per-tenant OPA config, pull-secret
+  # replication, the webhook serving certificate.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Counting the pods an MCPServer's workload selector matches. Listed directly,
+  # not watched, so this starts no cluster-wide Pod cache.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # Sandbox egress policy in each tenant namespace, and an MCP server's ingress
+  # policy. Both are owned by the CR that generated them, so deleting it is the
+  # garbage collector's work rather than the operator's.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Restricts an MCP server's callers to the tool-gateway principal.
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Names the SPIFFE SAN a caller must expect on an MCP server's workload.
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Reconciliation inputs; read-only.
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
+    verbs: ["get", "list", "watch"]
+  # Status conditions. Connection and OAuthClient have none.
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants/status", "mcpservers/status"]
+    verbs: ["get", "patch"]
+  # caBundle and failurePolicy on Orbit's own webhooks.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    resourceNames: ["aaa-orbit-agent-pod-mutator", "orbit-agent-pod-validator"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["list", "watch"]
+  # Preflight: CNI presence, SPIRE registrations. istiod comes from the
+  # injector ConfigMap, not a Deployment. CSI driver and CRD presence have no
+  # direct RBAC; see preflight.go's SVID fetch and ClusterSPIFFEID checks.
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids"]
+    verbs: ["list"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]

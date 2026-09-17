@@ -4,28 +4,40 @@ metadata:
   name: orbit-agents
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
+# Verbs match the calls in internal/agents/k8s.go: no informers, so no
+# list/watch anywhere. get+update on every namespaced resource because each
+# ensureX follows a create-then-backfill pattern — on AlreadyExists it Gets
+# the existing object, merges the OrbitTenant owner reference, and Updates
+# (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
 rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["services", "pods"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["pods"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "serviceaccounts"]
+    verbs: ["get", "create", "update", "delete"]
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "create", "update", "delete"]
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "create", "update", "delete"]
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "create", "update", "delete"]
   # AuthorizationPolicies restricting each agent pod's session-manager port to
   # the orbit-agents principal, created in the tenant namespace alongside the
   # StatefulSet (internal/agents/k8s.go ensureAuthorizationPolicy).
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "create", "update", "delete"]
+  # Read-only access to the cluster-scoped OrbitTenant CR so orbit-agents can
+  # set it as ownerReferences on the resources it provisions. Enables the
+  # ArgoCD resource-tree view and native k8s cascade delete
+  # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants"]
+    verbs: ["get"]

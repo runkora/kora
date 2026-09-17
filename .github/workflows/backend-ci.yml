@@ -3,49 +3,23 @@ name: Backend CI
 on:
   workflow_call:
 
+# The default token only reads the repository. Jobs that need more
+# declare it themselves.
+permissions:
+  contents: read
+
 # Tool versions — keep in sync with pinned versions in Makefile.
 env:
   GOLANGCI_LINT_VERSION: v2.11.3
-  GITLEAKS_VERSION: v8.27.2
 
 jobs:
-  secrets:
-    name: Secret Scanning
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          # Full history required — gitleaks scans all commits, not just the tip.
-          fetch-depth: 0
-
-      - name: Run gitleaks
-        run: |
-          if ! command -v gitleaks > /dev/null; then
-            echo "Installing gitleaks ${GITLEAKS_VERSION}..."
-            GL_TAG=${GITLEAKS_VERSION}
-            GL_VER=${GL_TAG#v}
-            GL_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-            GL_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
-            GL_URL="https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_VER}_${GL_OS}_${GL_ARCH}.tar.gz"
-            INSTALL_DIR="${HOME}/.local/bin"
-            mkdir -p "${INSTALL_DIR}"
-            echo "Downloading ${GL_URL}"
-            curl -sSfL "${GL_URL}" | tar -xz -C "${INSTALL_DIR}" gitleaks
-            echo "${INSTALL_DIR}" >> $GITHUB_PATH
-          else
-            echo "gitleaks already installed"
-          fi
-          make secrets
-
   infra-lint:
     name: Infra Config Lint
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check sentinel password not in non-base values files
         # values.yaml (base) intentionally contains REPLACE-VIA-OVERLAY as a
@@ -66,16 +40,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache: false
 
       - name: Restore Go module cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
@@ -86,7 +60,7 @@ jobs:
       # analysis cache. Own key family: lint compiles with its own flag set,
       # so sharing go-build-/go-test- keys would thrash their saves.
       - name: Restore Go build cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/go-build
@@ -112,7 +86,7 @@ jobs:
       # enable-all, so golangci-lint runs everything vet runs. A separate step
       # paid a full compile (~2m20s) to duplicate the check.
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: backend
@@ -120,19 +94,16 @@ jobs:
           # built-in cache uses a 7-day rotating key and would double-save.
           skip-cache: true
 
-      - name: Check documentation for drift
-        run: make docs-check
-
   build:
     name: Build
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           # setup-go keys its cache on go.sum alone and saves only on a key
@@ -145,7 +116,7 @@ jobs:
       # only changes when go.sum does, so bundling it into the per-commit
       # build caches stored the same few hundred MB three times per commit.
       - name: Restore Go module cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
@@ -153,7 +124,7 @@ jobs:
             ${{ runner.os }}-go-mod-
 
       - name: Restore Go build cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
@@ -183,16 +154,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache: false
 
       - name: Restore Go module cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/go.sum') }}
@@ -202,7 +173,7 @@ jobs:
       # Separate key prefix from Build: race + coverage instrumentation
       # produce distinct artifacts, and sharing one cache would thrash it.
       - name: Restore Go build cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-test-${{ hashFiles('backend/go.sum') }}-${{ github.sha }}
@@ -214,7 +185,7 @@ jobs:
         run: make test
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         if: always()
         with:
           files: ./backend/coverage.out

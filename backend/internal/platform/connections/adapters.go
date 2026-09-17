@@ -1,19 +1,19 @@
-// Package connections holds cross-cutting metadata about connection adapters —
-// the credential mechanisms (github_app, passthrough, …) the egress gateway
-// brokers. It is the single source of truth for each adapter's grantable action
+// Package connections holds cross-cutting metadata about connection adapters,
+// the credential mechanisms (github_app, kubernetes) the egress gateway brokers.
+// It is the single source of truth for each adapter's grantable action
 // vocabulary and the egress hosts a connection of that adapter requires.
 //
 // It lives under platform because three features need this metadata without
-// importing one another (depguard forbids feature→feature imports):
+// importing one another (depguard forbids feature-to-feature imports):
 //
-//   - internal/credentials — the gateway adapters publish their action
+//   - internal/credentials, where the gateway adapters publish their action
 //     vocabulary from here (and classify requests into these actions);
-//   - internal/agents — the grant compiler derives connector auto-egress, and
+//   - internal/agents, where the grant compiler derives connector auto-egress and
 //     the connection catalog renders the picker, from here;
-//   - internal/operator — may validate a Connection's base host against the
+//   - internal/operator, which may validate a Connection's base host against the
 //     adapter's expectations.
 //
-// The table carries NO secrets and NO per-connection state — only static,
+// The table carries no secrets and no per-connection state, only static
 // adapter-intrinsic metadata.
 package connections
 
@@ -29,7 +29,6 @@ import (
 // the feature package; the credential adapters key off these same values.
 const (
 	AdapterGitHubApp        = "github_app"
-	AdapterPassthrough      = "passthrough"
 	AdapterKubernetesBearer = "kubernetes"
 )
 
@@ -58,10 +57,8 @@ const (
 	ActionGitHubAdminRead     = "admin:read"
 	ActionGitHubAdminWrite    = "admin:write"
 
-	ActionPassthroughUse = "use"
-
 	// Kubernetes actions are resource-category-scoped, not one coarse
-	// read/write pair — see docs/adr/2026-07-06-kubernetes-connection-bearer-
+	// read/write pair. See docs/adr/2026-07-06-kubernetes-connection-bearer-
 	// adapter-and-gateway-ca-trust.md, Amendment 1. ActionClusterRead/Write is
 	// the catch-all for cluster-scoped/administrative resources not covered by
 	// a more specific category, and for API discovery calls.
@@ -97,7 +94,7 @@ type ActionMeta struct {
 	Requires []string
 }
 
-// QualifierMeta declares an adapter's optional grant-time resource dimension —
+// QualifierMeta declares an adapter's optional grant-time resource dimension:
 // the connection-scope qualifier segment (connection:<name>:<category>:<qualifier>:<verb>).
 // See docs/adr/2026-07-22-connection-scope-qualifiers.md. Adapters without a
 // qualifier dimension leave it nil.
@@ -107,10 +104,6 @@ type QualifierMeta struct {
 	Name string
 	// Description explains the dimension for admins.
 	Description string
-	// ConfigKey is the connection-config key holding the optional ceiling
-	// allowlist ([]string). The broker denies requests whose extracted
-	// qualifier falls outside a declared ceiling, before policy evaluation.
-	ConfigKey string
 }
 
 // adapterMeta is the static metadata for one adapter.
@@ -175,15 +168,8 @@ var registry = map[string]adapterMeta{
 		qualifier: &QualifierMeta{
 			Name:        "repository",
 			Description: "Scope this connector to specific repositories of the installation (bare repository name; the installation fixes the owner)",
-			ConfigKey:   "repositories",
 		},
 		baselineActions: []string{ActionGitHubMetadataRead},
-	},
-	AdapterPassthrough: {
-		actions: []ActionMeta{
-			{Action: ActionPassthroughUse, Description: "Reach the connection's host with no credential injected"},
-		},
-		egressHosts: passthroughEgressHosts,
 	},
 	AdapterKubernetesBearer: {
 		actions: []ActionMeta{
@@ -202,9 +188,9 @@ var registry = map[string]adapterMeta{
 			{Action: ActionClusterRead, Description: "Read access to cluster-scoped/administrative resources not covered by a more specific category (nodes, namespaces, events, resource quotas), and API discovery"},
 			{Action: ActionClusterWrite, Description: "Write access to cluster-scoped/administrative resources not covered by a more specific category (nodes, namespaces, events, resource quotas)"},
 		},
-		// A cluster connection serves exactly its own API server host:port —
-		// no host family the way GitHub's github.com/api.github.com/… is.
-		egressHosts: passthroughEgressHosts,
+		// A cluster connection serves exactly its own API server host:port. It
+		// has no host family the way GitHub's github.com/api.github.com does.
+		egressHosts: declaredHostOnly,
 		// Every real Kubernetes cluster's API server is reachable by a DNS
 		// hostname (cloud-managed or self-hosted); an IP literal is either a
 		// misconfiguration or a cluster's default bare-IP control-plane
@@ -215,7 +201,7 @@ var registry = map[string]adapterMeta{
 }
 
 // githubEgressHosts returns the hosts a GitHub App connection must reach. For
-// github.com SaaS this is the well-known host family — git over HTTPS, the REST
+// github.com SaaS this is the well-known host family: git over HTTPS, the REST
 // API, archive downloads, and raw/LFS content. For GitHub Enterprise the API,
 // git, and uploads share the appliance host, so the single base host suffices.
 func githubEgressHosts(baseHost string) []string {
@@ -226,23 +212,21 @@ func githubEgressHosts(baseHost string) []string {
 	return []string{h}
 }
 
-// passthroughEgressHosts returns the connection's single declared host, if any —
-// a passthrough connection injects no credential and reaches exactly its host.
+// declaredHostOnly returns the connection's single declared host, for adapters
+// that reach exactly that host and no family around it.
 //
-// The port is stripped. An egress scope names a HOST, never a host:port: the
-// grant path rejects a host segment containing ":" (isStructurallyValidEgressScope,
-// which reserves the colon for IPv6 literals), and the rego matcher compares
-// against the CONNECT :authority with its port already removed (_connect_host in
-// authz.rego). A kubernetes connection's baseHost is conventionally "host:443",
-// so returning it verbatim produced "egress:host:443:connect" — a scope the
-// policy service refuses to grant, and which could never match at runtime even
-// if it did. That made every kubernetes connection unusable by any agent.
-func passthroughEgressHosts(baseHost string) []string {
+// The port is stripped. An egress scope names a host, never a host:port: the
+// grant path rejects a host segment containing ":" (isStructurallyValidEgressScope
+// reserves the colon for IPv6 literals), and the rego matcher compares against
+// the CONNECT :authority with its port already removed (_connect_host in
+// authz.rego). A kubernetes baseHost is conventionally "host:443", which would
+// otherwise yield the ungrantable scope "egress:host:443:connect".
+func declaredHostOnly(baseHost string) []string {
 	h := strings.ToLower(strings.TrimSpace(baseHost))
 	if h == "" {
 		return nil
 	}
-	// SplitHostPort errors when there is no port — keep h as-is in that case.
+	// SplitHostPort errors when there is no port, so keep h as-is in that case.
 	// A bracketed IPv6 literal yields its bare address, which no egress pattern
 	// matches (deny), consistent with the rego's IPv4/DNS-only host matching.
 	if host, _, err := net.SplitHostPort(h); err == nil && host != "" {
@@ -257,16 +241,16 @@ func passthroughEgressHosts(baseHost string) []string {
 // transparent-egress interceptor
 // (charts/orbit/templates/egress-gateway/transparent-egress.yaml) authorizes
 // outbound HTTPS by matching that SNI against the connection's granted
-// egress:<host>:connect scope — so an IP-literal connection can never be
+// egress:<host>:connect scope, so an IP-literal connection can never be
 // authorized through a live agent sandbox. See
 // docs/adr/2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md,
 // "Blocker 1".
 var ErrBaseHostMustBeHostname = errors.New("base_host must be a DNS hostname, not an IP address")
 
 // ValidateBaseHost checks baseHost against adapter's shape requirements.
-// Unknown adapters, and adapters with no requirement, always return nil —
-// this only rejects the specific case an adapter has opted into (currently
-// just kubernetes's bare-IP rejection).
+// Unknown adapters, and adapters with no requirement, always return nil: this
+// rejects only the case an adapter has opted into, currently just kubernetes's
+// bare-IP rejection.
 func ValidateBaseHost(adapter, baseHost string) error {
 	m, ok := registry[adapter]
 	if !ok || !m.requiresHostname {

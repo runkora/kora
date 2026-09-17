@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-operator
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.operator.selectorLabels" . | nindent 8 }}
+        orbit.io/kube-api-client: "true"
+        {{- include "orbit.operator.labels" . | nindent 8 }}
+        spiffe.io/component: operator
+        {{- include "orbit.podLabels" (dict "root" $ "name" "operator") | nindent 8 }}
+      annotations:
+        # kube-apiserver cannot present a mesh certificate; the webhook port stays
+        # outside strict mTLS.
+        sidecar.istio.io/inject: "false"
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "operator") | nindent 8 }}
+    spec:
+      serviceAccountName: orbit-operator
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "operator") | nindent 6 }}
+      securityContext:
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      containers:
+        - name: operator
+          image: {{ include "orbit.image" (dict "root" $ "name" "operator") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "operator") }}
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
+          env:
+            - name: HOME
+              value: /tmp
+            - name: ORBIT_TRUST_DOMAIN
+              value: {{ include "orbit.trustDomain" . | quote }}
+            # The operator traces its own reconciles, and passes this to the
+            # identity-proxy it injects into tenant pods.
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ .Values.global.observability.otlpEndpoint | quote }}
+            - name: ORBIT_SYSTEM_NAMESPACE
+              value: {{ include "orbit.systemNamespace" . | quote }}
+            - name: ORBIT_ISTIO_NAMESPACE
+              value: {{ .Values.istio.namespace | quote }}
+            - name: ORBIT_ISTIO_REVISION
+              value: {{ .Values.istio.revision | quote }}
+            - name: ORBIT_SPIRE_CLASS_NAME
+              value: {{ .Values.spire.className | quote }}
+            - name: ORBIT_IMAGE_PULL_SECRETS
+              value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
+            - name: ORBIT_LEADER_ELECTION
+              value: {{ .Values.operator.leaderElection | quote }}
+            # Same images as the system pods: identityProxy.image, opaGateway.image.
+            - name: ORBIT_INJECT_IDENTITY_PROXY_IMAGE
+              value: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.identityProxy.image) | quote }}
+            - name: ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY
+              value: {{ .Values.identityProxy.image.pullPolicy | default .Values.global.imagePullPolicy | quote }}
+            - name: ORBIT_INJECT_IDENTITY_PROXY_RESOURCES
+              value: {{ toJson .Values.identityProxy.resources | quote }}
+            - name: ORBIT_INJECT_OPA_IMAGE
+              value: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.opaGateway.image) | quote }}
+            - name: ORBIT_INJECT_OPA_PULL_POLICY
+              value: {{ .Values.opaGateway.image.pullPolicy | default .Values.global.imagePullPolicy | quote }}
+            - name: ORBIT_OPA_LOG_LEVEL
+              value: {{ .Values.operator.injection.opa.logLevel | quote }}
+            - name: ORBIT_BUNDLE_POLLING_MIN_DELAY
+              value: {{ .Values.operator.injection.opa.bundlePolling.minDelaySeconds | quote }}
+            - name: ORBIT_BUNDLE_POLLING_MAX_DELAY
+              value: {{ .Values.operator.injection.opa.bundlePolling.maxDelaySeconds | quote }}
+            - name: ORBIT_INJECT_OPA_RESOURCES
+              value: {{ toJson .Values.operator.injection.opa.resources | quote }}
+            - name: ORBIT_TENANT_PSA_ENFORCE
+              value: {{ .Values.operator.tenantPodSecurity.enforce | quote }}
+            - name: ORBIT_TENANT_PSA_WARN
+              value: {{ .Values.operator.tenantPodSecurity.warn | quote }}
+            - name: ORBIT_TENANT_PSA_AUDIT
+              value: {{ .Values.operator.tenantPodSecurity.audit | quote }}
+            - name: ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS
+              value: {{ join "," .Values.operator.preflight.supportedIstioMinors | quote }}
+            - name: ORBIT_PREFLIGHT_INTERVAL_SECONDS
+              value: {{ .Values.operator.preflight.intervalSeconds | quote }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "operator") | nindent 12 }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: https-webhook
+              containerPort: 9443
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Preflight fetches its own SVID as proof SPIRE issues identities.
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+      terminationGracePeriodSeconds: 60

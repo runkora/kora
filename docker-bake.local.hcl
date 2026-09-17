@@ -60,6 +60,12 @@ target "orbit-tool-gateway" {
     "localhost:5001/orbit-tool-gateway:${GIT_SHA}",
   ]
 }
+target "orbit-migrate" {
+  tags = [
+    "localhost:5001/orbit-migrate:latest",
+    "localhost:5001/orbit-migrate:${GIT_SHA}",
+  ]
+}
 target "orbit-example" {
   tags = [
     "localhost:5001/orbit-example:latest",
@@ -124,7 +130,7 @@ target "orbit-operator" {
 }
 
 // Local platform bring-up group: every long-lived service the operator pulls
-// during `cluster-operator`. Excludes orbit-shell / orbit-runtime-mcp because
+// during `cluster-platform`. Excludes orbit-shell / orbit-runtime-mcp because
 // they're produced as side-effect binaries inside the session-manager image.
 group "local-platform" {
   targets = [
@@ -139,6 +145,7 @@ group "local-platform" {
     "orbit-frontend",
     "orbit-mcp",
     "orbit-tool-gateway",
+    "orbit-migrate",
     "orbit-operator",
     "orbit-session-manager",
     "orbit-sandbox-exec",

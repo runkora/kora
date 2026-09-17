@@ -54,7 +54,7 @@ func TestResponsesParamsToChatCompletionParams_FunctionCallRoundTrip(t *testing.
 	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
 		responses.ResponseInputItemParamOfMessage("what's the weather in London?", responses.EasyInputMessageRoleUser),
 		responses.ResponseInputItemParamOfFunctionCall(`{"city":"London"}`, "call_1", "get_weather"),
-		responses.ResponseInputItemParamOfFunctionCallOutput("call_1", `{"temp":"15C"}`),
+		functionCallOutput("call_1", `{"temp":"15C"}`),
 		responses.ResponseInputItemParamOfMessage("thanks", responses.EasyInputMessageRoleUser),
 	}
 
@@ -320,8 +320,8 @@ func TestResponsesParamsToChatCompletionParams_MultipleAdjacentFunctionCalls(t *
 		responses.ResponseInputItemParamOfMessage("do both", responses.EasyInputMessageRoleUser),
 		responses.ResponseInputItemParamOfFunctionCall(`{"q":"foo"}`, "call_a", "search"),
 		responses.ResponseInputItemParamOfFunctionCall(`{"expr":"1+1"}`, "call_b", "calc"),
-		responses.ResponseInputItemParamOfFunctionCallOutput("call_a", `{"result":"bar"}`),
-		responses.ResponseInputItemParamOfFunctionCallOutput("call_b", `{"result":"2"}`),
+		functionCallOutput("call_a", `{"result":"bar"}`),
+		functionCallOutput("call_b", `{"result":"2"}`),
 	}
 
 	got, err := convert.ResponsesParamsToChatCompletionParams(params)

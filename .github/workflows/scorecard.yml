@@ -1,0 +1,55 @@
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly rescore of the default branch.
+    - cron: "31 4 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Job-level permissions replace the top-level set. The checkout and the
+      # analysis need these reads. On a private repository the analysis also
+      # walks pull requests, issues, and checks.
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+      checks: read
+      # Upload the SARIF result to code scanning.
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishing requires a public repository. Set to true once it is.
+          publish_results: false
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        # Needs Code Security enabled on the repository.
+        with:
+          sarif_file: results.sarif

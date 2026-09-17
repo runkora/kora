@@ -14,74 +14,82 @@ spec:
     metadata:
       labels:
         {{- include "orbit.agents.selectorLabels" . | nindent 8 }}
+        orbit.io/kube-api-client: "true"
         {{- include "orbit.agents.labels" . | nindent 8 }}
-        spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: orbit-agents
-        # Required for the identity-proxy EnvoyFilter to inject the platform
-        # token into outbound requests to other platform services.
         orbit.io/identity-proxy: "enabled"
+        {{- include "orbit.podLabels" (dict "root" $ "name" "agents") | nindent 8 }}
       annotations:
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-        # Postgres is external to the mesh — bypass Envoy interception.
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        # Roll the pod when the manifest patches ConfigMap changes
+        # (docs/adr/2026-09-15-manifest-patches-configmap.md).
+        checksum/patches: {{ include (print $.Template.BasePath "/agents/patches-configmap.yaml") . | sha256sum }}
+        # Roll the pod when the workload customisation ConfigMap changes
+        # (docs/adr/2026-09-16-first-class-workload-placement.md).
+        checksum/workloads: {{ include (print $.Template.BasePath "/agents/workloads-configmap.yaml") . | sha256sum }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        fsGroup: 65532
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
-        # Connection registry: the operator aggregates each tenant's Connection
-        # CRs into the orbit-tenant-connections ConfigMap (one key,
-        # connections.json) — the same ConfigMap the egress-gateway brokers from.
-        # orbit-agents mounts it read-only to serve the read-only connection
-        # catalog (GET /api/v1/connections) the frontend connector picker uses.
-        # Optional so the pod starts before any connection is applied (the
-        # catalog is simply empty until then). Mounted at the directory
-        # agents.config.connectionRegistryPath points at.
+        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        # Connection registry aggregated by the operator; optional so the pod starts
+        # before any Connection exists.
         - name: tenant-connections
           configMap:
             name: {{ .Values.agents.tenantConnectionsConfigMapName }}
             optional: true
+        # Kustomize-style manifest patches applied to every provisioned
+        # resource (docs/adr/2026-09-15-manifest-patches-configmap.md).
+        - name: manifest-patches
+          configMap:
+            name: orbit-agents-manifest-patches
+        # Placement, pod metadata and workspace storage for provisioned
+        # workloads (docs/adr/2026-09-16-first-class-workload-placement.md).
+        - name: workloads
+          configMap:
+            name: orbit-agents-workloads
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
         - name: orbit-agents
-          image: "{{ .Values.agents.image.repository }}:{{ include "orbit.agents.imageTag" . }}"
-          imagePullPolicy: {{ include "orbit.agents.imagePullPolicy" . }}
+          image: {{ include "orbit.image" (dict "root" $ "name" "agents") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "agents") }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ .Values.agents.config.postgresSSLMode | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ .Values.agents.config.postgresCaptureQueryText | quote }}
-            - name: ORBIT_OTLP_INSECURE
-              value: {{ .Values.agents.config.otlpInsecure | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
+            - name: ORBIT_OTLP_ENDPOINT
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
-              value: {{ .Values.agents.config.logFormat | quote }}
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
-              value: {{ .Values.agents.config.sessionManagerPostgresSSLMode | quote }}
-            # Gates the per-agent AuthorizationPolicy that restricts each agent
-            # pod's session-manager port to the orbit-agents SPIFFE principal.
-            # Requires SPIFFE: without attested identities no source matches the
-            # rule and every session call is denied.
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "sessionManagerPostgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED
               value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
-          {{- if or .Values.agents.existingConfigMap .Values.agents.existingSecret }}
-          envFrom:
-            {{- if .Values.agents.existingConfigMap }}
-            - configMapRef:
-                name: {{ .Values.agents.existingConfigMap }}
-            {{- end }}
-            {{- if .Values.agents.existingSecret }}
-            - secretRef:
-                name: {{ .Values.agents.existingSecret }}
-            {{- end }}
-          {{- end }}
+            - name: ORBIT_SYSTEM_NAMESPACE
+              value: {{ include "orbit.systemNamespace" . | quote }}
+            - name: ORBIT_TRUST_DOMAIN
+              value: {{ include "orbit.trustDomain" . | quote }}
+            - name: ORBIT_SESSION_MANAGER_IMAGE
+              value: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
+            - name: ORBIT_SANDBOX_IMAGE
+              value: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
+            - name: ORBIT_SANDBOX_GIT_AUTHOR_NAME
+              value: {{ .Values.agents.config.sandboxGitAuthorName | quote }}
+            - name: ORBIT_SANDBOX_GIT_AUTHOR_EMAIL
+              value: {{ .Values.agents.config.sandboxGitAuthorEmail | quote }}
+            - name: ORBIT_AGENTS_IMAGE_PULL_SECRETS
+              value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "agents") | nindent 12 }}
+          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
               containerPort: 8080
@@ -105,11 +113,15 @@ spec:
           resources:
             {{- toYaml .Values.agents.resources | nindent 12 }}
           volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
-            # connections.json lands here as /var/run/orbit/connections/connections.json,
-            # matching cmd/orbit-agents/config/base.yaml agents.connectionRegistryPath.
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             - name: tenant-connections
               mountPath: /var/run/orbit/connections
               readOnly: true
+            - name: manifest-patches
+              mountPath: /etc/orbit/manifest-patches
+              readOnly: true
+            - name: workloads
+              mountPath: /etc/orbit/workloads
+              readOnly: true
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}
+        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

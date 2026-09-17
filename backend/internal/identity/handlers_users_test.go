@@ -228,6 +228,25 @@ func TestHandleListUsers_InvalidLimit_Returns400(t *testing.T) {
 	}
 }
 
+func TestHandleListUsers_OverLimit_ClampsAndReflectsAppliedLimit(t *testing.T) {
+	c, _, _ := newTestControllerWithProfiles(t)
+	claims := humanClaims("t1", "caller")
+	w := getWithQuery(t, c.handleListUsers, claims, "limit=500")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+	var resp UserProfilesResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// The requested limit (500) exceeds maxUserProfileLimit (100). The response
+	// must echo back what was actually applied, not the raw request value —
+	// otherwise a caller has no way to tell it only got one page back.
+	if resp.Limit != maxUserProfileLimit {
+		t.Errorf("limit: got %d, want %d (the clamped value)", resp.Limit, maxUserProfileLimit)
+	}
+}
+
 // ── handleGetPATAttribution ───────────────────────────────────────────────────
 
 func TestHandleGetPATAttribution_NoAuth_Returns401(t *testing.T) {

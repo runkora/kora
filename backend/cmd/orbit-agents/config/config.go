@@ -2,7 +2,9 @@
 package agentsConfig
 
 import (
+	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -67,6 +69,9 @@ type Config struct {
 		// per-deployment so the platform identity is not baked into the operator.
 		SandboxGitAuthorName  string `yaml:"sandboxGitAuthorName"`
 		SandboxGitAuthorEmail string `yaml:"sandboxGitAuthorEmail"`
+		// ImagePullSecrets names the Secrets, present in every tenant namespace,
+		// that session-manager and sandbox pods pull their images with.
+		ImagePullSecrets []string `yaml:"imagePullSecrets"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
@@ -74,6 +79,16 @@ type Config struct {
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
 		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
 		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
+		// ManifestPatchDir is the directory of kustomize patch files applied to
+		// the resources orbit-agents provisions. The chart mounts the manifest
+		// patches ConfigMap here. A missing directory means no patches.
+		ManifestPatchDir string `yaml:"manifestPatchDir"`
+		// WorkloadsFile is the mounted YAML the chart renders from
+		// agents.workloads and agents.workspace: placement, pod metadata,
+		// service account annotations and workspace storage for the resources
+		// orbit-agents provisions. A missing file means no customization.
+		// See docs/adr/2026-09-16-first-class-workload-placement.md.
+		WorkloadsFile string `yaml:"workloadsFile"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
@@ -146,11 +161,57 @@ func (c *Config) TenantNamespace(tenantID string) string {
 // Secrets (Postgres DSN) must be supplied via environment variables.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
-	if v := os.Getenv("ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE"); v != "" {
-		cfg.Agents.SessionManager.PostgresSSLMode = v
-	}
-	if v := os.Getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
-		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
-	}
+	applyEnvOverrides(cfg, os.Getenv)
 	return cfg
 }()
+
+// Validate rejects an in-cluster config that would mint identities in an
+// empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the
+// base YAML carries no trust domain on purpose, so it cannot run at load.
+func Validate(cfg *Config) error {
+	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
+		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
+	}
+	return nil
+}
+
+// applyEnvOverrides layers the per-install values the chart sets as env vars
+// over the YAML defaults. getenv is injected so tests can drive it.
+func applyEnvOverrides(cfg *Config, getenv func(string) string) {
+	overrides := []struct {
+		env string
+		dst *string
+	}{
+		{"ORBIT_SYSTEM_NAMESPACE", &cfg.Kubernetes.SystemNamespace},
+		{"ORBIT_TRUST_DOMAIN", &cfg.Platform.TrustDomain},
+		{"ORBIT_SESSION_MANAGER_IMAGE", &cfg.Agents.SessionManagerImage},
+		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},
+		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
+		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
+		{"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE", &cfg.Agents.SessionManager.PostgresSSLMode},
+		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
+		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
+	}
+	for _, o := range overrides {
+		if v := getenv(o.env); v != "" {
+			*o.dst = v
+		}
+	}
+	if v := getenv("ORBIT_AGENTS_IMAGE_PULL_SECRETS"); v != "" {
+		cfg.Agents.ImagePullSecrets = splitCommaList(v)
+	}
+	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
+		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
+	}
+}
+
+// splitCommaList parses a comma-separated env value, dropping blanks and whitespace.
+func splitCommaList(v string) []string {
+	var out []string
+	for part := range strings.SplitSeq(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}

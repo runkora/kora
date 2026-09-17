@@ -1,7 +1,7 @@
 // Package testtlsca provides test fixtures for the egress gateway's TLS
 // authority. It exists as its own package (instead of a tlsca _test.go file)
 // because consumers in other packages need to construct test CAs for their own
-// integration tests — egressgw's CONNECT tests being the primary use.
+// integration tests: egressgw's CONNECT tests being the primary use.
 //
 // Production code MUST NOT import this package. Doing so would compile a
 // self-signed root CA generator into the binary, which is a real risk if a
@@ -42,7 +42,7 @@ func NewCA(tenant string) (*tlsca.IssuingCA, []byte, error) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   "Orbit Test CA — tenant=" + tenant,
+			CommonName:   "Orbit Test CA: tenant=" + tenant,
 			Organization: []string{"Orbit Egress Gateway (Test)"},
 		},
 		NotBefore:             now.Add(-1 * time.Minute),

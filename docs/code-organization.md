@@ -1,6 +1,6 @@
 # Code Organization
 
-The canonical code organization for the Orbit backend. Build status for each capability lives in the [architecture overview](architecture.md); this document describes the layout.
+The canonical code organization and package layout for the Orbit backend.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -18,7 +18,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
 | `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
 | `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
-| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, passthrough adapters); backed by `internal/credentials` | `8085` | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
 | `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
@@ -30,6 +30,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | none | none |
+| `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
 > The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
@@ -46,11 +47,11 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
-| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
+| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
-> `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files). Build status for each capability lives in the [architecture overview](architecture.md).
+> `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files).
 
 ---
 
@@ -146,7 +147,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 
 ### Feature layer (`internal/`)
 
-Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list and status. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages. That is expected and idiomatic, not a deviation.
+Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages. That is expected and idiomatic, not a deviation.
 
 ---
 
@@ -245,13 +246,13 @@ cfg := config.MustLoadService[AppConfig]("identity", config.Environment())
 
 ### 7. Migrations via Goose (per-binary)
 
-SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. **Never hand-write migration files**, always generate them, specifying the owning service:
+SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. Each directory is also a Go package exposing an `embed.FS`; `cmd/migrate` embeds all of them and runs them as one set, as the chart's pre-install and pre-upgrade hook Job ([database migrations ADR](adr/2026-09-10-database-migrations.md)). **Never hand-write migration files**, always generate them, specifying the owning service:
 
 ```bash
 make migrate-create service=identity name=add_sessions_index
 ```
 
-Apply / roll back / inspect with `make migrate-up`, `make migrate-down`, `make migrate-status`.
+`make migrate-lint` (part of `make check`) enforces the content rule: DDL only, own tables only, an `UPDATE` only beside an `ALTER TABLE` on the same table, no row changes in `Down`. Inspect with `make migrate-status`; re-run the hook locally with `make redeploy SERVICE=migrate`.
 
 ---
 

@@ -10,7 +10,10 @@
 # wins). The root /.well-known/* discovery documents (RFC 8414/9728) are served
 # at the host root and rewritten to each owning service's internal base path.
 #
-# The Gateway resource lives in charts/orbit-platform/templates/gateway.yaml.
+# Binds to the Orbit Gateway, or the existing one named by gateway.name.
+# Behind a TLS-terminating Ingress (gateway.ingress.enabled) the gateway sees
+# plaintext and would advertise http:// in OAuth metadata; every route forces
+# x-forwarded-proto=https to correct it.
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -22,7 +25,7 @@ spec:
   hosts:
     - "{{ include "orbit.apiHost" . }}"
   gateways:
-    - {{ include "orbit.systemNamespace" . }}/orbit-gateway
+    - {{ include "orbit.gatewayRef" . }}
   http:
     # ── Root discovery metadata (RFC 8414 / 9728) ──────────────────────────────
     # Served at the host root; rewritten to each service's internal basePath. The
@@ -31,6 +34,7 @@ spec:
     - match:
         - uri:
             exact: /.well-known/oauth-protected-resource
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       rewrite:
         uri: /v1/.well-known/oauth-protected-resource
       route:
@@ -41,6 +45,7 @@ spec:
     - match:
         - uri:
             exact: /.well-known/oauth-authorization-server
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       rewrite:
         uri: /api/v1/identity/.well-known/oauth-authorization-server
       route:
@@ -52,6 +57,7 @@ spec:
     - match:
         - uri:
             prefix: /v1/mcp
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       route:
         - destination:
             host: orbit-tool-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
@@ -68,6 +74,7 @@ spec:
     - match:
         - uri:
             prefix: /api/v1/identity/internal/
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       directResponse:
         status: 404
         body:
@@ -79,6 +86,7 @@ spec:
     - match:
         - uri:
             prefix: /api/v1/webhooks/
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       route:
         - destination:
             host: orbit-triggers.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
@@ -88,13 +96,15 @@ spec:
     - match:
         - uri:
             prefix: /api/v1/identity/
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       route:
         - destination:
             host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
-    # ── Inference gateway (OpenAI-compatible API) — the API-host default ────────
+    # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
       route:
         - destination:
             host: orbit-inference-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local

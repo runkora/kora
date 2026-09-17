@@ -4,10 +4,12 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
+	"io/fs"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/cmd/orbit-agents/migrations"
 )
 
 // TestRunStateOccupiesPod_AnswersEveryDeclaredState is the guard that matters:
@@ -141,16 +143,32 @@ func TestPodOccupancySQLList_MatchesPartialIndex(t *testing.T) {
 		t.Errorf("activeRunsPerPodQuery does not filter on %s: %s", wantList, activeRunsPerPodQuery)
 	}
 
-	const migration = "../../cmd/orbit-agents/migrations/20260804065123_widen_runs_active_index_to_idle.sql"
-	body, err := os.ReadFile(migration)
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	upSQL, _, ok := strings.Cut(string(body), "-- +goose Down")
-	if !ok {
-		t.Fatal("migration has no Down section")
-	}
+	upSQL := embeddedIndexDefinition(t, "idx_runs_active")
 	if !strings.Contains(upSQL, "WHERE state IN ("+wantList+")") {
-		t.Errorf("idx_runs_active predicate does not match the query predicate %s", wantList)
+		t.Errorf("idx_runs_active predicate does not match the query predicate %s: %s", wantList, upSQL)
 	}
+}
+
+// embeddedIndexDefinition finds the CREATE INDEX statement for name in the
+// orbit-agents migrations, whichever file carries it.
+func embeddedIndexDefinition(t *testing.T, name string) string {
+	t.Helper()
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	for _, entry := range entries {
+		body, err := fs.ReadFile(migrations.FS, entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		upSQL, _, _ := strings.Cut(string(body), "-- +goose Down")
+		for stmt := range strings.SplitSeq(upSQL, ";") {
+			if strings.Contains(stmt, "CREATE INDEX "+name+" ") {
+				return strings.TrimSpace(stmt)
+			}
+		}
+	}
+	t.Fatalf("no migration creates index %s", name)
+	return ""
 }

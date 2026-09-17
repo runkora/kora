@@ -4,8 +4,7 @@ import { config } from '@orbit/server/config';
 import type { BudgetStatus } from '../_types';
 
 type BudgetResult =
-  | { ok: true; data: BudgetStatus }
-  | { ok: false; status: number; message: string };
+  { ok: true; data: BudgetStatus } | { ok: false; status: number; message: string };
 
 export async function fetchPersonalBudgetFromGateway(accessToken: string): Promise<BudgetResult> {
   let res: Response;

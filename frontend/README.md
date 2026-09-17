@@ -1,118 +1,67 @@
-# Orbit Frontend
+# Frontend
 
-The Orbit dashboard: a Next.js (App Router) app with a BFF (Backend-For-Frontend)
-server layer that proxies the Go control plane. All product JSX is built on the
-**Terra** design system; raw HTML primitives are banned by ESLint.
+The Orbit dashboard is a Next.js App Router application with a backend-for-frontend (BFF) layer. Product UI is built with the Terra design system.
 
-## Prerequisites
+## Set up
 
-- **Node 24** (`>=24 <25`), pinned in `.nvmrc`. Use `nvm install 24 && nvm use`.
-- **pnpm 10** (`>=10 <11`), pinned to `pnpm@10.32.1` via `packageManager`. Enable
-  it with Corepack: `corepack enable`. This repo is pnpm-only: a `preinstall`
-  hook (`only-allow pnpm`) blocks `npm` / `yarn`.
-
-`make frontend-install` (run from the repo root) does all of the above: enforces
-nvm + Node 24, enables Corepack, installs pnpm 10, and runs `pnpm install`.
-
-## Setup
+The frontend requires Node 24 and pnpm 10. From the repository root, install the pinned toolchain and dependencies with:
 
 ```bash
-# from the repo root — installs Node/pnpm and dependencies
 make frontend-install
-
-# or, if your Node + pnpm are already correct, from frontend/
-pnpm install
 ```
 
-### Environment
+If the correct Node and pnpm versions are already active, run `pnpm install` from `frontend/` instead.
 
-The BFF reads its backend URLs and session secret from the environment. In the
-cluster these are injected by the `orbit-frontend-config` ConfigMap and the
-`orbit-frontend-secrets` Secret (`BFF_SESSION_SECRET`, written by
-`create-secrets.sh` from the root `.env`). You do not set any of them by hand.
+Kubernetes injects the deployed application's backend URLs and session secret. Playwright supplies the environment for its own test server.
 
-There is no host frontend server, so there is no `frontend/.env.local` to fill
-in. The Playwright E2E runner supplies its own env inline (see
-`playwright.config.ts`).
+## Develop
 
-## Developing the frontend
-
-The frontend runs only in the cluster. A change ships as a Docker image build and
-a rollout, the same loop as every backend service:
+The product frontend runs in the local cluster. Bring Orbit up, then rebuild and roll the frontend after a change:
 
 ```bash
+make up
 make redeploy SERVICE=frontend
 ```
 
-The app is served at `https://orbit.local.clearroute.io:8443`. The image bakes in
-`NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443` at build time
-(overridable via the `NEXT_PUBLIC_APP_URL` make variable, see the root
-`Makefile`), so every change means a full rebuild and rollout: there is no hot
-module reload. Bring the environment up first with `make up`; see
-[`docs/guides/local-development.md`](../docs/guides/local-development.md).
+The dashboard is served at `https://orbit.local.clearroute.io`. There is no hot module reload in the cluster workflow. Each product change requires a new image and rollout.
 
-Lint, type-check, tests, and Storybook run on the host, no cluster required:
+Linting, type checking, unit tests, integration tests, and Storybook run on the host:
 
 ```bash
-make frontend-lint          # eslint (incl. Terra rules)
-make frontend-type-check    # tsc --noEmit
-make frontend-test          # unit + integration
-pnpm storybook              # Storybook on :6006
+make frontend-lint
+make frontend-type-check
+make frontend-test
+pnpm storybook
 ```
 
-## Architecture (BFF: server vs. client)
+Run pnpm commands from `frontend/`. The equivalent `make frontend-*` targets run from the repository root.
 
-The browser never talks to the Go backend directly. Server-side code in
-`src/server/` (and Server Components) holds the backend URLs and session secret
-and is marked `import 'server-only'` so it can never be bundled into the
-browser. Client-initiated requests go to Next.js Route Handlers under
-`src/app/api/*` (the BFF), which attach the session and proxy to the appropriate
-backend service. The full data-flow pattern (server service module → BFF route →
-client service → hook → context → RSC page) is documented in the
-[frontend state golden path](docs/golden-paths/frontend-state-pattern.md).
+## Architecture
 
-## Scripts
+The browser does not call the Go services directly. Server Components and modules under `src/server/` hold backend URLs and session state. Client requests pass through Next.js Route Handlers under `src/app/api/`, which attach the session and proxy the request to the appropriate service.
 
-Run from `frontend/` with `pnpm <script>`, or via the `make frontend-*` wrappers
-from the repo root.
-
-| Script             | Command                                            | Make wrapper                     | Purpose                                  |
-| ------------------ | -------------------------------------------------- | -------------------------------- | ---------------------------------------- |
-| `dev`              | `next dev`                                         | None                             | Booted by the Playwright E2E runner only |
-| `build`            | `next build`                                       | `make frontend-build`            | Production build                         |
-| `start`            | `next start`                                       | None                             | Serve a production build                 |
-| `lint`             | `eslint .`                                         | `make frontend-lint`             | ESLint (incl. Terra rules)               |
-| `type-check`       | `tsc --noEmit`                                     | `make frontend-type-check`       | TypeScript check                         |
-| `storybook`        | `storybook dev -p 6006`                            | None                             | Storybook on :6006                       |
-| `build-storybook`  | `storybook build`                                  | None                             | Static Storybook build                   |
-| `test:unit`        | `vitest run --config vitest.config.unit.ts`        | `make frontend-test-unit`        | Unit tests (jsdom)                       |
-| `test:integration` | `vitest run --config vitest.config.integration.ts` | `make frontend-test-integration` | Integration tests (MSW + jsdom)          |
-| `test:e2e`         | `playwright test`                                  | `make frontend-test-e2e`         | E2E (Playwright + Chromium)              |
-
-Coverage variants: `test:coverage:unit`, `test:coverage:integration`.
-`make frontend-check` runs lint + type-check + format + unit/integration tests.
+The [frontend state golden path](docs/golden-paths/frontend-state-pattern.md) documents the complete data flow from server service module to BFF route, client service, hook, context, and page.
 
 ## Before you commit
 
-This gate is mandatory for any frontend change. Both must pass with zero errors:
+Frontend changes must pass linting and type checking with no errors:
 
 ```bash
-pnpm lint && pnpm tsc --noEmit
+pnpm lint
+pnpm tsc --noEmit
 ```
 
-## Terra design system (required)
+Run the relevant unit, integration, or end-to-end tests for the behaviour you changed. The full frontend gate is available from the repository root:
 
-All product JSX must use Terra (`@orbit/terra`): `<div>`, `<p>`, `<span>`,
-`<button>`, etc. are banned by ESLint with no escape hatches. See
-[`AGENTS.md` → **Frontend Development**](../AGENTS.md) for the full rule table,
-the raw-HTML → Terra replacement map, the three-tier component placement model,
-and the `@tier` annotation rules. Do not restate those rules here.
+```bash
+make frontend-check
+```
 
-## Reference docs
+## Documentation
 
-See [`docs/`](docs/) for the full index. The four core references:
-
-- [Terra design system](docs/reference/terra-design-system.md): component usage, props, examples, verification checklist.
-- [Component placement](docs/reference/component-placement.md): the three-tier model, full Terra inventory, `@tier` annotations.
-- [App-level shared components](docs/reference/app-components.md): the Tier 2 (`@orbit/components`) inventory.
-- [Frontend state golden path](docs/golden-paths/frontend-state-pattern.md): fetching, caching, and reactive state for data-driven pages.
+- [Frontend documentation](docs/README.md): the index for frontend reference material and golden paths.
+- [Terra design system](docs/reference/terra-design-system.md): component APIs, usage, and verification.
+- [Component placement](docs/reference/component-placement.md): the three-tier component model and `@tier` rules.
+- [App-level components](docs/reference/app-components.md): shared Orbit-aware components exported by `@orbit/components`.
+- [Frontend testing](../docs/guides/frontend-testing.md): the test suites and where each kind of test belongs.
+- [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Terra rules.

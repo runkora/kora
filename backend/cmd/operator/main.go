@@ -2,100 +2,181 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	oc "github.com/clear-route/orbit/cmd/operator/config"
 	"github.com/clear-route/orbit/internal/operator"
+	"github.com/clear-route/orbit/internal/operator/preflight"
+	"github.com/clear-route/orbit/internal/operator/webhookcert"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
 
+const (
+	webhookServiceName = "orbit-operator-webhook"
+	spiffeSocket       = "unix:///run/secrets/workload-spiffe-uds/socket"
+)
+
 func main() {
 	ctx := context.Background()
 
-	// Initialize observability with deferred cleanup.
 	shutdownObservability, err := initObservability(ctx)
 	if err != nil {
 		log.Fatalf("failed to setup observability: %v", err)
 	}
 	defer shutdownObservability()
 
-	// Create logger.
 	logger := initLogger()
-	logger.Info(ctx, "orbit-operator starting",
-		logging.Field{Key: "version", Value: oc.Current.App.Version},
-		logging.Field{Key: "environment", Value: config.Environment()},
-	)
 
-	// Build Kubernetes REST config.
+	for _, parseErr := range oc.ResourceParseErrors {
+		logger.Warn(ctx, "malformed resource requirements env var; using empty requirements",
+			logging.Field{Key: "error", Value: parseErr.Error()})
+	}
+
+	operator.Apply(operator.Settings{
+		SystemNamespace: oc.Current.Install.SystemNamespace,
+		IstioNamespace:  oc.Current.Install.IstioNamespace,
+		TrustDomain:     oc.Current.Install.TrustDomain,
+	})
+
 	restCfg, err := buildRestConfig(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, "failed to build Kubernetes REST config",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
+		logger.Error(ctx, "failed to build Kubernetes REST config", logging.Field{Key: "error", Value: err.Error()})
 		shutdownObservability()
 		os.Exit(1) //nolint:gocritic // exitAfterDefer: explicit cleanup before exit
 	}
 
-	// Create controller-runtime manager.
+	// `orbit preflight` runs the prerequisite checks once and exits non-zero on
+	// failure; the chart's helm test uses it.
+	if len(os.Args) > 1 && os.Args[1] == "preflight" {
+		code := runPreflightOnce(ctx, restCfg, logger)
+		shutdownObservability()
+		os.Exit(code)
+	}
+
+	logger.Info(ctx, "orbit-operator starting",
+		logging.Field{Key: "version", Value: oc.Current.App.Version},
+		logging.Field{Key: "environment", Value: config.Environment()},
+		logging.Field{Key: "systemNamespace", Value: oc.Current.Install.SystemNamespace},
+	)
+
+	if err := run(ctx, restCfg, logger); err != nil {
+		logger.Error(ctx, "orbit-operator exited with error", logging.Field{Key: "error", Value: err.Error()})
+		shutdownObservability()
+		os.Exit(1)
+	}
+	logger.Info(ctx, "orbit-operator shutdown complete")
+}
+
+func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
+	install := oc.Current.Install
+
+	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
+	// route them through the injected logger instead of discarding them.
+	ctrl.SetLogger(logr.New(operator.NewLogSink(logger)))
+
 	mgr, err := initManager(restCfg)
 	if err != nil {
-		logger.Error(ctx, "failed to create controller-runtime manager",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		shutdownObservability()
-		os.Exit(1)
+		return fmt.Errorf("create manager: %w", err)
 	}
 
-	// Wire up reconcilers.
-	if err := initControllers(mgr, restCfg, logger); err != nil {
-		logger.Error(ctx, "failed to register controllers",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		shutdownObservability()
-		os.Exit(1)
+	// Use a direct client before the manager cache starts.
+	direct, err := client.New(restCfg, client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		return fmt.Errorf("create bootstrap client: %w", err)
+	}
+	certs := &webhookcert.Manager{
+		Client:      direct,
+		Logger:      logger,
+		Namespace:   install.SystemNamespace,
+		ServiceName: webhookServiceName,
+		CertDir:     oc.Current.Operator.WebhookCertDir,
+		External:    install.WebhookCertManager,
+	}
+	if err := certs.Bootstrap(ctx); err != nil {
+		return fmt.Errorf("bootstrap webhook certificate: %w", err)
+	}
+	if err := mgr.Add(&webhookcert.Refresher{Manager: certs, Interval: 5 * time.Minute}); err != nil {
+		return err
+	}
+	if err := mgr.Add(&webhookcert.Rotator{Manager: certs, Interval: time.Hour}); err != nil {
+		return err
+	}
+	if err := (&webhookcert.DriftReconciler{Manager: certs}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("register webhook drift reconciler: %w", err)
 	}
 
-	// Wire up admission webhooks.
+	checks := &preflight.Runner{Client: mgr.GetAPIReader(), Logger: logger, Config: preflightConfig()}
+	if err := mgr.Add(&preflight.Loop{Runner: checks, Interval: install.Preflight.Interval}); err != nil {
+		return err
+	}
+
+	if err := initControllers(mgr, logger, checks); err != nil {
+		return fmt.Errorf("register controllers: %w", err)
+	}
 	initWebhooks(mgr)
 
-	// Register health + readiness probes (served by controller-runtime).
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		logger.Error(ctx, "failed to register healthz check",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		shutdownObservability()
-		os.Exit(1)
+		return err
 	}
+	// Readiness depends only on the process. The preflight gates tenants, not
+	// the webhooks; a transient prerequisite failure never blocks admission.
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		logger.Error(ctx, "failed to register readyz check",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		shutdownObservability()
-		os.Exit(1)
+		return err
 	}
 
 	logger.Info(ctx, "starting controller-runtime manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		logger.Error(ctx, "manager exited with error",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		shutdownObservability()
-		os.Exit(1)
-	}
+	return mgr.Start(ctrl.SetupSignalHandler())
+}
 
-	logger.Info(ctx, "orbit-operator shutdown complete")
+func runPreflightOnce(ctx context.Context, restCfg *rest.Config, logger logging.Logger) int {
+	direct, err := client.New(restCfg, client.Options{Scheme: operator.NewScheme()})
+	if err != nil {
+		logger.Error(ctx, "create client", logging.Field{Key: "error", Value: err.Error()})
+		return 1
+	}
+	res := (&preflight.Runner{Client: direct, Logger: logger, Config: preflightConfig()}).Run(ctx)
+	for _, c := range res.Checks {
+		state := "ok  "
+		if !c.OK {
+			state = "FAIL"
+		}
+		fmt.Printf("%s %-28s %s\n", state, c.Name, c.Message)
+	}
+	if res.OK() {
+		return 0
+	}
+	return 1
+}
+
+func preflightConfig() preflight.Config {
+	install := oc.Current.Install
+	return preflight.Config{
+		TrustDomain:          install.TrustDomain,
+		SystemNamespace:      install.SystemNamespace,
+		IstioNamespace:       install.IstioNamespace,
+		IstioRevision:        install.IstioRevision,
+		SPIREClassName:       install.SPIREClassName,
+		SupportedIstioMinors: install.Preflight.SupportedIstioMinors,
+		SPIFFESocket:         spiffeSocket,
+		WebhookNames:         []string{webhookcert.Webhooks.Mutating, webhookcert.Webhooks.Validating},
+	}
 }
 
 // initObservability sets up OTEL tracing and returns a cleanup function.
@@ -109,7 +190,6 @@ func initObservability(ctx context.Context) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), oc.Current.ShutdownTimeout())
 		defer cancel()
@@ -119,7 +199,6 @@ func initObservability(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-// initLogger creates the appropriate logger based on environment.
 func initLogger() logging.Logger {
 	if observability.DefaultConfig.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()
@@ -127,43 +206,39 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-// buildRestConfig builds the Kubernetes REST config. Inside the cluster it
-// uses the in-cluster config; outside (local dev) it falls back to KUBECONFIG.
+// buildRestConfig uses the in-cluster config when running as a pod and falls
+// back to KUBECONFIG for local development.
 func buildRestConfig(ctx context.Context, logger logging.Logger) (*rest.Config, error) {
-	// Try in-cluster first — this is the production path (operator runs as a pod).
 	cfg, err := rest.InClusterConfig()
 	if err == nil {
 		logger.Info(ctx, "using in-cluster Kubernetes config")
 		return cfg, nil
 	}
-
-	// Fall back to kubeconfig — local dev path.
 	kubeconfig := clientcmd.NewDefaultClientConfigLoadingRules().GetLoadingPrecedence()
-	logger.Info(ctx, "using kubeconfig",
-		logging.Field{Key: "paths", Value: kubeconfig},
-	)
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
+	logger.Info(ctx, "using kubeconfig", logging.Field{Key: "paths", Value: kubeconfig})
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		loadingRules,
-		configOverrides,
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
 	).ClientConfig()
 }
 
-// initManager creates the controller-runtime Manager with our CRD scheme and
-// options derived from operator config.
 func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
-	scheme := operator.NewScheme()
-
 	syncPeriod := oc.Current.SyncPeriod()
+	install := oc.Current.Install
 
 	opts := ctrl.Options{
-		Scheme: scheme,
+		Scheme: operator.NewScheme(),
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
 		},
+		// Bypass the cache to avoid a cluster-wide Secret informer.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+			},
+		},
 		LeaderElection:          oc.Current.Operator.LeaderElection,
-		LeaderElectionNamespace: oc.Current.Operator.Namespace,
+		LeaderElectionNamespace: install.SystemNamespace,
 		LeaderElectionID:        "orbit-operator-leader",
 		HealthProbeBindAddress:  ":8081",
 		WebhookServer: webhook.NewServer(webhook.Options{
@@ -172,49 +247,48 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		}),
 	}
 
-	// Wire a discard logr into controller-runtime so it doesn't emit the
-	// "log.SetLogger was never called" warning. All meaningful logging goes
-	// through our own injected logging.Logger in the reconcilers.
-	ctrl.SetLogger(logr.Discard())
-
 	return ctrl.NewManager(restCfg, opts)
 }
 
-// initWebhooks registers the admission webhook handlers with the manager's
-// built-in webhook server (port 9443, TLS from WebhookCertDir).
 func initWebhooks(mgr ctrl.Manager) {
+	install := oc.Current.Install
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	mgr.GetWebhookServer().Register("/mutate-pod", &webhook.Admission{
 		Handler: &operator.PodMutator{
 			Client:  mgr.GetClient(),
 			Decoder: decoder,
+			Config: operator.InjectionConfig{
+				SystemNamespace:         install.SystemNamespace,
+				ImagePullSecrets:        install.ImagePullSecrets,
+				OTLPEndpoint:            observability.DefaultConfig.OTLPEndpoint,
+				IdentityProxyImage:      install.Injection.IdentityProxyImage,
+				IdentityProxyPullPolicy: corev1.PullPolicy(install.Injection.IdentityProxyPullPolicy),
+				IdentityProxyResources:  install.Injection.IdentityProxyResources,
+				OPAImage:                install.Injection.OPAImage,
+				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),
+				OPALogLevel:             install.Injection.OPALogLevel,
+				OPAResources:            install.Injection.OPAResources,
+			},
+		},
+	})
+	mgr.GetWebhookServer().Register("/validate-pod", &webhook.Admission{
+		Handler: &operator.PodValidator{
+			Client:        mgr.GetClient(),
+			Decoder:       decoder,
+			IstioRevision: install.IstioRevision,
 		},
 	})
 }
 
-// initControllers registers the PlatformReconciler and TenantReconciler with
-// the controller-runtime Manager.
-func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logger) error {
+func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner) error {
+	install := oc.Current.Install
+
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
 	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
 	caAggregator := operator.NewTenantCAAggregator(mgr.GetClient(), logger)
 	connAggregator := operator.NewConnectionAggregator(mgr.GetClient(), logger)
 	mcpAggregator := operator.NewMCPServerAggregator(mgr.GetClient(), logger)
 	oauthAggregator := operator.NewOAuthClientAggregator(mgr.GetClient(), logger)
-
-	platformReconciler := &operator.PlatformReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RestConfig:  restCfg,
-		Logger:      logger,
-		ChartDir:    oc.Current.Operator.ChartDir,
-		Registry:    registry,
-		OPAImage:    oc.Current.Operator.OPAImage,
-		OPALogLevel: oc.Current.Operator.OPALogLevel,
-	}
-	if err := platformReconciler.SetupWithManager(mgr); err != nil {
-		return err
-	}
 
 	tenantReconciler := &operator.TenantReconciler{
 		Client:                mgr.GetClient(),
@@ -226,22 +300,43 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		MCPAggregator:         mcpAggregator,
 		OAuthAggregator:       oauthAggregator,
 		Logger:                logger,
-		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
-		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,
+		BundlePollingMinDelay: install.Injection.BundlePollingMinDelay,
+		BundlePollingMaxDelay: install.Injection.BundlePollingMaxDelay,
+		IstioRevision:         install.IstioRevision,
+		PodSecurity: operator.PodSecurityLabels{
+			Enforce: install.PodSecurity.Enforce,
+			Warn:    install.PodSecurity.Warn,
+			Audit:   install.PodSecurity.Audit,
+		},
+		ImagePullSecrets: install.ImagePullSecrets,
+		Preflight:        preflightSource{checks},
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
 		return err
+	}
+	// Identity reads the tenant registry at startup and fails without it: seed
+	// it before the first tenant exists.
+	if err := mgr.Add(manager.RunnableFunc(registry.Sync)); err != nil {
+		return fmt.Errorf("add tenant registry seed: %w", err)
 	}
 
 	mcpServerReconciler := &operator.MCPServerReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
+		PodReader:  mgr.GetAPIReader(),
 		Aggregator: mcpAggregator,
 		Logger:     logger,
 	}
-	if err := mcpServerReconciler.SetupWithManager(mgr); err != nil {
-		return err
-	}
+	return mcpServerReconciler.SetupWithManager(mgr)
+}
 
-	return nil
+// preflightSource adapts the runner to the reconciler's narrow interface.
+type preflightSource struct{ runner *preflight.Runner }
+
+func (p preflightSource) Latest() (operator.PreflightResult, bool) {
+	res, ok := p.runner.Latest()
+	if !ok {
+		return operator.PreflightResult{}, false
+	}
+	return operator.PreflightResult{OK: res.OK(), Failures: res.Failures()}, true
 }

@@ -44,8 +44,12 @@ func SetupMetrics(ctx context.Context, cfg Config) (metric.Meter, func(context.C
 		return mp.Meter(cfg.ServiceName), mp.Shutdown, nil
 	}
 
-	opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
-	if DefaultConfig.OTLPInsecure {
+	addr, insecure, err := otlpTarget(endpoint)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(addr)}
+	if insecure {
 		opts = append(opts, otlpmetricgrpc.WithInsecure())
 	} else {
 		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")))

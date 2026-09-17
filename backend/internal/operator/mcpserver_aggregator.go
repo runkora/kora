@@ -54,7 +54,18 @@ var (
 	// ErrMCPServerForwardNotGlobal is returned when a tenant-namespaced CR sets
 	// callerIdentity: forward — forward is global-only.
 	ErrMCPServerForwardNotGlobal = errors.New("callerIdentity: forward is valid only on global (orbit-system) servers")
+	// ErrMCPServerNoWorkloadSelector is returned when spec.workload is present
+	// with no selector, which would classify every pod in the namespace.
+	ErrMCPServerNoWorkloadSelector = errors.New("spec.workload.selector is required when spec.workload is set")
+	// ErrMCPServerNameTooLong is returned for a name that cannot be a label
+	// value. The generated policies carry the name in a label, so a longer one
+	// would be rejected by the API server when the policy is written.
+	ErrMCPServerNameTooLong = fmt.Errorf("metadata.name must be at most %d characters", maxLabelValueLength)
 )
+
+// maxLabelValueLength is the Kubernetes limit on a label value, which is
+// shorter than the limit on an object name.
+const maxLabelValueLength = 63
 
 // mcpServerRegistryEntry is one element of servers.json — the runtime contract
 // the tool-gateway's introspection worker agrees on. tenant_id is "" for global
@@ -168,7 +179,7 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 			continue
 		}
 
-		if err := validateMCPServerSpec(srv.Spec, srv.Namespace); err != nil {
+		if err := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace); err != nil {
 			skipped = append(skipped, mcpServerSkip{srv.Name, srv.Namespace, err.Error()})
 			continue
 		}
@@ -207,10 +218,13 @@ func resolveTenantID(namespace string, nsToTenant map[string]string) (string, bo
 	return tenantID, ok
 }
 
-// validateMCPServerSpec checks an MCPServer spec against the namespace it was
-// applied in. It is the single source of truth for both the per-CR Status the
-// reconciler sets and the aggregator's include/exclude decision.
-func validateMCPServerSpec(spec MCPServerSpec, namespace string) error {
+// validateMCPServerSpec checks an MCPServer spec against the name and namespace
+// it was applied under. It is the single source of truth for both the per-CR
+// Status the reconciler sets and the aggregator's include/exclude decision.
+func validateMCPServerSpec(spec MCPServerSpec, name, namespace string) error {
+	if len(name) > maxLabelValueLength {
+		return ErrMCPServerNameTooLong
+	}
 	if spec.Endpoint == "" {
 		return ErrMCPServerNoEndpoint
 	}
@@ -222,6 +236,11 @@ func validateMCPServerSpec(spec MCPServerSpec, namespace string) error {
 	// full-power token via a pod they control. Reject it structurally.
 	if spec.CallerIdentity == CallerIdentityForward && namespace != systemNamespace {
 		return ErrMCPServerForwardNotGlobal
+	}
+	// A workload block with no selector would classify every pod in the
+	// namespace, stripping enforcement from the agents there.
+	if spec.Workload != nil && len(spec.Workload.Selector) == 0 {
+		return ErrMCPServerNoWorkloadSelector
 	}
 	return nil
 }
@@ -291,7 +310,9 @@ func (a *MCPServerAggregator) upsertConfigMap(ctx context.Context, entries []mcp
 			a.logger.Debug(ctx, "aggregated MCP servers unchanged, skipping update")
 			return nil
 		}
-		patch := client.MergeFrom(existing.DeepCopy())
+		// Two controllers share this aggregator; the lock turns a stale
+		// writer into a conflict and requeue instead of a silent overwrite.
+		patch := client.MergeFromWithOptions(existing.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		if existing.Data == nil {
 			existing.Data = make(map[string]string)
 		}

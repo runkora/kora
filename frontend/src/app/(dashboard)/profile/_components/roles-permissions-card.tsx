@@ -19,8 +19,7 @@ import type { ScopesExplainResponse } from '../_types';
 
 interface RolesPermissionsCardProps {
   explain:
-    | { ok: true; data: ScopesExplainResponse }
-    | { ok: false; status: number; message: string };
+    { ok: true; data: ScopesExplainResponse } | { ok: false; status: number; message: string };
   cachedScopes: string[];
   principalDisplayName: string;
 }

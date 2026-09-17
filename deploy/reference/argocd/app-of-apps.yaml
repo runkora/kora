@@ -1,0 +1,221 @@
+# Use sync waves to install releases in dependency order.
+# The orbit Application's second source is a placeholder: replace repoURL with
+# your own GitOps values repository holding an orbit chart values file.
+# Configure OCI registry credentials when required.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spire-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://spiffe.github.io/helm-charts-hardened
+    chart: spire-crds
+    targetRevision: 0.5.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: spire-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spire
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://spiffe.github.io/helm-charts-hardened
+    chart: spire
+    targetRevision: 0.28.3
+    helm:
+      values: |
+        global:
+          spire:
+            trustDomain: orbit.example.com
+            clusterName: orbit
+        spire-server:
+          controllerManager:
+            identities:
+              clusterSPIFFEIDs:
+                # The chart's catch-all registration would race Orbit's own.
+                default:
+                  enabled: false
+          nodeAttestor:
+            k8sPSAT:
+              enabled: true
+              clusters:
+                orbit:
+                  service_account_allow_list:
+                    - spire-system:spire-agent
+        spire-agent:
+          sds:
+            enabled: true
+            defaultSVIDName: default
+            defaultBundleName: ROOTCA
+            defaultAllBundlesName: ALL
+          nodeAttestor:
+            k8sPSAT:
+              enabled: true
+          workloadAttestors:
+            k8s:
+              enabled: true
+              skipKubeletVerification: true
+              disableContainerSelectors: true
+              useNewContainerLocator: false
+        spiffe-csi-driver:
+          enabled: true
+        spire-controller-manager:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: spire-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-base
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: base
+    targetRevision: 1.29.1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-cni
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: cni
+    targetRevision: 1.29.1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: istiod
+    targetRevision: 1.29.1
+    helm:
+      values: |
+        meshConfig:
+          trustDomain: orbit.example.com
+          defaultConfig:
+            discoveryAddress: istiod.istio-system.svc:15012
+        pilot:
+          cni:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: orbit-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/clear-route/charts
+    chart: orbit-crds
+    targetRevision: 0.0.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orbit-system
+  syncPolicy:
+    # Unlike spire-crds, these back tenant-authored CRs (OrbitTenant,
+    # Connection, OAuthClient, MCPServer) with no way to regenerate them;
+    # a prune here cascade-deletes every tenant's data cluster-wide.
+    automated: { prune: false, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: orbit
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  # orbit's values are environment-specific: database, redis, hosts, bedrock.
+  # Point the second source at your own GitOps values repository and path.
+  sources:
+    - repoURL: ghcr.io/clear-route/charts
+      chart: orbit
+      targetRevision: 0.0.0
+      helm:
+        valueFiles:
+          - $values/orbit.yaml
+    - repoURL: https://github.com/your-org/your-gitops-values
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orbit-system
+  syncPolicy:
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    automated: { prune: true, selfHeal: true }
+    # A failed migration hook fails the sync; automated sync does not reattempt
+    # the same revision without a retry policy.
+    retry:
+      limit: 3
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true, RespectIgnoreDifferences=true]
+  # Operator-owned fields.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions: [".webhooks[].clientConfig.caBundle", ".webhooks[].failurePolicy"]
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions: [".webhooks[].clientConfig.caBundle", ".webhooks[].failurePolicy"]

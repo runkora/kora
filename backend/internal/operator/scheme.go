@@ -12,8 +12,6 @@ import (
 func AddToScheme(s *runtime.Scheme) error {
 	// Register the concrete CRD types for orbit.io/v1alpha1.
 	s.AddKnownTypes(GroupVersion,
-		&OrbitPlatform{},
-		&OrbitPlatformList{},
 		&OrbitTenant{},
 		&OrbitTenantList{},
 		&Connection{},

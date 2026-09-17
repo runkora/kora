@@ -1,0 +1,50 @@
+{{- if .Values.gateway.create }}
+{{- if and (ne (default "" .Values.global.systemNamespace) "") (ne .Values.global.systemNamespace .Release.Namespace) }}
+{{- fail "gateway.create=true installs the bundled Istio gateway in .Release.Namespace, but global.systemNamespace names a different namespace, which would separate the gateway workload from the Gateway and policies that select it. Install Orbit with its release namespace equal to global.systemNamespace, or set gateway.create=false." }}
+{{- end }}
+# Istio Gateway for the two external hosts (ADR 2026-07-04):
+#   <frontendHost>      the dashboard and BFF
+#   api.<frontendHost>  the unified backend API
+# With gateway.create=false this is not rendered; VirtualServices bind to
+# gateway.name instead.
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name }}
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ .Values.ingressGateway.name }}
+  servers:
+    {{- if .Values.gateway.tls.enabled }}
+    - port:
+        number: {{ .Values.gateway.ports.https }}
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: {{ .Values.gateway.tls.credentialName }}
+      hosts:
+        - {{ include "orbit.frontendHost" . | quote }}
+        - {{ include "orbit.apiHost" . | quote }}
+    - port:
+        number: {{ .Values.gateway.ports.http }}
+        name: http
+        protocol: HTTP
+      tls:
+        httpsRedirect: true
+      hosts:
+        - {{ include "orbit.frontendHost" . | quote }}
+        - {{ include "orbit.apiHost" . | quote }}
+    {{- else }}
+    - port:
+        number: {{ .Values.gateway.ports.http }}
+        name: http
+        protocol: HTTP
+      hosts:
+        - {{ include "orbit.frontendHost" . | quote }}
+        - {{ include "orbit.apiHost" . | quote }}
+    {{- end }}
+{{- end }}

@@ -823,8 +823,7 @@ inference_usage
 - [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) — Gateway and sidecar enforcement topology
 - [credential-aware-outbound-gateway](../adr/2026-03-05-credential-aware-outbound-gateway.md) — Credential broker (Post-MVP integration)
 - [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture decision record
-- [Orbit Architecture](../architecture.md) — Overall system design
-- [Platform Overview Diagram](../architecture/platform-overview.excalidraw)
+- [Orbit Architecture](../../ARCHITECTURE.md) — Overall system design
 
 ### References
 

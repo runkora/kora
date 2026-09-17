@@ -15,8 +15,7 @@
  */
 
 export const EXTERNAL_URLS = ['https://github.com/clear-route/orbit'] as const satisfies readonly (
-  | `https://${string}`
-  | `http://${string}`
+  `https://${string}` | `http://${string}`
 )[];
 
 /**

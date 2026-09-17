@@ -43,6 +43,7 @@ target "backend-images" {
       { service = "policy-gateway" },
       { service = "egress-gateway" },
       { service = "tool-gateway" },
+      { service = "migrate" },
       { service = "example" },
     ]
   }

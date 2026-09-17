@@ -8,8 +8,7 @@ import { buildConnectionRows } from '../_types';
 import type { ConnectionRow } from '../_types';
 
 export type ConnectionsResult =
-  | { ok: true; rows: ConnectionRow[] }
-  | { ok: false; message: string };
+  { ok: true; rows: ConnectionRow[] } | { ok: false; message: string };
 
 /**
  * Loads the read-only connection catalog and computes, for each connection,

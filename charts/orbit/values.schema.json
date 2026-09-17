@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "global",
+    "frontendHost",
+    "config"
+  ],
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": [
+        "trustDomain"
+      ],
+      "properties": {
+        "trustDomain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "systemNamespace": {
+          "type": "string"
+        },
+        "imageRegistry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "imagePullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        },
+        "imageTag": {
+          "type": "string"
+        },
+        "logFormat": {
+          "type": "string"
+        },
+        "postgres": {
+          "type": "object",
+          "properties": {
+            "sslMode": {
+              "type": "string"
+            },
+            "captureQueryText": {
+              "type": [
+                "boolean",
+                "string"
+              ]
+            }
+          }
+        },
+        "observability": {
+          "type": "object",
+          "properties": {
+            "otlpEndpoint": {
+              "type": "string"
+            },
+            "collectorNamespace": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "frontendHost": {
+      "type": "string",
+      "minLength": 1
+    },
+    "publicHosts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": [
+        "db",
+        "redis",
+        "platformSecretName"
+      ],
+      "properties": {
+        "db": {
+          "type": "object",
+          "required": [
+            "host"
+          ],
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        },
+        "redis": {
+          "type": "object",
+          "required": [
+            "host"
+          ],
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        },
+        "platformSecretName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "istio": {
+      "type": "object",
+      "properties": {
+        "outboundTrafficPolicy": {
+          "enum": [
+            "ALLOW_ANY",
+            "REGISTRY_ONLY"
+          ]
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "operator": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tenantPodSecurity": {
+          "type": "object",
+          "properties": {
+            "enforce": {
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            },
+            "warn": {
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            },
+            "audit": {
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

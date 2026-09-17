@@ -76,10 +76,10 @@ ceilings contains c if {
 	}
 }
 
-# The tenant cap blocks AGENT and SERVICE principals only; it is not surfaced
-# as a ceiling for humans (their spend accumulates but never blocks them).
+# The tenant cap is a hard ceiling on total tenant spend for the period,
+# for every principal type: once the rollup reaches the cap, further
+# inference is denied regardless of who is making the request.
 ceilings contains c if {
-	input.principal.type in {"AGENT", "SERVICE"}
 	tb := data.tenant_budget.tenant_budget
 	tb.limit_usd > 0
 	c := {

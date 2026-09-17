@@ -1,0 +1,49 @@
+# Local k3d overrides layered onto values/orbit.yaml by make up. Excluded from
+# the cloud example; used only by the local environment.
+global:
+  imageRegistry: orbit-registry:5001
+  imageTag: latest
+  imagePullPolicy: Always
+  logFormat: console
+  postgres:
+    sslMode: disable
+    captureQueryText: true
+  observability:
+    otlpEndpoint: ""
+
+frontendHost: orbit.local.clearroute.io
+
+config:
+  db:
+    host: orbit-postgres
+  redis:
+    host: orbit-redis
+
+identity:
+  config:
+    redisTLSEnabled: "false"
+    accessTokenTtlMinutes: 240
+
+frontend:
+  config:
+    nextPublicAppUrl: https://orbit.local.clearroute.io:8443
+
+# Mirrored into the k3d registry by make docker-pull-third-party.
+opaGateway:
+  image:
+    registry: orbit-registry:5001
+    repository: openpolicyagent/opa
+    tag: 1.15.2-envoy-static
+
+operator:
+  replicas: 1
+  leaderElection: false
+  podDisruptionBudget:
+    enabled: false
+
+egressGateway:
+  # The local Kubernetes connection points at the k3d API server, which listens
+  # on 6443. deploy/local/connections/kubernetes.yaml and
+  # scripts/cluster/register-k8s-connection.sh register it.
+  upstreamPorts:
+    - 6443

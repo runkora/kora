@@ -9,7 +9,7 @@
 # this file from the filesystem via the ORBIT_TENANTS_CONFIG env var (set in
 # .env to ./config/tenants.yaml).
 #
-# For cluster dev (make cluster-operator + make cluster-deploy):
+# For cluster dev (make cluster-platform + make cluster-deploy):
 #   The orbit-operator builds the orbit-tenants ConfigMap from OrbitTenant CRs
 #   defined in deploy/local/tenants/. This file is not read or mounted.
 #   Edit deploy/local/tenants/example.yaml to change cluster tenant config.

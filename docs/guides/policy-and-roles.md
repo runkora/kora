@@ -77,14 +77,9 @@ The `tenant_id` is derived from your platform token. SYSTEM principals may suppl
 
 ### Reserved Roles
 
-`tenant-admin` and `platform-admin` are hardcoded platform roles that cannot be created, modified, or deleted via the API. They are compiled directly into every bundle by the policy service.
+`platform-admin` is the one reserved role. It cannot be created, modified, or deleted via the API. At every bundle compile the policy service derives them from the registered vocabulary. 
 
-| Role | Scopes |
-|---|---|
-| `tenant-admin` | `platform:grants:read`, `platform:grants:write`, `platform:roles:read`, `platform:roles:write`, `platform:agents:read` |
-| `platform-admin` | All `tenant-admin` scopes plus `platform:tenants:manage` |
-
-Any user with the `tenant-admin` OIDC role can manage grants and roles for their tenant without a prior grant record existing. This is the bootstrapping mechanism: you do not need to create a grant to allow your first administrator to configure policy.
+Any user with the `platform-admin` OIDC role can manage grants and roles without a prior grant record existing.
 
 ---
 
@@ -191,7 +186,7 @@ Response:
 DELETE /api/v1/policy/roles/engineer
 ```
 
-Deleting a role removes the scope mapping. Users who previously received access via this role lose it on the next bundle polling cycle (default: ≤ 30 seconds). Reserved roles (`tenant-admin`, `platform-admin`) cannot be deleted.
+Deleting a role removes the scope mapping. Users who previously received access via this role lose it on the next bundle polling cycle (default: ≤ 30 seconds). The reserved `platform-admin` role cannot be deleted.
 
 > Role management requires `platform:roles:write`.
 
@@ -376,4 +371,3 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 
 - [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
 - [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
-- [Policy Enforcement Redesign](../archive/policy-enforcement-redesign.md) (archived, superseded by [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md))

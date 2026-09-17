@@ -14,7 +14,7 @@ Underneath, Orbit is established platform engineering applied to a new domain: S
 
 **These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
 
-Build status lives in [docs/architecture.md](docs/architecture.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
+The architecture overview is in [ARCHITECTURE.md](ARCHITECTURE.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
 
 ## Development Workflow
 
@@ -42,23 +42,23 @@ make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / pa
 
 **Calling authenticated Orbit APIs (curl):**
 
-Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress on `:8443`.
+Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
 
 ```bash
 # Standard pattern for any authenticated API call
 TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  https://api.orbit.local.clearroute.io:8443/v1/models
+  https://api.orbit.local.clearroute.io/v1/models
 
 # POST example (inference gateway)
 TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
-  https://api.orbit.local.clearroute.io:8443/v1/chat/completions | jq .
+  https://api.orbit.local.clearroute.io/v1/chat/completions | jq .
 ```
 
-**Endpoints:** frontend `https://orbit.local.clearroute.io:8443`, inference gateway `https://api.orbit.local.clearroute.io:8443/v1`.
+**Endpoints:** dashboard `https://orbit.local.clearroute.io`, backend API `https://api.orbit.local.clearroute.io`.
 
 **In-cluster ports** (each service binds these inside the mesh):
 | Service | Port |
@@ -95,7 +95,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Data & Storage
 - **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
 - **No `database/sql`**: Use `pgx/v5` exclusively. `errors.Is(err, pgx.ErrNoRows)` for not-found checks.
-- **No hand-written migrations**: Generate with `make migrate-create service=X name=Y` (Goose format); migrations live per-binary under `backend/cmd/{service}/migrations/`
+- **No hand-written migrations**: Generate with `make migrate-create service=X name=Y` (Goose format); migrations live per-binary under `backend/cmd/{service}/migrations/` and must pass `make migrate-lint` (DDL only, own tables only; see [database migrations](docs/adr/2026-09-10-database-migrations.md))
 
 ### HTTP & Routing
 - **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`. No gin, chi, echo, or gorilla/mux.
@@ -171,6 +171,7 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 | `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
 | `orbit-agents` | `cmd/orbit-agents/` | Agent control plane: runs, sessions, event streaming, k8s orchestration |
 | `orbit-triggers` | `cmd/orbit-triggers/` | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097) |
+| `migrate` | `cmd/migrate/` | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job |
 | `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
 | `operator` | `cmd/operator/` | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars |
 | `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls |
@@ -241,17 +242,16 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
   | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
   | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
-  | `example` | `postgres_test.go` | the reference repository |
+  | `example` | `postgres_test.go` | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema |
 
-  Run them against the docker-compose Postgres (after `make migrate-up`):
+  Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 
   ```bash
-  ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
-    go test ./... -run Postgres
+  make test-postgres
   ```
 
   Reach for one whenever the behaviour lives in SQL rather than in Go. A mock can only agree with whatever its author believed the SQL did, which is exactly the assumption worth testing for a `FOR UPDATE SKIP LOCKED` queue or a window function deciding a ceiling. **CI does not run these**, so a change to that SQL still needs them run locally.
-- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
+- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-platform` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
 - **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
 Write tests alongside new code; unit tests are the default and must pass in `make check`.

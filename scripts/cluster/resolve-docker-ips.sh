@@ -1,30 +1,11 @@
 #!/usr/bin/env bash
-# =============================================================================
-# resolve-docker-ips.sh — Resolve Docker container IPs and inject into cluster
+# Write local Docker networking values for Helmfile and CoreDNS.
 #
-# Docker assigns container IPs dynamically — they vary across machines and
-# restarts. This script detects the actual IPs at cluster setup time and
-# patches the OrbitPlatform CR so the operator can propagate them into the
-# orbit and orbit-platform Helm releases.
-#
-# Called by: make cluster-operator (after applying the static CR)
-#
-# What it patches:
-#   spec.orbitValues.identity.hostAliases   → Dex container IP
-#   spec.platformValues.networkPolicy       → orbit-network subnet CIDR
-#   CoreDNS NodeHosts configmap             → orbit-postgres, orbit-redis IPs
-#
-# Why CoreDNS NodeHosts?
-#   Pods use CoreDNS (10.43.0.10) for DNS. The `forward . /etc/resolv.conf`
-#   rule in CoreDNS's default zone forwards to Docker's embedded DNS
-#   (127.0.0.11 on the node), but from inside CoreDNS's own container
-#   127.0.0.11 is the container's own loopback — not the node's Docker DNS.
-#   Docker container hostnames like orbit-postgres and orbit-redis are
-#   therefore unreachable via forwarding. The NodeHosts file is loaded
-#   directly by the CoreDNS hosts plugin running in-process, bypassing
-#   the forwarding problem entirely.
-# =============================================================================
+# NodeHosts makes Docker service names resolvable from pods.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 GREEN="\033[32m"
 YELLOW="\033[33m"
@@ -47,8 +28,7 @@ container_ip() {
 
   # Try explicit network name (set via `name: orbit-network` in docker-compose.yml)
   ip="$(docker inspect "${name}" \
-    --format '{{index .NetworkSettings.Networks "orbit-network"}}' 2>/dev/null \
-    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    --format '{{with index .NetworkSettings.Networks "orbit-network"}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
 
   # Fall back to first network IP (works regardless of key naming).
   # The space after IPAddress prevents concatenation when a container is on
@@ -60,7 +40,7 @@ container_ip() {
   fi
 
   if [[ -z "${ip}" ]]; then
-    die "Could not resolve IP for container '${name}' — is it running? (make dev-up)"
+    die "Could not resolve IP for container '${name}': is it running? (make dev-up)"
   fi
   echo "${ip}"
 }
@@ -82,7 +62,7 @@ SUBNET="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
 
 if [[ -z "${SUBNET}" ]]; then
-  die "Could not detect orbit-network subnet — is the network created? (make dev-up)"
+  die "Could not detect orbit-network subnet: is the network created? (make dev-up)"
 fi
 ok "orbit-network:  ${SUBNET}"
 
@@ -108,32 +88,20 @@ kubectl get configmap coredns -n kube-system -o json \
 
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS NodeHosts patched — orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
+ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
 
-# ── Patch OrbitPlatform CR ───────────────────────────────────────────────────
-step "Patching OrbitPlatform CR with resolved IPs"
+# ── Write the generated environment file ────────────────────────────────────
+# Preserves the image digest pins redeploy.sh writes.
+step "Writing deploy/reference/environments/local.generated.yaml"
 
-kubectl patch orbitplatform orbit --type=merge -p "{
-  \"spec\": {
-    \"orbitValues\": {
-      \"identity\": {
-        \"hostAliases\": [{
-          \"ip\": \"${DEX_IP}\",
-          \"hostnames\": [\"dex.orbit.local.clearroute.io\"]
-        }]
-      }
-    },
-    \"platformValues\": {
-      \"networkPolicy\": {
-        \"externalServices\": [
-          {\"cidr\": \"${SUBNET}\", \"ports\": [5432, 6379, 5556]}
-        ]
-      }
-    }
-  }
-}"
+GENERATED="${REPO_ROOT}/deploy/reference/environments/local.generated.yaml"
+[[ -f "${GENERATED}" ]] || echo "{}" > "${GENERATED}"
+yq -i "
+  .identity.hostAliases = [{\"ip\": \"${DEX_IP}\", \"hostnames\": [\"dex.orbit.local.clearroute.io\"]}] |
+  .networkPolicy.externalServices = [{\"cidr\": \"${SUBNET}\", \"ports\": [5432, 6379, 5556]}]
+" "${GENERATED}"
 
-ok "OrbitPlatform CR patched — operator will reconcile with resolved IPs"
+ok "local.generated.yaml written"
 echo ""
 echo "  Dex hostAlias:     ${DEX_IP}"
 echo "  Postgres:          ${POSTGRES_IP}"

@@ -174,8 +174,6 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 // ─── Triggers ─────────────────────────────────────────────────────────────────
 
 // triggerColumns lists all columns for a trigger row.
-// kind, kind_config, principal_id, and grant_id_svc are the new columns added
-// in migration 20260620100000_extend_trigger_kinds.sql.
 // pending_count is how many fires are waiting on this trigger right now.
 //
 // Only unclaimed rows count: a claimed row is mid-dispatch, and reporting it as

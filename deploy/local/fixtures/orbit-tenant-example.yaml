@@ -1,29 +1,5 @@
-# =============================================================================
-# Orbit example tenant workload — local development fixture
-# =============================================================================
-#
-# This manifest is NOT managed by the orbit or orbit-platform Helm charts.
-# It is a local-only fixture demonstrating a tenant agent workload with full
-# Orbit platform integration:
-#   - SPIFFE identity via SPIRE (spiffe.io/agent: example label)
-#   - Identity-proxy sidecar (mandatory platform trust enforcement, orbit.io/identity-proxy: enabled)
-#   - Platform Bearer token injected on outbound requests by the sidecar
-#   - Istio mTLS for all service-to-service traffic
-#
-# Apply manually:
-#   kubectl apply -f deploy/local/fixtures/orbit-tenant-example.yaml
-#
-# This file MUST NOT be committed to a production deployment repo without
-# replacing orbit-registry:5001 with a real image registry and removing
-# imagePullPolicy: Always.
-#
-# In a production GitOps setup, the operator provides their own workload
-# manifests. This fixture exists solely to validate the local dev environment.
-#
-# Namespace: orbit-tenant-example
-# Created by: OrbitTenant CR (deploy/local/tenants/example.yaml) — the operator
-#             auto-derives the namespace as "orbit-tenant-{name}".
-# =============================================================================
+# Example tenant workload for the local cluster. The namespace comes from
+# deploy/local/tenants/example.yaml; the operator's webhook adds the sidecars.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -58,34 +34,24 @@ spec:
     metadata:
       labels:
         app: orbit-example
-        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
-        # orbit-tenant-agent to issue:
-        #   spiffe://orbit.test/tenant/orbit-tenant-example/agent/example
-        spiffe.io/spire-managed-identity: "true"
+        # Selects the orbit-tenant-agent ClusterSPIFFEID: .../agent/example.
         spiffe.io/agent: example
-        # Required on all Orbit platform agent pods. This label activates the
-        # identity-proxy EnvoyFilter (charts/orbit/templates/identity-proxy/envoyfilter.yaml)
-        # which is the mandatory trust enforcement point: it intercepts every outbound
-        # HTTP call and injects the platform Bearer token derived from the pod's SVID.
-        orbit.io/identity-proxy: "enabled"
-        # Required on agent pods that run the OPA sidecar. Activates the
-        # opa-policy-ext-authz EnvoyFilter for outbound scope enforcement.
-        orbit.io/opa-policy: "enabled"
-      annotations:
-        # Inject Istio sidecar + SPIRE socket mount + identity-proxy sidecar.
-        # The identity-proxy template patches istio-proxy to mount the shared
-        # /run/orbit emptyDir so Envoy can reach the ext_proc Unix socket.
-        # Ref: ADR-0021 (ext_proc sidecar token exchange)
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        # Hold the application container until Envoy is ready to avoid
-        # connection failures on startup (iptables intercepts before Envoy).
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-example
+      # Tenant namespaces enforce restricted Pod Security.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: orbit-example
           image: orbit-registry:5001/orbit-example:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           env:
             - name: APP_ENV
               value: local

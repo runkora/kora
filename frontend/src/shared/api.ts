@@ -220,14 +220,12 @@ export interface Connector {
 
 /**
  * A connection's resource-qualifier dimension, as declared by its adapter:
- * the dimension's name ("repository", "namespace") and the connection's
- * optional config-declared ceiling allowlist ([] when none is declared).
+ * the dimension's name ("repository", "namespace") an attachment narrows to.
  * Mirrors Go: agents.ConnectionQualifierEntry.
  */
 export interface ConnectionQualifierEntry {
   name: string;
   description: string;
-  ceiling: string[];
 }
 
 /**
