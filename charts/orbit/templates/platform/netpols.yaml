@@ -197,8 +197,10 @@ spec:
       ports:
         - port: 15012
 ---
-# The API server is host-networked and cannot be selected by pod/namespace
-# selector, hence the open ipBlock.
+# The API server is not selectable by pod/namespace selector in standard
+# NetworkPolicy. On EKS set networkPolicy.kubeApiServerCIDRs to the ClusterIP
+# of the kubernetes Service in the default namespace (e.g. 172.20.0.1/32) to
+# prevent kube-api-client pods from reaching arbitrary external HTTPS endpoints.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -221,8 +223,10 @@ spec:
         - port: 6443
           protocol: TCP
       to:
+        {{- range .Values.networkPolicy.kubeApiServerCIDRs }}
         - ipBlock:
-            cidr: 0.0.0.0/0
+            cidr: {{ . }}
+        {{- end }}
 ---
 # Outbound HTTPS for the services that call out of the cluster: model
 # providers (inference-gateway), brokered upstreams (egress-gateway), the OIDC
