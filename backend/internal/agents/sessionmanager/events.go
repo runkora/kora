@@ -6,7 +6,7 @@ import "encoding/json"
 type EventType string
 
 const (
-	// Persistence events — written to run_events by the session-manager.
+	// Persistence events — recorded in run_events by orbit-agents.
 	EventTypeMessageComplete EventType = "message_complete"
 	EventTypeTextBlock       EventType = "text_block"
 	EventTypeToolUse         EventType = "tool_use"
@@ -20,11 +20,12 @@ const (
 	EventTypeMessageStop   EventType = "message_stop"
 )
 
-// Event is an Orbit standard event emitted by the transform layer.
+// Event is an Orbit standard event emitted by the transform layer. It carries no
+// sequence number: orbit-agents assigns one when it writes the event to
+// run_events, so nothing in this pod has to reach the database.
 type Event struct {
-	Type       EventType       `json:"type"`
-	Payload    json.RawMessage `json:"payload,omitempty"`
-	SequenceNo int64           `json:"sequence_no,omitempty"` // set for durable events after DB write
+	Type    EventType       `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // MessageCompletePayload carries the trailing text and thinking for one completed

@@ -17,7 +17,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -35,15 +34,7 @@ func main() {
 		logging.Field{Key: "version", Value: smConfig.Current.App.Version},
 	)
 
-	db, err := initStorage(ctx, logger)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
-		shutdownObs()
-		os.Exit(1) //nolint:gocritic
-	}
-	defer db.Close()
-
-	server := initServer(ctx, logger, db)
+	server := initServer(ctx, logger)
 	run(ctx, logger, server)
 }
 
@@ -73,20 +64,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
-	cfg, err := storage.LoadPostgresConfig()
-	if err != nil {
-		return nil, err
-	}
-	db, err := storage.New(ctx, cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-	logger.Info(ctx, "Database initialized successfully")
-	return db, nil
-}
-
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -105,10 +83,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
-	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
+	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:     cfg.Claude.BinaryPath,
-		ClaudeWrapperPath:    cfg.Claude.WrapperPath,
+		WrapperPath:          cfg.Runner.WrapperPath,
+		ShellPath:            cfg.Runner.ShellPath,
 		ClaudeDefaultModel:   cfg.Claude.DefaultModel,
 		ClaudeBare:           cfg.Claude.Bare,
 		SelfPort:             cfg.Server.Port,

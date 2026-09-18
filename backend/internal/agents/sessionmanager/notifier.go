@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// Notifier delivers events to orbit-agents for live SSE fan-out and run
-// lifecycle callbacks.
+// Notifier delivers events to orbit-agents, which records the durable ones and
+// fans out to live SSE subscribers, plus the run lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
 type Notifier interface {
 	Notify(ctx context.Context, runID string, ev Event) error
@@ -30,8 +30,8 @@ type Notifier interface {
 	// BUDGET_EXCEEDED; the run did nothing wrong, its budget ended.
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
-	// given run and returns its gRPC endpoint ("podIP:port").
-	ProvisionSandbox(ctx context.Context, runID string) (string, error)
+	// given run and returns how to reach and authenticate to it.
+	ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error)
 	// SetSummary reports the run's generated task summary to orbit-agents, which
 	// persists it set-once. Best-effort.
 	SetSummary(ctx context.Context, runID, summary string) error
@@ -46,11 +46,13 @@ func (NoopNotifier) IdleRun(_ context.Context, _ string) error                  
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
-func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (string, error)    { return "", nil }
-func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error          { return nil }
+func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (Sandbox, error) {
+	return Sandbox{}, nil
+}
+func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { return nil }
 
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
-// Each call is fire-and-forget with a short timeout so a slow or absent
+// Streaming events are fire-and-forget with a short timeout so a slow or absent
 // orbit-agents instance does not block the session-manager drain loop.
 // ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh orbit
 // node pays a cold image pull (sandbox-exec is large) plus istio/sidecar
@@ -58,7 +60,7 @@ func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error     
 type HTTPNotifier struct {
 	baseURL         string
 	client          *http.Client // short timeout: event fan-out (best-effort, fire-and-forget)
-	lifecycleClient *http.Client // longer timeout: run state callbacks (must not be dropped)
+	lifecycleClient *http.Client // longer timeout: durable events and run state callbacks (must not be dropped)
 	sandboxClient   *http.Client
 }
 
@@ -83,7 +85,14 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := n.client.Do(req)
+	// A durable event is the only record of what the agent did, so it gets the
+	// longer timeout. Delta events are superseded within milliseconds and are
+	// better dropped than allowed to stall the drain loop.
+	client := n.client
+	if isDurableEvent(ev.Type) {
+		client = n.lifecycleClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
 	}
@@ -95,28 +104,29 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	return nil
 }
 
-func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
 	url := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		return "", fmt.Errorf("build request: %w", err)
+		return Sandbox{}, fmt.Errorf("build request: %w", err)
 	}
 	resp, err := n.sandboxClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("post provision-sandbox: %w", err)
+		return Sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return "", fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return Sandbox{}, fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
 	}
-	var result struct {
-		Endpoint string `json:"endpoint"`
-	}
+	var result Sandbox
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return Sandbox{}, fmt.Errorf("decode response: %w", err)
 	}
-	return result.Endpoint, nil
+	if result.Endpoint == "" || result.ExecToken == "" {
+		return Sandbox{}, ErrSandboxIncomplete
+	}
+	return result, nil
 }
 
 func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) error {

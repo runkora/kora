@@ -22,6 +22,16 @@ type CodexRunnerConfig struct {
 	// BinaryPath is the path to the codex binary. Defaults to "codex".
 	BinaryPath string
 
+	// WrapperPath is the path to orbit-session-runner. When set, codex is invoked
+	// as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a PID
+	// namespace are applied first. Empty invokes codex directly, with no
+	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	WrapperPath string
+
+	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
+	// orbit-shell callback variables).
+	ExtraEnv []string
+
 	// Model is passed to thread/start. May be empty.
 	Model string
 
@@ -127,7 +137,8 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 // prior conversation. Otherwise Start issues thread/start to create a new thread and
 // captures the returned thread ID.
 func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
+	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
+	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
 	codexHome, err := r.writeCodexConfig(workDir)
 	if err != nil {
@@ -137,6 +148,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		"CODEX_HOME="+codexHome,
 		"ORBIT_INFERENCE_KEY=orbit-managed",
 	)
+	r.cmd.Env = append(r.cmd.Env, r.cfg.ExtraEnv...)
 
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {

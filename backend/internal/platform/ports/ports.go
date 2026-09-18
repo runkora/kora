@@ -7,3 +7,8 @@ package ports
 // EgressGatewayCONNECT is the egress gateway's HTTP CONNECT port. It must match
 // charts/orbit/values.yaml and charts/orbit/templates/egress-gateway/service.yaml.
 const EgressGatewayCONNECT = 8085
+
+// SandboxExecGRPC is the sandbox-exec gRPC port. orbit-agents renders it onto the
+// sandbox pod, and the operator's sandbox ingress NetworkPolicy has to admit the
+// same number (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+const SandboxExecGRPC = 50051

@@ -43,6 +43,8 @@ agents:
   # Pull secrets for the images above, named per install by
   # ORBIT_AGENTS_IMAGE_PULL_SECRETS (comma-separated).
   imagePullSecrets: []
+  # Must stay in step with internal/platform/ports.SandboxExecGRPC, which the
+  # operator uses for the sandbox ingress NetworkPolicy.
   sandboxGRPCPort: 50051
   maxConcurrentRunsPerPod: 10
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
@@ -54,7 +56,6 @@ agents:
   # means no customization. Overridden by ORBIT_WORKLOADS_FILE.
   workloadsFile: /etc/orbit/workloads/workloads.yaml
   sessionManager:
-    postgresSSLMode: require
     # Restricts each agent pod's session-manager port to the orbit-agents
     # SPIFFE principal at the mesh layer. Overridden per-deployment by
     # ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED; requires SPIFFE.

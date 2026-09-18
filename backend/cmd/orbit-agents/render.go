@@ -56,7 +56,6 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
 		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
 		OTLPEndpoint:               observability.DefaultConfig.OTLPEndpoint,
 		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
 		TrustDomain:                cfg.Platform.TrustDomain,

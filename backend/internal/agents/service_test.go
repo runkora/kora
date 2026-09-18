@@ -752,12 +752,15 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	endpoint, err := svc.ProvisionSandbox(context.Background(), "run-1")
+	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if endpoint != "10.0.0.5:50051" {
-		t.Errorf("endpoint = %q, want 10.0.0.5:50051", endpoint)
+	if sandbox.Endpoint != "10.0.0.5:50051" {
+		t.Errorf("endpoint = %q, want 10.0.0.5:50051", sandbox.Endpoint)
+	}
+	if sandbox.ExecToken == "" {
+		t.Error("expected an exec token alongside the endpoint")
 	}
 }
 

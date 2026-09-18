@@ -9,13 +9,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -41,6 +42,9 @@ const egressCanaryCommand = "curl -sf --max-time 8 -o /dev/null https://api.gith
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExists   = errors.New("session already exists")
+	// ErrSandboxIncomplete means orbit-agents answered without both halves of the
+	// descriptor. An endpoint with no token cannot be used, so it is not cached.
+	ErrSandboxIncomplete = errors.New("sandbox response missing endpoint or exec token")
 )
 
 // SessionConfig holds parameters for creating a new session.
@@ -76,7 +80,6 @@ type session struct {
 // Registry manages all active sessions for this session-manager pod.
 type Registry struct {
 	logger      logging.Logger
-	pool        *pgxpool.Pool
 	workspaces  string // base path for workspace directories
 	notifier    Notifier
 	summarizer  *summarizer
@@ -86,10 +89,9 @@ type Registry struct {
 }
 
 // NewRegistry creates a session registry.
-func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase string, notifier Notifier, idleTimeout time.Duration) *Registry {
+func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier, idleTimeout time.Duration) *Registry {
 	return &Registry{
 		logger:      logger,
-		pool:        pool,
 		workspaces:  workspacesBase,
 		notifier:    notifier,
 		summarizer:  newSummarizer(logger),
@@ -115,11 +117,6 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 
 	runCtx, cancel := context.WithCancel(context.Background())
 
-	if err := cfg.Runner.Start(runCtx, workDir); err != nil {
-		cancel()
-		return fmt.Errorf("start runner: %w", err)
-	}
-
 	s := &session{
 		runID:        cfg.RunID,
 		runner:       cfg.Runner,
@@ -128,7 +125,17 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
 	}
+	// Registered before the runner starts. Start spawns the agent, which calls
+	// back to /internal/runs/{id}/provision-sandbox, and that route answers only
+	// for runs this pod hosts — so the entry has to exist before the process that
+	// asks does. A failed Start takes it back out.
 	reg.sessions[cfg.RunID] = s
+
+	if err := cfg.Runner.Start(runCtx, workDir); err != nil {
+		delete(reg.sessions, cfg.RunID)
+		cancel()
+		return fmt.Errorf("start runner: %w", err)
+	}
 
 	go reg.drain(runCtx, s, cfg)
 
@@ -138,6 +145,16 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		logging.Field{Key: "tenant_id", Value: cfg.TenantID},
 	)
 	return nil
+}
+
+// hosts reports whether this pod is running the given run. The loopback
+// /internal routes trust their caller's network position, not the run ID it
+// names, so a request naming another pod's run is refused here.
+func (reg *Registry) hosts(runID string) bool {
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	_, ok := reg.sessions[runID]
+	return ok
 }
 
 // Send delivers a user text message to an existing session.
@@ -251,9 +268,21 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
+// Sandbox is what orbit-agents returns for a provisioned sandbox pod: where its
+// exec server listens, and the per-run token that server requires.
+type Sandbox struct {
+	Endpoint  string `json:"endpoint"`
+	ExecToken string `json:"exec_token"`
+}
+
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
-// given run, then writes the returned gRPC endpoint to
-// $workspaces/{runID}/.sandbox/endpoint so orbit-shell can discover it.
+// given run, then writes the returned gRPC endpoint and exec token under
+// $workspaces/{runID}/.sandbox/ so orbit-shell can discover both.
+//
+// The run's workspace directory is the delivery channel for the token because it
+// is already the boundary between runs: Landlock confines each agent subprocess
+// to its own directory, so a sibling run cannot read either file
+// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
 // Idempotent toward liveness: if the endpoint file already exists AND the
 // sandbox at that address is still reachable, the cached value is returned
@@ -269,9 +298,16 @@ func (reg *Registry) ActiveCount() int {
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
-	endpointFile := filepath.Join(reg.workspaces, runID, ".sandbox", "endpoint")
-	if data, err := os.ReadFile(endpointFile); err == nil && len(data) > 0 {
-		cached := string(data)
+	if !reg.hosts(runID) {
+		return "", ErrSessionNotFound
+	}
+
+	sandboxDir := filepath.Join(reg.workspaces, runID, ".sandbox")
+	endpointFile := filepath.Join(sandboxDir, "endpoint")
+	tokenFile := filepath.Join(sandboxDir, "exec-token")
+	// Both files, or neither: an endpoint whose token is missing cannot be
+	// authenticated to, so it counts as a miss rather than a cache hit.
+	if cached, token := readTrimmed(endpointFile), readTrimmed(tokenFile); cached != "" && token != "" {
 		if endpointAlive(cached) {
 			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
 				logging.Field{Key: "run_id", Value: runID},
@@ -285,10 +321,17 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 		)
 	}
 
-	endpoint, err := reg.notifier.ProvisionSandbox(ctx, runID)
+	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID)
 	if err != nil {
 		return "", err
 	}
+	// Checked here as well as in the notifier: a descriptor missing either half
+	// would otherwise be written to disk as empty files that orbit-shell reads as
+	// "no sandbox yet" and silently runs commands in this container instead.
+	if sandbox.Endpoint == "" || sandbox.ExecToken == "" {
+		return "", ErrSandboxIncomplete
+	}
+	endpoint := sandbox.Endpoint
 
 	// Gate on egress readiness before handing the endpoint to the agent.
 	// The sandbox pod is Running (gRPC exec accepting connections) but the
@@ -296,7 +339,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	// up to ~60s to fully settle. Returning before they are ready causes the
 	// first git/GitHub calls to land "connection reset by peer" — the exact
 	// failure that triggered orphan-branch PRs in issue #161.
-	if canaryErr := reg.awaitEgressReady(ctx, runID, endpoint); canaryErr != nil {
+	if canaryErr := reg.awaitEgressReady(ctx, runID, sandbox); canaryErr != nil {
 		reg.logger.Warn(ctx, "Egress canary did not pass within timeout — proceeding anyway",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: canaryErr.Error()},
@@ -307,8 +350,13 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 		// on its own if they fail.
 	}
 
-	if err := os.MkdirAll(filepath.Dir(endpointFile), 0o700); err != nil {
+	if err := os.MkdirAll(sandboxDir, 0o700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
+	}
+	// Token first: orbit-shell keys off the endpoint file, so writing that last
+	// means it never sees an endpoint whose token has not landed yet.
+	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
+		return "", fmt.Errorf("write exec token: %w", err)
 	}
 	if err := os.WriteFile(endpointFile, []byte(endpoint), 0o600); err != nil {
 		return "", fmt.Errorf("write endpoint: %w", err)
@@ -316,19 +364,28 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	return endpoint, nil
 }
 
+// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
+func readTrimmed(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // awaitEgressReady polls outbound connectivity from inside the sandbox by running
 // a canary curl command via the sandbox gRPC exec server. It retries on any
 // non-zero exit or exec error until the command succeeds (exit 0) or
 // egressCanaryMaxWait elapses. The canary is bounded by a sub-context so
 // individual probes don't outlive the overall wait budget.
-func (reg *Registry) awaitEgressReady(ctx context.Context, runID, endpoint string) error {
-	return reg.awaitEgressReadyWithInterval(ctx, runID, endpoint, egressCanaryInterval, egressCanaryMaxWait)
+func (reg *Registry) awaitEgressReady(ctx context.Context, runID string, sandbox Sandbox) error {
+	return reg.awaitEgressReadyWithInterval(ctx, runID, sandbox, egressCanaryInterval, egressCanaryMaxWait)
 }
 
 // awaitEgressReadyWithInterval is the testable core of awaitEgressReady.
 // interval controls how long to wait between probe attempts; maxWait caps the
 // total wait. Tests pass short values to avoid slow tests.
-func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID, endpoint string, interval, maxWait time.Duration) error {
+func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID string, sandbox Sandbox, interval, maxWait time.Duration) error {
 	deadline := time.Now().Add(maxWait)
 	canaryCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -336,7 +393,7 @@ func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID, en
 	attempt := 0
 	for {
 		attempt++
-		ok, execErr := reg.sandboxExec(canaryCtx, endpoint, egressCanaryCommand)
+		ok, execErr := reg.sandboxExec(canaryCtx, sandbox, egressCanaryCommand)
 		if execErr == nil && ok {
 			reg.logger.Info(ctx, "Sandbox egress canary passed",
 				logging.Field{Key: "run_id", Value: runID},
@@ -366,15 +423,15 @@ func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID, en
 // sandboxExec dials the sandbox gRPC exec server, runs the given shell command,
 // and returns (true, nil) when the command exits 0. A non-zero exit returns
 // (false, nil); an infrastructure error (dial/stream) returns (false, err).
-func (reg *Registry) sandboxExec(ctx context.Context, endpoint, command string) (bool, error) {
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func (reg *Registry) sandboxExec(ctx context.Context, sandbox Sandbox, command string) (bool, error) {
+	conn, err := grpc.NewClient(sandbox.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return false, fmt.Errorf("dial sandbox %s: %w", endpoint, err)
+		return false, fmt.Errorf("dial sandbox %s: %w", sandbox.Endpoint, err)
 	}
 	defer conn.Close() //nolint:errcheck
 
 	client := execpb.NewExecServiceClient(conn)
-	stream, err := client.Execute(ctx, &execpb.ExecuteRequest{Command: command})
+	stream, err := client.Execute(execauth.WithToken(ctx, sandbox.ExecToken), &execpb.ExecuteRequest{Command: command})
 	if err != nil {
 		return false, fmt.Errorf("execute canary: %w", err)
 	}
@@ -427,8 +484,6 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	defer func() {
 		reg.completeDrain(s, cfg)
 	}()
-
-	eventRepo := newEventRepository(reg.pool)
 
 	var idleTimerC <-chan time.Time // nil = no timer armed (blocks in select)
 	var idleTimer *time.Timer
@@ -496,7 +551,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 				var p RunErrorPayload
 				if json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted" {
 					s.budgetExhausted.Store(true)
-					reg.persistAndPush(ctx, cfg.RunID, ev, eventRepo)
+					reg.pushEvent(ctx, cfg.RunID, ev)
 					reg.logger.Info(ctx, "Session budget exhausted — closing",
 						logging.Field{Key: "run_id", Value: cfg.RunID},
 					)
@@ -506,7 +561,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 				}
 			}
 
-			reg.persistAndPush(ctx, cfg.RunID, ev, eventRepo)
+			reg.pushEvent(ctx, cfg.RunID, ev)
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
@@ -632,71 +687,36 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	close(s.done)
 }
 
-// persistAndPush writes durable events to run_events and fans out to orbit-agents
-// via the notifier. Ephemeral events (text_delta, thinking_delta, message_stop)
-// are pushed only, never persisted.
-func (reg *Registry) persistAndPush(ctx context.Context, runID string, ev Event, eventRepo *eventRepository) {
-	if isDurableEvent(ev.Type) {
-		seqNo, err := eventRepo.Write(ctx, runID, string(ev.Type), ev.Payload)
-		if err != nil {
-			reg.logger.Error(ctx, "Failed to write run event",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "event_type", Value: string(ev.Type)},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		} else {
-			ev.SequenceNo = seqNo
-		}
-	}
-	// text_block is persisted for replay but not pushed live — live clients
-	// already receive the same content via text_delta streaming events.
-	if !isReplayOnlyEvent(ev.Type) {
-		if err := reg.notifier.Notify(ctx, runID, ev); err != nil {
-			reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "event_type", Value: string(ev.Type)},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
+// pushEvent hands one event to orbit-agents, which records the durable ones and
+// fans out to live subscribers. Every event is pushed, including the replay-only
+// ones a subscriber never sees, because orbit-agents owns both decisions.
+func (reg *Registry) pushEvent(ctx context.Context, runID string, ev Event) {
+	if err := reg.notifier.Notify(ctx, runID, ev); err != nil {
+		reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "event_type", Value: string(ev.Type)},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
 }
 
-// emitRunError persists a run_error event to the DB and pushes it to orbit-agents.
+// emitRunError reports a run_error event to orbit-agents, which persists it.
 func (reg *Registry) emitRunError(ctx context.Context, runID, code, message string) {
 	ev, err := newEvent(EventTypeRunError, RunErrorPayload{Code: code, Message: message})
 	if err != nil {
 		return
 	}
-	seqNo, dbErr := newEventRepository(reg.pool).Write(ctx, runID, string(EventTypeRunError), ev.Payload)
-	if dbErr != nil {
-		reg.logger.Error(ctx, "Failed to persist run_error event",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "error", Value: dbErr.Error()},
-		)
-	} else {
-		ev.SequenceNo = seqNo
-	}
-	if notifyErr := reg.notifier.Notify(ctx, runID, ev); notifyErr != nil {
-		reg.logger.Warn(ctx, "Failed to push run_error event",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "error", Value: notifyErr.Error()},
-		)
-	}
+	reg.pushEvent(ctx, runID, ev)
 }
 
-// isDurableEvent returns true for events that must be persisted to run_events.
+// isDurableEvent returns true for events orbit-agents records in run_events.
+// Delivery of those must not be dropped, so they take the longer timeout, and
+// the OpenCode runner uses the same set to filter a replayed transcript.
+// orbit-agents holds the authoritative copy (internal/agents/pubsub.go).
 func isDurableEvent(t EventType) bool {
 	switch t {
 	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:
 		return true
 	}
 	return false
-}
-
-// isReplayOnlyEvent returns true for durable events that should not be pushed to
-// live SSE subscribers. These events are written to run_events for ordered replay
-// but are redundant during live streaming (clients receive equivalent content via
-// ephemeral delta events).
-func isReplayOnlyEvent(t EventType) bool {
-	return t == EventTypeTextBlock
 }

@@ -93,7 +93,6 @@ type Config struct {
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
 			// Should be "require" in production and "disable" for local dev.
-			PostgresSSLMode string `yaml:"postgresSSLMode"`
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
 			// port to the orbit-agents principal. Requires SPIFFE/mTLS, so the
@@ -188,7 +187,6 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},
 		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
 		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
-		{"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE", &cfg.Agents.SessionManager.PostgresSSLMode},
 		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
 		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
 	}

@@ -152,10 +152,7 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 	if claudeBinary == "" {
 		claudeBinary = "claude"
 	}
-	if r.cfg.WrapperPath != "" {
-		return r.cfg.WrapperPath, append([]string{workDir, claudeBinary}, args...)
-	}
-	return claudeBinary, args
+	return wrapExec(r.cfg.WrapperPath, workDir, claudeBinary, args...)
 }
 
 // buildRunEnv constructs the subprocess environment from the inherited base env

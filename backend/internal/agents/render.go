@@ -92,10 +92,11 @@ func (p *K8sProvisioner) applyStatefulSetPatches(ss appsv1.StatefulSet) (appsv1.
 // sampleSandboxPod renders a stand-in sandbox Pod for preview and validation.
 //
 // Not for provisioning: it carries no pod ordinal, so it claims the ordinal-0
-// workspace, and no granted Kubernetes clusters, so it has no kubeconfig.
-// ProvisionSandbox builds the real pod from the run.
+// workspace, no granted Kubernetes clusters, so it has no kubeconfig, and a
+// placeholder exec token, since nothing will call it. ProvisionSandbox builds
+// the real pod from the run.
 func (p *K8sProvisioner) sampleSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
-	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, []kubeconfig.Cluster{}), "Pod", p.cfg.Patches)
+	pod, err := manifestpatch.Apply(*p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, []kubeconfig.Cluster{}, "sample-not-a-real-token"), "Pod", p.cfg.Patches)
 	if err != nil {
 		return pod, fmt.Errorf("apply Pod patches: %w", err)
 	}

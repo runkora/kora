@@ -21,9 +21,14 @@ import (
 type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
-	// ClaudeWrapperPath is the path to orbit-session-runner. When set, it wraps
-	// the claude subprocess to apply Landlock filesystem restrictions (docs/adr/2026-06-04-per-session-home-isolation.md).
-	ClaudeWrapperPath string
+	// WrapperPath is the path to orbit-session-runner. When set, every agent
+	// subprocess is wrapped in it so Landlock and a PID namespace are applied
+	// before the agent execs (docs/adr/2026-06-04-per-session-home-isolation.md,
+	// docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	WrapperPath string
+	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
+	// Codex resolve it from the image instead.
+	ShellPath string
 	// ClaudeDefaultModel is used when the session request omits a model.
 	ClaudeDefaultModel string
 	// ClaudeBare enables --bare mode (required in containers).
@@ -273,7 +278,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		if model == "" {
 			model = c.cfg.ClaudeDefaultModel
 		}
-		extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
+		extraEnv := c.runEnv(req.RunID)
 		// Run identity travels as a base-URL path prefix: point this subprocess at
 		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
 		// budgets. Transparent to the agent runtime; the inherited pod-level value
@@ -284,7 +289,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		}
 		runner = NewClaudeRunner(ClaudeRunnerConfig{
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
-			WrapperPath:       c.cfg.ClaudeWrapperPath,
+			WrapperPath:       c.cfg.WrapperPath,
 			Model:             model,
 			AllowedTools:      req.AllowedTools,
 			SystemPrompt:      req.SystemPrompt,
@@ -304,11 +309,13 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewCodexRunner(CodexRunnerConfig{
 			BinaryPath:          c.cfg.CodexBinaryPath,
+			WrapperPath:         c.cfg.WrapperPath,
 			Model:               model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
 			SystemPrompt:        req.SystemPrompt,
+			ExtraEnv:            c.runEnv(req.RunID),
 		})
 	case "opencode":
 		model = req.Model
@@ -318,10 +325,13 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
 			BinaryPath:          c.cfg.OpenCodeBinaryPath,
+			WrapperPath:         c.cfg.WrapperPath,
+			ShellPath:           c.cfg.ShellPath,
 			Model:               model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
+			ExtraEnv:            c.runEnv(req.RunID),
 		})
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
@@ -464,18 +474,41 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 // handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
 // to provision a sandbox pod. It delegates to orbit-agents then writes the
 // gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
+// A run this pod does not host is refused: loopback proves the caller is in this
+// pod, not which run it belongs to.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
 
 	endpoint, err := c.registry.ProvisionSandbox(ctx, runID)
 	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// runEnv is the per-run environment every agent subprocess needs, whatever
+// framework it is.
+//
+// WORKSPACE is the run's own directory, which orbit-shell reads the sandbox
+// endpoint and exec token from. The other two let orbit-shell ask this pod to
+// re-provision a sandbox whose pod has gone: it is a child of the agent and
+// inherits this environment, so without them a dead sandbox ends the command
+// instead of being replaced.
+func (c *Controller) runEnv(runID string) []string {
+	return []string{
+		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
+		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
+		"ORBIT_RUN_ID=" + runID,
+	}
 }
 
 // inferenceURLForRun builds the per-run inference base URL used for

@@ -503,9 +503,30 @@ func (s *RunService) deprovisionSandbox(ctx context.Context, run *Run) {
 	)
 }
 
-// PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
-func (s *RunService) PublishEvent(_ context.Context, runID string, ev PushedEvent) {
-	s.pubsub.Publish(runID, ev)
+// PublishEvent persists a pushed event from a session-manager pod and fans it
+// out to live SSE subscribers. Durable types are written to run_events and
+// carry the assigned sequence number; replay-only types are persisted and
+// withheld from subscribers, who receive the same content through the delta
+// events. A failed write is returned so the pushing session-manager learns the
+// event was not recorded.
+func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {
+	var writeErr error
+	if durableEventType(ev.Type) {
+		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload})
+		if err != nil {
+			// Fan out anyway, as an ephemeral event, and report the failure: a
+			// subscriber watching the run should keep seeing it while the database
+			// is unavailable, and the pusher should know the row is missing. Same
+			// shape transitionRunState uses for a failed run_state write.
+			writeErr = fmt.Errorf("persist %s event: %w", ev.Type, err)
+		} else {
+			ev.SequenceNo = seqNo
+		}
+	}
+	if !replayOnlyEventType(ev.Type) {
+		s.pubsub.Publish(runID, ev)
+	}
+	return writeErr
 }
 
 // ListRunEvents returns persisted events for a run after the given sequence number.
@@ -682,8 +703,9 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 }
 
 // ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
-// request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port").
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+// request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
+// the exec token that sandbox requires.
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(attribute.String("run_id", runID)),
 	)
@@ -693,31 +715,31 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get run")
-		return "", err
+		return Sandbox{}, err
 	}
 
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
-		return "", fmt.Errorf("get agent type: %w", err)
+		return Sandbox{}, fmt.Errorf("get agent type: %w", err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, s.sandboxKubeClusters(ctx, *at))
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, s.sandboxKubeClusters(ctx, *at))
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision sandbox pod")
-		return "", fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("endpoint", endpoint))
+	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},
-		logging.Field{Key: "endpoint", Value: endpoint},
+		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
-	return endpoint, nil
+	return sandbox, nil
 }
 
 // providePod ensures the agent type's k8s resources exist (idempotent, fast

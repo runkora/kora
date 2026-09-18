@@ -35,6 +35,9 @@ import (
 // namespace by the operator. Idempotently reconciled.
 const sandboxEgressPolicyName = "sandbox-egress-to-gateway"
 
+// sandboxIngressPolicyName locks inbound access to a sandbox's exec port.
+const sandboxIngressPolicyName = "sandbox-ingress-from-agents"
+
 // egressGatewayServiceName is the egress-gateway Service the sandbox is
 // allowed to reach. The chart in charts/orbit/templates/egress-gateway/
 // renders this name; mismatch here would silently break egress for all
@@ -190,29 +193,87 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 		},
 	}
 
+	return r.ensureNetworkPolicy(ctx, tenant, desired)
+}
+
+// ensureSandboxIngressPolicy reconciles the NetworkPolicy that decides who may
+// reach a sandbox at all.
+//
+// The exec port is excluded from the inbound mesh, so no AuthorizationPolicy
+// applies to it and the per-run exec token is the only check on the receiving
+// side (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md). This narrows the set
+// of pods that can present a token in the first place to the agent pods of the
+// same tenant: everything outside the namespace is dropped before it arrives.
+func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenant *OrbitTenant) error {
+	ns := tenantNamespace(tenant)
+
+	desired := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sandboxIngressPolicyName,
+			Namespace: ns,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "orbit-operator",
+				"orbit.io/tenant":              tenant.Name,
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"orbit.io/role": "sandbox",
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				// The agent pods of this tenant, on the exec port. orbit-shell and
+				// the session registry's egress canary both run there, and they are
+				// the only callers. An empty NamespaceSelector is absent here on
+				// purpose: omitting it scopes the peer to this namespace.
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"orbit.io/managed-agent": "true"},
+							},
+						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(ports.SandboxExecGRPC)},
+					},
+				},
+			},
+		},
+	}
+
+	return r.ensureNetworkPolicy(ctx, tenant, desired)
+}
+
+// ensureNetworkPolicy creates the policy or patches an existing one back onto the
+// desired spec, so an operator config change flows through to existing tenants.
+func (r *TenantReconciler) ensureNetworkPolicy(ctx context.Context, tenant *OrbitTenant, desired *networkingv1.NetworkPolicy) error {
+	ns := desired.Namespace
+
 	existing := &networkingv1.NetworkPolicy{}
-	err := r.Get(ctx, client.ObjectKey{Name: sandboxEgressPolicyName, Namespace: ns}, existing)
+	err := r.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: ns}, existing)
 	if apierrors.IsNotFound(err) {
 		if createErr := r.Create(ctx, desired); createErr != nil {
-			return fmt.Errorf("create sandbox egress NetworkPolicy in %q: %w", ns, createErr)
+			return fmt.Errorf("create NetworkPolicy %q in %q: %w", desired.Name, ns, createErr)
 		}
-		r.Logger.Info(ctx, "sandbox egress NetworkPolicy created",
+		r.Logger.Info(ctx, "sandbox NetworkPolicy created",
+			logging.Field{Key: "policy", Value: desired.Name},
 			logging.Field{Key: "tenant", Value: tenant.Name},
 			logging.Field{Key: "namespace", Value: ns},
 		)
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("get sandbox egress NetworkPolicy in %q: %w", ns, err)
+		return fmt.Errorf("get NetworkPolicy %q in %q: %w", desired.Name, ns, err)
 	}
 
-	// Update the spec if it has drifted (operator config change, e.g. a new
-	// gateway port). Labels are restored as a side effect.
 	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Spec = desired.Spec
 	existing.Labels = desired.Labels
 	if err := r.Patch(ctx, existing, patch); err != nil {
-		return fmt.Errorf("patch sandbox egress NetworkPolicy in %q: %w", ns, err)
+		return fmt.Errorf("patch NetworkPolicy %q in %q: %w", desired.Name, ns, err)
 	}
 	return nil
 }

@@ -15,9 +15,18 @@ workspaces:
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
+# Settings shared by every agent framework.
+runner:
+  # Applies Landlock and a PID namespace before the agent execs. Every framework
+  # goes through it; see docs/adr/2026-06-04-per-session-home-isolation.md and
+  # docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+  wrapperPath: orbit-session-runner
+  # The orbit-shell proxy, exposed under a "bash" basename by
+  # backend/Dockerfile.session-manager so each framework's shell detection accepts it.
+  shellPath: /opt/orbit/shell/bash
+
 claude:
   binaryPath: claude
-  wrapperPath: orbit-session-runner  # applies Landlock filesystem restrictions; see ADR-0062
   defaultModel: "anthropic/claude-sonnet-4-6"
   bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
 

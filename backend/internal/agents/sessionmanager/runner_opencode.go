@@ -22,6 +22,21 @@ type OpenCodeRunnerConfig struct {
 	// BinaryPath is the path to the opencode binary. Defaults to "opencode".
 	BinaryPath string
 
+	// WrapperPath is the path to orbit-session-runner. When set, opencode is
+	// invoked as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a
+	// PID namespace are applied first. Empty invokes opencode directly, with no
+	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	WrapperPath string
+
+	// ShellPath is written into opencode.json as the "shell" key, so tool
+	// commands run through orbit-shell in the run's sandbox rather than in this
+	// container. Empty leaves OpenCode on the container's own shell.
+	ShellPath string
+
+	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
+	// orbit-shell callback variables).
+	ExtraEnv []string
+
 	// Model is stored for future use. OpenCode model selection is configured
 	// via opencode.json provider options.
 	Model string
@@ -112,8 +127,10 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("opencode: write config: %w", err)
 	}
 
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "acp", "--cwd", workDir)
+	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "acp", "--cwd", workDir)
+	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
+	r.cmd.Env = append(os.Environ(), r.cfg.ExtraEnv...)
 
 	var err error
 	r.stdin, err = r.cmd.StdinPipe()
@@ -315,7 +332,8 @@ func (r *OpenCodeRunner) Close() error {
 }
 
 // writeOpenCodeConfig writes opencode.json to workDir with provider baseURLs
-// pointing to the Orbit inference gateway.
+// pointing to the Orbit inference gateway, and the shell OpenCode runs tool
+// commands through.
 func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
 	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
@@ -328,6 +346,12 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 				"options": map[string]string{"baseURL": perRunURL},
 			},
 		},
+	}
+	// OpenCode's "shell" key takes the binary its shell tool runs commands with,
+	// so pointing it at orbit-shell puts tool execution in the run's sandbox
+	// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	if r.cfg.ShellPath != "" {
+		cfg["shell"] = r.cfg.ShellPath
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {

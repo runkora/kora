@@ -98,6 +98,16 @@ COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
 # (it rejects non-shell basenames and falls back to /bin/bash). Dedicated dir, NOT on PATH,
 # so the real /bin/bash is unaffected for every other consumer in the image.
 RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/shell/bash
+# Codex resolves its shell from the running user's passwd entry, not $SHELL, and
+# classifies it by basename, so pointing orbit's login shell at the proxy is what
+# routes Codex tool commands into the sandbox. Codex reads the passwd entry before
+# PATH, so /bin/bash stays untouched for every other consumer, and a model naming
+# /bin/bash explicitly is re-resolved back through here.
+# See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+# The grep fails the build if the substitution missed, rather than silently
+# leaving Codex on the container shell.
+RUN sed -i 's#^orbit:\(.*\):/sbin/nologin$#orbit:\1:/opt/orbit/shell/bash#' /etc/passwd && \
+    getent passwd orbit | grep -q ':/opt/orbit/shell/bash$'
 COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
 COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
 

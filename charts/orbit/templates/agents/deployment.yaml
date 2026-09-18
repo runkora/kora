@@ -70,8 +70,6 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "agents" "field" "sessionManagerPostgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
             - name: ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED
               value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE

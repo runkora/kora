@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"google.golang.org/grpc"
@@ -21,9 +22,12 @@ type stubExecServer struct {
 	execpb.UnimplementedExecServiceServer
 	callCount atomic.Int32 // total Execute calls
 	failUntil int32        // return exit 1 for the first failUntil calls
+	lastToken atomic.Value // string; the exec token presented on the most recent call
 }
 
 func (s *stubExecServer) Execute(_ *execpb.ExecuteRequest, stream grpc.ServerStreamingServer[execpb.ExecuteResponse]) error {
+	token, _ := execauth.TokenFrom(stream.Context())
+	s.lastToken.Store(token)
 	n := s.callCount.Add(1)
 	code := int32(0)
 	if n <= s.failUntil {
@@ -54,11 +58,18 @@ func startStubExecServer(t *testing.T, srv *stubExecServer) string {
 	return ln.Addr().String()
 }
 
+// testExecToken is the token the canary is expected to present.
+const testExecToken = "canary-exec-token"
+
+func testSandbox(addr string) Sandbox {
+	return Sandbox{Endpoint: addr, ExecToken: testExecToken}
+}
+
 // ── awaitEgressReady tests ────────────────────────────────────────────────────
 
 func newTestRegistryForCanary(t *testing.T) *Registry {
 	t.Helper()
-	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), nil, t.TempDir(), NoopNotifier{}, time.Minute)
+	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, time.Minute)
 }
 
 // TestAwaitEgressReady_PassesOnFirstSuccess verifies that awaitEgressReady
@@ -68,9 +79,12 @@ func TestAwaitEgressReady_PassesOnFirstSuccess(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReady(context.Background(), "run-1", addr)
+	err := reg.awaitEgressReady(context.Background(), "run-1", testSandbox(addr))
 	if err != nil {
 		t.Fatalf("awaitEgressReady returned unexpected error: %v", err)
+	}
+	if got, _ := srv.lastToken.Load().(string); got != testExecToken {
+		t.Errorf("canary presented exec token %q, want %q", got, testExecToken)
 	}
 	if n := srv.callCount.Load(); n != 1 {
 		t.Errorf("expected 1 exec call, got %d", n)
@@ -94,7 +108,7 @@ func TestAwaitEgressReady_RetriesUntilSuccess(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-retry", addr, 10*time.Millisecond, 5*time.Second)
+	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-retry", testSandbox(addr), 10*time.Millisecond, 5*time.Second)
 	if err != nil {
 		t.Fatalf("awaitEgressReady returned unexpected error after retries: %v", err)
 	}
@@ -114,7 +128,7 @@ func TestAwaitEgressReady_TimesOut(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-timeout", addr, 20*time.Millisecond, 80*time.Millisecond)
+	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-timeout", testSandbox(addr), 20*time.Millisecond, 80*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -130,7 +144,7 @@ func TestAwaitEgressReady_ContextCanceled(t *testing.T) {
 	cancel() // pre-canceled
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(ctx, "run-cancel", addr, 20*time.Millisecond, 5*time.Second)
+	err := reg.awaitEgressReadyWithInterval(ctx, "run-cancel", testSandbox(addr), 20*time.Millisecond, 5*time.Second)
 	if err == nil {
 		t.Fatal("expected error from canceled context, got nil")
 	}
@@ -147,7 +161,7 @@ func TestSandboxExec_SuccessAndFailure(t *testing.T) {
 
 	reg := newTestRegistryForCanary(t)
 
-	ok, err := reg.sandboxExec(context.Background(), addrOK, "true")
+	ok, err := reg.sandboxExec(context.Background(), testSandbox(addrOK), "true")
 	if err != nil {
 		t.Fatalf("sandboxExec(ok): unexpected error: %v", err)
 	}
@@ -155,7 +169,7 @@ func TestSandboxExec_SuccessAndFailure(t *testing.T) {
 		t.Fatal("sandboxExec(ok): expected true, got false")
 	}
 
-	ok, err = reg.sandboxExec(context.Background(), addrFail, "false")
+	ok, err = reg.sandboxExec(context.Background(), testSandbox(addrFail), "false")
 	if err != nil {
 		t.Fatalf("sandboxExec(fail): unexpected error: %v", err)
 	}

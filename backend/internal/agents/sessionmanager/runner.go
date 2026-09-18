@@ -51,3 +51,16 @@ type Runner interface {
 	// session ID has been captured (e.g. interrupted before the init event arrived).
 	NewResumeRunner() Runner
 }
+
+// wrapExec returns the command and arguments to spawn an agent, routed through
+// orbit-session-runner when wrapperPath is set. The wrapper takes the run's work
+// directory first, then the binary and its arguments, and applies Landlock plus a
+// PID namespace before exec'ing it
+// (docs/adr/2026-06-04-per-session-home-isolation.md). An empty wrapperPath runs
+// the binary directly, which is local development on a host without Landlock.
+func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []string) {
+	if wrapperPath == "" {
+		return binary, args
+	}
+	return wrapperPath, append([]string{workDir, binary}, args...)
+}

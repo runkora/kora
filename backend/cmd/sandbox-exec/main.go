@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
@@ -13,9 +14,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func main() {
@@ -58,7 +62,19 @@ func main() {
 		log.Fatalf("listen: %v", err)
 	}
 
-	srv := grpc.NewServer()
+	// Port 50051 sits outside the inbound mesh, so nothing above this process
+	// authenticates the caller. The per-run token is what separates this run's
+	// sandbox from every sibling sandbox in the namespace
+	// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	execToken := os.Getenv(execauth.TokenEnv)
+	if execToken == "" {
+		log.Fatalf("%s is not set: refusing to serve an unauthenticated exec server", execauth.TokenEnv)
+	}
+
+	srv := grpc.NewServer(
+		grpc.StreamInterceptor(requireExecTokenStream(execToken)),
+		grpc.UnaryInterceptor(requireExecTokenUnary(execToken)),
+	)
 	execpb.RegisterExecServiceServer(srv, &execServer{})
 
 	quit := make(chan os.Signal, 1)
@@ -71,6 +87,40 @@ func main() {
 	log.Printf("sandbox-exec listening on :%s", port) //nolint:gosec
 	if err := srv.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)
+	}
+}
+
+var errUnauthenticated = status.Error(codes.Unauthenticated, "missing or invalid sandbox exec token")
+
+// requireExecToken reports whether the call presented the run's own token. The
+// comparison is constant time: the token is a shared secret and a caller can
+// retry as often as it likes.
+func requireExecToken(ctx context.Context, want []byte) bool {
+	got, ok := execauth.TokenFrom(ctx)
+	return ok && subtle.ConstantTimeCompare([]byte(got), want) == 1
+}
+
+// requireExecTokenStream guards the streaming surface, which is Execute and
+// everything added beside it.
+func requireExecTokenStream(want string) grpc.StreamServerInterceptor {
+	wantBytes := []byte(want)
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if !requireExecToken(ss.Context(), wantBytes) {
+			return errUnauthenticated
+		}
+		return handler(srv, ss)
+	}
+}
+
+// requireExecTokenUnary guards the unary surface. ExecService has no unary RPC
+// today; registering this means adding one cannot quietly land unauthenticated.
+func requireExecTokenUnary(want string) grpc.UnaryServerInterceptor {
+	wantBytes := []byte(want)
+	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if !requireExecToken(ctx, wantBytes) {
+			return nil, errUnauthenticated
+		}
+		return handler(ctx, req)
 	}
 }
 

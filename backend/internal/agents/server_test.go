@@ -743,14 +743,15 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 	ctx, cancel := context.WithTimeout(withTenantCtx(context.Background(), defaultTestTenant), 200*time.Millisecond)
 	defer cancel()
 
-	// Simulate the race: the session-manager pod also calls POST /internal/runs/{id}/events
-	// for the same durable event (seqNo=1) while the DB replay is still in flight.
-	// Without the dedup guard this would write message_complete twice to the SSE stream.
+	// Simulate the race: the event is fanned out to this subscriber while the DB
+	// replay that already covered it is still in flight. Publishing straight to
+	// the hub is the write PublishEvent has already done by the time it fans out.
+	// Without the dedup guard this would write message_complete twice.
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		c.runs.PublishEvent(context.Background(), "run-dedup", PushedEvent{
+		c.runs.pubsub.Publish("run-dedup", PushedEvent{
 			Type:       "message_complete",
-			SequenceNo: 1, // same seqNo that the DB replay will emit
+			SequenceNo: 1, // same seqNo the DB replay emits
 			Payload:    []byte(`{"text":"hello"}`),
 		})
 	}()

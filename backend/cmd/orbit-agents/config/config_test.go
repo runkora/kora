@@ -54,7 +54,6 @@ func TestApplyEnvOverrides(t *testing.T) {
 		"ORBIT_SANDBOX_GIT_AUTHOR_NAME":                      "Orbit Agent",
 		"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL":                     "agent@example.com",
 		"ORBIT_AGENTS_IMAGE_PULL_SECRETS":                    "ghcr-pull, private-pull,,",
-		"ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE":            "require",
 		"ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED": "false",
 		"ORBIT_MANIFEST_PATCH_DIR":                           "/etc/custom/patches",
 	}
@@ -80,9 +79,6 @@ func TestApplyEnvOverrides(t *testing.T) {
 	}
 	if want := []string{"ghcr-pull", "private-pull"}; !reflect.DeepEqual(cfg.Agents.ImagePullSecrets, want) {
 		t.Errorf("ImagePullSecrets = %v, want %v", cfg.Agents.ImagePullSecrets, want)
-	}
-	if cfg.Agents.SessionManager.PostgresSSLMode != "require" {
-		t.Errorf("PostgresSSLMode = %q", cfg.Agents.SessionManager.PostgresSSLMode)
 	}
 	if cfg.Agents.SessionManager.AuthorizationPolicyEnabled {
 		t.Error("AuthorizationPolicyEnabled should be overridden to false")
