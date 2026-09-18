@@ -30,6 +30,18 @@ const appJWTSkew = 60 * time.Second
 // token that is about to expire mid-use.
 const refreshBefore = 5 * time.Minute
 
+// installationTokenPermissions is the minimal GitHub App permission set
+// TokenProvider requests when minting an installation token: read-only
+// repository contents, which is all the skills crawler's Trees API and raw
+// file fetches need. An empty InstallationTokenRequest would instead request
+// the App installation's full configured access (see
+// ghclient.InstallationTokenRequest's doc comment), which could include
+// write access or other permission categories the installation happens to
+// hold for unrelated reasons — requesting only what this read-only feature
+// needs follows the least-privilege principle (AGENTS.md, "Security
+// Guidelines").
+var installationTokenPermissions = map[string]string{"contents": "read"}
+
 // installationTokenMinter is the subset of the platform GitHub client that
 // TokenProvider depends on: exchanging a signed App JWT for a short-lived
 // installation access token. Declared narrowly here (rather than taking
@@ -38,12 +50,26 @@ type installationTokenMinter interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 }
 
+// mintResult is the outcome of one mint attempt: either a token and its
+// expiry, or an error. Shared verbatim with every caller waiting on that
+// attempt, so a failure during an outage does not turn N concurrent callers
+// into N sequential upstream calls.
+type mintResult struct {
+	token     string
+	expiresAt time.Time
+	err       error
+}
+
 // TokenProvider mints and caches a GitHub App installation access token for
 // one App + installation pair, refreshing it before expiry. Safe for
-// concurrent use: Token serializes callers during a refresh so at most one
-// mint happens at a time. TokenProvider holds no Kubernetes or secret-store
-// dependency — the caller resolves the App private key (e.g. from a mounted
-// Secret) and passes the PEM bytes in at construction.
+// concurrent use: Token shares one in-flight mint's result (success or
+// error) with every caller waiting on it, so at most one mint happens at a
+// time regardless of how many callers arrive concurrently — see
+// TestToken_ConcurrentCallsMintOnce and
+// TestToken_ConcurrentCallsDuringFailureMintOnce. TokenProvider holds no
+// Kubernetes or secret-store dependency — the caller resolves the App
+// private key (e.g. from a mounted Secret) and passes the PEM bytes in at
+// construction.
 type TokenProvider struct {
 	client         installationTokenMinter
 	appID          string
@@ -54,6 +80,8 @@ type TokenProvider struct {
 	mu        sync.Mutex
 	token     string
 	expiresAt time.Time
+	inflight  chan struct{} // non-nil while a mint is in progress; closed when it completes
+	result    mintResult    // the most recently completed mint's outcome
 }
 
 // NewTokenProvider constructs a TokenProvider for the given GitHub App
@@ -93,28 +121,68 @@ func (p *TokenProvider) signAppJWT() (string, error) {
 
 // Token returns a valid GitHub App installation access token, minting one on
 // first use and refreshing it 5 minutes before GitHub's 60-minute expiry.
-// Safe for concurrent use: this method holds p.mu for the full mint call, so
-// concurrent callers serialize on a refresh instead of each minting their own
-// token — see TestToken_ConcurrentCallsMintOnce.
+//
+// Safe for concurrent use. A caller that finds a mint already in flight waits
+// on that same attempt and receives its exact result (token or error)
+// instead of starting a redundant mint of its own — so a burst of concurrent
+// callers during a GitHub outage produces one upstream call and one shared
+// error, not one call per caller. A waiter still honors its own ctx: if ctx
+// is canceled before the in-flight mint completes, Token returns ctx.Err()
+// without affecting the in-flight attempt or any other waiter.
 func (p *TokenProvider) Token(ctx context.Context) (string, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.token != "" && p.now().Before(p.expiresAt.Add(-refreshBefore)) {
-		return p.token, nil
+		tok := p.token
+		p.mu.Unlock()
+		return tok, nil
 	}
 
+	if ch := p.inflight; ch != nil {
+		p.mu.Unlock()
+		select {
+		case <-ch:
+			p.mu.Lock()
+			res := p.result
+			p.mu.Unlock()
+			return res.token, res.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	ch := make(chan struct{})
+	p.inflight = ch
+	p.mu.Unlock()
+
+	res := p.mint(ctx)
+
+	p.mu.Lock()
+	p.inflight = nil
+	p.result = res
+	if res.err == nil {
+		p.token = res.token
+		p.expiresAt = res.expiresAt
+	}
+	p.mu.Unlock()
+	close(ch)
+
+	return res.token, res.err
+}
+
+// mint signs a fresh App JWT and exchanges it for an installation access
+// token scoped to installationTokenPermissions. It never touches p's cache
+// or lock — Token owns publishing the result to waiters.
+func (p *TokenProvider) mint(ctx context.Context) mintResult {
 	appJWT, err := p.signAppJWT()
 	if err != nil {
-		return "", fmt.Errorf("sign github app jwt: %w", err)
+		return mintResult{err: fmt.Errorf("sign github app jwt: %w", err)}
 	}
 
-	tok, err := p.client.CreateInstallationToken(ctx, appJWT, p.installationID, ghclient.InstallationTokenRequest{})
+	tok, err := p.client.CreateInstallationToken(ctx, appJWT, p.installationID, ghclient.InstallationTokenRequest{
+		Permissions: installationTokenPermissions,
+	})
 	if err != nil {
-		return "", fmt.Errorf("mint github app installation token: %w", err)
+		return mintResult{err: fmt.Errorf("mint github app installation token: %w", err)}
 	}
-
-	p.token = tok.Token
-	p.expiresAt = tok.ExpiresAt
-	return p.token, nil
+	return mintResult{token: tok.Token, expiresAt: tok.ExpiresAt}
 }

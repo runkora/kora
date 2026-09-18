@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -43,21 +44,23 @@ func TestNewTokenProvider_InvalidPEM(t *testing.T) {
 }
 
 // fakeMinter is a test double for installationTokenMinter. It records every
-// call (for assertions on mint count and on the JWT it was handed) and
-// returns a canned token/error.
+// call (for assertions on mint count, the JWT it was handed, and the request
+// body's permission scope) and returns a canned token/error.
 type fakeMinter struct {
-	mu    sync.Mutex
-	calls int
-	jwts  []string
+	mu     sync.Mutex
+	calls  int
+	jwts   []string
+	bodies []ghclient.InstallationTokenRequest
 
 	tok ghclient.InstallationToken // set by tests
 	err error
 }
 
-func (f *fakeMinter) CreateInstallationToken(_ context.Context, appJWT string, _ int64, _ ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
+func (f *fakeMinter) CreateInstallationToken(_ context.Context, appJWT string, _ int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
 	f.mu.Lock()
 	f.calls++
 	f.jwts = append(f.jwts, appJWT)
+	f.bodies = append(f.bodies, body)
 	f.mu.Unlock()
 	return f.tok, f.err
 }
@@ -106,6 +109,12 @@ func TestToken_MintsOnFirstUse(t *testing.T) {
 	}
 	if claims.Issuer != "app-1" {
 		t.Errorf("app jwt issuer: got %q, want %q", claims.Issuer, "app-1")
+	}
+
+	// The mint request must scope down to read-only contents access rather
+	// than requesting the App installation's full configured access.
+	if !maps.Equal(minter.bodies[0].Permissions, installationTokenPermissions) {
+		t.Errorf("CreateInstallationToken permissions: got %v, want %v", minter.bodies[0].Permissions, installationTokenPermissions)
 	}
 }
 
@@ -238,4 +247,86 @@ func TestToken_ConcurrentCallsMintOnce(t *testing.T) {
 	if minter.callCount() != 1 {
 		t.Errorf("CreateInstallationToken calls: got %d, want 1 (concurrent callers must not double-mint)", minter.callCount())
 	}
+}
+
+func TestToken_ConcurrentCallsDuringFailureMintOnce(t *testing.T) {
+	wantErr := errors.New("github unavailable")
+	minter := &fakeMinter{err: wantErr}
+	p := newProvider(t, minter)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = p.Token(context.Background())
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range goroutines {
+		if !errors.Is(errs[i], wantErr) {
+			t.Errorf("Token[%d]: got error %v, want wrapping %v", i, errs[i], wantErr)
+		}
+	}
+	if minter.callCount() != 1 {
+		t.Errorf("CreateInstallationToken calls: got %d, want 1 (concurrent callers must share one failed mint attempt, not each retry)", minter.callCount())
+	}
+}
+
+// blockingMinter blocks CreateInstallationToken until release is closed (or
+// ctx is canceled), so tests can control exactly when an in-flight mint
+// completes.
+type blockingMinter struct {
+	release chan struct{}
+	tok     ghclient.InstallationToken
+}
+
+func (b *blockingMinter) CreateInstallationToken(ctx context.Context, _ string, _ int64, _ ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
+	select {
+	case <-b.release:
+		return b.tok, nil
+	case <-ctx.Done():
+		return ghclient.InstallationToken{}, ctx.Err()
+	}
+}
+
+func TestToken_WaiterHonorsOwnContext(t *testing.T) {
+	release := make(chan struct{})
+	minter := &blockingMinter{release: release, tok: ghclient.InstallationToken{
+		Token:     "tok-x",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}}
+	p := newProvider(t, minter)
+
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		if _, err := p.Token(context.Background()); err != nil {
+			t.Errorf("leader Token: unexpected error: %v", err)
+		}
+	}()
+
+	// Wait for the leader to register as in-flight before the waiter joins.
+	for {
+		p.mu.Lock()
+		inflight := p.inflight != nil
+		p.mu.Unlock()
+		if inflight {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.Token(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waiter Token: got %v, want context.Canceled", err)
+	}
+
+	close(release)
+	<-leaderDone
 }
