@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -341,5 +343,14 @@ func TestDecodeJSON(t *testing.T) {
 				t.Errorf("DecodeJSON() dest = %+v, want {Name:John Email:john@example.com}", dest)
 			}
 		})
+	}
+}
+
+// A read failure other than the size limit is a 400, not a 413.
+func TestClassifyReadError_OtherFailure(t *testing.T) {
+	_, err := io.ReadAll(iotest.ErrReader(errors.New("connection reset")))
+	apiErr := ClassifyReadError(err)
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "invalid_request" {
+		t.Errorf("ClassifyReadError() = %d %q, want 400 invalid_request", apiErr.StatusCode, apiErr.Code)
 	}
 }

@@ -42,12 +42,22 @@ func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
 	return addr, insecure, nil
 }
 
-// CollectorAuthority returns the configured collector's host:port, the
-// :authority its gRPC exporters send. Empty when no valid endpoint is set.
-// Tenant sidecars use it to recognize telemetry export calls; see
+// TenantOTLPEndpoint is the collector tenant pods export to. The chart sets it
+// from the global endpoint only, so a per-service override cannot split the
+// tenant export, the identity-proxy and the policy bundle across collectors.
+func TenantOTLPEndpoint() string {
+	if DefaultConfig.TenantOTLPEndpoint != "" {
+		return DefaultConfig.TenantOTLPEndpoint
+	}
+	return DefaultConfig.OTLPEndpoint
+}
+
+// CollectorAuthority returns the tenant collector's host:port, the :authority
+// its gRPC exporters send. Empty when no valid endpoint is set. Tenant sidecars
+// use it to recognize telemetry export calls; see
 // docs/adr/2026-09-18-telemetry-collector-platform-destination.md.
 func CollectorAuthority() string {
-	addr, _, err := otlpTarget(DefaultConfig.OTLPEndpoint)
+	addr, _, err := otlpTarget(TenantOTLPEndpoint())
 	if err != nil {
 		return ""
 	}
@@ -62,6 +72,9 @@ type ObservabilityConfig struct {
 	// http://otel-collector.observability.svc:4317. The scheme decides whether
 	// the connection is plaintext or TLS. Leave empty to disable OTLP export.
 	OTLPEndpoint string `yaml:"otlpEndpoint"`
+
+	// TenantOTLPEndpoint overrides OTLPEndpoint for tenant pods; see TenantOTLPEndpoint().
+	TenantOTLPEndpoint string `yaml:"tenantOtlpEndpoint"`
 
 	// SamplingRate is the fraction of root spans to sample (0.0–1.0).
 	SamplingRate *float64 `yaml:"samplingRate,omitempty"`
@@ -90,6 +103,9 @@ func mustLoadConfig() *ObservabilityConfig {
 func applyEnvOverrides(cfg *ObservabilityConfig) {
 	if v := os.Getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
+	}
+	if v := os.Getenv("ORBIT_TENANT_OTLP_ENDPOINT"); v != "" {
+		cfg.TenantOTLPEndpoint = v
 	}
 	if v := os.Getenv("ORBIT_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v

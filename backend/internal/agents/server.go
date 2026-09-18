@@ -166,8 +166,9 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 	}
 	// Tenant is derived from the verified platform claims by the service layer;
 	// any request-body tenant_id is ignored. See docs/adr/2026-06-04-orbit-agents-authorization-model.md.
-	if req.Name == "" || req.Slug == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "name and slug are required", nil)
+	// The model is required: a session runs only the agent type's own model.
+	if req.Name == "" || req.Slug == "" || req.ModelID == nil || *req.ModelID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "name, slug, and model_id are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -280,6 +281,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	req.ID = id
+	if req.ModelID != nil && *req.ModelID == "" {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "model_id cannot be cleared", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
 
 	at, err := c.agentTypes.UpdateAgentType(ctx, req)
 	if err != nil {

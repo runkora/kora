@@ -55,6 +55,10 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
             - name: ORBIT_SAMPLING_RATE
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
+            # Tenant pods' collector. Global only, so a per-service override cannot
+            # split tenant export from the identity-proxy and the policy bundle.
+            - name: ORBIT_TENANT_OTLP_ENDPOINT
+              value: {{ .Values.global.observability.otlpEndpoint | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyService" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
