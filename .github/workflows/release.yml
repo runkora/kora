@@ -109,5 +109,11 @@ jobs:
             flags+=(--prerelease --latest=false)
           else
             flags+=(--latest)
+            # A final release lists everything since the previous final release,
+            # not only what changed since its last release candidate.
+            previous=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // ""')
+            if [[ -n "${previous}" ]]; then
+              flags+=(--notes-start-tag "${previous}")
+            fi
           fi
           gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml
