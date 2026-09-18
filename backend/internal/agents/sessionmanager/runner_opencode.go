@@ -37,6 +37,18 @@ type OpenCodeRunnerConfig struct {
 	// orbit-shell callback variables).
 	ExtraEnv []string
 
+	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// sandbox. Always http://localhost:{port}, since it runs in this pod.
+	SessionManagerURL string
+
+	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
+	// disables the governed entries.
+	ToolGatewayURL string
+
+	// MCPServers are the governed MCP servers this agent holds tool grants on,
+	// one remote entry each.
+	MCPServers []string
+
 	// Model is stored for future use. OpenCode model selection is configured
 	// via opencode.json provider options.
 	Model string
@@ -130,9 +142,14 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "acp", "--cwd", workDir)
 	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
-	r.cmd.Env = append(os.Environ(), r.cfg.ExtraEnv...)
+	homeEnv, err := runHomeDirs(workDir)
+	if err != nil {
+		return fmt.Errorf("opencode: %w", err)
+	}
+	// HOME and TMPDIR go last, so nothing in ExtraEnv can move the agent off the
+	// one directory the wrapper's Landlock rule makes writable.
+	r.cmd.Env = withRunEnv(os.Environ(), append(r.cfg.ExtraEnv, homeEnv...))
 
-	var err error
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("opencode stdin pipe: %w", err)
@@ -346,6 +363,7 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 				"options": map[string]string{"baseURL": perRunURL},
 			},
 		},
+		"mcp": r.mcpConfig(),
 	}
 	// OpenCode's "shell" key takes the binary its shell tool runs commands with,
 	// so pointing it at orbit-shell puts tool execution in the run's sandbox
@@ -358,6 +376,39 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(workDir, "opencode.json"), data, 0o600)
+}
+
+// mcpConfig is the "mcp" block of opencode.json: the runtime server that lets
+// the agent provision its own sandbox, plus one remote entry per governed MCP
+// server it holds tool grants on.
+//
+// Without the runtime server an OpenCode run has no way to ask for a sandbox,
+// so every command it runs stays in this container. Without the remote entries
+// the agent's mcp_tools grants are inert.
+func (r *OpenCodeRunner) mcpConfig() map[string]any {
+	mcp := map[string]any{
+		"runtime": map[string]any{
+			"type":    "local",
+			"command": []string{"orbit-runtime-mcp"},
+			"enabled": true,
+			"environment": map[string]string{
+				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"ORBIT_RUN_ID":              r.cfg.RunID,
+			},
+		},
+	}
+	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
+	// injects the platform token on the way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
+	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
+		for _, server := range r.cfg.MCPServers {
+			mcp[server] = map[string]any{
+				"type":    "remote",
+				"url":     url + "/v1/mcp/" + server,
+				"enabled": true,
+			}
+		}
+	}
+	return mcp
 }
 
 // sendRPCRequest sends a JSON-RPC 2.0 request, registers a pending channel,

@@ -246,6 +246,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
+		// Pre-provisioning is the session-manager's to do: it is the only component
+		// that writes the run's sandbox descriptor, which is what makes the sandbox
+		// reachable. A pod warmed without it is an idle pod.
+		ProvisionSandbox: req.ProvisionSandbox,
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
@@ -261,10 +265,6 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, fmt.Errorf("set run active: %w", err)
 	}
 	run.State = RunStateActive
-
-	// Optional pre-provisioning: warm the sandbox pod so the first tool call avoids
-	// cold-start latency. Runs in the background (see maybeWarmSandbox).
-	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace, *at)
 
 	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
 
@@ -862,42 +862,6 @@ func (s *RunService) StartReaper(ctx context.Context) {
 	}
 }
 
-// maybeWarmSandbox eagerly provisions the run's sandbox pod in the background when
-// enabled, so the first tool call avoids cold-start latency. Best-effort and
-// idempotent — the session-manager's later on-demand ProvisionSandbox reuses the
-// warmed pod. The request ctx ends when StartRun returns, so we detach from its
-// cancellation (keeping its trace via WithoutCancel) and cap the warm-up so a stuck
-// pod cannot leak the goroutine.
-func (s *RunService) maybeWarmSandbox(ctx context.Context, enabled bool, run Run, slug, namespace string, at AgentType) {
-	if !enabled {
-		return
-	}
-	// Resolve BEFORE warming, and skip the warm-up entirely if the connection
-	// registry has not loaded yet. A warmed pod is reused by the run's later
-	// on-demand ProvisionSandbox (it only replaces a dead pod), so a sandbox
-	// warmed with an empty ORBIT_KUBE_CLUSTERS would leave the agent without a
-	// kubeconfig for the whole run. Skipping simply defers provisioning to the
-	// first tool call, by which point the registry is almost certainly mounted —
-	// warm-up is a latency optimization, never a correctness requirement.
-	kubeClusters, unresolved, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
-	if err != nil || unresolved > 0 {
-		s.logger.Warn(ctx, "skipping sandbox warm-up: connection registry not resolved",
-			logging.Field{Key: "run_id", Value: run.ID},
-			logging.Field{Key: "unresolved_connectors", Value: unresolved},
-		)
-		return
-	}
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
-		defer cancel()
-		if _, err := s.k8s.ProvisionSandbox(bgCtx, run, slug, namespace, kubeClusters); err != nil {
-			s.logger.Warn(bgCtx, "pre-provision sandbox failed",
-				logging.Field{Key: "run_id", Value: run.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}()
-}
 
 // publishReapedState persists and publishes a run_state event for a reaper-driven
 // terminal transition. ReapStaleRuns already committed the runs.state column, so

@@ -99,6 +99,16 @@ func (s *mcpServer) handle(req jsonRPCRequest) jsonRPCResponse {
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolsCall(req)
+	case "resources/list", "resources/templates/list":
+		// This server exposes tools only, and says so in its capabilities. Codex
+		// probes for resources regardless, and a -32601 there leaves its model
+		// guessing resource URIs instead of calling provision_sandbox. An empty
+		// list answers the probe truthfully.
+		return jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{"resources": []any{}, "resourceTemplates": []any{}},
+		}
 	default:
 		return jsonRPCResponse{
 			JSONRPC: "2.0",

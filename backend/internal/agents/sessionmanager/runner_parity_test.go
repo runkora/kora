@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -104,5 +105,94 @@ func TestRunEnv(t *testing.T) {
 		if !slices.Contains(got, w) {
 			t.Errorf("run env %v is missing %q", got, w)
 		}
+	}
+}
+
+// Every framework needs the runtime MCP server, or it has no way to ask for a
+// sandbox and its commands stay in the session-manager container, and it needs
+// one entry per governed MCP server, or the agent's mcp_tools grants are inert.
+// See https://github.com/clear-route/orbit/issues/217.
+func TestCodexConfig_MCPServers(t *testing.T) {
+	workDir := t.TempDir()
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "run-1",
+		Model:               "anthropic/claude-sonnet-4-6",
+		InferenceGatewayURL: "http://orbit-inference-gateway",
+		SessionManagerURL:   "http://localhost:8090",
+		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		MCPServers:          []string{"github"},
+	})
+	codexHome, err := r.writeCodexConfig(workDir)
+	if err != nil {
+		t.Fatalf("writeCodexConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	got := string(data)
+
+	for _, want := range []string{
+		"[mcp_servers.runtime]",
+		`command = "orbit-runtime-mcp"`,
+		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
+		`ORBIT_RUN_ID              = "run-1"`,
+		"[mcp_servers.github]",
+		`url = "http://orbit-tool-gateway/run/run-1/v1/mcp/github"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config.toml is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestOpenCodeConfig_MCPServers(t *testing.T) {
+	workDir := t.TempDir()
+	r := NewOpenCodeRunner(OpenCodeRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "run-1",
+		InferenceGatewayURL: "http://orbit-inference-gateway",
+		SessionManagerURL:   "http://localhost:8090",
+		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		MCPServers:          []string{"github"},
+	})
+	if err := r.writeOpenCodeConfig(workDir); err != nil {
+		t.Fatalf("writeOpenCodeConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+	var cfg struct {
+		MCP map[string]struct {
+			Type        string            `json:"type"`
+			Command     []string          `json:"command"`
+			URL         string            `json:"url"`
+			Enabled     bool              `json:"enabled"`
+			Environment map[string]string `json:"environment"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal opencode.json: %v", err)
+	}
+
+	rt, ok := cfg.MCP["runtime"]
+	if !ok {
+		t.Fatalf("no runtime MCP server in %v", cfg.MCP)
+	}
+	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "orbit-runtime-mcp" || !rt.Enabled {
+		t.Errorf("runtime entry = %+v", rt)
+	}
+	if rt.Environment["ORBIT_RUN_ID"] != "run-1" || rt.Environment["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {
+		t.Errorf("runtime environment = %v", rt.Environment)
+	}
+
+	gh, ok := cfg.MCP["github"]
+	if !ok {
+		t.Fatalf("no github MCP server in %v", cfg.MCP)
+	}
+	if gh.Type != "remote" || gh.URL != "http://orbit-tool-gateway/run/run-1/v1/mcp/github" || !gh.Enabled {
+		t.Errorf("github entry = %+v", gh)
 	}
 }

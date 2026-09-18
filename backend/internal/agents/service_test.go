@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -458,6 +459,40 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 	if sm.sessions[0].Framework != string(AgentFrameworkClaudeCode) {
 		t.Errorf("Framework not forwarded: got %q, want %q", sm.sessions[0].Framework, AgentFrameworkClaudeCode)
+	}
+}
+
+// Pre-provisioning is carried to the session-manager rather than done here,
+// because that pod is the only one that writes the sandbox descriptor the agent
+// needs to reach it. Warming a pod without one leaves it idle.
+// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+func TestStartRun_ForwardsProvisionSandbox(t *testing.T) {
+	for _, requested := range []bool{true, false} {
+		t.Run(strconv.FormatBool(requested), func(t *testing.T) {
+			svc, repo, _, sm := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{
+				ID: "at-1", TenantID: "t-1", Slug: "bot",
+				Framework:               AgentFrameworkClaudeCode,
+				MaxConcurrentRunsPerPod: 5,
+			})
+
+			if _, err := svc.StartRun(context.Background(), StartRunRequest{
+				TenantID:         "t-1",
+				AgentTypeID:      at.ID,
+				ProvisionSandbox: requested,
+			}); err != nil {
+				t.Fatalf("StartRun: %v", err)
+			}
+
+			sm.mu.Lock()
+			defer sm.mu.Unlock()
+			if len(sm.sessions) != 1 {
+				t.Fatalf("expected 1 session-manager call, got %d", len(sm.sessions))
+			}
+			if got := sm.sessions[0].ProvisionSandbox; got != requested {
+				t.Errorf("ProvisionSandbox forwarded as %v, want %v", got, requested)
+			}
+		})
 	}
 }
 

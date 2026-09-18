@@ -3,6 +3,10 @@ package sessionmanager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // ErrNotSupported is returned by SendToolResult for runners that handle tool
@@ -63,4 +67,43 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 		return binary, args
 	}
 	return wrapperPath, append([]string{workDir, binary}, args...)
+}
+
+// runHomeDirs creates the per-run HOME and TMPDIR inside the run's work
+// directory and returns them as environment entries.
+//
+// Both have to live under workDir: that is the one directory the wrapper's
+// Landlock rule makes writable, so an agent whose HOME points at the image's
+// /home/orbit has no access to it at all and hangs or fails on first write.
+// Keeping them per-run also stops sibling runs sharing a config or cache
+// directory (docs/adr/2026-06-04-per-session-home-isolation.md).
+func runHomeDirs(workDir string) ([]string, error) {
+	runHome := filepath.Join(workDir, ".runhome")
+	if err := os.MkdirAll(runHome, 0o700); err != nil {
+		return nil, fmt.Errorf("create run home: %w", err)
+	}
+	tmpDir := filepath.Join(workDir, ".tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create run tmpdir: %w", err)
+	}
+	return []string{"HOME=" + runHome, "TMPDIR=" + tmpDir}, nil
+}
+
+// withRunEnv returns base with every key that extra sets removed, then extra
+// appended, so a later duplicate cannot be the one a runtime reads first.
+func withRunEnv(base, extra []string) []string {
+	overridden := make(map[string]bool, len(extra))
+	for _, e := range extra {
+		if k, _, ok := strings.Cut(e, "="); ok {
+			overridden[k] = true
+		}
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, e := range base {
+		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, extra...)
 }

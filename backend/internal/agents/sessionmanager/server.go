@@ -1,6 +1,7 @@
 package sessionmanager
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -239,6 +240,9 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
+	// ProvisionSandbox provisions this run's sandbox immediately instead of
+	// waiting for the agent to ask for one.
+	ProvisionSandbox bool `json:"provision_sandbox"`
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -249,26 +253,9 @@ type CreateSessionRequest struct {
 // place a run's files, and its Landlock scope, outside its own workspace.
 var validRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
-func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var req CreateSessionRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
-		return
-	}
-	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, and tenant_id are required", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-	if !validRunID.MatchString(req.RunID) {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
-	var runner Runner
-	var model, inferenceURL string
+// buildRunner selects and constructs the runner for the request's framework. It
+// writes the error response and reports false for a framework it does not know.
+func (c *Controller) buildRunner(ctx context.Context, w http.ResponseWriter, req CreateSessionRequest) (runner Runner, model, inferenceURL string, ok bool) {
 	switch req.Framework {
 	case "claude-code", "":
 		// Empty framework also routes to claude-code: rows that pre-date
@@ -316,6 +303,9 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			RunID:               req.RunID,
 			SystemPrompt:        req.SystemPrompt,
 			ExtraEnv:            c.runEnv(req.RunID),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
 		})
 	case "opencode":
 		model = req.Model
@@ -332,10 +322,38 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			Logger:              c.logger,
 			RunID:               req.RunID,
 			ExtraEnv:            c.runEnv(req.RunID),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
 		})
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return nil, "", "", false
+	}
+	return runner, model, inferenceURL, true
+}
+
+func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req CreateSessionRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, and tenant_id are required", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	if !validRunID.MatchString(req.RunID) {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	runner, model, inferenceURL, ok := c.buildRunner(ctx, w, req)
+	if !ok {
 		return
 	}
 
@@ -359,7 +377,31 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if req.ProvisionSandbox {
+		c.provisionSandboxAhead(ctx, req.RunID)
+	}
+
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
+}
+
+// provisionSandboxAhead provisions the run's sandbox without waiting for the
+// agent to ask, so the first command it runs does not pay the pod's cold start.
+//
+// It runs in the background: provisioning waits for the pod to be Ready and for
+// the egress canary, which is minutes, and the session is created either way.
+// Failure is logged and nothing else, because the agent's own provision request
+// remains the path that has to work. The request context ends with this handler,
+// so the goroutine detaches from its cancellation while keeping its trace.
+func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
+	bgCtx := context.WithoutCancel(ctx)
+	go func() {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID); err != nil {
+			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
 }
 
 // SendMessageRequest is the body for POST /session/{runID}/messages.

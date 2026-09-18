@@ -104,8 +104,11 @@ Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox`
 
 **Description:** Apply the `orbit-session-runner` wrapper to all three runners, and point each framework's shell at `orbit-shell`. Claude Code keeps `CLAUDE_CODE_SHELL`. Codex resolves its shell from the running user's passwd entry, so the image sets that entry to the `orbit-shell` path. OpenCode takes a `shell` key in the `opencode.json` the runner already writes.
 
+Routing a shell is not enough on its own: a sandbox has to exist for the shell to route into, and only Claude Code could ask for one, because `orbit-runtime-mcp` was configured for Claude Code alone. So every runner also gets the runtime MCP server, and pre-provisioning moves to the session-manager, which is the only component that writes the descriptor the shell reads.
+
 **Pros:**
 - One confinement story for every framework, so a new runner inherits it rather than opting in.
+- The governed MCP entries travel the same way, so an agent's `mcp_tools` grants stop being inert for two of the three frameworks.
 - Tool commands leave the control container, which is what makes the credential surface of the agent pod irrelevant to the agent.
 - The mechanisms are all resolution-level, so an agent naming `/bin/bash` still lands in the proxy.
 
@@ -168,7 +171,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 
 ### Negative
 
-- Three shell-interception mechanisms to maintain, one per framework, each verified against a pinned CLI version.
+- Three shell-interception mechanisms to maintain, one per framework, plus two MCP config shapes, each verified against a pinned CLI version.
 - The Codex mechanism is the image's passwd entry, so a base image change can silently undo it.
 - A per-run secret exists where none did, with a mint, a carry and a rotation path.
 
@@ -187,8 +190,12 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
 - The session registry's egress canary sends the token it holds in memory.
 - The operator renders a sandbox ingress `NetworkPolicy` alongside `sandbox-egress-to-gateway`.
-- The Codex and OpenCode runners take the wrapper path the Claude runner takes.
+- The Codex and OpenCode runners take the wrapper path the Claude runner takes, with a per-run `HOME` and `TMPDIR` inside the work directory. Landlock makes only that directory writable, so an agent left on the image's home hangs on its first write.
 - The session-manager image sets the runtime user's passwd shell to the `orbit-shell` proxy, and the OpenCode runner writes `shell` into `opencode.json`.
+- Both runners configure `orbit-runtime-mcp` and one governed entry per MCP server the agent holds grants on: a `[mcp_servers.*]` table for Codex, an `mcp` object for OpenCode.
+- Codex defers MCP tools behind its own `tool_search` tool rather than listing them, so its developer instructions name the search step. Claude Code and OpenCode list MCP tools directly and need no such instruction.
+- `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
+- Pre-provisioning at run start is the session-manager's, reached through the same `ProvisionSandbox` the agent calls. `orbit-agents` warming the pod itself left the descriptor unwritten, so the sandbox was unreachable and the pod merely idle.
 
 ### Migration Path
 
@@ -199,6 +206,10 @@ A sandbox pod provisioned before the change holds no token, so its `Execute` cal
 ## Validation
 
 An `Execute` against a sandbox without the run's token is refused. A run under each of the three frameworks executes its tool commands in its own sandbox and cannot read a sibling run's workspace. A provisioning call naming a run hosted on another pod is refused.
+
+Verified on the local cluster: an `Execute` with no token, the wrong token, or an empty token is refused, and the run's own token executes; a sandbox pod with no token in its environment refuses to serve; a sandbox is reachable from the tenant's agent pods and from nothing else. An OpenCode run executes its commands in its own sandbox, reached both by the agent calling `provision_sandbox` and by pre-provisioning alone.
+
+Codex is verified as far as its own runner allows: it resolves its shell to the proxy and invokes it as `/opt/orbit/shell/bash -lc`, and it connects to the runtime MCP server. Whether it calls `provision_sandbox` is not yet observable, because its turn emits `OutputTextDelta without active item` and produces no events, which predates this decision and is tracked separately.
 
 ---
 

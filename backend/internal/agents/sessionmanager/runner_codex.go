@@ -32,6 +32,18 @@ type CodexRunnerConfig struct {
 	// orbit-shell callback variables).
 	ExtraEnv []string
 
+	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// sandbox. Always http://localhost:{port}, since it runs in this pod.
+	SessionManagerURL string
+
+	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
+	// disables the governed entries.
+	ToolGatewayURL string
+
+	// MCPServers are the governed MCP servers this agent holds tool grants on,
+	// one streamable-HTTP entry each.
+	MCPServers []string
+
 	// Model is passed to thread/start. May be empty.
 	Model string
 
@@ -144,11 +156,18 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	if err != nil {
 		return fmt.Errorf("codex: write config: %w", err)
 	}
-	r.cmd.Env = append(os.Environ(),
-		"CODEX_HOME="+codexHome,
+	homeEnv, err := runHomeDirs(workDir)
+	if err != nil {
+		return fmt.Errorf("codex: %w", err)
+	}
+	runEnv := []string{
+		"CODEX_HOME=" + codexHome,
 		"ORBIT_INFERENCE_KEY=orbit-managed",
-	)
-	r.cmd.Env = append(r.cmd.Env, r.cfg.ExtraEnv...)
+	}
+	runEnv = append(runEnv, r.cfg.ExtraEnv...)
+	// HOME and TMPDIR go last, so nothing earlier can move the agent off the one
+	// directory the wrapper's Landlock rule makes writable.
+	r.cmd.Env = withRunEnv(os.Environ(), append(runEnv, homeEnv...))
 
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
@@ -217,9 +236,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		if r.cfg.Model != "" {
 			threadStartParams["model"] = r.cfg.Model
 		}
-		if r.cfg.SystemPrompt != "" {
-			threadStartParams["developerInstructions"] = r.cfg.SystemPrompt
-		}
+		threadStartParams["developerInstructions"] = codexDeveloperInstructions(r.cfg.SystemPrompt)
 		threadID, err := r.sendRPCAndExtractThreadID(ctx, "thread/start", threadStartParams)
 		if err != nil {
 			cleanupProc()
@@ -319,6 +336,64 @@ func (r *CodexRunner) Close() error {
 		}
 	})
 	return firstErr
+}
+
+// sandboxToolInstructions tells a Codex agent how to reach provision_sandbox.
+//
+// Codex does not put MCP tools in the model's tool list: they sit behind its
+// tool_search tool, so a model that is only told the tool exists goes looking for
+// an MCP resource instead and never provisions anything. Naming the search step
+// is what makes the runtime server reachable. Claude Code and OpenCode list MCP
+// tools directly and need none of this.
+const sandboxToolInstructions = `Your shell commands run in this container until you provision a sandbox, and only a sandbox has outbound network access.
+
+The tool that provisions one is not in your tool list. It is provided by an MCP server named "runtime" and you reach it like this:
+1. Call tool_search with the query "provision_sandbox" to load the tool.
+2. Call provision_sandbox. It takes no arguments.
+3. Then run your commands as normal; they execute in the sandbox from that point on.
+
+Do not use list_mcp_resources or read_mcp_resource to look for it. It is a tool, not a resource. Provision only when you actually need to run commands or reach the network.`
+
+// codexDeveloperInstructions is the agent's own prompt with the sandbox
+// instructions appended, or those instructions alone when the agent has no prompt.
+func codexDeveloperInstructions(systemPrompt string) string {
+	if systemPrompt == "" {
+		return sandboxToolInstructions
+	}
+	return systemPrompt + "\n\n" + sandboxToolInstructions
+}
+
+// mcpServersTOML renders the [mcp_servers.*] tables: the runtime server that lets
+// the agent provision its own sandbox, plus one streamable-HTTP entry per
+// governed MCP server it holds tool grants on.
+//
+// Without the runtime server a Codex run has no way to ask for a sandbox, so
+// every command it runs stays in this container. Without the remote entries the
+// agent's mcp_tools grants are inert. Field names are Codex's own
+// RawMcpServerConfig shape, verified against the pinned CLI version.
+func (r *CodexRunner) mcpServersTOML() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `
+[mcp_servers.runtime]
+command = "orbit-runtime-mcp"
+args    = []
+
+[mcp_servers.runtime.env]
+ORBIT_SESSION_MANAGER_URL = %q
+ORBIT_RUN_ID              = %q
+`, r.cfg.SessionManagerURL, r.cfg.RunID)
+
+	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
+	// injects the platform token on the way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
+	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
+		for _, server := range r.cfg.MCPServers {
+			fmt.Fprintf(&b, `
+[mcp_servers.%s]
+url = %q
+`, server, url+"/v1/mcp/"+server)
+		}
+	}
+	return b.String()
 }
 
 // sendRPCRequest sends a request with the given method and params, registers a
@@ -725,7 +800,7 @@ wire_api = "responses"
 
 [projects.%q]
 trust_level = "trusted"
-`, r.cfg.Model, perRunURL, workDir)
+%s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
