@@ -338,21 +338,11 @@ func (r *CodexRunner) Close() error {
 	return firstErr
 }
 
-// sandboxToolInstructions tells a Codex agent how to reach provision_sandbox.
-//
-// Codex does not put MCP tools in the model's tool list: they sit behind its
-// tool_search tool, so a model that is only told the tool exists goes looking for
-// an MCP resource instead and never provisions anything. Naming the search step
-// is what makes the runtime server reachable. Claude Code and OpenCode list MCP
-// tools directly and need none of this.
-const sandboxToolInstructions = `Your shell commands run in this container until you provision a sandbox, and only a sandbox has outbound network access.
-
-The tool that provisions one is not in your tool list. It is provided by an MCP server named "runtime" and you reach it like this:
-1. Call tool_search with the query "provision_sandbox" to load the tool.
-2. Call provision_sandbox. It takes no arguments.
-3. Then run your commands as normal; they execute in the sandbox from that point on.
-
-Do not use list_mcp_resources or read_mcp_resource to look for it. It is a tool, not a resource. Provision only when you actually need to run commands or reach the network.`
+// sandboxToolInstructions tells a Codex agent to provision a sandbox, and how to
+// find the tool. Codex keeps MCP tools out of the model's tool list until they are
+// searched for, so an agent that is only told the tool exists never finds it.
+// Claude Code and OpenCode list MCP tools directly and need no instruction.
+const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, or call anything outside. If the tool is not already in your tool list, search for it by name.`
 
 // codexDeveloperInstructions is the agent's own prompt with the sandbox
 // instructions appended, or those instructions alone when the agent has no prompt.
