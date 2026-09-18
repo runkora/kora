@@ -862,7 +862,6 @@ func (s *RunService) StartReaper(ctx context.Context) {
 	}
 }
 
-
 // publishReapedState persists and publishes a run_state event for a reaper-driven
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
