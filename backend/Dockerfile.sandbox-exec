@@ -277,6 +277,13 @@ COPY --from=builder /sandbox-exec /usr/local/bin/sandbox-exec
 # GID 100 (users) already exists in debian; reuse it.
 RUN useradd -u 100 -g 100 -m -s /bin/bash orbit
 
+# The run's shell path has to mean something in both containers. Codex resolves
+# its shell in the agent pod, where that path is the orbit-shell proxy, and bakes
+# it into the shell snapshot it prefixes onto every command — so the command that
+# arrives here names it too. In the agent pod the path routes commands out; here
+# it is the shell that runs them, because here is where they were routed to.
+RUN mkdir -p /opt/orbit/shell && ln -sf /bin/bash /opt/orbit/shell/bash
+
 # Workspaces directory — mounted from the agent pod's PVC at runtime.
 RUN mkdir -p /workspaces && chown 100:100 /workspaces
 

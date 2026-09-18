@@ -133,12 +133,19 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	}
 	got := string(data)
 
+	// sandbox_mode is a top-level key: TOML puts a key after a table header inside
+	// that table, which silently disabled it and brought the panic back.
+	if idx := strings.Index(got, "["); idx >= 0 {
+		if strings.Index(got, "sandbox_mode") > idx {
+			t.Error("sandbox_mode must appear before the first table header, or it is nested in that table")
+		}
+	}
+
 	for _, want := range []string{
-		// Codex's own bubblewrap sandbox mounts neither the orbit-shell proxy nor
-		// the run's workspace, so a command run inside it dies on a missing
-		// /opt/orbit/shell/bash. Orbit's boundary is the sandbox pod and the
-		// Landlock wrapper, not a second sandbox nested in it.
+		// Without this Codex panics on a missing bubblewrap and runs nothing.
 		`sandbox_mode = "danger-full-access"`,
+		// The one-shot shell tool, which is the shape orbit-shell implements.
+		"unified_exec = false",
 		"[mcp_servers.runtime]",
 		`command = "orbit-runtime-mcp"`,
 		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,

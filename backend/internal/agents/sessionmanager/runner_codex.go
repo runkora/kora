@@ -781,12 +781,12 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	// so the actual secret value never appears on the command line or in the file.
 	configContent := fmt.Sprintf(`model_provider = "orbit"
 model = %q
-
-# Codex runs commands inside its own bubblewrap sandbox by default, which mounts
-# neither the orbit-shell proxy nor the run's workspace, so every command fails
-# on a missing /opt/orbit/shell/bash. Orbit's boundary is the sandbox pod and the
-# Landlock wrapper around this process, not a second sandbox nested inside it
-# (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+# Codex refuses to run a command unless it can sandbox it with bubblewrap, which
+# this image does not carry: without this it panics with "bubblewrap is
+# unavailable" and no command runs at all. Orbit's boundary is the sandbox pod
+# and the Landlock wrapper around this process, so a second sandbox nested inside
+# them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+# Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
 
 [model_providers.orbit]
@@ -797,6 +797,16 @@ wire_api = "responses"
 
 [projects.%q]
 trust_level = "trusted"
+
+# Codex's unified exec runs a persistent shell session and sends it a startup
+# script that names its resolved shell by path, which is meaningless once
+# orbit-shell forwards the command into the sandbox container. The legacy shell
+# tool sends one self-contained command per call, which is the same shape Claude
+# Code uses and the shape orbit-shell implements
+# (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+[features]
+shell_tool = true
+unified_exec = false
 %s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
