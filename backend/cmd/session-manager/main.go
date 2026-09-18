@@ -93,7 +93,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 
 	var notifier sessionmanager.Notifier = sessionmanager.NoopNotifier{}
 	if cfg.OrbitAgents.URL != "" {
-		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
+		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL, logger)
 	}
 
 	// The session-control API can start, message, interrupt, and kill any run on

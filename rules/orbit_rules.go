@@ -299,7 +299,10 @@ func noHttpErrorInHandler(m dsl.Matcher) {
 //
 //	api.JSON(ctx, w, logger, http.StatusNoContent, nil)
 func noDirectWriteHeader(m dsl.Matcher) {
+	// Restricted to receivers implementing http.ResponseWriter so this does not
+	// false-positive on unrelated WriteHeader methods (e.g. archive/tar.Writer).
 	m.Match(`$w.WriteHeader($code)`).
+		Where(m["w"].Type.Implements(`net/http.ResponseWriter`)).
 		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
 			`a bare WriteHeader writes no JSON envelope, records nothing on the OTel span, and emits no structured log line. ` +
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)

@@ -1,8 +1,6 @@
 package inferencegw
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 
 	openai "github.com/openai/openai-go/v3"
@@ -19,12 +17,8 @@ func (c *Controller) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 
 	var params openai.EmbeddingNewParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), err)
-		} else {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
-		}
+	if err := api.DecodeBody(r, &params); err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
 		return
 	}
 

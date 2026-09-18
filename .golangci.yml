@@ -350,10 +350,15 @@ linters:
       # DecodeJSON and JSON — they are permitted to use json.NewDecoder(r.Body)
       # and w.WriteHeader directly because they ARE the abstractions the rule
       # is protecting.
+      #
+      # NOTE: the `text` regex must match ruleguard's actual reported message
+      # (the Report() string in rules/orbit_rules.go), not the Go function name
+      # — golangci-lint never surfaces the ruleguard function identifier in the
+      # issue text, so a text filter naming the function is a silent no-op.
       - path: "internal/platform/api/"
         linters:
           - gocritic
-        text: "noRawJsonDecodeRequest"
+        text: "instead of json\\.NewDecoder"
 
       # httpclient/base.go is the sole legitimate owner of &http.Client{}.
       # It is explicitly excluded from the noRawHttpClientLiteral rule because
@@ -361,7 +366,7 @@ linters:
       - path: "internal/platform/clients/httpclient/"
         linters:
           - gocritic
-        text: "noRawHttpClientLiteral"
+        text: "instead of constructing a raw \\*http\\.Client"
 
       # identity/service.go constructs an *http.Client for coreos/go-oidc's
       # provider discovery and token verification calls. These go to external
@@ -371,7 +376,7 @@ linters:
       - path: "internal/identity/service.go"
         linters:
           - gocritic
-        text: "noRawHttpClientLiteral"
+        text: "instead of constructing a raw \\*http\\.Client"
 
       # identityproxy/server.go constructs an *http.Client solely for the Istio
       # readiness health poll (GET http://localhost:15021/healthz/ready). This is
@@ -381,7 +386,18 @@ linters:
       - path: "internal/identityproxy/server.go"
         linters:
           - gocritic
-        text: "noRawHttpClientLiteral"
+        text: "instead of constructing a raw \\*http\\.Client"
+
+      # orbit-runtime-mcp is a stdio JSON-RPC subprocess (Claude Code spawns it via
+      # --mcp-config); it has no HTTP server, no request context, and no injected
+      # logger — stdout is reserved for the JSON-RPC protocol itself. It makes a
+      # single outbound call to session-manager to provision a sandbox. Standing up
+      # httpclient.Base's OTel/logging machinery for one call in a short-lived
+      # subprocess is not warranted.
+      - path: "cmd/orbit-runtime-mcp/main.go"
+        linters:
+          - gocritic
+        text: "instead of constructing a raw \\*http\\.Client"
 
       # platform/middleware/middleware.go uses http.Error in a defensive nil-handler
       # guard inside MiddlewareChain. This is an infrastructure-layer safety net
@@ -391,7 +407,7 @@ linters:
       - path: "internal/platform/middleware/"
         linters:
           - gocritic
-        text: "noHttpErrorInHandler"
+        text: "instead of http\\.Error"
 
       # platform/api/response.go and platform/middleware/ contain the canonical
       # implementations that legitimately call w.WriteHeader directly — they ARE
@@ -400,12 +416,43 @@ linters:
       - path: "internal/platform/api/"
         linters:
           - gocritic
-        text: "noDirectWriteHeader"
+        text: "calling WriteHeader directly"
 
       - path: "internal/platform/middleware/"
         linters:
           - gocritic
-        text: "noDirectWriteHeader"
+        text: "calling WriteHeader directly"
+
+      # egressgw/connect.go's connectResponseWriter is itself an http.ResponseWriter
+      # implementation — it serializes the inner request's response as chunked
+      # HTTP/1.1 over a tunneled TLS connection. Like platform/api/response.go, it
+      # IS the abstraction (there is no lower-level api.JSON to defer to inside the
+      # tunnel's own Write/Flush/WriteHeader trio).
+      - path: "internal/egressgw/connect.go"
+        linters:
+          - gocritic
+        text: "calling WriteHeader directly"
+
+      # toolgateway/oauth_controller.go's challengeWriter is itself an
+      # http.ResponseWriter implementation — it wraps the inner handler's writer
+      # to inject the RFC 9728 WWW-Authenticate challenge header on a 401, without
+      # disturbing any other status. Like connectResponseWriter, it IS the
+      # abstraction (there is no lower-level api.JSON to defer to inside a
+      # ResponseWriter's own WriteHeader method).
+      - path: "internal/toolgateway/oauth_controller.go"
+        linters:
+          - gocritic
+        text: "calling WriteHeader directly"
+
+      # policyservice/bundle/server.go serves pre-compiled OPA bundle gzip
+      # binaries with their own Content-Type/Content-Length/ETag/Last-Modified
+      # headers already set. api.JSON always JSON-encodes the body and would
+      # corrupt the binary payload; there is no lower-level "write raw bytes
+      # with a status code" helper to defer to for this content type.
+      - path: "internal/policyservice/bundle/server.go"
+        linters:
+          - gocritic
+        text: "calling WriteHeader directly"
 
       # orbit-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.

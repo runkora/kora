@@ -91,7 +91,7 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 func routesErrorResponse(err error) *platformapi.APIError {

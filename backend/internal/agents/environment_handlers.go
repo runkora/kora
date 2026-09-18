@@ -79,7 +79,7 @@ func (c *Controller) handleDeleteEnvironment(w http.ResponseWriter, r *http.Requ
 		c.writeEnvironmentError(ctx, w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // writeEnvironmentError maps environment service errors to HTTP responses.

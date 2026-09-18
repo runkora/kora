@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/principalroles"
@@ -164,12 +165,12 @@ func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error(ctx, "gateway bundle: on-demand compile failed",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			http.Error(w, "gateway bundle not available", http.StatusNotFound)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "gateway bundle not available", nil), err)
 			return
 		}
 		cached = s.compiler.GetGateway()
 		if cached == nil {
-			http.Error(w, "gateway bundle not available", http.StatusNotFound)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "gateway bundle not available", nil), nil)
 			return
 		}
 	}
@@ -240,11 +241,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tenantID := r.PathValue("tenant_id")
 	if tenantID == "" {
-		http.Error(w, "tenant_id required", http.StatusBadRequest)
+		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("tenant_id_required", "tenant_id required", nil), nil)
 		return
 	}
 	if !validTenantID.MatchString(tenantID) {
-		http.Error(w, "invalid tenant_id format", http.StatusBadRequest)
+		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("invalid_tenant_id", "invalid tenant_id format", nil), nil)
 		return
 	}
 
@@ -256,12 +257,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			http.Error(w, "bundle not available", http.StatusNotFound)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "bundle not available", nil), err)
 			return
 		}
 		cached = s.compiler.Get(tenantID)
 		if cached == nil {
-			http.Error(w, "bundle not available", http.StatusNotFound)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "bundle not available", nil), nil)
 			return
 		}
 	}

@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"go.opentelemetry.io/otel"
@@ -442,8 +443,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 // The ext_proc Processor already handles an empty cache gracefully by passing
 // requests through without an Authorization header.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
+	api.JSON(r.Context(), w, s.logger, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // waitForInitialToken blocks until the exchange succeeds or ReadyTimeout is

@@ -383,7 +383,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.JSON(ctx, w, c.logger, http.StatusAccepted, nil)
 }
 
 // SendToolResultRequest is the body for POST /session/{runID}/tool-results.
@@ -419,7 +419,7 @@ func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.JSON(ctx, w, c.logger, http.StatusAccepted, nil)
 }
 
 // handleInterruptSession sends SIGINT to the subprocess, stopping the current
@@ -439,7 +439,7 @@ func (c *Controller) handleInterruptSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.JSON(ctx, w, c.logger, http.StatusAccepted, nil)
 }
 
 // handleCloseSession terminates a session and cleans up the subprocess.
@@ -458,7 +458,7 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)

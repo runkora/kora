@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -82,4 +83,46 @@ func DecodeJSON(ctx context.Context, r *http.Request, w http.ResponseWriter, log
 		return false
 	}
 	return true
+}
+
+// DecodeBody decodes a JSON request body into dest without writing a
+// response, returning the raw decode error to the caller. Use this instead
+// of DecodeJSON when the endpoint needs to render the error in a
+// dialect-specific wire format (e.g. the Anthropic Messages API's
+// {"type":"error",...} envelope) rather than the platform's standard
+// {code, message, details} shape. Pair with ClassifyDecodeError to map the
+// returned error to an *APIError consistent with what DecodeJSON would have
+// written.
+func DecodeBody(r *http.Request, dest any) error {
+	return json.NewDecoder(r.Body).Decode(dest)
+}
+
+// ClassifyDecodeError maps a JSON decode error to the appropriate *APIError,
+// distinguishing an oversized body (http.MaxBytesError, from a request whose
+// io.Reader was wrapped with http.MaxBytesReader) from an ordinary malformed
+// body. Both cases resolve to a 400 today: the caller sent something the
+// gateway will not process, and 400 is what every dialect's SDK already
+// retries (or doesn't) correctly on.
+func ClassifyDecodeError(err error) *APIError {
+	return classifyBodyError(err, ErrCodeInvalidJSON, "invalid request body")
+}
+
+// ClassifyReadError maps a raw io.Reader error (e.g. from io.ReadAll(r.Body))
+// to the appropriate *APIError, distinguishing an oversized body from any
+// other read failure. Use this for endpoints that read the body into memory
+// before unmarshaling it themselves, rather than decoding directly with
+// DecodeBody/DecodeJSON.
+func ClassifyReadError(err error) *APIError {
+	return classifyBodyError(err, "invalid_request", "failed to read request body")
+}
+
+// classifyBodyError distinguishes http.MaxBytesError (a request body that
+// exceeded an http.MaxBytesReader ceiling) from any other body error,
+// returning a 400 in both cases with a message appropriate to which failure
+// occurred.
+func classifyBodyError(err error, defaultCode, defaultMsg string) *APIError {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		return BadRequestError("invalid_request", "request body too large", nil)
+	}
+	return BadRequestError(defaultCode, defaultMsg, nil)
 }
