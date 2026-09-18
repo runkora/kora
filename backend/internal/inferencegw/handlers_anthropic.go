@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -273,16 +272,14 @@ func (c *Controller) writeAnthropicError(ctx context.Context, w http.ResponseWri
 		c.logger.Warn(ctx, "anthropic dialect error", fields...)
 	}
 
-	body, _ := json.Marshal(map[string]any{
+	body := map[string]any{
 		"type": "error",
 		"error": map[string]string{
 			"type":    anthropicErrorType(apiErr.Code),
 			"message": apiErr.Message,
 		},
-	})
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(apiErr.StatusCode)
-	_, _ = w.Write(body)
+	}
+	api.JSON(ctx, w, c.logger, apiErr.StatusCode, body)
 }
 
 // anthropicErrorType maps gateway error codes to Anthropic wire-protocol type
@@ -327,14 +324,8 @@ func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 
 	var env messagesEnvelope
-	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			c.writeAnthropicError(ctx, w,
-				api.BadRequestError("invalid_request", "request body too large", nil), err)
-		} else {
-			c.writeAnthropicError(ctx, w,
-				api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
-		}
+	if err := api.DecodeBody(r, &env); err != nil {
+		c.writeAnthropicError(ctx, w, api.ClassifyDecodeError(err), err)
 		return
 	}
 
@@ -394,8 +385,9 @@ func (c *Controller) handleMessagesNonStreaming(
 	// Slow path: write 200 OK + Content-Type now. We cannot change the status
 	// code later, so provider errors after this point are written as
 	// Anthropic-format error bodies with a 200 status (better than a timeout).
+	// Flush() implicitly sends an OK status if none has been written yet, so
+	// headers reach the client immediately without an explicit WriteHeader call.
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	flusher, canFlush := w.(http.Flusher)
 	if canFlush {
 		flusher.Flush()

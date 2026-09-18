@@ -64,11 +64,6 @@ type Config struct {
 		// Defaults to "claude" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
 
-		// DefaultModel is the model passed to Claude Code when the session
-		// creation request does not specify one. For the Orbit inference
-		// gateway, use the virtual model name (e.g. "anthropic/claude-sonnet-4-6").
-		DefaultModel string `yaml:"defaultModel"`
-
 		// Bare enables --bare mode (no CLAUDE.md discovery, no OAuth/keychain).
 		// Required in containers where ANTHROPIC_API_KEY is set via env var.
 		Bare bool `yaml:"bare"`
@@ -78,18 +73,12 @@ type Config struct {
 		// BinaryPath overrides the location of the codex binary.
 		// Defaults to "codex" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// DefaultModel is used when the session creation request omits a model.
-		DefaultModel string `yaml:"defaultModel"`
 	} `yaml:"codex"`
 
 	OpenCode struct {
 		// BinaryPath overrides the location of the opencode binary.
 		// Defaults to "opencode" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// DefaultModel is used when the session creation request omits a model.
-		DefaultModel string `yaml:"defaultModel"`
 	} `yaml:"opencode"`
 
 	InferenceGateway struct {

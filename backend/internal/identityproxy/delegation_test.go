@@ -331,7 +331,7 @@ func TestProcessor_AttachesDelegationHeader_PathMode(t *testing.T) {
 	cache := NewTokenCache()
 	cache.Set("platform-token", time.Now().Add(5*time.Minute))
 	m, _ := newTestManager(&stubFetcher{token: "delegation-token", expiresIn: 3600})
-	p := NewProcessor(cache, m, discardLogger())
+	p := NewProcessor(cache, m, "", discardLogger())
 
 	// Warm the delegation cache (retrieval is async, off the request path).
 	m.TokenForPath(context.Background(), "/run/run-a/v1/messages")
@@ -355,7 +355,7 @@ func TestProcessor_NoRunPrefix_NoDelegationHeader(t *testing.T) {
 	cache := NewTokenCache()
 	cache.Set("platform-token", time.Now().Add(5*time.Minute))
 	m, _ := newTestManager(&stubFetcher{token: "delegation-token", expiresIn: 3600})
-	p := NewProcessor(cache, m, discardLogger())
+	p := NewProcessor(cache, m, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{":path": "/v1/messages"}))
 	mutation := mutationOf(t, resp)
@@ -375,7 +375,7 @@ func TestProcessor_StripsInboundDelegationHeader(t *testing.T) {
 	cache.Set("platform-token", time.Now().Add(5*time.Minute))
 	// Autonomous run: identity says no delegation exists.
 	m, _ := newTestManager(&stubFetcher{err: identityclient.ErrDelegationNotFound})
-	p := NewProcessor(cache, m, discardLogger())
+	p := NewProcessor(cache, m, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
 		":path":                    "/run/run-a/v1/messages",
@@ -393,7 +393,7 @@ func TestProcessor_StripsInboundDelegationHeader(t *testing.T) {
 
 func TestProcessor_EmptyCache_StillStripsDelegationHeader(t *testing.T) {
 	cache := NewTokenCache() // no platform token yet
-	p := NewProcessor(cache, nil, discardLogger())
+	p := NewProcessor(cache, nil, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
 		":path":                    "/run/run-a/v1/messages",
@@ -437,7 +437,7 @@ func TestProcessor_SlowDelegationDoesNotBlockOrDropAuthorization(t *testing.T) {
 	cache.Set("platform-token", time.Now().Add(5*time.Minute))
 	bf := &blockingFetcher{release: make(chan struct{})}
 	m, _ := newTestManager(bf)
-	p := NewProcessor(cache, m, discardLogger())
+	p := NewProcessor(cache, m, "", discardLogger())
 
 	done := make(chan *ext_procv3.ProcessingResponse, 1)
 	go func() {

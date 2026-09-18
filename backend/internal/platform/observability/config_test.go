@@ -45,3 +45,21 @@ func TestOTLPTarget(t *testing.T) {
 		})
 	}
 }
+
+// The tenant collector falls back to the service's own endpoint, and
+// CollectorAuthority follows the tenant value when both are set.
+func TestTenantOTLPEndpoint(t *testing.T) {
+	saved := *DefaultConfig
+	t.Cleanup(func() { *DefaultConfig = saved })
+
+	DefaultConfig.OTLPEndpoint = "http://own:4317"
+	DefaultConfig.TenantOTLPEndpoint = ""
+	if got := TenantOTLPEndpoint(); got != "http://own:4317" {
+		t.Errorf("TenantOTLPEndpoint() = %q, want the service's own endpoint", got)
+	}
+
+	DefaultConfig.TenantOTLPEndpoint = "http://global:4317"
+	if got := CollectorAuthority(); got != "global:4317" {
+		t.Errorf("CollectorAuthority() = %q, want global:4317", got)
+	}
+}

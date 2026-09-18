@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -11,7 +12,8 @@ import (
 )
 
 // JSON encodes the body as JSON and writes it to the response with the given status code.
-// Logs encoding errors but does not expose them to the client.
+// Logs encoding errors but does not expose them to the client. A nil body
+// encodes as "null" for every status except 204; use NoBody for an empty body.
 func JSON(ctx context.Context, w http.ResponseWriter, logger logging.Logger, status int, body any) {
 	if status == http.StatusNoContent {
 		w.WriteHeader(status)
@@ -27,6 +29,12 @@ func JSON(ctx context.Context, w http.ResponseWriter, logger logging.Logger, sta
 			logging.Field{Key: "status", Value: status},
 		)
 	}
+}
+
+// NoBody writes status with no body and no Content-Type, for endpoints whose
+// contract is an empty response rather than a JSON null.
+func NoBody(w http.ResponseWriter, status int) {
+	w.WriteHeader(status)
 }
 
 // ErrorResponse writes an APIError as a JSON response with tracing and logging integration.
@@ -74,12 +82,43 @@ func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Lo
 // DecodeJSON decodes a JSON request body into the destination value.
 // Returns true if successful, false if there was an error (error response already written).
 func DecodeJSON(ctx context.Context, r *http.Request, w http.ResponseWriter, logger logging.Logger, dest any) bool {
-	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
-		apiErr := BadRequestError(ErrCodeInvalidJSON, "Invalid request body", map[string]any{
-			"details": err.Error(),
-		})
-		ErrorResponse(ctx, w, logger, apiErr, err)
+	if err := DecodeBody(r, dest); err != nil {
+		ErrorResponse(ctx, w, logger, ClassifyDecodeError(err), err)
 		return false
 	}
 	return true
+}
+
+// DecodeBody decodes a JSON request body without writing a response, for
+// handlers that render errors in their own wire format. Pair it with
+// ClassifyDecodeError.
+func DecodeBody(r *http.Request, dest any) error {
+	return json.NewDecoder(r.Body).Decode(dest)
+}
+
+// ClassifyDecodeError maps a body decode error to 413 when the body exceeded
+// its http.MaxBytesReader limit, and 400 otherwise.
+func ClassifyDecodeError(err error) *APIError {
+	if tooLarge(err) {
+		return payloadTooLarge()
+	}
+	return BadRequestError(ErrCodeInvalidJSON, "invalid request body", map[string]any{"details": err.Error()})
+}
+
+// ClassifyReadError is ClassifyDecodeError for a body read with io.ReadAll
+// before it is unmarshalled.
+func ClassifyReadError(err error) *APIError {
+	if tooLarge(err) {
+		return payloadTooLarge()
+	}
+	return BadRequestError("invalid_request", "failed to read request body", nil)
+}
+
+func tooLarge(err error) bool {
+	_, ok := errors.AsType[*http.MaxBytesError](err)
+	return ok
+}
+
+func payloadTooLarge() *APIError {
+	return PayloadTooLargeError(ErrCodePayloadTooLarge, "request body too large", nil)
 }

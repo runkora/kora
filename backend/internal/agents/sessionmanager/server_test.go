@@ -2,14 +2,17 @@ package sessionmanager
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -43,6 +46,7 @@ func TestHandleCreateSession_UnsupportedFrameworkReturnsInvalidField(t *testing.
 		"run_id":        "run-bad-1",
 		"agent_type_id": "at-1",
 		"tenant_id":     "tenant-1",
+		"model":         "anthropic/claude-sonnet-5",
 		"framework":     "unknown-framework",
 	})
 
@@ -51,6 +55,26 @@ func TestHandleCreateSession_UnsupportedFrameworkReturnsInvalidField(t *testing.
 	}
 	if !strings.Contains(rec.Body.String(), "invalid_field") {
 		t.Errorf("body = %q, want error code 'invalid_field'", rec.Body.String())
+	}
+}
+
+// The model comes only from the agent type; a request without one is refused
+// rather than run on a fallback.
+func TestHandleCreateSession_RequiresModel(t *testing.T) {
+	ctrl := newBareController(t, ControllerConfig{})
+
+	rec := postSessionRaw(t, ctrl, map[string]any{
+		"run_id":        "run-1",
+		"agent_type_id": "at-1",
+		"tenant_id":     "tenant-1",
+		"framework":     "claude-code",
+	})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "missing_required_field") {
+		t.Errorf("body = %q, want error code 'missing_required_field'", rec.Body.String())
 	}
 }
 
@@ -111,13 +135,52 @@ func TestHandleCreateSession_RejectsPathTraversalRunID(t *testing.T) {
 	ctrl := newBareController(t, ControllerConfig{})
 	for _, id := range []string{"../escape", "a/b", "..", ".", "run id", "run\\x"} {
 		rec := postSessionRaw(t, ctrl, map[string]any{
-			"run_id": id, "agent_type_id": "at", "tenant_id": "t",
+			"run_id": id, "agent_type_id": "at", "tenant_id": "t", "model": "anthropic/claude-sonnet-5",
 		})
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("run_id %q: status = %d, want 400", id, rec.Code)
 		}
 		if !strings.Contains(rec.Body.String(), "path-safe") {
 			t.Errorf("run_id %q: body = %s, want the run_id validation message", id, rec.Body.String())
+		}
+	}
+}
+
+func TestClaudeTelemetryEnv_NoEndpointAddsNothing(t *testing.T) {
+	if env := claudeTelemetryEnv(context.Background(), "", "run-1", "tenant-1"); env != nil {
+		t.Fatalf("want no env without an endpoint, got %v", env)
+	}
+}
+
+func TestClaudeTelemetryEnv_ParentsToRequestSpan(t *testing.T) {
+	traceID, _ := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+	spanID, _ := trace.SpanIDFromHex("00f067aa0ba902b7")
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	}))
+
+	env := claudeTelemetryEnv(ctx, "http://collector:4317", "run-1", "tenant-1")
+
+	for _, want := range []string{
+		"TRACEPARENT=00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317",
+		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
+		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
+		"OTEL_RESOURCE_ATTRIBUTES=orbit.run_id=run-1,orbit.tenant_id=tenant-1",
+	} {
+		if !slices.Contains(env, want) {
+			t.Errorf("env missing %q: %v", want, env)
+		}
+	}
+}
+
+func TestClaudeTelemetryEnv_NoSpanOmitsTraceparent(t *testing.T) {
+	env := claudeTelemetryEnv(context.Background(), "http://collector:4317", "run-1", "tenant-1")
+	for _, e := range env {
+		if strings.HasPrefix(e, "TRACEPARENT=") {
+			t.Fatalf("want no TRACEPARENT without a span, got %q", e)
 		}
 	}
 }

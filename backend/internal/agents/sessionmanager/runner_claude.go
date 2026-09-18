@@ -28,8 +28,7 @@ type ClaudeRunnerConfig struct {
 	// When empty, BinaryPath is invoked directly (no filesystem restriction).
 	WrapperPath string
 
-	// Model overrides the default model (e.g. "claude-sonnet-4-6").
-	// Empty means use Claude Code's default.
+	// Model is the agent type's model, passed as --model (e.g. "anthropic/claude-sonnet-5").
 	Model string
 
 	// AllowedTools is the set of Claude Code tool names the agent may use

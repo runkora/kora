@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -57,6 +60,26 @@ func TestJSON(t *testing.T) {
 			var result map[string]any
 			if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 				t.Errorf("JSON() body decode error: %v", err)
+			}
+		})
+	}
+}
+
+// NoBody writes the status only: no Content-Type and no body, unlike JSON's "null".
+func TestNoBody(t *testing.T) {
+	for _, status := range []int{http.StatusAccepted, http.StatusNoContent, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			w := httptest.NewRecorder()
+			NoBody(w, status)
+
+			if w.Code != status {
+				t.Errorf("NoBody() status = %v, want %v", w.Code, status)
+			}
+			if got := w.Header().Get("Content-Type"); got != "" {
+				t.Errorf("NoBody() Content-Type = %q, want empty", got)
+			}
+			if w.Body.Len() != 0 {
+				t.Errorf("NoBody() body = %q, want empty", w.Body.String())
 			}
 		})
 	}
@@ -170,6 +193,101 @@ func TestErrorResponse(t *testing.T) {
 	}
 }
 
+// maxBytesTestBody returns a request whose body raises a real *http.MaxBytesError.
+func maxBytesTestBody(w http.ResponseWriter, body string, limit int64) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(body))
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	return r
+}
+
+func TestClassifyDecodeError(t *testing.T) {
+	type testStruct struct {
+		Name string `json:"name"`
+	}
+
+	tests := []struct {
+		name           string
+		body           string
+		limit          int64
+		wantCode       string
+		wantStatusCode int
+	}{
+		{
+			name:           "oversized body maps to 413 payload_too_large",
+			body:           `{"name":"this body exceeds the tiny limit below"}`,
+			limit:          10,
+			wantCode:       ErrCodePayloadTooLarge,
+			wantStatusCode: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:           "malformed JSON maps to 400 invalid_json",
+			body:           `{"name":}`,
+			limit:          1 << 20,
+			wantCode:       ErrCodeInvalidJSON,
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := maxBytesTestBody(w, tt.body, tt.limit)
+
+			var dest testStruct
+			err := DecodeBody(r, &dest)
+			if err == nil {
+				t.Fatal("DecodeBody() error = nil, want non-nil")
+			}
+
+			apiErr := ClassifyDecodeError(err)
+			if apiErr.Code != tt.wantCode {
+				t.Errorf("ClassifyDecodeError().Code = %q, want %q", apiErr.Code, tt.wantCode)
+			}
+			if apiErr.StatusCode != tt.wantStatusCode {
+				t.Errorf("ClassifyDecodeError().StatusCode = %d, want %d", apiErr.StatusCode, tt.wantStatusCode)
+			}
+		})
+	}
+}
+
+func TestClassifyReadError(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		limit          int64
+		wantCode       string
+		wantStatusCode int
+	}{
+		{
+			name:           "oversized body maps to 413 payload_too_large",
+			body:           "this body is longer than the tiny limit below",
+			limit:          10,
+			wantCode:       ErrCodePayloadTooLarge,
+			wantStatusCode: http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := maxBytesTestBody(w, tt.body, tt.limit)
+
+			_, err := io.ReadAll(r.Body)
+			if err == nil {
+				t.Fatal("io.ReadAll() error = nil, want non-nil")
+			}
+
+			apiErr := ClassifyReadError(err)
+			if apiErr.Code != tt.wantCode {
+				t.Errorf("ClassifyReadError().Code = %q, want %q", apiErr.Code, tt.wantCode)
+			}
+			if apiErr.StatusCode != tt.wantStatusCode {
+				t.Errorf("ClassifyReadError().StatusCode = %d, want %d", apiErr.StatusCode, tt.wantStatusCode)
+			}
+		})
+	}
+}
+
 func TestDecodeJSON(t *testing.T) {
 	logger := logging.NewLogger()
 
@@ -225,5 +343,14 @@ func TestDecodeJSON(t *testing.T) {
 				t.Errorf("DecodeJSON() dest = %+v, want {Name:John Email:john@example.com}", dest)
 			}
 		})
+	}
+}
+
+// A read failure other than the size limit is a 400, not a 413.
+func TestClassifyReadError_OtherFailure(t *testing.T) {
+	_, err := io.ReadAll(iotest.ErrReader(errors.New("connection reset")))
+	apiErr := ClassifyReadError(err)
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "invalid_request" {
+		t.Errorf("ClassifyReadError() = %d %q, want 400 invalid_request", apiErr.StatusCode, apiErr.Code)
 	}
 }

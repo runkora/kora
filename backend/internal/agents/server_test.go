@@ -102,6 +102,7 @@ func TestHandleCreateAgentType_Created(t *testing.T) {
 		"tenant_id": "t-1",
 		"name":      "My Bot",
 		"slug":      "my-bot",
+		"model_id":  "anthropic/claude-sonnet-5",
 	})
 	if w.Code != http.StatusCreated {
 		t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
@@ -111,11 +112,12 @@ func TestHandleCreateAgentType_Created(t *testing.T) {
 func TestHandleCreateAgentType_MissingFields(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
-	// tenant_id is no longer accepted from the request body — it comes from the
-	// verified platform claims. Only name and slug remain required fields.
+	// tenant_id comes from the verified platform claims, not the body; name,
+	// slug and model_id are required.
 	cases := []map[string]any{
-		{"slug": "bot"}, // missing name
-		{"name": "Bot"}, // missing slug
+		{"slug": "bot", "model_id": "anthropic/claude-sonnet-5"}, // missing name
+		{"name": "Bot", "model_id": "anthropic/claude-sonnet-5"}, // missing slug
+		{"name": "Bot", "slug": "bot"},                           // missing model_id
 	}
 	for _, body := range cases {
 		w := postJSON(t, c.handleCreateAgentType, body)
@@ -128,7 +130,7 @@ func TestHandleCreateAgentType_MissingFields(t *testing.T) {
 func TestHandleCreateAgentType_SlugConflict(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
-	body := map[string]any{"tenant_id": "t-1", "name": "Bot", "slug": "dup"}
+	body := map[string]any{"tenant_id": "t-1", "name": "Bot", "slug": "dup", "model_id": "anthropic/claude-sonnet-5"}
 	postJSON(t, c.handleCreateAgentType, body)
 	w := postJSON(t, c.handleCreateAgentType, body)
 	if w.Code != http.StatusConflict {
@@ -143,7 +145,7 @@ func TestHandleCreateAgentType_K8sError(t *testing.T) {
 	k8s.provisionAgentTypeErr = errors.New("k8s down")
 
 	w := postJSON(t, c.handleCreateAgentType, map[string]any{
-		"tenant_id": "t-1", "name": "Bot", "slug": "bot",
+		"tenant_id": "t-1", "name": "Bot", "slug": "bot", "model_id": "anthropic/claude-sonnet-5",
 	})
 	if w.Code != http.StatusCreated {
 		t.Errorf("status = %d, want 201", w.Code)

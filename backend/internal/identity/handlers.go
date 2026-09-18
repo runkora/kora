@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -395,7 +396,7 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 			// invalid tokens. The client cannot distinguish "never existed" from
 			// "already revoked" — both are success states.
 			c.logger.Info(ctx, "revoke called on invalid/unknown token (treated as success per RFC 7009)")
-			w.WriteHeader(http.StatusNoContent)
+			api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 		default:
 			apiErr := api.InternalError(api.ErrCodeInternalError, "failed to revoke token", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -407,7 +408,7 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		logging.Field{Key: "token_type", Value: req.TokenType},
 	)
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // handleHealth returns a simple liveness response for the identity service.
@@ -422,14 +423,8 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 // Downstream services and the gateway can cache this response.
 func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(c.svc.JWKSJSON()); err != nil {
-		c.logger.Error(ctx, "failed to write JWKS response",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, json.RawMessage(c.svc.JWKSJSON()))
 }
 
 // handleDiscoverTenant implements GET /identity/tenants/discover?email=user@example.com

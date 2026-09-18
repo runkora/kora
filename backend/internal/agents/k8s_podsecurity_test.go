@@ -29,6 +29,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 			TrustDomain:         "orbit.example.com",
 			SystemNamespace:     "orbit-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
+			SamplingRate:        "1.0",
 		},
 	}
 }
@@ -130,6 +131,11 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	// an absence of spans.
 	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
 		t.Errorf("ORBIT_OTLP_ENDPOINT = %q, want %q", got, want)
+	}
+	// Without this a provisioned agent samples at its image default, so its
+	// traces are dropped at a different rate than the platform's.
+	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
+		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
 	}
 }
 

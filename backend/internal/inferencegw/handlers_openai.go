@@ -2,7 +2,6 @@ package inferencegw
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -52,12 +51,8 @@ func (c *Controller) handleChatCompletions(w http.ResponseWriter, r *http.Reques
 	// Tool definitions, response_format, logprobs, seed, and all other fields
 	// pass through to the provider unchanged.
 	var env chatCompletionEnvelope
-	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), err)
-		} else {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
-		}
+	if err := api.DecodeBody(r, &env); err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
 		return
 	}
 	params := env.Params

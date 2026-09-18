@@ -2,7 +2,6 @@ package inferencegw
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -322,11 +321,7 @@ func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if readErr != nil {
 		// http.MaxBytesReader surfaces *http.MaxBytesError from Read, so it
 		// arrives here via io.ReadAll — not from json.Unmarshal below.
-		if _, ok := errors.AsType[*http.MaxBytesError](readErr); ok {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), readErr)
-		} else {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "failed to read request body", nil), readErr)
-		}
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyReadError(readErr), readErr)
 		return
 	}
 

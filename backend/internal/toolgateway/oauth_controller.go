@@ -1,7 +1,6 @@
 package toolgateway
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -66,17 +65,12 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 		ScopesSupported:        []string{mcpInvokeScope},
 		BearerMethodsSupported: []string{"header"},
 	}
-	w.Header().Set("Content-Type", "application/json")
 	// The URLs are derived from the request host, so this document must never be
-	// shared-cached across hosts — a cached response poisoned with an attacker's
-	// host would redirect other clients' OAuth flow. no-store + Vary close that.
+	// shared-cached across hosts: a cached copy poisoned with an attacker's host
+	// would redirect other clients' OAuth flow. no-store + Vary close that.
 	w.Header().Set("Cache-Control", "no-store, private")
 	w.Header().Set("Vary", "X-Forwarded-Host, X-Forwarded-Proto")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(meta); err != nil {
-		c.logger.Error(r.Context(), "failed to write protected-resource metadata",
-			logging.Field{Key: "error", Value: err.Error()})
-	}
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, meta)
 }
 
 // challengeMiddleware adds the RFC 9728 `WWW-Authenticate` challenge to the MCP
@@ -102,22 +96,4 @@ func challengeMiddleware(basePath string) mw.Middleware {
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})
 	})
-}
-
-// challengeWriter injects the WWW-Authenticate header iff the wrapped handler
-// writes a 401, without disturbing any other status.
-type challengeWriter struct {
-	http.ResponseWriter
-	challenge string
-	wrote     bool
-}
-
-func (w *challengeWriter) WriteHeader(code int) {
-	if !w.wrote {
-		w.wrote = true
-		if code == http.StatusUnauthorized {
-			w.Header().Set("WWW-Authenticate", w.challenge)
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
 }

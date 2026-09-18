@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ── Notify ────────────────────────────────────────────────────────────────────
@@ -17,7 +19,7 @@ func TestHTTPNotifier_Notify_2xxSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta}); err != nil {
 		t.Errorf("unexpected error for 204: %v", err)
 	}
@@ -30,7 +32,7 @@ func TestHTTPNotifier_Notify_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta})
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
@@ -50,7 +52,7 @@ func TestHTTPNotifier_Notify_4xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta})
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
@@ -65,7 +67,7 @@ func TestHTTPNotifier_CompleteRun_2xxSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.CompleteRun(context.Background(), "run-1", "active", false); err != nil {
 		t.Errorf("unexpected error for 204: %v", err)
 	}
@@ -78,7 +80,7 @@ func TestHTTPNotifier_CompleteRun_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.CompleteRun(context.Background(), "run-1", "active", false)
 	if err == nil {
 		t.Fatal("expected error for 409 response, got nil")
@@ -100,7 +102,7 @@ func TestHTTPNotifier_SetSummary_PostsSummaryToRunURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.SetSummary(context.Background(), "run-1", "Refactor the auth module"); err != nil {
 		t.Fatalf("unexpected error for 204: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestHTTPNotifier_SetSummary_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.SetSummary(context.Background(), "run-1", "x")
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
@@ -139,7 +141,7 @@ func TestHTTPNotifier_ProvisionSandbox_OKReturnsEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -159,7 +161,7 @@ func TestHTTPNotifier_ProvisionSandbox_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	_, err := n.ProvisionSandbox(context.Background(), "run-1")
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")

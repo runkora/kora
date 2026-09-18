@@ -45,6 +45,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_ENDPOINT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
+            - name: ORBIT_SAMPLING_RATE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET

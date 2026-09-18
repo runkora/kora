@@ -4,14 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Notifier delivers events to orbit-agents, which records the durable ones and
-// fans out to live SSE subscribers, plus the run lifecycle callbacks.
+// errNotifierUnexpectedStatus is the stable sentinel recorded on the notifier
+// span when orbit-agents returns a non-2xx response. HandleErrorResponse
+// appends the status code and response body to it.
+var errNotifierUnexpectedStatus = errors.New("orbit-agents returned unexpected status")
+
+// Notifier delivers events to orbit-agents for live SSE fan-out and run
+// lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
 type Notifier interface {
 	Notify(ctx context.Context, runID string, ev Event) error
@@ -52,25 +60,28 @@ func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (Sandbox, erro
 func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { return nil }
 
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
-// Streaming events are fire-and-forget with a short timeout so a slow or absent
+// Each call is fire-and-forget with a short timeout so a slow or absent
 // orbit-agents instance does not block the session-manager drain loop.
 // ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh orbit
 // node pays a cold image pull (sandbox-exec is large) plus istio/sidecar
 // startup. Must exceed the orbit-agents pod-ready wait (k8s.waitForPodReady).
+//
+// Each field is a distinct *httpclient.Base (rather than one shared Base) so
+// each call site keeps its own timeout and gets its own named OTel tracer scope.
 type HTTPNotifier struct {
 	baseURL         string
-	client          *http.Client // short timeout: event fan-out (best-effort, fire-and-forget)
-	lifecycleClient *http.Client // longer timeout: durable events and run state callbacks (must not be dropped)
-	sandboxClient   *http.Client
+	client          *httpclient.Base // short timeout: event fan-out (best-effort, fire-and-forget)
+	lifecycleClient *httpclient.Base // longer timeout: durable events and run state callbacks (must not be dropped)
+	sandboxClient   *httpclient.Base
 }
 
 // NewHTTPNotifier creates a notifier that pushes to the given orbit-agents base URL.
-func NewHTTPNotifier(baseURL string) *HTTPNotifier {
+func NewHTTPNotifier(baseURL string, logger logging.Logger) *HTTPNotifier {
 	return &HTTPNotifier{
 		baseURL:         baseURL,
-		client:          &http.Client{Timeout: 2 * time.Second},
-		lifecycleClient: &http.Client{Timeout: 15 * time.Second},
-		sandboxClient:   &http.Client{Timeout: 300 * time.Second},
+		client:          httpclient.New("orbit.sessionmanager-notifier", logger, 2*time.Second),
+		lifecycleClient: httpclient.New("orbit.sessionmanager-notifier-lifecycle", logger, 15*time.Second),
+		sandboxClient:   httpclient.New("orbit.sessionmanager-notifier-sandbox", logger, 300*time.Second),
 	}
 }
 
@@ -92,14 +103,14 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	if isDurableEvent(ev.Type) {
 		client = n.lifecycleClient
 	}
-	resp, err := client.Do(req)
+	_, span, resp, err := client.Do(ctx, "sessionmanager.Notifier.Notify", req)
+	defer span.End()
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return client.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }
@@ -110,17 +121,17 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (Sand
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)
 	}
-	resp, err := n.sandboxClient.Do(req)
+	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
+	defer span.End()
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return Sandbox{}, fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return Sandbox{}, n.sandboxClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	var result Sandbox
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := n.sandboxClient.DecodeJSON(span, resp, &result); err != nil {
 		return Sandbox{}, fmt.Errorf("decode response: %w", err)
 	}
 	if result.Endpoint == "" || result.ExecToken == "" {
@@ -140,14 +151,14 @@ func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) er
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := n.lifecycleClient.Do(req)
+	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.SetSummary", req)
+	defer span.End()
 	if err != nil {
 		return fmt.Errorf("post summary: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return n.lifecycleClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }
@@ -183,14 +194,14 @@ func (n *HTTPNotifier) postRunState(ctx context.Context, runID, from, to string)
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := n.lifecycleClient.Do(req)
+	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.postRunState", req)
+	defer span.End()
 	if err != nil {
 		return fmt.Errorf("post state: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return n.lifecycleClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }

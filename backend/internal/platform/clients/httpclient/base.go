@@ -286,7 +286,7 @@ func (b *Base) Do(
 	// method and URL in the trace backend without per-client boilerplate.
 	span.SetAttributes(
 		attribute.String("http.request.method", req.Method),
-		attribute.String("url.full", req.URL.String()),
+		attribute.String("url.full", redactURL(req.URL)),
 	)
 
 	// Re-attach the span context to the request so that deadline/cancellation

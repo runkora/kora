@@ -36,7 +36,7 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 
 	t.Run("create POSTs the typed body", func(t *testing.T) {
-		call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{"name": "Reviewer", "slug": "reviewer"}})
+		call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{"name": "Reviewer", "slug": "reviewer", "model_id": "anthropic/claude-sonnet-5"}})
 		if gotMethod != http.MethodPost || gotPath != "/api/v1/agent-types" {
 			t.Errorf("create hit %s %s, want POST /api/v1/agent-types", gotMethod, gotPath)
 		}
