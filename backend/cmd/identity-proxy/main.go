@@ -118,6 +118,7 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 		HealthAddr:            cfg.Server.HealthAddr,
 		EnvoyReadyTimeout:     cfg.EnvoyReadyTimeout(),
 		DelegationNegativeTTL: cfg.DelegationNegativeTTL(),
+		CollectorAuthority:    observability.CollectorAuthority(),
 	}
 
 	// Wire up the identity-proxy components.

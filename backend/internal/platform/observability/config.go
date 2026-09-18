@@ -42,6 +42,18 @@ func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
 	return addr, insecure, nil
 }
 
+// CollectorAuthority returns the configured collector's host:port, the
+// :authority its gRPC exporters send. Empty when no valid endpoint is set.
+// Tenant sidecars use it to recognize telemetry export calls; see
+// docs/adr/2026-09-18-telemetry-collector-platform-destination.md.
+func CollectorAuthority() string {
+	addr, _, err := otlpTarget(DefaultConfig.OTLPEndpoint)
+	if err != nil {
+		return ""
+	}
+	return addr
+}
+
 // ObservabilityConfig holds the shared observability tunables that are identical
 // across every service binary. Loaded from
 // internal/platform/observability/config/base.yaml and its environment overrides.

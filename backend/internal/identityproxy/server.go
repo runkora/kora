@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -76,14 +77,16 @@ type Processor struct {
 
 	cache       *TokenCache
 	delegations *DelegationManager // nil disables delegation attachment (tests); stripping still applies
+	collector   string             // telemetry collector authority; requests to it get no token
 	logger      logging.Logger
 }
 
 // NewProcessor constructs a Processor backed by the given caches. delegations
 // may be nil, in which case no delegation token is ever attached (inbound
-// delegation headers are still stripped).
-func NewProcessor(cache *TokenCache, delegations *DelegationManager, logger logging.Logger) *Processor {
-	return &Processor{cache: cache, delegations: delegations, logger: logger}
+// delegation headers are still stripped). collector is the telemetry
+// collector's host:port, or empty when none is configured.
+func NewProcessor(cache *TokenCache, delegations *DelegationManager, collector string, logger logging.Logger) *Processor {
+	return &Processor{cache: cache, delegations: delegations, collector: collector, logger: logger}
 }
 
 // Process is the bidirectional streaming RPC called by Envoy for every HTTP
@@ -142,6 +145,12 @@ func headerValue(headers *ext_procv3.HttpHeaders, key string) string {
 // that run holds an active delegation, the X-Orbit-Delegation-Token header —
 // into the upstream request.
 func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv3.HttpHeaders) *ext_procv3.ProcessingResponse {
+	// Telemetry export is platform infrastructure: the collector gets neither
+	// the agent's token nor its delegation token.
+	if p.collector != "" && strings.EqualFold(headerValue(headers, ":authority"), p.collector) {
+		return continueWithout(authorizationHeader, delegationHeader)
+	}
+
 	token, _, ok := p.cache.Get()
 	if !ok {
 		p.logger.Info(ctx, "token cache empty — request will proceed without Authorization header")
@@ -153,18 +162,7 @@ func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv
 		// token — so CONTINUE while the cache is being populated on startup or
 		// after rotation is correct. The inbound delegation header is still
 		// stripped: the subprocess must never smuggle one through this window.
-		return &ext_procv3.ProcessingResponse{
-			Response: &ext_procv3.ProcessingResponse_RequestHeaders{
-				RequestHeaders: &ext_procv3.HeadersResponse{
-					Response: &ext_procv3.CommonResponse{
-						Status: ext_procv3.CommonResponse_CONTINUE,
-						HeaderMutation: &ext_procv3.HeaderMutation{
-							RemoveHeaders: []string{delegationHeader},
-						},
-					},
-				},
-			},
-		}
+		return continueWithout(delegationHeader)
 	}
 
 	// Remove any pre-existing values first to guarantee exactly one value per
@@ -208,6 +206,21 @@ func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv
 	}
 }
 
+// continueWithout lets the request through with the given headers removed and
+// nothing added.
+func continueWithout(headers ...string) *ext_procv3.ProcessingResponse {
+	return &ext_procv3.ProcessingResponse{
+		Response: &ext_procv3.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &ext_procv3.HeadersResponse{
+				Response: &ext_procv3.CommonResponse{
+					Status:         ext_procv3.CommonResponse_CONTINUE,
+					HeaderMutation: &ext_procv3.HeaderMutation{RemoveHeaders: headers},
+				},
+			},
+		},
+	}
+}
+
 // tokenExchanger is the minimal interface consumed by Server and Refresher.
 // *Exchanger satisfies it; tests inject a stub.
 type tokenExchanger interface {
@@ -243,7 +256,7 @@ func NewServer(
 	logger logging.Logger,
 	cfg Config,
 ) *Server {
-	processor := NewProcessor(cache, delegations, logger)
+	processor := NewProcessor(cache, delegations, cfg.CollectorAuthority, logger)
 
 	grpcSrv := grpc.NewServer()
 	healthSrv := health.NewServer()
