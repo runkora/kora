@@ -21,6 +21,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -54,7 +55,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 	if forwardIdentity && callerToken != "" {
 		// Act AS the caller: present the caller's bearer to the upstream. Only
 		// reached for global forward servers (the gateway enforces that upstream).
-		httpClient = &http.Client{Transport: &bearerTransport{token: callerToken, base: http.DefaultTransport}}
+		httpClient = httpclient.NewHTTPClient(0, httpclient.NewTracingTransport("orbit.toolgateway-proxy", &bearerTransport{token: callerToken, base: http.DefaultTransport}))
 	}
 
 	client := sdk.NewClient(&sdk.Implementation{Name: proxyClientName, Version: p.version}, nil)

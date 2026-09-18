@@ -181,3 +181,19 @@ func TestEmptyToolName(t *testing.T) {
 		t.Fatalf("expected -32602 for empty tool name, got %+v", resp.Error)
 	}
 }
+
+// MCP notifications expect no response, so the 202 carries no body at all.
+func TestNotification_202EmptyBody(t *testing.T) {
+	eval := &fakeEval{checkOK: true}
+	c := testController(eval, &memCatalog{})
+	rec, _ := doRPC(t, c, "orbit", `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty body for notification ack, got %q", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "" {
+		t.Errorf("expected no Content-Type header for empty-body response, got %q", ct)
+	}
+}

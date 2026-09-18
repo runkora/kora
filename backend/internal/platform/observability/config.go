@@ -9,6 +9,16 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
+// SamplingRateString renders the configured sampling rate for passing to a
+// workload this process provisions or injects, so it samples at the same rate.
+// Empty when unset, which leaves that image on its own per-environment default.
+func SamplingRateString() string {
+	if DefaultConfig.SamplingRate == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*DefaultConfig.SamplingRate, 'f', -1, 64)
+}
+
 // otlpTarget splits a configured endpoint into the gRPC address and whether the
 // connection is plaintext, from the scheme alone as the OpenTelemetry SDKs do.
 // An endpoint without a scheme is rejected: guessing either fails the handshake
@@ -32,6 +42,28 @@ func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
 	return addr, insecure, nil
 }
 
+// TenantOTLPEndpoint is the collector tenant pods export to. The chart sets it
+// from the global endpoint only, so a per-service override cannot split the
+// tenant export, the identity-proxy and the policy bundle across collectors.
+func TenantOTLPEndpoint() string {
+	if DefaultConfig.TenantOTLPEndpoint != "" {
+		return DefaultConfig.TenantOTLPEndpoint
+	}
+	return DefaultConfig.OTLPEndpoint
+}
+
+// CollectorAuthority returns the tenant collector's host:port, the :authority
+// its gRPC exporters send. Empty when no valid endpoint is set. Tenant sidecars
+// use it to recognize telemetry export calls; see
+// docs/adr/2026-09-18-telemetry-collector-platform-destination.md.
+func CollectorAuthority() string {
+	addr, _, err := otlpTarget(TenantOTLPEndpoint())
+	if err != nil {
+		return ""
+	}
+	return addr
+}
+
 // ObservabilityConfig holds the shared observability tunables that are identical
 // across every service binary. Loaded from
 // internal/platform/observability/config/base.yaml and its environment overrides.
@@ -40,6 +72,9 @@ type ObservabilityConfig struct {
 	// http://otel-collector.observability.svc:4317. The scheme decides whether
 	// the connection is plaintext or TLS. Leave empty to disable OTLP export.
 	OTLPEndpoint string `yaml:"otlpEndpoint"`
+
+	// TenantOTLPEndpoint overrides OTLPEndpoint for tenant pods; see TenantOTLPEndpoint().
+	TenantOTLPEndpoint string `yaml:"tenantOtlpEndpoint"`
 
 	// SamplingRate is the fraction of root spans to sample (0.0–1.0).
 	SamplingRate *float64 `yaml:"samplingRate,omitempty"`
@@ -68,6 +103,9 @@ func mustLoadConfig() *ObservabilityConfig {
 func applyEnvOverrides(cfg *ObservabilityConfig) {
 	if v := os.Getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
+	}
+	if v := os.Getenv("ORBIT_TENANT_OTLP_ENDPOINT"); v != "" {
+		cfg.TenantOTLPEndpoint = v
 	}
 	if v := os.Getenv("ORBIT_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v

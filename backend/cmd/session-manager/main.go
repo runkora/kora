@@ -93,7 +93,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 
 	var notifier sessionmanager.Notifier = sessionmanager.NoopNotifier{}
 	if cfg.OrbitAgents.URL != "" {
-		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
+		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL, logger)
 	}
 
 	// The session-control API can start, message, interrupt, and kill any run on
@@ -107,18 +107,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
-		ClaudeBinaryPath:     cfg.Claude.BinaryPath,
-		ClaudeWrapperPath:    cfg.Claude.WrapperPath,
-		ClaudeDefaultModel:   cfg.Claude.DefaultModel,
-		ClaudeBare:           cfg.Claude.Bare,
-		SelfPort:             cfg.Server.Port,
-		WorkspacesBasePath:   cfg.Workspaces.BasePath,
-		CodexBinaryPath:      cfg.Codex.BinaryPath,
-		CodexDefaultModel:    cfg.Codex.DefaultModel,
-		OpenCodeBinaryPath:   cfg.OpenCode.BinaryPath,
-		OpenCodeDefaultModel: cfg.OpenCode.DefaultModel,
-		InferenceGatewayURL:  cfg.InferenceGateway.URL,
-		ToolGatewayURL:       cfg.ToolGateway.URL,
+		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
+		ClaudeWrapperPath:   cfg.Claude.WrapperPath,
+		ClaudeBare:          cfg.Claude.Bare,
+		SelfPort:            cfg.Server.Port,
+		WorkspacesBasePath:  cfg.Workspaces.BasePath,
+		CodexBinaryPath:     cfg.Codex.BinaryPath,
+		OpenCodeBinaryPath:  cfg.OpenCode.BinaryPath,
+		InferenceGatewayURL: cfg.InferenceGateway.URL,
+		ToolGatewayURL:      cfg.ToolGateway.URL,
+		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
 	}, registry, verifier)
 
 	return apiServer.Server(

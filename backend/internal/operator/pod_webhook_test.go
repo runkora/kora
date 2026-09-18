@@ -14,6 +14,7 @@ func testMutator() *PodMutator {
 		SystemNamespace:         "orbit-system",
 		ImagePullSecrets:        []string{"regcred"},
 		OTLPEndpoint:            "http://otel-collector.observability.svc:4317",
+		SamplingRate:            "1.0",
 		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
 		OPAImage:                "docker.io/openpolicyagent/opa:1.15.2-envoy-static",

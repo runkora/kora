@@ -65,6 +65,10 @@ type InjectionConfig struct {
 	// the same collector as the rest of the platform. Empty disables its export.
 	OTLPEndpoint string
 
+	// SamplingRate is passed alongside it so the sidecar samples at the same
+	// rate as the platform. Empty keeps the image's own default.
+	SamplingRate string
+
 	IdentityProxyImage      string
 	IdentityProxyPullPolicy corev1.PullPolicy
 	IdentityProxyResources  corev1.ResourceRequirements
@@ -235,6 +239,7 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
 			{Name: "ORBIT_OTLP_ENDPOINT", Value: otlpEndpoint},
+			{Name: "ORBIT_SAMPLING_RATE", Value: m.Config.SamplingRate},
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),

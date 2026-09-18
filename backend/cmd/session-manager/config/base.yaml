@@ -18,16 +18,13 @@ orbitAgents:
 claude:
   binaryPath: claude
   wrapperPath: orbit-session-runner  # applies Landlock filesystem restrictions; see ADR-0062
-  defaultModel: "anthropic/claude-sonnet-4-6"
   bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
 
 codex:
   binaryPath: codex
-  defaultModel: "anthropic/claude-sonnet-4-6"
 
 opencode:
   binaryPath: opencode
-  defaultModel: "anthropic/claude-sonnet-4-6"
 
 # inferenceGateway is used by the Codex and OpenCode runners (and the run
 # summarizer) to construct per-run base URLs.

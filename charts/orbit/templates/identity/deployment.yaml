@@ -62,6 +62,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_ENDPOINT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
+            - name: ORBIT_SAMPLING_RATE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_REDIS_TLS_ENABLED

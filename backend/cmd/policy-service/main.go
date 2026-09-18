@@ -68,10 +68,11 @@ func realMain() error {
 	routeStore := routes.NewStore()
 
 	bundleCfg := bundle.Config{
-		JWKSURL:      psc.Current.Bundle.JWKSURL,
-		Issuer:       psc.Current.Bundle.Issuer,
-		Audience:     psc.Current.Bundle.Audience,
-		FrontendHost: psc.Current.Bundle.FrontendHost,
+		JWKSURL:            psc.Current.Bundle.JWKSURL,
+		Issuer:             psc.Current.Bundle.Issuer,
+		Audience:           psc.Current.Bundle.Audience,
+		FrontendHost:       psc.Current.Bundle.FrontendHost,
+		TelemetryCollector: observability.CollectorAuthority(),
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
 	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(), logger)

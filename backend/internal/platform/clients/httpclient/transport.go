@@ -42,6 +42,7 @@ package httpclient
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -164,9 +165,12 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	// Standard OTel HTTP semantic convention attributes — mirrors what Base.Do records
 	// so trace backends can query all outbound calls by method and URL uniformly.
+	// redactURL strips userinfo and query string: registered endpoints (e.g. MCP
+	// server URLs) are admin-configured and may embed credentials there, which
+	// must never be copied verbatim into span attributes / telemetry backends.
 	span.SetAttributes(
 		attribute.String("http.request.method", req.Method),
-		attribute.String("url.full", req.URL.String()),
+		attribute.String("url.full", redactURL(req.URL)),
 	)
 
 	// Re-attach the span context to the request so deadline/cancellation from
@@ -198,4 +202,20 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return resp, nil
+}
+
+// redactURL renders u without userinfo (user:password@) or a query string, so a
+// credential embedded in either — e.g. an admin-configured endpoint using HTTP
+// basic auth in the URL, or an API key passed as a query parameter — is never
+// written verbatim to a span attribute and copied into an OTel telemetry
+// backend. Callers needing the full URL for debugging must consult application
+// logs (which apply their own redaction), never span attributes.
+func redactURL(u *url.URL) string {
+	sanitized := *u
+	sanitized.User = nil
+	if sanitized.RawQuery != "" {
+		sanitized.RawQuery = "REDACTED"
+	}
+	sanitized.Fragment = ""
+	return sanitized.String()
 }

@@ -105,7 +105,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
-    modelId: a.model_id ?? 'anthropic/claude-sonnet-4-6',
+    modelId: a.model_id ?? '',
     budget: a.budget ?? null,
     environmentId: a.environment_id ?? '',
   };

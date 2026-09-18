@@ -44,6 +44,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
             - name: ORBIT_OTLP_ENDPOINT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
+            - name: ORBIT_SAMPLING_RATE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "triggers") | nindent 12 }}

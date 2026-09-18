@@ -42,13 +42,7 @@ func (c *Controller) handleGetPreferences(w http.ResponseWriter, r *http.Request
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, writeErr := w.Write(raw); writeErr != nil {
-		c.logger.Error(ctx, "failed to write preferences response",
-			logging.Field{Key: "error", Value: writeErr.Error()},
-		)
-	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, raw)
 }
 
 // handlePutPreferences handles PUT /identity/preferences.
@@ -105,7 +99,7 @@ func (c *Controller) handlePutPreferences(w http.ResponseWriter, r *http.Request
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // handleDeletePreferences handles DELETE /identity/preferences.
@@ -133,5 +127,5 @@ func (c *Controller) handleDeletePreferences(w http.ResponseWriter, r *http.Requ
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }

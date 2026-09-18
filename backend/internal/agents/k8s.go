@@ -71,6 +71,9 @@ type K8sProvisionerConfig struct {
 	// OTLPEndpoint is passed to the session-manager so a provisioned agent
 	// exports to the same collector as the platform. Empty disables its export.
 	OTLPEndpoint string
+	// SamplingRate is passed alongside it so a provisioned agent samples at the
+	// same rate as the platform. Empty keeps the image's own default.
+	SamplingRate string
 	// ImagePullSecrets names the Secrets, present in every tenant namespace,
 	// that runtime-created pods pull the session-manager and sandbox images with.
 	ImagePullSecrets []string
@@ -1353,6 +1356,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "ANTHROPIC_BASE_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								{Name: "ORBIT_POSTGRES_SSL_MODE", Value: p.cfg.SessionManagerPostgresSSL},
 								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
+								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT

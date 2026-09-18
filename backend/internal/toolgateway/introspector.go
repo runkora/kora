@@ -25,6 +25,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -51,7 +52,7 @@ type Introspector struct {
 // client with the introspection timeout.
 func NewIntrospector(httpClient *http.Client, version string, logger logging.Logger) *Introspector {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultIntrospectTimeout}
+		httpClient = httpclient.NewHTTPClient(defaultIntrospectTimeout, httpclient.NewTracingTransport("orbit.toolgateway-introspector", nil))
 	}
 	return &Introspector{
 		httpClient: httpClient,
