@@ -782,6 +782,13 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	configContent := fmt.Sprintf(`model_provider = "orbit"
 model = %q
 
+# Codex runs commands inside its own bubblewrap sandbox by default, which mounts
+# neither the orbit-shell proxy nor the run's workspace, so every command fails
+# on a missing /opt/orbit/shell/bash. Orbit's boundary is the sandbox pod and the
+# Landlock wrapper around this process, not a second sandbox nested inside it
+# (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+sandbox_mode = "danger-full-access"
+
 [model_providers.orbit]
 name     = "Orbit"
 base_url = %q

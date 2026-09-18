@@ -194,6 +194,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 - The session-manager image sets the runtime user's passwd shell to the `orbit-shell` proxy, and the OpenCode runner writes `shell` into `opencode.json`.
 - Both runners configure `orbit-runtime-mcp` and one governed entry per MCP server the agent holds grants on: a `[mcp_servers.*]` table for Codex, an `mcp` object for OpenCode.
 - Codex defers MCP tools behind its own `tool_search` tool rather than listing them, so its developer instructions name the search step. Claude Code and OpenCode list MCP tools directly and need no such instruction.
+- Codex's own bubblewrap sandbox is turned off, because it mounts neither the `orbit-shell` proxy nor the run's workspace, so a command run inside it fails on a missing `/opt/orbit/shell/bash`. The boundary is this decision's sandbox pod and the Landlock wrapper around the agent process, not a second sandbox nested inside them.
 - `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
 - Pre-provisioning at run start is the session-manager's, reached through the same `ProvisionSandbox` the agent calls. `orbit-agents` warming the pod itself left the descriptor unwritten, so the sandbox was unreachable and the pod merely idle.
 
@@ -209,7 +210,7 @@ An `Execute` against a sandbox without the run's token is refused. A run under e
 
 Verified on the local cluster: an `Execute` with no token, the wrong token, or an empty token is refused, and the run's own token executes; a sandbox pod with no token in its environment refuses to serve; a sandbox is reachable from the tenant's agent pods and from nothing else. An OpenCode run executes its commands in its own sandbox, reached both by the agent calling `provision_sandbox` and by pre-provisioning alone.
 
-Codex is verified as far as its own runner allows: it resolves its shell to the proxy and invokes it as `/opt/orbit/shell/bash -lc`, and it connects to the runtime MCP server. Whether it calls `provision_sandbox` is not yet observable, because its turn emits `OutputTextDelta without active item` and produces no events, which predates this decision and is tracked separately.
+Codex resolves its shell to the proxy and invokes it as `/opt/orbit/shell/bash -lc`, and it connects to the runtime MCP server. Against a model reached through the Responses-to-Anthropic bridge its turns lose the model's output entirely, so nothing is observable there; against a model whose provider speaks the Responses API natively it produces text and tool calls as expected. That is a property of the gateway, not of this decision.
 
 ---
 

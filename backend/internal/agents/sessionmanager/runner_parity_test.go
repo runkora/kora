@@ -134,6 +134,11 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	got := string(data)
 
 	for _, want := range []string{
+		// Codex's own bubblewrap sandbox mounts neither the orbit-shell proxy nor
+		// the run's workspace, so a command run inside it dies on a missing
+		// /opt/orbit/shell/bash. Orbit's boundary is the sandbox pod and the
+		// Landlock wrapper, not a second sandbox nested in it.
+		`sandbox_mode = "danger-full-access"`,
 		"[mcp_servers.runtime]",
 		`command = "orbit-runtime-mcp"`,
 		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
