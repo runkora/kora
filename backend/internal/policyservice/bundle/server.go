@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
-	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -165,22 +164,17 @@ func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error(ctx, "gateway bundle: on-demand compile failed",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "gateway bundle not available", nil), err)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "gateway bundle not available", nil), err)
 			return
 		}
 		cached = s.compiler.GetGateway()
 		if cached == nil {
-			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "gateway bundle not available", nil), nil)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "gateway bundle not available", nil), nil)
 			return
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/vnd.openpolicyagent.bundle")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cached.Data)))
-	w.Header().Set("ETag", fmt.Sprintf("%q", cached.Revision))
-	w.Header().Set("Last-Modified", cached.CompiledAt.Format(time.RFC1123))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(cached.Data)
+	writeBundle(w, cached)
 }
 
 // Bootstrap pre-compiles bundles for all tenants that have at least one grant.
@@ -241,11 +235,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tenantID := r.PathValue("tenant_id")
 	if tenantID == "" {
-		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("tenant_id_required", "tenant_id required", nil), nil)
+		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError(api.ErrCodeMissingField, "tenant_id required", nil), nil)
 		return
 	}
 	if !validTenantID.MatchString(tenantID) {
-		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("invalid_tenant_id", "invalid tenant_id format", nil), nil)
+		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError(api.ErrCodeInvalidField, "invalid tenant_id format", nil), nil)
 		return
 	}
 
@@ -257,20 +251,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "bundle not available", nil), err)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "bundle not available", nil), err)
 			return
 		}
 		cached = s.compiler.Get(tenantID)
 		if cached == nil {
-			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("bundle_not_available", "bundle not available", nil), nil)
+			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "bundle not available", nil), nil)
 			return
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/vnd.openpolicyagent.bundle")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cached.Data)))
-	w.Header().Set("ETag", fmt.Sprintf("%q", cached.Revision))
-	w.Header().Set("Last-Modified", cached.CompiledAt.Format(time.RFC1123))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(cached.Data)
+	writeBundle(w, cached)
 }

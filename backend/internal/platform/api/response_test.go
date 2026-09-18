@@ -63,10 +63,7 @@ func TestJSON(t *testing.T) {
 	}
 }
 
-// TestNoBody verifies NoBody writes only the status header, with no
-// Content-Type and no bytes in the body — the same wire shape as a bare
-// w.WriteHeader(status), and distinct from JSON(ctx, w, logger, status, nil)
-// which encodes a nil body as the literal "null".
+// NoBody writes the status only: no Content-Type and no body, unlike JSON's "null".
 func TestNoBody(t *testing.T) {
 	for _, status := range []int{http.StatusAccepted, http.StatusNoContent, http.StatusOK} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -194,9 +191,7 @@ func TestErrorResponse(t *testing.T) {
 	}
 }
 
-// maxBytesTestBody wraps a request body with http.MaxBytesReader so a decode
-// or read against it surfaces a genuine *http.MaxBytesError, exercising the
-// same code path a real oversized request hits in production.
+// maxBytesTestBody returns a request whose body raises a real *http.MaxBytesError.
 func maxBytesTestBody(w http.ResponseWriter, body string, limit int64) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(body))
 	r.Body = http.MaxBytesReader(w, r.Body, limit)

@@ -65,6 +65,9 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 		ScopesSupported:        []string{mcpInvokeScope},
 		BearerMethodsSupported: []string{"header"},
 	}
+	// The URLs are derived from the request host, so this document must never be
+	// shared-cached across hosts: a cached copy poisoned with an attacker's host
+	// would redirect other clients' OAuth flow. no-store + Vary close that.
 	w.Header().Set("Cache-Control", "no-store, private")
 	w.Header().Set("Vary", "X-Forwarded-Host, X-Forwarded-Proto")
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, meta)
@@ -93,22 +96,4 @@ func challengeMiddleware(basePath string) mw.Middleware {
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})
 	})
-}
-
-// challengeWriter injects the WWW-Authenticate header iff the wrapped handler
-// writes a 401, without disturbing any other status.
-type challengeWriter struct {
-	http.ResponseWriter
-	challenge string
-	wrote     bool
-}
-
-func (w *challengeWriter) WriteHeader(code int) {
-	if !w.wrote {
-		w.wrote = true
-		if code == http.StatusUnauthorized {
-			w.Header().Set("WWW-Authenticate", w.challenge)
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
 }

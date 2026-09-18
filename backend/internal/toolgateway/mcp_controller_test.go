@@ -182,10 +182,7 @@ func TestEmptyToolName(t *testing.T) {
 	}
 }
 
-// TestNotification_202EmptyBody verifies MCP notifications (no id, no response
-// expected per spec) get a 202 with a truly empty body — not a JSON "null" —
-// since a compliant client parses this response as "no content", and any body
-// at all deviates from that contract.
+// MCP notifications expect no response, so the 202 carries no body at all.
 func TestNotification_202EmptyBody(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})
