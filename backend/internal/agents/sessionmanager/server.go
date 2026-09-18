@@ -1,6 +1,7 @@
 package sessionmanager
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // ControllerConfig holds defaults that the controller applies to new sessions.
@@ -24,8 +26,6 @@ type ControllerConfig struct {
 	// ClaudeWrapperPath is the path to orbit-session-runner. When set, it wraps
 	// the claude subprocess to apply Landlock filesystem restrictions (docs/adr/2026-06-04-per-session-home-isolation.md).
 	ClaudeWrapperPath string
-	// ClaudeDefaultModel is used when the session request omits a model.
-	ClaudeDefaultModel string
 	// ClaudeBare enables --bare mode (required in containers).
 	ClaudeBare bool
 	// SelfPort is the port this session-manager listens on. orbit-runtime-mcp
@@ -37,13 +37,9 @@ type ControllerConfig struct {
 
 	// CodexBinaryPath overrides the codex binary location. Defaults to "codex".
 	CodexBinaryPath string
-	// CodexDefaultModel is used when the session request omits a model for Codex.
-	CodexDefaultModel string
 
 	// OpenCodeBinaryPath overrides the opencode binary location. Defaults to "opencode".
 	OpenCodeBinaryPath string
-	// OpenCodeDefaultModel is used when the session request omits a model for OpenCode.
-	OpenCodeDefaultModel string
 
 	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
 	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
@@ -52,6 +48,10 @@ type ControllerConfig struct {
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
 	// into the per-run MCP config so agents reach governed tools through it.
 	ToolGatewayURL string
+
+	// OTLPEndpoint is the platform collector Claude Code exports to. Empty
+	// disables its telemetry.
+	OTLPEndpoint string
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -251,8 +251,9 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, and tenant_id are required", nil)
+	// The model comes from the agent type in the platform; there is no fallback.
+	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" || req.Model == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, tenant_id, and model are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -263,16 +264,12 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	var runner Runner
-	var model, inferenceURL string
+	var inferenceURL string
 	switch req.Framework {
 	case "claude-code", "":
 		// Empty framework also routes to claude-code: rows that pre-date
 		// service.CreateAgentType's empty→claude-code defaulting still carry
 		// the migration's NOT NULL DEFAULT '' value.
-		model = req.Model
-		if model == "" {
-			model = c.cfg.ClaudeDefaultModel
-		}
 		extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
 		// Run identity travels as a base-URL path prefix: point this subprocess at
 		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
@@ -282,10 +279,11 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
 			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
 		}
+		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID)...)
 		runner = NewClaudeRunner(ClaudeRunnerConfig{
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
 			WrapperPath:       c.cfg.ClaudeWrapperPath,
-			Model:             model,
+			Model:             req.Model,
 			AllowedTools:      req.AllowedTools,
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
@@ -297,28 +295,20 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			Logger:            c.logger,
 		})
 	case "codex":
-		model = req.Model
-		if model == "" {
-			model = c.cfg.CodexDefaultModel
-		}
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewCodexRunner(CodexRunnerConfig{
 			BinaryPath:          c.cfg.CodexBinaryPath,
-			Model:               model,
+			Model:               req.Model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
 			SystemPrompt:        req.SystemPrompt,
 		})
 	case "opencode":
-		model = req.Model
-		if model == "" {
-			model = c.cfg.OpenCodeDefaultModel
-		}
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
 			BinaryPath:          c.cfg.OpenCodeBinaryPath,
-			Model:               model,
+			Model:               req.Model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
@@ -334,7 +324,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		AgentTypeID:  req.AgentTypeID,
 		TenantID:     req.TenantID,
 		Runner:       runner,
-		Model:        model,
+		Model:        req.Model,
 		InferenceURL: inferenceURL,
 	}
 
@@ -494,4 +484,33 @@ func toolGatewayURLForRun(gatewayURL, runID string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
+}
+
+// claudeTelemetryEnv returns the environment that has Claude Code export its
+// traces, metrics and events to the platform collector, with every turn a child
+// of the span in ctx. Empty when no endpoint is configured, matching the
+// platform services. See docs/adr/2026-09-18-agent-runtime-trace-propagation.md.
+func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) []string {
+	if endpoint == "" {
+		return nil
+	}
+	env := []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+		"OTEL_TRACES_EXPORTER=otlp",
+		"OTEL_METRICS_EXPORTER=otlp",
+		"OTEL_LOGS_EXPORTER=otlp",
+		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=" + endpoint,
+		// ANTHROPIC_BASE_URL points at the inference gateway, and Claude Code
+		// only sends traceparent to a non-Anthropic base URL when told to.
+		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
+		"OTEL_RESOURCE_ATTRIBUTES=orbit.run_id=" + runID + ",orbit.tenant_id=" + tenantID,
+	}
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	for _, key := range carrier.Keys() {
+		env = append(env, strings.ToUpper(key)+"="+carrier.Get(key))
+	}
+	return env
 }
