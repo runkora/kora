@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,6 +58,29 @@ func TestJSON(t *testing.T) {
 			var result map[string]any
 			if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 				t.Errorf("JSON() body decode error: %v", err)
+			}
+		})
+	}
+}
+
+// TestNoBody verifies NoBody writes only the status header, with no
+// Content-Type and no bytes in the body — the same wire shape as a bare
+// w.WriteHeader(status), and distinct from JSON(ctx, w, logger, status, nil)
+// which encodes a nil body as the literal "null".
+func TestNoBody(t *testing.T) {
+	for _, status := range []int{http.StatusAccepted, http.StatusNoContent, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			w := httptest.NewRecorder()
+			NoBody(w, status)
+
+			if w.Code != status {
+				t.Errorf("NoBody() status = %v, want %v", w.Code, status)
+			}
+			if got := w.Header().Get("Content-Type"); got != "" {
+				t.Errorf("NoBody() Content-Type = %q, want empty", got)
+			}
+			if w.Body.Len() != 0 {
+				t.Errorf("NoBody() body = %q, want empty", w.Body.String())
 			}
 		})
 	}
@@ -165,6 +189,103 @@ func TestErrorResponse(t *testing.T) {
 			// Verify underlying error is NOT in response
 			if _, exists := got["underlying_error"]; exists {
 				t.Error("underlying error should not be in response")
+			}
+		})
+	}
+}
+
+// maxBytesTestBody wraps a request body with http.MaxBytesReader so a decode
+// or read against it surfaces a genuine *http.MaxBytesError, exercising the
+// same code path a real oversized request hits in production.
+func maxBytesTestBody(w http.ResponseWriter, body string, limit int64) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(body))
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	return r
+}
+
+func TestClassifyDecodeError(t *testing.T) {
+	type testStruct struct {
+		Name string `json:"name"`
+	}
+
+	tests := []struct {
+		name           string
+		body           string
+		limit          int64
+		wantCode       string
+		wantStatusCode int
+	}{
+		{
+			name:           "oversized body maps to 413 payload_too_large",
+			body:           `{"name":"this body exceeds the tiny limit below"}`,
+			limit:          10,
+			wantCode:       ErrCodePayloadTooLarge,
+			wantStatusCode: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:           "malformed JSON maps to 400 invalid_json",
+			body:           `{"name":}`,
+			limit:          1 << 20,
+			wantCode:       ErrCodeInvalidJSON,
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := maxBytesTestBody(w, tt.body, tt.limit)
+
+			var dest testStruct
+			err := DecodeBody(r, &dest)
+			if err == nil {
+				t.Fatal("DecodeBody() error = nil, want non-nil")
+			}
+
+			apiErr := ClassifyDecodeError(err)
+			if apiErr.Code != tt.wantCode {
+				t.Errorf("ClassifyDecodeError().Code = %q, want %q", apiErr.Code, tt.wantCode)
+			}
+			if apiErr.StatusCode != tt.wantStatusCode {
+				t.Errorf("ClassifyDecodeError().StatusCode = %d, want %d", apiErr.StatusCode, tt.wantStatusCode)
+			}
+		})
+	}
+}
+
+func TestClassifyReadError(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		limit          int64
+		wantCode       string
+		wantStatusCode int
+	}{
+		{
+			name:           "oversized body maps to 413 payload_too_large",
+			body:           "this body is longer than the tiny limit below",
+			limit:          10,
+			wantCode:       ErrCodePayloadTooLarge,
+			wantStatusCode: http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := maxBytesTestBody(w, tt.body, tt.limit)
+
+			_, err := io.ReadAll(r.Body)
+			if err == nil {
+				t.Fatal("io.ReadAll() error = nil, want non-nil")
+			}
+
+			apiErr := ClassifyReadError(err)
+			if apiErr.Code != tt.wantCode {
+				t.Errorf("ClassifyReadError().Code = %q, want %q", apiErr.Code, tt.wantCode)
+			}
+			if apiErr.StatusCode != tt.wantStatusCode {
+				t.Errorf("ClassifyReadError().StatusCode = %d, want %d", apiErr.StatusCode, tt.wantStatusCode)
 			}
 		})
 	}

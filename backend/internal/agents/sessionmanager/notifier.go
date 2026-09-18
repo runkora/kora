@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// errNotifierUnexpectedStatus is the stable sentinel recorded on the notifier
+// span when orbit-agents returns a non-2xx response. HandleErrorResponse
+// appends the status code and response body to it.
+var errNotifierUnexpectedStatus = errors.New("orbit-agents returned unexpected status")
 
 // Notifier delivers events to orbit-agents for live SSE fan-out and run
 // lifecycle callbacks.
@@ -96,8 +101,7 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return n.client.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }
@@ -115,8 +119,7 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return "", fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return "", n.sandboxClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	var result struct {
 		Endpoint string `json:"endpoint"`
@@ -145,8 +148,7 @@ func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return n.lifecycleClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }
@@ -189,8 +191,7 @@ func (n *HTTPNotifier) postRunState(ctx context.Context, runID, from, to string)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+		return n.lifecycleClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
 }

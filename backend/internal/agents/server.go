@@ -499,7 +499,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusAccepted, nil)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) {
@@ -527,7 +527,7 @@ func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusAccepted, nil)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 // ── Internal callbacks ────────────────────────────────────────────────────────

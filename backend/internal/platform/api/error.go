@@ -110,6 +110,21 @@ func ServiceUnavailableError(code, message string, details map[string]any) *APIE
 	}
 }
 
+// PayloadTooLargeError creates a 413 Payload Too Large error.
+//
+// Use it where the request body exceeded a configured http.MaxBytesReader
+// ceiling, rather than BadRequestError: the client sent a well-formed request
+// that is simply too big, not a malformed one, and 413 is what tells a caller
+// to shrink the payload rather than fix its syntax.
+func PayloadTooLargeError(code, message string, details map[string]any) *APIError {
+	return &APIError{
+		Code:       code,
+		Message:    message,
+		Details:    details,
+		StatusCode: http.StatusRequestEntityTooLarge,
+	}
+}
+
 // InternalError creates a 500 Internal Server Error
 func InternalError(code, message string, details map[string]any) *APIError {
 	return &APIError{
@@ -170,6 +185,10 @@ const (
 	// ErrCodeTooManyRequests indicates the caller should back off and retry.
 	// Use with TooManyRequestsError for rate limits and at-capacity resources.
 	ErrCodeTooManyRequests = "too_many_requests"
+
+	// ErrCodePayloadTooLarge indicates the request body exceeded the endpoint's
+	// configured size ceiling (http.MaxBytesReader). Use with PayloadTooLargeError.
+	ErrCodePayloadTooLarge = "payload_too_large"
 
 	// Server errors (5xx)
 
