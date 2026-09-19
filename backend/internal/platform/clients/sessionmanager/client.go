@@ -102,6 +102,10 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; the
 	// runner provisions one governed endpoint (/v1/mcp/<server>) per entry.
 	MCPServers []string `json:"mcp_servers,omitempty"`
+	// ProvisionSandbox asks the session-manager to provision this run's sandbox
+	// immediately, rather than waiting for the agent to ask for one. It provisions
+	// in the background, so the session is created either way.
+	ProvisionSandbox bool `json:"provision_sandbox,omitempty"`
 }
 
 // CreateSession starts a new agent subprocess on the target pod.

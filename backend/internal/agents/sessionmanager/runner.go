@@ -3,6 +3,10 @@ package sessionmanager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // ErrNotSupported is returned by SendToolResult for runners that handle tool
@@ -50,4 +54,53 @@ type Runner interface {
 	// --resume. The returned runner has not yet been started. Returns nil if no
 	// session ID has been captured (e.g. interrupted before the init event arrived).
 	NewResumeRunner() Runner
+}
+
+// wrapExec returns the command and arguments to spawn an agent, through
+// orbit-session-runner when wrapperPath is set. The wrapper takes the work
+// directory first, then the binary and its arguments, and applies Landlock and a
+// PID namespace before exec'ing it. Empty runs the binary directly, which is
+// local development on a host without Landlock.
+func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []string) {
+	if wrapperPath == "" {
+		return binary, args
+	}
+	return wrapperPath, append([]string{workDir, binary}, args...)
+}
+
+// runHomeDirs creates this run's HOME and TMPDIR under its work directory and
+// returns them as environment entries.
+//
+// Both must live under workDir, the only directory Landlock makes writable: an
+// agent left on the image's /home/orbit fails on its first write. Per-run also
+// keeps sibling runs out of each other's caches.
+func runHomeDirs(workDir string) ([]string, error) {
+	runHome := filepath.Join(workDir, ".runhome")
+	if err := os.MkdirAll(runHome, 0o700); err != nil {
+		return nil, fmt.Errorf("create run home: %w", err)
+	}
+	tmpDir := filepath.Join(workDir, ".tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create run tmpdir: %w", err)
+	}
+	return []string{"HOME=" + runHome, "TMPDIR=" + tmpDir}, nil
+}
+
+// withRunEnv returns base with every key extra sets removed, then extra
+// appended, so the run's values are the only ones present.
+func withRunEnv(base, extra []string) []string {
+	overridden := make(map[string]bool, len(extra))
+	for _, e := range extra {
+		if k, _, ok := strings.Cut(e, "="); ok {
+			overridden[k] = true
+		}
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, e := range base {
+		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, extra...)
 }

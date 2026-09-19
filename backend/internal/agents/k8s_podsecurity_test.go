@@ -35,7 +35,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil)
+	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil, "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -142,7 +142,7 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil
-	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil); pod.Spec.ImagePullSecrets != nil {
+	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil, "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
 		t.Errorf("sandbox imagePullSecrets = %+v, want field omitted", pod.Spec.ImagePullSecrets)
 	}
 	at := AgentType{Slug: "coder", TenantID: "acme"}

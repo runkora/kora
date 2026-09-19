@@ -17,7 +17,7 @@ The only runner is the developer workstation. `make migrate-up` copies every ser
 
 Six files carry row changes alongside schema changes: a scope vocabulary seed that the vocabulary repository also registers at boot, a JSONB key rename, a backfill, a `Down` that rewrites `runs.state`, a `Down` that deletes lineage rows, and a data repair that joins tables owned by another service.
 
-session-manager pods run in tenant namespaces with the platform `DB_PASSWORD` and insert `run_events` directly.
+session-manager pods run in tenant namespaces and reach no database; `run_events` rows are written by orbit-agents on the event push ([sandbox-exec-trust-boundary](2026-09-18-sandbox-exec-trust-boundary.md)).
 
 ### Problem Statement
 
@@ -121,7 +121,7 @@ The goose CLI is removed from `make install-tools`.
 
 The migrate binary runs one goose pass over the merged set. Version prefixes are ordered globally across services and must be unique across all directories.
 
-A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted; the `triggers` join into `runs` and the session-manager insert into `run_events` are the existing instances.
+A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted; the `triggers` join into `runs` is the existing instance.
 
 One run covers every tenant.
 

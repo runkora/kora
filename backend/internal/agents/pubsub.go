@@ -10,8 +10,30 @@ import (
 type PushedEvent struct {
 	Type       string          `json:"type"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
-	SequenceNo int64           `json:"sequence_no,omitempty"` // non-zero for durable events; set by session-manager after DB write
+	SequenceNo int64           `json:"sequence_no,omitempty"` // non-zero for durable events; assigned by PublishEvent on the run_events write
 }
+
+// durableEventTypes are written to run_events so a reconnecting client can
+// replay the run in order. Every other pushed type is streamed and then dropped
+// (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
+//
+// The session-manager keeps its own copy to choose a delivery timeout. Only this
+// one decides persistence, so drift costs a bad timeout, not a lost row.
+var durableEventTypes = map[string]bool{
+	"message_complete": true,
+	"text_block":       true,
+	"tool_use":         true,
+	"tool_result":      true,
+	"run_error":        true,
+}
+
+// replayOnlyEventTypes are persisted for replay but withheld from live
+// subscribers, who already have the same content from the delta events.
+var replayOnlyEventTypes = map[string]bool{"text_block": true}
+
+func durableEventType(t string) bool { return durableEventTypes[t] }
+
+func replayOnlyEventType(t string) bool { return replayOnlyEventTypes[t] }
 
 // PubSub is the in-memory fan-out hub for live run events.
 // Session-managers push events here; SSE clients subscribe per run.

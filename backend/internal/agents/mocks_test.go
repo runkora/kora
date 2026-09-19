@@ -491,16 +491,16 @@ func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
 	return m.replicaCount, nil
 }
 
-func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeClusters []kubeconfig.Cluster) (string, error) {
+func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeClusters []kubeconfig.Cluster) (Sandbox, error) {
 	m.provisionKubeClusters = kubeClusters
 	if m.provisionSandboxErr != nil {
-		return "", m.provisionSandboxErr
+		return Sandbox{}, m.provisionSandboxErr
 	}
 	ep := m.sandboxEndpoint
 	if ep == "" {
 		ep = "10.0.0.1:50051"
 	}
-	return ep, nil
+	return Sandbox{Endpoint: ep, ExecToken: "test-exec-token"}, nil
 }
 
 func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
@@ -776,12 +776,12 @@ func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) erro
 	return f.run.InterruptRun(f.withRunTenant(ctx, runID), runID)
 }
 
-func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
 	return f.run.ProvisionSandbox(ctx, runID)
 }
 
-func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) {
-	f.run.PublishEvent(ctx, runID, ev)
+func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {
+	return f.run.PublishEvent(ctx, runID, ev)
 }
 
 func (f *testServiceFacade) ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error) {

@@ -98,6 +98,13 @@ COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
 # (it rejects non-shell basenames and falls back to /bin/bash). Dedicated dir, NOT on PATH,
 # so the real /bin/bash is unaffected for every other consumer in the image.
 RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/shell/bash
+# Codex resolves its shell from the running user's passwd entry, not $SHELL, and
+# classifies it by basename. Pointing orbit's login shell at the proxy is what
+# routes its tool commands into the sandbox. Codex reads passwd before PATH, so
+# /bin/bash is unaffected for everything else, and a model naming /bin/bash is
+# re-resolved back through here. The grep fails the build if the sed missed.
+RUN sed -i 's#^orbit:\(.*\):/sbin/nologin$#orbit:\1:/opt/orbit/shell/bash#' /etc/passwd && \
+    getent passwd orbit | grep -q ':/opt/orbit/shell/bash$'
 COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
 COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
 

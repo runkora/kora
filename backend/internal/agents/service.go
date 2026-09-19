@@ -23,7 +23,7 @@ type k8sProvisioner interface {
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
-	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error)
+	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (Sandbox, error)
 	DeleteSandbox(ctx context.Context, runID, namespace string) error
 }
 

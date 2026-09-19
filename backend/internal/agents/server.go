@@ -773,8 +773,8 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handlePushEvent receives an event pushed by a session-manager pod and fans
-// it out to any live SSE subscribers for that run.
+// handlePushEvent receives an event pushed by a session-manager pod, records the
+// durable ones, and fans out to any live SSE subscribers for that run.
 func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -787,7 +787,11 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.runs.PublishEvent(ctx, id, ev)
+	if err := c.runs.PublishEvent(ctx, id, ev); err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to record run event", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
@@ -828,7 +832,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	endpoint, err := c.runs.ProvisionSandbox(ctx, id)
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
@@ -840,5 +844,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+	// exec_token goes only to the session-manager that owns the run: the route is
+	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
+	// has already bound the caller to this run.
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }

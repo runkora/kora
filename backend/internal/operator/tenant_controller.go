@@ -187,6 +187,13 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ensureSandboxEgressPolicy(ctx, tenant) },
 		},
 		{
+			// Admit only this tenant's agent pods to a sandbox's exec port. The
+			// port is outside the inbound mesh, so nothing else narrows the set
+			// of callers that can reach it.
+			name: "sandbox ingress NetworkPolicy",
+			run:  func(ctx context.Context) error { return r.ensureSandboxIngressPolicy(ctx, tenant) },
+		},
+		{
 			// Aggregated OIDC client secrets: confidential tenants need
 			// their client_secret available to the identity service
 			// without a pod restart.

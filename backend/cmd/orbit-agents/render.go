@@ -11,6 +11,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/ports"
 )
 
 // workloadsFile is the shape of the ConfigMap the chart renders from
@@ -49,14 +50,15 @@ func loadWorkloads(path string) (workloadsFile, error) {
 // the server and -render produce the same manifests.
 func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile) agents.K8sProvisionerConfig {
 	return agents.K8sProvisionerConfig{
-		Workloads:                  workloads.Workloads,
-		Workspace:                  workloads.Workspace,
-		SessionManagerImage:        cfg.Agents.SessionManagerImage,
-		SandboxImage:               cfg.Agents.SandboxImage,
-		SandboxGRPCPort:            int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		Workloads:           workloads.Workloads,
+		Workspace:           workloads.Workspace,
+		SessionManagerImage: cfg.Agents.SessionManagerImage,
+		SandboxImage:        cfg.Agents.SandboxImage,
+		// Not configurable: the operator's ingress NetworkPolicy admits this port,
+		// and a pod on a different one would be unreachable.
+		SandboxGRPCPort:            ports.SandboxExecGRPC,
 		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
-		SessionManagerPostgresSSL:  cfg.Agents.SessionManager.PostgresSSLMode,
 		OTLPEndpoint:               observability.TenantOTLPEndpoint(),
 		SamplingRate:               observability.SamplingRateString(),
 		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,

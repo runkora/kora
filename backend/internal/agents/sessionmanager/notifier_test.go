@@ -137,17 +137,20 @@ func TestHTTPNotifier_ProvisionSandbox_OKReturnsEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"endpoint":"10.0.0.1:50051"}`)) //nolint:errcheck
+		w.Write([]byte(`{"endpoint":"10.0.0.1:50051","exec_token":"tok-1"}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-	endpoint, err := n.ProvisionSandbox(context.Background(), "run-1")
+	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if endpoint != "10.0.0.1:50051" {
-		t.Errorf("endpoint = %q, want 10.0.0.1:50051", endpoint)
+	if sandbox.Endpoint != "10.0.0.1:50051" {
+		t.Errorf("endpoint = %q, want 10.0.0.1:50051", sandbox.Endpoint)
+	}
+	if sandbox.ExecToken != "tok-1" {
+		t.Errorf("exec token = %q, want tok-1", sandbox.ExecToken)
 	}
 }
 

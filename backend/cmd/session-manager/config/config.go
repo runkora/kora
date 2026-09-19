@@ -41,16 +41,26 @@ type Config struct {
 		URL string `yaml:"url"`
 	} `yaml:"orbitAgents"`
 
+	// Runner holds the settings that apply to every agent framework.
+	Runner struct {
+		// WrapperPath is the path to orbit-session-runner, used by every framework.
+		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
+		// so Landlock and a PID namespace are applied first. Empty disables it,
+		// which is local dev on macOS.
+		WrapperPath string `yaml:"wrapperPath"`
+
+		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
+		// tool commands run in the run's sandbox. Claude Code reads it from
+		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
+		// OpenCode from the "shell" key written into opencode.json. Empty leaves
+		// OpenCode on the container's shell.
+		ShellPath string `yaml:"shellPath"`
+	} `yaml:"runner"`
+
 	Claude struct {
 		// BinaryPath overrides the location of the claude binary.
 		// Defaults to "claude" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// WrapperPath is the path to orbit-session-runner. When set, it is
-		// invoked as: WrapperPath <workDir> <BinaryPath> [args...]
-		// to apply Landlock filesystem restrictions before exec'ing claude.
-		// Empty disables the wrapper (used in local dev on macOS).
-		WrapperPath string `yaml:"wrapperPath"`
 
 		// Bare enables --bare mode (no CLAUDE.md discovery, no OAuth/keychain).
 		// Required in containers where ANTHROPIC_API_KEY is set via env var.

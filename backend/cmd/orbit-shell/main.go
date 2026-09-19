@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,30 +31,63 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
-	endpoint := sandboxEndpoint()
+	sb := readSandbox()
 
-	if endpoint == "" {
-		runLocal()
-		return
+	// Ask the session-manager when the descriptor is missing. The agent can delete
+	// it from its own workspace, so its absence does not mean there is no sandbox.
+	if sb.endpoint == "" || sb.token == "" {
+		fresh, provisioned, err := fetchSandbox()
+		switch {
+		case err != nil:
+			// Fail closed. Running locally would execute the agent's command in
+			// this container.
+			log.Fatalf("orbit-shell: cannot determine this run's sandbox: %v", err)
+		case !provisioned:
+			// No sandbox yet: shell snapshots and anything before the agent asks
+			// for one run here. Provisioning a pod for every run would defeat the
+			// point of provisioning on demand.
+			runLocal()
+			return
+		default:
+			sb = fresh
+		}
 	}
 
-	runRemote(endpoint)
+	runRemote(sb)
 }
 
-// sandboxEndpoint reads the sandbox gRPC address from the workspace endpoint
-// file. Returns empty string if the file does not exist (no sandbox yet).
-func sandboxEndpoint() string {
+// sandbox is where this run's exec server listens and the token it requires.
+type sandbox struct {
+	endpoint string
+	token    string
+}
+
+// readSandbox reads this run's sandbox address and exec token from its workspace.
+// Landlock confines this process to that directory, so a sibling run's token is
+// out of reach. Missing files yield a zero sandbox; the caller decides what that
+// means.
+func readSandbox() sandbox {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {
-		return ""
+		return sandbox{}
 	}
-	data, err := os.ReadFile(filepath.Join(workspace, ".sandbox", "endpoint"))
+	dir := filepath.Join(workspace, ".sandbox")
+	return sandbox{
+		endpoint: readTrimmed(filepath.Join(dir, "endpoint")),
+		token:    readTrimmed(filepath.Join(dir, "exec-token")),
+	}
+}
+
+// readTrimmed returns the file's trimmed contents, or empty if unreadable.
+func readTrimmed(path string) string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -82,7 +116,7 @@ func runLocal() {
 // files survive on the shared volume, so a replacement sandbox resumes against
 // the same workspace. A normal non-zero command exit is NOT an infra error and
 // never triggers a retry.
-func runRemote(endpoint string) {
+func runRemote(sb sandbox) {
 	command := parseCommand()
 	if command == "" {
 		// No -c flag: interactive shell — fall back to local bash.
@@ -90,17 +124,18 @@ func runRemote(endpoint string) {
 		return
 	}
 
-	exitCode, err := execOne(endpoint, command)
+	exitCode, err := execOne(sb, command)
 	if err == nil {
 		os.Exit(exitCode)
 	}
 
-	// Sandbox unreachable — attempt one re-provision + retry.
-	newEndpoint, reErr := reprovisionSandbox()
+	// Sandbox unreachable: re-provision once and retry. A replacement pod has a
+	// new token, so the retry reads the freshly written pair.
+	fresh, reErr := reprovisionSandbox()
 	if reErr != nil {
 		log.Fatalf("orbit-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
 	}
-	exitCode, err = execOne(newEndpoint, command)
+	exitCode, err = execOne(fresh, command)
 	if err != nil {
 		log.Fatalf("orbit-shell: sandbox unreachable after re-provision: %v", err)
 	}
@@ -112,10 +147,10 @@ func runRemote(endpoint string) {
 // infrastructure failures (dial/Execute/Recv) that indicate the sandbox is
 // unreachable — a command that runs and exits non-zero is a success here, with
 // its code returned via exitCode.
-func execOne(endpoint, command string) (exitCode int, err error) {
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func execOne(sb sandbox, command string) (exitCode int, err error) {
+	conn, err := grpc.NewClient(sb.endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return 0, fmt.Errorf("dial %s: %w", endpoint, err)
+		return 0, fmt.Errorf("dial %s: %w", sb.endpoint, err)
 	}
 	defer conn.Close() //nolint:errcheck
 
@@ -125,7 +160,7 @@ func execOne(endpoint, command string) (exitCode int, err error) {
 		WorkingDir: workingDir(),
 	}
 
-	stream, err := client.Execute(context.Background(), req)
+	stream, err := client.Execute(execauth.WithToken(context.Background(), sb.token), req)
 	if err != nil {
 		return 0, fmt.Errorf("execute: %w", err)
 	}
@@ -154,11 +189,53 @@ func execOne(endpoint, command string) (exitCode int, err error) {
 // and returns the fresh gRPC endpoint. The session-manager liveness-checks the
 // existing endpoint and replaces a dead sandbox, then rewrites
 // $WORKSPACE/.sandbox/endpoint, which we re-read here.
-func reprovisionSandbox() (string, error) {
+// fetchSandbox asks the session-manager for this run's sandbox. The bool reports
+// whether the run has one at all, which is false for a run that never asked.
+func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
 	if smURL == "" || runID == "" {
-		return "", fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
+		// Nothing to ask: a runner that sets neither has no sandbox.
+		return sandbox{}, false, nil
+	}
+
+	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode == http.StatusNotFound {
+		return sandbox{}, false, nil
+	}
+	if resp.StatusCode/100 != 2 {
+		return sandbox{}, false, fmt.Errorf("get sandbox returned %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Endpoint  string `json:"endpoint"`
+		ExecToken string `json:"exec_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return sandbox{}, false, fmt.Errorf("decode sandbox: %w", err)
+	}
+	if body.Endpoint == "" || body.ExecToken == "" {
+		return sandbox{}, false, fmt.Errorf("session-manager returned an incomplete sandbox")
+	}
+	return sandbox{endpoint: body.Endpoint, token: body.ExecToken}, true, nil
+}
+
+func reprovisionSandbox() (sandbox, error) {
+	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
+	runID := os.Getenv("ORBIT_RUN_ID")
+	if smURL == "" || runID == "" {
+		return sandbox{}, fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
@@ -166,27 +243,27 @@ func reprovisionSandbox() (string, error) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
-		return "", fmt.Errorf("build provision request: %w", err)
+		return sandbox{}, fmt.Errorf("build provision request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("post provision-sandbox: %w", err)
+		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
+		return sandbox{}, fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
 	}
 	// Drain the body so the connection can be reused / cleanly closed.
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return "", fmt.Errorf("drain provision response: %w", err)
+		return sandbox{}, fmt.Errorf("drain provision response: %w", err)
 	}
 
-	endpoint := sandboxEndpoint()
-	if endpoint == "" {
-		return "", fmt.Errorf("endpoint still empty after re-provision")
+	sb := readSandbox()
+	if sb.endpoint == "" || sb.token == "" {
+		return sandbox{}, fmt.Errorf("sandbox endpoint or exec token still missing after re-provision")
 	}
-	return endpoint, nil
+	return sb, nil
 }
 
 // parseCommand extracts the command string bash would run for a `-c` invocation.

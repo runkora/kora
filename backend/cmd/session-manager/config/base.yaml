@@ -15,9 +15,17 @@ workspaces:
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
+# Settings shared by every agent framework.
+runner:
+  # Applies Landlock and a PID namespace before the agent execs, for every
+  # framework. See docs/adr/2026-06-04-per-session-home-isolation.md.
+  wrapperPath: orbit-session-runner
+  # The orbit-shell proxy. Exposed under a "bash" basename by
+  # Dockerfile.session-manager, since shell detection keys on that.
+  shellPath: /opt/orbit/shell/bash
+
 claude:
   binaryPath: claude
-  wrapperPath: orbit-session-runner  # applies Landlock filesystem restrictions; see ADR-0062
   bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
 
 codex:

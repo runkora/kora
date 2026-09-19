@@ -10,5 +10,3 @@ platform:
 agents:
   sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
   sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest
-  sessionManager:
-    postgresSSLMode: disable
