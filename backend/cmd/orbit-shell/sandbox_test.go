@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,6 +72,75 @@ func TestReadSandbox(t *testing.T) {
 
 			if got := readSandbox(); got != tc.want {
 				t.Errorf("readSandbox() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The descriptor lives in the agent's own writable workspace, so a missing one
+// must not be read as "no sandbox yet". Deleting it would otherwise win the agent
+// a shell in the session-manager container, which is what routing prevents.
+// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+func TestFetchSandbox(t *testing.T) {
+	tests := []struct {
+		name            string
+		status          int
+		body            string
+		wantProvisioned bool
+		wantErr         bool
+	}{
+		{
+			name:            "run has a sandbox",
+			status:          http.StatusOK,
+			body:            `{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`,
+			wantProvisioned: true,
+		},
+		{
+			name:   "run has never had one",
+			status: http.StatusNotFound,
+			body:   `{"code":"not_found"}`,
+		},
+		{
+			// Fail closed: an unreadable answer must not become a local shell.
+			name:    "session-manager is unhappy",
+			status:  http.StatusInternalServerError,
+			body:    `{"code":"internal_error"}`,
+			wantErr: true,
+		},
+		{
+			name:    "half a descriptor is unusable",
+			status:  http.StatusOK,
+			body:    `{"endpoint":"10.0.0.5:50051"}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
+			t.Setenv("ORBIT_RUN_ID", "run-1")
+
+			sb, provisioned, err := fetchSandbox()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got %+v", sb)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("fetchSandbox: %v", err)
+			}
+			if provisioned != tc.wantProvisioned {
+				t.Errorf("provisioned = %v, want %v", provisioned, tc.wantProvisioned)
+			}
+			if tc.wantProvisioned && (sb.endpoint == "" || sb.token == "") {
+				t.Errorf("expected a complete descriptor, got %+v", sb)
 			}
 		})
 	}

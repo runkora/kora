@@ -1285,3 +1285,98 @@ func TestAgentType_MCPServers(t *testing.T) {
 		})
 	}
 }
+
+// PublishEvent is where a pushed event becomes a run_events row, so the durable
+// branch needs covering on both outcomes: a session-manager holds no database
+// connection and cannot notice a lost event itself.
+// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+func TestPublishEvent_DurableEventIsRecorded(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	if err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "tool_use",
+		Payload: []byte(`{"name":"Bash"}`),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	events, err := repo.ListRunEvents(context.Background(), "run-1", 0)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "tool_use" {
+		t.Fatalf("expected one recorded tool_use, got %+v", events)
+	}
+
+	select {
+	case got := <-ch:
+		if got.SequenceNo != events[0].SequenceNo {
+			t.Errorf("published sequence %d, recorded %d", got.SequenceNo, events[0].SequenceNo)
+		}
+	default:
+		t.Error("expected the event to reach subscribers")
+	}
+}
+
+// A replay-only type is recorded but withheld from subscribers, who already have
+// the same content from the delta events.
+func TestPublishEvent_ReplayOnlyEventIsNotPublished(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	if err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "text_block",
+		Payload: []byte(`{"content":"hi"}`),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	events, err := repo.ListRunEvents(context.Background(), "run-1", 0)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected the event to be recorded, got %+v", events)
+	}
+	select {
+	case got := <-ch:
+		t.Errorf("expected no fan-out for a replay-only event, got %+v", got)
+	default:
+	}
+}
+
+// A failed write still fans out, as an ephemeral event, and reports the failure:
+// a subscriber should keep seeing the run while the database is unavailable, and
+// the pushing session-manager should learn the row is missing.
+func TestPublishEvent_WriteFailureStillPublishesAndReports(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+	repo.appendRunEventErr = errors.New("database is down")
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "tool_use",
+		Payload: []byte(`{"name":"Bash"}`),
+	})
+	if err == nil {
+		t.Fatal("expected the write failure to be reported")
+	}
+
+	select {
+	case got := <-ch:
+		if got.SequenceNo != 0 {
+			t.Errorf("expected an unsequenced event after a failed write, got %d", got.SequenceNo)
+		}
+	default:
+		t.Error("expected the event to reach subscribers despite the failed write")
+	}
+}

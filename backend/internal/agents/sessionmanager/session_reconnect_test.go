@@ -158,3 +158,42 @@ func TestProvisionSandbox_RejectsRunNotHostedHere(t *testing.T) {
 		t.Fatalf("expected no provisioning for a foreign run, got %d calls", n.calls)
 	}
 }
+
+// The run's sandbox is remembered on its session, so an agent that deletes the
+// descriptor from its own workspace cannot pass itself off as a run that never
+// had one. See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
+	const fresh = "10.0.0.8:50051"
+	n := &reprovisionNotifier{endpoint: fresh}
+	reg, ws := newTestRegistry(t, n)
+	hostSession(reg, "run-1")
+
+	if _, ok := reg.Sandbox("run-1"); ok {
+		t.Fatal("a run with no sandbox must report none")
+	}
+
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1"); err != nil {
+		t.Fatalf("ProvisionSandbox: %v", err)
+	}
+
+	// The agent deletes its own descriptor.
+	if err := os.RemoveAll(filepath.Join(ws, "run-1", ".sandbox")); err != nil {
+		t.Fatalf("remove descriptor: %v", err)
+	}
+
+	got, ok := reg.Sandbox("run-1")
+	if !ok {
+		t.Fatal("expected the sandbox to be remembered after the descriptor was deleted")
+	}
+	if got.Endpoint != fresh || got.ExecToken == "" {
+		t.Errorf("remembered sandbox = %+v", got)
+	}
+}
+
+// A run this pod does not host has no sandbox to report.
+func TestSandbox_UnknownRun(t *testing.T) {
+	reg, _ := newTestRegistry(t, &reprovisionNotifier{endpoint: "10.0.0.8:50051"})
+	if _, ok := reg.Sandbox("run-elsewhere"); ok {
+		t.Error("expected no sandbox for a run this pod does not host")
+	}
+}

@@ -75,6 +75,11 @@ type session struct {
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
+	// sandbox is this run's descriptor once one has been provisioned. Held here
+	// rather than read back from the workspace, because the agent can delete its
+	// own files: without this, deleting the endpoint would win it a local shell
+	// in this container (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	sandbox atomic.Value // Sandbox
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -313,6 +318,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "endpoint", Value: cached},
 			)
+			reg.rememberSandbox(runID, Sandbox{Endpoint: cached, ExecToken: token})
 			return cached, nil
 		}
 		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
@@ -361,7 +367,33 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err := os.WriteFile(endpointFile, []byte(endpoint), 0o600); err != nil {
 		return "", fmt.Errorf("write endpoint: %w", err)
 	}
+	reg.rememberSandbox(runID, sandbox)
 	return endpoint, nil
+}
+
+// rememberSandbox records the run's descriptor on its session.
+func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if ok {
+		s.sandbox.Store(sandbox)
+	}
+}
+
+// Sandbox returns the run's sandbox descriptor, and whether one has been
+// provisioned at all. It answers from the session rather than the workspace, so
+// an agent that deletes its own descriptor cannot present itself as a run that
+// never had a sandbox and earn a shell in this container.
+func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return Sandbox{}, false
+	}
+	sandbox, ok := s.sandbox.Load().(Sandbox)
+	return sandbox, ok
 }
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.

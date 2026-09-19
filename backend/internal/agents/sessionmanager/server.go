@@ -211,6 +211,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session/{runID}/interrupt", c.handleInterruptSession)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
 // handleHealth returns liveness + active session count.
@@ -525,6 +526,30 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// handleGetSandbox reports whether this run has a sandbox, and how to reach it.
+//
+// orbit-shell asks when the descriptor is missing from the workspace. That file
+// lives in the agent's own writable directory, so a deleted one must not read as
+// "no sandbox yet": the answer comes from the session, and only a run that has
+// never had a sandbox gets a 404 and with it a local shell
+// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+
+	sandbox, ok := c.registry.Sandbox(runID)
+	if !ok {
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }
 
 // inferenceURLForRun builds the per-run inference base URL used for

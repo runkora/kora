@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,24 +40,26 @@ import (
 func main() {
 	sb := readSandbox()
 
-	// No endpoint means no sandbox has been provisioned yet, which is the
-	// snapshot-generation and pre-provision path: run locally.
-	if sb.endpoint == "" {
-		runLocal()
-		return
-	}
-
-	// An endpoint with no token is a descriptor written before exec tokens
-	// existed, which a resumed run can still be holding. Re-provision to get a
-	// complete pair rather than falling back to the local shell: that fallback
-	// would run the agent's commands in the session-manager container, which is
-	// the thing routing to the sandbox exists to prevent.
-	if sb.token == "" {
-		fresh, err := reprovisionSandbox()
-		if err != nil {
-			log.Fatalf("orbit-shell: sandbox endpoint has no exec token and re-provision failed: %v", err)
+	// The descriptor sits in the agent's own writable workspace, so a missing or
+	// half-written one proves nothing: the agent can delete it. The session
+	// manager is asked instead, and only a run it says has no sandbox gets the
+	// local shell (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	if sb.endpoint == "" || sb.token == "" {
+		fresh, provisioned, err := fetchSandbox()
+		switch {
+		case err != nil:
+			// Failing closed: running locally here would put the agent's commands
+			// in the session-manager container, which is what routing prevents.
+			log.Fatalf("orbit-shell: cannot determine this run's sandbox: %v", err)
+		case !provisioned:
+			// No sandbox has been provisioned yet. This is snapshot generation and
+			// any pre-provision command, and it runs here by design: a sandbox is
+			// bursty and an agent that never needs one never pays for it.
+			runLocal()
+			return
+		default:
+			sb = fresh
 		}
-		sb = fresh
 	}
 
 	runRemote(sb)
@@ -189,6 +192,49 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 // and returns the fresh gRPC endpoint. The session-manager liveness-checks the
 // existing endpoint and replaces a dead sandbox, then rewrites
 // $WORKSPACE/.sandbox/endpoint, which we re-read here.
+// fetchSandbox asks the session-manager for this run's sandbox. It reports
+// whether one has been provisioned at all; a run that has never had one is not
+// an error, it is the ordinary pre-provision case.
+func fetchSandbox() (sandbox, bool, error) {
+	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
+	runID := os.Getenv("ORBIT_RUN_ID")
+	if smURL == "" || runID == "" {
+		// Nothing to ask. A runner that sets neither cannot have a sandbox.
+		return sandbox{}, false, nil
+	}
+
+	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode == http.StatusNotFound {
+		return sandbox{}, false, nil
+	}
+	if resp.StatusCode/100 != 2 {
+		return sandbox{}, false, fmt.Errorf("get sandbox returned %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Endpoint  string `json:"endpoint"`
+		ExecToken string `json:"exec_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return sandbox{}, false, fmt.Errorf("decode sandbox: %w", err)
+	}
+	if body.Endpoint == "" || body.ExecToken == "" {
+		return sandbox{}, false, fmt.Errorf("session-manager returned an incomplete sandbox")
+	}
+	return sandbox{endpoint: body.Endpoint, token: body.ExecToken}, true, nil
+}
+
 func reprovisionSandbox() (sandbox, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")

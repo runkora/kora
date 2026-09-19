@@ -378,8 +378,10 @@ type Sandbox struct {
 }
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
-// be Ready. Returns the gRPC endpoint string ("podIP:port") on success.
-// The caller (session-manager) is responsible for writing the endpoint file.
+// be Ready. Returns where to reach its exec server ("podIP:port") and the
+// per-run token that server requires on every call; a caller holding only the
+// endpoint cannot execute anything. The caller (session-manager) writes both
+// into the run's workspace (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
 // The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container

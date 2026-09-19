@@ -62,8 +62,6 @@ type Config struct {
 		SessionManagerImage string `yaml:"sessionManagerImage"`
 		// SandboxImage is the default container image for sandbox pods.
 		SandboxImage string `yaml:"sandboxImage"`
-		// SandboxGRPCPort is the port the sandbox-exec gRPC server listens on.
-		SandboxGRPCPort int `yaml:"sandboxGRPCPort"`
 		// SandboxGitAuthorName/Email set the git identity (GIT_AUTHOR_* and
 		// GIT_COMMITTER_*) for commits the agent makes inside the sandbox. Set
 		// per-deployment so the platform identity is not baked into the operator.
@@ -91,8 +89,6 @@ type Config struct {
 		WorkloadsFile string `yaml:"workloadsFile"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
-			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.
-			// Should be "require" in production and "disable" for local dev.
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
 			// port to the orbit-agents principal. Requires SPIFFE/mTLS, so the
