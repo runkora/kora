@@ -24,10 +24,8 @@ func incoming(pairs ...string) context.Context {
 	return metadata.NewIncomingContext(context.Background(), metadata.Pairs(pairs...))
 }
 
-// The exec server is the only thing standing between a run's sandbox and every
-// other pod that can reach its IP, so anything short of the run's exact token is
-// refused. See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md and
-// https://github.com/clear-route/orbit/issues/202.
+// Anything short of the run's exact token is refused. Nothing above this process
+// authenticates the caller. See https://github.com/clear-route/orbit/issues/202.
 func TestRequireExecToken(t *testing.T) {
 	const want = "correct-horse-battery-staple"
 
@@ -42,7 +40,7 @@ func TestRequireExecToken(t *testing.T) {
 		{"wrong token", incoming(execauth.MetadataKey, "wrong"), false},
 		{"empty token", incoming(execauth.MetadataKey, ""), false},
 		{"token as a prefix", incoming(execauth.MetadataKey, want+"-extra"), false},
-		// A caller must not be able to send a list and have one member matched.
+		// A list must not match on one of its members.
 		{"correct token among several", incoming(execauth.MetadataKey, "wrong", execauth.MetadataKey, want), false},
 	}
 
@@ -56,8 +54,7 @@ func TestRequireExecToken(t *testing.T) {
 			}
 			err := interceptor(nil, fakeStream{ctx: tc.ctx}, &grpc.StreamServerInfo{}, handler)
 
-			// The unary surface has to answer identically, so adding a unary RPC
-			// cannot land unauthenticated.
+			// The unary guard must answer identically.
 			unaryCalled := false
 			_, unaryErr := requireExecTokenUnary(want)(tc.ctx, nil, &grpc.UnaryServerInfo{}, func(context.Context, any) (any, error) {
 				unaryCalled = true

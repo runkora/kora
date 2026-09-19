@@ -75,10 +75,8 @@ type session struct {
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
-	// sandbox is this run's descriptor once one has been provisioned. Held here
-	// rather than read back from the workspace, because the agent can delete its
-	// own files: without this, deleting the endpoint would win it a local shell
-	// in this container (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	// sandbox is this run's descriptor, once provisioned. Kept in memory because
+	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
 }
 
@@ -152,9 +150,8 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	return nil
 }
 
-// hosts reports whether this pod is running the given run. The loopback
-// /internal routes trust their caller's network position, not the run ID it
-// names, so a request naming another pod's run is refused here.
+// hosts reports whether this pod is running the given run. Loopback tells the
+// /internal routes that the caller is in this pod, not which run it belongs to.
 func (reg *Registry) hosts(runID string) bool {
 	reg.mu.RLock()
 	defer reg.mu.RUnlock()
@@ -273,8 +270,8 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
-// Sandbox is what orbit-agents returns for a provisioned sandbox pod: where its
-// exec server listens, and the per-run token that server requires.
+// Sandbox is what orbit-agents returns for a provisioned pod: where its exec
+// server listens, and the token that server requires.
 type Sandbox struct {
 	Endpoint  string `json:"endpoint"`
 	ExecToken string `json:"exec_token"`
@@ -284,10 +281,8 @@ type Sandbox struct {
 // given run, then writes the returned gRPC endpoint and exec token under
 // $workspaces/{runID}/.sandbox/ so orbit-shell can discover both.
 //
-// The run's workspace directory is the delivery channel for the token because it
-// is already the boundary between runs: Landlock confines each agent subprocess
-// to its own directory, so a sibling run cannot read either file
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// The token goes in the run's workspace because Landlock already confines each
+// agent to its own directory, putting a sibling run's token out of reach.
 //
 // Idempotent toward liveness: if the endpoint file already exists AND the
 // sandbox at that address is still reachable, the cached value is returned
@@ -310,8 +305,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	sandboxDir := filepath.Join(reg.workspaces, runID, ".sandbox")
 	endpointFile := filepath.Join(sandboxDir, "endpoint")
 	tokenFile := filepath.Join(sandboxDir, "exec-token")
-	// Both files, or neither: an endpoint whose token is missing cannot be
-	// authenticated to, so it counts as a miss rather than a cache hit.
+	// Both files or neither: an endpoint without its token cannot be used.
 	if cached, token := readTrimmed(endpointFile), readTrimmed(tokenFile); cached != "" && token != "" {
 		if endpointAlive(cached) {
 			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
@@ -331,9 +325,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err != nil {
 		return "", err
 	}
-	// Checked here as well as in the notifier: a descriptor missing either half
-	// would otherwise be written to disk as empty files that orbit-shell reads as
-	// "no sandbox yet" and silently runs commands in this container instead.
+	// Checked here too, not only in the notifier: half a descriptor would be
+	// written as empty files, which orbit-shell cannot use.
 	if sandbox.Endpoint == "" || sandbox.ExecToken == "" {
 		return "", ErrSandboxIncomplete
 	}
@@ -359,8 +352,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err := os.MkdirAll(sandboxDir, 0o700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
 	}
-	// Token first: orbit-shell keys off the endpoint file, so writing that last
-	// means it never sees an endpoint whose token has not landed yet.
+	// Token first, endpoint last: orbit-shell keys off the endpoint, so it never
+	// sees one whose token is still missing.
 	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
 		return "", fmt.Errorf("write exec token: %w", err)
 	}
@@ -381,10 +374,9 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 	}
 }
 
-// Sandbox returns the run's sandbox descriptor, and whether one has been
-// provisioned at all. It answers from the session rather than the workspace, so
-// an agent that deletes its own descriptor cannot present itself as a run that
-// never had a sandbox and earn a shell in this container.
+// Sandbox returns the run's sandbox descriptor and whether it has one. Answered
+// from the session, not the workspace, so deleting the workspace copy does not
+// make a run look like it never had a sandbox.
 func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
@@ -719,9 +711,9 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	close(s.done)
 }
 
-// pushEvent hands one event to orbit-agents, which records the durable ones and
-// fans out to live subscribers. Every event is pushed, including the replay-only
-// ones a subscriber never sees, because orbit-agents owns both decisions.
+// pushEvent hands one event to orbit-agents. Everything is pushed, including
+// events no subscriber sees: orbit-agents decides what to record and what to
+// fan out.
 func (reg *Registry) pushEvent(ctx context.Context, runID string, ev Event) {
 	if err := reg.notifier.Notify(ctx, runID, ev); err != nil {
 		reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
@@ -742,9 +734,8 @@ func (reg *Registry) emitRunError(ctx context.Context, runID, code, message stri
 }
 
 // isDurableEvent returns true for events orbit-agents records in run_events.
-// Delivery of those must not be dropped, so they take the longer timeout, and
-// the OpenCode runner uses the same set to filter a replayed transcript.
-// orbit-agents holds the authoritative copy (internal/agents/pubsub.go).
+// Used here to pick a delivery timeout, and by the OpenCode runner to filter a
+// replayed transcript. internal/agents/pubsub.go holds the authoritative copy.
 func isDurableEvent(t EventType) bool {
 	switch t {
 	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:

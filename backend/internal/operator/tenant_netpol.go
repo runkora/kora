@@ -197,13 +197,11 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 }
 
 // ensureSandboxIngressPolicy reconciles the NetworkPolicy that decides who may
-// reach a sandbox at all.
+// reach a sandbox.
 //
 // The exec port is excluded from the inbound mesh, so no AuthorizationPolicy
-// applies to it and the per-run exec token is the only check on the receiving
-// side (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md). This narrows the set
-// of pods that can present a token in the first place to the agent pods of the
-// same tenant: everything outside the namespace is dropped before it arrives.
+// covers it and sandbox-exec's per-run token is the only check on the receiving
+// side. This narrows who can present a token to the tenant's own agent pods.
 func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
@@ -224,10 +222,9 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				// The agent pods of this tenant, on the exec port. orbit-shell and
-				// the session registry's egress canary both run there, and they are
-				// the only callers. An empty NamespaceSelector is absent here on
-				// purpose: omitting it scopes the peer to this namespace.
+				// This tenant's agent pods, on the exec port: orbit-shell and the
+				// egress canary run there and are the only callers. No
+				// NamespaceSelector, which scopes the peer to this namespace.
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{
@@ -247,8 +244,8 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 	return r.ensureNetworkPolicy(ctx, tenant, desired)
 }
 
-// ensureNetworkPolicy creates the policy or patches an existing one back onto the
-// desired spec, so an operator config change flows through to existing tenants.
+// ensureNetworkPolicy creates the policy, or patches an existing one back onto
+// the desired spec so config changes reach existing tenants.
 func (r *TenantReconciler) ensureNetworkPolicy(ctx context.Context, tenant *OrbitTenant, desired *networkingv1.NetworkPolicy) error {
 	ns := desired.Namespace
 

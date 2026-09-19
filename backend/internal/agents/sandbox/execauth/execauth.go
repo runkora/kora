@@ -1,12 +1,11 @@
-// Package execauth carries the per-run secret that authenticates a caller to a
-// sandbox pod's exec server. The sandbox's gRPC port is excluded from the
-// inbound mesh, so this token is what separates one run's sandbox from every
-// other sandbox in the tenant namespace
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// Package execauth carries the per-run secret a caller presents to a sandbox
+// pod's exec server. The exec port is excluded from the inbound mesh, leaving
+// this token as the only thing distinguishing one run's sandbox from its
+// siblings (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
-// Three binaries have to agree on the same key and env var: orbit-agents sets
-// the token on the pod, sandbox-exec reads it back, and session-manager and
-// orbit-shell present it on every call.
+// Four binaries agree on the key and env var here: orbit-agents sets the token
+// on the pod, sandbox-exec reads it back, session-manager and orbit-shell
+// present it.
 package execauth
 
 import (
@@ -28,9 +27,9 @@ func WithToken(ctx context.Context, token string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, MetadataKey, token)
 }
 
-// TokenFrom returns the token presented on an incoming call. It reports false
-// when the metadata is absent or carries anything other than exactly one value,
-// so a caller cannot send a list and have one member matched.
+// TokenFrom returns the token presented on an incoming call. False when the
+// metadata is absent, or carries anything but exactly one value: a list must not
+// match on one of its members.
 func TokenFrom(ctx context.Context) (string, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {

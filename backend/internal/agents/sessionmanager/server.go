@@ -24,12 +24,11 @@ type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
 	// WrapperPath is the path to orbit-session-runner. When set, every agent
-	// subprocess is wrapped in it so Landlock and a PID namespace are applied
-	// before the agent execs (docs/adr/2026-06-04-per-session-home-isolation.md,
-	// docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	// subprocess runs through it, applying Landlock and a PID namespace
+	// (docs/adr/2026-06-04-per-session-home-isolation.md).
 	WrapperPath string
 	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
-	// Codex resolve it from the image instead.
+	// Codex resolve it from the image.
 	ShellPath string
 	// ClaudeBare enables --bare mode (required in containers).
 	ClaudeBare bool
@@ -366,14 +365,13 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
 }
 
-// provisionSandboxAhead provisions the run's sandbox without waiting for the
-// agent to ask, so the first command it runs does not pay the pod's cold start.
+// provisionSandboxAhead provisions the run's sandbox up front, so the first
+// command does not pay the pod's cold start.
 //
-// It runs in the background: provisioning waits for the pod to be Ready and for
-// the egress canary, which is minutes, and the session is created either way.
-// Failure is logged and nothing else, because the agent's own provision request
-// remains the path that has to work. The request context ends with this handler,
-// so the goroutine detaches from its cancellation while keeping its trace.
+// Runs in the background: provisioning waits on pod readiness and the egress
+// canary, which takes minutes, and the session is created either way. A failure
+// is logged only; the agent can still request one itself. The context is
+// detached from the request, which ends with this handler.
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
@@ -386,14 +384,11 @@ func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	}()
 }
 
-// runEnv is the per-run environment every agent subprocess needs, whatever
-// framework it is.
+// runEnv is the per-run environment every agent subprocess needs.
 //
-// WORKSPACE is the run's own directory, which orbit-shell reads the sandbox
-// endpoint and exec token from. The other two let orbit-shell ask this pod to
-// re-provision a sandbox whose pod has gone: it is a child of the agent and
-// inherits this environment, so without them a dead sandbox ends the command
-// instead of being replaced.
+// WORKSPACE is where orbit-shell reads the sandbox descriptor. The other two let
+// it call back here, which it needs to replace a sandbox whose pod has gone.
+// orbit-shell is a child of the agent and inherits this environment.
 func (c *Controller) runEnv(runID string) []string {
 	return []string{
 		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
@@ -528,13 +523,10 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
 }
 
-// handleGetSandbox reports whether this run has a sandbox, and how to reach it.
+// handleGetSandbox reports this run's sandbox, or 404 if it has none.
 //
-// orbit-shell asks when the descriptor is missing from the workspace. That file
-// lives in the agent's own writable directory, so a deleted one must not read as
-// "no sandbox yet": the answer comes from the session, and only a run that has
-// never had a sandbox gets a 404 and with it a local shell
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// orbit-shell asks when the workspace descriptor is missing, which the agent can
+// arrange by deleting it. 404 is the only answer that sends it to a local shell.
 func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")

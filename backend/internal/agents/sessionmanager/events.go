@@ -20,9 +20,9 @@ const (
 	EventTypeMessageStop   EventType = "message_stop"
 )
 
-// Event is an Orbit standard event emitted by the transform layer. It carries no
-// sequence number: orbit-agents assigns one when it writes the event to
-// run_events, so nothing in this pod has to reach the database.
+// Event is an Orbit standard event emitted by the transform layer. No sequence
+// number: orbit-agents assigns one when it records the event, and this pod
+// reaches no database.
 type Event struct {
 	Type    EventType       `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`

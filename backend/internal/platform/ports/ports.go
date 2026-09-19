@@ -8,9 +8,8 @@ package ports
 // charts/orbit/values.yaml and charts/orbit/templates/egress-gateway/service.yaml.
 const EgressGatewayCONNECT = 8085
 
-// SandboxExecGRPC is the sandbox-exec gRPC port. orbit-agents renders it onto the
-// sandbox pod and the operator's sandbox ingress NetworkPolicy admits it, so it
-// is a constant rather than configuration: a pod listening on one port with a
-// policy admitting another is unreachable, and silently so
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// SandboxExecGRPC is the sandbox-exec gRPC port. orbit-agents renders it onto
+// the sandbox pod and the operator's ingress NetworkPolicy admits it. A constant
+// rather than configuration, because a pod and a policy disagreeing on it makes
+// the sandbox unreachable with nothing to show for it.
 const SandboxExecGRPC = 50051

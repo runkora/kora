@@ -54,9 +54,8 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		Workspace:           workloads.Workspace,
 		SessionManagerImage: cfg.Agents.SessionManagerImage,
 		SandboxImage:        cfg.Agents.SandboxImage,
-		// Not configurable: the operator admits this port in the sandbox ingress
-		// NetworkPolicy, and a pod listening on a different one would be rendered
-		// unreachable (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+		// Not configurable: the operator's ingress NetworkPolicy admits this port,
+		// and a pod on a different one would be unreachable.
 		SandboxGRPCPort:            ports.SandboxExecGRPC,
 		GitAuthorName:              cfg.Agents.SandboxGitAuthorName,
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,

@@ -56,8 +56,8 @@ func newTestRegistry(t *testing.T, n Notifier) (*Registry, string) {
 	return reg, workspaces
 }
 
-// hostSession registers a run on this registry without starting a runner, which
-// is what ProvisionSandbox checks before it answers.
+// hostSession registers a run without starting a runner, which is what
+// ProvisionSandbox checks before it answers.
 func hostSession(reg *Registry, runID string) {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
@@ -143,8 +143,8 @@ func TestProvisionSandbox_DeadCacheReprovisions(t *testing.T) {
 	}
 }
 
-// A run hosted on another pod must be refused rather than provisioned: loopback
-// proves the caller is inside this pod, not which run it is.
+// A run hosted on another pod is refused: loopback says the caller is in this
+// pod, not which run it is.
 func TestProvisionSandbox_RejectsRunNotHostedHere(t *testing.T) {
 	n := &reprovisionNotifier{endpoint: "10.0.0.9:50051"}
 	reg, _ := newTestRegistry(t, n)
@@ -159,9 +159,8 @@ func TestProvisionSandbox_RejectsRunNotHostedHere(t *testing.T) {
 	}
 }
 
-// The run's sandbox is remembered on its session, so an agent that deletes the
-// descriptor from its own workspace cannot pass itself off as a run that never
-// had one. See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+// The session remembers the sandbox, so deleting the workspace copy does not
+// make the run look like it never had one.
 func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 	const fresh = "10.0.0.8:50051"
 	n := &reprovisionNotifier{endpoint: fresh}

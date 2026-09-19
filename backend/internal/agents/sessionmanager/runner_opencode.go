@@ -146,8 +146,8 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 	if err != nil {
 		return fmt.Errorf("opencode: %w", err)
 	}
-	// HOME and TMPDIR go last, so nothing in ExtraEnv can move the agent off the
-	// one directory the wrapper's Landlock rule makes writable.
+	// HOME and TMPDIR last: nothing in ExtraEnv may move the agent off the only
+	// directory Landlock makes writable.
 	r.cmd.Env = withRunEnv(os.Environ(), append(r.cfg.ExtraEnv, homeEnv...))
 
 	r.stdin, err = r.cmd.StdinPipe()
@@ -365,9 +365,8 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 		},
 		"mcp": r.mcpConfig(),
 	}
-	// OpenCode's "shell" key takes the binary its shell tool runs commands with,
-	// so pointing it at orbit-shell puts tool execution in the run's sandbox
-	// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
+	// at orbit-shell routes them to the run's sandbox.
 	if r.cfg.ShellPath != "" {
 		cfg["shell"] = r.cfg.ShellPath
 	}
@@ -378,13 +377,12 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 	return os.WriteFile(filepath.Join(workDir, "opencode.json"), data, 0o600)
 }
 
-// mcpConfig is the "mcp" block of opencode.json: the runtime server that lets
-// the agent provision its own sandbox, plus one remote entry per governed MCP
-// server it holds tool grants on.
+// mcpConfig is the "mcp" block of opencode.json: the runtime server the agent
+// provisions its sandbox through, plus one remote entry per MCP server it holds
+// tool grants on.
 //
-// Without the runtime server an OpenCode run has no way to ask for a sandbox,
-// so every command it runs stays in this container. Without the remote entries
-// the agent's mcp_tools grants are inert.
+// Without the runtime server an OpenCode run cannot ask for a sandbox; without
+// the remote entries its mcp_tools grants do nothing.
 func (r *OpenCodeRunner) mcpConfig() map[string]any {
 	mcp := map[string]any{
 		"runtime": map[string]any{

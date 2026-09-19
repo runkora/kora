@@ -370,8 +370,7 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 var errSandboxToken = errors.New("sandbox exec token unavailable")
 
 // Sandbox is a ready sandbox pod: where to reach its exec server, and the
-// per-run secret that server requires
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// per-run token that server requires.
 type Sandbox struct {
 	Endpoint  string `json:"endpoint"`
 	ExecToken string `json:"exec_token"`
@@ -459,9 +458,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		return Sandbox{}, fmt.Errorf("wait for sandbox pod ready: %w", err)
 	}
 
-	// Read the token off the ready pod rather than trusting the freshly minted
-	// one. An existing pod that was reused still holds the token it was created
-	// with, and that is the only value its sandbox-exec will accept.
+	// Read the token off the ready pod, not the freshly minted one: a reused pod
+	// still holds the token it was created with.
 	liveToken := sandboxExecTokenOf(ready)
 	if liveToken == "" {
 		span.SetStatus(codes.Error, errSandboxToken.Error())
@@ -741,8 +739,8 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir, execToken string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
-		// The run's own exec token. The agent can read it, which grants nothing it
-		// does not already have; what it cannot do is learn another run's.
+		// This run's exec token. The agent can read it, which grants nothing it
+		// does not already have; it cannot read another run's.
 		{Name: sandboxExecTokenEnv, Value: execToken},
 		// WORKSPACE is this run's subPath-scoped workspace (see sandboxVolumes/
 		// sandboxContainer). sandbox-exec uses it to derive a per-run HOME

@@ -96,9 +96,9 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// A durable event is the only record of what the agent did, so it gets the
-	// longer timeout. Delta events are superseded within milliseconds and are
-	// better dropped than allowed to stall the drain loop.
+	// Durable events take the longer timeout: they are the only record of what
+	// the agent did. Delta events are superseded in milliseconds and are better
+	// dropped than left to stall the drain loop.
 	client := n.client
 	if isDurableEvent(ev.Type) {
 		client = n.lifecycleClient

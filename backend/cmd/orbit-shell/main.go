@@ -40,21 +40,19 @@ import (
 func main() {
 	sb := readSandbox()
 
-	// The descriptor sits in the agent's own writable workspace, so a missing or
-	// half-written one proves nothing: the agent can delete it. The session
-	// manager is asked instead, and only a run it says has no sandbox gets the
-	// local shell (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	// Ask the session-manager when the descriptor is missing. The agent can delete
+	// it from its own workspace, so its absence does not mean there is no sandbox.
 	if sb.endpoint == "" || sb.token == "" {
 		fresh, provisioned, err := fetchSandbox()
 		switch {
 		case err != nil:
-			// Failing closed: running locally here would put the agent's commands
-			// in the session-manager container, which is what routing prevents.
+			// Fail closed. Running locally would execute the agent's command in
+			// this container.
 			log.Fatalf("orbit-shell: cannot determine this run's sandbox: %v", err)
 		case !provisioned:
-			// No sandbox has been provisioned yet. This is snapshot generation and
-			// any pre-provision command, and it runs here by design: a sandbox is
-			// bursty and an agent that never needs one never pays for it.
+			// No sandbox yet: shell snapshots and anything before the agent asks
+			// for one run here. Provisioning a pod for every run would defeat the
+			// point of provisioning on demand.
 			runLocal()
 			return
 		default:
@@ -71,11 +69,10 @@ type sandbox struct {
 	token    string
 }
 
-// readSandbox reads the sandbox gRPC address and exec token from this run's
-// workspace. Missing files yield a zero sandbox, which is the no-sandbox-yet
-// case. The files live under the run's own workspace directory, which Landlock
-// confines this process to, so a sibling run's token is not readable here
-// (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+// readSandbox reads this run's sandbox address and exec token from its workspace.
+// Landlock confines this process to that directory, so a sibling run's token is
+// out of reach. Missing files yield a zero sandbox; the caller decides what that
+// means.
 func readSandbox() sandbox {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {
@@ -132,8 +129,8 @@ func runRemote(sb sandbox) {
 		os.Exit(exitCode)
 	}
 
-	// Sandbox unreachable — attempt one re-provision + retry. A replacement pod
-	// carries a new token, so the retry uses the freshly written pair.
+	// Sandbox unreachable: re-provision once and retry. A replacement pod has a
+	// new token, so the retry reads the freshly written pair.
 	fresh, reErr := reprovisionSandbox()
 	if reErr != nil {
 		log.Fatalf("orbit-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
@@ -192,14 +189,13 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 // and returns the fresh gRPC endpoint. The session-manager liveness-checks the
 // existing endpoint and replaces a dead sandbox, then rewrites
 // $WORKSPACE/.sandbox/endpoint, which we re-read here.
-// fetchSandbox asks the session-manager for this run's sandbox. It reports
-// whether one has been provisioned at all; a run that has never had one is not
-// an error, it is the ordinary pre-provision case.
+// fetchSandbox asks the session-manager for this run's sandbox. The bool reports
+// whether the run has one at all, which is false for a run that never asked.
 func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
 	if smURL == "" || runID == "" {
-		// Nothing to ask. A runner that sets neither cannot have a sandbox.
+		// Nothing to ask: a runner that sets neither has no sandbox.
 		return sandbox{}, false, nil
 	}
 

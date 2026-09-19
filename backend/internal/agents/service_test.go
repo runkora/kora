@@ -462,10 +462,8 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 }
 
-// Pre-provisioning is carried to the session-manager rather than done here,
-// because that pod is the only one that writes the sandbox descriptor the agent
-// needs to reach it. Warming a pod without one leaves it idle.
-// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+// Pre-provisioning is forwarded to the session-manager, the only component that
+// writes the sandbox descriptor. A pod warmed without one sits idle.
 func TestStartRun_ForwardsProvisionSandbox(t *testing.T) {
 	for _, requested := range []bool{true, false} {
 		t.Run(strconv.FormatBool(requested), func(t *testing.T) {
@@ -1286,10 +1284,8 @@ func TestAgentType_MCPServers(t *testing.T) {
 	}
 }
 
-// PublishEvent is where a pushed event becomes a run_events row, so the durable
-// branch needs covering on both outcomes: a session-manager holds no database
-// connection and cannot notice a lost event itself.
-// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+// PublishEvent is where a pushed event becomes a run_events row. The
+// session-manager holds no database connection, so it cannot notice a lost one.
 func TestPublishEvent_DurableEventIsRecorded(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})

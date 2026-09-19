@@ -246,9 +246,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
-		// Pre-provisioning is the session-manager's to do: it is the only component
-		// that writes the run's sandbox descriptor, which is what makes the sandbox
-		// reachable. A pod warmed without it is an idle pod.
+		// The session-manager pre-provisions, because it is the only component that
+		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
 		ProvisionSandbox: req.ProvisionSandbox,
 	}
 	if at.ModelID != nil {
@@ -514,10 +513,9 @@ func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEv
 	if durableEventType(ev.Type) {
 		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload})
 		if err != nil {
-			// Fan out anyway, as an ephemeral event, and report the failure: a
-			// subscriber watching the run should keep seeing it while the database
-			// is unavailable, and the pusher should know the row is missing. Same
-			// shape transitionRunState uses for a failed run_state write.
+			// Fan out anyway, unsequenced, and report the failure. Subscribers keep
+			// seeing the run while the database is down, and the pusher learns the
+			// row is missing. Same shape as a failed run_state write.
 			writeErr = fmt.Errorf("persist %s event: %w", ev.Type, err)
 		} else {
 			ev.SequenceNo = seqNo

@@ -43,19 +43,17 @@ type Config struct {
 
 	// Runner holds the settings that apply to every agent framework.
 	Runner struct {
-		// WrapperPath is the path to orbit-session-runner. When set, an agent is
-		// invoked as: WrapperPath <workDir> <binary> [args...] so Landlock and a
-		// PID namespace are applied before the agent execs. Every framework uses
-		// it (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md); empty disables
-		// the wrapper, which is local dev on macOS.
+		// WrapperPath is the path to orbit-session-runner, used by every framework.
+		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
+		// so Landlock and a PID namespace are applied first. Empty disables it,
+		// which is local dev on macOS.
 		WrapperPath string `yaml:"wrapperPath"`
 
-		// ShellPath is the orbit-shell proxy each framework's shell is pointed
-		// at, so tool commands execute in the run's sandbox rather than in this
-		// container. Claude Code reads it from CLAUDE_CODE_SHELL in the image,
-		// Codex from the runtime user's passwd entry, and OpenCode from the
-		// "shell" key this session-manager writes into opencode.json. Empty
-		// leaves OpenCode on the container's own shell.
+		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
+		// tool commands run in the run's sandbox. Claude Code reads it from
+		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
+		// OpenCode from the "shell" key written into opencode.json. Empty leaves
+		// OpenCode on the container's shell.
 		ShellPath string `yaml:"shellPath"`
 	} `yaml:"runner"`
 

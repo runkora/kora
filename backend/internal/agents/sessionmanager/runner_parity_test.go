@@ -12,12 +12,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Every framework goes through orbit-session-runner, so a run under Codex or
-// OpenCode is confined the same way a Claude run is. Before this, only the Claude
-// runner was wrapped and the other two executed tool commands in the
-// session-manager container with no Landlock and no PID namespace.
-// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md and
-// https://github.com/clear-route/orbit/issues/217.
+// Every framework goes through orbit-session-runner, so Codex and OpenCode runs
+// are confined the same way a Claude run is.
+// See https://github.com/clear-route/orbit/issues/217.
 func TestWrapExec(t *testing.T) {
 	const (
 		wrapper = "/usr/local/bin/orbit-session-runner"
@@ -47,9 +44,7 @@ func TestWrapExec(t *testing.T) {
 	})
 }
 
-// OpenCode takes the shell its tool commands run through from opencode.json, so
-// this is what routes an OpenCode run's commands into the sandbox rather than the
-// session-manager container.
+// OpenCode takes the shell its tool commands run through from opencode.json.
 func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 	const shellPath = "/opt/orbit/shell/bash"
 
@@ -89,9 +84,8 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 	})
 }
 
-// orbit-shell is a child of the agent subprocess and reads all three of these
-// from its environment: WORKSPACE to find the sandbox descriptor, and the other
-// two to ask this pod for a replacement when the sandbox pod has gone.
+// orbit-shell reads all three from its environment: WORKSPACE to find the
+// sandbox descriptor, the others to ask this pod for a replacement.
 func TestRunEnv(t *testing.T) {
 	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090}}
 
@@ -108,9 +102,8 @@ func TestRunEnv(t *testing.T) {
 	}
 }
 
-// Every framework needs the runtime MCP server, or it has no way to ask for a
-// sandbox and its commands stay in the session-manager container, and it needs
-// one entry per governed MCP server, or the agent's mcp_tools grants are inert.
+// Without the runtime MCP server a run cannot ask for a sandbox, and without an
+// entry per governed server its mcp_tools grants do nothing.
 // See https://github.com/clear-route/orbit/issues/217.
 func TestCodexConfig_MCPServers(t *testing.T) {
 	workDir := t.TempDir()

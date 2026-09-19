@@ -17,9 +17,8 @@ type PushedEvent struct {
 // replay the run in order. Every other pushed type is streamed and then dropped
 // (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 //
-// The session-manager keeps its own copy of this set to choose a delivery
-// timeout, and persistence is decided here alone, so the two drifting apart
-// costs a badly chosen timeout rather than a lost row.
+// The session-manager keeps its own copy to choose a delivery timeout. Only this
+// one decides persistence, so drift costs a bad timeout, not a lost row.
 var durableEventTypes = map[string]bool{
 	"message_complete": true,
 	"text_block":       true,

@@ -165,8 +165,8 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		"ORBIT_INFERENCE_KEY=orbit-managed",
 	}
 	runEnv = append(runEnv, r.cfg.ExtraEnv...)
-	// HOME and TMPDIR go last, so nothing earlier can move the agent off the one
-	// directory the wrapper's Landlock rule makes writable.
+	// HOME and TMPDIR last: nothing earlier may move the agent off the only
+	// directory Landlock makes writable.
 	r.cmd.Env = withRunEnv(os.Environ(), append(runEnv, homeEnv...))
 
 	r.stdin, err = r.cmd.StdinPipe()
@@ -338,10 +338,9 @@ func (r *CodexRunner) Close() error {
 	return firstErr
 }
 
-// sandboxToolInstructions tells a Codex agent to provision a sandbox, and how to
-// find the tool. Codex keeps MCP tools out of the model's tool list until they are
-// searched for, so an agent that is only told the tool exists never finds it.
-// Claude Code and OpenCode list MCP tools directly and need no instruction.
+// sandboxToolInstructions tells a Codex agent to provision a sandbox, and where
+// to find the tool. Codex keeps MCP tools out of the model's tool list until
+// they are searched for. Claude Code and OpenCode list them directly.
 const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, or call anything outside. If the tool is not already in your tool list, search for it by name.`
 
 // codexDeveloperInstructions is the agent's own prompt with the sandbox
@@ -353,14 +352,13 @@ func codexDeveloperInstructions(systemPrompt string) string {
 	return systemPrompt + "\n\n" + sandboxToolInstructions
 }
 
-// mcpServersTOML renders the [mcp_servers.*] tables: the runtime server that lets
-// the agent provision its own sandbox, plus one streamable-HTTP entry per
-// governed MCP server it holds tool grants on.
+// mcpServersTOML renders the [mcp_servers.*] tables: the runtime server the agent
+// provisions its sandbox through, plus one streamable-HTTP entry per MCP server
+// it holds tool grants on.
 //
-// Without the runtime server a Codex run has no way to ask for a sandbox, so
-// every command it runs stays in this container. Without the remote entries the
-// agent's mcp_tools grants are inert. Field names are Codex's own
-// RawMcpServerConfig shape, verified against the pinned CLI version.
+// Without the runtime server a Codex run cannot ask for a sandbox; without the
+// remote entries its mcp_tools grants do nothing. Field names follow Codex's
+// RawMcpServerConfig at the pinned CLI version.
 func (r *CodexRunner) mcpServersTOML() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `

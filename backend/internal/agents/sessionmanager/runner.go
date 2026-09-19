@@ -56,12 +56,11 @@ type Runner interface {
 	NewResumeRunner() Runner
 }
 
-// wrapExec returns the command and arguments to spawn an agent, routed through
-// orbit-session-runner when wrapperPath is set. The wrapper takes the run's work
-// directory first, then the binary and its arguments, and applies Landlock plus a
-// PID namespace before exec'ing it
-// (docs/adr/2026-06-04-per-session-home-isolation.md). An empty wrapperPath runs
-// the binary directly, which is local development on a host without Landlock.
+// wrapExec returns the command and arguments to spawn an agent, through
+// orbit-session-runner when wrapperPath is set. The wrapper takes the work
+// directory first, then the binary and its arguments, and applies Landlock and a
+// PID namespace before exec'ing it. Empty runs the binary directly, which is
+// local development on a host without Landlock.
 func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []string) {
 	if wrapperPath == "" {
 		return binary, args
@@ -69,14 +68,12 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 	return wrapperPath, append([]string{workDir, binary}, args...)
 }
 
-// runHomeDirs creates the per-run HOME and TMPDIR inside the run's work
-// directory and returns them as environment entries.
+// runHomeDirs creates this run's HOME and TMPDIR under its work directory and
+// returns them as environment entries.
 //
-// Both have to live under workDir: that is the one directory the wrapper's
-// Landlock rule makes writable, so an agent whose HOME points at the image's
-// /home/orbit has no access to it at all and hangs or fails on first write.
-// Keeping them per-run also stops sibling runs sharing a config or cache
-// directory (docs/adr/2026-06-04-per-session-home-isolation.md).
+// Both must live under workDir, the only directory Landlock makes writable: an
+// agent left on the image's /home/orbit fails on its first write. Per-run also
+// keeps sibling runs out of each other's caches.
 func runHomeDirs(workDir string) ([]string, error) {
 	runHome := filepath.Join(workDir, ".runhome")
 	if err := os.MkdirAll(runHome, 0o700); err != nil {
@@ -89,8 +86,8 @@ func runHomeDirs(workDir string) ([]string, error) {
 	return []string{"HOME=" + runHome, "TMPDIR=" + tmpDir}, nil
 }
 
-// withRunEnv returns base with every key that extra sets removed, then extra
-// appended, so a later duplicate cannot be the one a runtime reads first.
+// withRunEnv returns base with every key extra sets removed, then extra
+// appended, so the run's values are the only ones present.
 func withRunEnv(base, extra []string) []string {
 	overridden := make(map[string]bool, len(extra))
 	for _, e := range extra {

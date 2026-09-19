@@ -8,9 +8,7 @@ import (
 	"testing"
 )
 
-// readSandbox reads both halves of the descriptor, because a command can only be
-// routed to the sandbox when orbit-shell can also authenticate to it.
-// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+// readSandbox reads both halves: an endpoint without its token is unusable.
 func TestReadSandbox(t *testing.T) {
 	write := func(t *testing.T, files map[string]string) string {
 		t.Helper()
@@ -40,8 +38,8 @@ func TestReadSandbox(t *testing.T) {
 			want:         sandbox{endpoint: "10.0.0.5:50051", token: "tok-1"},
 		},
 		{
-			// A descriptor written before exec tokens existed. main() re-provisions
-			// rather than running the command in the session-manager container.
+			// A descriptor from before exec tokens existed. main() asks the
+			// session-manager rather than running the command here.
 			name:         "endpoint only",
 			files:        map[string]string{"endpoint": "10.0.0.5:50051"},
 			workspaceSet: true,
@@ -77,10 +75,8 @@ func TestReadSandbox(t *testing.T) {
 	}
 }
 
-// The descriptor lives in the agent's own writable workspace, so a missing one
-// must not be read as "no sandbox yet". Deleting it would otherwise win the agent
-// a shell in the session-manager container, which is what routing prevents.
-// See docs/adr/2026-09-18-sandbox-exec-trust-boundary.md.
+// A missing descriptor must not read as "no sandbox yet": the agent can delete
+// it, and a local shell is the wrong answer to that.
 func TestFetchSandbox(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -101,7 +97,7 @@ func TestFetchSandbox(t *testing.T) {
 			body:   `{"code":"not_found"}`,
 		},
 		{
-			// Fail closed: an unreadable answer must not become a local shell.
+			// An unreadable answer must not become a local shell.
 			name:    "session-manager is unhappy",
 			status:  http.StatusInternalServerError,
 			body:    `{"code":"internal_error"}`,
