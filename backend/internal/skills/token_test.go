@@ -8,6 +8,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -17,30 +19,23 @@ import (
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 )
 
-func testKeyPEM(t *testing.T) []byte {
+// testKeyPath generates a fresh RSA key, PEM-encodes it, writes it to a file
+// under t.TempDir(), and returns that file's path.
+func testKeyPath(t *testing.T) string {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	return pem.EncodeToMemory(&pem.Block{
+	pemBytes := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	})
-}
-
-func TestNewTokenProvider_ValidPEM(t *testing.T) {
-	_, err := NewTokenProvider(nil, "app-1", 42, testKeyPEM(t))
-	if err != nil {
-		t.Fatalf("NewTokenProvider: unexpected error: %v", err)
+	path := filepath.Join(t.TempDir(), "app.pem")
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
 	}
-}
-
-func TestNewTokenProvider_InvalidPEM(t *testing.T) {
-	_, err := NewTokenProvider(nil, "app-1", 42, []byte("not a pem"))
-	if err == nil {
-		t.Fatal("NewTokenProvider: expected error for invalid PEM, got nil")
-	}
+	return path
 }
 
 // fakeMinter is a test double for installationTokenMinter. It records every
@@ -73,19 +68,25 @@ func (f *fakeMinter) callCount() int {
 
 func newProvider(t *testing.T, minter installationTokenMinter) *TokenProvider {
 	t.Helper()
-	p, err := NewTokenProvider(minter, "app-1", 42, testKeyPEM(t))
-	if err != nil {
-		t.Fatalf("NewTokenProvider: %v", err)
-	}
-	return p
+	return NewTokenProvider(minter, "app-1", 42, testKeyPath(t))
 }
 
 func TestToken_MintsOnFirstUse(t *testing.T) {
+	keyPath := testKeyPath(t)
+	pemBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("read test key: %v", err)
+	}
+	key, err := jwt.ParseRSAPrivateKeyFromPEM(pemBytes)
+	if err != nil {
+		t.Fatalf("parse test key: %v", err)
+	}
+
 	minter := &fakeMinter{tok: ghclient.InstallationToken{
 		Token:     "tok-123",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}}
-	p := newProvider(t, minter)
+	p := NewTokenProvider(minter, "app-1", 42, keyPath)
 
 	got, err := p.Token(context.Background())
 	if err != nil {
@@ -102,7 +103,7 @@ func TestToken_MintsOnFirstUse(t *testing.T) {
 	// not the installation token) and parseable as RS256.
 	claims := &jwt.RegisteredClaims{}
 	_, err = jwt.ParseWithClaims(minter.jwts[0], claims, func(*jwt.Token) (any, error) {
-		return &p.privateKey.PublicKey, nil
+		return &key.PublicKey, nil
 	})
 	if err != nil {
 		t.Fatalf("parse app jwt: %v", err)
@@ -115,6 +116,36 @@ func TestToken_MintsOnFirstUse(t *testing.T) {
 	// than requesting the App installation's full configured access.
 	if !maps.Equal(minter.bodies[0].Permissions, installationTokenPermissions) {
 		t.Errorf("CreateInstallationToken permissions: got %v, want %v", minter.bodies[0].Permissions, installationTokenPermissions)
+	}
+}
+
+func TestToken_MissingPrivateKeyFile(t *testing.T) {
+	minter := &fakeMinter{}
+	p := NewTokenProvider(minter, "app-1", 42, filepath.Join(t.TempDir(), "does-not-exist.pem"))
+
+	_, err := p.Token(context.Background())
+	if err == nil {
+		t.Fatal("Token: expected error for missing private key file, got nil")
+	}
+	if minter.callCount() != 0 {
+		t.Errorf("CreateInstallationToken calls: got %d, want 0 (should fail before minting)", minter.callCount())
+	}
+}
+
+func TestToken_InvalidPrivateKeyFileContents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.pem")
+	if err := os.WriteFile(path, []byte("not a pem"), 0o600); err != nil {
+		t.Fatalf("write invalid key file: %v", err)
+	}
+	minter := &fakeMinter{}
+	p := NewTokenProvider(minter, "app-1", 42, path)
+
+	_, err := p.Token(context.Background())
+	if err == nil {
+		t.Fatal("Token: expected error for invalid private key contents, got nil")
+	}
+	if minter.callCount() != 0 {
+		t.Errorf("CreateInstallationToken calls: got %d, want 0 (should fail before minting)", minter.callCount())
 	}
 }
 

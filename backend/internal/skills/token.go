@@ -7,8 +7,8 @@ package skills
 
 import (
 	"context"
-	"crypto/rsa"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -67,14 +67,19 @@ type mintResult struct {
 // time regardless of how many callers arrive concurrently — see
 // TestToken_ConcurrentCallsMintOnce and
 // TestToken_ConcurrentCallsDuringFailureMintOnce. TokenProvider holds no
-// Kubernetes or secret-store dependency — the caller resolves the App
-// private key (e.g. from a mounted Secret) and passes the PEM bytes in at
-// construction.
+// Kubernetes or secret-store dependency and never keeps the App's decoded
+// private key resident in memory — the caller passes the path to the
+// mounted private key file at construction, and signAppJWT reads and parses
+// it fresh on every mint. This mirrors
+// internal/credentials/resolvers/k8sfile's "every Resolve call reads the
+// file fresh" pattern for the same reason: it keeps the key material's
+// in-memory lifetime limited to the moment it is actually used, and picks up
+// a rotated key on the next mint without a process restart.
 type TokenProvider struct {
 	client         installationTokenMinter
 	appID          string
 	installationID int64
-	privateKey     *rsa.PrivateKey
+	privateKeyPath string
 	now            func() time.Time
 
 	mu        sync.Mutex
@@ -85,34 +90,41 @@ type TokenProvider struct {
 }
 
 // NewTokenProvider constructs a TokenProvider for the given GitHub App
-// (appID, installationID) using privateKeyPEM (the App's RSA private key, PEM
-// encoded) to sign App JWTs. Returns an error if privateKeyPEM does not parse
-// as an RSA private key.
-func NewTokenProvider(client installationTokenMinter, appID string, installationID int64, privateKeyPEM []byte) (*TokenProvider, error) {
-	key, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse github app private key: %w", err)
-	}
+// (appID, installationID). privateKeyPath is the filesystem path to the
+// App's RSA private key (PEM encoded, e.g. a mounted Kubernetes Secret file)
+// — it is read fresh on every mint, never at construction, so a missing or
+// invalid key surfaces as an error from Token, not from NewTokenProvider.
+func NewTokenProvider(client installationTokenMinter, appID string, installationID int64, privateKeyPath string) *TokenProvider {
 	return &TokenProvider{
 		client:         client,
 		appID:          appID,
 		installationID: installationID,
-		privateKey:     key,
+		privateKeyPath: privateKeyPath,
 		now:            time.Now,
-	}, nil
+	}
 }
 
 // signAppJWT signs a GitHub App authentication JWT (RS256), used to mint
 // installation tokens. GitHub authenticates this JWT as the App itself, not
-// the installation.
+// the installation. It reads and parses the private key from
+// p.privateKeyPath fresh on every call rather than caching the decoded key.
 func (p *TokenProvider) signAppJWT() (string, error) {
+	pemBytes, err := os.ReadFile(p.privateKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("read github app private key: %w", err)
+	}
+	key, err := jwt.ParseRSAPrivateKeyFromPEM(pemBytes)
+	if err != nil {
+		return "", fmt.Errorf("parse github app private key: %w", err)
+	}
+
 	now := p.now()
 	claims := jwt.RegisteredClaims{
 		Issuer:    p.appID,
 		IssuedAt:  jwt.NewNumericDate(now.Add(-appJWTSkew)),
 		ExpiresAt: jwt.NewNumericDate(now.Add(appJWTTTL)),
 	}
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(p.privateKey)
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
 	if err != nil {
 		return "", fmt.Errorf("sign github app jwt: %w", err)
 	}
