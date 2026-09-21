@@ -22,7 +22,7 @@ func (s *stubConnector) Name() ProviderName { return s.name }
 func (s *stubConnector) ListModels(_ context.Context) ([]ProviderModel, error) {
 	return s.models, nil
 }
-func (s *stubConnector) ChatCompletion(_ context.Context, _ openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (s *stubConnector) ChatCompletion(_ context.Context, _ openai.ChatCompletionNewParams) (*OpenAIResult, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubConnector) ChatCompletionStream(_ context.Context, _ openai.ChatCompletionNewParams) (<-chan OpenAIStreamResult, error) {
@@ -37,7 +37,7 @@ func (s *stubConnector) AnthropicMessagesStream(_ context.Context, _ anthropic.M
 func (s *stubConnector) Embeddings(_ context.Context, _ openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubConnector) Responses(_ context.Context, _ responses.ResponseNewParams) (*responses.Response, error) {
+func (s *stubConnector) Responses(_ context.Context, _ responses.ResponseNewParams) (*ResponsesResult, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubConnector) ResponsesStream(_ context.Context, _ responses.ResponseNewParams) (<-chan ResponsesStreamResult, error) {

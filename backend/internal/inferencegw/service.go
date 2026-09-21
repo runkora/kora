@@ -223,7 +223,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
+	result, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -237,6 +237,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 5. Write usage record ─────────────────────────────────────────────────
+	resp := result.Completion
 	promptTokens := int(resp.Usage.PromptTokens)
 	completionTokens := int(resp.Usage.CompletionTokens)
 	totalTokens := int(resp.Usage.TotalTokens)
@@ -244,9 +245,10 @@ func (s *Service) ChatCompletion(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
+	cacheCreationTokens := int(result.CacheCreationTokens)
 
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -264,6 +266,7 @@ func (s *Service) ChatCompletion(
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
 		EstimatedCostUSD:             estimatedCost,
 		PriceUnknown:                 pricing.priceUnknown,
 		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -429,7 +432,7 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -1459,12 +1462,14 @@ func (s *Service) resolvePricing(provider ProviderName, modelID string) resolved
 	}
 }
 
-// disjointPromptTokens subtracts the cached tokens an OpenAI-dialect provider
+// disjointPromptTokens subtracts the cache buckets an OpenAI-dialect provider
 // counts inside prompt_tokens, leaving the buckets estimatedCostUSD expects.
-// Clamped at zero: a provider reporting more cached tokens than prompt tokens is
-// nonsense, and must not produce a negative charge.
-func disjointPromptTokens(promptTokens, cacheReadTokens int) int {
-	if n := promptTokens - cacheReadTokens; n > 0 {
+// Pass zero for a bucket the dialect cannot report separately; those tokens
+// then stay in the prompt and bill at the plain input rate. Clamped at zero: a
+// provider reporting more cached tokens than prompt tokens is nonsense, and
+// must not produce a negative charge.
+func disjointPromptTokens(promptTokens, cacheReadTokens, cacheWriteTokens int) int {
+	if n := promptTokens - cacheReadTokens - cacheWriteTokens; n > 0 {
 		return n
 	}
 	return 0
@@ -1659,9 +1664,9 @@ func (s *Service) callWithFailover(
 	ctx context.Context,
 	targets []RouteTarget,
 	params openai.ChatCompletionNewParams,
-) (*openai.ChatCompletion, *RouteTarget, int, error) {
+) (*OpenAIResult, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
-		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
+		func(c ProviderConnector, target RouteTarget) (*OpenAIResult, error) {
 			q := params
 			q.Model = target.ModelID
 			return c.ChatCompletion(ctx, q)
@@ -1854,8 +1859,8 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
-		func(c ProviderConnector, target RouteTarget) (*responses.Response, error) {
+	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (*ResponsesResult, error) {
 			q := params
 			q.Model = target.ModelID
 			return c.Responses(ctx, q)
@@ -1872,6 +1877,7 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
+	resp := result.Response
 	promptTokens := int(resp.Usage.InputTokens)
 	completionTokens := int(resp.Usage.OutputTokens)
 	totalTokens := int(resp.Usage.TotalTokens)
@@ -1879,8 +1885,9 @@ func (s *Service) Responses(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
+	cacheCreationTokens := int(result.CacheCreationTokens)
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -1898,6 +1905,7 @@ func (s *Service) Responses(
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
 		EstimatedCostUSD:             estimatedCost,
 		PriceUnknown:                 pricing.priceUnknown,
 		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -2007,7 +2015,7 @@ func (s *Service) ResponsesStream(
 		defer span.End()
 		defer close(out)
 
-		inputTokens, outputTokens, cacheReadTokens, streamErr := drainResponsesStream(ctx, upstream, out)
+		inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, streamErr := drainResponsesStream(ctx, upstream, out)
 		latencyMS := int(time.Since(start).Milliseconds())
 
 		if streamErr != nil {
@@ -2027,7 +2035,7 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(inputTokens, cacheReadTokens), outputTokens, cacheReadTokens, 0)
+		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(inputTokens, cacheReadTokens, cacheCreationTokens), outputTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2045,6 +2053,7 @@ func (s *Service) ResponsesStream(
 			CompletionTokens:             outputTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
 			EstimatedCostUSD:             estimatedCost,
 			PriceUnknown:                 pricing.priceUnknown,
 			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -2077,7 +2086,7 @@ func drainResponsesStream(
 	ctx context.Context,
 	upstream <-chan ResponsesStreamResult,
 	out chan<- ResponsesStreamResult,
-) (inputTokens, outputTokens, cacheReadTokens int, streamErr error) {
+) (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -2095,6 +2104,7 @@ func drainResponsesStream(
 				inputTokens = int(result.Event.Response.Usage.InputTokens)
 				outputTokens = int(result.Event.Response.Usage.OutputTokens)
 				cacheReadTokens = int(result.Event.Response.Usage.InputTokensDetails.CachedTokens)
+				cacheCreationTokens = int(result.CacheCreationTokens)
 			}
 			// response.incomplete means the model hit max_output_tokens — it is a
 			// successful, billable completion. Forward it and let the caller decide

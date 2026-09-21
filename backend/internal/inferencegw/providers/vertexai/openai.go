@@ -23,11 +23,15 @@ import (
 // This method transparently routes Claude models to the Anthropic path and
 // converts the response back to the native openai.ChatCompletion SDK type,
 // preserving tool_calls and all other fields with zero loss.
-func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*inferencegw.OpenAIResult, error) {
 	if isClaudeModel(params.Model) {
 		return c.claudeChatCompletion(ctx, params)
 	}
-	return c.openaiChatCompletion(ctx, params)
+	resp, err := c.openaiChatCompletion(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return &inferencegw.OpenAIResult{Completion: resp}, nil
 }
 
 // ChatCompletionStream opens a streaming chat completion request.
@@ -103,7 +107,7 @@ func (c *Connector) openaiChatCompletionStream(ctx context.Context, params opena
 // API and converts the response back to an openai.ChatCompletion SDK type.
 // This is a Vertex AI topology constraint — Claude models are not available on
 // the OpenAI-compatible endpoint.
-func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*inferencegw.OpenAIResult, error) {
 	anthropicParams := convert.OpenAIParamsToAnthropicParams(params)
 	c.logger.Debug(ctx, "vertexai: claudeChatCompletion start",
 		logging.Field{Key: "model", Value: anthropicParams.Model},
@@ -123,7 +127,10 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 	c.logger.Debug(ctx, "vertexai: claudeChatCompletion done",
 		logging.Field{Key: "stop_reason", Value: string(msg.StopReason)},
 	)
-	return convert.AnthropicMessageToOpenAI(msg, startedAt), nil
+	return &inferencegw.OpenAIResult{
+		Completion:          convert.AnthropicMessageToOpenAI(msg, startedAt),
+		CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
+	}, nil
 }
 
 // claudeChatCompletionStream routes a Claude model streaming request through the

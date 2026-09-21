@@ -27,12 +27,12 @@ var errMantleOpenAIV1NoChatCompletions = errors.New("this model does not support
 //   - Bedrock Mantle endpoint: OpenAI models (openai. prefix) hosted by AWS
 //
 // This method transparently routes to the correct transport based on model ID.
-func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*inferencegw.OpenAIResult, error) {
 	switch c.dispatchBackend(params.Model) {
 	case backendAnthropic:
 		return c.claudeChatCompletion(ctx, params)
 	case backendMantle:
-		return c.mantleChatCompletion(ctx, params)
+		return wrapCompletion(c.mantleChatCompletion(ctx, params))
 	case backendMantleOpenAIV1:
 		return nil, &inferencegw.ConnectorError{
 			Provider:        inferencegw.ProviderBedrock,
@@ -42,8 +42,17 @@ func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatComple
 			Underlying:      errMantleOpenAIV1NoChatCompletions,
 		}
 	default:
-		return c.openaiChatCompletion(ctx, params)
+		return wrapCompletion(c.openaiChatCompletion(ctx, params))
 	}
+}
+
+// wrapCompletion adapts a provider that speaks OpenAI natively, and so never
+// reports a cache-write bucket of its own.
+func wrapCompletion(resp *openai.ChatCompletion, err error) (*inferencegw.OpenAIResult, error) {
+	if err != nil {
+		return nil, err
+	}
+	return &inferencegw.OpenAIResult{Completion: resp}, nil
 }
 
 // ChatCompletionStream opens a streaming request via the appropriate Bedrock endpoint.
@@ -130,7 +139,7 @@ func (c *Connector) openaiChatCompletionStream(ctx context.Context, params opena
 // Anthropic Messages API and converts the response back to an openai.ChatCompletion
 // SDK type. This is a Bedrock topology constraint — Anthropic models are not
 // available on the OpenAI-compatible Bedrock endpoint.
-func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*inferencegw.OpenAIResult, error) {
 	anthropicParams := convert.OpenAIParamsToAnthropicParams(params)
 	c.logger.Debug(ctx, "bedrock: claudeChatCompletion start",
 		logging.Field{Key: "model", Value: anthropicParams.Model},
@@ -150,7 +159,10 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 	c.logger.Debug(ctx, "bedrock: claudeChatCompletion done",
 		logging.Field{Key: "stop_reason", Value: string(msg.StopReason)},
 	)
-	return convert.AnthropicMessageToOpenAI(msg, startedAt), nil
+	return &inferencegw.OpenAIResult{
+		Completion:          convert.AnthropicMessageToOpenAI(msg, startedAt),
+		CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
+	}, nil
 }
 
 // claudeChatCompletionStream routes a Claude/Anthropic model streaming request through

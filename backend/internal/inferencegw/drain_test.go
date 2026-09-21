@@ -181,7 +181,7 @@ func TestDrainResponsesStream_CompletesNormally(t *testing.T) {
 	}}
 	close(upstream)
 
-	inputTokens, outputTokens, _, err := drainResponsesStream(context.Background(), upstream, out)
+	inputTokens, outputTokens, _, _, err := drainResponsesStream(context.Background(), upstream, out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestDrainResponsesStream_ExtractsCacheReadTokens(t *testing.T) {
 	}}
 	close(upstream)
 
-	_, _, cacheRead, err := drainResponsesStream(context.Background(), upstream, out)
+	_, _, cacheRead, _, err := drainResponsesStream(context.Background(), upstream, out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestDrainResponsesStream_IncompleteExtractsTokens(t *testing.T) {
 	}}
 	close(upstream)
 
-	inputTokens, outputTokens, _, err := drainResponsesStream(context.Background(), upstream, out)
+	inputTokens, outputTokens, _, _, err := drainResponsesStream(context.Background(), upstream, out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestDrainResponsesStream_PropagatesUpstreamError(t *testing.T) {
 	upstream <- ResponsesStreamResult{Err: sentinel}
 	close(upstream)
 
-	_, _, _, err := drainResponsesStream(context.Background(), upstream, out)
+	_, _, _, _, err := drainResponsesStream(context.Background(), upstream, out)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected upstream error, got %v", err)
 	}
@@ -278,7 +278,7 @@ func TestDrainResponsesStream_ResponseFailed(t *testing.T) {
 	upstream <- ResponsesStreamResult{Event: responses.ResponseStreamEventUnion{Type: "response.failed"}}
 	close(upstream)
 
-	_, _, _, err := drainResponsesStream(context.Background(), upstream, out)
+	_, _, _, _, err := drainResponsesStream(context.Background(), upstream, out)
 	if !errors.Is(err, ErrProviderError) {
 		t.Fatalf("expected ErrProviderError for response.failed, got %v", err)
 	}
@@ -292,7 +292,7 @@ func TestDrainResponsesStream_ClientDisconnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, _, err := drainResponsesStream(ctx, upstream, out)
+	_, _, _, _, err := drainResponsesStream(ctx, upstream, out)
 	if !errors.Is(err, errClientDisconnected) {
 		t.Fatalf("expected errClientDisconnected, got %v", err)
 	}
