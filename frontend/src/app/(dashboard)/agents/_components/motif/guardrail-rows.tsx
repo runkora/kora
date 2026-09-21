@@ -9,6 +9,7 @@ import {
   CardContent,
   Icon,
   Input,
+  Show,
   Stack,
   Text,
   Toggle,
@@ -45,24 +46,27 @@ export function GuardrailRow({
       <CardContent padded compact>
         <Stack direction="horizontal" align="center" gap="cozy">
           <Toggle checked={on} onChange={onToggle} aria-label={title} />
-          <Stack direction="horizontal" align="center" gap="cozy" grow disabled={!on}>
-            <Icon
-              name={icon}
-              size="sm"
-              color={on ? 'accent' : 'subtle'}
-              container
-              containerVariant={on ? 'accent' : 'surface-subtle'}
-              label=""
-            />
-            <Stack grow gap="tight">
-              <Text as="span" size="supporting" weight="heavy">
-                {title}
-              </Text>
-              <Text size="caption" color="muted">
-                {desc}
-              </Text>
+          <Stack grow gap="snug" disabled={!on}>
+            <Stack direction="horizontal" align="center" gap="cozy">
+              <Icon
+                name={icon}
+                size="sm"
+                color={on ? 'accent' : 'subtle'}
+                container
+                containerVariant={on ? 'accent' : 'surface-subtle'}
+                label=""
+              />
+              <Stack grow gap="tight">
+                <Text as="span" size="supporting" weight="heavy">
+                  {title}
+                </Text>
+                <Text size="caption" color="muted">
+                  {desc}
+                </Text>
+              </Stack>
+              <Show above="lg">{children}</Show>
             </Stack>
-            {children}
+            {children && <Show below="lg">{children}</Show>}
           </Stack>
         </Stack>
       </CardContent>
