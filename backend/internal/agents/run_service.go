@@ -700,12 +700,25 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	return nil
 }
 
+// ErrKubeconfigNotReady declines a sandbox pre-provision while the connection
+// registry is still loading. Not a run failure: the caller loses the warm
+// start and the next on-demand request provisions normally.
+var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-provision")
+
 // ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
+//
+// ahead marks a pre-provision, which exists to spare the first command the
+// pod's cold start. It refuses while the connection registry is loading, since
+// the pod would keep an empty kubeconfig for the rest of the run. An on-demand
+// request provisions either way: no kubeconfig beats no sandbox.
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
-		trace.WithAttributes(attribute.String("run_id", runID)),
+		trace.WithAttributes(
+			attribute.String("run_id", runID),
+			attribute.Bool("ahead", ahead),
+		),
 	)
 	defer span.End()
 
@@ -724,7 +737,17 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (Sandbo
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, s.sandboxKubeClusters(ctx, *at))
+	kubeClusters, kubeReady := s.sandboxKubeClusters(ctx, *at)
+	if ahead && !kubeReady {
+		span.SetStatus(codes.Error, "kubeconfig not resolved")
+		s.logger.Warn(ctx, "Skipping sandbox pre-provision: the connection registry has not resolved",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "agent_type", Value: at.Slug},
+		)
+		return Sandbox{}, ErrKubeconfigNotReady
+	}
+
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, kubeClusters)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision sandbox pod")
@@ -891,17 +914,27 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 }
 
 // sandboxKubeClusters resolves the Kubernetes connections whose kubeconfig the
-// sandbox materializes. Best-effort by design: a registry that has not loaded
-// yet leaves the agent without a kubeconfig rather than failing the run — the
-// on-demand provisioning path runs at first tool call, long after start-up.
-func (s *RunService) sandboxKubeClusters(ctx context.Context, at AgentType) []kubeconfig.Cluster {
-	clusters, _, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
+// sandbox materializes, and reports whether that answer is complete.
+//
+// ready is false when the connection registry has not loaded, which
+// KubeClusters reports as unresolved > 0 and is a different answer from "this
+// agent has no Kubernetes connection". The sandbox pod is reused for the whole
+// run rather than rebuilt, so an incomplete answer persists.
+func (s *RunService) sandboxKubeClusters(ctx context.Context, at AgentType) (clusters []kubeconfig.Cluster, ready bool) {
+	clusters, unresolved, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
 	if err != nil {
 		s.logger.Warn(ctx, "resolve kubeconfig clusters for sandbox",
 			logging.Field{Key: "agent_type", Value: at.Slug},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil
+		return nil, false
 	}
-	return clusters
+	if unresolved > 0 {
+		s.logger.Warn(ctx, "connection registry has not resolved every connector for this sandbox",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "unresolved_connectors", Value: unresolved},
+		)
+		return clusters, false
+	}
+	return clusters, true
 }

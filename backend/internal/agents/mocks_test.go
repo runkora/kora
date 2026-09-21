@@ -455,6 +455,7 @@ type mockK8s struct {
 	replicaCount            int
 	replicaCountErr         error
 	sandboxEndpoint         string
+	provisionSandboxCalls   int
 	provisionKubeClusters   []kubeconfig.Cluster
 	provisionSandboxErr     error
 	deleteSandboxErr        error
@@ -493,6 +494,7 @@ func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
 
 func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeClusters []kubeconfig.Cluster) (Sandbox, error) {
 	m.provisionKubeClusters = kubeClusters
+	m.provisionSandboxCalls++
 	if m.provisionSandboxErr != nil {
 		return Sandbox{}, m.provisionSandboxErr
 	}
@@ -776,8 +778,8 @@ func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) erro
 	return f.run.InterruptRun(f.withRunTenant(ctx, runID), runID)
 }
 
-func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
-	return f.run.ProvisionSandbox(ctx, runID)
+func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
+	return f.run.ProvisionSandbox(ctx, runID, ahead)
 }
 
 func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {

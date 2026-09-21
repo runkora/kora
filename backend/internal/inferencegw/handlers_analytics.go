@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -190,8 +191,8 @@ func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *a
 
 	if raw := q.Get("limit"); raw != "" {
 		v, err := strconv.Atoi(raw)
-		if err != nil || v < 1 {
-			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err
+		if err != nil || v < 1 || v > maxPrincipalsLimit {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", fmt.Sprintf("'limit' must be between 1 and %d", maxPrincipalsLimit), nil), err
 		}
 		f.Limit = v
 	}

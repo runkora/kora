@@ -484,9 +484,16 @@ type sseToolCallFunction struct {
 }
 
 type sseUsage struct {
-	PromptTokens     int64 `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64 `json:"completion_tokens,omitempty"`
-	TotalTokens      int64 `json:"total_tokens,omitempty"`
+	PromptTokens        int64                   `json:"prompt_tokens,omitempty"`
+	CompletionTokens    int64                   `json:"completion_tokens,omitempty"`
+	TotalTokens         int64                   `json:"total_tokens,omitempty"`
+	PromptTokensDetails *ssePromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+// ssePromptTokensDetails names the cached subset of prompt_tokens. Clients that
+// meter spend read it to tell a cache hit from a full-price prompt.
+type ssePromptTokensDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
 }
 
 func marshalStreamChunk(c *openai.ChatCompletionChunk) ([]byte, error) {
@@ -535,6 +542,9 @@ func marshalStreamChunk(c *openai.ChatCompletionChunk) ([]byte, error) {
 			PromptTokens:     u.PromptTokens,
 			CompletionTokens: u.CompletionTokens,
 			TotalTokens:      u.TotalTokens,
+		}
+		if cached := u.PromptTokensDetails.CachedTokens; cached != 0 {
+			out.Usage.PromptTokensDetails = &ssePromptTokensDetails{CachedTokens: cached}
 		}
 	}
 
