@@ -31,6 +31,7 @@ import {
   Callout,
 } from '@orbit/terra';
 import { ScopeChip } from '@orbit/components';
+import { gatewayBaseUrlFromWindow } from '../_utils';
 
 // ── Step ─────────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ function Step({
 
 // ── Agent tab content ─────────────────────────────────────────────────────────
 
-function ClaudeCodeGuide() {
+function ClaudeCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Set the gateway endpoint">
@@ -74,7 +75,7 @@ function ClaudeCodeGuide() {
           Add the following to your shell profile alongside the key you exported above.
         </Text>
         <CodeBlock
-          text={`export ANTHROPIC_BASE_URL="https://api.orbit.dev.clearroute.io"
+          text={`export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
           filename="~/.zshrc"
         />
@@ -100,7 +101,7 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`}
   );
 }
 
-function CodexGuide() {
+function CodexGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Set the active provider and model">
@@ -123,7 +124,7 @@ model = "anthropic/claude-sonnet-4-6"`}
         <CodeBlock
           text={`[model_providers.orbit]
 name     = "Orbit"
-base_url = "https://api.orbit.dev.clearroute.io/v1"
+base_url = "${baseUrl}/v1"
 env_key  = "ORBIT_API_KEY"
 wire_api = "responses"`}
           filename="~/.codex/config.toml"
@@ -156,7 +157,7 @@ wire_api = "responses"`}
   );
 }
 
-function OpenCodeGuide() {
+function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Add Orbit as a provider" isLast>
@@ -172,7 +173,7 @@ function OpenCodeGuide() {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Orbit",
       "options": {
-        "baseURL": "https://api.orbit.dev.clearroute.io/v1",
+        "baseURL": "${baseUrl}/v1",
         "apiKey": "{env:ORBIT_API_KEY}"
       },
       "models": {
@@ -208,7 +209,7 @@ function OpenCodeGuide() {
   );
 }
 
-function VSCodeGuide() {
+function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Export the key where VS Code can see it">
@@ -218,8 +219,8 @@ function VSCodeGuide() {
           value is picked up.
         </Text>
         <CodeBlock
-          text={`export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"
-export ANTHROPIC_BASE_URL="https://api.orbit.dev.clearroute.io"
+          text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"
+export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
           filename="~/.zshrc"
         />
@@ -236,7 +237,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
         <CodeBlock
           text={`{
   "claudeCode.environmentVariables": [
-    { "name": "ANTHROPIC_BASE_URL", "value": "https://api.orbit.dev.clearroute.io" },
+    { "name": "ANTHROPIC_BASE_URL", "value": "${baseUrl}" },
     { "name": "ANTHROPIC_DEFAULT_SONNET_MODEL", "value": "anthropic/claude-sonnet-4-6" },
     { "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL", "value": "anthropic/claude-haiku-4-5" },
     { "name": "ANTHROPIC_DEFAULT_OPUS_MODEL", "value": "anthropic/claude-opus-4-7" },
@@ -269,7 +270,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
       "title": "Orbit — Claude Sonnet 4.6",
       "provider": "openai",
       "model": "anthropic/claude-sonnet-4-6",
-      "apiBase": "https://api.orbit.dev.clearroute.io/v1",
+      "apiBase": "${baseUrl}/v1",
       "apiKey": "\${env:ORBIT_API_KEY}"
     }
   ]
@@ -295,6 +296,8 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
 // ── SetupTab (exported) ──────────────────────────────────────────────────────
 
 export function SetupTab() {
+  const baseUrl = gatewayBaseUrlFromWindow();
+
   return (
     <Stack gap="spacious">
       {/* ── Shared: provision an API key ─────────────────────────────────── */}
@@ -364,7 +367,7 @@ export function SetupTab() {
                 to version control.
               </Text>
               <CodeBlock
-                text={`export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export ORBIT_API_KEY="orb-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
                 filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">
@@ -394,19 +397,19 @@ export function SetupTab() {
             </TabsList>
 
             <TabsContent value="claude-code">
-              <ClaudeCodeGuide />
+              <ClaudeCodeGuide baseUrl={baseUrl} />
             </TabsContent>
 
             <TabsContent value="codex">
-              <CodexGuide />
+              <CodexGuide baseUrl={baseUrl} />
             </TabsContent>
 
             <TabsContent value="opencode">
-              <OpenCodeGuide />
+              <OpenCodeGuide baseUrl={baseUrl} />
             </TabsContent>
 
             <TabsContent value="vscode">
-              <VSCodeGuide />
+              <VSCodeGuide baseUrl={baseUrl} />
             </TabsContent>
           </Tabs>
         </CardContent>
