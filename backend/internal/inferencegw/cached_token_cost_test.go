@@ -80,3 +80,31 @@ func TestCachedTurnCost_AnthropicShapeUnchanged(t *testing.T) {
 		t.Errorf("cost = %.9f, want %.9f", got, want)
 	}
 }
+
+// TestCachedTurnCost_BridgedResponsesShape covers a Claude model served through
+// the Responses API. The Anthropic bridge normalises its usage to the
+// Responses convention (input_tokens inclusive of cached_tokens), so the same
+// subtraction that the native OpenAI path needs recovers the uncached count
+// here too. Without that normalisation the subtraction would run against
+// Anthropic's already-exclusive count and undercharge the request.
+func TestCachedTurnCost_BridgedResponsesShape(t *testing.T) {
+	// Anthropic reported 100 uncached input and 30 cache reads; the bridge
+	// presents that as input_tokens 130 with cached_tokens 30.
+	const (
+		bridgedInputTokens = 130
+		cacheReadTokens    = 30
+		outputTokens       = 20
+	)
+
+	if got := uncachedPromptTokens(bridgedInputTokens, cacheReadTokens); got != 100 {
+		t.Fatalf("uncached input = %d, want 100", got)
+	}
+
+	got := codexTurnPricing.estimatedCostUSD(
+		uncachedPromptTokens(bridgedInputTokens, cacheReadTokens), outputTokens, cacheReadTokens, 0)
+
+	want := (100*2.20 + 20*13.20 + 30*0.22) / 1_000_000
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("cost = %.9f, want %.9f", got, want)
+	}
+}

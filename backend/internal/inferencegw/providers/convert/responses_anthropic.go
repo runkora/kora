@@ -543,13 +543,18 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		Model:  msg.Model,
 		Status: status,
 		Output: output,
+		// Responses reports input_tokens inclusive of cached_tokens, where
+		// Anthropic reports input_tokens exclusive of cache_read_input_tokens.
+		// The bridge emits the convention of the API it is speaking, so a
+		// client (and the gateway's own cost calculation) reads one meaning
+		// from a Responses usage block whatever served it.
 		Usage: responses.ResponseUsage{
-			InputTokens: msg.Usage.InputTokens,
+			InputTokens: msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens,
 			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
 				CachedTokens: msg.Usage.CacheReadInputTokens,
 			},
 			OutputTokens: msg.Usage.OutputTokens,
-			TotalTokens:  msg.Usage.InputTokens + msg.Usage.OutputTokens,
+			TotalTokens:  msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.OutputTokens,
 		},
 	}
 }
@@ -626,7 +631,9 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 	case "message_start":
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
-		s.inputTokens = event.Message.Usage.InputTokens
+		// Inclusive of the cached prefix, as the Responses API reports it.
+		// See AnthropicMessageToResponses.
+		s.inputTokens = event.Message.Usage.InputTokens + event.Message.Usage.CacheReadInputTokens
 		s.cacheReadTokens = event.Message.Usage.CacheReadInputTokens
 		r := s.partialResponse()
 		return []responses.ResponseStreamEventUnion{

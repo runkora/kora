@@ -475,14 +475,18 @@ func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
 	}
 	got := convert.AnthropicMessageToResponsesResponse(msg)
 
-	if got.Usage.InputTokens != 100 {
-		t.Errorf("InputTokens = %d, want 100", got.Usage.InputTokens)
+	// Responses reports input_tokens inclusive of cached_tokens, so the 30
+	// cache reads Anthropic reported separately are added to its exclusive
+	// 100. A reader that subtracts cached_tokens, which is what the cost
+	// calculation does for a Responses usage block, gets the 100 back.
+	if got.Usage.InputTokens != 130 {
+		t.Errorf("InputTokens = %d, want 130 (anthropic input + cache reads)", got.Usage.InputTokens)
 	}
 	if got.Usage.InputTokensDetails.CachedTokens != 30 {
 		t.Errorf("InputTokensDetails.CachedTokens = %d, want 30 (cache_read_input_tokens)", got.Usage.InputTokensDetails.CachedTokens)
 	}
-	if got.Usage.TotalTokens != 120 {
-		t.Errorf("TotalTokens = %d, want 120 (input+output)", got.Usage.TotalTokens)
+	if got.Usage.TotalTokens != 150 {
+		t.Errorf("TotalTokens = %d, want 150 (input+output)", got.Usage.TotalTokens)
 	}
 }
 
@@ -791,8 +795,9 @@ func TestAnthropicStreaming_CacheTokensInCompletedEvent(t *testing.T) {
 	if completed.Response.Usage.InputTokensDetails.CachedTokens != 15 {
 		t.Errorf("CachedTokens = %d, want 15", completed.Response.Usage.InputTokensDetails.CachedTokens)
 	}
-	if completed.Response.Usage.InputTokens != 50 {
-		t.Errorf("InputTokens = %d, want 50", completed.Response.Usage.InputTokens)
+	// Inclusive of the 15 cache reads, as the Responses API reports it.
+	if completed.Response.Usage.InputTokens != 65 {
+		t.Errorf("InputTokens = %d, want 65 (anthropic input + cache reads)", completed.Response.Usage.InputTokens)
 	}
 	if completed.Response.Usage.OutputTokens != 5 {
 		t.Errorf("OutputTokens = %d, want 5", completed.Response.Usage.OutputTokens)
