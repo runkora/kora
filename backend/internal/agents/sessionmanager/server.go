@@ -271,13 +271,8 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Minted before the runner's environment is built, since the token travels
-	// to the agent through it. A run with no token cannot call the internal
-	// routes at all, so failing here is better than starting it without one.
-	runToken, err := mintRunToken(c.cfg.WorkspacesBasePath, req.RunID)
-	if err != nil {
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to prepare the run", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	runToken, ok := c.prepareRun(w, r, req)
+	if !ok {
 		return
 	}
 
@@ -392,6 +387,33 @@ func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 			)
 		}
 	}()
+}
+
+// prepareRun rejects a request no runner can serve and returns the run's token,
+// which the runner's environment carries to the agent. Returns false and writes
+// the response when the run cannot start.
+//
+// The framework is checked before the token is written, so a request that
+// cannot produce a session leaves nothing behind for the run.
+func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req CreateSessionRequest) (string, bool) {
+	ctx := r.Context()
+	switch req.Framework {
+	// Empty means claude-code, for rows predating the defaulting in
+	// service.CreateAgentType.
+	case "claude-code", "", "codex", "opencode":
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return "", false
+	}
+
+	runToken, err := mintRunToken(c.cfg.WorkspacesBasePath, req.RunID)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to prepare the run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return "", false
+	}
+	return runToken, true
 }
 
 // runEnv is the per-run environment every agent subprocess needs.

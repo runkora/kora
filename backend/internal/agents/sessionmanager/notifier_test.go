@@ -170,3 +170,39 @@ func TestHTTPNotifier_ProvisionSandbox_Non2xxReturnsError(t *testing.T) {
 		t.Errorf("error should mention status code, got: %v", err)
 	}
 }
+
+// The ahead flag reaches orbit-agents only as a query parameter. A dropped or
+// malformed one turns every pre-provision into an on-demand request, which is
+// silent and brings back the empty-kubeconfig race.
+func TestHTTPNotifier_ProvisionSandbox_AheadQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ahead bool
+		want  string
+	}{
+		{name: "pre-provision", ahead: true, want: "true"},
+		{name: "on demand", ahead: false, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotQuery, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.Query().Get("ahead")
+				gotPath = r.URL.Path
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			if _, err := n.ProvisionSandbox(context.Background(), "run-1", tc.ahead); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotQuery != tc.want {
+				t.Errorf("ahead query = %q, want %q", gotQuery, tc.want)
+			}
+			if gotPath != "/internal/runs/run-1/provision-sandbox" {
+				t.Errorf("path = %q", gotPath)
+			}
+		})
+	}
+}

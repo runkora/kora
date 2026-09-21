@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -231,5 +232,45 @@ func TestVerifyRunToken(t *testing.T) {
 	}
 	if verifyRunToken(workspaces, "run-a", "") {
 		t.Error("an empty token verified")
+	}
+}
+
+// A second create request for a live run must not invalidate the token its
+// subprocess already holds, which an overwrite would.
+func TestMintRunToken_ReusesAnExistingToken(t *testing.T) {
+	workspaces := t.TempDir()
+
+	first, err := mintRunToken(workspaces, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := mintRunToken(workspaces, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Errorf("token changed on the second call: %q then %q", first, second)
+	}
+	if !verifyRunToken(workspaces, "run-1", first) {
+		t.Error("the original token stopped verifying")
+	}
+}
+
+// A request that cannot produce a session must not leave a token behind. An
+// unsupported framework is rejected before anything is written for the run.
+func TestCreateSession_UnsupportedFrameworkWritesNothing(t *testing.T) {
+	c, workspaces := sandboxTestController(t)
+
+	body := `{"run_id":"run-bad","agent_type_id":"at-1","tenant_id":"t-1","model":"m","framework":"nope"}`
+	r := httptest.NewRequest(http.MethodPost, "/session", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	c.handleCreateSession(w, r)
+
+	if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want a 4xx; body: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspaces, "run-bad")); !os.IsNotExist(err) {
+		t.Errorf("a rejected request left %s behind (err=%v)", filepath.Join(workspaces, "run-bad"), err)
 	}
 }

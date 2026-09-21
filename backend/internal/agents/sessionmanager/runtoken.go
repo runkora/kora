@@ -28,9 +28,14 @@ func runTokenPath(workspaces, runID string) string {
 	return filepath.Join(workspaces, runID, ".orbit", "run-token")
 }
 
-// mintRunToken generates the run's token and writes it to the workspace. The
-// caller passes the same value to the agent through its environment.
+// mintRunToken returns the run's token, generating and storing one on first
+// call. An existing token is returned unchanged: a second create request for a
+// live run must not invalidate the token its subprocess already holds.
 func mintRunToken(workspaces, runID string) (string, error) {
+	if existing, err := os.ReadFile(runTokenPath(workspaces, runID)); err == nil && len(existing) > 0 {
+		return string(existing), nil
+	}
+
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate run token: %w", err)

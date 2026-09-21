@@ -85,11 +85,11 @@ func readSandbox() sandbox {
 	}
 }
 
-// readTrimmed returns the file's trimmed contents, or empty if unreadable.
 // runTokenHeader carries this run's credential to the session-manager. It must
 // match sessionmanager.runTokenHeader.
 const runTokenHeader = "X-Orbit-Run-Token"
 
+// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
 func readTrimmed(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
