@@ -223,7 +223,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
+	result, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -237,6 +237,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 5. Write usage record ─────────────────────────────────────────────────
+	resp := result.Completion
 	promptTokens := int(resp.Usage.PromptTokens)
 	completionTokens := int(resp.Usage.CompletionTokens)
 	totalTokens := int(resp.Usage.TotalTokens)
@@ -244,9 +245,11 @@ func (s *Service) ChatCompletion(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
+	cacheCreationTokens := int(result.CacheCreationTokens)
 
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -260,10 +263,11 @@ func (s *Service) ChatCompletion(
 		ModelID:                      usedTarget.ModelID,
 		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
-		PromptTokens:                 promptTokens,
+		PromptTokens:                 uncachedPromptTokens,
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
 		EstimatedCostUSD:             estimatedCost,
 		PriceUnknown:                 pricing.priceUnknown,
 		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -405,7 +409,7 @@ func (s *Service) ChatCompletionStream(
 		defer span.End()
 		defer close(out)
 
-		promptTokens, completionTokens, totalTokens, cacheReadTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
+		promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheCreationTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
 
 		latencyMS := int(time.Since(start).Milliseconds())
 
@@ -429,7 +433,8 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+		uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -443,10 +448,11 @@ func (s *Service) ChatCompletionStream(
 			ModelID:                      capturedTarget.ModelID,
 			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
-			PromptTokens:                 promptTokens,
+			PromptTokens:                 uncachedPromptTokens,
 			CompletionTokens:             completionTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
 			EstimatedCostUSD:             estimatedCost,
 			PriceUnknown:                 pricing.priceUnknown,
 			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -487,7 +493,7 @@ func drainOpenAIStream(
 	ctx context.Context,
 	upstream <-chan OpenAIStreamResult,
 	out chan<- OpenAIStreamResult,
-) (promptTokens, completionTokens, totalTokens, cacheReadTokens int, streamErr error) {
+) (promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheCreationTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -510,6 +516,7 @@ func drainOpenAIStream(
 				totalTokens += int(result.Chunk.Usage.TotalTokens)
 				cacheReadTokens += int(result.Chunk.Usage.PromptTokensDetails.CachedTokens)
 			}
+			cacheCreationTokens += int(result.CacheCreationTokens)
 			select {
 			case out <- result:
 			case <-ctx.Done():
@@ -1457,8 +1464,28 @@ func (s *Service) resolvePricing(provider ProviderName, modelID string) resolved
 	}
 }
 
+// disjointPromptTokens subtracts the cache buckets an OpenAI-dialect provider
+// counts inside prompt_tokens, leaving the buckets estimatedCostUSD expects.
+// Pass zero for a bucket the dialect cannot report separately; those tokens
+// then stay in the prompt and bill at the plain input rate. Clamped at zero: a
+// provider reporting more cached tokens than prompt tokens is nonsense, and
+// must not produce a negative charge.
+func disjointPromptTokens(promptTokens, cacheReadTokens, cacheWriteTokens int) int {
+	if n := promptTokens - cacheReadTokens - cacheWriteTokens; n > 0 {
+		return n
+	}
+	return 0
+}
+
 // estimatedCostUSD computes the USD cost from token counts and resolved prices,
 // applying industry-standard cache fallbacks when explicit cache prices are zero.
+//
+// The four buckets must be disjoint: promptTokens is the prompt MINUS anything
+// counted in cacheReadTokens or cacheWriteTokens, since each is priced
+// separately. Providers disagree on this. Anthropic reports input_tokens already
+// disjoint; OpenAI reports prompt_tokens inclusive of
+// prompt_tokens_details.cached_tokens. Callers on the OpenAI side pass their
+// counts through disjointPromptTokens first.
 func (rp resolvedPricing) estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens int) float64 {
 	if rp.priceUnknown {
 		return 0
@@ -1639,9 +1666,9 @@ func (s *Service) callWithFailover(
 	ctx context.Context,
 	targets []RouteTarget,
 	params openai.ChatCompletionNewParams,
-) (*openai.ChatCompletion, *RouteTarget, int, error) {
+) (*OpenAIResult, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
-		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
+		func(c ProviderConnector, target RouteTarget) (*OpenAIResult, error) {
 			q := params
 			q.Model = target.ModelID
 			return c.ChatCompletion(ctx, q)
@@ -1834,8 +1861,8 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
-		func(c ProviderConnector, target RouteTarget) (*responses.Response, error) {
+	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (*ResponsesResult, error) {
 			q := params
 			q.Model = target.ModelID
 			return c.Responses(ctx, q)
@@ -1852,6 +1879,7 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
+	resp := result.Response
 	promptTokens := int(resp.Usage.InputTokens)
 	completionTokens := int(resp.Usage.OutputTokens)
 	totalTokens := int(resp.Usage.TotalTokens)
@@ -1859,8 +1887,10 @@ func (s *Service) Responses(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
+	cacheCreationTokens := int(result.CacheCreationTokens)
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -1874,10 +1904,11 @@ func (s *Service) Responses(
 		ModelID:                      usedTarget.ModelID,
 		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
-		PromptTokens:                 promptTokens,
+		PromptTokens:                 uncachedPromptTokens,
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
 		EstimatedCostUSD:             estimatedCost,
 		PriceUnknown:                 pricing.priceUnknown,
 		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -1987,7 +2018,7 @@ func (s *Service) ResponsesStream(
 		defer span.End()
 		defer close(out)
 
-		inputTokens, outputTokens, cacheReadTokens, streamErr := drainResponsesStream(ctx, upstream, out)
+		inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, streamErr := drainResponsesStream(ctx, upstream, out)
 		latencyMS := int(time.Since(start).Milliseconds())
 
 		if streamErr != nil {
@@ -2007,7 +2038,8 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
+		uncachedInputTokens := disjointPromptTokens(inputTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2021,10 +2053,11 @@ func (s *Service) ResponsesStream(
 			ModelID:                      capturedTarget.ModelID,
 			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
-			PromptTokens:                 inputTokens,
+			PromptTokens:                 uncachedInputTokens,
 			CompletionTokens:             outputTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
 			EstimatedCostUSD:             estimatedCost,
 			PriceUnknown:                 pricing.priceUnknown,
 			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
@@ -2057,7 +2090,7 @@ func drainResponsesStream(
 	ctx context.Context,
 	upstream <-chan ResponsesStreamResult,
 	out chan<- ResponsesStreamResult,
-) (inputTokens, outputTokens, cacheReadTokens int, streamErr error) {
+) (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -2075,6 +2108,7 @@ func drainResponsesStream(
 				inputTokens = int(result.Event.Response.Usage.InputTokens)
 				outputTokens = int(result.Event.Response.Usage.OutputTokens)
 				cacheReadTokens = int(result.Event.Response.Usage.InputTokensDetails.CachedTokens)
+				cacheCreationTokens = int(result.CacheCreationTokens)
 			}
 			// response.incomplete means the model hit max_output_tokens — it is a
 			// successful, billable completion. Forward it and let the caller decide

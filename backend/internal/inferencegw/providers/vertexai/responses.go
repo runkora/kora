@@ -11,7 +11,7 @@ import (
 )
 
 // Responses calls the Vertex AI OpenAI-compatible responses endpoint.
-func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*inferencegw.ResponsesResult, error) {
 	c.logger.Debug(ctx, "vertexai: responses start",
 		logging.Field{Key: "model", Value: params.Model},
 	)
@@ -24,7 +24,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 		return nil, convert.MapOpenAIError(inferencegw.ProviderVertexAI, err)
 	}
 
-	return resp, nil
+	return &inferencegw.ResponsesResult{Response: resp}, nil
 }
 
 // ResponsesStream opens a streaming responses request via the Vertex AI OpenAI-compatible endpoint.
