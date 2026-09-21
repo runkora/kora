@@ -35,48 +35,45 @@ func writeDescriptor(t *testing.T, workspaces, runID, endpoint, token string) {
 	}
 }
 
-// A session-manager restart empties the in-memory session map. Without the disk
-// fallback that is indistinguishable from an agent deleting its own descriptor,
-// and orbit-shell is told the run has no sandbox, which sends the agent's
-// command to a local shell.
-func TestSandbox_FallsBackToDiskAfterRestart(t *testing.T) {
+// Sandbox answers from the session map, which is what limits it to runs this
+// pod hosts. The /internal routes authenticate the caller as loopback in this
+// container and never as a particular run, so answering from the workspace
+// would let a co-hosted run read a sibling's endpoint and exec token.
+func TestSandbox_ForeignRunWithADescriptorIsRefused(t *testing.T) {
 	workspaces := t.TempDir()
 	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
-	writeDescriptor(t, workspaces, "run-1", "10.0.0.5:50051", "tok-abc")
+	writeDescriptor(t, workspaces, "run-sibling", "10.0.0.9:50051", "tok-sibling")
 
-	// No session registered: exactly the state after a restart.
-	sandbox, ok := reg.Sandbox("run-1")
-	if !ok {
-		t.Fatal("Sandbox reported no sandbox; a restart must not look like the agent deleting its descriptor")
-	}
-	if sandbox.Endpoint != "10.0.0.5:50051" || sandbox.ExecToken != "tok-abc" {
-		t.Errorf("descriptor = %+v, want endpoint 10.0.0.5:50051 and token tok-abc", sandbox)
+	if _, ok := reg.Sandbox("run-sibling"); ok {
+		t.Fatal("Sandbox answered for a run this pod does not host; that hands a sibling run its exec token")
 	}
 }
 
-// The fallback only ever adds an answer. A run that never had a sandbox still
-// reports none, which is what legitimately routes pre-sandbox work locally.
-func TestSandbox_NoDescriptorStillReportsNone(t *testing.T) {
-	reg := NewRegistry(discardLogger(), t.TempDir(), NoopNotifier{}, time.Minute)
-	if _, ok := reg.Sandbox("run-absent"); ok {
-		t.Error("Sandbox reported a sandbox for a run that has no descriptor")
-	}
-}
-
-// Half a descriptor is unusable: an endpoint with no token cannot authenticate,
-// so it must not read as a sandbox.
-func TestSandbox_HalfWrittenDescriptorReportsNone(t *testing.T) {
+// sandboxFromDisk backs ProvisionSandbox's cache check, which runs behind a
+// hosts() membership check. Both halves or neither: an endpoint whose token is
+// missing cannot authenticate to the sandbox.
+func TestSandboxFromDisk_RequiresBothHalves(t *testing.T) {
 	workspaces := t.TempDir()
 	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+
+	writeDescriptor(t, workspaces, "both", "10.0.0.5:50051", "tok-abc")
+	got, ok := reg.sandboxFromDisk("both")
+	if !ok || got.Endpoint != "10.0.0.5:50051" || got.ExecToken != "tok-abc" {
+		t.Errorf("complete descriptor = %+v ok=%v", got, ok)
+	}
 
 	writeDescriptor(t, workspaces, "endpoint-only", "10.0.0.5:50051", "")
-	if _, ok := reg.Sandbox("endpoint-only"); ok {
+	if _, ok := reg.sandboxFromDisk("endpoint-only"); ok {
 		t.Error("an endpoint with no token read as a usable sandbox")
 	}
 
 	writeDescriptor(t, workspaces, "token-only", "", "tok-abc")
-	if _, ok := reg.Sandbox("token-only"); ok {
+	if _, ok := reg.sandboxFromDisk("token-only"); ok {
 		t.Error("a token with no endpoint read as a usable sandbox")
+	}
+
+	if _, ok := reg.sandboxFromDisk("absent"); ok {
+		t.Error("a run with no descriptor read as a usable sandbox")
 	}
 }
 
