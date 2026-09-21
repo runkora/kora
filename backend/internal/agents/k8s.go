@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -265,6 +266,15 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		},
 		func() error {
 			return ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, slug, metav1.DeleteOptions{}))
+		},
+		func() error {
+			// The StatefulSet's persistentVolumeClaimRetentionPolicy handles
+			// this going forward, but claims created before that policy
+			// existed carry no owner and would otherwise leak forever
+			// (docs/adr/2026-05-11-agent-workspace-model.md). Selecting on the
+			// agent type's own labels, set on the claim template, covers every
+			// ordinal regardless of how many replicas ever ran.
+			return p.deleteWorkspacePVCs(ctx, at, namespace)
 		},
 		func() error {
 			return p.deleteAgentGrant(ctx, at, namespace)
@@ -1202,6 +1212,23 @@ func scopeSetsEqual(a, b []string) bool {
 	return true
 }
 
+// deleteWorkspacePVCs removes the agent's workspace claims by label rather
+// than DeleteCollection: the claim's ordinal-suffixed name isn't known here,
+// and the fake clientset used in tests doesn't implement DeleteCollection.
+func (p *K8sProvisioner) deleteWorkspacePVCs(ctx context.Context, at AgentType, namespace string) error {
+	selector := labels.SelectorFromSet(agentTypeLabels(at)).String()
+	list, err := p.client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return ignoreNotFound(err)
+	}
+	for _, pvc := range list.Items {
+		if err := ignoreNotFound(p.client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // deleteAgentGrant removes all policy-service grants for this agent's SPIFFE
 // principal. Best-effort; logs and returns nil if no grants exist or the
 // policy client is unavailable.
@@ -1444,9 +1471,20 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 					},
 				},
 			},
+			// Delete claims when the agent goes so a recreated agent with the
+			// same slug cannot silently rebind a stale volume carrying an old
+			// storageClassName/accessModes (docs/adr/2026-05-11-agent-workspace-model.md).
+			// WhenScaled stays Retain: an HPA scale-down is not agent deletion,
+			// and DeprovisionAgentType sweeps by label regardless.
+			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+				WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "workspaces"},
+					// Labelled so DeprovisionAgentType can sweep every ordinal's
+					// claim by selector, without depending on replica count.
+					ObjectMeta: metav1.ObjectMeta{Name: "workspaces", Labels: labels},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources: corev1.VolumeResourceRequirements{
