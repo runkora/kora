@@ -104,7 +104,9 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current holds all non-secret configuration for the session-manager.
-// Secrets (Postgres DSN, API key) must be supplied via environment variables.
+// Secrets must be supplied via environment variables. The session-manager
+// reaches no database: run events travel to orbit-agents over HTTP, which is
+// what keeps database credentials out of the pod the agent runs in.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/session-manager", config.Environment())
 	if v := os.Getenv("ORBIT_AGENTS_URL"); v != "" {

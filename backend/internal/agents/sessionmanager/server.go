@@ -271,6 +271,11 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	runToken, ok := c.prepareRun(w, r, req)
+	if !ok {
+		return
+	}
+
 	var runner Runner
 	var inferenceURL string
 	switch req.Framework {
@@ -278,7 +283,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		// Empty framework also routes to claude-code: rows that pre-date
 		// service.CreateAgentType's empty→claude-code defaulting still carry
 		// the migration's NOT NULL DEFAULT '' value.
-		extraEnv := c.runEnv(req.RunID)
+		extraEnv := c.runEnv(req.RunID, runToken)
 		// Run identity travels as a base-URL path prefix: point this subprocess at
 		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
 		// budgets. Transparent to the agent runtime; the inherited pod-level value
@@ -312,7 +317,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			Logger:              c.logger,
 			RunID:               req.RunID,
 			SystemPrompt:        req.SystemPrompt,
-			ExtraEnv:            c.runEnv(req.RunID),
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
 			MCPServers:          req.MCPServers,
@@ -327,7 +332,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
-			ExtraEnv:            c.runEnv(req.RunID),
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
 			MCPServers:          req.MCPServers,
@@ -375,7 +380,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID); err != nil {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true); err != nil {
 			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -384,17 +389,75 @@ func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	}()
 }
 
+// prepareRun rejects a request no runner can serve and returns the run's token,
+// which the runner's environment carries to the agent. Returns false and writes
+// the response when the run cannot start.
+//
+// The framework is checked before the token is written, so a request that
+// cannot produce a session leaves nothing behind for the run.
+func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req CreateSessionRequest) (string, bool) {
+	ctx := r.Context()
+	switch req.Framework {
+	// Empty means claude-code, for rows predating the defaulting in
+	// service.CreateAgentType.
+	case "claude-code", "", "codex", "opencode":
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return "", false
+	}
+
+	runToken, err := mintRunToken(c.cfg.WorkspacesBasePath, req.RunID)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to prepare the run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return "", false
+	}
+	return runToken, true
+}
+
 // runEnv is the per-run environment every agent subprocess needs.
 //
-// WORKSPACE is where orbit-shell reads the sandbox descriptor. The other two let
-// it call back here, which it needs to replace a sandbox whose pod has gone.
+// WORKSPACE is where orbit-shell reads the sandbox descriptor. The URL and run
+// ID let it call back here, which it needs to replace a sandbox whose pod has
+// gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
+// proves the caller is in this pod, which every run here satisfies.
 // orbit-shell is a child of the agent and inherits this environment.
-func (c *Controller) runEnv(runID string) []string {
+func (c *Controller) runEnv(runID, runToken string) []string {
 	return []string{
 		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
 		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
 		"ORBIT_RUN_ID=" + runID,
+		"ORBIT_RUN_TOKEN=" + runToken,
 	}
+}
+
+// requireRunToken binds the caller to the run in the path. Returns false and
+// writes the response when it cannot.
+//
+// The run ID is validated first because it becomes a path segment when the
+// token is read. handleCreateSession validates the one it is given; this is
+// the same guard for an ID that arrives from the URL.
+func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, runID string) bool {
+	ctx := r.Context()
+	if !validRunID.MatchString(runID) {
+		c.logger.Warn(ctx, "Rejected internal call with an unusable run id",
+			logging.Field{Key: "path", Value: r.URL.Path},
+		)
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return false
+	}
+	if verifyRunToken(c.cfg.WorkspacesBasePath, runID, r.Header.Get(runTokenHeader)) {
+		return true
+	}
+	c.logger.Warn(ctx, "Rejected internal call without this run's token",
+		logging.Field{Key: "path", Value: r.URL.Path},
+		logging.Field{Key: "run_id", Value: runID},
+	)
+	apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not this run", map[string]any{"run_id": runID})
+	api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	return false
 }
 
 // SendMessageRequest is the body for POST /session/{runID}/messages.
@@ -512,9 +575,19 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
 
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false)
 	if err != nil {
+		// A run this pod does not host is a caller aimed at the wrong session,
+		// which a 500 would bury among ordinary Kubernetes failures.
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -530,6 +603,9 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
 
 	sandbox, ok := c.registry.Sandbox(runID)
 	if !ok {

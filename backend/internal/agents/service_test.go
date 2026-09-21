@@ -785,7 +785,7 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1")
+	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -800,7 +800,7 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 func TestProvisionSandbox_RunNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
-	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent")
+	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent", false)
 	if err == nil {
 		t.Fatal("expected error for missing run")
 	}

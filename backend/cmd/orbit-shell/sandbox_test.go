@@ -141,3 +141,82 @@ func TestFetchSandbox(t *testing.T) {
 		})
 	}
 }
+
+// Missing session-manager coordinates are an environment fault, not a run
+// without a sandbox. Reading them as the latter routes the agent's command to a
+// local shell in this container, which is the confinement this binary enforces,
+// and it does so for a reason the run never asked for. reprovisionSandbox
+// already treats the same condition as fatal, so fetchSandbox agreeing is what
+// makes the two consistent.
+func TestFetchSandbox_MissingEnvIsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		smURL string
+		runID string
+	}{
+		{name: "neither set"},
+		{name: "url only", smURL: "http://localhost:1"},
+		{name: "run id only", runID: "run-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ORBIT_SESSION_MANAGER_URL", tc.smURL)
+			t.Setenv("ORBIT_RUN_ID", tc.runID)
+
+			_, provisioned, err := fetchSandbox()
+			if err == nil {
+				t.Fatal("fetchSandbox returned no error; a missing environment must not read as a run without a sandbox")
+			}
+			if provisioned {
+				t.Error("provisioned = true on an error")
+			}
+		})
+	}
+}
+
+// The run token is the only thing distinguishing this run from a sibling on the
+// same pod. If either callback stops sending it the session-manager refuses, so
+// the failure is visible, but both requests must carry it.
+func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		call func() error
+	}{
+		{name: "fetchSandbox", body: `{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`},
+		{name: "reprovisionSandbox", body: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotHeader string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotHeader = r.Header.Get(runTokenHeader)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			ws := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(ws, ".sandbox"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("WORKSPACE", ws)
+			t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
+			t.Setenv("ORBIT_RUN_ID", "run-1")
+			t.Setenv("ORBIT_RUN_TOKEN", "run-token-abc")
+
+			switch tc.name {
+			case "fetchSandbox":
+				if _, _, err := fetchSandbox(); err != nil {
+					t.Fatalf("fetchSandbox: %v", err)
+				}
+			default:
+				// reprovisionSandbox re-reads the descriptor afterwards, which is
+				// absent here; the request is what this asserts.
+				_, _ = reprovisionSandbox()
+			}
+
+			if gotHeader != "run-token-abc" {
+				t.Errorf("%s = %q, want the run token", runTokenHeader, gotHeader)
+			}
+		})
+	}
+}
