@@ -185,18 +185,20 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 	return exitCode, nil
 }
 
-// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
-// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
-// existing endpoint and replaces a dead sandbox, then rewrites
-// $WORKSPACE/.sandbox/endpoint, which we re-read here.
 // fetchSandbox asks the session-manager for this run's sandbox. The bool reports
 // whether the run has one at all, which is false for a run that never asked.
+//
+// A missing ORBIT_SESSION_MANAGER_URL or ORBIT_RUN_ID is an error, not an
+// absent sandbox. Reading it as "this run has no sandbox" routes the agent's
+// command to a local shell in this container, which is the confinement this
+// binary exists to enforce, and it would do so for an environment bug rather
+// than anything the run asked for. reprovisionSandbox already treats the same
+// condition as fatal.
 func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
 	if smURL == "" || runID == "" {
-		// Nothing to ask: a runner that sets neither has no sandbox.
-		return sandbox{}, false, nil
+		return sandbox{}, false, fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
@@ -231,6 +233,10 @@ func fetchSandbox() (sandbox, bool, error) {
 	return sandbox{endpoint: body.Endpoint, token: body.ExecToken}, true, nil
 }
 
+// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
+// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
+// existing endpoint and replaces a dead sandbox, then rewrites
+// $WORKSPACE/.sandbox/endpoint, which we re-read here.
 func reprovisionSandbox() (sandbox, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")

@@ -142,7 +142,7 @@ func TestHTTPNotifier_ProvisionSandbox_OKReturnsEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1")
+	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestHTTPNotifier_ProvisionSandbox_Non2xxReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-	_, err := n.ProvisionSandbox(context.Background(), "run-1")
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", false)
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
 	}

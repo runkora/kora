@@ -832,10 +832,20 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id)
+	// ahead marks a pre-provision, which declines to create a pod while the
+	// connection registry is still loading. Absent means on-demand, so an older
+	// session-manager keeps the behavior it had.
+	ahead := r.URL.Query().Get("ahead") == "true"
+
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrKubeconfigNotReady) {
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "sandbox pre-provision deferred: kubeconfig not resolved", map[string]any{"run_id": id})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

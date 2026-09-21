@@ -375,7 +375,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID); err != nil {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true); err != nil {
 			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -513,8 +513,15 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	ctx := r.Context()
 	runID := r.PathValue("runID")
 
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false)
 	if err != nil {
+		// A run this pod does not host is a caller aimed at the wrong session,
+		// which a 500 would bury among ordinary Kubernetes failures.
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

@@ -141,3 +141,34 @@ func TestFetchSandbox(t *testing.T) {
 		})
 	}
 }
+
+// Missing session-manager coordinates are an environment fault, not a run
+// without a sandbox. Reading them as the latter routes the agent's command to a
+// local shell in this container, which is the confinement this binary enforces,
+// and it does so for a reason the run never asked for. reprovisionSandbox
+// already treats the same condition as fatal, so fetchSandbox agreeing is what
+// makes the two consistent.
+func TestFetchSandbox_MissingEnvIsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		smURL string
+		runID string
+	}{
+		{name: "neither set"},
+		{name: "url only", smURL: "http://localhost:1"},
+		{name: "run id only", runID: "run-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ORBIT_SESSION_MANAGER_URL", tc.smURL)
+			t.Setenv("ORBIT_RUN_ID", tc.runID)
+
+			_, provisioned, err := fetchSandbox()
+			if err == nil {
+				t.Fatal("fetchSandbox returned no error; a missing environment must not read as a run without a sandbox")
+			}
+			if provisioned {
+				t.Error("provisioned = true on an error")
+			}
+		})
+	}
+}
