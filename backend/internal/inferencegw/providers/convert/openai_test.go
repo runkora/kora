@@ -382,21 +382,22 @@ func TestAnthropicEventToOpenAIChunk_CombinedUsage(t *testing.T) {
 	if !ok {
 		t.Fatal("expected chunk for message_delta")
 	}
-	// OpenAI's prompt_tokens includes the cached ones: 100 input + 40 cache read.
-	if deltaChunk.Usage.PromptTokens != 140 {
-		t.Errorf("PromptTokens = %d, want 140 (100 input + 40 cache read)", deltaChunk.Usage.PromptTokens)
+	// OpenAI's prompt_tokens covers every prompt token: 100 input + 40 cache
+	// read + 60 cache write.
+	if deltaChunk.Usage.PromptTokens != 200 {
+		t.Errorf("PromptTokens = %d, want 200 (100 input + 40 cache read + 60 cache write)", deltaChunk.Usage.PromptTokens)
 	}
 	if deltaChunk.Usage.CompletionTokens != 50 {
 		t.Errorf("CompletionTokens = %d, want 50", deltaChunk.Usage.CompletionTokens)
 	}
-	if deltaChunk.Usage.TotalTokens != 190 {
-		t.Errorf("TotalTokens = %d, want 190", deltaChunk.Usage.TotalTokens)
+	if deltaChunk.Usage.TotalTokens != 250 {
+		t.Errorf("TotalTokens = %d, want 250", deltaChunk.Usage.TotalTokens)
 	}
 	if deltaChunk.Usage.PromptTokensDetails.CachedTokens != 40 {
 		t.Errorf("CachedTokens = %d, want 40 (cache_read_input_tokens)", deltaChunk.Usage.PromptTokensDetails.CachedTokens)
 	}
-	// CacheCreationTokens propagate via state for the service layer to record in usage;
-	// they are not forwarded in the OpenAI chunk (no standard field).
+	// Only the cached subset has a wire field, so the write count reaches the
+	// service layer on the stream state instead.
 	if s.CacheCreationTokens != 60 {
 		t.Errorf("state.CacheCreationTokens = %d, want 60", s.CacheCreationTokens)
 	}

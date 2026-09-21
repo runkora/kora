@@ -114,6 +114,7 @@ func OpenAIParamsToAnthropicParams(params openai.ChatCompletionNewParams) anthro
 			p.ToolChoice = tc
 		}
 	}
+	applyPromptCaching(&p)
 	return p
 }
 
@@ -351,6 +352,8 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 		}
 	}
 
+	promptTokens := msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.CacheCreationInputTokens
+
 	message := openai.ChatCompletionMessage{
 		Role: "assistant",
 	}
@@ -373,10 +376,19 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 				Message:      message,
 			},
 		},
+		// Anthropic reports uncached input, cache reads and cache writes as three
+		// separate totals. OpenAI's prompt_tokens covers all of them, with
+		// prompt_tokens_details.cached_tokens naming the cached subset. Unlike the
+		// streaming path there is no side channel here, so cache writes have to
+		// reach billing through prompt_tokens; Anthropic prices a write at 1.25x
+		// input, so this bills it at the plain input rate.
 		Usage: openai.CompletionUsage{
-			PromptTokens:     msg.Usage.InputTokens,
+			PromptTokens:     promptTokens,
 			CompletionTokens: msg.Usage.OutputTokens,
-			TotalTokens:      msg.Usage.InputTokens + msg.Usage.OutputTokens,
+			TotalTokens:      promptTokens + msg.Usage.OutputTokens,
+			PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+				CachedTokens: msg.Usage.CacheReadInputTokens,
+			},
 		},
 	}
 }
@@ -501,6 +513,7 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 		}
 
 	case "message_delta":
+		promptTokens := s.InputTokens + s.CacheReadTokens + s.CacheCreationTokens
 		return &openai.ChatCompletionChunk{
 			ID:    s.MessageID,
 			Model: s.Model,
@@ -512,16 +525,16 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 				},
 			},
 			// OpenAI's prompt_tokens includes prompt_tokens_details.cached_tokens;
-			// Anthropic's input_tokens excludes cache_read_input_tokens. Add them
-			// back, or a client reading OpenAI semantics under-counts the prompt by
-			// whatever was served from cache.
-			//
-			// cache_creation_input_tokens has no OpenAI field and is left out of the
-			// wire shape. It reaches our own billing on OpenAIStreamResult.
+			// Anthropic reports uncached input, cache reads and cache writes as
+			// three separate totals. OpenAI's prompt_tokens covers all of them, so
+			// they are added back; a client reading OpenAI semantics otherwise sees
+			// a handful of tokens for a prompt of thousands. Only the cached subset
+			// has a wire field, so the write count reaches our own billing on
+			// OpenAIStreamResult instead.
 			Usage: openai.CompletionUsage{
-				PromptTokens:     s.InputTokens + s.CacheReadTokens,
+				PromptTokens:     promptTokens,
 				CompletionTokens: event.Usage.OutputTokens,
-				TotalTokens:      s.InputTokens + s.CacheReadTokens + event.Usage.OutputTokens,
+				TotalTokens:      promptTokens + event.Usage.OutputTokens,
 				PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
 					CachedTokens: s.CacheReadTokens,
 				},
