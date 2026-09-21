@@ -246,7 +246,7 @@ func (s *Service) ChatCompletion(
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
 
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -429,7 +429,7 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+		estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -1457,6 +1457,21 @@ func (s *Service) resolvePricing(provider ProviderName, modelID string) resolved
 	}
 }
 
+// uncachedPromptTokens returns the input tokens that are billed at the full
+// input price for an OpenAI-shaped usage report. OpenAI counts the cached
+// prefix inside prompt_tokens (chat completions) and input_tokens (Responses);
+// Anthropic reports input_tokens exclusive of cache_read_input_tokens. The cost
+// formula takes the uncached count plus the cache-read count, which is what
+// Anthropic already reports and what the OpenAI dialects have to be reduced to.
+// A report whose cached count exceeds its total is clamped rather than charged
+// a negative amount.
+func uncachedPromptTokens(promptTokens, cacheReadTokens int) int {
+	if cacheReadTokens >= promptTokens {
+		return 0
+	}
+	return promptTokens - cacheReadTokens
+}
+
 // estimatedCostUSD computes the USD cost from token counts and resolved prices,
 // applying industry-standard cache fallbacks when explicit cache prices are zero.
 func (rp resolvedPricing) estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens int) float64 {
@@ -1860,7 +1875,7 @@ func (s *Service) Responses(
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -2007,7 +2022,7 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
+		estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens(inputTokens, cacheReadTokens), outputTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
