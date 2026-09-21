@@ -351,11 +351,12 @@ func (at AgentType) MCPServers() []string {
 	return out
 }
 
-// ValidateConnectors checks each connector names a connection and lists at least
-// one well-formed action. Connection names are single scope segments (no
-// whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not
-// whitespace or '/'. Mirrors Connectivity.Validate so a bad connector is
-// rejected at config time, not silently at grant-reconcile time.
+// ValidateConnectors checks each connector names a connection, lists at least
+// one well-formed action, and names resources that can be a qualifier segment.
+// Connection names are single scope segments (no whitespace, ':' or '/');
+// actions may contain ':' (e.g. "repo:read") but not whitespace or '/';
+// resources are a single segment. Mirrors Connectivity.Validate so a bad
+// connector is rejected at config time, not silently at grant-reconcile time.
 func ValidateConnectors(connectors []Connector) error {
 	for _, c := range connectors {
 		name := strings.TrimSpace(c.Connection)
@@ -374,6 +375,22 @@ func ValidateConnectors(connectors []Connector) error {
 			}
 			if strings.ContainsAny(a, " \t/") {
 				return fmt.Errorf("connector %q action %q is invalid: no spaces or '/'", name, a)
+			}
+		}
+		for _, r := range c.Resources {
+			res := strings.TrimSpace(r)
+			if res == "" {
+				return fmt.Errorf("connector %q has an empty resource", name)
+			}
+			// A resource becomes the qualifier segment of
+			// connection:<name>:<category>:<resource>:<verb>, and the policy
+			// service rejects a grant whose qualifier holds any of these
+			// (docs/adr/2026-07-22-connection-scope-qualifiers.md). A GitHub
+			// repository is named on its own, never as owner/repo. Case is not
+			// checked because ConnectorScopes lowercases the qualifier before
+			// it reaches the grant.
+			if strings.ContainsAny(res, " \t:/*") {
+				return fmt.Errorf("connector %q resource %q is invalid: no spaces, ':', '/' or '*' (a repository is named on its own, not as owner/repo)", name, r)
 			}
 		}
 	}

@@ -106,3 +106,42 @@ func TestEffectiveScopes_BaselineActions(t *testing.T) {
 		t.Errorf("empty connector must not confer the baseline, got %v", scopes)
 	}
 }
+
+// TestValidateConnectors_Resources locks the resource rule against the
+// qualifier the policy service accepts. A GitHub repository is named on its
+// own; "owner/repo" compiled to
+// connection:<name>:<category>:<owner>/<repo>:<verb>, which the grant API
+// rejects, so every run start for the agent failed with a 500 long after the
+// attachment was accepted.
+func TestValidateConnectors_Resources(t *testing.T) {
+	cases := []struct {
+		name      string
+		resources []string
+		wantErr   bool
+	}{
+		{name: "bare repository name", resources: []string{"constellation-iac"}},
+		{name: "mixed case is lowercased at compile time", resources: []string{"Constellation-IAC"}},
+		{name: "several resources", resources: []string{"orbit", "webapp"}},
+		{name: "no resources", resources: nil},
+		{name: "owner/repo", resources: []string{"clear-route/constellation-iac"}, wantErr: true},
+		{name: "scope separator", resources: []string{"repo:read"}, wantErr: true},
+		{name: "wildcard", resources: []string{"*"}, wantErr: true},
+		{name: "whitespace inside", resources: []string{"two words"}, wantErr: true},
+		{name: "empty entry", resources: []string{""}, wantErr: true},
+		{name: "blank entry", resources: []string{"   "}, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateConnectors([]Connector{
+				{Connection: "github", Actions: []string{"contents:read"}, Resources: tc.resources},
+			})
+			if tc.wantErr && err == nil {
+				t.Fatalf("resources %v were accepted, want a validation error", tc.resources)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("resources %v rejected: %v", tc.resources, err)
+			}
+		})
+	}
+}
