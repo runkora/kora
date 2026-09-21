@@ -58,9 +58,12 @@ type Repository interface {
 	// List returns all registered scopes, optionally filtered by resource type.
 	List(ctx context.Context, resourceType string) ([]*ScopeEntry, error)
 
-	// Upsert inserts a scope entry or updates its metadata if it already exists.
-	// Used by route registration so services can declare their scopes idempotently.
-	Upsert(ctx context.Context, e *ScopeEntry) error
+	// Upsert inserts a scope entry or updates its metadata if it already exists,
+	// and reports whether the catalog actually changed. Used by route
+	// registration so services can declare their scopes idempotently, and by
+	// the caller to tell a re-registration that changed nothing from one that
+	// needs the bundles recompiled.
+	Upsert(ctx context.Context, e *ScopeEntry) (bool, error)
 
 	// DeleteOrphans deletes all scopes owned by registeredBy whose scope strings
 	// are not in keepScopes, and returns the deleted scope strings. Called on
@@ -83,13 +86,13 @@ func NewPostgresRepository(pool *pgxpool.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
-func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
+func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) (bool, error) {
 	if e.PathSegments == nil {
 		e.PathSegments = []string{}
 	}
 	pathJSON, err := json.Marshal(e.PathSegments)
 	if err != nil {
-		return fmt.Errorf("marshal path segments: %w", err)
+		return false, fmt.Errorf("marshal path segments: %w", err)
 	}
 
 	var registeredBy *string
@@ -102,7 +105,10 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
 		requires = []string{}
 	}
 
-	_, err = r.pool.Exec(ctx, `
+	// The DO UPDATE is guarded so a row that already matches is left alone and
+	// RETURNING yields nothing. That is what makes an idempotent
+	// re-registration reportable as "nothing changed".
+	row := r.pool.QueryRow(ctx, `
 		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		ON CONFLICT (scope) DO UPDATE SET
@@ -119,11 +125,24 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
 				WHEN array_length(EXCLUDED.requires, 1) > 0 THEN EXCLUDED.requires
 				ELSE policy_scope_vocabulary.requires
 			END
+		WHERE policy_scope_vocabulary.resource_type IS DISTINCT FROM EXCLUDED.resource_type
+			OR policy_scope_vocabulary.path_segments IS DISTINCT FROM EXCLUDED.path_segments
+			OR policy_scope_vocabulary.action IS DISTINCT FROM EXCLUDED.action
+			OR policy_scope_vocabulary.description IS DISTINCT FROM EXCLUDED.description
+			OR (policy_scope_vocabulary.registered_by IS NULL AND EXCLUDED.registered_by IS NOT NULL)
+			OR (array_length(EXCLUDED.requires, 1) > 0
+				AND policy_scope_vocabulary.requires IS DISTINCT FROM EXCLUDED.requires)
+		RETURNING scope
 	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires)
-	if err != nil {
-		return fmt.Errorf("upsert scope: %w", err)
+
+	var scope string
+	switch err := row.Scan(&scope); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("upsert scope: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error) {

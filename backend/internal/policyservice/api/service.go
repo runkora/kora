@@ -610,9 +610,13 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	// Upsert declared scopes into vocabulary first so that the existence check
 	// below sees the freshly declared entries.
 	incomingScopes := make([]string, len(scopeDecls))
+	// Tracks whether this registration changed anything a bundle is compiled
+	// from. Services re-register on a timer with an unchanged catalog, and a
+	// recompile of every tenant for a no-op registration is pure load.
+	changed := false
 	for i := range scopeDecls {
 		incomingScopes[i] = scopeDecls[i].Scope
-		if err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
+		upserted, err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
 			Scope:        scopeDecls[i].Scope,
 			ResourceType: scopeDecls[i].ResourceType,
 			PathSegments: scopeDecls[i].PathSegments,
@@ -620,9 +624,11 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 			Description:  scopeDecls[i].Description,
 			RegisteredBy: service,
 			Requires:     scopeDecls[i].Requires,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
 		}
+		changed = changed || upserted
 	}
 
 	// For global registrations, reconcile owned scopes: any scope previously
@@ -633,6 +639,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		if err != nil {
 			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)
 		}
+		changed = changed || len(deleted) > 0
 		for _, scope := range deleted {
 			if err := s.grantRepo.PurgeScopeFromAll(ctx, scope); err != nil {
 				s.logger.Error(ctx, "purge deleted scope from grants",
@@ -659,12 +666,20 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		}
 	}
 
-	s.routeStore.Register(&routes.Registration{
+	if s.routeStore.Register(&routes.Registration{
 		Service:  service,
 		TenantID: tenantID,
 		Routes:   routeScopes,
 		Scopes:   scopeDecls,
-	})
+	}) {
+		changed = true
+	}
+
+	// Nothing a bundle is compiled from has moved, so the compiled bundles
+	// still match the catalog.
+	if !changed {
+		return nil
+	}
 
 	if tenantID == "" {
 		s.recordWriteAll(ctx)
