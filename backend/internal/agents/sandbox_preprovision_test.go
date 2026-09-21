@@ -137,3 +137,50 @@ func seedKubeRunForController(t *testing.T, repo *mockRepository, c *Controller,
 	}
 	c.runs.SetScopeResolver(NewScopeResolver(nil, stubConns{entries: entries}))
 }
+
+// errConns models a connection registry that fails rather than returning an
+// empty answer, which KubeClusters surfaces as an error instead of unresolved.
+type errConns struct{}
+
+func (errConns) ResolveConnection(_ context.Context, _, _ string) (string, string, bool, error) {
+	return "", "", false, errors.New("registry unavailable")
+}
+
+// A resolver error is the same hazard as an unloaded registry: the kubeconfig
+// baked into the pod would be empty for the rest of the run.
+func TestProvisionSandbox_AheadDefersOnResolverError(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Connectors: []Connector{kubeConnector("prod-cluster")},
+	})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	svc.run.SetScopeResolver(NewScopeResolver(nil, errConns{}))
+	k8s.sandboxEndpoint = "10.0.0.5:50051"
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true); !errors.Is(err, ErrKubeconfigNotReady) {
+		t.Fatalf("error = %v, want ErrKubeconfigNotReady", err)
+	}
+	if k8s.provisionSandboxCalls != 0 {
+		t.Errorf("provisioned a pod anyway (%d calls)", k8s.provisionSandboxCalls)
+	}
+}
+
+// On demand it still provisions: the agent is asking for a shell now.
+func TestProvisionSandbox_OnDemandProceedsOnResolverError(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Connectors: []Connector{kubeConnector("prod-cluster")},
+	})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	svc.run.SetScopeResolver(NewScopeResolver(nil, errConns{}))
+	k8s.sandboxEndpoint = "10.0.0.5:50051"
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false); err != nil {
+		t.Fatalf("on-demand provisioning failed: %v", err)
+	}
+	if k8s.provisionSandboxCalls != 1 {
+		t.Errorf("provisionSandboxCalls = %d, want 1", k8s.provisionSandboxCalls)
+	}
+}
