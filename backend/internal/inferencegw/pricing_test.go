@@ -161,3 +161,50 @@ func TestVmEffectivePricing(t *testing.T) {
 		})
 	}
 }
+
+// OpenAI reports prompt_tokens inclusive of prompt_tokens_details.cached_tokens;
+// Anthropic reports input_tokens with the cache buckets held separately. The cost
+// function prices disjoint buckets, so the OpenAI side has to subtract first or
+// the cached tokens are charged at both the full and the cached rate.
+// See https://github.com/clear-route/orbit/issues/262.
+func TestDisjointPromptTokens(t *testing.T) {
+	tests := []struct {
+		name         string
+		promptTokens int
+		cacheRead    int
+		want         int
+	}{
+		{"no cache", 1000, 0, 1000},
+		{"partly cached", 1000, 400, 600},
+		{"entirely cached", 1000, 1000, 0},
+		// Nonsense from a provider must not become a negative charge.
+		{"more cached than prompt", 400, 1000, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := disjointPromptTokens(tc.promptTokens, tc.cacheRead); got != tc.want {
+				t.Errorf("disjointPromptTokens(%d, %d) = %d, want %d", tc.promptTokens, tc.cacheRead, got, tc.want)
+			}
+		})
+	}
+}
+
+// The same prompt costs the same whichever dialect reported it.
+func TestEstimatedCost_DialectsAgree(t *testing.T) {
+	pricing := resolvedPricing{inputCostPer1M: 3, outputCostPer1M: 15, cacheReadCostPer1M: 0.3}
+
+	// 1000 prompt tokens, 400 of them served from cache, 500 completion.
+	// OpenAI reports prompt=1000 (inclusive); Anthropic reports input=600 + cache=400.
+	openAI := pricing.estimatedCostUSD(disjointPromptTokens(1000, 400), 500, 400, 0)
+	anthropic := pricing.estimatedCostUSD(600, 500, 400, 0)
+
+	if openAI != anthropic {
+		t.Errorf("OpenAI dialect billed %v, Anthropic billed %v for the same prompt", openAI, anthropic)
+	}
+
+	// Priced from the disjoint buckets: 600 full + 400 cached + 500 output.
+	want := (600.0/1_000_000)*3 + (400.0/1_000_000)*0.3 + (500.0/1_000_000)*15
+	if openAI != want {
+		t.Errorf("cost = %v, want %v", openAI, want)
+	}
+}

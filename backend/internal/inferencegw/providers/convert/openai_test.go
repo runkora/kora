@@ -382,14 +382,15 @@ func TestAnthropicEventToOpenAIChunk_CombinedUsage(t *testing.T) {
 	if !ok {
 		t.Fatal("expected chunk for message_delta")
 	}
-	if deltaChunk.Usage.PromptTokens != 100 {
-		t.Errorf("PromptTokens = %d, want 100", deltaChunk.Usage.PromptTokens)
+	// OpenAI's prompt_tokens includes the cached ones: 100 input + 40 cache read.
+	if deltaChunk.Usage.PromptTokens != 140 {
+		t.Errorf("PromptTokens = %d, want 140 (100 input + 40 cache read)", deltaChunk.Usage.PromptTokens)
 	}
 	if deltaChunk.Usage.CompletionTokens != 50 {
 		t.Errorf("CompletionTokens = %d, want 50", deltaChunk.Usage.CompletionTokens)
 	}
-	if deltaChunk.Usage.TotalTokens != 150 {
-		t.Errorf("TotalTokens = %d, want 150", deltaChunk.Usage.TotalTokens)
+	if deltaChunk.Usage.TotalTokens != 190 {
+		t.Errorf("TotalTokens = %d, want 190", deltaChunk.Usage.TotalTokens)
 	}
 	if deltaChunk.Usage.PromptTokensDetails.CachedTokens != 40 {
 		t.Errorf("CachedTokens = %d, want 40 (cache_read_input_tokens)", deltaChunk.Usage.PromptTokensDetails.CachedTokens)

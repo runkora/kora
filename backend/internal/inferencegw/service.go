@@ -246,7 +246,7 @@ func (s *Service) ChatCompletion(
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
 
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -429,7 +429,7 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -1459,8 +1459,26 @@ func (s *Service) resolvePricing(provider ProviderName, modelID string) resolved
 	}
 }
 
+// disjointPromptTokens subtracts the cached tokens an OpenAI-dialect provider
+// counts inside prompt_tokens, leaving the buckets estimatedCostUSD expects.
+// Clamped at zero: a provider reporting more cached tokens than prompt tokens is
+// nonsense, and must not produce a negative charge.
+func disjointPromptTokens(promptTokens, cacheReadTokens int) int {
+	if n := promptTokens - cacheReadTokens; n > 0 {
+		return n
+	}
+	return 0
+}
+
 // estimatedCostUSD computes the USD cost from token counts and resolved prices,
 // applying industry-standard cache fallbacks when explicit cache prices are zero.
+//
+// The four buckets must be disjoint: promptTokens is the prompt MINUS anything
+// counted in cacheReadTokens or cacheWriteTokens, since each is priced
+// separately. Providers disagree on this. Anthropic reports input_tokens already
+// disjoint; OpenAI reports prompt_tokens inclusive of
+// prompt_tokens_details.cached_tokens. Callers on the OpenAI side pass their
+// counts through disjointPromptTokens first.
 func (rp resolvedPricing) estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens int) float64 {
 	if rp.priceUnknown {
 		return 0
@@ -1862,7 +1880,7 @@ func (s *Service) Responses(
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens), completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -2009,7 +2027,7 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
+		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(inputTokens, cacheReadTokens), outputTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),

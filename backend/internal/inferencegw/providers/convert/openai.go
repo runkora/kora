@@ -511,10 +511,17 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 					Delta:        openai.ChatCompletionChunkChoiceDelta{},
 				},
 			},
+			// OpenAI's prompt_tokens includes prompt_tokens_details.cached_tokens;
+			// Anthropic's input_tokens excludes cache_read_input_tokens. Add them
+			// back, or a client reading OpenAI semantics under-counts the prompt by
+			// whatever was served from cache.
+			//
+			// cache_creation_input_tokens has no OpenAI field and is left out of the
+			// wire shape. It reaches our own billing on OpenAIStreamResult.
 			Usage: openai.CompletionUsage{
-				PromptTokens:     s.InputTokens,
+				PromptTokens:     s.InputTokens + s.CacheReadTokens,
 				CompletionTokens: event.Usage.OutputTokens,
-				TotalTokens:      s.InputTokens + event.Usage.OutputTokens,
+				TotalTokens:      s.InputTokens + s.CacheReadTokens + event.Usage.OutputTokens,
 				PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
 					CachedTokens: s.CacheReadTokens,
 				},
