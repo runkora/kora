@@ -1221,12 +1221,15 @@ func (p *K8sProvisioner) deleteWorkspacePVCs(ctx context.Context, at AgentType, 
 	if err != nil {
 		return ignoreNotFound(err)
 	}
+	var firstErr error
 	for _, pvc := range list.Items {
-		if err := ignoreNotFound(p.client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})); err != nil {
-			return err
+		// Keep deleting the rest even if one claim fails, matching
+		// DeprovisionAgentType's own best-effort, run-everything behavior.
+		if err := ignoreNotFound(p.client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 // deleteAgentGrant removes all policy-service grants for this agent's SPIFFE
@@ -1482,7 +1485,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
-					// Labelled so DeprovisionAgentType can sweep every ordinal's
+					// Labeled so DeprovisionAgentType can sweep every ordinal's
 					// claim by selector, without depending on replica count.
 					ObjectMeta: metav1.ObjectMeta{Name: "workspaces", Labels: labels},
 					Spec: corev1.PersistentVolumeClaimSpec{

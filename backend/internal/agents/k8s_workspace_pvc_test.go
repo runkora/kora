@@ -2,23 +2,26 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet asserts
 // the StatefulSet carries a Delete/Retain persistentVolumeClaimRetentionPolicy
-// and that the claim template is labelled with the agent type's own labels, so
+// and that the claim template is labeled with the agent type's own labels, so
 // a deleted agent's workspace claim goes with it and DeprovisionAgentType can
 // still sweep any that predate this policy
 // (docs/adr/2026-05-11-agent-workspace-model.md).
@@ -120,5 +123,47 @@ func TestDeprovisionAgentType_NoPVCsIsNotAnError(t *testing.T) {
 
 	if err := p.DeprovisionAgentType(context.Background(), at, ns); err != nil {
 		t.Fatalf("DeprovisionAgentType: %v", err)
+	}
+}
+
+// TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete covers review feedback on
+// #308: a delete failing for a reason other than NotFound (permission,
+// timeout, ...) must not abort the sweep early and strand the remaining
+// claims. deleteWorkspacePVCs should attempt every matching claim and report
+// the first error, matching DeprovisionAgentType's own best-effort behavior.
+func TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete(t *testing.T) {
+	const ns = "orbit-tenant-acme"
+	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
+
+	matching := agentTypeLabels(at)
+	pvc0 := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "workspaces-coder-0", Namespace: ns, Labels: matching},
+	}
+	pvc1 := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "workspaces-coder-1", Namespace: ns, Labels: matching},
+	}
+
+	typed := fake.NewSimpleClientset(pvc0, pvc1)
+	wantErr := errors.New("permission denied")
+	typed.PrependReactor("delete", "persistentvolumeclaims", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		da := action.(k8stesting.DeleteAction)
+		if da.GetName() == "workspaces-coder-0" {
+			return true, nil, wantErr
+		}
+		return false, nil, nil
+	})
+
+	p := &K8sProvisioner{client: typed, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	err := p.deleteWorkspacePVCs(context.Background(), at, ns)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("deleteWorkspacePVCs error = %v, want %v", err, wantErr)
+	}
+
+	if _, err := typed.CoreV1().PersistentVolumeClaims(ns).Get(context.Background(), "workspaces-coder-0", metav1.GetOptions{}); err != nil {
+		t.Fatalf("workspaces-coder-0 should still exist since its delete failed: %v", err)
+	}
+	if _, err := typed.CoreV1().PersistentVolumeClaims(ns).Get(context.Background(), "workspaces-coder-1", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("workspaces-coder-1 should have been deleted despite workspaces-coder-0 failing, get err = %v", err)
 	}
 }
