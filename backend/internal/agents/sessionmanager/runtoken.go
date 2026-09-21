@@ -25,13 +25,15 @@ const runTokenHeader = "X-Orbit-Run-Token"
 // It sits outside .sandbox/ so an agent clearing its descriptor keeps the
 // ability to ask for a new one.
 func runTokenPath(workspaces, runID string) (string, bool) {
-	// The run ID becomes a path segment, so anything that is not a single
-	// segment is refused here rather than resolved. Callers validate too; this
-	// is the guard at the point the path is built.
-	if runID == "" || runID != filepath.Base(runID) || runID == "." || runID == ".." {
+	// The run ID becomes a path segment. Anything that is not already a single
+	// segment is refused rather than resolved, and the segment that reaches
+	// filepath.Join is the one filepath.Base produced, so no caller's string
+	// can widen the path even if this check is ever loosened.
+	segment := filepath.Base(runID)
+	if runID == "" || segment != runID || segment == "." || segment == ".." || segment == string(filepath.Separator) {
 		return "", false
 	}
-	return filepath.Join(workspaces, runID, ".orbit", "run-token"), true
+	return filepath.Join(workspaces, segment, ".orbit", "run-token"), true
 }
 
 // mintRunToken returns the run's token, generating and storing one on first

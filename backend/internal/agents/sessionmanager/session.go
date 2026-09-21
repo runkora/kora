@@ -302,7 +302,10 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return "", ErrSessionNotFound
 	}
 
-	sandboxDir, endpointFile, tokenFile := reg.sandboxPaths(runID)
+	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	if !pathsOK {
+		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+	}
 	if disk, ok := reg.sandboxFromDisk(runID); ok {
 		cached, token := disk.Endpoint, disk.ExecToken
 		if endpointAlive(cached) {
@@ -394,17 +397,26 @@ func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 }
 
 // sandboxPaths returns where the run's sandbox descriptor lives, so the reader
-// and the writer cannot drift apart on the layout.
-func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string) {
-	dir = filepath.Join(reg.workspaces, runID, ".sandbox")
-	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token")
+// and the writer cannot drift apart on the layout. ok is false for a run ID
+// that is not a single path segment; the segment used is the one filepath.Base
+// produced, so no caller's string can widen the path.
+func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string, ok bool) {
+	segment := filepath.Base(runID)
+	if runID == "" || segment != runID || segment == "." || segment == ".." || segment == string(filepath.Separator) {
+		return "", "", "", false
+	}
+	dir = filepath.Join(reg.workspaces, segment, ".sandbox")
+	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
 }
 
 // sandboxFromDisk reads the run's sandbox descriptor out of its workspace.
 // Both halves or neither: an endpoint without its token cannot be used, and a
 // half-written descriptor must not read as a usable sandbox.
 func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
-	_, endpointFile, tokenFile := reg.sandboxPaths(runID)
+	_, endpointFile, tokenFile, ok := reg.sandboxPaths(runID)
+	if !ok {
+		return Sandbox{}, false
+	}
 	endpoint, token := readTrimmed(endpointFile), readTrimmed(tokenFile)
 	if endpoint == "" || token == "" {
 		return Sandbox{}, false

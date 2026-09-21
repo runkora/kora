@@ -308,3 +308,17 @@ func TestGetSandbox_RejectsTraversingRunID(t *testing.T) {
 		t.Fatalf("status = 200 for a traversing run id; body: %s", w.Body.String())
 	}
 }
+
+// The descriptor path is built from a run ID that arrives in the URL, so it
+// gets the same treatment as the token path.
+func TestSandboxFromDisk_RejectsTraversingRunIDs(t *testing.T) {
+	workspaces := t.TempDir()
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	writeDescriptor(t, workspaces, "victim", "10.0.0.9:50051", "exec-victim")
+
+	for _, runID := range []string{"", ".", "..", "../victim", "a/b"} {
+		if _, ok := reg.sandboxFromDisk(runID); ok {
+			t.Errorf("sandboxFromDisk(%q) returned a descriptor", runID)
+		}
+	}
+}
