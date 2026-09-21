@@ -100,7 +100,7 @@ func (r *PostgresRepository) DeleteEnvironment(ctx context.Context, tenantID, id
 
 func (r *PostgresRepository) ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode
+		SELECT `+agentTypeColumns+`
 		FROM agent_types WHERE tenant_id = $1 AND environment_id = $2 ORDER BY created_at DESC`, tenantID, environmentID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types by environment: %w", err)
