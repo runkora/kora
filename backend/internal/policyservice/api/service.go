@@ -93,6 +93,13 @@ const recompileDebounce = 500 * time.Millisecond
 // the gateway bundle loads all tenant data and is more expensive to compile.
 const gatewayRecompileDebounce = 1 * time.Second
 
+// tenantLister names every tenant a global policy change affects. The bundle
+// server implements it by unioning the tenant registry with the tenants that
+// hold grants and the tenants that hold routes.
+type tenantLister interface {
+	KnownTenantIDs(ctx context.Context) ([]string, error)
+}
+
 // Service orchestrates grant, role, vocabulary, and bundle management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
@@ -101,6 +108,7 @@ type Service struct {
 	roleRepo         roles.Repository
 	tenantBudgetRepo tenantbudget.Repository
 	bundleSrv        *bundle.Server
+	tenants          tenantLister
 	routeStore       *routes.Store
 	logger           logging.Logger
 
@@ -128,6 +136,7 @@ func NewService(
 		roleRepo:         roleRepo,
 		tenantBudgetRepo: tenantBudgetRepo,
 		bundleSrv:        bundleSrv,
+		tenants:          bundleSrv,
 		routeStore:       routeStore,
 		logger:           logger,
 		recompileTimers:  make(map[string]*time.Timer),
@@ -680,7 +689,7 @@ func (s *Service) recordWrite(tenantID string) {
 // recordWriteAll marks a write for all active tenants (used after global route
 // registration changes).
 func (s *Service) recordWriteAll(ctx context.Context) {
-	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	tenantIDs, err := s.tenants.KnownTenantIDs(ctx)
 	if err != nil {
 		return
 	}
@@ -742,8 +751,14 @@ func (s *Service) scheduleGatewayRecompile(ctx context.Context) {
 
 // scheduleRecompileAll recompiles all tenant bundles after a global route change.
 // Must be called in a goroutine — it blocks until all tenants are recompiled.
+//
+// The tenant set is the bundle server's union of the registry, tenants with
+// grants and tenants with routes. Listing only tenants with grants misses a
+// tenant whose principals hold roles alone: its bundle keeps whatever
+// vocabulary existed when it was first compiled, which on a fresh install is
+// none, and every role in it resolves to zero scopes until a restart.
 func (s *Service) scheduleRecompileAll(ctx context.Context) {
-	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	tenantIDs, err := s.tenants.KnownTenantIDs(ctx)
 	if err != nil {
 		s.logger.Error(ctx, "recompile all: failed to list tenants",
 			logging.Field{Key: "error", Value: err.Error()},
