@@ -401,11 +401,10 @@ func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 // that is not a single path segment; the segment used is the one filepath.Base
 // produced, so no caller's string can widen the path.
 func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string, ok bool) {
-	segment := filepath.Base(runID)
-	if runID == "" || segment != runID || segment == "." || segment == ".." || segment == string(filepath.Separator) {
+	if !singleSegment(runID) {
 		return "", "", "", false
 	}
-	dir = filepath.Join(reg.workspaces, segment, ".sandbox")
+	dir = filepath.Join(reg.workspaces, runID, ".sandbox")
 	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
 }
 
