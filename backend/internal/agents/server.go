@@ -845,7 +845,10 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if errors.Is(err, ErrKubeconfigNotReady) {
-			apiErr := api.ConflictError(api.ErrCodeResourceExists, "sandbox pre-provision deferred: kubeconfig not resolved", map[string]any{"run_id": id})
+			// 503, not 409: nothing about the run conflicts, the connection
+			// registry has simply not loaded yet, and the next request
+			// succeeds once it has.
+			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "sandbox pre-provision deferred: connection registry not resolved", map[string]any{"run_id": id})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
