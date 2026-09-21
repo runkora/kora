@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -83,5 +84,53 @@ func TestHandleAnalyticsPrincipalByID_InvalidDays(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusBadRequest, w.Body)
+	}
+}
+
+// ── GET /analytics/principals page size ──────────────────────────────────────
+
+// TestParseAnalyticsPrincipalsFilter_Limit covers the page size accepted by
+// GET /v1/analytics/principals. The repository clamps anything above
+// maxPrincipalsLimit, so a larger value was answered with a smaller page than
+// the caller asked for and nothing said so.
+func TestParseAnalyticsPrincipalsFilter_Limit(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		wantLimit int
+		wantErr   bool
+	}{
+		{name: "absent uses the default", raw: "", wantLimit: defaultPrincipalsLimit},
+		{name: "within the ceiling", raw: "50", wantLimit: 50},
+		{name: "at the ceiling", raw: "100", wantLimit: maxPrincipalsLimit},
+		{name: "above the ceiling", raw: "101", wantErr: true},
+		{name: "far above the ceiling", raw: "1000000", wantErr: true},
+		{name: "zero", raw: "0", wantErr: true},
+		{name: "negative", raw: "-1", wantErr: true},
+		{name: "not a number", raw: "all", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := url.Values{}
+			if tc.raw != "" {
+				q.Set("limit", tc.raw)
+			}
+
+			f, apiErr, _ := parseAnalyticsPrincipalsFilter(q)
+
+			if tc.wantErr {
+				if apiErr == nil {
+					t.Fatalf("limit=%q was accepted, want a 400", tc.raw)
+				}
+				return
+			}
+			if apiErr != nil {
+				t.Fatalf("limit=%q rejected: %v", tc.raw, apiErr)
+			}
+			if f.Limit != tc.wantLimit {
+				t.Errorf("limit = %d, want %d", f.Limit, tc.wantLimit)
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -170,7 +171,7 @@ var validGranularities = []string{"daily", "weekly", "monthly"}
 // parseAnalyticsPrincipalsFilter extracts and validates the query parameters
 // for GET /v1/analytics/principals.
 func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *api.APIError, error) {
-	f := AnalyticsPrincipalsFilter{Days: 30, Page: 1, Limit: 20}
+	f := AnalyticsPrincipalsFilter{Days: 30, Page: 1, Limit: defaultPrincipalsLimit}
 
 	if raw := q.Get("days"); raw != "" {
 		v, err := strconv.Atoi(raw)
@@ -192,6 +193,13 @@ func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *a
 		v, err := strconv.Atoi(raw)
 		if err != nil || v < 1 {
 			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err
+		}
+		// The repository clamps anything larger, so a page size above the
+		// ceiling is answered with a different page than the one asked for.
+		// Saying so matches /v1/usage, which rejects its own over-limit page.
+		if v > maxPrincipalsLimit {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param",
+				fmt.Sprintf("'limit' must be between 1 and %d", maxPrincipalsLimit), nil), nil
 		}
 		f.Limit = v
 	}
