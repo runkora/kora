@@ -512,8 +512,8 @@ func convertResponsesToolsToAnthropic(tools []responses.ToolUnionParam) []anthro
 // of it. Responses has no field for cache writes, and those tokens are counted
 // as ordinary input rather than dropped: the model read them either way, and a
 // turn that writes its whole prompt to cache would otherwise report a handful
-// of tokens. Anthropic prices a write at 1.25x input, so this bills the write
-// at the plain input rate.
+// of tokens. This is the client-facing shape only. Billing takes the write
+// count from ResponsesResult.CacheCreationTokens and prices it separately.
 func responsesUsage(uncachedInput, cacheRead, cacheWrite, output int64) responses.ResponseUsage {
 	input := uncachedInput + cacheRead + cacheWrite
 	return responses.ResponseUsage{

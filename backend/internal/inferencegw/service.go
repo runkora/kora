@@ -248,7 +248,8 @@ func (s *Service) ChatCompletion(
 	cacheCreationTokens := int(result.CacheCreationTokens)
 
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
+	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -262,7 +263,7 @@ func (s *Service) ChatCompletion(
 		ModelID:                      usedTarget.ModelID,
 		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
-		PromptTokens:                 promptTokens,
+		PromptTokens:                 uncachedPromptTokens,
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
@@ -432,7 +433,8 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
+		uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -446,7 +448,7 @@ func (s *Service) ChatCompletionStream(
 			ModelID:                      capturedTarget.ModelID,
 			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
-			PromptTokens:                 promptTokens,
+			PromptTokens:                 uncachedPromptTokens,
 			CompletionTokens:             completionTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
@@ -1887,7 +1889,8 @@ func (s *Service) Responses(
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
 	cacheCreationTokens := int(result.CacheCreationTokens)
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
-	estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens), completionTokens, cacheReadTokens, cacheCreationTokens)
+	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
+	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -1901,7 +1904,7 @@ func (s *Service) Responses(
 		ModelID:                      usedTarget.ModelID,
 		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
 		RoutingStrategy:              &strategy,
-		PromptTokens:                 promptTokens,
+		PromptTokens:                 uncachedPromptTokens,
 		CompletionTokens:             completionTokens,
 		TotalTokens:                  totalTokens,
 		CacheReadInputTokens:         cacheReadTokens,
@@ -2035,7 +2038,8 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
-		estimatedCost := pricing.estimatedCostUSD(disjointPromptTokens(inputTokens, cacheReadTokens, cacheCreationTokens), outputTokens, cacheReadTokens, cacheCreationTokens)
+		uncachedInputTokens := disjointPromptTokens(inputTokens, cacheReadTokens, cacheCreationTokens)
+		estimatedCost := pricing.estimatedCostUSD(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2049,7 +2053,7 @@ func (s *Service) ResponsesStream(
 			ModelID:                      capturedTarget.ModelID,
 			ModelFamily:                  storage.NullIfZero(capturedTarget.ModelFamily),
 			RoutingStrategy:              &capturedStrategy,
-			PromptTokens:                 inputTokens,
+			PromptTokens:                 uncachedInputTokens,
 			CompletionTokens:             outputTokens,
 			TotalTokens:                  totalTokens,
 			CacheReadInputTokens:         cacheReadTokens,
