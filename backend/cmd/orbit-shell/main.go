@@ -85,7 +85,11 @@ func readSandbox() sandbox {
 	}
 }
 
-// readTrimmed returns the file's trimmed contents, or empty if unreadable.
+// runTokenHeader carries this run's credential to the session-manager. It must
+// match sessionmanager.runTokenHeader.
+const runTokenHeader = "X-Orbit-Run-Token"
+
+// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
 func readTrimmed(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -185,18 +189,18 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 	return exitCode, nil
 }
 
-// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
-// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
-// existing endpoint and replaces a dead sandbox, then rewrites
-// $WORKSPACE/.sandbox/endpoint, which we re-read here.
 // fetchSandbox asks the session-manager for this run's sandbox. The bool reports
 // whether the run has one at all, which is false for a run that never asked.
+//
+// A missing ORBIT_SESSION_MANAGER_URL or ORBIT_RUN_ID is an error, not an
+// absent sandbox. Read as the latter it routes the agent's command to a local
+// shell in this container, for an environment bug rather than anything the run
+// asked for. reprovisionSandbox treats the same condition as fatal.
 func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
 	if smURL == "" || runID == "" {
-		// Nothing to ask: a runner that sets neither has no sandbox.
-		return sandbox{}, false, nil
+		return sandbox{}, false, fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
@@ -206,6 +210,7 @@ func fetchSandbox() (sandbox, bool, error) {
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
 	}
+	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
@@ -231,6 +236,10 @@ func fetchSandbox() (sandbox, bool, error) {
 	return sandbox{endpoint: body.Endpoint, token: body.ExecToken}, true, nil
 }
 
+// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
+// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
+// existing endpoint and replaces a dead sandbox, then rewrites
+// $WORKSPACE/.sandbox/endpoint, which we re-read here.
 func reprovisionSandbox() (sandbox, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
@@ -246,6 +255,7 @@ func reprovisionSandbox() (sandbox, error) {
 		return sandbox{}, fmt.Errorf("build provision request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)

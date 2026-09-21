@@ -188,6 +188,7 @@ func (s *mcpServer) provisionSandbox() error {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Orbit-Run-Token", os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return err

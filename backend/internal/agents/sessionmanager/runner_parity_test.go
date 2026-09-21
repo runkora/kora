@@ -84,16 +84,18 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 	})
 }
 
-// orbit-shell reads all three from its environment: WORKSPACE to find the
-// sandbox descriptor, the others to ask this pod for a replacement.
+// orbit-shell reads all four from its environment: WORKSPACE to find the
+// sandbox descriptor, the others to ask this pod for a replacement and to prove
+// which run is asking.
 func TestRunEnv(t *testing.T) {
 	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090}}
 
-	got := c.runEnv("run-42")
+	got := c.runEnv("run-42", "tok-42")
 	want := []string{
 		"WORKSPACE=/workspaces/run-42",
 		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
 		"ORBIT_RUN_ID=run-42",
+		"ORBIT_RUN_TOKEN=tok-42",
 	}
 	for _, w := range want {
 		if !slices.Contains(got, w) {

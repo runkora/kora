@@ -297,16 +297,17 @@ type Sandbox struct {
 // deadline is reached. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
-func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
 	if !reg.hosts(runID) {
 		return "", ErrSessionNotFound
 	}
 
-	sandboxDir := filepath.Join(reg.workspaces, runID, ".sandbox")
-	endpointFile := filepath.Join(sandboxDir, "endpoint")
-	tokenFile := filepath.Join(sandboxDir, "exec-token")
-	// Both files or neither: an endpoint without its token cannot be used.
-	if cached, token := readTrimmed(endpointFile), readTrimmed(tokenFile); cached != "" && token != "" {
+	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	if !pathsOK {
+		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+	}
+	if disk, ok := reg.sandboxFromDisk(runID); ok {
+		cached, token := disk.Endpoint, disk.ExecToken
 		if endpointAlive(cached) {
 			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
 				logging.Field{Key: "run_id", Value: runID},
@@ -321,7 +322,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 		)
 	}
 
-	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID)
+	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID, ahead)
 	if err != nil {
 		return "", err
 	}
@@ -374,18 +375,52 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 	}
 }
 
-// Sandbox returns the run's sandbox descriptor and whether it has one. Answered
-// from the session, not the workspace, so deleting the workspace copy does not
-// make a run look like it never had a sandbox.
+// Sandbox returns the run's sandbox descriptor and whether it has one. The
+// session answers first, so an agent deleting its workspace copy cannot make
+// its run look like it never had one.
+//
+// The workspace is the fallback, for a restart that emptied the session map.
+// Reading it is safe because requireRunToken has already bound the caller to
+// this run; without that it would hand a co-hosted run a sibling's exec token.
+// A miss in both places reports no sandbox, the answer for a run that never
+// asked for one.
 func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
+	if ok {
+		if sandbox, loaded := s.sandbox.Load().(Sandbox); loaded {
+			return sandbox, true
+		}
+	}
+	return reg.sandboxFromDisk(runID)
+}
+
+// sandboxPaths returns where the run's sandbox descriptor lives, so the reader
+// and the writer cannot drift apart on the layout. ok is false for a run ID
+// that is not a single path segment; the segment used is the one filepath.Base
+// produced, so no caller's string can widen the path.
+func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string, ok bool) {
+	if !singleSegment(runID) {
+		return "", "", "", false
+	}
+	dir = filepath.Join(reg.workspaces, runID, ".sandbox")
+	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
+}
+
+// sandboxFromDisk reads the run's sandbox descriptor out of its workspace.
+// Both halves or neither: an endpoint without its token cannot be used, and a
+// half-written descriptor must not read as a usable sandbox.
+func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
+	_, endpointFile, tokenFile, ok := reg.sandboxPaths(runID)
 	if !ok {
 		return Sandbox{}, false
 	}
-	sandbox, ok := s.sandbox.Load().(Sandbox)
-	return sandbox, ok
+	endpoint, token := readTrimmed(endpointFile), readTrimmed(tokenFile)
+	if endpoint == "" || token == "" {
+		return Sandbox{}, false
+	}
+	return Sandbox{Endpoint: endpoint, ExecToken: token}, true
 }
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.

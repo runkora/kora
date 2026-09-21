@@ -39,7 +39,7 @@ type Notifier interface {
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
-	ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error)
+	ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error)
 	// SetSummary reports the run's generated task summary to orbit-agents, which
 	// persists it set-once. Best-effort.
 	SetSummary(ctx context.Context, runID, summary string) error
@@ -54,7 +54,7 @@ func (NoopNotifier) IdleRun(_ context.Context, _ string) error                  
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
-func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (Sandbox, error) {
+func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
 	return Sandbox{}, nil
 }
 func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { return nil }
@@ -115,8 +115,11 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	return nil
 }
 
-func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
+func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
 	url := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
+	if ahead {
+		url += "?ahead=true"
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)

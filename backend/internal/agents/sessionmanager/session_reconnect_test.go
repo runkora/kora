@@ -21,7 +21,7 @@ type reprovisionNotifier struct {
 	calls    int
 }
 
-func (n *reprovisionNotifier) ProvisionSandbox(_ context.Context, _ string) (Sandbox, error) {
+func (n *reprovisionNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
 	n.calls++
 	return Sandbox{Endpoint: n.endpoint, ExecToken: "tok-" + n.endpoint}, nil
 }
@@ -95,7 +95,7 @@ func TestProvisionSandbox_LiveCacheReused(t *testing.T) {
 	hostSession(reg, "run-1")
 	writeEndpoint(t, ws, "run-1", live)
 
-	got, err := reg.ProvisionSandbox(context.Background(), "run-1")
+	got, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestProvisionSandbox_DeadCacheReprovisions(t *testing.T) {
 	hostSession(reg, "run-1")
 	file := writeEndpoint(t, ws, "run-1", dead)
 
-	got, err := reg.ProvisionSandbox(context.Background(), "run-1")
+	got, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestProvisionSandbox_RejectsRunNotHostedHere(t *testing.T) {
 	reg, _ := newTestRegistry(t, n)
 	hostSession(reg, "run-mine")
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-theirs")
+	_, err := reg.ProvisionSandbox(context.Background(), "run-theirs", false)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -171,7 +171,7 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 		t.Fatal("a run with no sandbox must report none")
 	}
 
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1"); err != nil {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false); err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
 
