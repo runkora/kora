@@ -274,3 +274,37 @@ func TestCreateSession_UnsupportedFrameworkWritesNothing(t *testing.T) {
 		t.Errorf("a rejected request left %s behind (err=%v)", filepath.Join(workspaces, "run-bad"), err)
 	}
 }
+
+// The run ID becomes a path segment when the token is read, and on the
+// internal routes it arrives from the URL rather than a validated body.
+func TestRunToken_RejectsTraversingRunIDs(t *testing.T) {
+	workspaces := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaces, "secret"), []byte("not-a-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, runID := range []string{"", ".", "..", "../secret", "a/b", "../../etc/passwd"} {
+		if _, err := mintRunToken(workspaces, runID); err == nil {
+			t.Errorf("mintRunToken(%q) succeeded", runID)
+		}
+		if verifyRunToken(workspaces, runID, "not-a-token") {
+			t.Errorf("verifyRunToken(%q) verified", runID)
+		}
+	}
+}
+
+// The handler refuses an unusable run id before it reaches the token read.
+func TestGetSandbox_RejectsTraversingRunID(t *testing.T) {
+	c, _ := sandboxTestController(t)
+
+	r := httptest.NewRequest(http.MethodGet, "/internal/session/x/sandbox", nil)
+	r.SetPathValue("runID", "../../etc")
+	r.Header.Set(runTokenHeader, "anything")
+
+	w := httptest.NewRecorder()
+	c.handleGetSandbox(w, r)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("status = 200 for a traversing run id; body: %s", w.Body.String())
+	}
+}

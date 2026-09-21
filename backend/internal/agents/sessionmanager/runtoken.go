@@ -24,15 +24,25 @@ const runTokenHeader = "X-Orbit-Run-Token"
 //
 // It sits outside .sandbox/ so an agent clearing its descriptor keeps the
 // ability to ask for a new one.
-func runTokenPath(workspaces, runID string) string {
-	return filepath.Join(workspaces, runID, ".orbit", "run-token")
+func runTokenPath(workspaces, runID string) (string, bool) {
+	// The run ID becomes a path segment, so anything that is not a single
+	// segment is refused here rather than resolved. Callers validate too; this
+	// is the guard at the point the path is built.
+	if runID == "" || runID != filepath.Base(runID) || runID == "." || runID == ".." {
+		return "", false
+	}
+	return filepath.Join(workspaces, runID, ".orbit", "run-token"), true
 }
 
 // mintRunToken returns the run's token, generating and storing one on first
 // call. An existing token is returned unchanged: a second create request for a
 // live run must not invalidate the token its subprocess already holds.
 func mintRunToken(workspaces, runID string) (string, error) {
-	if existing, err := os.ReadFile(runTokenPath(workspaces, runID)); err == nil && len(existing) > 0 {
+	path, ok := runTokenPath(workspaces, runID)
+	if !ok {
+		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+	}
+	if existing, err := os.ReadFile(path); err == nil && len(existing) > 0 {
 		return string(existing), nil
 	}
 
@@ -42,11 +52,10 @@ func mintRunToken(workspaces, runID string) (string, error) {
 	}
 	token := hex.EncodeToString(raw)
 
-	dir := filepath.Dir(runTokenPath(workspaces, runID))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("create run token dir: %w", err)
 	}
-	if err := os.WriteFile(runTokenPath(workspaces, runID), []byte(token), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
 		return "", fmt.Errorf("write run token: %w", err)
 	}
 	return token, nil
@@ -61,7 +70,11 @@ func verifyRunToken(workspaces, runID, presented string) bool {
 	if presented == "" {
 		return false
 	}
-	want, err := os.ReadFile(runTokenPath(workspaces, runID))
+	path, ok := runTokenPath(workspaces, runID)
+	if !ok {
+		return false
+	}
+	want, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}

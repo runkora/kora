@@ -434,11 +434,23 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 
 // requireRunToken binds the caller to the run in the path. Returns false and
 // writes the response when it cannot.
+//
+// The run ID is validated first because it becomes a path segment when the
+// token is read. handleCreateSession validates the one it is given; this is
+// the same guard for an ID that arrives from the URL.
 func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, runID string) bool {
+	ctx := r.Context()
+	if !validRunID.MatchString(runID) {
+		c.logger.Warn(ctx, "Rejected internal call with an unusable run id",
+			logging.Field{Key: "path", Value: r.URL.Path},
+		)
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return false
+	}
 	if verifyRunToken(c.cfg.WorkspacesBasePath, runID, r.Header.Get(runTokenHeader)) {
 		return true
 	}
-	ctx := r.Context()
 	c.logger.Warn(ctx, "Rejected internal call without this run's token",
 		logging.Field{Key: "path", Value: r.URL.Path},
 		logging.Field{Key: "run_id", Value: runID},
