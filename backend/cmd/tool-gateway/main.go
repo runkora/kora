@@ -114,13 +114,18 @@ func realMain() error {
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
-		// Re-introspect every server, publish scopes (prune-guarded), rebuild the
+		// Re-introspect servers, publish scopes (prune-guarded), rebuild the
 		// catalog. Serialized so the reload hook and timer never race.
+		//
+		// force=true (registry reload, and the initial boot cycle) introspects
+		// every server unconditionally; force=false (a periodic timer tick)
+		// introspects only servers due per their own ReintrospectIntervalSeconds
+		// (0 = reload-only, honoured by Introspector.Sync).
 		var cycleMu sync.Mutex
-		cycle := func(ctx context.Context) {
+		cycle := func(ctx context.Context, force bool) {
 			cycleMu.Lock()
 			defer cycleMu.Unlock()
-			introspector.Sync(ctx, registry.Servers())
+			introspector.Sync(ctx, registry.Servers(), force)
 			if err := publisher.Publish(ctx); err != nil {
 				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
 			}
@@ -128,7 +133,7 @@ func realMain() error {
 				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
 			}
 		}
-		registry.OnReload(cycle)
+		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
 		go registry.Watch(ctx)
 		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
 	}
@@ -170,10 +175,11 @@ func realMain() error {
 	return nil
 }
 
-// runIntrospectionLoop runs the introspection cycle once at startup and then on
-// a timer until ctx is canceled.
-func runIntrospectionLoop(ctx context.Context, cycle func(context.Context), interval time.Duration, logger logging.Logger) {
-	cycle(ctx)
+// runIntrospectionLoop runs the introspection cycle once (forced) at startup
+// and then on a timer (unforced — each server's own reintrospect interval
+// applies) until ctx is canceled.
+func runIntrospectionLoop(ctx context.Context, cycle func(context.Context, bool), interval time.Duration, logger logging.Logger) {
+	cycle(ctx, true)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -182,7 +188,7 @@ func runIntrospectionLoop(ctx context.Context, cycle func(context.Context), inte
 			return
 		case <-ticker.C:
 			logger.Debug(ctx, "periodic re-introspection tick")
-			cycle(ctx)
+			cycle(ctx, false)
 		}
 	}
 }

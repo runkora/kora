@@ -68,16 +68,25 @@ func NewIntrospector(httpClient *http.Client, version string, logger logging.Log
 // (tenant_id, name).
 func serverKey(tenantID, name string) string { return tenantID + "|" + name }
 
-// Sync introspects every server in the list, updating snapshots. Servers no
-// longer in the list are dropped from the snapshot map (a removed server's tools
-// must leave the keep-list). Each server is introspected independently; one
-// failure never aborts the batch.
-func (i *Introspector) Sync(ctx context.Context, servers []Server) {
+// Sync introspects servers in the list, updating snapshots. Servers no longer
+// in the list are dropped from the snapshot map (a removed server's tools must
+// leave the keep-list). Each server is introspected independently; one failure
+// never aborts the batch.
+//
+// force controls whether a server's own ReintrospectIntervalSeconds is
+// honoured: force=true (registry reload, and the initial boot cycle)
+// introspects every server unconditionally; force=false (a periodic timer
+// tick) introspects only servers that are due — see due.
+func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 	current := make(map[string]struct{}, len(servers))
 
 	for _, srv := range servers {
 		key := serverKey(srv.TenantID, srv.Name)
 		current[key] = struct{}{}
+
+		if !force && !i.due(key, srv) {
+			continue
+		}
 
 		tools, err := i.introspectOne(ctx, srv)
 		i.recordResult(ctx, srv, key, tools, err)
@@ -91,6 +100,25 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server) {
 		}
 	}
 	i.mu.Unlock()
+}
+
+// due reports whether a server is due for re-introspection on the periodic
+// timer. A server never introspected this lifetime is always due. Otherwise a
+// server with ReintrospectIntervalSeconds <= 0 is reload-only — never due on
+// the timer — and one with a positive interval is due once that many seconds
+// have passed since it was last introspected.
+func (i *Introspector) due(key string, srv Server) bool {
+	i.mu.RLock()
+	snap := i.snapshots[key]
+	i.mu.RUnlock()
+
+	if snap == nil {
+		return true
+	}
+	if srv.ReintrospectIntervalSeconds <= 0 {
+		return false
+	}
+	return time.Since(snap.LastIntrospectedAt) >= time.Duration(srv.ReintrospectIntervalSeconds)*time.Second
 }
 
 // recordResult updates the snapshot for one server. On success the tools are
