@@ -608,57 +608,28 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 // prune is a no-op for them.
 func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
 	// Upsert declared scopes into vocabulary first so that the existence check
-	// below sees the freshly declared entries.
-	incomingScopes := make([]string, len(scopeDecls))
-	// Tracks whether this registration changed anything a bundle is compiled
-	// from. Services re-register on a timer with an unchanged catalog, and a
-	// recompile of every tenant for a no-op registration is pure load.
-	changed := false
-	for i := range scopeDecls {
-		incomingScopes[i] = scopeDecls[i].Scope
-		upserted, err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
-			Scope:        scopeDecls[i].Scope,
-			ResourceType: scopeDecls[i].ResourceType,
-			PathSegments: scopeDecls[i].PathSegments,
-			Action:       scopeDecls[i].Action,
-			Description:  scopeDecls[i].Description,
-			RegisteredBy: service,
-			Requires:     scopeDecls[i].Requires,
-		})
-		if err != nil {
-			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
-		}
-		changed = changed || upserted
+	// below sees the freshly declared entries. changed tracks whether this
+	// registration moved anything a bundle is compiled from: services
+	// re-register on a timer, and recompiling every tenant for a registration
+	// that changed nothing is pure load.
+	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
+	if err != nil {
+		return err
 	}
 
-	// For global registrations, reconcile owned scopes: any scope previously
-	// registered by this service that is no longer in the catalog means the
-	// virtual model was deleted. Remove it from vocab and cascade to grants/roles.
 	if tenantID == "" && prune {
-		deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
-		if err != nil {
-			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)
+		pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
+		if pErr != nil {
+			return pErr
 		}
-		changed = changed || len(deleted) > 0
-		for _, scope := range deleted {
-			if err := s.grantRepo.PurgeScopeFromAll(ctx, scope); err != nil {
-				s.logger.Error(ctx, "purge deleted scope from grants",
-					logging.Field{Key: "scope", Value: scope},
-					logging.Field{Key: "error", Value: err})
-			}
-			if err := s.roleRepo.PurgeScopeFromAll(ctx, scope); err != nil {
-				s.logger.Error(ctx, "purge deleted scope from roles",
-					logging.Field{Key: "scope", Value: scope},
-					logging.Field{Key: "error", Value: err})
-			}
-		}
+		changed = changed || pruned
 	}
 
 	if tenantID != "" {
 		for _, r := range routeScopes {
-			exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
-			if err != nil {
-				return fmt.Errorf("vocabulary check: %w", err)
+			exists, xErr := s.vocabRepo.Exists(ctx, r.RequiredScope)
+			if xErr != nil {
+				return fmt.Errorf("vocabulary check: %w", xErr)
 			}
 			if !exists {
 				return &ScopeVocabularyError{Scope: r.RequiredScope}
@@ -691,6 +662,54 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	s.scheduleGatewayRecompile(ctx)
 
 	return nil
+}
+
+// upsertDeclaredScopes writes the service's declared scopes into the
+// vocabulary and reports the scope strings it declared plus whether any row
+// actually changed.
+func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
+	incomingScopes = make([]string, len(scopeDecls))
+	for i := range scopeDecls {
+		incomingScopes[i] = scopeDecls[i].Scope
+		upserted, uErr := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
+			Scope:        scopeDecls[i].Scope,
+			ResourceType: scopeDecls[i].ResourceType,
+			PathSegments: scopeDecls[i].PathSegments,
+			Action:       scopeDecls[i].Action,
+			Description:  scopeDecls[i].Description,
+			RegisteredBy: service,
+			Requires:     scopeDecls[i].Requires,
+		})
+		if uErr != nil {
+			return nil, false, fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, uErr)
+		}
+		changed = changed || upserted
+	}
+	return incomingScopes, changed, nil
+}
+
+// pruneOwnedScopes removes the scopes this service previously registered that
+// are no longer in its catalog, cascading each deletion into the grants and
+// roles that referenced it, and reports whether anything was removed. A
+// virtual model that was deleted is the usual reason one disappears.
+func (s *Service) pruneOwnedScopes(ctx context.Context, service string, incomingScopes []string) (bool, error) {
+	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
+	if err != nil {
+		return false, fmt.Errorf("prune orphan scopes for %q: %w", service, err)
+	}
+	for _, scope := range deleted {
+		if pErr := s.grantRepo.PurgeScopeFromAll(ctx, scope); pErr != nil {
+			s.logger.Error(ctx, "purge deleted scope from grants",
+				logging.Field{Key: "scope", Value: scope},
+				logging.Field{Key: "error", Value: pErr})
+		}
+		if pErr := s.roleRepo.PurgeScopeFromAll(ctx, scope); pErr != nil {
+			s.logger.Error(ctx, "purge deleted scope from roles",
+				logging.Field{Key: "scope", Value: scope},
+				logging.Field{Key: "error", Value: pErr})
+		}
+	}
+	return len(deleted) > 0, nil
 }
 
 // recordWrite marks the current time as the last policy-affecting write for a
