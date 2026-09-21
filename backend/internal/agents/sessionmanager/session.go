@@ -372,25 +372,25 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 	}
 }
 
-// Sandbox returns the run's sandbox descriptor and whether it has one. Answered
-// from the session, not the workspace, so deleting the workspace copy does not
-// make a run look like it never had a sandbox.
+// Sandbox returns the run's sandbox descriptor and whether it has one. The
+// session answers first, so an agent deleting its workspace copy cannot make
+// its run look like it never had one.
 //
-// Membership is what the session map provides here: only runs this pod hosts
-// are in it. Answering from the workspace instead would drop that, because the
-// /internal routes authenticate the caller as loopback-in-this-container and
-// never as a particular run, so a co-hosted run could read a sibling's
-// endpoint and exec token. A restart therefore still reports no sandbox; see
-// issue #323 for the caller identity that fixing it needs.
+// The workspace is the fallback, for a restart that emptied the session map.
+// Reading it is safe because requireRunToken has already bound the caller to
+// this run; without that it would hand a co-hosted run a sibling's exec token.
+// A miss in both places reports no sandbox, the answer for a run that never
+// asked for one.
 func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
-	if !ok {
-		return Sandbox{}, false
+	if ok {
+		if sandbox, loaded := s.sandbox.Load().(Sandbox); loaded {
+			return sandbox, true
+		}
 	}
-	sandbox, ok := s.sandbox.Load().(Sandbox)
-	return sandbox, ok
+	return reg.sandboxFromDisk(runID)
 }
 
 // sandboxPaths returns where the run's sandbox descriptor lives, so the reader

@@ -86,6 +86,10 @@ func readSandbox() sandbox {
 }
 
 // readTrimmed returns the file's trimmed contents, or empty if unreadable.
+// runTokenHeader carries this run's credential to the session-manager. It must
+// match sessionmanager.runTokenHeader.
+const runTokenHeader = "X-Orbit-Run-Token"
+
 func readTrimmed(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -189,11 +193,9 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 // whether the run has one at all, which is false for a run that never asked.
 //
 // A missing ORBIT_SESSION_MANAGER_URL or ORBIT_RUN_ID is an error, not an
-// absent sandbox. Reading it as "this run has no sandbox" routes the agent's
-// command to a local shell in this container, which is the confinement this
-// binary exists to enforce, and it would do so for an environment bug rather
-// than anything the run asked for. reprovisionSandbox already treats the same
-// condition as fatal.
+// absent sandbox. Read as the latter it routes the agent's command to a local
+// shell in this container, for an environment bug rather than anything the run
+// asked for. reprovisionSandbox treats the same condition as fatal.
 func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
@@ -208,6 +210,7 @@ func fetchSandbox() (sandbox, bool, error) {
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
 	}
+	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
@@ -252,6 +255,7 @@ func reprovisionSandbox() (sandbox, error) {
 		return sandbox{}, fmt.Errorf("build provision request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
