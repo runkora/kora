@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -17,6 +18,11 @@ import (
 // Returns aggregated analytics (time-series buckets, KPIs, cost-by-model) for
 // the authenticated principal. TenantID and PrincipalID are always sourced from
 // the verified JWT — they cannot be supplied or overridden via query parameters.
+// maxAnalyticsLimit caps a page of principals. Without it a caller can ask for
+// every usage row the tenant has ever written in one query.
+// See https://github.com/clear-route/orbit/issues/229.
+const maxAnalyticsLimit = 200
+
 func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -190,8 +196,8 @@ func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *a
 
 	if raw := q.Get("limit"); raw != "" {
 		v, err := strconv.Atoi(raw)
-		if err != nil || v < 1 {
-			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err
+		if err != nil || v < 1 || v > maxAnalyticsLimit {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", fmt.Sprintf("'limit' must be between 1 and %d", maxAnalyticsLimit), nil), err
 		}
 		f.Limit = v
 	}
