@@ -21,10 +21,7 @@ import (
 
 // TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet asserts
 // the StatefulSet carries a Delete/Retain persistentVolumeClaimRetentionPolicy
-// and that the claim template is labeled with the agent type's own labels, so
-// a deleted agent's workspace claim goes with it and DeprovisionAgentType can
-// still sweep any that predate this policy
-// (docs/adr/2026-05-11-agent-workspace-model.md).
+// and that the claim template is labeled with the agent type's own labels.
 func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *testing.T) {
 	p := &K8sProvisioner{}
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
@@ -48,11 +45,9 @@ func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *tes
 	}
 }
 
-// TestDeprovisionAgentType_DeletesWorkspacePVCs covers the bug in #308: a
-// deleted agent left its workspace PVC behind forever, so a recreated agent
-// with the same slug silently rebound the stale volume (and its old
-// storageClassName/accessModes). DeprovisionAgentType must sweep every
-// ordinal's claim by the agent type's labels, not just the StatefulSet.
+// TestDeprovisionAgentType_DeletesWorkspacePVCs asserts DeprovisionAgentType
+// sweeps every ordinal's claim by label, and leaves other agent types' claims
+// alone.
 func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
 	const ns = "orbit-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
@@ -64,7 +59,7 @@ func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
 	pvc1 := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: "workspaces-coder-1", Namespace: ns, Labels: matching},
 	}
-	// A claim for a different agent type in the same namespace must survive.
+	// A claim for a different agent type must survive.
 	other := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "workspaces-other-0",
@@ -100,10 +95,8 @@ func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
 	}
 }
 
-// TestDeprovisionAgentType_NoPVCsIsNotAnError covers the common path: deleting
-// an agent type before this fix shipped, or one that never ran a replica, has
-// no workspace claim to find. DeleteCollection against an empty selector match
-// must not surface as an error.
+// TestDeprovisionAgentType_NoPVCsIsNotAnError asserts deprovisioning an agent
+// type with no workspace claims is not an error.
 func TestDeprovisionAgentType_NoPVCsIsNotAnError(t *testing.T) {
 	const ns = "orbit-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
@@ -126,11 +119,8 @@ func TestDeprovisionAgentType_NoPVCsIsNotAnError(t *testing.T) {
 	}
 }
 
-// TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete covers review feedback on
-// #308: a delete failing for a reason other than NotFound (permission,
-// timeout, ...) must not abort the sweep early and strand the remaining
-// claims. deleteWorkspacePVCs should attempt every matching claim and report
-// the first error, matching DeprovisionAgentType's own best-effort behavior.
+// TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete asserts a failed delete
+// doesn't stop the rest from being attempted.
 func TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete(t *testing.T) {
 	const ns = "orbit-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
