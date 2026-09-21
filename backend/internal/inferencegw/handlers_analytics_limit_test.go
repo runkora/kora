@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"net/url"
+	"strconv"
 	"testing"
 )
 
@@ -16,8 +17,8 @@ func TestParseAnalyticsPrincipalsFilter_Limit(t *testing.T) {
 	}{
 		{"absent uses the default", "", 20, false},
 		{"within the ceiling", "50", 50, false},
-		{"at the ceiling", "200", 200, false},
-		{"above the ceiling", "201", 0, true},
+		{"at the ceiling", "100", 100, false},
+		{"above the ceiling", "101", 0, true},
 		{"absurd", "100000", 0, true},
 		{"zero", "0", 0, true},
 		{"negative", "-1", 0, true},
@@ -45,5 +46,17 @@ func TestParseAnalyticsPrincipalsFilter_Limit(t *testing.T) {
 				t.Errorf("Limit = %d, want %d", f.Limit, tc.wantLimit)
 			}
 		})
+	}
+}
+
+// A limit the parser accepts must survive ListPrincipalUsage, which clamps to
+// maxPrincipalsLimit. A higher ceiling here would return a page smaller than the
+// one the caller asked for, with no error saying so.
+func TestParseAnalyticsPrincipalsFilter_LimitMatchesRepositoryClamp(t *testing.T) {
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(maxPrincipalsLimit+1))
+
+	if _, apiErr, _ := parseAnalyticsPrincipalsFilter(q); apiErr == nil {
+		t.Fatalf("limit=%d was accepted, but ListPrincipalUsage clamps it to %d", maxPrincipalsLimit+1, maxPrincipalsLimit)
 	}
 }
