@@ -5,8 +5,45 @@ import (
 	"time"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
+
+// inspectOthersScope gates reading a principal other than the caller.
+// docs/adr/2026-04-15-policy-administration-dashboard.md requires it on both
+// cross-principal routes: a caller's own scopes stay readable without it, a
+// second principal's do not.
+const inspectOthersScope = "platform:grants:read"
+
+// authorizeInspectOthers reports whether the caller may read another
+// principal's authorization state. SYSTEM principals pass: they are platform
+// services authenticated by SPIFFE at the mesh, carry no tenant, and would be
+// denied by a per-tenant bundle lookup. This is the same carve-out
+// ScopeEnforcementMiddleware makes.
+func (c *Controller) authorizeInspectOthers(w http.ResponseWriter, r *http.Request, claims *token.PlatformClaims) bool {
+	ctx := r.Context()
+	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+		return true
+	}
+
+	result, err := c.svc.Check(ctx, claims, nil, "platform", []string{"grants"}, "read", nil)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, evaluationErrorResponse(err), err)
+		return false
+	}
+	if !result.Allow {
+		c.logger.Warn(ctx, "inspecting another principal denied",
+			logging.Field{Key: "principal_id", Value: claims.Subject},
+			logging.Field{Key: "required_scope", Value: inspectOthersScope},
+			logging.Field{Key: "reason", Value: result.Reason},
+		)
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+				"inspecting another principal requires "+inspectOthersScope, nil), nil)
+		return false
+	}
+	return true
+}
 
 // handleScopesExplain handles GET /v1/policy/scopes/explain.
 // Returns the principal's effective scopes broken down by source (grants vs roles).
@@ -44,6 +81,9 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 		isSelf := principalID == claims.Subject &&
 			token.PrincipalType(principalType) == claims.Orbit.PrincipalType
 		if !isSelf {
+			if !c.authorizeInspectOthers(w, r, claims) {
+				return
+			}
 			// Inspecting another principal — build synthetic claims.
 			// Note: synthetic claims cannot carry OIDC roles, so role-based
 			// scopes will only resolve for grant-based principals.
@@ -101,6 +141,12 @@ func (c *Controller) handleCheckSimulate(w http.ResponseWriter, r *http.Request)
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField,
 				"resource.type and action are required", nil), nil)
+		return
+	}
+
+	// Simulation always names a principal and a role set, so there is no
+	// self case to exempt.
+	if !c.authorizeInspectOthers(w, r, claims) {
 		return
 	}
 
