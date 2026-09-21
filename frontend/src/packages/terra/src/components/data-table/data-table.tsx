@@ -699,23 +699,32 @@ function ColumnVisibilityToggle({
 
 // ─── Internal: Header label ────────────────────────────────────────────────────
 
+function HeaderInfo({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`More information about ${label}`}
+          className="inline-flex cursor-default text-subtle hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+        >
+          <Icon name="info" size="2xs" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// The info control is a sibling of the sort button, never a child of it: a
+// button inside a button is invalid HTML, and the inner click bubbles into a
+// sort the user did not ask for.
 function HeaderLabel({ label, tooltip }: { label: string; tooltip?: string }) {
   if (!tooltip) return <>{label}</>;
   return (
     <span className="inline-flex items-center gap-1">
       {label}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={`More information about ${label}`}
-            className="inline-flex cursor-default text-subtle hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-          >
-            <Icon name="info" size="2xs" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{tooltip}</TooltipContent>
-      </Tooltip>
+      <HeaderInfo label={label} tooltip={tooltip} />
     </span>
   );
 }
@@ -799,9 +808,12 @@ function DataTableHeader<TData>({
                 className="group/sort inline-flex items-center gap-1 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
                 aria-label={`Sort by ${col.header}`}
               >
-                <HeaderLabel label={col.header} tooltip={col.headerTooltip} />
+                {col.header}
                 <SortIcon dir={sortDir} />
               </button>
+            )}
+            {hasSort && col.headerTooltip && (
+              <HeaderInfo label={col.header} tooltip={col.headerTooltip} />
             )}
             {!hasSort && <HeaderLabel label={col.header} tooltip={col.headerTooltip} />}
             {hasFilter && (
