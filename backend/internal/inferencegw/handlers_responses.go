@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -507,6 +508,13 @@ func (c *Controller) handleResponsesStream(
 		return
 	}
 
+	c.writeResponsesSSE(ctx, w, events)
+}
+
+// writeResponsesSSE forwards a Responses event channel to the client as SSE.
+// Split from handleResponsesStream so the wire output can be exercised from a
+// channel the test supplies.
+func (c *Controller) writeResponsesSSE(ctx context.Context, w http.ResponseWriter, events <-chan ResponsesStreamResult) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -532,7 +540,10 @@ func (c *Controller) handleResponsesStream(
 		return writeSSERaw(eventType, data)
 	}
 
-	var lastSeq int64
+	// -1, not 0: a provider that fails before emitting anything must still
+	// produce the stream's first event at sequence 0, which is where a
+	// Responses stream starts.
+	lastSeq := int64(-1)
 	for result := range events {
 		if result.Err != nil {
 			c.logger.Error(ctx, "responses stream error",

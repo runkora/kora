@@ -781,3 +781,41 @@ func TestMarshalResponsesEvent_MessageItemInOutputItemAdded(t *testing.T) {
 		}
 	}
 }
+
+// ─── handleResponsesStream — immediate failure ────────────────────────────────
+
+// TestWriteResponsesSSE_ImmediateErrorStartsAtZero covers a provider that fails
+// before emitting anything. A Responses stream starts at sequence 0, so the
+// error event that is the stream's only event has to carry 0 rather than
+// skipping to 1.
+func TestWriteResponsesSSE_ImmediateErrorStartsAtZero(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan ResponsesStreamResult, 1)
+	events <- ResponsesStreamResult{Err: ErrProviderError}
+	close(events)
+
+	c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
+	w := httptest.NewRecorder()
+
+	c.writeResponsesSSE(context.Background(), w, events)
+
+	body := w.Body.String()
+	_, data, found := strings.Cut(body, "data: ")
+	if !found {
+		t.Fatalf("no SSE data frame in %q", body)
+	}
+	var payload struct {
+		Type     string `json:"type"`
+		Sequence int64  `json:"sequence_number"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(data)), &payload); err != nil {
+		t.Fatalf("unmarshal error event: %v (frame %q)", err, data)
+	}
+	if payload.Type != "error" {
+		t.Errorf("type = %q, want error", payload.Type)
+	}
+	if payload.Sequence != 0 {
+		t.Errorf("sequence_number = %d, want 0", payload.Sequence)
+	}
+}
