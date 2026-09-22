@@ -112,10 +112,24 @@ type Service struct {
 	routeStore       *routes.Store
 	logger           logging.Logger
 
-	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
+	// recompileMu protects every field below from concurrent access.
 	recompileMu     sync.Mutex
 	recompileTimers map[string]*time.Timer
 	lastWriteAt     map[string]time.Time
+
+	// lastKnownTenants is the tenant set a global registration last compared
+	// itself against. A registry-only tenant (no grants, no routes of its own)
+	// moves this set without moving anything upsertDeclaredScopes or
+	// pruneOwnedScopes would notice, so it is tracked separately.
+	lastKnownTenants []string
+	// recompileAllHealthy and gatewayRecompileHealthy report whether the most
+	// recent asynchronous recompile of that kind confirmed success.
+	// scheduleRecompileAll and scheduleGatewayRecompile are fire-and-forget:
+	// a transient failure there is otherwise invisible to the next
+	// registration, and once that registration finds nothing new to compile
+	// it would never retry.
+	recompileAllHealthy     bool
+	gatewayRecompileHealthy bool
 
 	gatewayRecompileTimer *time.Timer
 }
@@ -141,6 +155,10 @@ func NewService(
 		logger:           logger,
 		recompileTimers:  make(map[string]*time.Timer),
 		lastWriteAt:      make(map[string]time.Time),
+		// Nothing has failed yet: the process's own bundle bootstrap already
+		// ran before any service registers with it.
+		recompileAllHealthy:     true,
+		gatewayRecompileHealthy: true,
 	}
 }
 
@@ -617,12 +635,22 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		return err
 	}
 
-	if tenantID == "" && prune {
-		pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
-		if pErr != nil {
-			return pErr
+	if tenantID == "" {
+		if prune {
+			pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
+			if pErr != nil {
+				return pErr
+			}
+			changed = changed || pruned
 		}
-		changed = changed || pruned
+		// A registry-only tenant, or a previous recompile that did not
+		// confirm success, needs a recompile this registration's own
+		// vocabulary/route diff cannot see.
+		stateChanged, sErr := s.globalStateChanged(ctx)
+		if sErr != nil {
+			return sErr
+		}
+		changed = changed || stateChanged
 	}
 
 	if tenantID != "" {
@@ -712,6 +740,39 @@ func (s *Service) pruneOwnedScopes(ctx context.Context, service string, incoming
 	return len(deleted) > 0, nil
 }
 
+// globalStateChanged reports whether a global registration must recompile for
+// a reason upsertDeclaredScopes and pruneOwnedScopes cannot see: the known
+// tenant set moved, or the previous recompileAll/gateway recompile attempt
+// did not confirm success.
+func (s *Service) globalStateChanged(ctx context.Context) (bool, error) {
+	current, err := s.tenants.KnownTenantIDs(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list known tenants: %w", err)
+	}
+
+	s.recompileMu.Lock()
+	defer s.recompileMu.Unlock()
+	tenantsChanged := !slices.Equal(s.lastKnownTenants, current)
+	s.lastKnownTenants = slices.Clone(current)
+	return tenantsChanged || !s.recompileAllHealthy || !s.gatewayRecompileHealthy, nil
+}
+
+// markRecompileAllHealth records whether the most recent scheduleRecompileAll
+// pass compiled every known tenant without error.
+func (s *Service) markRecompileAllHealth(ok bool) {
+	s.recompileMu.Lock()
+	s.recompileAllHealthy = ok
+	s.recompileMu.Unlock()
+}
+
+// markGatewayRecompileHealth records whether the most recent
+// scheduleGatewayRecompile pass compiled the gateway bundle without error.
+func (s *Service) markGatewayRecompileHealth(ok bool) {
+	s.recompileMu.Lock()
+	s.gatewayRecompileHealthy = ok
+	s.recompileMu.Unlock()
+}
+
 // recordWrite marks the current time as the last policy-affecting write for a
 // tenant. Used by Stats to determine bundle staleness.
 func (s *Service) recordWrite(tenantID string) {
@@ -779,7 +840,10 @@ func (s *Service) scheduleGatewayRecompile(ctx context.Context) {
 			s.logger.Error(detachedCtx, "gateway bundle recompile failed",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			s.markGatewayRecompileHealth(false)
+			return
 		}
+		s.markGatewayRecompileHealth(true)
 	})
 }
 
@@ -797,6 +861,7 @@ func (s *Service) scheduleRecompileAll(ctx context.Context) {
 		s.logger.Error(ctx, "recompile all: failed to list tenants",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		s.markRecompileAllHealth(false)
 		return
 	}
 	vocab, err := s.vocabRepo.List(ctx, "")
@@ -804,14 +869,18 @@ func (s *Service) scheduleRecompileAll(ctx context.Context) {
 		s.logger.Error(ctx, "recompile all: failed to list vocabulary",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		s.markRecompileAllHealth(false)
 		return
 	}
+	ok := true
 	for _, tenantID := range tenantIDs {
 		if err := s.bundleSrv.Recompile(ctx, tenantID, vocab); err != nil {
+			ok = false
 			s.logger.Error(ctx, "recompile all: bundle recompile failed",
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
 	}
+	s.markRecompileAllHealth(ok)
 }
