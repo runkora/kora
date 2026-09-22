@@ -114,7 +114,7 @@ function StepInputs({ state, patch }: StepComponentProps) {
                       <Icon name="close" size="xs" />
                     </Button>
                   </Stack>
-                  <Stack direction="horizontal" align="center" gap="cozy" justify="between">
+                  <Stack direction="horizontal" align="center" gap="cozy" justify="between" wrap>
                     <SegmentedControl
                       aria-label={`Field ${i + 1} type`}
                       value={f.type}
@@ -136,7 +136,7 @@ function StepInputs({ state, patch }: StepComponentProps) {
         </Stack>
       </Stack>
 
-      <Grid cols={2} gap="comfortable">
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
         <Stack gap="snug">
           <SectionLabel>Console form</SectionLabel>
           <Card inset>

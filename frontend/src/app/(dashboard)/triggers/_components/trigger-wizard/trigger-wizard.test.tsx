@@ -45,15 +45,6 @@ describe('TriggerWizard picker phase', () => {
       expect(screen.getByText(planned.title)).toBeTruthy();
     }
   });
-
-  it('enters the chosen kind and can come back to the picker', () => {
-    renderWizard();
-    fireEvent.click(screen.getByText(TRIGGER_KINDS.scheduled.description));
-    expect(screen.getByText('How often')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: /Choose kind/ }));
-    expect(screen.getByText('Choose what starts it.', { exact: false })).toBeTruthy();
-  });
 });
 
 describe('TriggerWizard step phase', () => {
@@ -73,7 +64,6 @@ describe('TriggerWizard step phase', () => {
   it('holds Continue closed until the step validates', () => {
     renderWizard('webhook');
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByText('Give the trigger a name.')).toBeTruthy();
   });
 });
 

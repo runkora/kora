@@ -38,7 +38,7 @@ func NewChatCompletionsResponsesBridge(
 
 // Execute translates a Responses API request to Chat Completions, executes it,
 // and translates the result back to a Responses API response.
-func (b *ChatCompletionsResponsesBridge) Execute(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+func (b *ChatCompletionsResponsesBridge) Execute(ctx context.Context, params responses.ResponseNewParams) (*inferencegw.ResponsesResult, error) {
 	b.logger.Debug(ctx, "bridge: chat completions responses execute start",
 		logging.Field{Key: "model", Value: params.Model},
 	)
@@ -57,7 +57,7 @@ func (b *ChatCompletionsResponsesBridge) Execute(ctx context.Context, params res
 	b.logger.Debug(ctx, "bridge: chat completions responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)
-	return resp, nil
+	return &inferencegw.ResponsesResult{Response: resp}, nil
 }
 
 // ExecuteStream translates a Responses API streaming request to Chat Completions

@@ -34,6 +34,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Orbit MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
 | [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
 | [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
+| [Terra Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
 | [Frontend Component Consolidation](frontend-component-consolidation.md) | Implemented | [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) |
 | [Semantic HTML Consolidation](semantic-html-consolidation.md) | Implemented | [semantic-html-consolidation](../adr/2026-05-04-semantic-html-consolidation.md) |
 | [Frontend Test Strategy](frontend-test-strategy.md) | Implemented | [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) |

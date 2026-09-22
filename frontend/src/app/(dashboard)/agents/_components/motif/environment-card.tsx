@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Card, CardContent, Icon, NativeSelect, Stack, Text } from '@orbit/terra';
+import { Card, CardContent, Icon, NativeSelect, Show, Stack, Text } from '@orbit/terra';
 import type { Environment } from '@orbit/shared/api';
 
 export function EnvironmentCard({
@@ -37,20 +37,38 @@ export function EnvironmentCard({
                 : 'No environment. The agent has exactly the access configured above.'}
             </Text>
           </Stack>
-          <Stack minWidth="form-field" maxWidth="form-field">
-            <NativeSelect
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              aria-label="Environment"
-            >
-              <option value="">None</option>
-              {environments.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </NativeSelect>
-          </Stack>
+          <Show below="lg">
+            <Stack grow>
+              <NativeSelect
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                aria-label="Environment"
+              >
+                <option value="">None</option>
+                {environments.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Stack>
+          </Show>
+          <Show above="lg">
+            <Stack minWidth="form-field" maxWidth="form-field">
+              <NativeSelect
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                aria-label="Environment"
+              >
+                <option value="">None</option>
+                {environments.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Stack>
+          </Show>
         </Stack>
       </CardContent>
     </Card>

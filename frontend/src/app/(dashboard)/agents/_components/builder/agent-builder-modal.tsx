@@ -10,13 +10,11 @@ import {
   CardContent,
   Heading,
   Icon,
-  Modal,
-  ModalAccessibleTitle,
-  Progress,
   Separator,
   Stack,
   StatusDot,
   Text,
+  Wizard,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -24,7 +22,6 @@ import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { BUILDER_STEPS } from '../../_hooks/use-agent-builder';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
-import { StepRail } from './step-rail';
 import { StepIdentity } from './step-identity';
 import { StepBehaviour } from './step-behaviour';
 import { StepTools } from './step-tools';
@@ -38,126 +35,135 @@ const SAVE_LABEL: Record<string, string> = {
   error: 'Save failed',
 };
 
+const WIZARD_STEPS = BUILDER_STEPS.map((s) => ({
+  id: s.key,
+  title: s.title,
+  shortTitle: 'shortTitle' in s ? (s.shortTitle as string) : undefined,
+  sub: s.sub,
+}));
+
 export function AgentBuilderModal({ onClose }: { onClose: () => void }) {
   const builder = useAgentBuilderContext();
-  const { step, saveStatus, draftId, created, submitting, stepValid, createBlockers } = builder;
+  const {
+    step,
+    maxVisited,
+    goTo,
+    saveStatus,
+    draftId,
+    created,
+    submitting,
+    stepValid,
+    stepHint,
+    createBlockers,
+  } = builder;
   const isLast = step === BUILDER_STEPS.length - 1;
 
-  return (
-    <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
-      <ModalAccessibleTitle>New agent</ModalAccessibleTitle>
-
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <Stack
-        direction="horizontal"
-        align="center"
-        gap="cozy"
-        height="header"
-        paddingInline="comfortable"
-        shrink={false}
-      >
-        <Icon name="zap" size="sm" container containerVariant="accent" label="" />
-        <Stack direction="horizontal" align="baseline" gap="snug">
-          <Text as="span" size="supporting" weight="heavy">
-            New agent
-          </Text>
-          <Text as="span" size="micro" mono color="subtle">
-            {created ? created.slug : draftId ? `draft · ${draftId}` : 'draft'}
-          </Text>
-        </Stack>
-        <Stack grow />
-        {/* Draft chrome is meaningless once the agent exists. A pristine
-            builder (no draft, nothing typed) shows no save state either. */}
-        {!created && (
-          <>
-            {(draftId || saveStatus !== 'unsaved') && (
-              <Stack direction="horizontal" align="center" gap="snug">
-                <StatusDot
-                  size="sm"
-                  status={
-                    saveStatus === 'error' ? 'error' : saveStatus === 'saved' ? 'healthy' : 'idle'
-                  }
-                />
-                <Text as="span" size="caption" color="subtle">
-                  {SAVE_LABEL[saveStatus]}
-                </Text>
-              </Stack>
-            )}
-            <Button variant="secondary" size="sm" onClick={builder.saveNow}>
-              Save draft
-            </Button>
-          </>
-        )}
-        <Button variant="ghost" size="icon-sm" aria-label="Close builder" onClick={onClose}>
-          <Icon name="close" />
-        </Button>
+  const saveIndicator =
+    draftId || saveStatus !== 'unsaved' ? (
+      <Stack direction="horizontal" align="center" gap="snug">
+        <StatusDot
+          size="sm"
+          status={saveStatus === 'error' ? 'error' : saveStatus === 'saved' ? 'healthy' : 'idle'}
+        />
+        <Text as="span" size="caption" color="subtle">
+          {SAVE_LABEL[saveStatus]}
+        </Text>
       </Stack>
+    ) : undefined;
 
-      {/* ── Step progress ──────────────────────────────────────────────────── */}
-      <Progress
-        size="hairline"
-        label="Builder progress"
-        value={created ? 100 : ((step + 1) / BUILDER_STEPS.length) * 100}
-      />
-
+  return (
+    <Wizard
+      open
+      onClose={onClose}
+      icon="zap"
+      title="New agent"
+      subtitle={created ? undefined : (draftId ?? undefined)}
+      actions={created ? undefined : saveIndicator}
+      hint={created ? undefined : stepHint}
+      hintVariant={step === 0 ? 'error' : 'warning'}
+      rail={
+        created ? undefined : (
+          <Wizard.Rail
+            label="Create agent"
+            steps={WIZARD_STEPS}
+            current={step}
+            maxVisited={maxVisited}
+            onGoTo={goTo}
+            footer={<IdentityFirstInfo />}
+          />
+        )
+      }
+      footer={
+        created ? undefined : (
+          <Wizard.Footer
+            step={step}
+            totalSteps={BUILDER_STEPS.length}
+            onBack={step > 0 ? builder.back : undefined}
+            onNext={builder.next}
+            nextDisabled={!stepValid || (isLast && createBlockers.length > 0)}
+            onSubmit={isLast ? () => void builder.submit() : undefined}
+            submitLabel="Create agent"
+            pending={submitting}
+            pendingLabel="Creating…"
+          />
+        )
+      }
+    >
       {created ? (
-        <SuccessPanel onClose={onClose} />
+        <Wizard.Step fullPage>
+          <SuccessPanel onClose={onClose} />
+        </Wizard.Step>
       ) : (
-        <Stack direction="horizontal" grow overflow="hidden">
-          <StepRail />
-          <Separator orientation="vertical" span="full" />
-
-          {/* ── Content column ─────────────────────────────────────────────── */}
-          <Stack grow overflow="hidden">
-            <Stack grow overflowY="auto" align="center">
-              <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
-                {step === 0 && <StepIdentity />}
-                {step === 1 && <StepBehaviour />}
-                {step === 2 && <StepTools />}
-                {step === 3 && <StepGuardrails />}
-                {step === 4 && <StepReview />}
-              </Stack>
-            </Stack>
-
-            {/* ── Footer ─────────────────────────────────────────────────── */}
-            <Separator span="full" />
-            <Stack
-              direction="horizontal"
-              align="center"
-              gap="comfortable"
-              padding="comfortable"
-              paddingInline="relaxed"
-              shrink={false}
-            >
-              {step > 0 && (
-                <Button variant="secondary" onClick={builder.back}>
-                  <Icon name="chevron-left" />
-                  Back
-                </Button>
-              )}
-              <Stack grow />
-              <Text as="span" size="caption" color="subtle">
-                Step {step + 1} of {BUILDER_STEPS.length}
-              </Text>
-              {isLast ? (
-                <Button
-                  onClick={() => void builder.submit()}
-                  disabled={submitting || createBlockers.length > 0}
-                >
-                  {submitting ? 'Creating…' : 'Create agent'}
-                  <Icon name="rocket" />
-                </Button>
-              ) : (
-                <Button onClick={builder.next} disabled={!stepValid}>
-                  Continue
-                  <Icon name="arrow-right" />
-                </Button>
-              )}
-            </Stack>
-          </Stack>
-        </Stack>
+        <>
+          {step === 0 && (
+            <Wizard.Step>
+              <StepIdentity />
+            </Wizard.Step>
+          )}
+          {step === 1 && (
+            <Wizard.Step>
+              <StepBehaviour />
+            </Wizard.Step>
+          )}
+          {step === 2 && (
+            <Wizard.Step>
+              <StepTools />
+            </Wizard.Step>
+          )}
+          {step === 3 && (
+            <Wizard.Step>
+              <StepGuardrails />
+            </Wizard.Step>
+          )}
+          {step === 4 && (
+            <Wizard.Step>
+              <StepReview />
+            </Wizard.Step>
+          )}
+        </>
       )}
-    </Modal>
+    </Wizard>
+  );
+}
+
+function IdentityFirstInfo() {
+  return (
+    <Card subtle>
+      <CardContent padded compact>
+        <Stack gap="tight">
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Icon name="info" size="xs" color="accent" label="" />
+            <Text as="span" size="caption" weight="heavy" color="muted">
+              Identity-first
+            </Text>
+          </Stack>
+          <Text size="micro" color="subtle">
+            Every agent gets a verified identity before it can touch a single tool. Access is
+            checked before execution, never after.
+          </Text>
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 

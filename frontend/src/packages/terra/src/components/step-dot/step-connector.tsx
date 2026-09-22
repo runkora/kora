@@ -8,6 +8,12 @@ export interface StepConnectorProps extends React.ComponentPropsWithoutRef<'span
    * Default `false` keeps the standard `bg-border` line.
    */
   complete?: boolean;
+  /**
+   * Axis the connector runs along.
+   * - `'vertical'` (default) — 1 px wide, grows in height; used in the desktop rail.
+   * - `'horizontal'` — 1 px tall, grows in width; used in the mobile step rail.
+   */
+  orientation?: 'vertical' | 'horizontal';
 }
 
 /**
@@ -28,11 +34,16 @@ export interface StepConnectorProps extends React.ComponentPropsWithoutRef<'span
  * ```
  */
 const StepConnector = React.forwardRef<HTMLSpanElement, StepConnectorProps>(
-  ({ complete = false, className, ...props }, ref) => (
+  ({ complete = false, orientation = 'vertical', className, ...props }, ref) => (
     <span
       ref={ref}
       data-slot="step-connector"
-      className={cn('mt-2 w-px flex-1', complete ? 'bg-accent/30' : 'bg-border', className)}
+      className={cn(
+        'flex-1',
+        orientation === 'horizontal' ? 'h-px self-center' : 'mt-2 w-px',
+        complete ? 'bg-accent/30' : 'bg-border',
+        className,
+      )}
       aria-hidden
       {...props}
     />
