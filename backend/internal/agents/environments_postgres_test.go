@@ -50,19 +50,18 @@ func TestPostgres_ListAgentTypesByEnvironment(t *testing.T) {
 	ctx := context.Background()
 
 	env := Environment{TenantID: tenant, Name: "staging", EgressHosts: []string{"api.github.com"}}
-	if err := r.CreateEnvironment(ctx, env); err == nil {
-		// CreateEnvironment generates the id in place on a copy, so read it back.
-		envs, lErr := r.ListEnvironments(ctx, tenant)
-		if lErr != nil {
-			t.Fatalf("ListEnvironments: %v", lErr)
-		}
-		if len(envs) != 1 {
-			t.Fatalf("got %d environments, want 1", len(envs))
-		}
-		env = envs[0]
-	} else {
+	if err := r.CreateEnvironment(ctx, env); err != nil {
 		t.Fatalf("CreateEnvironment: %v", err)
 	}
+	// CreateEnvironment generates the id in place on a copy, so read it back.
+	envs, err := r.ListEnvironments(ctx, tenant)
+	if err != nil {
+		t.Fatalf("ListEnvironments: %v", err)
+	}
+	if len(envs) != 1 {
+		t.Fatalf("got %d environments, want 1", len(envs))
+	}
+	env = envs[0]
 
 	at := AgentType{
 		TenantID:                tenant,
