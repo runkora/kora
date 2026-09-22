@@ -383,14 +383,12 @@ func ValidateConnectors(connectors []Connector) error {
 				return fmt.Errorf("connector %q has an empty resource", name)
 			}
 			// A resource becomes the qualifier segment of
-			// connection:<name>:<category>:<resource>:<verb>, and the policy
-			// service rejects a grant whose qualifier holds any of these
-			// (docs/adr/2026-07-22-connection-scope-qualifiers.md). A GitHub
-			// repository is named on its own, never as owner/repo. Case is not
-			// checked because ConnectorScopes lowercases the qualifier before
-			// it reaches the grant.
+			// connection:<name>:<category>:<resource>:<verb>, one segment
+			// (docs/adr/2026-07-22-connection-scope-qualifiers.md). Case is not
+			// checked: ConnectorScopes lowercases the qualifier before it
+			// reaches the grant.
 			if strings.ContainsAny(res, " \t:/*") {
-				return fmt.Errorf("connector %q resource %q is invalid: no spaces, ':', '/' or '*' (a repository is named on its own, not as owner/repo)", name, r)
+				return fmt.Errorf("connector %q resource %q is invalid: must be a single segment, no spaces, ':', '/' or '*'", name, r)
 			}
 		}
 	}

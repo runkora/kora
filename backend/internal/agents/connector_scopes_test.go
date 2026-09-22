@@ -108,8 +108,10 @@ func TestEffectiveScopes_BaselineActions(t *testing.T) {
 }
 
 // TestValidateConnectors_Resources locks the resource rule against the
-// qualifier the policy service accepts. A GitHub repository is named on its
-// own; "owner/repo" compiled to
+// qualifier grammar the policy service accepts: one segment, no separators
+// (docs/adr/2026-07-22-connection-scope-qualifiers.md). The rule applies to
+// any adapter with a resource dimension, not just GitHub repositories — a
+// GitHub "owner/repo" value used to compile to
 // connection:<name>:<category>:<owner>/<repo>:<verb>, which the grant API
 // rejects, so every run start for the agent failed with a 500 long after the
 // attachment was accepted.
@@ -123,6 +125,7 @@ func TestValidateConnectors_Resources(t *testing.T) {
 		{name: "mixed case is lowercased at compile time", resources: []string{"Constellation-IAC"}},
 		{name: "several resources", resources: []string{"orbit", "webapp"}},
 		{name: "no resources", resources: nil},
+		{name: "kubernetes namespace, a different adapter's resource shape", resources: []string{"staging"}},
 		{name: "owner/repo", resources: []string{"clear-route/constellation-iac"}, wantErr: true},
 		{name: "scope separator", resources: []string{"repo:read"}, wantErr: true},
 		{name: "wildcard", resources: []string{"*"}, wantErr: true},
