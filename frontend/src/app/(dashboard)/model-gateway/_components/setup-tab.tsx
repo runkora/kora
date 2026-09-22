@@ -367,7 +367,7 @@ export function SetupTab() {
                 to version control.
               </Text>
               <CodeBlock
-                text={`export ORBIT_API_KEY="orb-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
                 filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">
