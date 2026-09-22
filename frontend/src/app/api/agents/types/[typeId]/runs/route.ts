@@ -27,7 +27,7 @@ async function resolveAgentTypeId(
 }
 
 export const GET = withAuth(
-  async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
+  async (req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { typeId } = await (context?.params ?? Promise.resolve({ typeId: '' }));
     try {
       const agentTypeId = await resolveAgentTypeId(session.accessToken, session.tenantId, typeId);
@@ -38,9 +38,21 @@ export const GET = withAuth(
         );
       }
       const client = agentsClient(session.accessToken);
-      const upstream = await client.get<{ runs: Run[] }>(
-        `/api/v1/runs?tenant_id=${encodeURIComponent(session.tenantId)}&agent_type_id=${encodeURIComponent(agentTypeId)}`,
-      );
+      const params = new URLSearchParams({
+        tenant_id: session.tenantId,
+        agent_type_id: agentTypeId,
+      });
+      const incoming = new URL(req.url).searchParams;
+      for (const key of ['limit', 'cursor'] as const) {
+        const value = incoming.get(key);
+        if (value) params.set(key, value);
+      }
+      const upstream = await client.get<{
+        runs: Run[];
+        has_more: boolean;
+        next_cursor: string | null;
+        limit: number;
+      }>(`/api/v1/runs?${params.toString()}`);
       const runs = upstream?.runs ?? [];
       // Resolve created_by principals to display names (best-effort — principals
       // that are not tenant users get no name and the UI falls back to the raw id).
@@ -52,7 +64,12 @@ export const GET = withAuth(
         ...r,
         created_by_name: names.get(r.created_by) ?? null,
       }));
-      return NextResponse.json({ data });
+      return NextResponse.json({
+        data,
+        has_more: upstream?.has_more ?? false,
+        next_cursor: upstream?.next_cursor ?? null,
+        limit: upstream?.limit ?? data.length,
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

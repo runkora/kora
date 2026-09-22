@@ -6,11 +6,15 @@ import { AgentDetailProvider } from '../_context/agent-detail-context';
 import { AgentDetailPage } from './agent-detail-page';
 import type { DetailStatus } from '../_hooks/use-agent-detail';
 import type { AgentTypeRow, RunRow } from '../../_types';
+import type { RunStats } from '@orbit/shared/api';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 
 interface AgentDetailShellProps {
   initialAgent: AgentTypeRow | null;
   initialRuns: RunRow[];
+  initialHasMoreRuns: boolean;
+  initialNextCursor: string | null;
+  initialRunStats: RunStats;
   initialError: string | null;
   initialStatus: DetailStatus;
   budget: BudgetPrincipalStatus | null;
@@ -20,6 +24,9 @@ interface AgentDetailShellProps {
 export function AgentDetailShell({
   initialAgent,
   initialRuns,
+  initialHasMoreRuns,
+  initialNextCursor,
+  initialRunStats,
   initialError,
   initialStatus,
   budget,
@@ -29,6 +36,9 @@ export function AgentDetailShell({
     <AgentDetailProvider
       initialAgent={initialAgent}
       initialRuns={initialRuns}
+      initialHasMoreRuns={initialHasMoreRuns}
+      initialNextCursor={initialNextCursor}
+      initialRunStats={initialRunStats}
       initialError={initialError}
       initialStatus={initialStatus}
     >

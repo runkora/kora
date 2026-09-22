@@ -7,6 +7,7 @@ import type {
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Run,
+  RunStats,
   UpdateAgentTypeRequest,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
@@ -104,26 +105,76 @@ export async function deleteAgentType(id: string): Promise<{ error: string | nul
 
 // ── fetchAgentRuns ────────────────────────────────────────────────────────────
 
+export interface AgentRunsPage {
+  data: RunRow[];
+  hasMore: boolean;
+  nextCursor: string | null;
+  error: string | null;
+}
+
+/**
+ * Fetches one page of one agent type's runs, newest first. Pass `cursor`
+ * (from a previous call's `nextCursor`) to fetch the next page.
+ */
 export async function fetchAgentRuns(
   agentTypeId: string,
   agentTypeRow: AgentTypeRow,
-): Promise<{ data: RunRow[]; error: string | null }> {
+  options: { cursor?: string; limit?: number } = {},
+): Promise<AgentRunsPage> {
+  const params = new URLSearchParams();
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit) params.set('limit', String(options.limit));
+  const qs = params.toString();
+
   let res: Response;
   try {
-    res = await fetch(ApiRoute.runs.listForType(agentTypeId), { cache: 'no-store' });
+    res = await fetch(`${ApiRoute.runs.listForType(agentTypeId)}${qs ? `?${qs}` : ''}`, {
+      cache: 'no-store',
+    });
   } catch {
-    return { data: [], error: 'Network error: could not reach the server.' };
+    return { data: [], hasMore: false, nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       data: [],
+      hasMore: false,
+      nextCursor: null,
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  const body = (await res.json()) as { data: Run[] };
+  const body = (await res.json()) as { data: Run[]; has_more: boolean; next_cursor: string | null };
   const byId = indexAgentTypes([agentTypeRow]);
-  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
+  return {
+    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
+    hasMore: body.has_more ?? false,
+    nextCursor: body.next_cursor ?? null,
+    error: null,
+  };
+}
+
+// ── fetchAgentRunStats ─────────────────────────────────────────────────────────
+
+export async function fetchAgentRunStats(
+  agentTypeId: string,
+): Promise<{ data: RunStats | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(`${ApiRoute.runs.stats()}?agent_type_id=${encodeURIComponent(agentTypeId)}`, {
+      cache: 'no-store',
+    });
+  } catch {
+    return { data: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      data: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const data = (await res.json()) as RunStats;
+  return { data, error: null };
 }
 
 // ── deleteRun ─────────────────────────────────────────────────────────────────

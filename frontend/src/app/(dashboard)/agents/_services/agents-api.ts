@@ -15,6 +15,7 @@ import type {
   McpServer,
   ModelObject,
   Run,
+  RunStats,
   StartRunRequest,
   ToolScopeDefinition,
 } from '@orbit/shared/api';
@@ -70,25 +71,79 @@ export async function fetchAgentTypesUsage(): Promise<{
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 
+export interface RunsPage {
+  data: RunRow[];
+  hasMore: boolean;
+  nextCursor: string | null;
+  error: string | null;
+}
+
+/**
+ * Fetches one page of the tenant's runs, newest first. Pass `cursor` (from a
+ * previous call's `nextCursor`) to fetch the next page. `agentTypeId` narrows
+ * to one agent type; omit for every type the caller may read.
+ */
 export async function fetchRuns(
   agentTypes: AgentTypeRow[],
-): Promise<{ data: RunRow[]; error: string | null }> {
+  options: { agentTypeId?: string; cursor?: string; limit?: number } = {},
+): Promise<RunsPage> {
+  const params = new URLSearchParams();
+  if (options.agentTypeId) params.set('agent_type_id', options.agentTypeId);
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit) params.set('limit', String(options.limit));
+  const qs = params.toString();
+
   let res: Response;
   try {
-    res = await fetch(ApiRoute.runs.list(), { cache: 'no-store' });
+    res = await fetch(`${ApiRoute.runs.list()}${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error: could not reach the server.' };
+    return { data: [], hasMore: false, nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       data: [],
+      hasMore: false,
+      nextCursor: null,
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  const body = (await res.json()) as { data: Run[] };
+  const body = (await res.json()) as { data: Run[]; has_more: boolean; next_cursor: string | null };
   const byId = indexAgentTypes(agentTypes);
-  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
+  return {
+    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
+    hasMore: body.has_more ?? false,
+    nextCursor: body.next_cursor ?? null,
+    error: null,
+  };
+}
+
+// ── fetchRunStats ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetches run counts and average completed duration, computed server-side, so
+ * the dashboard never has to fetch every run to summarize them. Pass
+ * `agentTypeId` to scope to one agent type; omit for a tenant-wide summary.
+ */
+export async function fetchRunStats(
+  agentTypeId?: string,
+): Promise<{ data: RunStats | null; error: string | null }> {
+  const qs = agentTypeId ? `?agent_type_id=${encodeURIComponent(agentTypeId)}` : '';
+  let res: Response;
+  try {
+    res = await fetch(`${ApiRoute.runs.stats()}${qs}`, { cache: 'no-store' });
+  } catch {
+    return { data: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      data: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const data = (await res.json()) as RunStats;
+  return { data, error: null };
 }
 
 // ── fetchStartRun ─────────────────────────────────────────────────────────────

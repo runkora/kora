@@ -6,6 +6,7 @@ import { fetchEnvironments } from '../environments/_services/environments-server
 import { fetchAnalyticsFromGateway } from '../model-gateway/_services/analytics-server';
 import { fetchBudgetPrincipalsFromGateway } from '../model-gateway/_services/budgets-server';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
+import type { RunStats } from '@orbit/shared/api';
 import type { ConnectionRow } from '../connections/_types';
 import type { EnvironmentRow } from '../environments/_types';
 import type { AnalyticsResponse, TenantCapStatus } from '../model-gateway/_types';
@@ -16,6 +17,7 @@ export const ANALYTICS_WINDOW_DAYS = 7;
 export interface DashboardData {
   agentTypes: AgentTypeRow[];
   runs: RunRow[];
+  runStats: RunStats;
   connections: ConnectionRow[];
   environments: EnvironmentRow[];
   /** Inference analytics over the last {@link ANALYTICS_WINDOW_DAYS} days, or null if unavailable. */
@@ -25,9 +27,18 @@ export interface DashboardData {
 }
 
 /** The shape returned when there is no valid session — every section empty. */
+const EMPTY_RUN_STATS: RunStats = {
+  total: 0,
+  active: 0,
+  completed: 0,
+  failed: 0,
+  avg_completed_duration_ms: null,
+};
+
 export const EMPTY_DASHBOARD_DATA: DashboardData = {
   agentTypes: [],
   runs: [],
+  runStats: EMPTY_RUN_STATS,
   connections: [],
   environments: [],
   analytics: null,
@@ -57,7 +68,8 @@ export async function fetchDashboardData(
 
   return {
     agentTypes: agentsResult.ok ? agentsResult.agentTypes : [],
-    runs: agentsResult.ok ? agentsResult.runs : [],
+    runs: agentsResult.ok ? agentsResult.recentRuns : [],
+    runStats: agentsResult.ok ? agentsResult.runStats : EMPTY_RUN_STATS,
     connections: connectionsResult.ok ? connectionsResult.rows : [],
     environments: environmentsResult.ok ? environmentsResult.rows : [],
     analytics: analyticsResult.ok ? analyticsResult.data : null,

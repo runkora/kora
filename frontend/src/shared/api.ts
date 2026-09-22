@@ -428,6 +428,30 @@ export interface AgentTypesListResponse {
 /** Top-level response from GET /agents/runs. */
 export interface RunsListResponse {
   data: Run[];
+  /** True when more rows follow this page. */
+  has_more: boolean;
+  /** Opaque token for the next page's ?cursor= param; null when has_more is false. */
+  next_cursor: string | null;
+  limit: number;
+}
+
+/**
+ * Run counts and average completed duration for the runs a caller may read,
+ * optionally narrowed to one agent type. Computed as a SQL aggregate on the
+ * backend rather than by fetching every run and reducing over it.
+ * Mirrors Go: agents.RunStats.
+ */
+export interface RunStats {
+  total: number;
+  /** active + starting + pending + completing + idle. */
+  active: number;
+  completed: number;
+  /** failed + budget_exhausted. */
+  failed: number;
+  /** Null when no completed run has both a started_at and a completed_at. */
+  avg_completed_duration_ms: number | null;
+  /** Populated only for a tenant-wide call (no agent_type_id given). */
+  active_by_agent_type?: Record<string, number>;
 }
 
 /**

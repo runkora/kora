@@ -13,11 +13,16 @@ export const GET = withAuth(async (req, session) => {
     // Forwarded rather than dropped: these narrow the row set upstream, and
     // every row it returns costs one policy evaluation there.
     const incoming = new URL(req.url).searchParams;
-    for (const key of ['agent_type_id', 'limit'] as const) {
+    for (const key of ['agent_type_id', 'limit', 'cursor'] as const) {
       const value = incoming.get(key);
       if (value) params.set(key, value);
     }
-    const upstream = await client.get<{ runs: Run[] }>(`/api/v1/runs?${params.toString()}`);
+    const upstream = await client.get<{
+      runs: Run[];
+      has_more: boolean;
+      next_cursor: string | null;
+      limit: number;
+    }>(`/api/v1/runs?${params.toString()}`);
     const runs = upstream?.runs ?? [];
     // Resolve created_by principals to display names (best-effort — principals
     // that are not tenant users get no name and the UI falls back to the raw id).
@@ -29,7 +34,12 @@ export const GET = withAuth(async (req, session) => {
       ...r,
       created_by_name: names.get(r.created_by) ?? null,
     }));
-    return NextResponse.json({ data });
+    return NextResponse.json({
+      data,
+      has_more: upstream?.has_more ?? false,
+      next_cursor: upstream?.next_cursor ?? null,
+      limit: upstream?.limit ?? data.length,
+    });
   } catch (err) {
     if (err instanceof ApiError) {
       return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

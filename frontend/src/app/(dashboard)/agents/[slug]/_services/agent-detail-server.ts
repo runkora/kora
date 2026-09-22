@@ -1,14 +1,24 @@
 import 'server-only';
 
-import type { AgentType, Run } from '@orbit/shared/api';
+import type { AgentType, Run, RunStats } from '@orbit/shared/api';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
+/** First-page size for the runs tab's "load more" pagination. */
+const RUNS_PAGE_SIZE = 25;
+
 export type AgentDetailResult =
-  | { ok: true; agent: AgentTypeRow; runs: RunRow[] }
+  | {
+      ok: true;
+      agent: AgentTypeRow;
+      runs: RunRow[];
+      hasMoreRuns: boolean;
+      nextCursor: string | null;
+      runStats: RunStats;
+    }
   | { ok: false; status: number; message: string };
 
 export async function fetchAgentDetailFromBFF(
@@ -35,9 +45,12 @@ export async function fetchAgentDetailFromBFF(
 
     const agent = toAgentTypeRow(detail ?? found);
 
-    const runsUpstream = await client.get<{ runs: Run[] }>(
-      `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}`,
-    );
+    const [runsUpstream, runStats] = await Promise.all([
+      client.get<{ runs: Run[]; has_more: boolean; next_cursor: string | null }>(
+        `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}&limit=${RUNS_PAGE_SIZE}`,
+      ),
+      client.get<RunStats>(`/api/v1/runs/stats?agent_type_id=${encodeURIComponent(found.id)}`),
+    ]);
     const rawRuns = runsUpstream?.runs ?? [];
     // Resolve run starters to display names (same enrichment as the runs BFF
     // routes) so the server-rendered runs tab attributes runs on first paint.
@@ -50,7 +63,20 @@ export async function fetchAgentDetailFromBFF(
       toRunRow({ ...r, created_by_name: names.get(r.created_by) ?? null }, byId),
     );
 
-    return { ok: true, agent, runs };
+    return {
+      ok: true,
+      agent,
+      runs,
+      hasMoreRuns: runsUpstream?.has_more ?? false,
+      nextCursor: runsUpstream?.next_cursor ?? null,
+      runStats: runStats ?? {
+        total: 0,
+        active: 0,
+        completed: 0,
+        failed: 0,
+        avg_completed_duration_ms: null,
+      },
+    };
   } catch (err) {
     if (err instanceof ApiError) {
       return { ok: false, status: err.status, message: err.message };

@@ -40,6 +40,11 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
 
   const initialAgent = result?.ok ? result.agent : null;
   const initialRuns = result?.ok ? result.runs : [];
+  const initialHasMoreRuns = result?.ok ? result.hasMoreRuns : false;
+  const initialNextCursor = result?.ok ? result.nextCursor : null;
+  const initialRunStats = result?.ok
+    ? result.runStats
+    : { total: 0, active: 0, completed: 0, failed: 0, avg_completed_duration_ms: null };
   const initialError = result && !result.ok ? result.message : null;
   const initialStatus =
     result === null
@@ -54,6 +59,9 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
     <AgentDetailShell
       initialAgent={initialAgent}
       initialRuns={initialRuns}
+      initialHasMoreRuns={initialHasMoreRuns}
+      initialNextCursor={initialNextCursor}
+      initialRunStats={initialRunStats}
       initialError={initialError}
       initialStatus={initialStatus}
       budget={budget}

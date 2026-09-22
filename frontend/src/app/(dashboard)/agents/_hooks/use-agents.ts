@@ -9,14 +9,23 @@
 // the store's state + actions must satisfy the AgentsStateShape interface.
 
 import { useState, useCallback } from 'react';
-import { fetchAgentTypes, fetchRuns } from '../_services/agents-api';
-import type { AgentTypeRow, RunRow } from '../_types';
+import { fetchAgentTypes, fetchRunStats } from '../_services/agents-api';
+import type { AgentTypeRow } from '../_types';
+import type { RunStats } from '@orbit/shared/api';
 
 export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
+const emptyRunStats: RunStats = {
+  total: 0,
+  active: 0,
+  completed: 0,
+  failed: 0,
+  avg_completed_duration_ms: null,
+};
+
 export interface AgentsStateShape {
   agentTypes: AgentTypeRow[];
-  recentRuns: RunRow[];
+  runStats: RunStats;
   status: LoadStatus;
   error: string | null;
   refresh: () => Promise<void>;
@@ -24,11 +33,11 @@ export interface AgentsStateShape {
 
 export function useAgents(
   initialAgentTypes: AgentTypeRow[],
-  initialRuns: RunRow[],
+  initialRunStats: RunStats,
   initialError: string | null,
 ): AgentsStateShape {
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>(initialAgentTypes);
-  const [recentRuns, setRecentRuns] = useState<RunRow[]>(initialRuns);
+  const [runStats, setRunStats] = useState<RunStats>(initialRunStats);
   const [status, setStatus] = useState<LoadStatus>(
     initialError ? 'error' : initialAgentTypes.length > 0 ? 'success' : 'idle',
   );
@@ -47,13 +56,15 @@ export function useAgents(
 
     setAgentTypes(typesResult.data);
 
-    const runsResult = await fetchRuns(typesResult.data);
-    if (!runsResult.error) {
-      setRecentRuns(runsResult.data);
+    const statsResult = await fetchRunStats();
+    if (!statsResult.error && statsResult.data) {
+      setRunStats(statsResult.data);
+    } else {
+      setRunStats(emptyRunStats);
     }
 
     setStatus('success');
   }, []);
 
-  return { agentTypes, recentRuns, status, error, refresh };
+  return { agentTypes, runStats, status, error, refresh };
 }

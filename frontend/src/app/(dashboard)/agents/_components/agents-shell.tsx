@@ -4,19 +4,20 @@
 
 import { AgentsProvider } from '../_context/agents-context';
 import { AgentsPage } from './agents-page';
-import type { AgentTypeRow, RunRow } from '../_types';
+import type { AgentTypeRow } from '../_types';
+import type { RunStats } from '@orbit/shared/api';
 
 interface AgentsShellProps {
   initialAgentTypes: AgentTypeRow[];
-  initialRuns: RunRow[];
+  initialRunStats: RunStats;
   initialError: string | null;
 }
 
-export function AgentsShell({ initialAgentTypes, initialRuns, initialError }: AgentsShellProps) {
+export function AgentsShell({ initialAgentTypes, initialRunStats, initialError }: AgentsShellProps) {
   return (
     <AgentsProvider
       initialAgentTypes={initialAgentTypes}
-      initialRuns={initialRuns}
+      initialRunStats={initialRunStats}
       initialError={initialError}
     >
       <AgentsPage />

@@ -8,12 +8,16 @@ import { createContext, useContext } from 'react';
 import { useAgentDetail } from '../_hooks/use-agent-detail';
 import type { AgentDetailStateShape, DetailStatus } from '../_hooks/use-agent-detail';
 import type { AgentTypeRow, RunRow } from '../../_types';
+import type { RunStats } from '@orbit/shared/api';
 
 const AgentDetailContext = createContext<AgentDetailStateShape | null>(null);
 
 interface AgentDetailProviderProps {
   initialAgent: AgentTypeRow | null;
   initialRuns: RunRow[];
+  initialHasMoreRuns: boolean;
+  initialNextCursor: string | null;
+  initialRunStats: RunStats;
   initialError: string | null;
   initialStatus: DetailStatus;
   children: React.ReactNode;
@@ -22,11 +26,22 @@ interface AgentDetailProviderProps {
 export function AgentDetailProvider({
   initialAgent,
   initialRuns,
+  initialHasMoreRuns,
+  initialNextCursor,
+  initialRunStats,
   initialError,
   initialStatus,
   children,
 }: AgentDetailProviderProps) {
-  const state = useAgentDetail(initialAgent, initialRuns, initialError, initialStatus);
+  const state = useAgentDetail(
+    initialAgent,
+    initialRuns,
+    initialHasMoreRuns,
+    initialNextCursor,
+    initialRunStats,
+    initialError,
+    initialStatus,
+  );
   return <AgentDetailContext.Provider value={state}>{children}</AgentDetailContext.Provider>;
 }
 

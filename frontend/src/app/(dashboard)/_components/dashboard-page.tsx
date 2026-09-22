@@ -31,6 +31,7 @@ import { EventFeedItem } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 
 import type { AgentTypeRow, RunRow } from '../agents/_types';
+import type { RunStats } from '@orbit/shared/api';
 import { formatRelativeTime } from '../agents/_types';
 import type { ConnectionRow } from '../connections/_types';
 import type { EnvironmentRow } from '../environments/_types';
@@ -132,6 +133,7 @@ export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
 export interface DashboardPageProps {
   agentTypes: AgentTypeRow[];
   runs: RunRow[];
+  runStats: RunStats;
   connections: ConnectionRow[];
   environments: EnvironmentRow[];
   analytics: AnalyticsResponse | null;
@@ -144,17 +146,18 @@ export interface DashboardPageProps {
 export function DashboardPage({
   agentTypes,
   runs,
+  runStats,
   connections,
   environments,
   analytics,
   tenantCap,
   windowDays = 7,
 }: DashboardPageProps) {
-  const activeRunCount = runs.filter((r) =>
-    ['active', 'starting', 'pending', 'completing'].includes(r.state),
-  ).length;
+  const activeRunCount = runStats.active;
 
-  const recentRuns = runs.slice(0, 8);
+  // runs is already the bounded recent-runs page the server fetched (see
+  // agents-server.ts RECENT_RUNS_LIMIT); no further slicing needed.
+  const recentRuns = runs;
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
@@ -188,7 +191,7 @@ export function DashboardPage({
             }
             label="Active Runs"
             value={String(activeRunCount)}
-            delta={{ text: `${runs.length} total`, positive: activeRunCount > 0 }}
+            delta={{ text: `${runStats.total} total`, positive: activeRunCount > 0 }}
             href={APP_ROUTES.agents.list}
           />
           <MetricCard

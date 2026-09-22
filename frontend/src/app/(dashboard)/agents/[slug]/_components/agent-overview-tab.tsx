@@ -68,7 +68,7 @@ interface AgentOverviewTabProps {
 }
 
 export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
-  const { agent, runs } = useAgentDetailContext();
+  const { agent, runs, runStats } = useAgentDetailContext();
   const router = useRouter();
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [agentUsage, setAgentUsage] = useState<AgentTypeUsage | null>(null);
@@ -94,22 +94,19 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   }, [agentUsage]);
 
   // ── Stats computation ──────────────────────────────────────────────────────
+  // Server-computed (RunStats), not derived from the loaded runs page: runs
+  // only holds the most recent RUNS_PAGE_SIZE rows, which is enough for the
+  // "5 most recent" table below but not for a tenant-accurate total.
 
-  const totalRuns = runs.length;
-
-  const completedRuns = useMemo(() => runs.filter((r) => r.state === 'completed').length, [runs]);
+  const totalRuns = runStats.total;
+  const completedRuns = runStats.completed;
 
   const successRate = useMemo(() => {
     if (totalRuns === 0) return 'N/A';
     return `${Math.round((completedRuns / totalRuns) * 100)}%`;
   }, [completedRuns, totalRuns]);
 
-  const avgDuration = useMemo(() => {
-    const completed = runs.filter((r) => r.state === 'completed' && r.durationMs !== null);
-    if (completed.length === 0) return '—';
-    const avg = completed.reduce((sum, r) => sum + (r.durationMs ?? 0), 0) / completed.length;
-    return formatDuration(avg);
-  }, [runs]);
+  const avgDuration = formatDuration(runStats.avg_completed_duration_ms);
 
   // ── Recent runs (5 most recent) ────────────────────────────────────────────
 

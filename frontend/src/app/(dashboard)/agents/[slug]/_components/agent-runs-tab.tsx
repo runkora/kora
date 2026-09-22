@@ -65,7 +65,18 @@ interface AgentRunsTabProps {
 }
 
 export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
-  const { agent, runs, status, error, refresh, deleteRun } = useAgentDetailContext();
+  const {
+    agent,
+    runs,
+    runStats,
+    hasMoreRuns,
+    loadingMoreRuns,
+    loadMoreRuns,
+    status,
+    error,
+    refresh,
+    deleteRun,
+  } = useAgentDetailContext();
   const router = useRouter();
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
@@ -75,16 +86,20 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     'all',
   );
 
-  const runCounts = useMemo(
-    () => ({
-      all: runs.length,
-      active: runs.filter((r) => ACTIVE_STATES.includes(r.state)).length,
-      completed: runs.filter((r) => r.state === 'completed').length,
-      failed: runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted').length,
-    }),
-    [runs],
-  );
+  // Tab counts come from the server-computed RunStats, not the loaded page:
+  // runs only holds what "load more" has fetched so far, and a tab count
+  // has to be right before its rows have all arrived.
+  const runCounts = {
+    all: runStats.total,
+    active: runStats.active,
+    completed: runStats.completed,
+    failed: runStats.failed,
+  };
 
+  // The table itself filters only what has been loaded. Switching to a status
+  // tab with more matches than are currently loaded shows what's loaded plus
+  // a "Load more" affordance — the same shape search already has, since
+  // search is client-side over the loaded page too.
   const filteredRuns = useMemo(() => {
     if (statusFilter === 'all') return runs;
     if (statusFilter === 'active') return runs.filter((r) => ACTIVE_STATES.includes(r.state));
@@ -242,7 +257,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           private — make that legible rather than leaving lists mysteriously short. */}
       {agent?.identityMode === 'delegated' && <DelegatedRunNotice />}
       {/* Show EmptyState when there are no runs and no error */}
-      {status !== 'error' && runs.length === 0 && status !== 'loading' ? (
+      {status !== 'error' && runStats.total === 0 && status !== 'loading' ? (
         <EmptyState
           icon="play-circle"
           title="No runs yet"
@@ -301,6 +316,19 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
             }
           }}
         />
+      )}
+
+      {hasMoreRuns && (
+        <Stack align="center" paddingBlock="tight">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadMoreRuns()}
+            disabled={loadingMoreRuns}
+          >
+            {loadingMoreRuns ? 'Loading…' : 'Load more runs'}
+          </Button>
+        </Stack>
       )}
 
       <ConfirmDialog

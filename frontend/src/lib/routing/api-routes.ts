@@ -419,6 +419,7 @@ export const ApiRoute = {
       `${API_BASE}/agents/runs/${runId}/messages`,
     events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
       `${API_BASE}/agents/runs/${runId}/events`,
+    stats: (): `${typeof API_BASE}/agents/runs/stats` => `${API_BASE}/agents/runs/stats`,
   },
 
   /**
@@ -511,4 +512,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
+  | ReturnType<(typeof ApiRoute)['runs']['stats']>
   | string; // analyticsMe, analytics, analyticsPrincipals, analyticsPrincipalById include dynamic query strings

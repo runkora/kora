@@ -57,6 +57,8 @@ const labelMap: Partial<Record<string, string>> = {
   deleting: 'Deleting',
 };
 
+const emptyActiveByAgentType: Record<string, number> = {};
+
 const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> = {
   'claude-code': 'default',
   codex: 'outline',
@@ -66,7 +68,7 @@ const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> =
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AgentsPage() {
-  const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
+  const { agentTypes, runStats, status, error, refresh } = useAgentsContext();
   const router = useRouter();
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
@@ -81,16 +83,12 @@ export function AgentsPage() {
     [agentTypes],
   );
 
-  const activeRunCount = useMemo(
-    () =>
-      recentRuns.filter((r) => ['active', 'starting', 'pending', 'completing'].includes(r.state))
-        .length,
-    [recentRuns],
-  );
+  const activeRunCount = runStats.active;
 
-  const completedTodayCount = recentRuns.filter(
-    (r) => r.state === 'completed' && r.completedAt !== null,
-  ).length;
+  // Despite the name, this has never actually filtered to today — it counts
+  // every completed run visible to the caller. Kept as-is: renaming or
+  // scoping it to a real "today" window is a separate change.
+  const completedTodayCount = runStats.completed;
 
   // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
   // Fetched client-side so the list can show total + per-agent spend without
@@ -114,27 +112,17 @@ export function AgentsPage() {
     return fmtUsd(values.reduce((acc, u) => acc + u.estimated_cost_usd, 0));
   }, [agentUsage]);
 
-  // Tokens Used: prefer the accurate inference_usage total (same source as cost
-  // + per-agent breakdown); fall back to the runs-based estimate when the usage
-  // aggregate has no data yet.
   const totalTokensUsed = useMemo(() => {
     const usageSum = Object.values(agentUsage).reduce((acc, u) => acc + u.total_tokens, 0);
-    if (usageSum > 0) return fmtTokens(usageSum);
-    const runsSum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
-    return runsSum > 0 ? fmtTokens(runsSum) : '—';
-  }, [agentUsage, recentRuns]);
+    return usageSum > 0 ? fmtTokens(usageSum) : '—';
+  }, [agentUsage]);
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
-  const activeRunsByType = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const run of recentRuns) {
-      if (['active', 'starting', 'pending', 'completing'].includes(run.state)) {
-        counts.set(run.agentTypeId, (counts.get(run.agentTypeId) ?? 0) + 1);
-      }
-    }
-    return counts;
-  }, [recentRuns]);
+  // A stable module-level fallback, not a fresh {} each render: this feeds a
+  // useMemo dependency array below, and a new object reference every render
+  // would defeat that memoization.
+  const activeRunsByType = runStats.active_by_agent_type ?? emptyActiveByAgentType;
 
   // ── Identity filter (list view) ────────────────────────────────────────────
 
@@ -204,7 +192,7 @@ export function AgentsPage() {
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
-            {activeRunsByType.get(row.id) ?? 0}
+            {activeRunsByType[row.id] ?? 0}
           </Text>
         ),
       },
@@ -397,7 +385,7 @@ export function AgentsPage() {
 
               <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
                 <Text size="caption" color="muted">
-                  {activeRunsByType.get(agent.id) ?? 0} active
+                  {activeRunsByType[agent.id] ?? 0} active
                 </Text>
                 <Stack direction="horizontal" gap="tight">
                   <Button
