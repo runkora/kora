@@ -132,6 +132,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
+	mux.Handle("GET /api/v1/runs/stats", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
@@ -400,32 +401,104 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
+// parseRunsCursor decodes the opaque "?cursor=<RFC3339Nano>|<id>" query
+// parameter (the same shape /v1/usage uses) into the keyset pair ListRuns
+// expects. Absent is the first page; a malformed value 400s rather than
+// silently falling back to the first page, which would loop a caller back to
+// rows it already has.
+func parseRunsCursor(raw string) (*time.Time, *string, *api.APIError, error) {
+	if raw == "" {
+		return nil, nil, nil, nil
+	}
+	parts := strings.SplitN(raw, "|", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		err := fmt.Errorf("cursor %q: expected <timestamp>|<id>", raw)
+		return nil, nil, api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", nil), err
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return nil, nil, api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", nil), err
+	}
+	id := parts[1]
+	return &t, &id, nil, nil
+}
+
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
-	// limit <= 0 (including absent) means unbounded — see ListRuns. An
-	// unparseable value must 400, not silently fall through to unbounded: that
-	// would turn a caller's typo into the one response shape they didn't ask for.
+
+	cursorTime, cursorID, apiErr, err := parseRunsCursor(r.URL.Query().Get("cursor"))
+	if apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	// limit <= 0 (including absent) takes the default page size — see
+	// ListRuns/RunListFilter. An unparseable or over-ceiling value 400s rather
+	// than silently clamping: a caller relying on a specific page size should
+	// learn its request changed, not get a smaller page with no signal.
 	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be an integer", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be a positive integer", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
+			return
+		}
+		if parsed > maxRunsLimit {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField,
+				fmt.Sprintf("limit must be between 1 and %d", maxRunsLimit), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 		limit = parsed
 	}
 
-	runs, err := c.runs.ListRuns(ctx, agentTypeID, limit)
+	runs, hasMore, err := c.runs.ListRuns(ctx, agentTypeID, cursorTime, cursorID, limit)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
+	if runs == nil {
+		runs = []Run{}
+	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
+	var nextCursor *string
+	if hasMore && len(runs) > 0 {
+		last := runs[len(runs)-1]
+		s := last.CreatedAt.Format(time.RFC3339Nano) + "|" + last.ID
+		nextCursor = &s
+	}
+	if limit <= 0 {
+		limit = defaultRunsLimit
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"runs":        runs,
+		"has_more":    hasMore,
+		"next_cursor": nextCursor,
+		"limit":       limit,
+	})
+}
+
+// handleRunStats handles GET /api/v1/runs/stats: counts and average completed
+// duration for the runs the caller may read, optionally narrowed to one agent
+// type. Backs the dashboard and per-agent-type overview cards without either
+// fetching every run to summarize them.
+func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	agentTypeID := r.URL.Query().Get("agent_type_id")
+
+	stats, err := c.runs.GetRunStats(ctx, agentTypeID)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to compute run stats", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, stats)
 }
 
 func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {

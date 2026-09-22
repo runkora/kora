@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/token"
 )
@@ -45,6 +46,52 @@ type RunVisibility struct {
 	// Empty matches no delegated run (fail closed); autonomous-agent runs are
 	// never filtered.
 	Subject string
+}
+
+// defaultRunsLimit and maxRunsLimit bound GET /api/v1/runs pagination. The
+// handler rejects an explicit limit above the ceiling with a 400 (matching
+// /v1/usage); the repository re-clamps defensively for any other caller.
+const (
+	defaultRunsLimit = 50
+	maxRunsLimit     = 200
+)
+
+// RunListFilter narrows and paginates a ListRuns/RunStats call. Both fields
+// that gate visibility — ReadableAgentTypeIDs and Visibility — are resolved by
+// the service layer before the query is built, never inferred inside the
+// repository, so the repository has one job: apply exactly what it is given.
+type RunListFilter struct {
+	// AgentTypeID optionally narrows to one agent type (a caller-supplied
+	// query param). Empty means every agent type the visibility rules allow.
+	AgentTypeID string
+	// ReadableAgentTypeIDs is the set of agent types the caller may read runs
+	// for, resolved once via Authz.readableAgentTypeIDsForRuns. An empty
+	// (non-nil) slice matches no run — fail closed — rather than every run.
+	ReadableAgentTypeIDs []string
+	// Visibility is the delegated-run visibility rule (RunVisibility).
+	Visibility RunVisibility
+	// CursorTime and CursorID anchor a keyset page: rows strictly after this
+	// (created_at, id) pair in the newest-first order are returned. Both nil
+	// requests the first page.
+	CursorTime *time.Time
+	CursorID   *string
+	// Limit bounds the page size. The service layer applies the default and
+	// ceiling before this reaches the repository.
+	Limit int
+}
+
+// RunStats summarizes a tenant's (or one agent type's) runs: counts by state
+// group and the average duration of completed runs. ActiveByAgentType is
+// populated only for a tenant-wide call (AgentTypeID == "" in the request).
+type RunStats struct {
+	Total     int `json:"total"`
+	Active    int `json:"active"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	// AvgCompletedDurationMs is nil when no completed run has both a started_at
+	// and a completed_at to compute a duration from.
+	AvgCompletedDurationMs *int64         `json:"avg_completed_duration_ms"`
+	ActiveByAgentType      map[string]int `json:"active_by_agent_type,omitempty"`
 }
 
 // runVisibilityFromContext derives the caller's run visibility from verified

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -292,12 +293,18 @@ func TestHandleListRuns_OK(t *testing.T) {
 	if len(runs) != 1 {
 		t.Errorf("expected 1 run, got %d", len(runs))
 	}
+	if hasMore, _ := resp["has_more"].(bool); hasMore {
+		t.Error("has_more = true, want false")
+	}
+	if resp["next_cursor"] != nil {
+		t.Errorf("next_cursor = %v, want nil", resp["next_cursor"])
+	}
 }
 
-func TestHandleListRuns_LimitOmitted_ReturnsEverything(t *testing.T) {
+func TestHandleListRuns_LimitOmitted_DefaultsToDefaultPage(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	for i := range 3 {
+	for i := range defaultRunsLimit + 5 {
 		seedRun(t, repo, Run{ID: fmt.Sprintf("run-%d", i), TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 	}
 
@@ -310,8 +317,14 @@ func TestHandleListRuns_LimitOmitted_ReturnsEverything(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	runs, _ := resp["runs"].([]any)
-	if len(runs) != 3 {
-		t.Errorf("expected 3 runs, got %d", len(runs))
+	if len(runs) != defaultRunsLimit {
+		t.Errorf("expected the default page size %d, got %d", defaultRunsLimit, len(runs))
+	}
+	if hasMore, _ := resp["has_more"].(bool); !hasMore {
+		t.Error("has_more = false, want true: 5 rows remain past the default page")
+	}
+	if resp["next_cursor"] == nil {
+		t.Error("next_cursor = nil, want a cursor for the remaining rows")
 	}
 }
 
@@ -334,11 +347,13 @@ func TestHandleListRuns_ExplicitLimit_IsHonoured(t *testing.T) {
 	if len(runs) != 1 {
 		t.Errorf("expected 1 run, got %d", len(runs))
 	}
+	if hasMore, _ := resp["has_more"].(bool); !hasMore {
+		t.Error("has_more = false, want true: 2 rows remain")
+	}
 }
 
-// An unparseable limit must 400, not silently fall through to unbounded — that
-// would turn a caller's typo into the one response shape ("everything") they
-// least expected.
+// An unparseable limit must 400, not silently fall through to the default —
+// that would turn a caller's typo into a different response shape with no signal.
 func TestHandleListRuns_UnparseableLimit_Returns400(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -347,6 +362,70 @@ func TestHandleListRuns_UnparseableLimit_Returns400(t *testing.T) {
 	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=not-a-number")
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// #230: a limit above the ceiling is rejected, not silently clamped to a
+// smaller page the caller has no way to distinguish from what it asked for.
+func TestHandleListRuns_LimitAboveCeiling_Returns400(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	w := getRequest(t, c.handleListRuns, fmt.Sprintf("tenant_id=t-1&limit=%d", maxRunsLimit+1))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleListRuns_MalformedCursor_Returns400(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&cursor=not-a-valid-cursor")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// The cursor from one page's response reaches exactly the next page, with no
+// overlap and no gap.
+func TestHandleListRuns_CursorFromResponseReachesNextPage(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	base := time.Now()
+	for i := range 5 {
+		seedRun(t, repo, Run{
+			ID: fmt.Sprintf("run-%d", i), TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive,
+			CreatedAt: base.Add(-time.Duration(i) * time.Second),
+		})
+	}
+
+	first := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=3")
+	var firstResp map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("unmarshal first page: %v", err)
+	}
+	cursor, ok := firstResp["next_cursor"].(string)
+	if !ok || cursor == "" {
+		t.Fatalf("next_cursor missing from first page: %+v", firstResp)
+	}
+
+	second := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=3&cursor="+url.QueryEscape(cursor))
+	if second.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", second.Code)
+	}
+	var secondResp map[string]any
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResp); err != nil {
+		t.Fatalf("unmarshal second page: %v", err)
+	}
+	runs, _ := secondResp["runs"].([]any)
+	if len(runs) != 2 {
+		t.Fatalf("second page = %d runs, want 2 (5 seeded, 3 on the first page)", len(runs))
+	}
+	if hasMore, _ := secondResp["has_more"].(bool); hasMore {
+		t.Error("has_more = true on the last page, want false")
 	}
 }
 

@@ -231,7 +231,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 			f, _ := seed(t)
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject, tc.roles)
 
-			runs, err := f.run.ListRuns(ctx, "", 0)
+			runs, _, err := f.run.ListRuns(ctx, "", nil, nil, 0)
 			if err != nil {
 				t.Fatalf("ListRuns: %v", err)
 			}
@@ -257,7 +257,7 @@ func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "", "")
 
-	runs, err := f.run.ListRuns(ctx, "", 0)
+	runs, _, err := f.run.ListRuns(ctx, "", nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}

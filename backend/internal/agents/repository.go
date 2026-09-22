@@ -29,13 +29,24 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
-	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
-	// agent type. limit caps the row count; limit <= 0 returns every match.
-	// vis applies the delegated-run visibility rule INSIDE the query (Decision 6
-	// of docs/adr/2026-07-23-delegated-agent-identity.md): unless vis.SeeAll,
-	// runs of delegated agent types are returned only where created_by equals
-	// vis.Subject. Autonomous-agent runs are never filtered.
-	ListRuns(ctx context.Context, tenantID string, agentTypeID string, vis RunVisibility, limit int) ([]Run, error)
+	// ListRuns returns a tenant's runs newest first, cursor-paginated. Both
+	// visibility rules apply INSIDE the query, not by trimming the result in
+	// memory, so a page's row count is always exact and a bound is always safe:
+	//   - filter.ReadableAgentTypeIDs (the agent-type read grant the caller
+	//     resolves once via Authz.readableAgentTypeIDsForRuns): an empty slice
+	//     returns no rows, fail closed.
+	//   - filter.Visibility (delegated-run visibility, Decision 6 of
+	//     docs/adr/2026-07-23-delegated-agent-identity.md): unless SeeAll, runs
+	//     of delegated agent types are returned only where created_by equals
+	//     Visibility.Subject. Autonomous-agent runs are never filtered by it.
+	// The second return value reports whether more rows follow the page.
+	ListRuns(ctx context.Context, tenantID string, filter RunListFilter) ([]Run, bool, error)
+	// RunStats returns run counts and average completed duration under the same
+	// two visibility rules as ListRuns, computed as SQL aggregates rather than
+	// by scanning rows, so the dashboard and per-agent-type stats never need to
+	// fetch every run to summarize them. ActiveByAgentType is populated only
+	// when filter.AgentTypeID is empty (a tenant-wide call).
+	RunStats(ctx context.Context, tenantID string, filter RunListFilter) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.

@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"io"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -220,40 +221,120 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
+// runListMatch reports whether a run passes every RunListFilter boundary
+// except the cursor: tenant, explicit agent-type narrowing, the resolved
+// readable-agent-type set, and delegated-run visibility. Shared by ListRuns
+// and RunStats so both mirror the SQL WHERE clause identically.
+func (m *mockRepository) runListMatch(r *Run, tenantID string, filter RunListFilter) bool {
+	if r.TenantID != tenantID {
+		return false
+	}
+	if filter.AgentTypeID != "" && r.AgentTypeID != filter.AgentTypeID {
+		return false
+	}
+	// Mirror "r.agent_type_id = ANY($readable)": nil or empty matches nothing.
+	if !slices.Contains(filter.ReadableAgentTypeIDs, r.AgentTypeID) {
+		return false
+	}
+	mode := m.runIdentityModeLocked(r)
+	// Mirror the SQL visibility clause: (at.identity_mode <> 'delegated'
+	// OR (subject <> '' AND r.created_by = subject)).
+	if !filter.Visibility.SeeAll && mode == IdentityModeDelegated &&
+		(filter.Visibility.Subject == "" || r.CreatedBy != filter.Visibility.Subject) {
+		return false
+	}
+	return true
+}
+
+func (m *mockRepository) ListRuns(_ context.Context, tenantID string, filter RunListFilter) ([]Run, bool, error) {
 	if m.listRunsErr != nil {
-		return nil, m.listRunsErr
+		return nil, false, m.listRunsErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Run
 	for _, r := range m.runs {
-		if r.TenantID != tenantID || (agentTypeID != "" && r.AgentTypeID != agentTypeID) {
-			continue
-		}
-		mode := m.runIdentityModeLocked(r)
-		// Mirror the SQL visibility clause: (at.identity_mode <> 'delegated'
-		// OR (subject <> '' AND r.created_by = subject)).
-		if !vis.SeeAll && mode == IdentityModeDelegated && (vis.Subject == "" || r.CreatedBy != vis.Subject) {
+		if !m.runListMatch(r, tenantID, filter) {
 			continue
 		}
 		cp := *r
-		cp.IdentityMode = mode
+		cp.IdentityMode = m.runIdentityModeLocked(r)
 		out = append(out, cp)
 	}
-	// Mirror ORDER BY created_at DESC, id DESC LIMIT n. m.runs is a map, so the
-	// sort is what makes the truncation deterministic; id breaks ties because
-	// fixtures commonly share a timestamp.
+	// Mirror ORDER BY created_at DESC, id DESC. m.runs is a map, so the sort is
+	// what makes pagination deterministic; id breaks ties because fixtures
+	// commonly share a timestamp.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
 			return out[i].ID > out[j].ID
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	if limit > 0 && len(out) > limit {
+	if filter.CursorTime != nil && filter.CursorID != nil {
+		// Mirror "(created_at, id) < (cursorTime, cursorID)".
+		cut := 0
+		for cut < len(out) {
+			r := out[cut]
+			before := r.CreatedAt.Before(*filter.CursorTime) ||
+				(r.CreatedAt.Equal(*filter.CursorTime) && r.ID < *filter.CursorID)
+			if before {
+				break
+			}
+			cut++
+		}
+		out = out[cut:]
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultRunsLimit
+	}
+	if limit > maxRunsLimit {
+		limit = maxRunsLimit
+	}
+	hasMore := len(out) > limit
+	if hasMore {
 		out = out[:limit]
 	}
-	return out, nil
+	return out, hasMore, nil
+}
+
+func (m *mockRepository) RunStats(_ context.Context, tenantID string, filter RunListFilter) (RunStats, error) {
+	if m.listRunsErr != nil {
+		return RunStats{}, m.listRunsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var stats RunStats
+	var totalDurationMs, completedWithDuration int64
+	if filter.AgentTypeID == "" {
+		stats.ActiveByAgentType = make(map[string]int)
+	}
+	for _, r := range m.runs {
+		if !m.runListMatch(r, tenantID, filter) {
+			continue
+		}
+		stats.Total++
+		switch r.State {
+		case RunStateActive, RunStateStarting, RunStatePending, RunStateCompleting, RunStateIdle:
+			stats.Active++
+			if stats.ActiveByAgentType != nil {
+				stats.ActiveByAgentType[r.AgentTypeID]++
+			}
+		case RunStateCompleted:
+			stats.Completed++
+			if r.StartedAt != nil && r.CompletedAt != nil {
+				totalDurationMs += r.CompletedAt.Sub(*r.StartedAt).Milliseconds()
+				completedWithDuration++
+			}
+		case RunStateFailed, RunStateBudgetExhausted:
+			stats.Failed++
+		}
+	}
+	if completedWithDuration > 0 {
+		avg := totalDurationMs / completedWithDuration
+		stats.AvgCompletedDurationMs = &avg
+	}
+	return stats, nil
 }
 
 func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunState) error {
@@ -750,7 +831,8 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	return f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, 0)
+	runs, _, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, nil, nil, 0)
+	return runs, err
 }
 
 func (f *testServiceFacade) TerminateRun(ctx context.Context, id string) error {

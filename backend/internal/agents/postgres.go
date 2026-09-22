@@ -232,31 +232,64 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
-func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
-	query := selectRun + ` WHERE r.tenant_id=$1`
+// runListWhere builds the WHERE clause shared by ListRuns and RunStats: tenant,
+// the optional explicit agent-type narrowing, the resolved readable-agent-type
+// boundary, and the delegated-run visibility rule. All four live in the query
+// so a caller cannot see a row it lacks the grant for, however the result is
+// later limited or aggregated.
+func runListWhere(tenantID string, filter RunListFilter) (string, []any) {
+	clause := "r.tenant_id=$1"
 	args := []any{tenantID}
-	if agentTypeID != "" {
-		args = append(args, agentTypeID)
-		query += fmt.Sprintf(" AND r.agent_type_id=$%d", len(args))
+	if filter.AgentTypeID != "" {
+		args = append(args, filter.AgentTypeID)
+		clause += fmt.Sprintf(" AND r.agent_type_id=$%d", len(args))
 	}
-	// Delegated-run visibility (delegated-agent-identity ADR, Decision 6): the
-	// filter lives in the query so result counts stay correct under any future
-	// pagination. An empty vis.Subject matches no delegated run (fail closed).
-	if !vis.SeeAll {
-		args = append(args, vis.Subject)
-		query += fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%d <> '' AND r.created_by = $%d))", len(args), len(args))
+	// ANY over an empty or nil slice matches no row — fail closed for a caller
+	// with no readable agent type, rather than falling through to unrestricted.
+	readable := filter.ReadableAgentTypeIDs
+	if readable == nil {
+		readable = []string{}
+	}
+	args = append(args, readable)
+	clause += fmt.Sprintf(" AND r.agent_type_id = ANY($%d)", len(args))
+	// Delegated-run visibility (delegated-agent-identity ADR, Decision 6): an
+	// empty Visibility.Subject matches no delegated run (fail closed).
+	if !filter.Visibility.SeeAll {
+		args = append(args, filter.Visibility.Subject)
+		clause += fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%d <> '' AND r.created_by = $%d))", len(args), len(args))
+	}
+	return clause, args
+}
+
+// ListRuns returns a keyset-paginated page. It fetches limit+1 rows to detect
+// whether a next page exists without a separate COUNT(*) query — the same
+// technique the inference-gateway usage list uses (see
+// PostgresInferenceUsageRepository.List).
+func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, filter RunListFilter) ([]Run, bool, error) {
+	where, args := runListWhere(tenantID, filter)
+	query := selectRun + " WHERE " + where
+	if filter.CursorTime != nil && filter.CursorID != nil {
+		args = append(args, *filter.CursorTime, *filter.CursorID)
+		// Strictly-less-than excludes the anchor row itself.
+		query += fmt.Sprintf(" AND (r.created_at, r.id) < ($%d, $%d)", len(args)-1, len(args))
 	}
 	// id breaks created_at ties: without it the rows a LIMIT drops at a tie
-	// boundary vary between executions of the same query.
-	query += ` ORDER BY r.created_at DESC, r.id DESC`
-	if limit > 0 {
-		args = append(args, limit)
-		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	// boundary vary between executions of the same query, and the keyset cursor
+	// above depends on that ordering being stable.
+	query += " ORDER BY r.created_at DESC, r.id DESC"
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultRunsLimit
 	}
+	if limit > maxRunsLimit {
+		limit = maxRunsLimit
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(" LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query runs: %w", err)
+		return nil, false, fmt.Errorf("query runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -264,11 +297,78 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 	for rows.Next() {
 		run, err := scanRun(rows)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		out = append(out, *run)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
+}
+
+// RunStats computes counts and average completed duration in one query, under
+// the same visibility boundary as ListRuns.
+func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, filter RunListFilter) (RunStats, error) {
+	where, args := runListWhere(tenantID, filter)
+	query := `
+		SELECT
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE r.state IN ('active', 'starting', 'pending', 'completing', 'idle')) AS active,
+			COUNT(*) FILTER (WHERE r.state = 'completed') AS completed,
+			COUNT(*) FILTER (WHERE r.state IN ('failed', 'budget_exhausted')) AS failed,
+			AVG(EXTRACT(EPOCH FROM (r.completed_at - r.started_at)) * 1000)
+				FILTER (WHERE r.state = 'completed' AND r.started_at IS NOT NULL AND r.completed_at IS NOT NULL) AS avg_completed_duration_ms
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE ` + where
+
+	var stats RunStats
+	var avgMs *float64
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&stats.Total, &stats.Active, &stats.Completed, &stats.Failed, &avgMs); err != nil {
+		return RunStats{}, fmt.Errorf("run stats: %w", err)
+	}
+	if avgMs != nil {
+		ms := int64(*avgMs)
+		stats.AvgCompletedDurationMs = &ms
+	}
+
+	if filter.AgentTypeID != "" {
+		return stats, nil
+	}
+	// Tenant-wide call: also break down the "active" count by agent type, for
+	// the dashboard's per-agent-type badges. Reuses the same WHERE so it never
+	// reveals an agent type the caller could not otherwise read a run for.
+	byTypeQuery := `
+		SELECT r.agent_type_id, COUNT(*)
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE ` + where + `
+			AND r.state IN ('active', 'starting', 'pending', 'completing', 'idle')
+		GROUP BY r.agent_type_id`
+	rows, err := r.pool.Query(ctx, byTypeQuery, args...)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("run stats by agent type: %w", err)
+	}
+	defer rows.Close()
+
+	byType := make(map[string]int)
+	for rows.Next() {
+		var agentTypeID string
+		var count int
+		if err := rows.Scan(&agentTypeID, &count); err != nil {
+			return RunStats{}, fmt.Errorf("run stats by agent type scan: %w", err)
+		}
+		byType[agentTypeID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return RunStats{}, err
+	}
+	stats.ActiveByAgentType = byType
+	return stats, nil
 }
 
 func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, to RunState) error {

@@ -10,9 +10,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
-// GET /api/v1/runs backs the dashboard's activity history. It returns every run
-// by default: filterRuns runs after any row cap, so a truncated response is
-// indistinguishable from a complete one and rows go missing silently.
+// GET /api/v1/runs backs the dashboard's activity history. Both visibility
+// rules — which agent types the caller may read runs for, and the delegated
+// created_by rule — are applied inside the repository query (RunListFilter),
+// so a page's row count is exact: LIMIT never returns fewer rows than fit
+// because some were dropped afterward. See #209.
 
 // pathAllowEvaluator allows only candidates whose resource path contains
 // segment, so a test can permit one agent type's runs and deny the rest.
@@ -31,6 +33,13 @@ func (e pathAllowEvaluator) Query(_ context.Context, in policy.QueryInput) ([]st
 	return out, nil
 }
 
+// denyAllEvaluator grants nothing, for the fail-closed test.
+type denyAllEvaluator struct{ allowAllEvaluator }
+
+func (denyAllEvaluator) Query(context.Context, policy.QueryInput) ([]string, error) {
+	return nil, nil
+}
+
 // seedRunsAcrossTypes seeds n runs for one tenant, spread over typeCount agent
 // types, with strictly decreasing created_at so "newest" is unambiguous.
 func seedRunsAcrossTypes(t *testing.T, repo *mockRepository, tenant string, n, typeCount int) {
@@ -47,30 +56,19 @@ func seedRunsAcrossTypes(t *testing.T, repo *mockRepository, tenant string, n, t
 	}
 }
 
-func TestListRuns_ReturnsEveryRunByDefault(t *testing.T) {
+func TestListRuns_DefaultPageSize(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
-	const total = 640
-	seedRunsAcrossTypes(t, repo, "t-1", total, 3)
+	seedRunsAcrossTypes(t, repo, "t-1", 80, 3)
 
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", 0)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != total {
-		t.Errorf("len(runs) = %d, want %d: an unspecified limit must not truncate the history", len(runs), total)
+	if len(runs) != defaultRunsLimit {
+		t.Errorf("len(runs) = %d, want the default page size %d", len(runs), defaultRunsLimit)
 	}
-}
-
-func TestListRuns_NegativeLimitIsAlsoUnbounded(t *testing.T) {
-	svc, repo, _, _ := newTestService(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 300, 2)
-
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", -1)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if len(runs) != 300 {
-		t.Errorf("len(runs) = %d, want 300", len(runs))
+	if !hasMore {
+		t.Error("hasMore = false, want true: 80 seeded rows exceed the default page")
 	}
 }
 
@@ -78,12 +76,15 @@ func TestListRuns_ExplicitLimitIsHonoured(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 40, 2)
 
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", 10)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 10)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if len(runs) != 10 {
 		t.Fatalf("len(runs) = %d, want 10", len(runs))
+	}
+	if !hasMore {
+		t.Error("hasMore = false, want true")
 	}
 	// run-0000 is newest; an explicit limit keeps the newest, not an arbitrary slice.
 	for i, r := range runs {
@@ -94,37 +95,46 @@ func TestListRuns_ExplicitLimitIsHonoured(t *testing.T) {
 	}
 }
 
-func TestListRuns_NoArbitraryUpperBoundOnExplicitLimit(t *testing.T) {
+func TestListRuns_LimitAboveCeilingIsClamped(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 1500, 4)
+	seedRunsAcrossTypes(t, repo, "t-1", maxRunsLimit+50, 4)
 
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", 1200)
+	// The service layer trusts its caller (the HTTP handler rejects an
+	// over-ceiling limit before it gets here — see parseRunsCursor's sibling
+	// validation in handleListRuns). The repository still re-clamps
+	// defensively for any other caller.
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, maxRunsLimit+50)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 1200 {
-		t.Errorf("len(runs) = %d, want 1200", len(runs))
+	if len(runs) != maxRunsLimit {
+		t.Errorf("len(runs) = %d, want the ceiling %d", len(runs), maxRunsLimit)
+	}
+	if !hasMore {
+		t.Error("hasMore = false, want true")
 	}
 }
 
-// An explicit limit is applied in the query, ahead of the authz filter, so a
-// principal whose grants cover only some agent types sees fewer than limit rows.
-// This is why no limit is applied by default; issue #209 tracks pushing the
-// visibility filter into the query so a bound can return an exact count.
-func TestListRuns_ExplicitLimitAppliesBeforeTheAuthzFilter(t *testing.T) {
+// This is the fix for #209: pushing the visibility filter into the query
+// means an explicit limit returns exactly that many rows when enough are
+// readable, rather than a page the authz filter then thins out unpredictably.
+func TestListRuns_ExactPageWithNarrowedVisibility(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 60, 2)
 
-	// Permit only at-0's runs. Slugs come from seedRun's "stub-<id>" default,
-	// and filterRuns builds the candidate path as ["runs", slug].
+	// Permit only at-0's runs. Slugs come from seedRun's "stub-<id>" default;
+	// readableAgentTypeIDsForRuns builds the candidate path as ["runs", slug].
 	svc.run.authz = NewAuthz(&pathAllowEvaluator{segment: "stub-at-0"})
 
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", 10)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 10)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) == 0 || len(runs) >= 10 {
-		t.Errorf("len(runs) = %d, want between 1 and 9", len(runs))
+	if len(runs) != 10 {
+		t.Errorf("len(runs) = %d, want exactly 10: the visibility filter is applied in the query, so a page never comes back short", len(runs))
+	}
+	if !hasMore {
+		t.Error("hasMore = false, want true: at-0 has 30 runs, more remain after this page")
 	}
 	for _, r := range runs {
 		if r.AgentTypeID != "at-0" {
@@ -133,28 +143,103 @@ func TestListRuns_ExplicitLimitAppliesBeforeTheAuthzFilter(t *testing.T) {
 	}
 }
 
-// Unbounded is only safe because the authz filter no longer costs one policy
-// evaluation per row (policy.engine.Query memoises on the rego input), so a
-// large history must still resolve to one evaluation per distinct agent type.
-func TestListRuns_UnboundedCostsOneEvaluationPerAgentType(t *testing.T) {
+// A principal with no readable agent type must see nothing, not everything —
+// the acceptance criterion #209 states explicitly.
+func TestListRuns_EmptyReadableSetFailsClosed(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRunsAcrossTypes(t, repo, "t-1", 20, 2)
+	svc.run.authz = NewAuthz(&denyAllEvaluator{})
+
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("len(runs) = %d, want 0", len(runs))
+	}
+	if hasMore {
+		t.Error("hasMore = true, want false")
+	}
+}
+
+// Walking the cursor must reach every row exactly once, in the same order a
+// single unbounded read would produce, with hasMore turning false on the last
+// page.
+func TestListRuns_CursorPaginationCoversEveryRowOnce(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	const total = 137
+	seedRunsAcrossTypes(t, repo, "t-1", total, 3)
+	ctx := withTenantCtx(context.Background(), "t-1")
+
+	var seen []string
+	var cursorTime *time.Time
+	var cursorID *string
+	for page := 0; ; page++ {
+		if page > total {
+			t.Fatalf("did not terminate after %d pages", page)
+		}
+		runs, hasMore, err := svc.run.ListRuns(ctx, "", cursorTime, cursorID, 25)
+		if err != nil {
+			t.Fatalf("ListRuns page %d: %v", page, err)
+		}
+		for _, r := range runs {
+			seen = append(seen, r.ID)
+		}
+		if !hasMore {
+			if len(runs) == 0 && page == 0 {
+				t.Fatal("first page was empty")
+			}
+			break
+		}
+		last := runs[len(runs)-1]
+		ct := last.CreatedAt
+		cid := last.ID
+		cursorTime, cursorID = &ct, &cid
+	}
+
+	if len(seen) != total {
+		t.Fatalf("saw %d runs across all pages, want %d", len(seen), total)
+	}
+	seenSet := make(map[string]struct{}, len(seen))
+	for _, id := range seen {
+		if _, dup := seenSet[id]; dup {
+			t.Errorf("run %s returned twice across pages", id)
+		}
+		seenSet[id] = struct{}{}
+	}
+	for i := range total {
+		want := fmt.Sprintf("run-%04d", i)
+		if _, ok := seenSet[want]; !ok {
+			t.Errorf("run %s never appeared in any page", want)
+		}
+	}
+}
+
+// The readable-agent-type resolution costs one evaluation per distinct agent
+// type in the tenant, not one per run: it runs once, over the tenant's agent
+// types, before the runs query — never per row.
+func TestListRuns_VisibilityResolutionCostsOneEvaluationPerAgentType(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 800, 5)
 
 	counting := &countingQueryEvaluator{}
 	svc.run.authz = NewAuthz(counting)
 
-	runs, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", 0)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 800 {
-		t.Errorf("len(runs) = %d, want 800", len(runs))
+	if len(runs) != defaultRunsLimit {
+		t.Errorf("len(runs) = %d, want the default page size %d", len(runs), defaultRunsLimit)
+	}
+	if !hasMore {
+		t.Error("hasMore = false, want true")
 	}
 	if counting.calls != 1 {
 		t.Errorf("policy Query calls = %d, want 1 batched call", counting.calls)
 	}
-	if counting.candidates != 800 {
-		t.Errorf("candidates passed = %d, want 800 in the single call", counting.candidates)
+	if counting.candidates != 5 {
+		t.Errorf("candidates passed = %d, want 5 (one per distinct agent type)", counting.candidates)
 	}
 }
 
