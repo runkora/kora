@@ -4,6 +4,7 @@
 package routes
 
 import (
+	"slices"
 	"sync"
 	"time"
 )
@@ -59,9 +60,11 @@ func NewStore() *Store {
 	}
 }
 
-// Register stores (or replaces) the route registration for a service+tenant pair.
-// Idempotent: re-registration replaces the previous entry.
-func (s *Store) Register(reg *Registration) {
+// Register records a service's routes and scopes, replacing any previous
+// registration for the same service and tenant. It reports whether the routes
+// or scopes differ from what was already registered, so a caller can tell a
+// periodic re-registration that changed nothing from one that did.
+func (s *Store) Register(reg *Registration) bool {
 	key := registrationKey{service: reg.Service, tenantID: reg.TenantID}
 
 	// Defensive copy so the caller cannot mutate store internals after Register returns.
@@ -75,8 +78,16 @@ func (s *Store) Register(reg *Registration) {
 	cpy.RegisteredAt = time.Now().UTC()
 
 	s.mu.Lock()
+	previous, existed := s.registrations[key]
 	s.registrations[key] = &cpy
 	s.mu.Unlock()
+
+	if !existed {
+		return true
+	}
+	// RegisteredAt moves on every call and says nothing about the content.
+	return !slices.Equal(previous.Routes, cpy.Routes) ||
+		!slices.EqualFunc(previous.Scopes, cpy.Scopes, sameScopeDeclaration)
 }
 
 // ListAll returns all registrations in the store, regardless of tenant.
@@ -161,4 +172,16 @@ func (s *Store) RoutesForTenant(tenantID string) []RouteScope {
 		}
 	}
 	return result
+}
+
+// sameScopeDeclaration compares two declarations by value. ScopeDeclaration
+// holds slices, so it is not comparable and slices.Equal cannot be used on a
+// slice of them.
+func sameScopeDeclaration(a, b ScopeDeclaration) bool {
+	return a.Scope == b.Scope &&
+		a.ResourceType == b.ResourceType &&
+		a.Action == b.Action &&
+		a.Description == b.Description &&
+		slices.Equal(a.PathSegments, b.PathSegments) &&
+		slices.Equal(a.Requires, b.Requires)
 }
