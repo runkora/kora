@@ -10,11 +10,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
-// GET /api/v1/runs backs the dashboard's activity history. Both visibility
-// rules — which agent types the caller may read runs for, and the delegated
-// created_by rule — are applied inside the repository query (RunListFilter),
-// so a page's row count is exact: LIMIT never returns fewer rows than fit
-// because some were dropped afterward. See #209.
+// Visibility rules are applied inside the repository query (RunListFilter),
+// so a page's LIMIT never returns fewer rows than fit because some were
+// dropped afterward. See #209.
 
 // pathAllowEvaluator allows only candidates whose resource path contains
 // segment, so a test can permit one agent type's runs and deny the rest.

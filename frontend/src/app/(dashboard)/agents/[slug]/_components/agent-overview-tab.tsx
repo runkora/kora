@@ -94,9 +94,8 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   }, [agentUsage]);
 
   // ── Stats computation ──────────────────────────────────────────────────────
-  // Server-computed (RunStats), not derived from the loaded runs page: runs
-  // only holds the most recent RUNS_PAGE_SIZE rows, which is enough for the
-  // "5 most recent" table below but not for a tenant-accurate total.
+  // Server-computed: runs only holds the most recent page, not enough for a
+  // tenant-accurate total.
 
   const totalRuns = runStats.total;
   const completedRuns = runStats.completed;

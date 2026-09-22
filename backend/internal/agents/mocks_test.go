@@ -272,15 +272,12 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, filter Run
 	})
 	if filter.CursorTime != nil && filter.CursorID != nil {
 		// Mirror "(created_at, id) < (cursorTime, cursorID)".
-		cut := 0
-		for cut < len(out) {
-			r := out[cut]
-			before := r.CreatedAt.Before(*filter.CursorTime) ||
+		cut := slices.IndexFunc(out, func(r Run) bool {
+			return r.CreatedAt.Before(*filter.CursorTime) ||
 				(r.CreatedAt.Equal(*filter.CursorTime) && r.ID < *filter.CursorID)
-			if before {
-				break
-			}
-			cut++
+		})
+		if cut == -1 {
+			cut = len(out)
 		}
 		out = out[cut:]
 	}

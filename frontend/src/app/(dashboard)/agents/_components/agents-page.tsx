@@ -85,9 +85,8 @@ export function AgentsPage() {
 
   const activeRunCount = runStats.active;
 
-  // Despite the name, this has never actually filtered to today — it counts
-  // every completed run visible to the caller. Kept as-is: renaming or
-  // scoping it to a real "today" window is a separate change.
+  // Despite the name, this counts every completed run visible to the
+  // caller, not just today's. Pre-existing behavior, kept as-is.
   const completedTodayCount = runStats.completed;
 
   // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
@@ -119,9 +118,8 @@ export function AgentsPage() {
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
-  // A stable module-level fallback, not a fresh {} each render: this feeds a
-  // useMemo dependency array below, and a new object reference every render
-  // would defeat that memoization.
+  // Stable fallback, not a fresh {} each render — feeds a useMemo dependency
+  // array below, which a new reference every render would defeat.
   const activeRunsByType = runStats.active_by_agent_type ?? emptyActiveByAgentType;
 
   // ── Identity filter (list view) ────────────────────────────────────────────

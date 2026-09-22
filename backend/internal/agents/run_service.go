@@ -333,13 +333,9 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 
 // ListRuns returns a page of the runs the principal in ctx may read, newest
 // first, optionally filtered by agent type, and reports whether more rows
-// follow. Tenant is derived from ctx claims (never from a query string).
-//
-// Both visibility rules — which agent types the caller may read runs for, and
-// the delegated-run created_by rule — are resolved before the query and
-// applied inside it (see RunListFilter), so a page's row count is exact: it
-// never mixes an authz drop with a row cap, which is what made a bound unsafe
-// to default before #209.
+// follow. Tenant is derived from ctx claims. Both visibility rules (readable
+// agent types, delegated-run created_by) are resolved and applied inside the
+// query (RunListFilter), so a page's row count is exact — see #209.
 func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, cursorTime *time.Time, cursorID *string, limit int) ([]Run, bool, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",

@@ -187,14 +187,9 @@ func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error
 }
 
 // readableAgentTypeIDsForRuns returns the IDs of the agent types in ats whose
-// runs the principal may read (agents:runs:<slug>:read). One batched Query
-// call evaluates every agent type in the tenant, so a caller resolves this
-// once and pushes the result into the runs query's WHERE clause — rather than
-// asking per-run, which cannot bound a LIMIT, and cannot tell the difference
-// between a truncated page and a complete one.
-//
-// An unresolvable candidate is not possible here the way it was for filterRuns
-// per-run: ats is the tenant's own agent-type list, not run-derived data.
+// runs the principal may read (agents:runs:<slug>:read), via one batched Query
+// call, so the result can be pushed into the runs query's WHERE clause instead
+// of filtering per-run after a LIMIT.
 func (a *Authz) readableAgentTypeIDsForRuns(ctx context.Context, ats []AgentType) ([]string, error) {
 	if len(ats) == 0 {
 		return nil, nil

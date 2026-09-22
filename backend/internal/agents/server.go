@@ -434,10 +434,8 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// limit <= 0 (including absent) takes the default page size — see
-	// ListRuns/RunListFilter. An unparseable or over-ceiling value 400s rather
-	// than silently clamping: a caller relying on a specific page size should
-	// learn its request changed, not get a smaller page with no signal.
+	// limit <= 0 (including absent) takes the default page size. An
+	// unparseable or over-ceiling value 400s rather than silently clamping.
 	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, parseErr := strconv.Atoi(raw)
@@ -483,10 +481,9 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRunStats handles GET /api/v1/runs/stats: counts and average completed
-// duration for the runs the caller may read, optionally narrowed to one agent
-// type. Backs the dashboard and per-agent-type overview cards without either
-// fetching every run to summarize them.
+// handleRunStats handles GET /api/v1/runs/stats: counts and average
+// completed duration for the runs the caller may read, optionally narrowed
+// to one agent type.
 func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	agentTypeID := r.URL.Query().Get("agent_type_id")

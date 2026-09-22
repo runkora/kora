@@ -8,9 +8,7 @@ import (
 )
 
 // TestGetRunStats_CountsByStateGroup covers the state-group bucketing every
-// consumer (the dashboard, the per-agent-type overview, and the runs tab's
-// status counts) relies on, computed as one SQL aggregate rather than by
-// fetching every run to reduce over.
+// consumer relies on, computed as one SQL aggregate.
 func TestGetRunStats_CountsByStateGroup(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})

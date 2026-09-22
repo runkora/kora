@@ -232,11 +232,9 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
-// runListWhere builds the WHERE clause shared by ListRuns and RunStats: tenant,
-// the optional explicit agent-type narrowing, the resolved readable-agent-type
-// boundary, and the delegated-run visibility rule. All four live in the query
-// so a caller cannot see a row it lacks the grant for, however the result is
-// later limited or aggregated.
+// runListWhere builds the WHERE clause shared by ListRuns and RunStats:
+// tenant, optional agent-type narrowing, the readable-agent-type boundary,
+// and delegated-run visibility.
 func runListWhere(tenantID string, filter RunListFilter) (string, []any) {
 	clause := "r.tenant_id=$1"
 	args := []any{tenantID}
@@ -262,9 +260,7 @@ func runListWhere(tenantID string, filter RunListFilter) (string, []any) {
 }
 
 // ListRuns returns a keyset-paginated page. It fetches limit+1 rows to detect
-// whether a next page exists without a separate COUNT(*) query — the same
-// technique the inference-gateway usage list uses (see
-// PostgresInferenceUsageRepository.List).
+// whether a next page exists without a separate COUNT(*) query.
 func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, filter RunListFilter) ([]Run, bool, error) {
 	where, args := runListWhere(tenantID, filter)
 	query := selectRun + " WHERE " + where
@@ -340,9 +336,8 @@ func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, filt
 	if filter.AgentTypeID != "" {
 		return stats, nil
 	}
-	// Tenant-wide call: also break down the "active" count by agent type, for
-	// the dashboard's per-agent-type badges. Reuses the same WHERE so it never
-	// reveals an agent type the caller could not otherwise read a run for.
+	// Tenant-wide call: also break down the active count by agent type, for
+	// the dashboard's per-agent-type badges, under the same WHERE clause.
 	byTypeQuery := `
 		SELECT r.agent_type_id, COUNT(*)
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id

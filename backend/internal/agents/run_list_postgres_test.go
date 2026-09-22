@@ -9,10 +9,8 @@ import (
 )
 
 // TestPostgres_ListRuns_CursorPaginationCoversEveryRowOnce exercises the real
-// SQL: the ANY($n) readable-agent-type array parameter and the (created_at,
-// id) row-tuple cursor comparison. Neither is exercised meaningfully by the
-// mock, which reimplements the same rule in Go rather than asking Postgres to
-// evaluate it.
+// SQL: the ANY($n) readable-agent-type parameter and the (created_at, id)
+// cursor comparison, neither of which the mock exercises meaningfully.
 func TestPostgres_ListRuns_CursorPaginationCoversEveryRowOnce(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
@@ -102,9 +100,8 @@ func TestPostgres_ListRuns_EmptyReadableSetFailsClosed(t *testing.T) {
 	}
 }
 
-// TestPostgres_RunStats_MatchesListRuns covers the aggregate query against the
-// same fixtures the list query above proves correct: the counts must agree
-// with a plain count of what ListRuns (unbounded) returns.
+// TestPostgres_RunStats_MatchesListRuns covers the aggregate query: its
+// counts must agree with a plain count of what ListRuns (unbounded) returns.
 func TestPostgres_RunStats_MatchesListRuns(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()

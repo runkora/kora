@@ -86,9 +86,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     'all',
   );
 
-  // Tab counts come from the server-computed RunStats, not the loaded page:
-  // runs only holds what "load more" has fetched so far, and a tab count
-  // has to be right before its rows have all arrived.
+  // From server-computed RunStats, not the loaded page — counts must be
+  // right before "load more" has fetched every matching row.
   const runCounts = {
     all: runStats.total,
     active: runStats.active,
@@ -96,10 +95,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     failed: runStats.failed,
   };
 
-  // The table itself filters only what has been loaded. Switching to a status
-  // tab with more matches than are currently loaded shows what's loaded plus
-  // a "Load more" affordance — the same shape search already has, since
-  // search is client-side over the loaded page too.
+  // Filters only what's loaded so far; a status tab with more matches than
+  // loaded shows a "Load more" affordance, same as client-side search.
   const filteredRuns = useMemo(() => {
     if (statusFilter === 'all') return runs;
     if (statusFilter === 'active') return runs.filter((r) => ACTIVE_STATES.includes(r.state));
