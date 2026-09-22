@@ -114,6 +114,7 @@ func OpenAIParamsToAnthropicParams(params openai.ChatCompletionNewParams) anthro
 			p.ToolChoice = tc
 		}
 	}
+	applyPromptCaching(&p)
 	return p
 }
 
@@ -351,6 +352,8 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 		}
 	}
 
+	promptTokens := msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.CacheCreationInputTokens
+
 	message := openai.ChatCompletionMessage{
 		Role: "assistant",
 	}
@@ -373,10 +376,18 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 				Message:      message,
 			},
 		},
+		// Anthropic reports uncached input, cache reads and cache writes as three
+		// separate totals. OpenAI's prompt_tokens covers all of them, with
+		// prompt_tokens_details.cached_tokens naming the cached subset. Only the
+		// cached subset has a wire field; billing takes the write count from
+		// OpenAIResult.CacheCreationTokens and prices it separately.
 		Usage: openai.CompletionUsage{
-			PromptTokens:     msg.Usage.InputTokens,
+			PromptTokens:     promptTokens,
 			CompletionTokens: msg.Usage.OutputTokens,
-			TotalTokens:      msg.Usage.InputTokens + msg.Usage.OutputTokens,
+			TotalTokens:      promptTokens + msg.Usage.OutputTokens,
+			PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+				CachedTokens: msg.Usage.CacheReadInputTokens,
+			},
 		},
 	}
 }
@@ -387,10 +398,13 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 // Anthropic SSE events into a sequence of OpenAI chat.completion.chunk objects.
 // Create one per stream with NewAnthropicStreamState.
 type AnthropicStreamState struct {
-	MessageID   string
-	Model       string
-	toolCallIdx map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
-	nextTCIdx   int64
+	MessageID           string
+	Model               string
+	InputTokens         int64           // captured from message_start; emitted in the message_delta usage chunk
+	CacheReadTokens     int64           // cache_read_input_tokens from message_start
+	CacheCreationTokens int64           // cache_creation_input_tokens from message_start
+	toolCallIdx         map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
+	nextTCIdx           int64
 }
 
 // NewAnthropicStreamState initializes an AnthropicStreamState for a new stream.
@@ -410,14 +424,17 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 	case "message_start":
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
+		// Defer emitting usage to message_delta so the client sees a single final
+		// chunk with both prompt and completion tokens (matches standard OpenAI
+		// streaming behavior).
+		s.InputTokens = event.Message.Usage.InputTokens
+		s.CacheReadTokens = event.Message.Usage.CacheReadInputTokens
+		s.CacheCreationTokens = event.Message.Usage.CacheCreationInputTokens
 		return &openai.ChatCompletionChunk{
 			ID:      s.MessageID,
 			Object:  "chat.completion.chunk",
 			Model:   s.Model,
 			Choices: []openai.ChatCompletionChunkChoice{},
-			Usage: openai.CompletionUsage{
-				PromptTokens: event.Message.Usage.InputTokens,
-			},
 		}, true
 
 	case "content_block_start":
@@ -495,6 +512,7 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 		}
 
 	case "message_delta":
+		promptTokens := s.InputTokens + s.CacheReadTokens + s.CacheCreationTokens
 		return &openai.ChatCompletionChunk{
 			ID:    s.MessageID,
 			Model: s.Model,
@@ -505,8 +523,20 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 					Delta:        openai.ChatCompletionChunkChoiceDelta{},
 				},
 			},
+			// OpenAI's prompt_tokens includes prompt_tokens_details.cached_tokens;
+			// Anthropic reports uncached input, cache reads and cache writes as
+			// three separate totals. OpenAI's prompt_tokens covers all of them, so
+			// they are added back; a client reading OpenAI semantics otherwise sees
+			// a handful of tokens for a prompt of thousands. Only the cached subset
+			// has a wire field, so the write count reaches our own billing on
+			// OpenAIStreamResult instead.
 			Usage: openai.CompletionUsage{
+				PromptTokens:     promptTokens,
 				CompletionTokens: event.Usage.OutputTokens,
+				TotalTokens:      promptTokens + event.Usage.OutputTokens,
+				PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+					CachedTokens: s.CacheReadTokens,
+				},
 			},
 		}, true
 	}

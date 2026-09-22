@@ -34,12 +34,14 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Orbit MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
 | [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
 | [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
+| [Terra Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
 | [Frontend Component Consolidation](frontend-component-consolidation.md) | Implemented | [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) |
 | [Semantic HTML Consolidation](semantic-html-consolidation.md) | Implemented | [semantic-html-consolidation](../adr/2026-05-04-semantic-html-consolidation.md) |
 | [Frontend Test Strategy](frontend-test-strategy.md) | Implemented | [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) |
 | [Nav Cleanup and Live Dashboard](nav-cleanup-and-live-dashboard.md) | Approved | [nav-cleanup-and-live-dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md) |
 | [Mobile & Tablet Responsive Design](mobile-responsive-design.md) | Approved | [mobile-responsive-design](../adr/2026-06-19-mobile-responsive-design.md) |
 | [Multi-Account AWS Bedrock Support](multi-account-bedrock.md) | Approved | [multi-account-bedrock](../adr/2026-06-19-multi-account-bedrock.md) |
+| [Non-Token Model Pricing](non-token-model-pricing.md) | Approved | [non-token-model-pricing](../adr/2026-07-24-non-token-model-pricing.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 

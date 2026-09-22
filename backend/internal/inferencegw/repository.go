@@ -614,6 +614,10 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsTokensByModel(ctx context
 }
 
 const defaultPrincipalsLimit = 20
+
+// maxPrincipalsLimit caps a page of principals, both here and in the request
+// parser. Without a cap a caller can ask for every usage row the tenant has ever
+// written in one query. See https://github.com/clear-route/orbit/issues/229.
 const maxPrincipalsLimit = 100
 
 // principalSortColumns maps the public sort_by key to the SQL column alias

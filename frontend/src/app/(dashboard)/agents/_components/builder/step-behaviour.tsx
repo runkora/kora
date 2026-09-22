@@ -16,49 +16,49 @@ export function StepBehaviour() {
         icon="bot"
         title="Behaviour"
         description="Describe how the agent should behave, then choose the model and framework it runs on."
-      />
+      >
+        <FormField label="System instructions" required>
+          <Textarea
+            value={fields.systemPrompt}
+            onChange={(e) => setField('systemPrompt', e.target.value)}
+            rows={5}
+            placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
+          />
+        </FormField>
 
-      <FormField label="System instructions" required>
-        <Textarea
-          value={fields.systemPrompt}
-          onChange={(e) => setField('systemPrompt', e.target.value)}
-          rows={5}
-          placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
-        />
-      </FormField>
+        <Separator span="full" />
 
-      <Separator span="full" />
-
-      {/* ── Framework ──────────────────────────────────────────────────────── */}
-      <Stack gap="cozy">
-        <Text as="span" size="caption" weight="heavy" color="muted">
-          Framework
-        </Text>
-        <FrameworkCards value={fields.framework} onChange={(v) => setField('framework', v)} />
-      </Stack>
-
-      {/* ── Model ──────────────────────────────────────────────────────────── */}
-      <Stack gap="cozy">
-        <Stack direction="horizontal" align="center">
+        {/* ── Framework ──────────────────────────────────────────────────────── */}
+        <Stack gap="cozy">
           <Text as="span" size="caption" weight="heavy" color="muted">
-            Model
+            Framework
           </Text>
-          <Stack grow />
-          <Text as="span" size="micro" color="subtle">
-            {catalogues.models.length} enabled by your platform
-          </Text>
+          <FrameworkCards value={fields.framework} onChange={(v) => setField('framework', v)} />
         </Stack>
 
-        {catalogues.status.models === 'error' && (
-          <Alert variant="error">Models failed to load: {catalogues.errors.models}</Alert>
-        )}
+        {/* ── Model ──────────────────────────────────────────────────────────── */}
+        <Stack gap="cozy">
+          <Stack direction="horizontal" align="center">
+            <Text as="span" size="caption" weight="heavy" color="muted">
+              Model
+            </Text>
+            <Stack grow />
+            <Text as="span" size="micro" color="subtle">
+              {catalogues.models.length} enabled by your platform
+            </Text>
+          </Stack>
 
-        <ModelPicker
-          models={catalogues.models}
-          value={fields.modelId}
-          onChange={(id) => setField('modelId', id)}
-        />
-      </Stack>
+          {catalogues.status.models === 'error' && (
+            <Alert variant="error">Models failed to load: {catalogues.errors.models}</Alert>
+          )}
+
+          <ModelPicker
+            models={catalogues.models}
+            value={fields.modelId}
+            onChange={(id) => setField('modelId', id)}
+          />
+        </Stack>
+      </SectionHeading>
     </Stack>
   );
 }

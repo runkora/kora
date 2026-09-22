@@ -13,8 +13,14 @@ rules:
   # Aggregated registries, tenant CA, per-tenant OPA config, pull-secret
   # replication, the webhook serving certificate.
   - apiGroups: [""]
-    resources: ["configmaps", "secrets"]
+    resources: ["configmaps"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # delete covers the pull-secret replicas only: a Secret dropped from
+  # global.imagePullSecrets is removed from every tenant namespace that
+  # received it (internal/operator/tenant_pullsecrets.go).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Counting the pods an MCPServer's workload selector matches. Listed directly,
   # not watched, so this starts no cluster-wide Pod cache.
   - apiGroups: [""]

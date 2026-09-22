@@ -351,11 +351,12 @@ func (at AgentType) MCPServers() []string {
 	return out
 }
 
-// ValidateConnectors checks each connector names a connection and lists at least
-// one well-formed action. Connection names are single scope segments (no
-// whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not
-// whitespace or '/'. Mirrors Connectivity.Validate so a bad connector is
-// rejected at config time, not silently at grant-reconcile time.
+// ValidateConnectors checks each connector names a connection, lists at least
+// one well-formed action, and names resources that can be a qualifier segment.
+// Connection names are single scope segments (no whitespace, ':' or '/');
+// actions may contain ':' (e.g. "repo:read") but not whitespace or '/';
+// resources are a single segment. Mirrors Connectivity.Validate so a bad
+// connector is rejected at config time, not silently at grant-reconcile time.
 func ValidateConnectors(connectors []Connector) error {
 	for _, c := range connectors {
 		name := strings.TrimSpace(c.Connection)
@@ -374,6 +375,20 @@ func ValidateConnectors(connectors []Connector) error {
 			}
 			if strings.ContainsAny(a, " \t/") {
 				return fmt.Errorf("connector %q action %q is invalid: no spaces or '/'", name, a)
+			}
+		}
+		for _, r := range c.Resources {
+			res := strings.TrimSpace(r)
+			if res == "" {
+				return fmt.Errorf("connector %q has an empty resource", name)
+			}
+			// A resource becomes the qualifier segment of
+			// connection:<name>:<category>:<resource>:<verb>, one segment
+			// (docs/adr/2026-07-22-connection-scope-qualifiers.md). Case is not
+			// checked: ConnectorScopes lowercases the qualifier before it
+			// reaches the grant.
+			if strings.ContainsAny(res, " \t:/*") {
+				return fmt.Errorf("connector %q resource %q is invalid: must be a single segment, no spaces, ':', '/' or '*'", name, r)
 			}
 		}
 	}

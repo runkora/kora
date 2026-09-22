@@ -55,7 +55,7 @@ func stripMantleUnsupportedInputItems(params responses.ResponseNewParams) respon
 // Anthropic/Claude models are translated via the AnthropicResponsesBridge.
 // Other models fall through to the standard OpenAI-compatible endpoint, which
 // will fail and trigger the router's failover to the next target.
-func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*inferencegw.ResponsesResult, error) {
 	c.logger.Debug(ctx, "bedrock: responses start",
 		logging.Field{Key: "model", Value: params.Model},
 	)
@@ -70,7 +70,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 			)
 			return nil, convert.MapOpenAIError(inferencegw.ProviderBedrock, err)
 		}
-		return resp, nil
+		return &inferencegw.ResponsesResult{Response: resp}, nil
 	case backendMantle:
 		resp, err := c.mantleClient.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
 		if err != nil {
@@ -79,7 +79,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 			)
 			return nil, convert.MapOpenAIError(inferencegw.ProviderBedrock, err)
 		}
-		return resp, nil
+		return &inferencegw.ResponsesResult{Response: resp}, nil
 	case backendAnthropic:
 		c.logger.Debug(ctx, "bedrock: responses dispatch via anthropic bridge",
 			logging.Field{Key: "model", Value: params.Model},

@@ -294,6 +294,16 @@ export type {
 
 // ─── Organisms ───────────────────────────────────────────────────────────────
 
+export { Wizard } from './components/wizard';
+export type {
+  WizardProps,
+  WizardRailProps,
+  WizardRailStep,
+  WizardStepProps,
+  WizardFooterProps,
+  WizardReviewCardProps,
+} from './components/wizard';
+
 export { PageLayout } from './components/page-layout';
 export type { PageLayoutProps } from './components/page-layout';
 

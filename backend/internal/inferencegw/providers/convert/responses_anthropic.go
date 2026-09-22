@@ -218,6 +218,7 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 	if params.TopP.Valid() {
 		out.TopP = anthropic.Float(params.TopP.Value)
 	}
+	applyPromptCaching(&out)
 	return out, nil
 }
 
@@ -504,6 +505,27 @@ func convertResponsesToolsToAnthropic(tools []responses.ToolUnionParam) []anthro
 	return out
 }
 
+// responsesUsage builds Responses usage from Anthropic's counts. Anthropic
+// reports uncached input, cache reads and cache writes as three separate
+// totals; the Responses dialect follows OpenAI, where input_tokens covers every
+// prompt token and input_tokens_details.cached_tokens names the cached subset
+// of it. Responses has no field for cache writes, and those tokens are counted
+// as ordinary input rather than dropped: the model read them either way, and a
+// turn that writes its whole prompt to cache would otherwise report a handful
+// of tokens. This is the client-facing shape only. Billing takes the write
+// count from ResponsesResult.CacheCreationTokens and prices it separately.
+func responsesUsage(uncachedInput, cacheRead, cacheWrite, output int64) responses.ResponseUsage {
+	input := uncachedInput + cacheRead + cacheWrite
+	return responses.ResponseUsage{
+		InputTokens: input,
+		InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+			CachedTokens: cacheRead,
+		},
+		OutputTokens: output,
+		TotalTokens:  input + output,
+	}
+}
+
 // AnthropicMessageToResponsesResponse converts a native anthropic.Message to a
 // responses.Response. Used by the AnthropicResponsesBridge to return Claude
 // responses in the Responses API wire format. Tool-use blocks are emitted as
@@ -543,14 +565,7 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		Model:  msg.Model,
 		Status: status,
 		Output: output,
-		Usage: responses.ResponseUsage{
-			InputTokens: msg.Usage.InputTokens,
-			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
-				CachedTokens: msg.Usage.CacheReadInputTokens,
-			},
-			OutputTokens: msg.Usage.OutputTokens,
-			TotalTokens:  msg.Usage.InputTokens + msg.Usage.OutputTokens,
-		},
+		Usage:  responsesUsage(msg.Usage.InputTokens, msg.Usage.CacheReadInputTokens, msg.Usage.CacheCreationInputTokens, msg.Usage.OutputTokens),
 	}
 }
 
@@ -567,6 +582,7 @@ type AnthropicResponsesStreamState struct {
 	inputTokens       int64
 	outputTokens      int64
 	cacheReadTokens   int64
+	cacheWriteTokens  int64
 	stopReason        string
 	sentMsgOutputItem bool // whether response.output_item.added (message) was emitted
 }
@@ -582,6 +598,12 @@ type pendingToolUse struct {
 // NewAnthropicResponsesStreamState initializes state for a new stream.
 func NewAnthropicResponsesStreamState() *AnthropicResponsesStreamState {
 	return &AnthropicResponsesStreamState{toolUses: map[int64]*pendingToolUse{}}
+}
+
+// CacheWriteTokens reports what the turn wrote to cache. Responses usage has no
+// field for it, so the bridge hands it to billing beside the stream.
+func (s *AnthropicResponsesStreamState) CacheWriteTokens() int64 {
+	return s.cacheWriteTokens
 }
 
 func (s *AnthropicResponsesStreamState) nextSeq() int64 {
@@ -628,6 +650,7 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 		s.Model = event.Message.Model
 		s.inputTokens = event.Message.Usage.InputTokens
 		s.cacheReadTokens = event.Message.Usage.CacheReadInputTokens
+		s.cacheWriteTokens = event.Message.Usage.CacheCreationInputTokens
 		r := s.partialResponse()
 		return []responses.ResponseStreamEventUnion{
 			{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},
@@ -801,14 +824,7 @@ func (s *AnthropicResponsesStreamState) handleMessageStop() []responses.Response
 		Model:  s.Model,
 		Status: status,
 		Output: output,
-		Usage: responses.ResponseUsage{
-			InputTokens: s.inputTokens,
-			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
-				CachedTokens: s.cacheReadTokens,
-			},
-			OutputTokens: s.outputTokens,
-			TotalTokens:  s.inputTokens + s.outputTokens,
-		},
+		Usage:  responsesUsage(s.inputTokens, s.cacheReadTokens, s.cacheWriteTokens, s.outputTokens),
 	}
 	events = append(events, responses.ResponseStreamEventUnion{
 		Type:           "response.completed",

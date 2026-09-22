@@ -457,6 +457,9 @@ func TestResponsesParamsToAnthropicParams_ToolChoice(t *testing.T) {
 
 // ─── Cache token attribution ──────────────────────────────────────────────────
 
+// The Responses dialect is OpenAI's: input_tokens counts every prompt token and
+// input_tokens_details.cached_tokens names the cached subset. Anthropic reports
+// the two disjoint, so the bridge folds cache reads back into input_tokens.
 func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
 	t.Parallel()
 	msg := &anthropic.Message{
@@ -475,14 +478,14 @@ func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
 	}
 	got := convert.AnthropicMessageToResponsesResponse(msg)
 
-	if got.Usage.InputTokens != 100 {
-		t.Errorf("InputTokens = %d, want 100", got.Usage.InputTokens)
+	if got.Usage.InputTokens != 130 {
+		t.Errorf("InputTokens = %d, want 130 (uncached 100 + cache read 30)", got.Usage.InputTokens)
 	}
 	if got.Usage.InputTokensDetails.CachedTokens != 30 {
 		t.Errorf("InputTokensDetails.CachedTokens = %d, want 30 (cache_read_input_tokens)", got.Usage.InputTokensDetails.CachedTokens)
 	}
-	if got.Usage.TotalTokens != 120 {
-		t.Errorf("TotalTokens = %d, want 120 (input+output)", got.Usage.TotalTokens)
+	if got.Usage.TotalTokens != 150 {
+		t.Errorf("TotalTokens = %d, want 150 (input+output)", got.Usage.TotalTokens)
 	}
 }
 
@@ -791,11 +794,14 @@ func TestAnthropicStreaming_CacheTokensInCompletedEvent(t *testing.T) {
 	if completed.Response.Usage.InputTokensDetails.CachedTokens != 15 {
 		t.Errorf("CachedTokens = %d, want 15", completed.Response.Usage.InputTokensDetails.CachedTokens)
 	}
-	if completed.Response.Usage.InputTokens != 50 {
-		t.Errorf("InputTokens = %d, want 50", completed.Response.Usage.InputTokens)
+	if completed.Response.Usage.InputTokens != 65 {
+		t.Errorf("InputTokens = %d, want 65 (uncached 50 + cache read 15)", completed.Response.Usage.InputTokens)
 	}
 	if completed.Response.Usage.OutputTokens != 5 {
 		t.Errorf("OutputTokens = %d, want 5", completed.Response.Usage.OutputTokens)
+	}
+	if completed.Response.Usage.TotalTokens != 70 {
+		t.Errorf("TotalTokens = %d, want 70 (input+output)", completed.Response.Usage.TotalTokens)
 	}
 }
 

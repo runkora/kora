@@ -75,6 +75,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../popover';
 import { Button } from '../button';
 import { Icon } from '../icon';
 import { NativeSelect } from '../native-select';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../tooltip';
 
 // ─── Filter types ──────────────────────────────────────────────────────────────
 
@@ -129,6 +130,8 @@ export interface DataTableColumn<TData> {
   id: string;
   /** Column header label. */
   header: string;
+  /** Optional tooltip shown on an info icon next to the header label. */
+  headerTooltip?: string;
   /**
    * CSS grid column sizing value for this column.
    * Examples: '1fr', '168px', 'minmax(0, 1.1fr)', '74px'
@@ -694,6 +697,38 @@ function ColumnVisibilityToggle({
   );
 }
 
+// ─── Internal: Header label ────────────────────────────────────────────────────
+
+function HeaderInfo({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`More information about ${label}`}
+          className="inline-flex cursor-default text-subtle hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+        >
+          <Icon name="info" size="2xs" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// The info control is a sibling of the sort button, never a child of it: a
+// button inside a button is invalid HTML, and the inner click bubbles into a
+// sort the user did not ask for.
+function HeaderLabel({ label, tooltip }: { label: string; tooltip?: string }) {
+  if (!tooltip) return <>{label}</>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <HeaderInfo label={label} tooltip={tooltip} />
+    </span>
+  );
+}
+
 // ─── Internal: Header row ──────────────────────────────────────────────────────
 
 interface HeaderProps<TData> {
@@ -755,7 +790,7 @@ function DataTableHeader<TData>({
               role="columnheader"
               className={cn(alignClass, isPinned && 'sticky left-0 z-10')}
             >
-              {col.header}
+              <HeaderLabel label={col.header} tooltip={col.headerTooltip} />
             </span>
           );
         }
@@ -777,7 +812,10 @@ function DataTableHeader<TData>({
                 <SortIcon dir={sortDir} />
               </button>
             )}
-            {!hasSort && <span>{col.header}</span>}
+            {hasSort && col.headerTooltip && (
+              <HeaderInfo label={col.header} tooltip={col.headerTooltip} />
+            )}
+            {!hasSort && <HeaderLabel label={col.header} tooltip={col.headerTooltip} />}
             {hasFilter && (
               <FilterButton
                 colId={col.id}
