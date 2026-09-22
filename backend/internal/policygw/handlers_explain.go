@@ -1,6 +1,7 @@
 package policygw
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -20,8 +21,7 @@ const inspectOthersScope = "platform:grants:read"
 // services authenticated by SPIFFE at the mesh, carry no tenant, and would be
 // denied by a per-tenant bundle lookup. This is the same carve-out
 // ScopeEnforcementMiddleware makes.
-func (c *Controller) authorizeInspectOthers(w http.ResponseWriter, r *http.Request, claims *token.PlatformClaims) bool {
-	ctx := r.Context()
+func (c *Controller) authorizeInspectOthers(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims) bool {
 	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
 		return true
 	}
@@ -81,7 +81,7 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 		isSelf := principalID == claims.Subject &&
 			token.PrincipalType(principalType) == claims.Orbit.PrincipalType
 		if !isSelf {
-			if !c.authorizeInspectOthers(w, r, claims) {
+			if !c.authorizeInspectOthers(ctx, w, claims) {
 				return
 			}
 			// Inspecting another principal — build synthetic claims.
@@ -146,7 +146,7 @@ func (c *Controller) handleCheckSimulate(w http.ResponseWriter, r *http.Request)
 
 	// Simulation always names a principal and a role set, so there is no
 	// self case to exempt.
-	if !c.authorizeInspectOthers(w, r, claims) {
+	if !c.authorizeInspectOthers(ctx, w, claims) {
 		return
 	}
 
