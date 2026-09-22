@@ -307,8 +307,23 @@ func (e ConnectorError) Unwrap() error {
 // ModelPricing
 // ============================================================================
 
-// ModelPricing holds per-million-token cost data for a specific provider+model.
-// Pricing data flows exclusively from PricingCache -- never from the connector.
+// ModelPricing is the runtime pricing snapshot for a single provider+model pair.
+// It is populated exclusively by DatabasePricingCache.Refresh() from the
+// model_pricing DB table and served from an atomic in-memory snapshot — never
+// fetched from the connector on the hot path.
+//
+// Naming convention: token and audio cost fields use the Per1M or PerMillion
+// suffix (USD per 1,000,000 units). Per-unit fields (image, request, second)
+// do not carry a unit suffix because they are not scaled — their comment makes
+// the unit explicit. This naming is intentionally consistent with
+// PricingCatalogEntry (DB layer) and PricingEntry (frontend API type) to avoid
+// confusion when tracing a value through the pipeline.
+//
+// Do not confuse with:
+//   - ModelPriceEntry (pricing_source.go) — the raw parsed row from the LiteLLM
+//     JSON before it is written to the DB.
+//   - PricingCatalogEntry (pricing_catalog.go) — the DB struct, which holds
+//     both synced and override columns separately.
 type ModelPricing struct {
 	Provider                 ProviderName
 	ModelID                  string
@@ -316,6 +331,15 @@ type ModelPricing struct {
 	OutputCostPerMillion     float64 // USD per 1,000,000 output tokens
 	CacheReadCostPerMillion  float64 // USD per 1,000,000 cache-read tokens (0 → use 10% of input)
 	CacheWriteCostPerMillion float64 // USD per 1,000,000 cache-write tokens (0 → use 125% of input)
+	// Non-token dimensions — 0 when not applicable for this model:
+	ImageInputCost       float64 // USD per image input (per-unit, not scaled)
+	ImageOutputCost      float64 // USD per image output (per-unit, not scaled)
+	RequestInputCost     float64 // USD flat per-request input (per-unit, not scaled)
+	RequestOutputCost    float64 // USD flat per-request output (per-unit, not scaled)
+	SecondInputCost      float64 // USD per-second input, e.g. audio/video (per-unit, not scaled)
+	SecondOutputCost     float64 // USD per-second output (per-unit, not scaled)
+	AudioInputCostPer1M  float64 // USD per 1,000,000 audio tokens input
+	AudioOutputCostPer1M float64 // USD per 1,000,000 audio tokens output
 }
 
 // EstimatedCostUSD returns the estimated total cost for the given token counts,

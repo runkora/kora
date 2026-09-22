@@ -152,11 +152,29 @@ func (c *Controller) handleChatCompletionsStream(
 
 // ─── GET /models ──────────────────────────────────────────────────────────────
 
-// modelObjectPricing carries effective per-million-token prices for display.
-// It reflects the lowest-cost enabled route so clients can show a floor price.
+// modelObjectPricing carries effective pricing for display.
+// Token fields reflect the lowest-cost enabled route. Non-token fields carry
+// the raw per-unit costs for models where token pricing is absent or
+// supplemented by another billing dimension.
+// Token fields use *float64 so explicit zero (free-tier) is preserved in JSON;
+// omitempty on a *float64 pointer omits only nil, not zero.
+// Non-token fields use float64+omitempty — they are genuinely absent when zero.
+// NonTokenOnly is true when the VM has no token-priced routes and the pricing
+// was sourced from non-token dimensions only.
 type modelObjectPricing struct {
-	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m"`
-	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
+	EffectiveInputCostPer1M  *float64 `json:"effective_input_cost_per_1m,omitempty"`
+	EffectiveOutputCostPer1M *float64 `json:"effective_output_cost_per_1m,omitempty"`
+	CacheReadCostPer1M       float64  `json:"cache_read_cost_per_1m,omitempty"`
+	CacheWriteCostPer1M      float64  `json:"cache_write_cost_per_1m,omitempty"`
+	ImageInputCost           float64  `json:"image_input_cost,omitempty"`
+	ImageOutputCost          float64  `json:"image_output_cost,omitempty"`
+	RequestInputCost         float64  `json:"request_input_cost,omitempty"`
+	RequestOutputCost        float64  `json:"request_output_cost,omitempty"`
+	SecondInputCost          float64  `json:"second_input_cost,omitempty"`
+	SecondOutputCost         float64  `json:"second_output_cost,omitempty"`
+	AudioInputCostPer1M      float64  `json:"audio_input_cost_per_1m,omitempty"`
+	AudioOutputCostPer1M     float64  `json:"audio_output_cost_per_1m,omitempty"`
+	NonTokenOnly             bool     `json:"non_token_only,omitempty"`
 }
 
 // modelObject is the unified /v1/models response shape supporting both OpenAI and Anthropic clients.
@@ -307,26 +325,65 @@ func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
 	return idx
 }
 
-// vmEffectivePricing returns the pricing of the first available route for a
-// virtual model, where "first" means the lowest Priority value among available
-// routes. A route is available when it passes all three gates:
+// lacksTokenPricing reports whether a ModelPricing has no token-priced
+// dimensions. Routes where both token fields are zero are excluded from the
+// vmEffectivePricing comparator — effective price is defined in token units.
+func lacksTokenPricing(p ModelPricing) bool {
+	return p.InputCostPerMillion == 0 && p.OutputCostPerMillion == 0
+}
+
+// hasNonTokenPricing reports whether a ModelPricing has any non-zero
+// non-token cost dimension.
+func hasNonTokenPricing(p ModelPricing) bool {
+	return p.ImageInputCost > 0 || p.ImageOutputCost > 0 ||
+		p.RequestInputCost > 0 || p.RequestOutputCost > 0 ||
+		p.SecondInputCost > 0 || p.SecondOutputCost > 0 ||
+		p.AudioInputCostPer1M > 0 || p.AudioOutputCostPer1M > 0
+}
+
+// pricingFromModelPricing builds a modelObjectPricing from a resolved
+// ModelPricing. The caller is responsible for nil-gating: this function always
+// returns a non-nil value. Only call it when the cache lookup succeeded — i.e.
+// when the bool return of PricingCache.Price() (or a map lookup) was true.
+func pricingFromModelPricing(p ModelPricing) *modelObjectPricing {
+	inp := p.InputCostPerMillion
+	out := p.OutputCostPerMillion
+	return &modelObjectPricing{
+		EffectiveInputCostPer1M:  &inp,
+		EffectiveOutputCostPer1M: &out,
+		CacheReadCostPer1M:       p.CacheReadCostPerMillion,
+		CacheWriteCostPer1M:      p.CacheWriteCostPerMillion,
+		ImageInputCost:           p.ImageInputCost,
+		ImageOutputCost:          p.ImageOutputCost,
+		RequestInputCost:         p.RequestInputCost,
+		RequestOutputCost:        p.RequestOutputCost,
+		SecondInputCost:          p.SecondInputCost,
+		SecondOutputCost:         p.SecondOutputCost,
+		AudioInputCostPer1M:      p.AudioInputCostPer1M,
+		AudioOutputCostPer1M:     p.AudioOutputCostPer1M,
+	}
+}
+
+// vmEffectivePricing returns the effective pricing for a virtual model.
+// First pass: finds the enabled route with the lowest combined token cost.
+// A route is available when it passes all three gates:
 //  1. route.Enabled (admin toggle)
 //  2. not in disabledRoutes (no provider_model_overrides row)
 //  3. the provider connector is configured in this deployment
 //
-// Returns nil when no available route has a matching entry in the pricing index.
+// If no token-priced route exists, second pass: picks the first enabled route
+// with any non-token cost data and returns it with NonTokenOnly: true.
+// Returns nil when no enabled route has any pricing data at all.
 func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPricing, disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
-	var best *ModelPricing
-	bestPriority := 0
-	for _, route := range vm.Routes {
+	routePricing := func(route VirtualModelRoute) (ModelPricing, bool) {
 		if !route.Enabled {
-			continue
+			return ModelPricing{}, false
 		}
 		if disabledRoutes[string(route.Provider)+"/"+route.ModelID] {
-			continue
+			return ModelPricing{}, false
 		}
 		if _, ok := connectors[route.Provider]; !ok {
-			continue
+			return ModelPricing{}, false
 		}
 		p, ok := pricingIdx[pricingKey(route.Provider, route.ModelID)]
 		if !ok {
@@ -334,22 +391,37 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPri
 			// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure).
 			p, ok = bareIdx[pricingBareKey(route.Provider, route.ModelID)]
 		}
-		if !ok {
+		return p, ok
+	}
+
+	var best *ModelPricing
+	for _, route := range vm.Routes {
+		p, ok := routePricing(route)
+		if !ok || lacksTokenPricing(p) {
 			continue
 		}
-		if best == nil || route.Priority < bestPriority {
+		if best == nil || (p.InputCostPerMillion+p.OutputCostPerMillion) < (best.InputCostPerMillion+best.OutputCostPerMillion) {
 			copy := p
 			best = &copy
-			bestPriority = route.Priority
 		}
 	}
-	if best == nil {
-		return nil
+	if best != nil {
+		return pricingFromModelPricing(*best)
 	}
-	return &modelObjectPricing{
-		EffectiveInputCostPer1M:  best.InputCostPerMillion,
-		EffectiveOutputCostPer1M: best.OutputCostPerMillion,
+
+	// No token-priced route — fall back to non-token data if available.
+	for _, route := range vm.Routes {
+		p, ok := routePricing(route)
+		if !ok || !hasNonTokenPricing(p) {
+			continue
+		}
+		out := pricingFromModelPricing(p)
+		out.NonTokenOnly = true
+		out.EffectiveInputCostPer1M = nil
+		out.EffectiveOutputCostPer1M = nil
+		return out
 	}
+	return nil
 }
 
 // handleListModels returns all virtual models in the catalog, enriched with
