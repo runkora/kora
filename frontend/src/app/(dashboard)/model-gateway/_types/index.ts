@@ -5,13 +5,21 @@
 
 import type {
   ModelObject,
+  ModelObjectPricing,
   ModelsListResponse,
   Modality,
   APIDialect,
   ModelCapability,
 } from '@orbit/shared/api';
 
-export type { ModelObject, ModelsListResponse, Modality, APIDialect, ModelCapability };
+export type {
+  ModelObject,
+  ModelObjectPricing,
+  ModelsListResponse,
+  Modality,
+  APIDialect,
+  ModelCapability,
+};
 
 // ── Inference Usage ───────────────────────────────────────────────────────────
 //
@@ -269,7 +277,7 @@ export interface ModelRow {
   status: ModelStatus;
 
   // ── Pricing ───────────────────────────────────────────────────────────────
-  pricing?: { effective_input_cost_per_1m: number; effective_output_cost_per_1m: number };
+  pricing?: ModelObjectPricing;
 
   // ── UI state ──────────────────────────────────────────────────────────────
   favourite: boolean;

@@ -37,7 +37,7 @@ func NewAnthropicResponsesBridge(
 
 // Execute translates a Responses API request to Anthropic Messages API,
 // executes it, and translates the result back to a Responses API response.
-func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses.ResponseNewParams) (*inferencegw.ResponsesResult, error) {
 	b.logger.Debug(ctx, "bridge: anthropic responses execute start",
 		logging.Field{Key: "model", Value: params.Model},
 	)
@@ -64,7 +64,10 @@ func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses
 	b.logger.Debug(ctx, "bridge: anthropic responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)
-	return resp, nil
+	return &inferencegw.ResponsesResult{
+		Response:            resp,
+		CacheCreationTokens: accumulated.Usage.CacheCreationInputTokens,
+	}, nil
 }
 
 // ExecuteStream translates a Responses API streaming request to Anthropic
@@ -94,7 +97,7 @@ func (b *AnthropicResponsesBridge) ExecuteStream(ctx context.Context, params res
 				if ev.Type == "response.completed" {
 					completed = true
 				}
-				ch <- inferencegw.ResponsesStreamResult{Event: ev}
+				ch <- inferencegw.ResponsesStreamResult{Event: ev, CacheCreationTokens: state.CacheWriteTokens()}
 			}
 		}
 		// Suppress trailing errors after the upstream has already produced a

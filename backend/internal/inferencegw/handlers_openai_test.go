@@ -349,3 +349,286 @@ func TestModelsResponseUnifiedSchema(t *testing.T) {
 		})
 	}
 }
+
+// ─── lacksTokenPricing ────────────────────────────────────────────────────────
+
+func TestLacksTokenPricing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		p    ModelPricing
+		want bool
+	}{
+		{
+			name: "both zero",
+			p:    ModelPricing{},
+			want: true,
+		},
+		{
+			name: "input only",
+			p:    ModelPricing{InputCostPerMillion: 3.0},
+			want: false,
+		},
+		{
+			name: "output only",
+			p:    ModelPricing{OutputCostPerMillion: 15.0},
+			want: false,
+		},
+		{
+			name: "both set",
+			p:    ModelPricing{InputCostPerMillion: 3.0, OutputCostPerMillion: 15.0},
+			want: false,
+		},
+		{
+			name: "non-token only — still lacks token pricing",
+			p:    ModelPricing{ImageInputCost: 0.001},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := lacksTokenPricing(tc.p); got != tc.want {
+				t.Errorf("lacksTokenPricing(%+v) = %v, want %v", tc.p, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── pricingFromModelPricing ──────────────────────────────────────────────────
+
+func TestPricingFromModelPricing_AllFields(t *testing.T) {
+	t.Parallel()
+	p := ModelPricing{
+		InputCostPerMillion:      3.0,
+		OutputCostPerMillion:     15.0,
+		CacheReadCostPerMillion:  0.3,
+		CacheWriteCostPerMillion: 3.75,
+		ImageInputCost:           0.001,
+		ImageOutputCost:          0.002,
+		RequestInputCost:         0.005,
+		RequestOutputCost:        0.006,
+		SecondInputCost:          0.0001,
+		SecondOutputCost:         0.0002,
+		AudioInputCostPer1M:      1.0,
+		AudioOutputCostPer1M:     2.0,
+	}
+	got := pricingFromModelPricing(p)
+	if got == nil {
+		t.Fatal("pricingFromModelPricing returned nil, want non-nil")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want 3.0", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 15.0 {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want 15.0", got.EffectiveOutputCostPer1M)
+	}
+	if got.ImageInputCost != 0.001 {
+		t.Errorf("ImageInputCost = %v, want 0.001", got.ImageInputCost)
+	}
+	if got.AudioInputCostPer1M != 1.0 {
+		t.Errorf("AudioInputCostPer1M = %v, want 1.0", got.AudioInputCostPer1M)
+	}
+	if got.AudioOutputCostPer1M != 2.0 {
+		t.Errorf("AudioOutputCostPer1M = %v, want 2.0", got.AudioOutputCostPer1M)
+	}
+}
+
+func TestPricingFromModelPricing_AllZero_ReturnsNonNil(t *testing.T) {
+	t.Parallel()
+	// A genuinely $0.00 model must produce non-nil (not "unknown").
+	got := pricingFromModelPricing(ModelPricing{})
+	if got == nil {
+		t.Fatal("pricingFromModelPricing(zero) returned nil, want non-nil ($0.00 is a valid price)")
+	}
+}
+
+// ─── vmEffectivePricing ───────────────────────────────────────────────────────
+
+func TestVmEffectivePricing_NoRoutes(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{}
+	if got := vmEffectivePricing(vm, nil, nil, nil, nil); got != nil {
+		t.Errorf("expected nil for empty VM, got %+v", got)
+	}
+}
+
+func TestVmEffectivePricing_NoPricingData(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "anthropic.claude-sonnet-4-6", Enabled: true},
+		},
+	}
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
+	if got := vmEffectivePricing(vm, map[string]ModelPricing{}, nil, nil, connectors); got != nil {
+		t.Errorf("expected nil when pricing map is empty, got %+v", got)
+	}
+}
+
+func TestVmEffectivePricing_NonTokenFallback(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
+		},
+	}
+	pricingIdx := map[string]ModelPricing{
+		"bedrock/image-model": {
+			Provider:       ProviderBedrock,
+			ModelID:        "image-model",
+			ImageInputCost: 0.001, // non-token only — no token pricing
+		},
+	}
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
+	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	if got == nil {
+		t.Fatal("expected non-nil: non-token fallback should fire when no token-priced route exists")
+	}
+	if !got.NonTokenOnly {
+		t.Errorf("NonTokenOnly = false, want true")
+	}
+}
+
+func TestVmEffectivePricing_NilWhenNeitherPricing(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "free-model", Enabled: true},
+		},
+	}
+	// Model exists in pricing index but has no token or non-token costs.
+	pricingIdx := map[string]ModelPricing{
+		"bedrock/free-model": {Provider: ProviderBedrock, ModelID: "free-model"},
+	}
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
+	if got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors); got != nil {
+		t.Errorf("expected nil when no token or non-token pricing, got %+v", got)
+	}
+}
+
+// ─── hasNonTokenPricing ───────────────────────────────────────────────────────
+
+func TestHasNonTokenPricing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		p    ModelPricing
+		want bool
+	}{
+		{"all zero", ModelPricing{}, false},
+		{"image input only", ModelPricing{ImageInputCost: 0.001}, true},
+		{"image output only", ModelPricing{ImageOutputCost: 0.002}, true},
+		{"request input only", ModelPricing{RequestInputCost: 0.005}, true},
+		{"second input only", ModelPricing{SecondInputCost: 0.0001}, true},
+		{"audio input per 1M", ModelPricing{AudioInputCostPer1M: 1.0}, true},
+		{"token pricing does not count", ModelPricing{InputCostPerMillion: 3.0}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := hasNonTokenPricing(tc.p); got != tc.want {
+				t.Errorf("hasNonTokenPricing(%+v) = %v, want %v", tc.p, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVmEffectivePricing_PicksLowestCost(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "cheap-model", Enabled: true},
+			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
+		},
+	}
+	pricingIdx := map[string]ModelPricing{
+		"bedrock/cheap-model": {
+			Provider:             ProviderBedrock,
+			ModelID:              "cheap-model",
+			InputCostPerMillion:  1.0,
+			OutputCostPerMillion: 5.0,
+		},
+		"vertexai/expensive-model": {
+			Provider:             ProviderVertexAI,
+			ModelID:              "expensive-model",
+			InputCostPerMillion:  3.0,
+			OutputCostPerMillion: 15.0,
+		},
+	}
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil, ProviderVertexAI: nil}
+	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 1.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want 1.0 (cheap-model)", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 5.0 {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want 5.0 (cheap-model)", got.EffectiveOutputCostPer1M)
+	}
+}
+
+func TestVmEffectivePricing_SkipsDisabledRoutes(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "cheap-model", Enabled: false},
+			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
+		},
+	}
+	pricingIdx := map[string]ModelPricing{
+		"bedrock/cheap-model": {
+			Provider:             ProviderBedrock,
+			ModelID:              "cheap-model",
+			InputCostPerMillion:  1.0,
+			OutputCostPerMillion: 5.0,
+		},
+		"vertexai/expensive-model": {
+			Provider:             ProviderVertexAI,
+			ModelID:              "expensive-model",
+			InputCostPerMillion:  3.0,
+			OutputCostPerMillion: 15.0,
+		},
+	}
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil, ProviderVertexAI: nil}
+	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want 3.0 (disabled cheap route ignored)", got.EffectiveInputCostPer1M)
+	}
+}
+
+func TestVmEffectivePricing_NonTokenOnly_NilsTokenFields(t *testing.T) {
+	t.Parallel()
+	// A non-token-only route must not emit zero token prices — they must be nil
+	// so the JSON omits them, keeping the API contract clean.
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
+		},
+	}
+	pricingIdx := buildPricingIndex([]ModelPricing{
+		{
+			Provider:       ProviderBedrock,
+			ModelID:        "image-model",
+			ImageInputCost: 0.001,
+		},
+	})
+	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
+	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	if got == nil {
+		t.Fatal("expected non-nil for non-token-only model")
+	}
+	if !got.NonTokenOnly {
+		t.Error("NonTokenOnly = false, want true")
+	}
+	if got.EffectiveInputCostPer1M != nil {
+		t.Errorf("EffectiveInputCostPer1M = %v, want nil (must be omitted from JSON for non-token-only models)", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M != nil {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want nil (must be omitted from JSON for non-token-only models)", got.EffectiveOutputCostPer1M)
+	}
+}

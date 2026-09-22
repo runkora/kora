@@ -13,8 +13,20 @@ import (
 )
 
 // ModelPriceEntry is a provider/model price tuple produced by a PricingSource.
-// All cost values are USD per 1,000,000 tokens. Fields are 0 when not provided
-// by the source — never negative.
+// It is the intermediate representation between the raw upstream price file and
+// the DB — written by LiteLLMPricingSource.Fetch() and consumed by
+// PostgresPricingCatalogRepository.UpsertSynced(). It is never stored long-term
+// or served to API clients.
+//
+// Naming convention: token and audio costs use the Per1M suffix (USD per
+// 1,000,000 units). Per-unit non-token costs (image, request, second) do not
+// carry a scaled suffix — their comments state the unit explicitly.
+//
+// Do not confuse with:
+//   - PricingCatalogEntry (pricing_catalog.go) — the DB row struct, which adds
+//     override columns and is used by the PricingCache.
+//   - ModelPricing (connector.go) — the runtime in-memory snapshot served on
+//     every inference request.
 type ModelPriceEntry struct {
 	Provider            ProviderName
 	ModelID             string
@@ -22,6 +34,15 @@ type ModelPriceEntry struct {
 	OutputCostPer1M     float64
 	CacheReadCostPer1M  float64
 	CacheWriteCostPer1M float64
+	// Non-token dimensions — 0 when not present in the source:
+	ImageInputCost       float64 // USD per image input (per-unit, not scaled)
+	ImageOutputCost      float64 // USD per image output (per-unit, not scaled)
+	RequestInputCost     float64 // USD flat per-request input (per-unit, not scaled)
+	RequestOutputCost    float64 // USD flat per-request output (per-unit, not scaled)
+	SecondInputCost      float64 // USD per-second input, e.g. audio/video (per-unit, not scaled)
+	SecondOutputCost     float64 // USD per-second output (per-unit, not scaled)
+	AudioInputCostPer1M  float64 // USD per 1M audio tokens input (source value ×1,000,000)
+	AudioOutputCostPer1M float64 // USD per 1M audio tokens output (source value ×1,000,000)
 }
 
 // PricingSource abstracts the upstream price catalog. The interface does not
@@ -50,11 +71,19 @@ func NewLiteLLMPricingSource(sourceURL string) *LiteLLMPricingSource {
 // liteLLMEntry is the subset of fields we parse from each model entry in the
 // LiteLLM JSON. Field names match the JSON exactly.
 type liteLLMEntry struct {
-	LiteLLMProvider             string  `json:"litellm_provider"`
-	InputCostPerToken           float64 `json:"input_cost_per_token"`
-	OutputCostPerToken          float64 `json:"output_cost_per_token"`
-	CacheReadInputTokenCost     float64 `json:"cache_read_input_token_cost"`
-	CacheCreationInputTokenCost float64 `json:"cache_creation_input_token_cost"`
+	LiteLLMProvider             string   `json:"litellm_provider"`
+	InputCostPerToken           float64  `json:"input_cost_per_token"`
+	OutputCostPerToken          float64  `json:"output_cost_per_token"`
+	CacheReadInputTokenCost     float64  `json:"cache_read_input_token_cost"`
+	CacheCreationInputTokenCost float64  `json:"cache_creation_input_token_cost"`
+	InputCostPerImage           *float64 `json:"input_cost_per_image"`
+	OutputCostPerImage          *float64 `json:"output_cost_per_image"`
+	InputCostPerRequest         *float64 `json:"input_cost_per_request"`
+	OutputCostPerRequest        *float64 `json:"output_cost_per_request"`
+	InputCostPerSecond          *float64 `json:"input_cost_per_second"`
+	OutputCostPerSecond         *float64 `json:"output_cost_per_second"`
+	InputCostPerAudioToken      *float64 `json:"input_cost_per_audio_token"`
+	OutputCostPerAudioToken     *float64 `json:"output_cost_per_audio_token"`
 }
 
 // liteLLMProviderToOrbit maps LiteLLM litellm_provider field values to Orbit ProviderNames.
@@ -270,6 +299,28 @@ func stripProviderPrefix(key string) string {
 	return key
 }
 
+// derefFloat64 dereferences a *float64, returning 0 for nil.
+func derefFloat64(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// applyNonTokenCosts copies non-token cost fields from a liteLLMEntry into e.
+// Audio token costs are scaled ×1,000,000 to per-1M to match the token cost convention.
+func applyNonTokenCosts(e *ModelPriceEntry, src liteLLMEntry) {
+	const scale = 1_000_000
+	e.ImageInputCost = derefFloat64(src.InputCostPerImage)
+	e.ImageOutputCost = derefFloat64(src.OutputCostPerImage)
+	e.RequestInputCost = derefFloat64(src.InputCostPerRequest)
+	e.RequestOutputCost = derefFloat64(src.OutputCostPerRequest)
+	e.SecondInputCost = derefFloat64(src.InputCostPerSecond)
+	e.SecondOutputCost = derefFloat64(src.OutputCostPerSecond)
+	e.AudioInputCostPer1M = derefFloat64(src.InputCostPerAudioToken) * scale
+	e.AudioOutputCostPer1M = derefFloat64(src.OutputCostPerAudioToken) * scale
+}
+
 // Fetch retrieves the LiteLLM price file and returns entries for Orbit's
 // supported providers (bedrock, vertexai, azure) only.
 func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, error) {
@@ -295,6 +346,7 @@ func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, er
 		return nil, fmt.Errorf("litellm pricing source decode: %w", err)
 	}
 
+	const perTokenToPerMillion = 1_000_000
 	entries := make([]ModelPriceEntry, 0, len(raw))
 	for key, v := range raw {
 		var entry liteLLMEntry
@@ -312,7 +364,6 @@ func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, er
 			continue
 		}
 
-		const perTokenToPerMillion = 1_000_000
 		e := ModelPriceEntry{
 			Provider:            provider,
 			ModelID:             modelID,
@@ -321,6 +372,7 @@ func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, er
 			CacheReadCostPer1M:  entry.CacheReadInputTokenCost * perTokenToPerMillion,
 			CacheWriteCostPer1M: entry.CacheCreationInputTokenCost * perTokenToPerMillion,
 		}
+		applyNonTokenCosts(&e, entry)
 		entries = append(entries, e)
 
 		// For Bedrock, also emit a bare alias (no date/version suffix) so that

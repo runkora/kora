@@ -150,7 +150,7 @@ func TestVMEffectivePricingResolvesAliasedRoute(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected effective pricing for an aliased bedrock route, got nil (renders as \"Unknown\")")
 	}
-	if got.EffectiveInputCostPer1M != 2 || got.EffectiveOutputCostPer1M != 10 {
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 2 || got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 10 {
 		t.Errorf("effective pricing = %+v, want 2/10", got)
 	}
 }
@@ -211,7 +211,7 @@ func TestVMEffectivePricingCrossProviderFallback(t *testing.T) {
 		t.Fatal("expected cross-provider fallback pricing for gpt-5.4 on bedrock, got nil (Unknown)")
 	}
 	// Plainest (shortest) model ID wins: bare "gpt-5.4" over regional "us/gpt-5.4".
-	if got.EffectiveInputCostPer1M != 2.5 || got.EffectiveOutputCostPer1M != 15 {
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 2.5 || got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 15 {
 		t.Errorf("fallback pricing = %+v, want 2.5/15 (the bare azure row)", got)
 	}
 
@@ -225,7 +225,7 @@ func TestVMEffectivePricingCrossProviderFallback(t *testing.T) {
 			func(p ModelPricing) ProviderName { return p.Provider },
 			func(p ModelPricing) string { return p.ModelID }),
 		nil, connectors)
-	if got == nil || got.EffectiveInputCostPer1M != 3 {
+	if got == nil || got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3 {
 		t.Errorf("exact bedrock row should win over fallback; got %+v, want 3/20", got)
 	}
 }

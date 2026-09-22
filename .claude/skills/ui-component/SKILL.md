@@ -7,7 +7,8 @@ description: >-
   updates the co-located Storybook story. Use when asked to "add a component", "create a
   component", "promote a component", "check the tier", "wire up Storybook", "what tier does this
   belong to", "should this be promoted", or when reviewing a Tier 2 or Tier 3 component for
-  potential promotion.
+  potential promotion. TRIGGER — invoke this skill before creating, modifying, or reviewing any
+  component file under frontend/src/; do not skip because the task looks like a one-liner.
 ---
 
 # Create, promote, or verify a UI component
