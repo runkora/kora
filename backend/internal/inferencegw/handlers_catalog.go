@@ -85,9 +85,20 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 // NonTokenOnly is true when the VM has no token-priced routes and the pricing
 // was sourced from non-token dimensions only.
 type virtualModelPricingJSON struct {
-	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m"`
-	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
-	NonTokenOnly             bool    `json:"non_token_only,omitempty"`
+	EffectiveInputCostPer1M  *float64 `json:"effective_input_cost_per_1m,omitempty"`
+	EffectiveOutputCostPer1M *float64 `json:"effective_output_cost_per_1m,omitempty"`
+	NonTokenOnly             bool     `json:"non_token_only,omitempty"`
+	// Non-token dimensions from the selected route, populated only when
+	// NonTokenOnly is true. Mirrors modelObjectPricing's field set (/v1/models)
+	// so the catalog and models endpoints agree on what a client can render.
+	ImageInputCost       float64 `json:"image_input_cost,omitempty"`
+	ImageOutputCost      float64 `json:"image_output_cost,omitempty"`
+	RequestInputCost     float64 `json:"request_input_cost,omitempty"`
+	RequestOutputCost    float64 `json:"request_output_cost,omitempty"`
+	SecondInputCost      float64 `json:"second_input_cost,omitempty"`
+	SecondOutputCost     float64 `json:"second_output_cost,omitempty"`
+	AudioInputCostPer1M  float64 `json:"audio_input_cost_per_1m,omitempty"`
+	AudioOutputCostPer1M float64 `json:"audio_output_cost_per_1m,omitempty"`
 }
 
 type virtualModelJSON struct {
@@ -533,9 +544,10 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 		}
 	}
 	if best != nil {
+		in, out := best.EffectiveInput, best.EffectiveOutput
 		return &virtualModelPricingJSON{
-			EffectiveInputCostPer1M:  best.EffectiveInput,
-			EffectiveOutputCostPer1M: best.EffectiveOutput,
+			EffectiveInputCostPer1M:  &in,
+			EffectiveOutputCostPer1M: &out,
 		}
 	}
 
@@ -552,7 +564,17 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 		if p == nil || !pricingEntryHasNonToken(p) {
 			continue
 		}
-		return &virtualModelPricingJSON{NonTokenOnly: true}
+		return &virtualModelPricingJSON{
+			NonTokenOnly:         true,
+			ImageInputCost:       p.SyncedImageInputCostPerImage,
+			ImageOutputCost:      p.SyncedImageOutputCostPerImage,
+			RequestInputCost:     p.SyncedRequestInputCost,
+			RequestOutputCost:    p.SyncedRequestOutputCost,
+			SecondInputCost:      p.SyncedSecondInputCost,
+			SecondOutputCost:     p.SyncedSecondOutputCost,
+			AudioInputCostPer1M:  p.SyncedAudioInputCostPer1M,
+			AudioOutputCostPer1M: p.SyncedAudioOutputCostPer1M,
+		}
 	}
 	return nil
 }

@@ -506,6 +506,52 @@ func TestVmCatalogPricing_NonTokenFallback(t *testing.T) {
 	if !got.NonTokenOnly {
 		t.Errorf("NonTokenOnly = false, want true")
 	}
+
+	// A client reading the wire response, not the Go struct, must not see the
+	// two token fields at all: the model has no token price, and 0 reads as
+	// "free" rather than "not applicable".
+	if got.EffectiveInputCostPer1M != nil {
+		t.Errorf("EffectiveInputCostPer1M = %v, want nil (omitted from the wire)", *got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M != nil {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want nil (omitted from the wire)", *got.EffectiveOutputCostPer1M)
+	}
+
+	// The whole point of the fallback: the route's own non-token dimensions
+	// reach the client, or "see model details" in the UI has nothing to show.
+	if got.ImageInputCost != 0.001 {
+		t.Errorf("ImageInputCost = %v, want 0.001 (propagated from the route)", got.ImageInputCost)
+	}
+}
+
+// The best-branch (token-priced) response must also omit the two fields via a
+// pointer, matching modelObjectPricing's contract on /v1/models: present and
+// nullable, not present-and-zero.
+func TestVmCatalogPricing_TokenPricedRouteUsesPointers(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "claude", Enabled: true},
+		},
+	}
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/claude": {
+			Provider:        "bedrock",
+			ModelID:         "claude",
+			EffectiveInput:  3,
+			EffectiveOutput: 15,
+		},
+	}
+	got := vmCatalogPricing(vm, pricingMap)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *3", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 15 {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want *15", got.EffectiveOutputCostPer1M)
+	}
 }
 
 func TestVmCatalogPricing_NilWhenNeitherPricing(t *testing.T) {
@@ -702,8 +748,8 @@ func TestVmCatalogPricing_PicksLowestEffectiveCost(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
-	if got.EffectiveInputCostPer1M != 1.0 {
-		t.Errorf("EffectiveInputCostPer1M = %v, want 1.0 (cheap-model)", got.EffectiveInputCostPer1M)
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 1.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *1.0 (cheap-model)", got.EffectiveInputCostPer1M)
 	}
 }
 
@@ -733,7 +779,7 @@ func TestVmCatalogPricing_SkipsDisabledRoutes(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
-	if got.EffectiveInputCostPer1M != 3.0 {
-		t.Errorf("EffectiveInputCostPer1M = %v, want 3.0 (disabled cheap route ignored)", got.EffectiveInputCostPer1M)
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *3.0 (disabled cheap route ignored)", got.EffectiveInputCostPer1M)
 	}
 }

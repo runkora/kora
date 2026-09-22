@@ -72,3 +72,26 @@ describe('VmEffectivePriceCell', () => {
     expect(screen.queryByText('Unknown')).not.toBeInTheDocument();
   });
 });
+
+describe('VmEffectivePriceCell tooltip', () => {
+  it('opens on hover', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    renderWithProviders(
+      <VirtualModelsSection models={[vm({ pricing: { non_token_only: true } })]} onSelect={noop} />,
+    );
+    await userEvent.setup().hover(screen.getByRole('button', { name: /non-token pricing/i }));
+    expect((await screen.findAllByText(/non-token pricing/i)).length).toBeGreaterThan(0);
+  });
+
+  // The virtual model editor has no pricing detail view at all — "see model
+  // details" here points nowhere real, unlike the same copy on the provider
+  // catalog page, which does open a detail overlay with the actual dimensions.
+  it('does not promise a model-details view the VM editor does not have', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    renderWithProviders(
+      <VirtualModelsSection models={[vm({ pricing: { non_token_only: true } })]} onSelect={noop} />,
+    );
+    await userEvent.setup().hover(screen.getByRole('button', { name: /non-token pricing/i }));
+    expect(screen.queryByText(/see model details/i)).not.toBeInTheDocument();
+  });
+});

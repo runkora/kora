@@ -49,9 +49,17 @@ function VmEffectivePriceCell({ model }: { model: VirtualModel }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Icon name="info" size="2xs" color="muted" />
+          <Button
+            variant="muted"
+            size="icon-sm"
+            aria-label="Non-token pricing — priced by image, request, second, or audio dimensions, not tokens"
+          >
+            <Icon name="info" size="2xs" color="muted" />
+          </Button>
         </TooltipTrigger>
-        <TooltipContent>Non-token pricing — see model details</TooltipContent>
+        <TooltipContent>
+          Non-token pricing — priced by image, request, second, or audio dimensions, not tokens
+        </TooltipContent>
       </Tooltip>
     );
   }

@@ -124,7 +124,9 @@ function EffectivePriceCell({ pricing }: { pricing?: ModelObjectPricing }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Icon name="info" size="2xs" color="muted" />
+          <Button variant="muted" size="icon-sm" aria-label="Non-token pricing — see model details">
+            <Icon name="info" size="2xs" color="muted" />
+          </Button>
         </TooltipTrigger>
         <TooltipContent>Non-token pricing — see model details</TooltipContent>
       </Tooltip>

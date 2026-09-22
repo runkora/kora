@@ -22,6 +22,16 @@ export interface VirtualModelPricing {
   effective_input_cost_per_1m?: number;
   effective_output_cost_per_1m?: number;
   non_token_only?: boolean;
+  // Populated only when non_token_only is true — the selected route's own
+  // non-token dimensions. Mirrors ModelObjectPricing's field set.
+  image_input_cost?: number;
+  image_output_cost?: number;
+  request_input_cost?: number;
+  request_output_cost?: number;
+  second_input_cost?: number;
+  second_output_cost?: number;
+  audio_input_cost_per_1m?: number;
+  audio_output_cost_per_1m?: number;
 }
 
 export interface VirtualModel {

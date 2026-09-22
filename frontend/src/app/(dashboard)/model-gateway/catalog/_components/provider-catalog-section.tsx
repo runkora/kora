@@ -97,7 +97,9 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Icon name="info" size="2xs" color="muted" />
+          <Button variant="muted" size="icon-sm" aria-label="Non-token pricing — see model details">
+            <Icon name="info" size="2xs" color="muted" />
+          </Button>
         </TooltipTrigger>
         <TooltipContent>Non-token pricing — see model details</TooltipContent>
       </Tooltip>
@@ -133,9 +135,9 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
 function NonTokenPricingRows({ pricing }: { pricing: PricingEntry }) {
   const dims: Array<{ label: string; value: number }> = [];
   if ((pricing.synced_image_input_cost_per_image ?? 0) > 0)
-    dims.push({ label: 'Image input', value: pricing.synced_image_input_cost_per_image! });
+    dims.push({ label: 'Image input /image', value: pricing.synced_image_input_cost_per_image! });
   if ((pricing.synced_image_output_cost_per_image ?? 0) > 0)
-    dims.push({ label: 'Image output', value: pricing.synced_image_output_cost_per_image! });
+    dims.push({ label: 'Image output /image', value: pricing.synced_image_output_cost_per_image! });
   if ((pricing.synced_request_input_cost ?? 0) > 0)
     dims.push({ label: 'Request input', value: pricing.synced_request_input_cost! });
   if ((pricing.synced_request_output_cost ?? 0) > 0)
@@ -341,22 +343,26 @@ function PricingOverlay({
                   {fmtDate(p.last_synced_at)}
                 </Text>
               </Stack>
-              <Stack direction="horizontal" align="center" justify="between">
-                <Text size="supporting" color="muted">
-                  Synced input /1M
-                </Text>
-                <Text size="supporting" mono>
-                  {fmtCost(p.synced_input_cost_per_1m)}
-                </Text>
-              </Stack>
-              <Stack direction="horizontal" align="center" justify="between">
-                <Text size="supporting" color="muted">
-                  Synced output /1M
-                </Text>
-                <Text size="supporting" mono>
-                  {fmtCost(p.synced_output_cost_per_1m)}
-                </Text>
-              </Stack>
+              {hasTokenPricing(p) && (
+                <>
+                  <Stack direction="horizontal" align="center" justify="between">
+                    <Text size="supporting" color="muted">
+                      Synced input /1M
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(p.synced_input_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                  <Stack direction="horizontal" align="center" justify="between">
+                    <Text size="supporting" color="muted">
+                      Synced output /1M
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(p.synced_output_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                </>
+              )}
               <NonTokenPricingRows pricing={p} />
             </Stack>
           ) : (

@@ -12,6 +12,9 @@ import {
   Stack,
   Text,
   Heading,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@orbit/terra';
 import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
@@ -96,7 +99,20 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
               <Text size="caption" color="muted">
                 Effective Price
               </Text>
-              {model.pricing ? (
+              {model.pricing?.non_token_only ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="muted"
+                      size="icon-sm"
+                      aria-label="Non-token pricing — see model details"
+                    >
+                      <Icon name="info" size="2xs" color="muted" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Non-token pricing — see model details</TooltipContent>
+                </Tooltip>
+              ) : model.pricing ? (
                 <Stack gap="none" textAlign="end">
                   <Text size="caption" mono>
                     {fmtCost(model.pricing.effective_input_cost_per_1m ?? null)}/1M

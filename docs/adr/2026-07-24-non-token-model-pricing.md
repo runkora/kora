@@ -400,7 +400,7 @@ A Goose migration under `cmd/inference-gateway/migrations/` adds eight columns w
 
 **`handlers_openai.go` — `modelObjectPricing` and `vmEffectivePricing`:**
 
-`modelObjectPricing` is returned as `nil` when all pricing dimensions are zero for the resolved entry (Decision 4 nil gate). `vmEffectivePricing` filters routes using `lacksTokenPricing` (routes where both token dimensions are zero are excluded); returns `nil` when no eligible route remains (Decision 3).
+`modelObjectPricing` is returned as `nil` when all pricing dimensions are zero for the resolved entry (Decision 4 nil gate). `vmEffectivePricing` filters routes using `lacksTokenPricing` (routes where both token dimensions are zero are excluded from the token-priced comparator). When no token-priced route remains, a second pass returns the first enabled route carrying non-token data with `NonTokenOnly: true`; `nil` is returned only when no eligible route has pricing data in any dimension (Decision 3).
 
 ### Frontend Changes
 

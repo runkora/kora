@@ -124,7 +124,7 @@ Many non-token-priced models in LiteLLM are not exclusively non-token: 169 model
 
 **Acceptance Criteria:**
 - [ ] `vmEffectivePricing` skips routes without token pricing.
-- [ ] A virtual model with no token-priced routes returns `nil` pricing (displays "Unknown").
+- [ ] A virtual model with no token-priced routes and no non-token pricing data returns `nil` pricing (displays "Unknown").
 - [ ] A virtual model with at least one token-priced route shows "Effective Price" computed from those routes only.
 - [ ] A virtual model whose routes include non-token-only models shows a visual indicator in the "Effective Price" cell that some routes have alternative pricing not reflected in the effective price.
 

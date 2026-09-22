@@ -107,7 +107,7 @@ describe('NonTokenPricingRows', () => {
     // Open the detail overlay by clicking the row.
     fireEvent.click(screen.getByText('test-model'));
     // The overlay renders NonTokenPricingRows — assert the label is present.
-    expect(await screen.findByText('Image input')).toBeInTheDocument();
+    expect(await screen.findByText('Image input /image')).toBeInTheDocument();
   });
 
   it('renders audio pricing rows when audio costs are set', async () => {
@@ -127,5 +127,76 @@ describe('NonTokenPricingRows', () => {
     fireEvent.click(screen.getByText('test-model'));
     expect(await screen.findByText('Audio input /1M')).toBeInTheDocument();
     expect(await screen.findByText('Audio output /1M')).toBeInTheDocument();
+  });
+});
+
+describe('EffectivePriceCell tooltip (provider catalog)', () => {
+  it('opens the tooltip on hover for a non-token-only model', async () => {
+    renderWithProviders(
+      <ProviderCatalogSection
+        models={[model({ pricing: pricing({ synced_image_input_cost_per_image: 0.001 }) })]}
+      />,
+    );
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().hover(screen.getByRole('button', { name: /non-token pricing/i }));
+    expect(
+      (await screen.findAllByText('Non-token pricing — see model details')).length,
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe('Detail overlay token rows', () => {
+  // A non-token-only model has no legitimate token price. Showing "$0.00" rows
+  // next to the real image/audio rows reads as free, which it is not.
+  it('omits the synced token rows for a non-token-only model', async () => {
+    renderWithProviders(
+      <ProviderCatalogSection
+        models={[model({ pricing: pricing({ synced_image_input_cost_per_image: 0.001 }) })]}
+      />,
+    );
+    fireEvent.click(screen.getByText('test-model'));
+    expect(await screen.findByText('Image input /image')).toBeInTheDocument();
+    expect(screen.queryByText('Synced input /1M')).not.toBeInTheDocument();
+    expect(screen.queryByText('Synced output /1M')).not.toBeInTheDocument();
+  });
+
+  it('keeps the synced token rows for a token-priced model', async () => {
+    renderWithProviders(
+      <ProviderCatalogSection
+        models={[
+          model({
+            pricing: pricing({
+              synced_input_cost_per_1m: 3,
+              synced_output_cost_per_1m: 15,
+              effective_input_cost_per_1m: 3,
+              effective_output_cost_per_1m: 15,
+            }),
+          }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByText('test-model'));
+    expect(await screen.findByText('Synced input /1M')).toBeInTheDocument();
+    expect(await screen.findByText('Synced output /1M')).toBeInTheDocument();
+  });
+
+  // Image costs are a dollar-per-image figure with no other cue to that unit;
+  // unlike the audio rows there is no "/1M" in the label.
+  it('labels image dimensions with the per-image unit', async () => {
+    renderWithProviders(
+      <ProviderCatalogSection
+        models={[
+          model({
+            pricing: pricing({
+              synced_image_input_cost_per_image: 0.001,
+              synced_image_output_cost_per_image: 0.002,
+            }),
+          }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByText('test-model'));
+    expect(await screen.findByText('Image input /image')).toBeInTheDocument();
+    expect(await screen.findByText('Image output /image')).toBeInTheDocument();
   });
 });

@@ -102,3 +102,18 @@ describe('Effective Price sorting', () => {
     expect(Math.abs(a - b)).toBe(1);
   });
 });
+
+describe('EffectivePriceCell tooltip', () => {
+  // TooltipTrigger asChild clones its child with pointer/focus handlers. Icon
+  // does not forward unknown props to its underlying span, so those handlers
+  // never reach the DOM and the tooltip cannot open.
+  it('opens the tooltip on hover for a non-token-only model', async () => {
+    const user = userEvent.setup();
+    renderTab([row('non-token', { non_token_only: true, image_input_cost: 0.0001 })]);
+
+    await user.hover(screen.getByRole('button', { name: /non-token pricing/i }));
+    expect(
+      (await screen.findAllByText('Non-token pricing — see model details')).length,
+    ).toBeGreaterThan(0);
+  });
+});
