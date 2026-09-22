@@ -365,6 +365,27 @@ func TestHandleListRuns_UnparseableLimit_Returns400(t *testing.T) {
 	}
 }
 
+// An explicit limit=0 takes the default page size, the same as an absent
+// limit — the handler comment's stated contract, and what callers that
+// build limit from a possibly-zero JS number expect.
+func TestHandleListRuns_ExplicitZeroLimit_UsesDefault(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=0")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if limit, _ := resp["limit"].(float64); int(limit) != defaultRunsLimit {
+		t.Errorf("limit = %v, want %d", resp["limit"], defaultRunsLimit)
+	}
+}
+
 // #230: a limit above the ceiling is rejected, not silently clamped to a
 // smaller page the caller has no way to distinguish from what it asked for.
 func TestHandleListRuns_LimitAboveCeiling_Returns400(t *testing.T) {

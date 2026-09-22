@@ -13,7 +13,11 @@ interface AgentsShellProps {
   initialError: string | null;
 }
 
-export function AgentsShell({ initialAgentTypes, initialRunStats, initialError }: AgentsShellProps) {
+export function AgentsShell({
+  initialAgentTypes,
+  initialRunStats,
+  initialError,
+}: AgentsShellProps) {
   return (
     <AgentsProvider
       initialAgentTypes={initialAgentTypes}

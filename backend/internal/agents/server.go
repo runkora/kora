@@ -441,8 +441,8 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, parseErr := strconv.Atoi(raw)
-		if parseErr != nil || parsed < 1 {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be a positive integer", nil)
+		if parseErr != nil || parsed < 0 {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be a non-negative integer", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
 			return
 		}

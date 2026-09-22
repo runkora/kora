@@ -97,7 +97,12 @@ export async function fetchRuns(
   try {
     res = await fetch(`${ApiRoute.runs.list()}${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
   } catch {
-    return { data: [], hasMore: false, nextCursor: null, error: 'Network error: could not reach the server.' };
+    return {
+      data: [],
+      hasMore: false,
+      nextCursor: null,
+      error: 'Network error: could not reach the server.',
+    };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });

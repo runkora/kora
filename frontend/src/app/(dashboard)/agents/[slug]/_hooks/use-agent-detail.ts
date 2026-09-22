@@ -21,14 +21,6 @@ export type DetailStatus = 'idle' | 'loading' | 'success' | 'error' | 'not_found
 /** Page size for the runs tab's "load more" pagination. */
 const RUNS_PAGE_SIZE = 25;
 
-const emptyRunStats: RunStats = {
-  total: 0,
-  active: 0,
-  completed: 0,
-  failed: 0,
-  avg_completed_duration_ms: null,
-};
-
 export interface AgentDetailStateShape {
   agent: AgentTypeRow | null;
   /** Accumulated pages of runs, newest first. The overview tab's "5 most
@@ -106,7 +98,9 @@ export function useAgentDetail(
     setRuns(runsResult.data);
     setHasMoreRuns(runsResult.hasMore);
     nextCursorRef.current = runsResult.nextCursor;
-    setRunStats(statsResult.data ?? emptyRunStats);
+    if (statsResult.data) {
+      setRunStats(statsResult.data);
+    }
     setStatus('success');
   }, [agent]);
 

@@ -15,14 +15,6 @@ import type { RunStats } from '@orbit/shared/api';
 
 export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
-const emptyRunStats: RunStats = {
-  total: 0,
-  active: 0,
-  completed: 0,
-  failed: 0,
-  avg_completed_duration_ms: null,
-};
-
 export interface AgentsStateShape {
   agentTypes: AgentTypeRow[];
   runStats: RunStats;
@@ -59,8 +51,6 @@ export function useAgents(
     const statsResult = await fetchRunStats();
     if (!statsResult.error && statsResult.data) {
       setRunStats(statsResult.data);
-    } else {
-      setRunStats(emptyRunStats);
     }
 
     setStatus('success');
