@@ -82,9 +82,23 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 // virtualModelPricingJSON carries effective per-million-token prices for a
 // virtual model. It reflects the lowest-cost enabled route so the admin UI
 // can display a floor price without additional API calls.
+// NonTokenOnly is true when the VM has no token-priced routes and the pricing
+// was sourced from non-token dimensions only.
 type virtualModelPricingJSON struct {
-	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m"`
-	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
+	EffectiveInputCostPer1M  *float64 `json:"effective_input_cost_per_1m,omitempty"`
+	EffectiveOutputCostPer1M *float64 `json:"effective_output_cost_per_1m,omitempty"`
+	NonTokenOnly             bool     `json:"non_token_only,omitempty"`
+	// Non-token dimensions from the selected route, populated only when
+	// NonTokenOnly is true. Mirrors modelObjectPricing's field set (/v1/models)
+	// so the catalog and models endpoints agree on what a client can render.
+	ImageInputCost       float64 `json:"image_input_cost,omitempty"`
+	ImageOutputCost      float64 `json:"image_output_cost,omitempty"`
+	RequestInputCost     float64 `json:"request_input_cost,omitempty"`
+	RequestOutputCost    float64 `json:"request_output_cost,omitempty"`
+	SecondInputCost      float64 `json:"second_input_cost,omitempty"`
+	SecondOutputCost     float64 `json:"second_output_cost,omitempty"`
+	AudioInputCostPer1M  float64 `json:"audio_input_cost_per_1m,omitempty"`
+	AudioOutputCostPer1M float64 `json:"audio_output_cost_per_1m,omitempty"`
 }
 
 type virtualModelJSON struct {
@@ -504,13 +518,15 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-// vmCatalogPricing returns the pricing of the first enabled route for a
-// virtual model, where "first" means the lowest Priority value among enabled
-// routes that have a matching entry in the pricing map. Returns nil when no
-// such route exists.
+// vmCatalogPricing returns the effective pricing for a virtual model.
+// First pass: finds the enabled route with the lowest combined effective token
+// cost from the pricing map. Routes with zero token pricing but non-token dims
+// are deferred to the second pass (they are non-token-only models, not free-tier).
+// If no token-priced route exists, second pass: picks the first enabled route
+// with any non-token cost data and returns it with NonTokenOnly: true.
+// Returns nil when no enabled route has any pricing data at all.
 func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) *virtualModelPricingJSON {
 	var best *pricingEntryJSON
-	bestPriority := 0
 	for _, route := range vm.Routes {
 		if !route.Enabled {
 			continue
@@ -519,18 +535,57 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 		if p == nil {
 			continue
 		}
-		if best == nil || route.Priority < bestPriority {
+		if p.EffectiveInput == 0 && p.EffectiveOutput == 0 {
+			continue
+		}
+		if best == nil ||
+			(p.EffectiveInput+p.EffectiveOutput) < (best.EffectiveInput+best.EffectiveOutput) {
 			best = p
-			bestPriority = route.Priority
 		}
 	}
-	if best == nil {
-		return nil
+	if best != nil {
+		in, out := best.EffectiveInput, best.EffectiveOutput
+		return &virtualModelPricingJSON{
+			EffectiveInputCostPer1M:  &in,
+			EffectiveOutputCostPer1M: &out,
+		}
 	}
-	return &virtualModelPricingJSON{
-		EffectiveInputCostPer1M:  best.EffectiveInput,
-		EffectiveOutputCostPer1M: best.EffectiveOutput,
+
+	// No token-priced route — fall back to non-token data if available.
+	// First-match is intentional: non-token dims are not comparable across
+	// routes (images vs seconds vs requests), so cost-based selection is
+	// meaningless. Routes are ordered by Priority, so first-match respects
+	// the operator's intent.
+	for _, route := range vm.Routes {
+		if !route.Enabled {
+			continue
+		}
+		p := lookupPricing(pricingMap, route.Provider, route.ModelID)
+		if p == nil || !pricingEntryHasNonToken(p) {
+			continue
+		}
+		return &virtualModelPricingJSON{
+			NonTokenOnly:         true,
+			ImageInputCost:       p.SyncedImageInputCostPerImage,
+			ImageOutputCost:      p.SyncedImageOutputCostPerImage,
+			RequestInputCost:     p.SyncedRequestInputCost,
+			RequestOutputCost:    p.SyncedRequestOutputCost,
+			SecondInputCost:      p.SyncedSecondInputCost,
+			SecondOutputCost:     p.SyncedSecondOutputCost,
+			AudioInputCostPer1M:  p.SyncedAudioInputCostPer1M,
+			AudioOutputCostPer1M: p.SyncedAudioOutputCostPer1M,
+		}
 	}
+	return nil
+}
+
+// pricingEntryHasNonToken reports whether a pricingEntryJSON has any non-zero
+// non-token cost dimension.
+func pricingEntryHasNonToken(p *pricingEntryJSON) bool {
+	return p.SyncedImageInputCostPerImage > 0 || p.SyncedImageOutputCostPerImage > 0 ||
+		p.SyncedRequestInputCost > 0 || p.SyncedRequestOutputCost > 0 ||
+		p.SyncedSecondInputCost > 0 || p.SyncedSecondOutputCost > 0 ||
+		p.SyncedAudioInputCostPer1M > 0 || p.SyncedAudioOutputCostPer1M > 0
 }
 
 func toVirtualModelJSON(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) virtualModelJSON {
@@ -699,6 +754,18 @@ type pricingEntryJSON struct {
 	EffectiveOutput    float64  `json:"effective_output_cost_per_1m"`
 	HasOverride        bool     `json:"has_override"`
 	LastSyncedAt       string   `json:"last_synced_at"` // RFC3339
+	// Non-token dimensions — synced values only (no override/effective variants yet).
+	// Named synced_* to match the token field convention and leave room for
+	// override_* and effective_* counterparts in a future migration.
+	// Omitted from JSON when zero so clients can distinguish "no data" from "$0.00".
+	SyncedImageInputCostPerImage  float64 `json:"synced_image_input_cost_per_image,omitempty"`
+	SyncedImageOutputCostPerImage float64 `json:"synced_image_output_cost_per_image,omitempty"`
+	SyncedRequestInputCost        float64 `json:"synced_request_input_cost,omitempty"`
+	SyncedRequestOutputCost       float64 `json:"synced_request_output_cost,omitempty"`
+	SyncedSecondInputCost         float64 `json:"synced_second_input_cost,omitempty"`
+	SyncedSecondOutputCost        float64 `json:"synced_second_output_cost,omitempty"`
+	SyncedAudioInputCostPer1M     float64 `json:"synced_audio_input_cost_per_1m,omitempty"`
+	SyncedAudioOutputCostPer1M    float64 `json:"synced_audio_output_cost_per_1m,omitempty"`
 }
 
 // toPricingEntryJSON converts a PricingCatalogEntry to its JSON wire type.
@@ -707,20 +774,28 @@ func toPricingEntryJSON(e *PricingCatalogEntry) *pricingEntryJSON {
 	hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
 		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
 	return &pricingEntryJSON{
-		Provider:           string(e.Provider),
-		ModelID:            e.ModelID,
-		SyncedInput:        e.SyncedInput,
-		SyncedOutput:       e.SyncedOutput,
-		SyncedCacheRead:    e.SyncedCacheRead,
-		SyncedCacheWrite:   e.SyncedCacheWrite,
-		OverrideInput:      e.OverrideInput,
-		OverrideOutput:     e.OverrideOutput,
-		OverrideCacheRead:  e.OverrideCacheRead,
-		OverrideCacheWrite: e.OverrideCacheWrite,
-		EffectiveInput:     e.EffectiveInput(),
-		EffectiveOutput:    e.EffectiveOutput(),
-		HasOverride:        hasOverride,
-		LastSyncedAt:       e.LastSyncedAt.UTC().Format(time.RFC3339),
+		Provider:                      string(e.Provider),
+		ModelID:                       e.ModelID,
+		SyncedInput:                   e.SyncedInput,
+		SyncedOutput:                  e.SyncedOutput,
+		SyncedCacheRead:               e.SyncedCacheRead,
+		SyncedCacheWrite:              e.SyncedCacheWrite,
+		OverrideInput:                 e.OverrideInput,
+		OverrideOutput:                e.OverrideOutput,
+		OverrideCacheRead:             e.OverrideCacheRead,
+		OverrideCacheWrite:            e.OverrideCacheWrite,
+		EffectiveInput:                e.EffectiveInput(),
+		EffectiveOutput:               e.EffectiveOutput(),
+		HasOverride:                   hasOverride,
+		LastSyncedAt:                  e.LastSyncedAt.UTC().Format(time.RFC3339),
+		SyncedImageInputCostPerImage:  e.SyncedImageInputCostPerImage,
+		SyncedImageOutputCostPerImage: e.SyncedImageOutputCostPerImage,
+		SyncedRequestInputCost:        e.SyncedRequestInputCost,
+		SyncedRequestOutputCost:       e.SyncedRequestOutputCost,
+		SyncedSecondInputCost:         e.SyncedSecondInputCost,
+		SyncedSecondOutputCost:        e.SyncedSecondOutputCost,
+		SyncedAudioInputCostPer1M:     e.SyncedAudioInputCostPer1M,
+		SyncedAudioOutputCostPer1M:    e.SyncedAudioOutputCostPer1M,
 	}
 }
 

@@ -36,6 +36,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return mw.MiddlewareCha
 //	GET  /policy/scopes            — return all scopes the authenticated principal holds
 //	GET  /policy/scopes/explain    — return scopes broken down by source (grants vs roles)
 //	POST /policy/check/simulate    — dry-run policy check by principal identity (no JWT required)
+//
+// The two routes that can name a principal other than the caller require
+// platform:grants:read for that case; see authorizeInspectOthers.
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("POST /check", c.handleCheck)
 	mux.Handle("POST /query", c.handleQuery)

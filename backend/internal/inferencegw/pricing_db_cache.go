@@ -103,6 +103,14 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 			OutputCostPerMillion:     e.EffectiveOutput(),
 			CacheReadCostPerMillion:  e.EffectiveCacheRead(),
 			CacheWriteCostPerMillion: e.EffectiveCacheWrite(),
+			ImageInputCost:           e.SyncedImageInputCostPerImage,
+			ImageOutputCost:          e.SyncedImageOutputCostPerImage,
+			RequestInputCost:         e.SyncedRequestInputCost,
+			RequestOutputCost:        e.SyncedRequestOutputCost,
+			SecondInputCost:          e.SyncedSecondInputCost,
+			SecondOutputCost:         e.SyncedSecondOutputCost,
+			AudioInputCostPer1M:      e.SyncedAudioInputCostPer1M,
+			AudioOutputCostPer1M:     e.SyncedAudioOutputCostPer1M,
 		}
 		entries[pricingKey(e.Provider, e.ModelID)] = mp
 		priced = append(priced, mp)

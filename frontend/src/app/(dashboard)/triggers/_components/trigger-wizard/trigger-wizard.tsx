@@ -5,19 +5,8 @@
  * Everything kind-specific comes from the registry in ./kinds. */
 
 import { useCallback, useMemo, useState } from 'react';
-import {
-  Button,
-  Heading,
-  Icon,
-  Modal,
-  ModalAccessibleTitle,
-  Progress,
-  Separator,
-  Stack,
-  Text,
-} from '@orbit/terra';
+import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
 import { KindPicker } from './kind-picker';
-import { WizardRail } from './wizard-rail';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
@@ -55,6 +44,11 @@ export function TriggerWizard({
 
   const definition = kind ? TRIGGER_KINDS[kind] : null;
   const steps = useMemo(() => (definition ? stepsFor(definition, SHARED_STEPS) : []), [definition]);
+
+  const wizardSteps = useMemo(
+    () => steps.map((s) => ({ id: s.id, title: s.railTitle, sub: s.railSub })),
+    [steps],
+  );
 
   const patch = useCallback(
     (next: Partial<WizardState>) => setState((prev) => (prev ? { ...prev, ...next } : prev)),
@@ -118,148 +112,127 @@ export function TriggerWizard({
     });
   }, [definition, state, validation.valid, pending, isLast, step, onCreate]);
 
-  const progress = created ? 100 : steps.length ? ((step + 1) / steps.length) * 100 : 0;
   const StepBody = currentStep?.Component;
+  const hasKind = definition !== null && state !== null;
 
   return (
-    <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
-      <ModalAccessibleTitle>New trigger</ModalAccessibleTitle>
-
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <Stack
-        direction="horizontal"
-        align="center"
-        gap="cozy"
-        height="header"
-        paddingInline="comfortable"
-        shrink={false}
-      >
-        <Icon
-          name={definition?.icon ?? 'zap'}
-          size="sm"
-          container
-          containerVariant="accent"
-          label=""
-        />
-        <Stack direction="horizontal" align="baseline" gap="snug">
-          <Text as="span" size="supporting" weight="heavy">
-            New trigger
-          </Text>
-          <Text as="span" size="micro" mono color="subtle">
-            {definition ? definition.id : 'choose a kind'}
-          </Text>
-        </Stack>
-        <Stack grow />
-        <Button variant="ghost" size="icon-sm" aria-label="Close wizard" onClick={onClose}>
-          <Icon name="close" />
-        </Button>
-      </Stack>
-
-      {/* ── Step progress ──────────────────────────────────────────────────── */}
-      <Progress size="hairline" label="Trigger progress" value={progress} />
-
-      {created && definition && state ? (
-        <SuccessPanel
-          definition={definition}
-          state={state}
-          context={context}
-          triggerId={created.triggerId}
-          endpoint={created.endpoint}
-          secret={created.secret}
-          onClose={onClose}
-          onCreateAnother={backToPicker}
-        />
-      ) : !definition || !state ? (
-        /* ── Phase one: choose what starts the run ─────────────────────────── */
-        <Stack grow overflowY="auto" align="center">
-          <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
-            <Stack gap="snug">
-              <Heading variant="subsection">New trigger</Heading>
-              <Text size="supporting" color="muted">
-                Choose what starts it. Every trigger names one target and is policy-checked before
-                it fires.
-              </Text>
-            </Stack>
-            <KindPicker onSelect={chooseKind} />
-          </Stack>
-        </Stack>
-      ) : (
-        <Stack direction="horizontal" grow overflow="hidden">
-          <WizardRail
-            steps={steps}
+    <Wizard
+      open
+      onClose={onClose}
+      icon={definition?.icon ?? 'zap'}
+      title="New trigger"
+      subtitle={definition ? definition.id : undefined}
+      hint={validation.hint}
+      hintVariant={validation.valid ? 'warning' : 'error'}
+      rail={
+        hasKind && !created ? (
+          <Wizard.Rail
+            label="New trigger"
+            steps={wizardSteps}
             current={step}
             maxVisited={maxVisited}
             onGoTo={(i) => {
               setStep(i);
               setError(null);
             }}
+            footer={<PolicyCheckedInfo />}
           />
-          <Separator orientation="vertical" span="full" />
-
-          {/* ── Content column ─────────────────────────────────────────────── */}
-          <Stack grow overflow="hidden">
-            <Stack grow overflowY="auto" align="center">
-              <Stack minWidth="document" maxWidth="document" padding="loose" gap="relaxed">
-                <Stack gap="snug">
-                  <Heading variant="subsection">{currentStep?.railTitle}</Heading>
-                  <Text size="supporting" color="muted">
-                    {currentStep?.description}
-                  </Text>
-                </Stack>
-                {StepBody && (
-                  <StepBody
-                    state={state}
-                    patch={patch}
-                    context={context}
-                    definition={definition}
-                    error={error}
-                    onGoTo={(stepId) => {
-                      const target = steps.findIndex((s) => s.id === stepId);
-                      if (target >= 0 && target <= maxVisited) setStep(target);
-                    }}
-                  />
-                )}
-              </Stack>
-            </Stack>
-
-            {/* ── Footer ─────────────────────────────────────────────────── */}
-            <Separator span="full" />
+        ) : undefined
+      }
+      footer={
+        hasKind && !created ? (
+          <Wizard.Footer
+            step={step}
+            totalSteps={steps.length}
+            onBack={handleBack}
+            onNext={() => void handleNext()}
+            nextDisabled={!validation.valid}
+            onSubmit={isLast ? () => void handleNext() : undefined}
+            submitLabel="Create trigger"
+            pending={pending}
+            pendingLabel="Creating…"
+          />
+        ) : undefined
+      }
+    >
+      {created && definition && state ? (
+        <Wizard.Step fullPage>
+          <SuccessPanel
+            definition={definition}
+            state={state}
+            context={context}
+            triggerId={created.triggerId}
+            endpoint={created.endpoint}
+            secret={created.secret}
+            onClose={onClose}
+            onCreateAnother={backToPicker}
+          />
+        </Wizard.Step>
+      ) : !hasKind ? (
+        /* ── Phase one: choose what starts the run ─────────────────────────── */
+        <Wizard.Step fullPage>
+          <Stack grow overflowY="auto" align="center">
             <Stack
-              direction="horizontal"
-              align="center"
-              gap="comfortable"
-              padding="comfortable"
-              paddingInline="relaxed"
-              shrink={false}
+              minWidth={{ lg: 'document' }}
+              maxWidth={{ lg: 'document' }}
+              padding="loose"
+              gap="relaxed"
             >
-              <Button variant="secondary" onClick={handleBack} disabled={pending}>
-                <Icon name="chevron-left" />
-                {step === 0 ? 'Choose kind' : 'Back'}
-              </Button>
-              <Stack grow />
-              {!validation.valid && validation.hint && (
-                <Text as="span" size="caption" color="subtle">
-                  {validation.hint}
+              <Stack gap="snug">
+                <Heading variant="subsection">New trigger</Heading>
+                <Text size="supporting" color="muted">
+                  Choose what starts it. Every trigger names one target and is policy-checked before
+                  it fires.
                 </Text>
-              )}
-              <Text as="span" size="caption" color="subtle">
-                Step {step + 1} of {steps.length}
-              </Text>
-              {isLast ? (
-                <Button onClick={() => void handleNext()} disabled={pending}>
-                  {pending ? 'Creating…' : 'Create trigger'}
-                  <Icon name="rocket" />
-                </Button>
-              ) : (
-                <Button onClick={() => void handleNext()} disabled={!validation.valid}>
-                  Continue
-                  <Icon name="arrow-right" />
-                </Button>
-              )}
+              </Stack>
+              <KindPicker onSelect={chooseKind} />
             </Stack>
           </Stack>
-        </Stack>
+        </Wizard.Step>
+      ) : (
+        <Wizard.Step>
+          <Stack gap="snug">
+            <Heading variant="subsection">{currentStep?.railTitle}</Heading>
+            <Text size="supporting" color="muted">
+              {currentStep?.description}
+            </Text>
+          </Stack>
+          {StepBody && (
+            <StepBody
+              state={state}
+              patch={patch}
+              context={context}
+              definition={definition}
+              error={error}
+              onGoTo={(stepId) => {
+                const target = steps.findIndex((s) => s.id === stepId);
+                if (target >= 0 && target <= maxVisited) setStep(target);
+              }}
+            />
+          )}
+        </Wizard.Step>
       )}
-    </Modal>
+    </Wizard>
+  );
+}
+
+function PolicyCheckedInfo() {
+  return (
+    <Card subtle>
+      <CardContent padded compact>
+        <Stack gap="tight">
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Icon name="info" size="xs" color="accent" label="" />
+            <Text as="span" size="caption" weight="heavy" color="muted">
+              Policy-checked
+            </Text>
+          </Stack>
+          <Text size="micro" color="subtle">
+            A trigger starts work as the agent it targets. Every run it starts is checked against
+            that agent&apos;s grants before anything executes.
+          </Text>
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }

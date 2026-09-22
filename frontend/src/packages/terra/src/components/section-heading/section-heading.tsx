@@ -11,6 +11,8 @@ export interface SectionHeadingProps {
   title: string;
   /** Optional purpose statement under the title — supporting, muted. */
   description?: string;
+  /** Section body content. Rendered below the header row, indented to align with the title. */
+  children?: React.ReactNode;
 }
 
 /**
@@ -29,17 +31,22 @@ export interface SectionHeadingProps {
  * ```
  */
 const SectionHeading = React.forwardRef<HTMLDivElement, SectionHeadingProps>(
-  ({ icon, title, description }, ref) => (
-    <Stack ref={ref} data-slot="section-heading" direction="horizontal" gap="cozy" align="start">
-      <Icon name={icon} size="md" color="accent" container containerVariant="accent" label="" />
-      <Stack gap="tight">
+  ({ icon, title, description, children }, ref) => (
+    <Stack ref={ref} data-slot="section-heading" gap="tight">
+      <Stack direction="horizontal" gap="cozy" align="center">
+        <Icon name={icon} size="md" color="accent" container containerVariant="accent" label="" />
         <Heading variant="subsection">{title}</Heading>
-        {description ? (
-          <Text size="supporting" color="muted">
-            {description}
-          </Text>
-        ) : null}
       </Stack>
+      {description ? (
+        <Text size="supporting" color="muted" className="pl-12">
+          {description}
+        </Text>
+      ) : null}
+      {children ? (
+        <Stack gap="relaxed" paddingTop="snug">
+          {children}
+        </Stack>
+      ) : null}
     </Stack>
   ),
 );

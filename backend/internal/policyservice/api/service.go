@@ -93,6 +93,13 @@ const recompileDebounce = 500 * time.Millisecond
 // the gateway bundle loads all tenant data and is more expensive to compile.
 const gatewayRecompileDebounce = 1 * time.Second
 
+// tenantLister names every tenant a global policy change affects. The bundle
+// server implements it by unioning the tenant registry with the tenants that
+// hold grants and the tenants that hold routes.
+type tenantLister interface {
+	KnownTenantIDs(ctx context.Context) ([]string, error)
+}
+
 // Service orchestrates grant, role, vocabulary, and bundle management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
@@ -101,13 +108,28 @@ type Service struct {
 	roleRepo         roles.Repository
 	tenantBudgetRepo tenantbudget.Repository
 	bundleSrv        *bundle.Server
+	tenants          tenantLister
 	routeStore       *routes.Store
 	logger           logging.Logger
 
-	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
+	// recompileMu protects every field below from concurrent access.
 	recompileMu     sync.Mutex
 	recompileTimers map[string]*time.Timer
 	lastWriteAt     map[string]time.Time
+
+	// lastKnownTenants is the tenant set a global registration last compared
+	// itself against. A registry-only tenant (no grants, no routes of its own)
+	// moves this set without moving anything upsertDeclaredScopes or
+	// pruneOwnedScopes would notice, so it is tracked separately.
+	lastKnownTenants []string
+	// recompileAllHealthy and gatewayRecompileHealthy report whether the most
+	// recent asynchronous recompile of that kind confirmed success.
+	// scheduleRecompileAll and scheduleGatewayRecompile are fire-and-forget:
+	// a transient failure there is otherwise invisible to the next
+	// registration, and once that registration finds nothing new to compile
+	// it would never retry.
+	recompileAllHealthy     bool
+	gatewayRecompileHealthy bool
 
 	gatewayRecompileTimer *time.Timer
 }
@@ -128,10 +150,15 @@ func NewService(
 		roleRepo:         roleRepo,
 		tenantBudgetRepo: tenantBudgetRepo,
 		bundleSrv:        bundleSrv,
+		tenants:          bundleSrv,
 		routeStore:       routeStore,
 		logger:           logger,
 		recompileTimers:  make(map[string]*time.Timer),
 		lastWriteAt:      make(map[string]time.Time),
+		// Nothing has failed yet: the process's own bundle bootstrap already
+		// ran before any service registers with it.
+		recompileAllHealthy:     true,
+		gatewayRecompileHealthy: true,
 	}
 }
 
@@ -599,50 +626,38 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 // prune is a no-op for them.
 func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
 	// Upsert declared scopes into vocabulary first so that the existence check
-	// below sees the freshly declared entries.
-	incomingScopes := make([]string, len(scopeDecls))
-	for i := range scopeDecls {
-		incomingScopes[i] = scopeDecls[i].Scope
-		if err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
-			Scope:        scopeDecls[i].Scope,
-			ResourceType: scopeDecls[i].ResourceType,
-			PathSegments: scopeDecls[i].PathSegments,
-			Action:       scopeDecls[i].Action,
-			Description:  scopeDecls[i].Description,
-			RegisteredBy: service,
-			Requires:     scopeDecls[i].Requires,
-		}); err != nil {
-			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
-		}
+	// below sees the freshly declared entries. changed tracks whether this
+	// registration moved anything a bundle is compiled from: services
+	// re-register on a timer, and recompiling every tenant for a registration
+	// that changed nothing is pure load.
+	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
+	if err != nil {
+		return err
 	}
 
-	// For global registrations, reconcile owned scopes: any scope previously
-	// registered by this service that is no longer in the catalog means the
-	// virtual model was deleted. Remove it from vocab and cascade to grants/roles.
-	if tenantID == "" && prune {
-		deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
-		if err != nil {
-			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)
-		}
-		for _, scope := range deleted {
-			if err := s.grantRepo.PurgeScopeFromAll(ctx, scope); err != nil {
-				s.logger.Error(ctx, "purge deleted scope from grants",
-					logging.Field{Key: "scope", Value: scope},
-					logging.Field{Key: "error", Value: err})
+	if tenantID == "" {
+		if prune {
+			pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
+			if pErr != nil {
+				return pErr
 			}
-			if err := s.roleRepo.PurgeScopeFromAll(ctx, scope); err != nil {
-				s.logger.Error(ctx, "purge deleted scope from roles",
-					logging.Field{Key: "scope", Value: scope},
-					logging.Field{Key: "error", Value: err})
-			}
+			changed = changed || pruned
 		}
+		// A registry-only tenant, or a previous recompile that did not
+		// confirm success, needs a recompile this registration's own
+		// vocabulary/route diff cannot see.
+		stateChanged, sErr := s.globalStateChanged(ctx)
+		if sErr != nil {
+			return sErr
+		}
+		changed = changed || stateChanged
 	}
 
 	if tenantID != "" {
 		for _, r := range routeScopes {
-			exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
-			if err != nil {
-				return fmt.Errorf("vocabulary check: %w", err)
+			exists, xErr := s.vocabRepo.Exists(ctx, r.RequiredScope)
+			if xErr != nil {
+				return fmt.Errorf("vocabulary check: %w", xErr)
 			}
 			if !exists {
 				return &ScopeVocabularyError{Scope: r.RequiredScope}
@@ -650,12 +665,20 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		}
 	}
 
-	s.routeStore.Register(&routes.Registration{
+	if s.routeStore.Register(&routes.Registration{
 		Service:  service,
 		TenantID: tenantID,
 		Routes:   routeScopes,
 		Scopes:   scopeDecls,
-	})
+	}) {
+		changed = true
+	}
+
+	// Nothing a bundle is compiled from has moved, so the compiled bundles
+	// still match the catalog.
+	if !changed {
+		return nil
+	}
 
 	if tenantID == "" {
 		s.recordWriteAll(ctx)
@@ -669,6 +692,87 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	return nil
 }
 
+// upsertDeclaredScopes writes the service's declared scopes into the
+// vocabulary and reports the scope strings it declared plus whether any row
+// actually changed.
+func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
+	incomingScopes = make([]string, len(scopeDecls))
+	for i := range scopeDecls {
+		incomingScopes[i] = scopeDecls[i].Scope
+		upserted, uErr := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
+			Scope:        scopeDecls[i].Scope,
+			ResourceType: scopeDecls[i].ResourceType,
+			PathSegments: scopeDecls[i].PathSegments,
+			Action:       scopeDecls[i].Action,
+			Description:  scopeDecls[i].Description,
+			RegisteredBy: service,
+			Requires:     scopeDecls[i].Requires,
+		})
+		if uErr != nil {
+			return nil, false, fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, uErr)
+		}
+		changed = changed || upserted
+	}
+	return incomingScopes, changed, nil
+}
+
+// pruneOwnedScopes removes the scopes this service previously registered that
+// are no longer in its catalog, cascading each deletion into the grants and
+// roles that referenced it, and reports whether anything was removed. A
+// virtual model that was deleted is the usual reason one disappears.
+func (s *Service) pruneOwnedScopes(ctx context.Context, service string, incomingScopes []string) (bool, error) {
+	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
+	if err != nil {
+		return false, fmt.Errorf("prune orphan scopes for %q: %w", service, err)
+	}
+	for _, scope := range deleted {
+		if pErr := s.grantRepo.PurgeScopeFromAll(ctx, scope); pErr != nil {
+			s.logger.Error(ctx, "purge deleted scope from grants",
+				logging.Field{Key: "scope", Value: scope},
+				logging.Field{Key: "error", Value: pErr})
+		}
+		if pErr := s.roleRepo.PurgeScopeFromAll(ctx, scope); pErr != nil {
+			s.logger.Error(ctx, "purge deleted scope from roles",
+				logging.Field{Key: "scope", Value: scope},
+				logging.Field{Key: "error", Value: pErr})
+		}
+	}
+	return len(deleted) > 0, nil
+}
+
+// globalStateChanged reports whether a global registration must recompile for
+// a reason upsertDeclaredScopes and pruneOwnedScopes cannot see: the known
+// tenant set moved, or the previous recompileAll/gateway recompile attempt
+// did not confirm success.
+func (s *Service) globalStateChanged(ctx context.Context) (bool, error) {
+	current, err := s.tenants.KnownTenantIDs(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list known tenants: %w", err)
+	}
+
+	s.recompileMu.Lock()
+	defer s.recompileMu.Unlock()
+	tenantsChanged := !slices.Equal(s.lastKnownTenants, current)
+	s.lastKnownTenants = slices.Clone(current)
+	return tenantsChanged || !s.recompileAllHealthy || !s.gatewayRecompileHealthy, nil
+}
+
+// markRecompileAllHealth records whether the most recent scheduleRecompileAll
+// pass compiled every known tenant without error.
+func (s *Service) markRecompileAllHealth(ok bool) {
+	s.recompileMu.Lock()
+	s.recompileAllHealthy = ok
+	s.recompileMu.Unlock()
+}
+
+// markGatewayRecompileHealth records whether the most recent
+// scheduleGatewayRecompile pass compiled the gateway bundle without error.
+func (s *Service) markGatewayRecompileHealth(ok bool) {
+	s.recompileMu.Lock()
+	s.gatewayRecompileHealthy = ok
+	s.recompileMu.Unlock()
+}
+
 // recordWrite marks the current time as the last policy-affecting write for a
 // tenant. Used by Stats to determine bundle staleness.
 func (s *Service) recordWrite(tenantID string) {
@@ -680,7 +784,7 @@ func (s *Service) recordWrite(tenantID string) {
 // recordWriteAll marks a write for all active tenants (used after global route
 // registration changes).
 func (s *Service) recordWriteAll(ctx context.Context) {
-	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	tenantIDs, err := s.tenants.KnownTenantIDs(ctx)
 	if err != nil {
 		return
 	}
@@ -736,18 +840,28 @@ func (s *Service) scheduleGatewayRecompile(ctx context.Context) {
 			s.logger.Error(detachedCtx, "gateway bundle recompile failed",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			s.markGatewayRecompileHealth(false)
+			return
 		}
+		s.markGatewayRecompileHealth(true)
 	})
 }
 
 // scheduleRecompileAll recompiles all tenant bundles after a global route change.
 // Must be called in a goroutine — it blocks until all tenants are recompiled.
+//
+// The tenant set is the bundle server's union of the registry, tenants with
+// grants and tenants with routes. Listing only tenants with grants misses a
+// tenant whose principals hold roles alone: its bundle keeps whatever
+// vocabulary existed when it was first compiled, which on a fresh install is
+// none, and every role in it resolves to zero scopes until a restart.
 func (s *Service) scheduleRecompileAll(ctx context.Context) {
-	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	tenantIDs, err := s.tenants.KnownTenantIDs(ctx)
 	if err != nil {
 		s.logger.Error(ctx, "recompile all: failed to list tenants",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		s.markRecompileAllHealth(false)
 		return
 	}
 	vocab, err := s.vocabRepo.List(ctx, "")
@@ -755,14 +869,18 @@ func (s *Service) scheduleRecompileAll(ctx context.Context) {
 		s.logger.Error(ctx, "recompile all: failed to list vocabulary",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		s.markRecompileAllHealth(false)
 		return
 	}
+	ok := true
 	for _, tenantID := range tenantIDs {
 		if err := s.bundleSrv.Recompile(ctx, tenantID, vocab); err != nil {
+			ok = false
 			s.logger.Error(ctx, "recompile all: bundle recompile failed",
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
 	}
+	s.markRecompileAllHealth(ok)
 }

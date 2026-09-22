@@ -17,7 +17,8 @@ const MODAL_SIZE: Record<Required<ModalProps>['size'], string> = {
   // Full workspace modal (agent builder): explicit height so children can
   // fill it (the root is already `flex flex-col`), `overflow-hidden` so the
   // panel never scrolls — scrolling happens inside the step content instead.
-  builder: 'max-w-[1200px] w-[calc(100vw-4rem)] h-[840px] max-h-[calc(100vh-4rem)] overflow-hidden',
+  builder:
+    'max-w-[1200px] w-full lg:w-[calc(100vw-4rem)] h-[100dvh] lg:h-[840px] lg:max-h-[calc(100vh-4rem)] overflow-hidden rounded-none lg:rounded-xl',
 };
 
 // ── Modal ────────────────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ const Modal = ({
         }}
         className={cn(
           // Positioning
-          'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
+          'fixed inset-0 lg:inset-auto lg:left-1/2 lg:top-1/2 z-50 lg:-translate-x-1/2 lg:-translate-y-1/2',
           // Layout
           'flex w-full flex-col',
           // Visual

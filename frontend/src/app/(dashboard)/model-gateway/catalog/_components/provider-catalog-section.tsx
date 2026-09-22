@@ -15,6 +15,9 @@ import {
   Stack,
   Text,
   Toggle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
@@ -58,6 +61,23 @@ function Chips({ values }: { values: string[] }) {
   );
 }
 
+function hasTokenPricing(pricing: PricingEntry): boolean {
+  return pricing.effective_input_cost_per_1m > 0 || pricing.effective_output_cost_per_1m > 0;
+}
+
+function hasNonTokenPricing(pricing: PricingEntry): boolean {
+  return (
+    (pricing.synced_image_input_cost_per_image ?? 0) > 0 ||
+    (pricing.synced_image_output_cost_per_image ?? 0) > 0 ||
+    (pricing.synced_request_input_cost ?? 0) > 0 ||
+    (pricing.synced_request_output_cost ?? 0) > 0 ||
+    (pricing.synced_second_input_cost ?? 0) > 0 ||
+    (pricing.synced_second_output_cost ?? 0) > 0 ||
+    (pricing.synced_audio_input_cost_per_1m ?? 0) > 0 ||
+    (pricing.synced_audio_output_cost_per_1m ?? 0) > 0
+  );
+}
+
 function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
   if (!pricing) {
     return (
@@ -69,6 +89,23 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
       </Stack>
     );
   }
+
+  const tokenPricing = hasTokenPricing(pricing);
+  const nonTokenPricing = hasNonTokenPricing(pricing);
+
+  if (!tokenPricing && nonTokenPricing) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="muted" size="icon-sm" aria-label="Non-token pricing — see model details">
+            <Icon name="info" size="2xs" color="muted" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Non-token pricing — see model details</TooltipContent>
+      </Tooltip>
+    );
+  }
+
   return (
     <Stack gap="none">
       <Stack direction="horizontal" align="center" gap="tight">
@@ -84,7 +121,50 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
       <Text size="caption" color="muted" mono>
         out: {fmtCost(pricing.effective_output_cost_per_1m)}/1M
       </Text>
+      {nonTokenPricing && (
+        <Text size="caption" color="muted">
+          + other dims
+        </Text>
+      )}
     </Stack>
+  );
+}
+
+// ── Non-token pricing rows ────────────────────────────────────────────────────
+
+function NonTokenPricingRows({ pricing }: { pricing: PricingEntry }) {
+  const dims: Array<{ label: string; value: number }> = [];
+  if ((pricing.synced_image_input_cost_per_image ?? 0) > 0)
+    dims.push({ label: 'Image input /image', value: pricing.synced_image_input_cost_per_image! });
+  if ((pricing.synced_image_output_cost_per_image ?? 0) > 0)
+    dims.push({ label: 'Image output /image', value: pricing.synced_image_output_cost_per_image! });
+  if ((pricing.synced_request_input_cost ?? 0) > 0)
+    dims.push({ label: 'Request input', value: pricing.synced_request_input_cost! });
+  if ((pricing.synced_request_output_cost ?? 0) > 0)
+    dims.push({ label: 'Request output', value: pricing.synced_request_output_cost! });
+  if ((pricing.synced_second_input_cost ?? 0) > 0)
+    dims.push({ label: 'Per-second input', value: pricing.synced_second_input_cost! });
+  if ((pricing.synced_second_output_cost ?? 0) > 0)
+    dims.push({ label: 'Per-second output', value: pricing.synced_second_output_cost! });
+  if ((pricing.synced_audio_input_cost_per_1m ?? 0) > 0)
+    dims.push({ label: 'Audio input /1M', value: pricing.synced_audio_input_cost_per_1m! });
+  if ((pricing.synced_audio_output_cost_per_1m ?? 0) > 0)
+    dims.push({ label: 'Audio output /1M', value: pricing.synced_audio_output_cost_per_1m! });
+
+  if (dims.length === 0) return null;
+  return (
+    <>
+      {dims.map(({ label, value }) => (
+        <Stack key={label} direction="horizontal" align="center" justify="between">
+          <Text size="supporting" color="muted">
+            {label}
+          </Text>
+          <Text size="supporting" mono>
+            {fmtCost(value)}
+          </Text>
+        </Stack>
+      ))}
+    </>
   );
 }
 
@@ -207,6 +287,9 @@ function PricingOverlay({
   }, [model, onModelChange, onClose]);
 
   const p = model.pricing;
+  const hasCachePricing =
+    p &&
+    ((p.synced_cache_read_cost_per_1m ?? 0) > 0 || (p.synced_cache_write_cost_per_1m ?? 0) > 0);
 
   return (
     <Modal open={open} onClose={onClose} size="sm">
@@ -260,22 +343,27 @@ function PricingOverlay({
                   {fmtDate(p.last_synced_at)}
                 </Text>
               </Stack>
-              <Stack direction="horizontal" align="center" justify="between">
-                <Text size="supporting" color="muted">
-                  Synced input /1M
-                </Text>
-                <Text size="supporting" mono>
-                  {fmtCost(p.synced_input_cost_per_1m)}
-                </Text>
-              </Stack>
-              <Stack direction="horizontal" align="center" justify="between">
-                <Text size="supporting" color="muted">
-                  Synced output /1M
-                </Text>
-                <Text size="supporting" mono>
-                  {fmtCost(p.synced_output_cost_per_1m)}
-                </Text>
-              </Stack>
+              {hasTokenPricing(p) && (
+                <>
+                  <Stack direction="horizontal" align="center" justify="between">
+                    <Text size="supporting" color="muted">
+                      Synced input /1M
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(p.synced_input_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                  <Stack direction="horizontal" align="center" justify="between">
+                    <Text size="supporting" color="muted">
+                      Synced output /1M
+                    </Text>
+                    <Text size="supporting" mono>
+                      {fmtCost(p.synced_output_cost_per_1m)}
+                    </Text>
+                  </Stack>
+                </>
+              )}
+              <NonTokenPricingRows pricing={p} />
             </Stack>
           ) : (
             <Alert variant="warning">
@@ -285,6 +373,35 @@ function PricingOverlay({
                 overrides can be set.
               </Text>
             </Alert>
+          )}
+
+          {/* Cache pricing (only when non-zero) */}
+          {hasCachePricing && (
+            <Stack gap="snug">
+              <Text size="supporting" weight="emphasis">
+                Cache pricing
+              </Text>
+              {(p!.synced_cache_read_cost_per_1m ?? 0) > 0 && (
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="supporting" color="muted">
+                    Cache read /1M
+                  </Text>
+                  <Text size="supporting" mono>
+                    {fmtCost(p?.synced_cache_read_cost_per_1m ?? 0)}
+                  </Text>
+                </Stack>
+              )}
+              {(p!.synced_cache_write_cost_per_1m ?? 0) > 0 && (
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="supporting" color="muted">
+                    Cache write /1M
+                  </Text>
+                  <Text size="supporting" mono>
+                    {fmtCost(p?.synced_cache_write_cost_per_1m ?? 0)}
+                  </Text>
+                </Stack>
+              )}
+            </Stack>
           )}
 
           {/* Override inputs */}
@@ -517,8 +634,14 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        headerTooltip:
+          'The per-1M token price for a standard text request, after any platform overrides are applied.',
         sortable: true,
-        sortAccessor: (m) => m.pricing?.effective_input_cost_per_1m ?? -1,
+        sortAccessor: (m) =>
+          m.pricing
+            ? (m.pricing.effective_input_cost_per_1m ?? 0) +
+              (m.pricing.effective_output_cost_per_1m ?? 0)
+            : -1,
         cell: (m) => <EffectivePriceCell pricing={m.pricing} />,
       },
       {
