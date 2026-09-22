@@ -13,7 +13,15 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// ensureImagePullSecrets mirrors configured system pull Secrets into the tenant namespace.
+// pullSecretComponent marks a Secret in a tenant namespace as a replica of a
+// system pull Secret. The managed-by label alone is too broad to prune on:
+// the tenant CA and the aggregated registries carry it too.
+const pullSecretComponent = "image-pull-secret"
+
+// ensureImagePullSecrets mirrors configured system pull Secrets into the tenant
+// namespace and removes the replicas that are no longer configured, so a
+// credential dropped from global.imagePullSecrets is dropped from the tenants
+// that received it.
 func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 	for _, name := range r.ImagePullSecrets {
@@ -27,6 +35,7 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *O
 				Namespace: ns,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
+					"orbit.io/component":           pullSecretComponent,
 					"orbit.io/tenant":              tenant.Name,
 				},
 			},
@@ -46,14 +55,52 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *O
 			)
 		case err != nil:
 			return fmt.Errorf("get pull secret %q in %q: %w", name, ns, err)
-		case !reflect.DeepEqual(existing.Data, desired.Data) || existing.Type != desired.Type:
+		case !reflect.DeepEqual(existing.Data, desired.Data) ||
+			existing.Type != desired.Type ||
+			existing.Labels["orbit.io/component"] != pullSecretComponent:
+			// Labels are reconciled alongside the data: a replica created
+			// before the component label existed has to gain it, or the prune
+			// below can never see it.
 			patch := client.MergeFrom(existing.DeepCopy())
 			existing.Data = desired.Data
 			existing.Type = desired.Type
+			existing.Labels = desired.Labels
 			if patchErr := r.Patch(ctx, existing, patch); patchErr != nil {
 				return fmt.Errorf("patch pull secret %q in %q: %w", name, ns, patchErr)
 			}
 		}
+	}
+	return r.pruneImagePullSecrets(ctx, ns)
+}
+
+// pruneImagePullSecrets deletes the replicas in the tenant namespace that no
+// longer name a configured pull Secret.
+func (r *TenantReconciler) pruneImagePullSecrets(ctx context.Context, ns string) error {
+	replicas := &corev1.SecretList{}
+	if err := r.List(ctx, replicas, client.InNamespace(ns), client.MatchingLabels{
+		"app.kubernetes.io/managed-by": "orbit-operator",
+		"orbit.io/component":           pullSecretComponent,
+	}); err != nil {
+		return fmt.Errorf("list pull secrets in %q: %w", ns, err)
+	}
+
+	desired := make(map[string]struct{}, len(r.ImagePullSecrets))
+	for _, name := range r.ImagePullSecrets {
+		desired[name] = struct{}{}
+	}
+
+	for i := range replicas.Items {
+		secret := &replicas.Items[i]
+		if _, keep := desired[secret.Name]; keep {
+			continue
+		}
+		if err := r.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete pull secret %q in %q: %w", secret.Name, ns, err)
+		}
+		r.Logger.Info(ctx, "removed image pull secret replica",
+			logging.Field{Key: "secret", Value: secret.Name},
+			logging.Field{Key: "namespace", Value: ns},
+		)
 	}
 	return nil
 }

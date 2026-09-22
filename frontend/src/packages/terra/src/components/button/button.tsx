@@ -69,6 +69,8 @@ const buttonVariants = cva(
         md: 'h-9 px-4',
         /** Large — prominent hero or modal CTAs. */
         lg: 'h-10 px-6 text-base',
+        /** Extra-large — 48 px touch targets for mobile-first layouts. */
+        xl: 'h-12 px-6 text-base',
         /**
          * Icon (square, medium) — icon-only buttons at standard touch target.
          * Always pair with an `aria-label`.
@@ -121,6 +123,21 @@ const buttonVariants = cva(
   },
 );
 
+export type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>['size']>;
+
+// Static lookup: maps a size to the lg: overrides that restore it on desktop.
+// Tailwind v4's static scanner requires full class strings to appear verbatim.
+const responsiveSizeOverrides: Record<ButtonSize, string> = {
+  xs: 'lg:h-7 lg:px-3 lg:gap-1.5 lg:text-xs',
+  sm: 'lg:h-8 lg:px-3 lg:text-xs',
+  md: 'lg:h-9 lg:px-4 lg:text-sm',
+  lg: 'lg:h-10 lg:px-6 lg:text-base',
+  xl: 'lg:h-12 lg:px-6 lg:text-base',
+  icon: 'lg:h-9 lg:w-9 lg:p-0',
+  'icon-sm': 'lg:h-7 lg:w-7 lg:p-0',
+  tile: 'lg:h-auto lg:whitespace-normal lg:p-0 lg:justify-start lg:items-start',
+};
+
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   /**
@@ -128,6 +145,18 @@ export interface ButtonProps
    * styles are applied to the child element (e.g. a Next.js `<Link>`).
    */
   asChild?: boolean;
+
+  /**
+   * Overrides the effective size below the `lg` breakpoint. Use when the same
+   * button needs a larger touch target on mobile without changing its desktop
+   * appearance.
+   *
+   * ```tsx
+   * <Button size="lg" responsiveSize="xl">Continue</Button>
+   * // → xl (48px) below lg, lg (40px) at lg and above
+   * ```
+   */
+  responsiveSize?: ButtonSize;
 
   /**
    * When true, the button stretches to fill its container. Content remains
@@ -175,8 +204,8 @@ export interface ButtonProps
  *
  * The primary interactive element of the Terra design system. Supports eight
  * visual variants (`default`, `secondary`, `outline`, `outline-muted`, `ghost`,
- * `muted`, `accent-outline`, `destructive`), seven sizes (`xs`, `sm`, `md`,
- * `lg`, `icon`, `icon-sm`, `tile`), and three shapes (`default`, `pill`,
+ * `muted`, `accent-outline`, `destructive`), eight sizes (`xs`, `sm`, `md`,
+ * `lg`, `xl`, `icon`, `icon-sm`, `tile`), and three shapes (`default`, `pill`,
  * `square`).
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
@@ -202,6 +231,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       variant,
       size,
       shape,
+      responsiveSize,
       fullWidth = false,
       asChild = false,
       dim = false,
@@ -215,7 +245,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <Comp
         ref={ref}
         className={cn(
-          buttonVariants({ variant, size, shape }),
+          responsiveSize
+            ? buttonVariants({ variant, size: responsiveSize, shape })
+            : buttonVariants({ variant, size, shape }),
+          responsiveSize && size && responsiveSizeOverrides[size],
           fullWidth && 'w-full',
           dim && 'opacity-30 hover:opacity-100',
           selected && 'bg-accent/10 hover:bg-accent/15',

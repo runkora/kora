@@ -286,8 +286,12 @@ func splitSlug(s string) []string {
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
-func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	return c.openaiChatCompletion(ctx, params)
+func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*inferencegw.OpenAIResult, error) {
+	resp, err := c.openaiChatCompletion(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return &inferencegw.OpenAIResult{Completion: resp}, nil
 }
 
 // ChatCompletionStream opens a streaming request via the OpenAI-compatible dialect.
