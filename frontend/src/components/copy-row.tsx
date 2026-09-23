@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Icon, Stack, Text } from '@orbit/terra';
 
 export interface CopyRowProps {
-  label: string;
+  label?: string; // Omit to render the value with no label line above it.
   value: string;
   mono?: boolean;
 }
@@ -42,15 +42,36 @@ export function CopyRow({ label, value, mono }: CopyRowProps) {
       size="sm"
       fullWidth
       onClick={handleCopy}
-      aria-label={`Copy ${label}`}
-      style={{ paddingBlockStart: '10px', paddingBlockEnd: '8px' }}
+      aria-label={label ? `Copy ${label}` : 'Copy to clipboard'}
+      style={{
+        // Override Button's fixed h-8 so it grows for wrapped multi-line values.
+        height: 'auto',
+        minHeight: '2rem',
+        paddingBlockStart: '10px',
+        paddingBlockEnd: '8px',
+      }}
     >
-      <Stack direction="horizontal" align="center" justify="between" grow textAlign="start">
-        <Stack gap="none">
-          <Text size="caption" color="muted">
-            {label}
-          </Text>
-          <Text size="supporting" weight="emphasis" mono={mono}>
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        grow
+        textAlign="start"
+        minWidth="none"
+      >
+        <Stack gap="none" minWidth="none">
+          {label && (
+            <Text size="caption" color="muted">
+              {label}
+            </Text>
+          )}
+          {/* Button's whitespace-nowrap is inherited; reset it so long values wrap. */}
+          <Text
+            size="supporting"
+            weight="emphasis"
+            mono={mono}
+            style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
+          >
             {value}
           </Text>
         </Stack>

@@ -1,7 +1,7 @@
 /** @tier 3 — budgets-page-scoped. Promote to src/components/ if a second feature needs this. */
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Badge,
   Callout,
@@ -16,36 +16,17 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
+import type { BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
 import { principalDisplay } from './principal-display';
-
-const NEAR_LIMIT_THRESHOLD = 0.8;
-
-// utilisation compares effective_spend_usd (window-matched to the effective
-// limit) against the limit. Using current_spend_usd (always monthly) against a
-// weekly effective limit would inflate the ratio by 4-5x for weekly principals.
-function utilisation(p: BudgetPrincipalRow): number {
-  if (!p.has_limit || p.effective_limit_usd <= 0) return 0;
-  return p.effective_spend_usd / p.effective_limit_usd;
-}
-
-// chipLabel renders one budget source: "role:eng · $12.00 / $50.00/wk · pool".
-function chipLabel(cat: BudgetCategoryStatus): string {
-  const parts = [`${cat.source}:${cat.id}`];
-  if (cat.limit_usd > 0) {
-    parts.push(
-      `${fmtUsd(cat.spend_usd)} / ${fmtUsd(cat.limit_usd)}${fmtWindowSuffix(cat.reset_cadence)}`,
-    );
-  }
-  if (cat.per_run_limit_usd) {
-    parts.push(`${fmtUsd(cat.per_run_limit_usd)}/run`);
-  }
-  if (cat.pooled) {
-    parts.push('pool');
-  }
-  return parts.join(' · ');
-}
+import { BudgetPrincipalDetailModal } from './budget-principal-detail-modal';
+import {
+  chipLabel,
+  chipTitle,
+  NEAR_LIMIT_THRESHOLD,
+  principalStatus,
+  utilisation,
+} from './budget-principal-format';
 
 interface BudgetPrincipalsTabProps {
   principals: BudgetPrincipalsView | null;
@@ -53,6 +34,7 @@ interface BudgetPrincipalsTabProps {
 
 export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
   const rows = useMemo(() => principals?.data ?? [], [principals]);
+  const [selectedPrincipal, setSelectedPrincipal] = useState<BudgetPrincipalRow | null>(null);
 
   const kpis = useMemo(() => {
     const budgeted = rows.filter((p) => p.has_limit);
@@ -77,9 +59,9 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         cell: (p) => {
           const display = principalDisplay(p.principal_id, p.principal_type, p);
           return (
-            <Stack gap="tight">
+            <Stack gap="tight" minWidth="none">
               <Stack direction="horizontal" align="center" gap="tight">
-                <Text size="caption" weight="emphasis">
+                <Text size="caption" weight="emphasis" truncate title={display.primary}>
                   {display.primary}
                 </Text>
                 {p.principal_type && (
@@ -89,7 +71,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
                 )}
               </Stack>
               {display.secondary && (
-                <Text size="caption" color="subtle" mono>
+                <Text size="caption" color="subtle" mono truncate title={display.secondary}>
                   {display.secondary}
                 </Text>
               )}
@@ -102,9 +84,21 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         header: 'Budget Sources',
         cell: (p) =>
           p.categories.length > 0 ? (
-            <Stack direction="horizontal" gap="tight" wrap>
+            // Reserve a little room past the grid's own column gap.
+            <Stack
+              direction="horizontal"
+              gap="tight"
+              wrap
+              minWidth="none"
+              style={{ maxWidth: 'calc(100% - 12px)' }}
+            >
               {p.categories.map((cat) => (
-                <Badge key={`${cat.source}:${cat.id}`} variant="elevated" size="sm">
+                <Badge
+                  key={`${cat.source}:${cat.id}`}
+                  variant="elevated"
+                  size="sm"
+                  title={chipTitle(cat)}
+                >
                   {chipLabel(cat)}
                 </Badge>
               ))}
@@ -186,11 +180,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
                 ? 1
                 : 0,
         cell: (p) => {
-          if (!p.has_limit) return <StatusBadge status="idle" label="No budget" />;
-          if (p.spend_limit_reached) return <StatusBadge status="error" label="Blocked" />;
-          if (utilisation(p) >= NEAR_LIMIT_THRESHOLD)
-            return <StatusBadge status="degraded" label="Near limit" />;
-          return <StatusBadge status="healthy" label="OK" />;
+          const status = principalStatus(p);
+          return <StatusBadge status={status.variant} label={status.label} />;
         },
       },
       {
@@ -267,8 +258,17 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
           defaultSortDir="desc"
           emptyMessage="No budget activity this period."
           filteredEmptyMessage="No principals match your search."
+          onRowClick={setSelectedPrincipal}
+          rowLabel={(p) =>
+            `View details for ${principalDisplay(p.principal_id, p.principal_type, p).primary}`
+          }
         />
       )}
+
+      <BudgetPrincipalDetailModal
+        principal={selectedPrincipal}
+        onClose={() => setSelectedPrincipal(null)}
+      />
     </Stack>
   );
 }
