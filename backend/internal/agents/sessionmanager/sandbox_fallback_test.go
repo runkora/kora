@@ -138,9 +138,10 @@ func TestGetSandbox_WorkspaceDescriptorAloneDoesNotAnswer(t *testing.T) {
 	}
 }
 
-// A lookup that fails is not a run without a sandbox. Reporting one would send
-// the agent's command to a local shell because orbit-agents was unreachable.
-func TestGetSandbox_LookupFailureIsNotFound(t *testing.T) {
+// A lookup that fails is not a run without a sandbox. 404 is what orbit-shell
+// reads as permission to run the command locally, so an unreachable
+// orbit-agents must stop the command rather than relax where it runs.
+func TestGetSandbox_LookupFailureIsNotA404(t *testing.T) {
 	n := &lookupNotifier{err: errors.New("orbit-agents unreachable")}
 	c, workspaces := controllerWithNotifier(t, n)
 	tok, err := mintRunToken(workspaces, "run-1")
@@ -151,8 +152,11 @@ func TestGetSandbox_LookupFailureIsNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.handleGetSandbox(w, getSandboxReq("run-1", tok))
 
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	if w.Code == http.StatusNotFound {
+		t.Fatal("a failed lookup answered 404, which sends the agent's command to a local shell")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503; body: %s", w.Code, w.Body.String())
 	}
 }
 

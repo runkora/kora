@@ -250,3 +250,34 @@ func TestHTTPNotifier_GetSandbox(t *testing.T) {
 		})
 	}
 }
+
+// Only orbit-agents' own 404 means "this run has no sandbox". A stale route
+// during a rolling deploy answers 404 too, and reading that as no sandbox
+// hands the agent a local shell.
+func TestHTTPNotifier_GetSandbox_UnlabelledNotFoundIsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "nginx style", body: "404 page not found"},
+		{name: "different code", body: `{"code":"route_not_found"}`},
+		{name: "empty body", body: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			_, found, err := n.GetSandbox(context.Background(), "run-1")
+			if err == nil {
+				t.Fatal("a 404 without the resource_not_found code was read as no sandbox")
+			}
+			if found {
+				t.Error("found = true on an error")
+			}
+		})
+	}
+}

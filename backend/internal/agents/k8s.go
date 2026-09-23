@@ -481,6 +481,11 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	return Sandbox{Endpoint: endpoint, ExecToken: liveToken}, nil
 }
 
+// errSandboxUnusable reports a sandbox pod that exists but cannot serve the
+// run. Distinct from no pod at all, which is the only state that may route the
+// agent's command to a local shell.
+var errSandboxUnusable = errors.New("sandbox pod unusable")
+
 // LookupSandbox returns the run's sandbox as its live pod describes it, and
 // whether one exists. It creates nothing.
 //
@@ -506,13 +511,21 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 		span.SetStatus(codes.Error, "get sandbox pod")
 		return Sandbox{}, false, fmt.Errorf("get sandbox pod: %w", err)
 	}
-	if pod.DeletionTimestamp != nil || pod.Status.PodIP == "" ||
-		pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
-		return Sandbox{}, false, nil
+	// A pod that exists but cannot be used is not the same answer as no pod.
+	// found=false reaches orbit-shell as "this run never had a sandbox", which
+	// sends the command to a local shell, so only a genuinely absent pod earns
+	// it. Everything else is an error, and the caller stops.
+	switch {
+	case pod.DeletionTimestamp != nil:
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating", errSandboxUnusable, pod.Name)
+	case pod.Status.Phase == corev1.PodFailed, pod.Status.Phase == corev1.PodSucceeded:
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is %s", errSandboxUnusable, pod.Name, pod.Status.Phase)
+	case pod.Status.PodIP == "":
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s has no address yet", errSandboxUnusable, pod.Name)
 	}
 	token := sandboxExecTokenOf(pod)
 	if token == "" {
-		return Sandbox{}, false, nil
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s carries no %s", errSandboxUnusable, pod.Name, sandboxExecTokenEnv)
 	}
 	return Sandbox{
 		Endpoint:  fmt.Sprintf("%s:%d", pod.Status.PodIP, p.cfg.SandboxGRPCPort),

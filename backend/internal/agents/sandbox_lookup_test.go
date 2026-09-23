@@ -103,3 +103,20 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// A sandbox pod that exists but cannot serve the run is not the same answer as
+// no pod. Only a genuinely absent pod may route the agent's command locally.
+func TestLookupSandbox_UnusablePodIsAnError(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	k8s.lookupErr = errors.New("sandbox pod unusable: sandbox-run-1 is terminating")
+
+	_, err := svc.run.GetSandbox(context.Background(), "run-1")
+	if err == nil {
+		t.Fatal("an unusable pod returned no error")
+	}
+	if errors.Is(err, ErrNoSandbox) {
+		t.Error("an unusable pod reported ErrNoSandbox, which routes the agent to a local shell")
+	}
+}

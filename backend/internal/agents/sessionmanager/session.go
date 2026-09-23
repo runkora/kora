@@ -387,30 +387,31 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 //
 // A miss in both places reports no sandbox, the answer for a run that never
 // asked for one.
-func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool) {
+func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool, error) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
 	if ok {
 		if sandbox, loaded := s.sandbox.Load().(Sandbox); loaded {
-			return sandbox, true
+			return sandbox, true, nil
 		}
 	}
 
+	// The error is returned rather than folded into found=false. orbit-shell
+	// reads "no sandbox" as permission to run the command locally, so an
+	// unreachable orbit-agents would put the agent outside the sandbox, which
+	// is the failure this whole path exists to prevent.
 	sandbox, found, err := reg.notifier.GetSandbox(ctx, runID)
 	if err != nil {
-		reg.logger.Warn(ctx, "Could not reach orbit-agents for this run's sandbox",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return Sandbox{}, false
+		return Sandbox{}, false, fmt.Errorf("look up sandbox: %w", err)
 	}
 	if !found {
-		return Sandbox{}, false
+		return Sandbox{}, false, nil
 	}
-	// Remember it, so the next command on this run does not make the call again.
-	reg.rememberSandbox(runID, sandbox)
-	return sandbox, true
+	// Not cached: rememberSandbox stores through an existing session, and this
+	// path runs when there is none. A registry-level cache would need its own
+	// eviction, for a 2ms call on the rare command whose descriptor is gone.
+	return sandbox, true, nil
 }
 
 // sandboxPaths returns where the run's sandbox descriptor lives, so the reader

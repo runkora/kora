@@ -167,7 +167,7 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 	reg, ws := newTestRegistry(t, n)
 	hostSession(reg, "run-1")
 
-	if _, ok := reg.Sandbox(context.Background(), "run-1"); ok {
+	if _, ok, err := reg.Sandbox(context.Background(), "run-1"); ok || err != nil {
 		t.Fatal("a run with no sandbox must report none")
 	}
 
@@ -180,7 +180,7 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 		t.Fatalf("remove descriptor: %v", err)
 	}
 
-	got, ok := reg.Sandbox(context.Background(), "run-1")
+	got, ok, _ := reg.Sandbox(context.Background(), "run-1")
 	if !ok {
 		t.Fatal("expected the sandbox to be remembered after the descriptor was deleted")
 	}
@@ -192,7 +192,7 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 // A run this pod does not host has no sandbox to report.
 func TestSandbox_UnknownRun(t *testing.T) {
 	reg, _ := newTestRegistry(t, &reprovisionNotifier{endpoint: "10.0.0.8:50051"})
-	if _, ok := reg.Sandbox(context.Background(), "run-elsewhere"); ok {
+	if _, ok, _ := reg.Sandbox(context.Background(), "run-elsewhere"); ok {
 		t.Error("expected no sandbox for a run this pod does not host")
 	}
 }

@@ -607,7 +607,15 @@ func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sandbox, ok := c.registry.Sandbox(ctx, runID)
+	sandbox, ok, err := c.registry.Sandbox(ctx, runID)
+	if err != nil {
+		// Not 404: orbit-shell reads that as permission to run the command
+		// locally. A lookup we could not complete must stop the command, not
+		// relax where it runs.
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "could not determine this run's sandbox", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
 	if !ok {
 		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", map[string]any{"run_id": runID})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

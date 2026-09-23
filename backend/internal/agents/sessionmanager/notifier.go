@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -135,6 +137,26 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
+		// Only the handler's own 404 means "this run has no sandbox". A stale
+		// route during a rolling deploy, or a misconfigured base URL, also
+		// answers 404, and reading that as no sandbox hands the agent a local
+		// shell. Anything without the code is a failure.
+		var body struct {
+			Code  string `json:"code"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return Sandbox{}, false, fmt.Errorf("read sandbox 404 body: %w", readErr)
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return Sandbox{}, false, fmt.Errorf("%w: 404 without a decodable body", errNotifierUnexpectedStatus)
+		}
+		if body.Code != api.ErrCodeResourceNotFound && body.Error.Code != api.ErrCodeResourceNotFound {
+			return Sandbox{}, false, fmt.Errorf("%w: 404 is not %s", errNotifierUnexpectedStatus, api.ErrCodeResourceNotFound)
+		}
 		return Sandbox{}, false, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
