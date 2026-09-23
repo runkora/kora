@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Separator, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
@@ -143,20 +143,7 @@ export function DashboardHeader() {
             <Separator orientation="vertical" span="narrow" />
           </>
         ) : null}
-        <Button variant="ghost" size="icon" aria-label="Refresh">
-          <Icon name="refresh-cw" />
-        </Button>
-        <Indicator status="error">
-          <Button variant="ghost" size="icon" aria-label="Notifications">
-            <Icon name="bell" />
-          </Button>
-        </Indicator>
         <ThemeToggle />
-        <Separator orientation="vertical" span="narrow" />
-        <Button variant="default" size="sm">
-          <Icon name="bot" />
-          Deploy Agent
-        </Button>
       </Stack>
     </Stack>
   );
