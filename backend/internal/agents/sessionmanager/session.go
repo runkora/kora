@@ -379,12 +379,15 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 // session answers first, so an agent deleting its workspace copy cannot make
 // its run look like it never had one.
 //
-// The workspace is the fallback, for a restart that emptied the session map.
-// Reading it is safe because requireRunToken has already bound the caller to
-// this run; without that it would hand a co-hosted run a sibling's exec token.
+// orbit-agents answers when this pod's memory does not, which is the case after
+// a restart. Reading the run's workspace instead would answer nothing: that is
+// the same file orbit-shell has already failed to find, since it only asks when
+// its own copy is missing. orbit-agents holds the sandbox pod, which outlives
+// both this pod's memory and anything the agent can delete.
+//
 // A miss in both places reports no sandbox, the answer for a run that never
 // asked for one.
-func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
+func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
@@ -393,7 +396,21 @@ func (reg *Registry) Sandbox(runID string) (Sandbox, bool) {
 			return sandbox, true
 		}
 	}
-	return reg.sandboxFromDisk(runID)
+
+	sandbox, found, err := reg.notifier.GetSandbox(ctx, runID)
+	if err != nil {
+		reg.logger.Warn(ctx, "Could not reach orbit-agents for this run's sandbox",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return Sandbox{}, false
+	}
+	if !found {
+		return Sandbox{}, false
+	}
+	// Remember it, so the next command on this run does not make the call again.
+	reg.rememberSandbox(runID, sandbox)
+	return sandbox, true
 }
 
 // sandboxPaths returns where the run's sandbox descriptor lives, so the reader

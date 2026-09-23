@@ -40,6 +40,7 @@ type Notifier interface {
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
 	ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error)
+	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
 	// SetSummary reports the run's generated task summary to orbit-agents, which
 	// persists it set-once. Best-effort.
 	SetSummary(ctx context.Context, runID, summary string) error
@@ -56,6 +57,9 @@ func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) e
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
 func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
 	return Sandbox{}, nil
+}
+func (NoopNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool, error) {
+	return Sandbox{}, false, nil
 }
 func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { return nil }
 
@@ -113,6 +117,37 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 		return client.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
 	}
 	return nil
+}
+
+// GetSandbox asks orbit-agents what sandbox the run has, without creating one.
+// ok is false when the run has none, which orbit-agents reports as 404 and this
+// pod must not confuse with a lookup failure.
+func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error) {
+	url := fmt.Sprintf("%s/internal/runs/%s/sandbox", n.baseURL, runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return Sandbox{}, false, fmt.Errorf("build request: %w", err)
+	}
+	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.GetSandbox", req)
+	defer span.End()
+	if err != nil {
+		return Sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return Sandbox{}, false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Sandbox{}, false, n.sandboxClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
+	}
+	var result Sandbox
+	if err := n.sandboxClient.DecodeJSON(span, resp, &result); err != nil {
+		return Sandbox{}, false, fmt.Errorf("decode response: %w", err)
+	}
+	if result.Endpoint == "" || result.ExecToken == "" {
+		return Sandbox{}, false, ErrSandboxIncomplete
+	}
+	return result, true, nil
 }
 
 func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {

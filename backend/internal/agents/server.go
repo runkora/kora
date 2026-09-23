@@ -143,6 +143,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/events", c.handlePushEvent)
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
 }
 
 // handleHealth returns liveness status.
@@ -823,6 +824,36 @@ func (c *Controller) handleSetRunSummary(w http.ResponseWriter, r *http.Request)
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// handleGetRunSandbox reports the run's sandbox without creating one, for a
+// session-manager whose own memory has none. 404 means the run has no sandbox,
+// which is the answer that legitimately routes pre-sandbox work locally.
+func (c *Controller) handleGetRunSandbox(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+
+	sandbox, err := c.runs.GetSandbox(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNoSandbox) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to look up the sandbox", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	// exec_token goes only to the session-manager that owns the run, which
+	// authorizeCallback has already bound to this run.
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {

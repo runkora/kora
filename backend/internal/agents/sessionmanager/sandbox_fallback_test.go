@@ -1,7 +1,9 @@
 package sessionmanager
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,16 +59,43 @@ func getSandboxReq(runID, runToken string) *http.Request {
 	return r
 }
 
-// A restart empties the session map. Without the workspace fallback that is
-// indistinguishable from an agent deleting its own descriptor, and orbit-shell
-// runs the agent's command locally in this container.
-func TestGetSandbox_FallsBackToDiskAfterRestart(t *testing.T) {
-	c, workspaces := sandboxTestController(t)
+// lookupNotifier stands in for orbit-agents, which holds the sandbox pod and so
+// can answer after this pod's memory is gone.
+type lookupNotifier struct {
+	NoopNotifier
+	sandbox Sandbox
+	found   bool
+	err     error
+	calls   int
+}
+
+func (n *lookupNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool, error) {
+	n.calls++
+	return n.sandbox, n.found, n.err
+}
+
+func controllerWithNotifier(t *testing.T, n Notifier) (*Controller, string) {
+	t.Helper()
+	workspaces := t.TempDir()
+	reg := NewRegistry(discardLogger(), workspaces, n, time.Minute)
+	c := &Controller{
+		registry: reg,
+		logger:   discardLogger(),
+		cfg:      ControllerConfig{WorkspacesBasePath: workspaces, SelfPort: 8090},
+	}
+	return c, workspaces
+}
+
+// A restart empties the session map, and orbit-shell only asks when its own
+// workspace copy is missing. orbit-agents holds the sandbox pod, so it is the
+// one place that still knows.
+func TestGetSandbox_AsksOrbitAgentsAfterRestart(t *testing.T) {
+	n := &lookupNotifier{sandbox: Sandbox{Endpoint: "10.0.0.5:50051", ExecToken: "exec-abc"}, found: true}
+	c, workspaces := controllerWithNotifier(t, n)
 	tok, err := mintRunToken(workspaces, "run-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeDescriptor(t, workspaces, "run-1", "10.0.0.5:50051", "exec-abc")
 
 	w := httptest.NewRecorder()
 	c.handleGetSandbox(w, getSandboxReq("run-1", tok))
@@ -83,6 +112,47 @@ func TestGetSandbox_FallsBackToDiskAfterRestart(t *testing.T) {
 	}
 	if body.Endpoint != "10.0.0.5:50051" || body.ExecToken != "exec-abc" {
 		t.Errorf("descriptor = %+v", body)
+	}
+	if n.calls != 1 {
+		t.Errorf("GetSandbox calls = %d, want 1", n.calls)
+	}
+}
+
+// The regression that made the previous fallback useless: the workspace
+// descriptor cannot be the answer, because it is the same file orbit-shell has
+// already failed to find. Only orbit-agents decides.
+func TestGetSandbox_WorkspaceDescriptorAloneDoesNotAnswer(t *testing.T) {
+	n := &lookupNotifier{found: false}
+	c, workspaces := controllerWithNotifier(t, n)
+	tok, err := mintRunToken(workspaces, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDescriptor(t, workspaces, "run-1", "10.0.0.5:50051", "exec-abc")
+
+	w := httptest.NewRecorder()
+	c.handleGetSandbox(w, getSandboxReq("run-1", tok))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; a descriptor on disk must not stand in for orbit-agents. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// A lookup that fails is not a run without a sandbox. Reporting one would send
+// the agent's command to a local shell because orbit-agents was unreachable.
+func TestGetSandbox_LookupFailureIsNotFound(t *testing.T) {
+	n := &lookupNotifier{err: errors.New("orbit-agents unreachable")}
+	c, workspaces := controllerWithNotifier(t, n)
+	tok, err := mintRunToken(workspaces, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c.handleGetSandbox(w, getSandboxReq("run-1", tok))
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -607,7 +607,7 @@ func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sandbox, ok := c.registry.Sandbox(runID)
+	sandbox, ok := c.registry.Sandbox(ctx, runID)
 	if !ok {
 		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", map[string]any{"run_id": runID})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

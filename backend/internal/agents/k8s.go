@@ -481,6 +481,45 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	return Sandbox{Endpoint: endpoint, ExecToken: liveToken}, nil
 }
 
+// LookupSandbox returns the run's sandbox as its live pod describes it, and
+// whether one exists. It creates nothing.
+//
+// The pod is the durable record: it carries the exec token in its spec and the
+// endpoint in its status, and it outlives both the session-manager's memory and
+// anything the agent can delete from its workspace. A pod that is not ready has
+// no usable endpoint yet, so it reports no sandbox rather than a half one.
+func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error) {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.LookupSandbox",
+		trace.WithAttributes(
+			attribute.String("run_id", runID),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return Sandbox{}, false, nil
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get sandbox pod")
+		return Sandbox{}, false, fmt.Errorf("get sandbox pod: %w", err)
+	}
+	if pod.DeletionTimestamp != nil || pod.Status.PodIP == "" ||
+		pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		return Sandbox{}, false, nil
+	}
+	token := sandboxExecTokenOf(pod)
+	if token == "" {
+		return Sandbox{}, false, nil
+	}
+	return Sandbox{
+		Endpoint:  fmt.Sprintf("%s:%d", pod.Status.PodIP, p.cfg.SandboxGRPCPort),
+		ExecToken: token,
+	}, true, nil
+}
+
 // newSandboxExecToken mints the per-run secret that sandbox-exec requires on
 // every Execute. 32 bytes from crypto/rand, hex encoded so it survives an env var.
 func newSandboxExecToken() (string, error) {
