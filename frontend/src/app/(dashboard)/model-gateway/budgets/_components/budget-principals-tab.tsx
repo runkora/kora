@@ -23,6 +23,7 @@ import { BudgetPrincipalDetailModal } from './budget-principal-detail-modal';
 import {
   chipLabel,
   chipTitle,
+  chipVariant,
   NEAR_LIMIT_THRESHOLD,
   principalStatus,
   utilisation,
@@ -95,7 +96,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
               {p.categories.map((cat) => (
                 <Badge
                   key={`${cat.source}:${cat.id}`}
-                  variant="elevated"
+                  variant={chipVariant(cat)}
                   size="sm"
                   title={chipTitle(cat)}
                 >

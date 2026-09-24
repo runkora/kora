@@ -1,6 +1,7 @@
 /** @tier 3 — budgets-page-scoped. Status and budget-source formatting shared
  * by the principals table and its row-click detail modal. */
 
+import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow } from '../../_types';
 
 export const NEAR_LIMIT_THRESHOLD = 0.8;
@@ -37,7 +38,32 @@ export function chipLabel(cat: BudgetCategoryStatus): string {
   return `${cat.source}:${truncateWithEllipsis(cat.id, MAX_CHIP_NAME_LENGTH)}`;
 }
 
-// Full, untruncated label for the chip's title tooltip.
+// Full id plus the spend/limit, per-run cap, and pool marker that used to be
+// always-visible text on the chip before truncation — shown on hover instead,
+// so the table stays compact but the numbers are still one hover away instead
+// of a full trip into the detail modal.
 export function chipTitle(cat: BudgetCategoryStatus): string {
-  return `${cat.source}:${cat.id}`;
+  const parts = [`${cat.source}:${cat.id}`];
+  if (cat.limit_usd > 0) {
+    parts.push(
+      `${fmtUsd(cat.spend_usd)} / ${fmtUsd(cat.limit_usd)}${fmtWindowSuffix(cat.reset_cadence)}`,
+    );
+  }
+  if (cat.per_run_limit_usd) {
+    parts.push(`${fmtUsd(cat.per_run_limit_usd)}/run`);
+  }
+  if (cat.pooled) {
+    parts.push('pooled');
+  }
+  return parts.join(' · ');
+}
+
+// Chip colour for a single source, independent of the principal's overall
+// status — lets one degraded source stand out among otherwise-healthy ones
+// without adding any text.
+export function chipVariant(cat: BudgetCategoryStatus): 'elevated' | 'degraded' | 'error' {
+  if (cat.limit_usd <= 0) return 'elevated';
+  if (cat.spend_usd >= cat.limit_usd) return 'error';
+  if (cat.spend_usd / cat.limit_usd >= NEAR_LIMIT_THRESHOLD) return 'degraded';
+  return 'elevated';
 }

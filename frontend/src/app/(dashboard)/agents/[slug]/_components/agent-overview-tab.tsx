@@ -266,6 +266,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
                 router.push(APP_ROUTES.agents.run(agent.slug, row.id));
               }
             }}
+            rowLabel={(row) => `View run ${row.id}`}
           />
 
           {/* System prompt — wrapping CodeBlock so long lines wrap within the
