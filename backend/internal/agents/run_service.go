@@ -700,6 +700,41 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	return nil
 }
 
+// ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
+// failure: the caller routes work locally for the former and refuses for the
+// latter.
+var ErrNoSandbox = errors.New("run has no sandbox")
+
+// GetSandbox returns the run's sandbox without creating one. The session-manager
+// asks when its own memory has none, which happens after a restart, and the
+// answer comes from the live pod rather than the run's workspace, which the
+// agent can delete.
+func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.GetSandbox",
+		trace.WithAttributes(attribute.String("run_id", runID)),
+	)
+	defer span.End()
+
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get run")
+		return Sandbox{}, err
+	}
+
+	sandbox, ok, err := s.k8s.LookupSandbox(ctx, runID, s.cfg.TenantNamespaceFn(run.TenantID))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "lookup sandbox")
+		return Sandbox{}, err
+	}
+	if !ok {
+		return Sandbox{}, ErrNoSandbox
+	}
+	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
+	return sandbox, nil
+}
+
 // ErrKubeconfigNotReady declines a sandbox pre-provision while the connection
 // registry is still loading. Not a run failure: the caller loses the warm
 // start and the next on-demand request provisions normally.

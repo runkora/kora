@@ -455,6 +455,9 @@ type mockK8s struct {
 	replicaCount            int
 	replicaCountErr         error
 	sandboxEndpoint         string
+	lookupSandbox           Sandbox
+	lookupFound             bool
+	lookupErr               error
 	provisionSandboxCalls   int
 	provisionKubeClusters   []kubeconfig.Cluster
 	provisionSandboxErr     error
@@ -503,6 +506,13 @@ func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeCl
 		ep = "10.0.0.1:50051"
 	}
 	return Sandbox{Endpoint: ep, ExecToken: "test-exec-token"}, nil
+}
+
+func (m *mockK8s) LookupSandbox(_ context.Context, _, _ string) (Sandbox, bool, error) {
+	if m.lookupErr != nil {
+		return Sandbox{}, false, m.lookupErr
+	}
+	return m.lookupSandbox, m.lookupFound, nil
 }
 
 func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {

@@ -206,3 +206,78 @@ func TestHTTPNotifier_ProvisionSandbox_AheadQuery(t *testing.T) {
 		})
 	}
 }
+
+// GetSandbox must tell "this run has no sandbox" (404) apart from a failed
+// lookup. Collapsing them sends the agent's command to a local shell whenever
+// orbit-agents is briefly unreachable.
+func TestHTTPNotifier_GetSandbox(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		body      string
+		wantFound bool
+		wantErr   bool
+	}{
+		{name: "has one", status: http.StatusOK, body: `{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`, wantFound: true},
+		{name: "has none", status: http.StatusNotFound, body: `{"code":"resource_not_found"}`},
+		{name: "lookup failed", status: http.StatusInternalServerError, body: `{"code":"internal_error"}`, wantErr: true},
+		{name: "half an answer", status: http.StatusOK, body: `{"endpoint":"10.0.0.5:50051"}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				w.WriteHeader(tc.status)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			sb, found, err := n.GetSandbox(context.Background(), "run-1")
+
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
+			}
+			if found != tc.wantFound {
+				t.Errorf("found = %v, want %v", found, tc.wantFound)
+			}
+			if tc.wantFound && sb.ExecToken != "tok-1" {
+				t.Errorf("sandbox = %+v", sb)
+			}
+			if gotPath != "/internal/runs/run-1/sandbox" {
+				t.Errorf("path = %q", gotPath)
+			}
+		})
+	}
+}
+
+// Only orbit-agents' own 404 means "this run has no sandbox". A stale route
+// during a rolling deploy answers 404 too, and reading that as no sandbox
+// hands the agent a local shell.
+func TestHTTPNotifier_GetSandbox_UnlabelledNotFoundIsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "nginx style", body: "404 page not found"},
+		{name: "different code", body: `{"code":"route_not_found"}`},
+		{name: "empty body", body: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			_, found, err := n.GetSandbox(context.Background(), "run-1")
+			if err == nil {
+				t.Fatal("a 404 without the resource_not_found code was read as no sandbox")
+			}
+			if found {
+				t.Error("found = true on an error")
+			}
+		})
+	}
+}
