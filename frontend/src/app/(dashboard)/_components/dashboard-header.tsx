@@ -3,7 +3,6 @@
 import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
-import Link from 'next/link';
 import { Button, Icon, Separator, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
@@ -78,19 +77,8 @@ export function DashboardHeader() {
         </Show>
 
         {isDetail && header ? (
-          // Detail: Back button + breadcrumb trail (section › item).
+          // Detail: breadcrumb trail (section › item).
           <Stack direction="horizontal" align="center" style={{ gap: 10 }}>
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              style={{ height: 28, padding: '0 9px 0 7px', gap: 5, fontSize: 12 }}
-            >
-              <Link href={`/${section}`}>
-                <Icon name="chevron-left" size="xs" />
-                Back
-              </Link>
-            </Button>
             <Text as="span" style={{ fontSize: 13, color: 'var(--color-subtle)' }}>
               {header.title}
             </Text>
