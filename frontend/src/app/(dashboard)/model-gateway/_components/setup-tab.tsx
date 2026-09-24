@@ -9,6 +9,7 @@
 //   1. Shared intro — how to self-service provision an API key
 //   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode, VS Code
 
+import { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   Anchor,
@@ -31,7 +32,7 @@ import {
   Callout,
 } from '@orbit/terra';
 import { ScopeChip } from '@orbit/components';
-import { gatewayBaseUrlFromWindow } from '../_utils';
+import { GATEWAY_BASE_URL_FALLBACK, gatewayBaseUrlFromWindow } from '../_utils';
 
 // ── Step ─────────────────────────────────────────────────────────────────────
 
@@ -295,8 +296,15 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
 
 // ── SetupTab (exported) ──────────────────────────────────────────────────────
 
+// useSyncExternalStore plumbing for reading the browser host: the host never
+// changes, so the store has no subscription. Hydration uses the server
+// snapshot (the placeholder), so the snippets match the SSR markup; React then
+// re-renders with the real host after mount.
+const subscribeNoop = () => () => {};
+const getServerBaseUrl = () => GATEWAY_BASE_URL_FALLBACK;
+
 export function SetupTab() {
-  const baseUrl = gatewayBaseUrlFromWindow();
+  const baseUrl = useSyncExternalStore(subscribeNoop, gatewayBaseUrlFromWindow, getServerBaseUrl);
 
   return (
     <Stack gap="spacious">
