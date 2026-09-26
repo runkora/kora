@@ -240,6 +240,18 @@ function DoneContent({ context, endpoint, secret }: DoneContentProps) {
           {endpoint}
         </Text>
       </FieldRow>
+      <FieldRow
+        leading={
+          <Text as="span" size="caption" mono color="subtle">
+            content type
+          </Text>
+        }
+        actions={<CopyButton value="application/json" label="Copy content type" />}
+      >
+        <Text as="span" size="caption" mono color="muted" truncate>
+          application/json
+        </Text>
+      </FieldRow>
       {secret ? (
         <>
           <FieldRow
@@ -255,14 +267,14 @@ function DoneContent({ context, endpoint, secret }: DoneContentProps) {
             </Text>
           </FieldRow>
           <Text size="caption" color="subtle" align="center">
-            Add this URL and secret to your provider&apos;s webhook settings. The secret is shown
-            once.
+            Add this URL, content type and secret to your provider&apos;s webhook settings. The
+            secret is shown once.
           </Text>
         </>
       ) : (
         <Text size="caption" color="subtle" align="center">
-          Add this URL to your provider&apos;s webhook settings on {context.ingestHost}. The signing
-          secret was shown when the source was created.
+          Add this URL and content type to your provider&apos;s webhook settings on{' '}
+          {context.ingestHost}. The signing secret was shown when the source was created.
         </Text>
       )}
     </Stack>

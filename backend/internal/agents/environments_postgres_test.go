@@ -73,7 +73,7 @@ func TestPostgres_ListAgentTypesByEnvironment(t *testing.T) {
 		GrantScopes:             []string{"inference:invoke"},
 		MaxConcurrentRunsPerPod: 1,
 		State:                   AgentTypeStateActive,
-		ModelID:                 strPtr("bedrock/claude-sonnet-4-5"),
+		ModelID:                 new("bedrock/claude-sonnet-4-5"),
 		MCPTools:                []string{"mcp:orbit:use"},
 		EnvironmentID:           &env.ID,
 		IdentityMode:            IdentityModeDelegated,
@@ -102,5 +102,3 @@ func TestPostgres_ListAgentTypesByEnvironment(t *testing.T) {
 		t.Errorf("environment_id = %v, want %q", got[0].EnvironmentID, env.ID)
 	}
 }
-
-func strPtr(s string) *string { return &s }
