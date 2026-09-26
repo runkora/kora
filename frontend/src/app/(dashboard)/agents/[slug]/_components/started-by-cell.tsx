@@ -7,10 +7,9 @@ import type { RunRow } from '../../_types';
 
 interface StartedByCellProps {
   row: RunRow;
-  showDelegatedBadge?: boolean;
 }
 
-export function StartedByCell({ row, showDelegatedBadge = true }: StartedByCellProps) {
+export function StartedByCell({ row }: StartedByCellProps) {
   return (
     <Stack direction="horizontal" align="center" gap="tight">
       {row.startedByTrigger ? (
@@ -25,7 +24,7 @@ export function StartedByCell({ row, showDelegatedBadge = true }: StartedByCellP
           {row.createdByName ?? row.createdBy}
         </Text>
       )}
-      {showDelegatedBadge && row.delegated && (
+      {row.delegated && (
         <Badge variant="default" size="sm">
           Delegated
         </Badge>

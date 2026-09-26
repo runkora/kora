@@ -164,7 +164,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         id: 'startedBy',
         header: 'Started by',
         locked: true,
-        cell: (row) => <StartedByCell row={row} showDelegatedBadge={false} />,
+        cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',

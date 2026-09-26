@@ -59,13 +59,13 @@ describe('StartedByCell', () => {
     expect(screen.getByText('Jane Doe')).toBeInTheDocument();
   });
 
-  it('shows the Delegated badge by default when the run is delegated', () => {
+  it('shows the Delegated badge when the run is delegated', () => {
     render(<StartedByCell row={run({ delegated: true })} />);
     expect(screen.getByText('Delegated')).toBeInTheDocument();
   });
 
-  it('hides the Delegated badge when asked to', () => {
-    render(<StartedByCell row={run({ delegated: true })} showDelegatedBadge={false} />);
+  it('omits the Delegated badge when the run is not delegated', () => {
+    render(<StartedByCell row={run()} />);
     expect(screen.queryByText('Delegated')).not.toBeInTheDocument();
   });
 });
