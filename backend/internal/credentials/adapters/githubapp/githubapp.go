@@ -552,7 +552,21 @@ func classifyRepoPath(verb string, sub []string, qualifier string) credentials.C
 		}
 		return credentials.Classification{Action: catAdmin + ":" + verbWrite, Qualifier: qualifier}
 	}
-	return credentials.Classification{Action: repoSubCategory(sub) + ":" + verb, Qualifier: qualifier}
+	cls := credentials.Classification{Action: repoSubCategory(sub) + ":" + verb, Qualifier: qualifier}
+	if sharedIssueNumberRoute(sub) {
+		cls.Alternates = []string{catPulls + ":" + verb}
+	}
+	return cls
+}
+
+// sharedIssueNumberRoute reports whether sub addresses a single issue or pull
+// request by number, or the comments and events beneath them. GitHub numbers
+// issues and pull requests in one sequence and serves both under /issues, but
+// checks the pull_requests permission when the target is a pull request, so the
+// path alone cannot say which permission the call needs. The bare /issues
+// collection is excluded: creating an issue there is never a pull request.
+func sharedIssueNumberRoute(sub []string) bool {
+	return len(sub) >= 2 && sub[0] == "issues"
 }
 
 // repoSubCategories maps unconditional first segments under
@@ -800,6 +814,17 @@ func applyCeiling(derived, ceiling map[string]string) {
 	}
 }
 
+// needsInstallationPerms reports whether any action is the repo:* umbrella,
+// whose permission set is derived from the installation's actual grants.
+func needsInstallationPerms(actions []string) bool {
+	for _, a := range actions {
+		if category, _ := splitAction(a); category == catRepo {
+			return true
+		}
+	}
+	return false
+}
+
 // splitAction splits an action fragment at its last colon into category and
 // verb. A fragment with no colon yields (fragment, "read") defensively.
 func splitAction(action string) (category, verb string) {
@@ -874,9 +899,9 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 	// The installation's permissions are cached (instPermsCacheTTL) so the API
 	// call is amortized across mints; the App JWT is only signed when the cache
 	// is cold.
-	category, _ := splitAction(id.Action)
+	actions := append([]string{id.Action}, id.AlsoAuthorized...)
 	var installationPerms map[string]string
-	if category == catRepo && len(cfg.Permissions) == 0 {
+	if needsInstallationPerms(actions) && len(cfg.Permissions) == 0 {
 		pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 		if err != nil {
 			return credentials.Credential{}, fmt.Errorf("resolve github app secret: %w", err)
@@ -892,6 +917,15 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 	}
 
 	perms := permissionsFor(id.Action, cfg.Permissions, installationPerms)
+	// Alternates the grant also holds widen the token, each at no more than its
+	// own derived level, so the credential never exceeds what was authorized.
+	for _, alt := range id.AlsoAuthorized {
+		for key, level := range permissionsFor(alt, cfg.Permissions, installationPerms) {
+			if permissionLevels[level] > permissionLevels[perms[key]] {
+				perms[key] = level
+			}
+		}
+	}
 
 	cacheKey := a.cacheKey(conn.ID, repos, perms)
 	if cred, ok := a.cached(cacheKey); ok {
@@ -936,6 +970,7 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		logging.Field{Key: "tenant_id", Value: id.TenantID},
 		logging.Field{Key: "run_id", Value: id.RunID},
 		logging.Field{Key: "action", Value: id.Action},
+		logging.Field{Key: "also_authorized", Value: strings.Join(id.AlsoAuthorized, ",")},
 		logging.Field{Key: "repository", Value: id.Qualifier},
 		logging.Field{Key: "expires_at", Value: tok.ExpiresAt.UTC().Format(time.RFC3339)},
 	)
