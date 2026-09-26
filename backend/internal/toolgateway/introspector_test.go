@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -140,4 +141,19 @@ func TestIntrospectorDue(t *testing.T) {
 	if i.due(fKey, fresh) {
 		t.Error("a server whose interval has not elapsed should not be due")
 	}
+}
+
+// Sync is documented as concurrency-safe, so due must not read a snapshot that
+// a concurrent forced Sync is writing. Run under -race.
+func TestIntrospectorSync_ConcurrentSyncsDoNotRace(t *testing.T) {
+	ctx := context.Background()
+	i := NewIntrospector(nil, "test", testLogger())
+	srv := Server{TenantID: "", Name: "s", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
+	i.Sync(ctx, []Server{srv}, true)
+
+	var wg sync.WaitGroup
+	for n := range 400 {
+		wg.Go(func() { i.Sync(ctx, []Server{srv}, n%2 == 0) })
+	}
+	wg.Wait()
 }

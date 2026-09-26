@@ -109,16 +109,20 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 // have passed since it was last introspected.
 func (i *Introspector) due(key string, srv Server) bool {
 	i.mu.RLock()
-	snap := i.snapshots[key]
+	snap, seen := i.snapshots[key]
+	var last time.Time
+	if seen {
+		last = snap.LastIntrospectedAt
+	}
 	i.mu.RUnlock()
 
-	if snap == nil {
+	if !seen {
 		return true
 	}
 	if srv.ReintrospectIntervalSeconds <= 0 {
 		return false
 	}
-	return time.Since(snap.LastIntrospectedAt) >= time.Duration(srv.ReintrospectIntervalSeconds)*time.Second
+	return time.Since(last) >= time.Duration(srv.ReintrospectIntervalSeconds)*time.Second
 }
 
 // recordResult updates the snapshot for one server. On success the tools are
