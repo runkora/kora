@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -576,17 +577,10 @@ func sharedIssueNumberRoute(sub []string) bool {
 	return isNumeric(sub[1])
 }
 
-// isNumeric reports whether s is a non-empty run of ASCII digits.
+// isNumeric reports whether s is a base-10 unsigned integer.
 func isNumeric(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	_, err := strconv.ParseUint(s, 10, 64)
+	return err == nil
 }
 
 // repoSubCategories maps unconditional first segments under
