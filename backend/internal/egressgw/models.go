@@ -53,8 +53,10 @@ type Decision struct {
 	// Connection is the resolved registration whose BaseHost matched the
 	// request's Host within the caller's tenant.
 	Connection *credentials.Connection
-	// Action is the policy action the adapter classified the request as,
-	// e.g. "contents:write". Included in audit and observability.
+	// Action is the policy action the request was authorized under, e.g.
+	// "contents:write": the classified action when the grant holds it,
+	// otherwise the first of its alternates that the grant does hold. Included
+	// in audit and observability.
 	Action string
 	// Qualifier is the resource the request was attributed to (e.g. the
 	// repository name), empty when none. Included in audit and observability.
