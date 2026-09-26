@@ -3,6 +3,7 @@
 /** @tier 3 — agents/[slug]-scoped. Overview tab: stats, recent runs, system prompt, scopes, metadata. */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
@@ -18,6 +19,7 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { ScopeChip, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtTokens } from '@orbit/utils';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { fetchAgentTypeUsage } from '../_services/agent-detail-api';
 import { formatDuration, formatRelativeTime } from '../../_types';
@@ -67,6 +69,7 @@ interface AgentOverviewTabProps {
 
 export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   const { agent, runs } = useAgentDetailContext();
+  const router = useRouter();
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [agentUsage, setAgentUsage] = useState<AgentTypeUsage | null>(null);
 
@@ -258,6 +261,12 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
                 Recent Runs
               </Text>
             }
+            onRowClick={(row) => {
+              if (agent) {
+                router.push(APP_ROUTES.agents.run(agent.slug, row.id));
+              }
+            }}
+            rowLabel={(row) => `View run ${row.id}`}
           />
 
           {/* System prompt — wrapping CodeBlock so long lines wrap within the

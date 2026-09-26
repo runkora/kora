@@ -3,16 +3,14 @@
 // Connections are read-only Connection custom resources (GitOps), surfaced by
 // the egress gateway's GET /api/v1/connections. The UI never mutates them — it
 // presents the connection catalog and computes, from the agent-type list, which
-// agents attach each connection and through which actions.
+// agents attach each connection.
 
 import type { ConnectionCatalogEntry, AgentType } from '@orbit/shared/api';
 
-/** An agent that attaches a connection, plus the actions it was granted through it. */
+/** An agent that attaches a connection. */
 export interface ConnectionUsage {
   slug: string;
   name: string;
-  /** The actions this agent may invoke through the connection (its connector's actions). */
-  actions: string[];
 }
 
 export interface ConnectionRow {
@@ -31,8 +29,7 @@ export interface ConnectionRow {
  *
  * For each connection in the catalog, `usedBy` is computed by scanning every
  * agent type's `connectors`: an agent uses a connection when one of its
- * connectors' `connection` matches the connection name. That connector's
- * `actions` are the actions granted to the agent through the connection.
+ * connectors' `connection` matches the connection name.
  */
 export function buildConnectionRows(
   catalog: ConnectionCatalogEntry[],
@@ -43,7 +40,7 @@ export function buildConnectionRows(
     for (const agent of agentTypes) {
       const connector = (agent.connectors ?? []).find((c) => c.connection === conn.name);
       if (connector) {
-        usedBy.push({ slug: agent.slug, name: agent.name, actions: connector.actions });
+        usedBy.push({ slug: agent.slug, name: agent.name });
       }
     }
     return {
