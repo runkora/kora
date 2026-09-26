@@ -152,7 +152,11 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		}
 		action, also = authorized[0], authorized[1:]
 	}
-	span.SetAttributes(attribute.Bool("orbit.allowed", true))
+	span.SetAttributes(
+		attribute.Bool("orbit.allowed", true),
+		attribute.String("orbit.action", action),
+		attribute.StringSlice("orbit.also_authorized", also),
+	)
 
 	// Mint.
 	identity := credentials.CallerIdentity{

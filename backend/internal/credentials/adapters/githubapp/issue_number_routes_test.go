@@ -35,11 +35,14 @@ func TestClassify_IssueNumberRoutesCarryPullsAlternate(t *testing.T) {
 		{"read one by number", http.MethodGet, "/repos/orbital/orbit/issues/1054", "issues:read", []string{"pulls:read"}},
 		{"react on a conversation comment", http.MethodPost, "/repos/orbital/orbit/issues/comments/99/reactions", "issues:write", []string{"pulls:write"}},
 		{"label by number", http.MethodPost, "/repos/orbital/orbit/issues/1054/labels", "issues:write", []string{"pulls:write"}},
+		{"read one event by ID", http.MethodGet, "/repos/orbital/orbit/issues/events/77", "issues:read", []string{"pulls:read"}},
 
 		// No ambiguity, so no alternate.
 		{"create an issue", http.MethodPost, "/repos/orbital/orbit/issues", "issues:write", nil},
 		{"list issues", http.MethodGet, "/repos/orbital/orbit/issues", "issues:read", nil},
 		{"repository labels", http.MethodPost, "/repos/orbital/orbit/labels", "issues:write", nil},
+		{"repository-wide comments", http.MethodGet, "/repos/orbital/orbit/issues/comments", "issues:read", nil},
+		{"repository-wide events", http.MethodGet, "/repos/orbital/orbit/issues/events", "issues:read", nil},
 		{"pull request route", http.MethodPost, "/repos/orbital/orbit/pulls/1054/reviews", "pulls:write", nil},
 	}
 	for _, tc := range cases {

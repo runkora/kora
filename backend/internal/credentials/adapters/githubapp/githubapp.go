@@ -560,13 +560,33 @@ func classifyRepoPath(verb string, sub []string, qualifier string) credentials.C
 }
 
 // sharedIssueNumberRoute reports whether sub addresses a single issue or pull
-// request by number, or the comments and events beneath them. GitHub numbers
-// issues and pull requests in one sequence and serves both under /issues, but
-// checks the pull_requests permission when the target is a pull request, so the
-// path alone cannot say which permission the call needs. The bare /issues
-// collection is excluded: creating an issue there is never a pull request.
+// request by number, or one comment or event by ID, along with anything beneath
+// them. GitHub numbers issues and pull requests in one sequence and serves both
+// under /issues, but checks the pull_requests permission when the target is a
+// pull request, so the path alone cannot say which permission the call needs.
+// The repository-wide /issues, /issues/comments and /issues/events collections
+// are excluded: they address no single target.
 func sharedIssueNumberRoute(sub []string) bool {
-	return len(sub) >= 2 && sub[0] == "issues"
+	if len(sub) < 2 || sub[0] != "issues" {
+		return false
+	}
+	if sub[1] == "comments" || sub[1] == "events" {
+		return len(sub) >= 3 && isNumeric(sub[2])
+	}
+	return isNumeric(sub[1])
+}
+
+// isNumeric reports whether s is a non-empty run of ASCII digits.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // repoSubCategories maps unconditional first segments under
