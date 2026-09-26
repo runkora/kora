@@ -24,6 +24,7 @@ import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 import { AgentBudgetCard } from './agent-budget-card';
+import { StartedByCell } from './started-by-cell';
 import type { AgentTypeUsage } from '@orbit/shared/api';
 
 const PROMPT_PREVIEW_LENGTH = 300;
@@ -163,11 +164,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         id: 'startedBy',
         header: 'Started by',
         locked: true,
-        cell: (row) => (
-          <Text size="supporting" color="muted">
-            {row.createdByName ?? row.createdBy}
-          </Text>
-        ),
+        cell: (row) => <StartedByCell row={row} showDelegatedBadge={false} />,
       },
       {
         id: 'started',
