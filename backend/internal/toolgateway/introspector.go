@@ -74,7 +74,7 @@ func serverKey(tenantID, name string) string { return tenantID + "|" + name }
 // never aborts the batch.
 //
 // force controls whether a server's own ReintrospectIntervalSeconds is
-// honoured: force=true (registry reload, and the initial boot cycle)
+// honored: force=true (registry reload, and the initial boot cycle)
 // introspects every server unconditionally; force=false (a periodic timer
 // tick) introspects only servers that are due — see due.
 func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {

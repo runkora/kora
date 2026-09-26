@@ -120,7 +120,7 @@ func realMain() error {
 		// force=true (registry reload, and the initial boot cycle) introspects
 		// every server unconditionally; force=false (a periodic timer tick)
 		// introspects only servers due per their own ReintrospectIntervalSeconds
-		// (0 = reload-only, honoured by Introspector.Sync).
+		// (0 = reload-only, honored by Introspector.Sync).
 		var cycleMu sync.Mutex
 		cycle := func(ctx context.Context, force bool) {
 			cycleMu.Lock()
