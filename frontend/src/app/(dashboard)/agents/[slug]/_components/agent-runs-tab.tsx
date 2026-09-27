@@ -71,6 +71,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     runStats,
     hasMoreRuns,
     loadingMoreRuns,
+    loadMoreRunsError,
     loadMoreRuns,
     status,
     error,
@@ -316,15 +317,20 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       )}
 
       {hasMoreRuns && (
-        <Stack align="center" paddingBlock="tight">
+        <Stack align="center" gap="tight" paddingBlock="tight">
           <Button
             variant="outline"
             size="sm"
             onClick={() => void loadMoreRuns()}
             disabled={loadingMoreRuns}
           >
-            {loadingMoreRuns ? 'Loading…' : 'Load more runs'}
+            {loadingMoreRuns ? 'Loading…' : loadMoreRunsError ? 'Retry' : 'Load more runs'}
           </Button>
+          {loadMoreRunsError && (
+            <Text size="caption" color="status-error">
+              {loadMoreRunsError}
+            </Text>
+          )}
         </Stack>
       )}
 

@@ -29,6 +29,9 @@ export interface AgentDetailStateShape {
   runs: RunRow[];
   hasMoreRuns: boolean;
   loadingMoreRuns: boolean;
+  /** Error from the most recent loadMoreRuns() call, or null. Cleared on the
+   * next attempt (success or failure) so a retry doesn't show a stale message. */
+  loadMoreRunsError: string | null;
   loadMoreRuns: () => Promise<void>;
   runStats: RunStats;
   status: DetailStatus;
@@ -55,6 +58,7 @@ export function useAgentDetail(
   const [runs, setRuns] = useState<RunRow[]>(initialRuns);
   const [hasMoreRuns, setHasMoreRuns] = useState(initialHasMoreRuns);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
   const [runStats, setRunStats] = useState<RunStats>(initialRunStats);
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
@@ -107,11 +111,16 @@ export function useAgentDetail(
   const loadMoreRuns = useCallback(async () => {
     if (!agent || !nextCursorRef.current || loadingMoreRuns) return;
     setLoadingMoreRuns(true);
+    setLoadMoreRunsError(null);
     const result = await fetchAgentRuns(agent.id, agent, {
       cursor: nextCursorRef.current,
       limit: RUNS_PAGE_SIZE,
     });
-    if (!result.error) {
+    if (result.error) {
+      // Leave hasMoreRuns/nextCursorRef untouched so the button stays visible
+      // and a retry re-requests the same page instead of skipping it.
+      setLoadMoreRunsError(result.error);
+    } else {
       setRuns((prev) => [...prev, ...result.data]);
       setHasMoreRuns(result.hasMore);
       nextCursorRef.current = result.nextCursor;
@@ -152,6 +161,7 @@ export function useAgentDetail(
     runs,
     hasMoreRuns,
     loadingMoreRuns,
+    loadMoreRunsError,
     loadMoreRuns,
     runStats,
     status,

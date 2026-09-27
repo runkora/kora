@@ -155,3 +155,61 @@ func TestPostgres_RunStats_MatchesListRuns(t *testing.T) {
 		t.Errorf("ListRuns returned %d rows, RunStats.Total = %d: must agree", len(runs), stats.Total)
 	}
 }
+
+// TestPostgres_RunStats_AverageCompletedDuration covers the average-duration
+// aggregate itself: AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) *
+// 1000) FILTER (...). The mock's equivalent (TestGetRunStats_*) exercises the
+// same contract in Go, not the SQL, so this is the only coverage of the
+// expression's arithmetic and FILTER semantics against a real database.
+func TestPostgres_RunStats_AverageCompletedDuration(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	at := seedRunAgentType(t, r, tenant)
+
+	base := time.Now().UTC()
+	seedCompleted := func(startedAt, completedAt time.Time) string {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedAt: base}
+		if err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		if _, err := r.pool.Exec(ctx,
+			`UPDATE runs SET state='completed', started_at=$1, completed_at=$2 WHERE id=$3`,
+			startedAt, completedAt, run.ID,
+		); err != nil {
+			t.Fatalf("seed started/completed_at: %v", err)
+		}
+		return run.ID
+	}
+
+	seedCompleted(base, base.Add(10*time.Second))
+	seedCompleted(base, base.Add(30*time.Second))
+
+	// Completed but never started: must be excluded by the FILTER, not just
+	// coerced to zero, which would skew the average low.
+	unstarted := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedAt: base}
+	if err := r.CreateRun(ctx, unstarted); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state='completed' WHERE id=$1`, unstarted.ID); err != nil {
+		t.Fatalf("seed unstarted completed run: %v", err)
+	}
+
+	filter := RunListFilter{
+		ReadableAgentTypeIDs: []string{at.ID},
+		Visibility:           RunVisibility{SeeAll: true},
+	}
+	stats, err := r.RunStats(ctx, tenant, filter)
+	if err != nil {
+		t.Fatalf("RunStats: %v", err)
+	}
+	if stats.Total != 3 {
+		t.Errorf("Total = %d, want 3", stats.Total)
+	}
+	if stats.AvgCompletedDurationMs == nil {
+		t.Fatal("AvgCompletedDurationMs is nil, want a value")
+	}
+	want := int64(20_000) // (10s + 30s) / 2, the unstarted run excluded
+	if *stats.AvgCompletedDurationMs != want {
+		t.Errorf("AvgCompletedDurationMs = %d, want %d", *stats.AvgCompletedDurationMs, want)
+	}
+}
