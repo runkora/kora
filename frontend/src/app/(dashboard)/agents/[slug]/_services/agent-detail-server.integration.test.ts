@@ -125,10 +125,12 @@ describe('fetchAgentDetailFromBFF', () => {
     expect(result).toEqual({ ok: false, status: 404, message: 'Agent not found' });
   });
 
-  it('surfaces an upstream failure on the stats call', async () => {
+  it('keeps the page when only the stats call fails', async () => {
     serveAgentType();
     server.use(
-      http.get(`${AGENTS}/runs`, () => HttpResponse.json({ runs: [], has_more: false })),
+      http.get(`${AGENTS}/runs`, () =>
+        HttpResponse.json({ runs: [], has_more: true, next_cursor: 'c-2' }),
+      ),
       http.get(`${AGENTS}/runs/stats`, () =>
         HttpResponse.json(
           { code: 'internal_error', message: 'failed to compute run stats' },
@@ -139,8 +141,24 @@ describe('fetchAgentDetailFromBFF', () => {
 
     const result = await fetchAgentDetailFromBFF('coder', 'token', 't-1');
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.status).toBe(500);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.slug).toBe('coder');
+    expect(result.nextCursor).toBe('c-2');
+    expect(result.runStats.total).toBe(0);
+  });
+
+  it('fails the page when the runs call fails', async () => {
+    serveAgentType();
+    server.use(
+      http.get(`${AGENTS}/runs`, () =>
+        HttpResponse.json({ code: 'unavailable', message: 'Service Unavailable' }, { status: 503 }),
+      ),
+      http.get(`${AGENTS}/runs/stats`, () => HttpResponse.json(STATS)),
+    );
+
+    const result = await fetchAgentDetailFromBFF('coder', 'token', 't-1');
+
+    expect(result).toEqual({ ok: false, status: 503, message: 'Service Unavailable' });
   });
 });

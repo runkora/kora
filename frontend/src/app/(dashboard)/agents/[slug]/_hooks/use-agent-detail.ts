@@ -12,7 +12,7 @@ import {
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
 import { fetchRunStats, fetchStartRun } from '../../_services/agents-api';
-import { RUNS_PAGE_SIZE, runStatsBucket } from '../../_types';
+import { RUNS_PAGE_SIZE } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 import type { RunStats } from '@orbit/shared/api';
 
@@ -139,19 +139,18 @@ export function useAgentDetail(
   const deleteRun = useCallback(
     async (runId: string): Promise<{ error: string | null }> => {
       const result = await apiDeleteRun(runId);
-      if (!result.error) {
-        const deleted = runs.find((r) => r.id === runId);
-        const bucket = deleted ? runStatsBucket(deleted.state) : null;
-        setRuns((prev) => prev.filter((r) => r.id !== runId));
-        setRunStats((prev) => ({
-          ...prev,
-          total: Math.max(0, prev.total - 1),
-          ...(bucket ? { [bucket]: Math.max(0, prev[bucket] - 1) } : {}),
-        }));
+      if (result.error) return result;
+      setRuns((prev) => prev.filter((r) => r.id !== runId));
+      // Refetch rather than adjust locally: the average duration cannot be
+      // recomputed without the deleted run's own duration. A failed refetch
+      // keeps the previous stats until the next refresh.
+      if (agent) {
+        const stats = await fetchRunStats(agent.id);
+        if (stats.data) setRunStats(stats.data);
       }
       return result;
     },
-    [runs],
+    [agent],
   );
 
   const startRun = useCallback(

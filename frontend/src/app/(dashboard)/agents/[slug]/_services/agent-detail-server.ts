@@ -52,7 +52,11 @@ export async function fetchAgentDetailFromBFF(
       client.get<{ runs: Run[]; has_more: boolean; next_cursor: string | null }>(
         `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}&limit=${RUNS_PAGE_SIZE}`,
       ),
-      client.get<RunStats>(`/api/v1/runs/stats?agent_type_id=${encodeURIComponent(found.id)}`),
+      // Stats feed only the metric cards, so a stats outage falls back to
+      // empty stats rather than failing the whole page.
+      client
+        .get<RunStats>(`/api/v1/runs/stats?agent_type_id=${encodeURIComponent(found.id)}`)
+        .catch(() => null),
     ]);
     const rawRuns = runsUpstream?.runs ?? [];
     // Resolve run starters to display names (same enrichment as the runs BFF

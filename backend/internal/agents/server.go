@@ -427,7 +427,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		if parsed > maxRunsLimit {
 			apiErr := api.BadRequestError(api.ErrCodeInvalidField,
-				fmt.Sprintf("limit must be between 1 and %d", maxRunsLimit), nil)
+				fmt.Sprintf("limit must be between 0 and %d, where 0 takes the default page size", maxRunsLimit), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

@@ -287,10 +287,23 @@ describe('useAgentDetail — loadMoreRuns guard', () => {
 });
 
 describe('useAgentDetail — deleteRun', () => {
-  it('decrements the total and the deleted run’s status bucket', async () => {
+  it('removes the run and refetches this agent type’s stats', async () => {
     const agent = agentTypeRow();
+    let statsQuery = new URLSearchParams();
     server.use(
       http.delete('/api/agents/runs/run-1', () => new HttpResponse(null, { status: 204 })),
+      http.get('/api/agents/runs/stats', ({ request }) => {
+        statsQuery = new URL(request.url).searchParams;
+        return HttpResponse.json(
+          runStats({
+            total: 9,
+            completed: 8,
+            failed: 0,
+            active: 1,
+            avg_completed_duration_ms: 4200,
+          }),
+        );
+      }),
     );
 
     const { result } = renderHook(() =>
@@ -309,32 +322,57 @@ describe('useAgentDetail — deleteRun', () => {
       await result.current.deleteRun('run-1');
     });
 
+    expect(statsQuery.get('agent_type_id')).toBe('agent-1');
     expect(result.current.runs).toEqual([]);
-    expect(result.current.runStats).toMatchObject({ total: 9, completed: 8, failed: 0, active: 1 });
+    expect(result.current.runStats).toMatchObject({
+      total: 9,
+      failed: 0,
+      avg_completed_duration_ms: 4200,
+    });
   });
 
-  it('leaves the status buckets alone when the deleted run was never loaded', async () => {
+  it('keeps the previous stats when the refetch fails', async () => {
     const agent = agentTypeRow();
+    const initialStats = runStats({ total: 10, completed: 8, failed: 1, active: 1 });
     server.use(
-      http.delete('/api/agents/runs/run-unloaded', () => new HttpResponse(null, { status: 204 })),
-    );
-
-    const { result } = renderHook(() =>
-      useAgentDetail(
-        agent,
-        [runRow()],
-        false,
-        null,
-        runStats({ total: 10, completed: 8, failed: 1, active: 1 }),
-        null,
-        'success',
+      http.delete('/api/agents/runs/run-1', () => new HttpResponse(null, { status: 204 })),
+      http.get('/api/agents/runs/stats', () =>
+        HttpResponse.json({ message: 'failed to compute run stats' }, { status: 500 }),
       ),
     );
 
+    const { result } = renderHook(() =>
+      useAgentDetail(agent, [runRow({ id: 'run-1' })], false, null, initialStats, null, 'success'),
+    );
+
     await act(async () => {
-      await result.current.deleteRun('run-unloaded');
+      await result.current.deleteRun('run-1');
     });
 
-    expect(result.current.runStats).toMatchObject({ total: 9, completed: 8, failed: 1, active: 1 });
+    expect(result.current.runs).toEqual([]);
+    expect(result.current.runStats).toEqual(initialStats);
+  });
+
+  it('leaves runs and stats alone when the delete fails', async () => {
+    const agent = agentTypeRow();
+    const initialStats = runStats();
+    server.use(
+      http.delete('/api/agents/runs/run-1', () =>
+        HttpResponse.json({ message: 'run not found' }, { status: 404 }),
+      ),
+    );
+
+    const { result } = renderHook(() =>
+      useAgentDetail(agent, [runRow({ id: 'run-1' })], false, null, initialStats, null, 'success'),
+    );
+
+    let outcome: { error: string | null } = { error: null };
+    await act(async () => {
+      outcome = await result.current.deleteRun('run-1');
+    });
+
+    expect(outcome.error).toBe('run not found');
+    expect(result.current.runs.map((r) => r.id)).toEqual(['run-1']);
+    expect(result.current.runStats).toEqual(initialStats);
   });
 });

@@ -29,7 +29,11 @@ export async function fetchAgentsFromBFF(
       client.get<{ agent_types: AgentType[] }>(
         `/api/v1/agent-types?tenant_id=${encodeURIComponent(tenantId)}`,
       ),
-      client.get<RunStats>(`/api/v1/runs/stats?tenant_id=${encodeURIComponent(tenantId)}`),
+      // Stats feed only the metric cards, so a stats outage falls back to
+      // empty stats rather than hiding the agent types and recent runs.
+      client
+        .get<RunStats>(`/api/v1/runs/stats?tenant_id=${encodeURIComponent(tenantId)}`)
+        .catch(() => null),
       client.get<{ runs: Run[] }>(
         `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&limit=${RECENT_RUNS_LIMIT}`,
       ),

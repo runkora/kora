@@ -91,12 +91,31 @@ describe('fetchAgentsFromBFF', () => {
     });
   });
 
-  it('returns the upstream status when a call fails', async () => {
+  it('keeps the agent types and recent runs when only the stats call fails', async () => {
     server.use(
-      http.get(`${AGENTS}/agent-types`, () => HttpResponse.json({ agent_types: [] })),
+      http.get(`${AGENTS}/agent-types`, () =>
+        HttpResponse.json({ agent_types: [{ id: 'at-1', slug: 'coder', name: 'Coder' }] }),
+      ),
       http.get(`${AGENTS}/runs/stats`, () =>
         HttpResponse.json({ code: 'unavailable', message: 'Service Unavailable' }, { status: 503 }),
       ),
+      http.get(`${AGENTS}/runs`, () => HttpResponse.json({ runs: [] })),
+    );
+
+    const result = await fetchAgentsFromBFF('token', 't-1');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agentTypes.map((a) => a.slug)).toEqual(['coder']);
+    expect(result.runStats.total).toBe(0);
+  });
+
+  it('returns the upstream status when a core call fails', async () => {
+    server.use(
+      http.get(`${AGENTS}/agent-types`, () =>
+        HttpResponse.json({ code: 'unavailable', message: 'Service Unavailable' }, { status: 503 }),
+      ),
+      http.get(`${AGENTS}/runs/stats`, () => HttpResponse.json(STATS)),
       http.get(`${AGENTS}/runs`, () => HttpResponse.json({ runs: [] })),
     );
 
