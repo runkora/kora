@@ -58,7 +58,7 @@ func TestListRuns_DefaultPageSize(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 80, 3)
 
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestListRuns_ExplicitLimitIsHonoured(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 40, 2)
 
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 10)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, 10)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -97,11 +97,9 @@ func TestListRuns_LimitAboveCeilingIsClamped(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", maxRunsLimit+50, 4)
 
-	// The service layer trusts its caller (the HTTP handler rejects an
-	// over-ceiling limit before it gets here — see parseRunsCursor's sibling
-	// validation in handleListRuns). The repository still re-clamps
-	// defensively for any other caller.
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, maxRunsLimit+50)
+	// The HTTP handler rejects an over-ceiling limit with a 400; any other
+	// caller of the service gets it capped by runsPageSize.
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, maxRunsLimit+50)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -124,7 +122,7 @@ func TestListRuns_ExactPageWithNarrowedVisibility(t *testing.T) {
 	// readableAgentTypeIDsForRuns builds the candidate path as ["runs", slug].
 	svc.run.authz = NewAuthz(&pathAllowEvaluator{segment: "stub-at-0"})
 
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 10)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, 10)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -148,7 +146,7 @@ func TestListRuns_EmptyReadableSetFailsClosed(t *testing.T) {
 	seedRunsAcrossTypes(t, repo, "t-1", 20, 2)
 	svc.run.authz = NewAuthz(&denyAllEvaluator{})
 
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -170,13 +168,12 @@ func TestListRuns_CursorPaginationCoversEveryRowOnce(t *testing.T) {
 	ctx := withTenantCtx(context.Background(), "t-1")
 
 	var seen []string
-	var cursorTime *time.Time
-	var cursorID *string
+	var cursor *runCursor
 	for page := 0; ; page++ {
 		if page > total {
 			t.Fatalf("did not terminate after %d pages", page)
 		}
-		runs, hasMore, err := svc.run.ListRuns(ctx, "", cursorTime, cursorID, 25)
+		runs, hasMore, err := svc.run.ListRuns(ctx, "", cursor, 25)
 		if err != nil {
 			t.Fatalf("ListRuns page %d: %v", page, err)
 		}
@@ -190,9 +187,7 @@ func TestListRuns_CursorPaginationCoversEveryRowOnce(t *testing.T) {
 			break
 		}
 		last := runs[len(runs)-1]
-		ct := last.CreatedAt
-		cid := last.ID
-		cursorTime, cursorID = &ct, &cid
+		cursor = &runCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 
 	if len(seen) != total {
@@ -223,7 +218,7 @@ func TestListRuns_VisibilityResolutionCostsOneEvaluationPerAgentType(t *testing.
 	counting := &countingQueryEvaluator{}
 	svc.run.authz = NewAuthz(counting)
 
-	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, nil, 0)
+	runs, hasMore, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", nil, 0)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}

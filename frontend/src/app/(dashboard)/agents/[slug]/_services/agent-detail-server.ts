@@ -4,11 +4,14 @@ import type { AgentType, Run, RunStats } from '@orbit/shared/api';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
+import {
+  EMPTY_RUN_STATS,
+  RUNS_PAGE_SIZE,
+  indexAgentTypes,
+  toAgentTypeRow,
+  toRunRow,
+} from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
-
-/** First-page size for the runs tab's "load more" pagination. */
-const RUNS_PAGE_SIZE = 25;
 
 export type AgentDetailResult =
   | {
@@ -69,13 +72,7 @@ export async function fetchAgentDetailFromBFF(
       runs,
       hasMoreRuns: runsUpstream?.has_more ?? false,
       nextCursor: runsUpstream?.next_cursor ?? null,
-      runStats: runStats ?? {
-        total: 0,
-        active: 0,
-        completed: 0,
-        failed: 0,
-        avg_completed_duration_ms: null,
-      },
+      runStats: runStats ?? EMPTY_RUN_STATS,
     };
   } catch (err) {
     if (err instanceof ApiError) {

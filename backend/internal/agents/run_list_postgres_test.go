@@ -52,7 +52,7 @@ func TestPostgres_ListRuns_CursorPaginationCoversEveryRowOnce(t *testing.T) {
 			break
 		}
 		last := runs[len(runs)-1]
-		filter.CursorTime, filter.CursorID = &last.CreatedAt, &last.ID
+		filter.Cursor = &runCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 
 	if len(seen) != total {
@@ -88,6 +88,7 @@ func TestPostgres_ListRuns_EmptyReadableSetFailsClosed(t *testing.T) {
 	runs, hasMore, err := r.ListRuns(ctx, tenant, RunListFilter{
 		ReadableAgentTypeIDs: nil,
 		Visibility:           RunVisibility{SeeAll: true},
+		Limit:                defaultRunsLimit,
 	})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
@@ -146,7 +147,7 @@ func TestPostgres_RunStats_MatchesListRuns(t *testing.T) {
 		t.Errorf("Failed = %d, want 1", stats.Failed)
 	}
 
-	filter.Limit = 0
+	filter.Limit = defaultRunsLimit
 	runs, _, err := r.ListRuns(ctx, tenant, filter)
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
@@ -339,5 +340,20 @@ func TestPostgres_RunStats_ScopedToOneAgentType(t *testing.T) {
 	}
 	if tenantWide.ActiveByAgentType[a.ID] != 1 || tenantWide.ActiveByAgentType[b.ID] != 1 {
 		t.Errorf("tenant-wide ActiveByAgentType = %v, want 1 for each agent type", tenantWide.ActiveByAgentType)
+	}
+}
+
+// The repository takes the page size as given; runsPageSize settles it in the
+// service. A caller that skips that step gets an error, not an unbounded read.
+func TestPostgres_ListRuns_RejectsNonPositiveLimit(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant)
+
+	_, _, err := r.ListRuns(context.Background(), tenant, RunListFilter{
+		ReadableAgentTypeIDs: []string{at.ID},
+		Visibility:           RunVisibility{SeeAll: true},
+	})
+	if err == nil {
+		t.Fatal("ListRuns with no limit succeeded, want an error")
 	}
 }

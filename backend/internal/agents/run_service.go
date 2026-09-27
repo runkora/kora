@@ -336,7 +336,9 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 // follow. Tenant is derived from ctx claims. Both visibility rules (readable
 // agent types, delegated-run created_by) are resolved and applied inside the
 // query (RunListFilter), so a page's row count is exact — see #209.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, cursorTime *time.Time, cursorID *string, limit int) ([]Run, bool, error) {
+// limit is settled by runsPageSize: zero takes the default page size and
+// anything above the ceiling is capped.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, cursor *runCursor, limit int) ([]Run, bool, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
@@ -347,21 +349,16 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, cursorTim
 	)
 	defer span.End()
 
-	readable, err := s.readableAgentTypeIDs(ctx, tenantID)
+	filter, err := s.runFilter(ctx, tenantID, agentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "resolve readable agent types")
 		return nil, false, err
 	}
+	filter.Cursor = cursor
+	filter.Limit = runsPageSize(limit)
 
-	runs, hasMore, err := s.repo.ListRuns(ctx, tenantID, RunListFilter{
-		AgentTypeID:          agentTypeID,
-		ReadableAgentTypeIDs: readable,
-		Visibility:           runVisibilityFromContext(ctx),
-		CursorTime:           cursorTime,
-		CursorID:             cursorID,
-		Limit:                limit,
-	})
+	runs, hasMore, err := s.repo.ListRuns(ctx, tenantID, filter)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
@@ -383,18 +380,14 @@ func (s *RunService) GetRunStats(ctx context.Context, agentTypeID string) (RunSt
 	)
 	defer span.End()
 
-	readable, err := s.readableAgentTypeIDs(ctx, tenantID)
+	filter, err := s.runFilter(ctx, tenantID, agentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "resolve readable agent types")
 		return RunStats{}, err
 	}
 
-	stats, err := s.repo.RunStats(ctx, tenantID, RunListFilter{
-		AgentTypeID:          agentTypeID,
-		ReadableAgentTypeIDs: readable,
-		Visibility:           runVisibilityFromContext(ctx),
-	})
+	stats, err := s.repo.RunStats(ctx, tenantID, filter)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "run stats")
@@ -403,15 +396,23 @@ func (s *RunService) GetRunStats(ctx context.Context, agentTypeID string) (RunSt
 	return stats, nil
 }
 
-// readableAgentTypeIDs resolves, once, which of the tenant's agent types the
-// caller may read runs for. Shared by ListRuns and GetRunStats so both apply
-// exactly the same visibility boundary.
-func (s *RunService) readableAgentTypeIDs(ctx context.Context, tenantID string) ([]string, error) {
+// runFilter resolves the visibility boundary ListRuns and GetRunStats share:
+// the agent types the caller may read runs for, and delegated-run visibility.
+// Building it in one place keeps the two from ever applying different rules.
+func (s *RunService) runFilter(ctx context.Context, tenantID, agentTypeID string) (RunListFilter, error) {
 	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("list agent types: %w", err)
+		return RunListFilter{}, fmt.Errorf("list agent types: %w", err)
 	}
-	return s.authz.readableAgentTypeIDsForRuns(ctx, ats)
+	readable, err := s.authz.readableAgentTypeIDsForRuns(ctx, ats)
+	if err != nil {
+		return RunListFilter{}, err
+	}
+	return RunListFilter{
+		AgentTypeID:          agentTypeID,
+		ReadableAgentTypeIDs: readable,
+		Visibility:           runVisibilityFromContext(ctx),
+	}, nil
 }
 
 // TerminateRun signals the session-manager to stop the subprocess and cleans up.

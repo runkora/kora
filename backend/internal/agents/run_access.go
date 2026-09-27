@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -54,6 +55,49 @@ const (
 	maxRunsLimit     = 200
 )
 
+// runsPageSize settles a requested page size: zero or negative takes the
+// default, and anything above the ceiling is capped to it.
+func runsPageSize(limit int) int {
+	switch {
+	case limit <= 0:
+		return defaultRunsLimit
+	case limit > maxRunsLimit:
+		return maxRunsLimit
+	default:
+		return limit
+	}
+}
+
+// runCursor is the keyset position of a runs page. The next page is every row
+// strictly after this (created_at, id) pair in newest-first order.
+type runCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+// encode renders the cursor as the opaque "<RFC3339Nano>|<id>" value that
+// parseRunCursor reads, the same shape /v1/usage uses.
+func (c runCursor) encode() string {
+	return c.CreatedAt.Format(time.RFC3339Nano) + "|" + c.ID
+}
+
+// parseRunCursor reads a cursor produced by encode. An empty value is the
+// first page and returns nil.
+func parseRunCursor(raw string) (*runCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	createdAt, id, ok := strings.Cut(raw, "|")
+	if !ok || createdAt == "" || id == "" {
+		return nil, fmt.Errorf("cursor %q: expected <timestamp>|<id>", raw)
+	}
+	t, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("cursor %q: %w", raw, err)
+	}
+	return &runCursor{CreatedAt: t, ID: id}, nil
+}
+
 // RunListFilter narrows and paginates a ListRuns/RunStats call. Visibility
 // fields (ReadableAgentTypeIDs, Visibility) are resolved by the service layer
 // before the query is built; the repository applies exactly what it's given.
@@ -62,15 +106,13 @@ type RunListFilter struct {
 	// agent type the visibility rules allow.
 	AgentTypeID string
 	// ReadableAgentTypeIDs is the set of agent types the caller may read runs
-	// for. An empty (non-nil) slice matches no run — fail closed.
+	// for. An empty or nil slice matches no run (fail closed).
 	ReadableAgentTypeIDs []string
 	Visibility           RunVisibility
-	// CursorTime and CursorID anchor a keyset page: rows strictly after this
-	// (created_at, id) pair are returned. Both nil requests the first page.
-	CursorTime *time.Time
-	CursorID   *string
-	// Limit bounds the page size; the service layer applies the default and
-	// ceiling before this reaches the repository.
+	// Cursor anchors a keyset page. Nil requests the first page.
+	Cursor *runCursor
+	// Limit is the page size for ListRuns, already settled by runsPageSize.
+	// RunStats ignores it.
 	Limit int
 }
 

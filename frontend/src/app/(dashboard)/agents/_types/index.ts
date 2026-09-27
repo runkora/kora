@@ -10,9 +10,44 @@ import type {
   RunWithAttribution,
   AgentTypeState,
   RunState,
+  RunStats,
   Connectivity,
   Connector,
 } from '@orbit/shared/api';
+
+/** Page size for the agent runs tab, shared by the server's first page and "load more". */
+export const RUNS_PAGE_SIZE = 25;
+
+/**
+ * The RunStats bucket a run state counts toward, matching the grouping the
+ * server's run stats use. Null for a state no bucket counts.
+ */
+export function runStatsBucket(state: RunState): 'active' | 'completed' | 'failed' | null {
+  switch (state) {
+    case 'pending':
+    case 'starting':
+    case 'active':
+    case 'idle':
+    case 'completing':
+      return 'active';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'budget_exhausted':
+      return 'failed';
+    default:
+      return null;
+  }
+}
+
+/** Run stats before any are loaded, or when upstream returns none. */
+export const EMPTY_RUN_STATS: RunStats = {
+  total: 0,
+  active: 0,
+  completed: 0,
+  failed: 0,
+  avg_completed_duration_ms: null,
+};
 
 export type { AgentIdentityMode, AgentTypeState, RunState, Connectivity, Connector };
 

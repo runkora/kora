@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"slices"
 	"sort"
@@ -270,11 +271,11 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, filter Run
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	if filter.CursorTime != nil && filter.CursorID != nil {
-		// Mirror "(created_at, id) < (cursorTime, cursorID)".
+	if c := filter.Cursor; c != nil {
+		// Mirror "(created_at, id) < (cursor.CreatedAt, cursor.ID)".
 		cut := slices.IndexFunc(out, func(r Run) bool {
-			return r.CreatedAt.Before(*filter.CursorTime) ||
-				(r.CreatedAt.Equal(*filter.CursorTime) && r.ID < *filter.CursorID)
+			return r.CreatedAt.Before(c.CreatedAt) ||
+				(r.CreatedAt.Equal(c.CreatedAt) && r.ID < c.ID)
 		})
 		if cut == -1 {
 			cut = len(out)
@@ -283,10 +284,7 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, filter Run
 	}
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = defaultRunsLimit
-	}
-	if limit > maxRunsLimit {
-		limit = maxRunsLimit
+		return nil, false, fmt.Errorf("list runs: limit must be positive, got %d", limit)
 	}
 	hasMore := len(out) > limit
 	if hasMore {
@@ -828,7 +826,7 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	runs, _, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, nil, nil, 0)
+	runs, _, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, nil, 0)
 	return runs, err
 }
 

@@ -3,7 +3,7 @@ import 'server-only';
 import type { AgentType, Run, RunStats } from '@orbit/shared/api';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
+import { EMPTY_RUN_STATS, indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 /** Recent-runs feed size for the dashboard home page's event feed. */
@@ -38,13 +38,7 @@ export async function fetchAgentsFromBFF(
     const agentTypes = (typesUpstream?.agent_types ?? []).map(toAgentTypeRow);
     const byId = indexAgentTypes(agentTypes);
     const recentRuns = (runsUpstream?.runs ?? []).map((r) => toRunRow(r, byId));
-    const runStats = statsUpstream ?? {
-      total: 0,
-      active: 0,
-      completed: 0,
-      failed: 0,
-      avg_completed_duration_ms: null,
-    };
+    const runStats = statsUpstream ?? EMPTY_RUN_STATS;
     return { ok: true, agentTypes, runStats, recentRuns };
   } catch (err) {
     if (err instanceof ApiError) {

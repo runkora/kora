@@ -19,7 +19,7 @@ import type {
   StartRunRequest,
   ToolScopeDefinition,
 } from '@orbit/shared/api';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
+import { toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 // ── fetchAgentTypes ───────────────────────────────────────────────────────────
@@ -67,60 +67,6 @@ export async function fetchAgentTypesUsage(): Promise<{
   const byAgentType: Record<string, AgentTypeUsage> = {};
   for (const u of body.data ?? []) byAgentType[u.agent_type_id] = u;
   return { byAgentType, error: null };
-}
-
-// ── fetchRuns ─────────────────────────────────────────────────────────────────
-
-export interface RunsPage {
-  data: RunRow[];
-  hasMore: boolean;
-  nextCursor: string | null;
-  error: string | null;
-}
-
-/**
- * Fetches one page of the tenant's runs, newest first. Pass `cursor` (from a
- * previous call's `nextCursor`) to fetch the next page. `agentTypeId` narrows
- * to one agent type; omit for every type the caller may read.
- */
-export async function fetchRuns(
-  agentTypes: AgentTypeRow[],
-  options: { agentTypeId?: string; cursor?: string; limit?: number } = {},
-): Promise<RunsPage> {
-  const params = new URLSearchParams();
-  if (options.agentTypeId) params.set('agent_type_id', options.agentTypeId);
-  if (options.cursor) params.set('cursor', options.cursor);
-  if (options.limit) params.set('limit', String(options.limit));
-  const qs = params.toString();
-
-  let res: Response;
-  try {
-    res = await fetch(`${ApiRoute.runs.list()}${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
-  } catch {
-    return {
-      data: [],
-      hasMore: false,
-      nextCursor: null,
-      error: 'Network error: could not reach the server.',
-    };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: [],
-      hasMore: false,
-      nextCursor: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const body = (await res.json()) as { data: Run[]; has_more: boolean; next_cursor: string | null };
-  const byId = indexAgentTypes(agentTypes);
-  return {
-    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
-    hasMore: body.has_more ?? false,
-    nextCursor: body.next_cursor ?? null,
-    error: null,
-  };
 }
 
 // ── fetchRunStats ─────────────────────────────────────────────────────────────

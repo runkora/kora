@@ -155,9 +155,6 @@ export function DashboardPage({
 }: DashboardPageProps) {
   const activeRunCount = runStats.active;
 
-  // runs is already the bounded recent-runs page the server fetched (see
-  // agents-server.ts RECENT_RUNS_LIMIT); no further slicing needed.
-  const recentRuns = runs;
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
@@ -347,14 +344,14 @@ export function DashboardPage({
               </Stack>
             </CardHeader>
             <CardContent flush grow>
-              {recentRuns.length === 0 ? (
+              {runs.length === 0 ? (
                 <Stack align="center" justify="center" paddingBlock="spacious">
                   <Icon name="activity" size="lg" color="subtle" aria-hidden />
                   <Text color="subtle">No runs yet.</Text>
                 </Stack>
               ) : (
                 <List separator>
-                  {recentRuns.map((run) => (
+                  {runs.map((run) => (
                     <EventFeedItem
                       key={run.id}
                       status={runStatusMap[run.state] ?? 'idle'}

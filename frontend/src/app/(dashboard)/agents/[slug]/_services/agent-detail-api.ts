@@ -7,7 +7,6 @@ import type {
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Run,
-  RunStats,
   UpdateAgentTypeRequest,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
@@ -156,30 +155,6 @@ export async function fetchAgentRuns(
     nextCursor: body.next_cursor ?? null,
     error: null,
   };
-}
-
-// ── fetchAgentRunStats ─────────────────────────────────────────────────────────
-
-export async function fetchAgentRunStats(
-  agentTypeId: string,
-): Promise<{ data: RunStats | null; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(`${ApiRoute.runs.stats()}?agent_type_id=${encodeURIComponent(agentTypeId)}`, {
-      cache: 'no-store',
-    });
-  } catch {
-    return { data: null, error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const data = (await res.json()) as RunStats;
-  return { data, error: null };
 }
 
 // ── deleteRun ─────────────────────────────────────────────────────────────────

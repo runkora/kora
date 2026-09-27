@@ -125,6 +125,27 @@ describe('AgentRunsTab', () => {
     expect(filter).toHaveTextContent('Failed13');
   });
 
+  it('filters the loaded runs by status group', () => {
+    setState({
+      runs: [
+        run('aaaaaaaa-1', { state: 'completed' }),
+        run('bbbbbbbb-2', { state: 'failed' }),
+        run('cccccccc-3', { state: 'budget_exhausted' }),
+        run('dddddddd-4', { state: 'idle' }),
+      ],
+    });
+    renderWithProviders(<AgentRunsTab onStartRun={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Failed/ }));
+    expect(screen.getByText('Task for bbbbbbbb-2')).toBeInTheDocument();
+    expect(screen.getByText('Task for cccccccc-3')).toBeInTheDocument();
+    expect(screen.queryByText('Task for aaaaaaaa-1')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Active/ }));
+    expect(screen.getByText('Task for dddddddd-4')).toBeInTheDocument();
+    expect(screen.queryByText('Task for bbbbbbbb-2')).not.toBeInTheDocument();
+  });
+
   it('opens a run when its row is clicked', () => {
     renderWithProviders(<AgentRunsTab onStartRun={vi.fn()} />);
 

@@ -11,7 +11,7 @@ import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import { formatDuration, formatRelativeTime } from '../../_types';
+import { formatDuration, formatRelativeTime, runStatsBucket } from '../../_types';
 import type { RunRow } from '../../_types';
 import { StartedByCell } from './started-by-cell';
 
@@ -22,10 +22,6 @@ function formatTokens(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }
-
-// ── Status groupings ──────────────────────────────────────────────────────────
-
-const ACTIVE_STATES = ['pending', 'starting', 'active', 'idle', 'completing'];
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -100,9 +96,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   // loaded shows a "Load more" affordance, same as client-side search.
   const filteredRuns = useMemo(() => {
     if (statusFilter === 'all') return runs;
-    if (statusFilter === 'active') return runs.filter((r) => ACTIVE_STATES.includes(r.state));
-    if (statusFilter === 'completed') return runs.filter((r) => r.state === 'completed');
-    return runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted');
+    return runs.filter((r) => runStatsBucket(r.state) === statusFilter);
   }, [runs, statusFilter]);
 
   const handleDelete = async () => {

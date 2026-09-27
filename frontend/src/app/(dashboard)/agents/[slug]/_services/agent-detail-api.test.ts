@@ -1,12 +1,12 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '@orbit/test-utils/msw/server';
-import { fetchAgentRuns, fetchAgentRunStats } from './agent-detail-api';
+import { fetchAgentRuns } from './agent-detail-api';
 import type { AgentTypeRow } from '../../_types';
 
 /**
- * Unit tests for the agent detail page's run reads: one page of this agent
- * type's runs with its cursor, and this agent type's run stats.
+ * Unit tests for fetchAgentRuns, one page of an agent type's runs with its
+ * cursor, as the agent detail page's runs tab reads them.
  */
 
 const agent = { id: 'at-1', name: 'Coder', slug: 'coder' } as AgentTypeRow;
@@ -82,45 +82,5 @@ describe('fetchAgentRuns', () => {
     const page = await fetchAgentRuns('at-1', agent);
 
     expect(page.error).toBe('Network error: could not reach the server.');
-  });
-});
-
-describe('fetchAgentRunStats', () => {
-  it('asks for this agent type and returns the stats', async () => {
-    const stats = { total: 2, active: 0, completed: 2, failed: 0, avg_completed_duration_ms: 1000 };
-    let seen = new URLSearchParams();
-    server.use(
-      http.get('/api/agents/runs/stats', ({ request }) => {
-        seen = new URL(request.url).searchParams;
-        return HttpResponse.json(stats);
-      }),
-    );
-
-    const result = await fetchAgentRunStats('at-1');
-
-    expect(seen.get('agent_type_id')).toBe('at-1');
-    expect(result).toEqual({ data: stats, error: null });
-  });
-
-  it('returns the upstream message on an error', async () => {
-    server.use(
-      http.get('/api/agents/runs/stats', () =>
-        HttpResponse.json({ message: 'failed to compute run stats' }, { status: 500 }),
-      ),
-    );
-
-    expect(await fetchAgentRunStats('at-1')).toEqual({
-      data: null,
-      error: 'failed to compute run stats',
-    });
-  });
-
-  it('reports a network error', async () => {
-    server.use(http.get('/api/agents/runs/stats', () => HttpResponse.error()));
-
-    expect(await fetchAgentRunStats('at-1')).toEqual({
-      data: null,
-      error: 'Network error: could not reach the server.',
-    });
   });
 });

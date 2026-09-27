@@ -85,9 +85,7 @@ export function AgentsPage() {
 
   const activeRunCount = runStats.active;
 
-  // Despite the name, this counts every completed run visible to the
-  // caller, not just today's. Pre-existing behavior, kept as-is.
-  const completedTodayCount = runStats.completed;
+  const completedRunCount = runStats.completed;
 
   // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
   // Fetched client-side so the list can show total + per-agent spend without
@@ -290,7 +288,7 @@ export function AgentsPage() {
         <MetricCard
           icon={<Icon name="check-circle" />}
           label="Completed Runs"
-          value={completedTodayCount}
+          value={completedRunCount}
         />
         <MetricCard icon={<Icon name="zap" />} label="Tokens Used" value={totalTokensUsed} />
         <MetricCard icon={<Icon name="dollar-sign" />} label="Total Cost (7d)" value={totalCost} />

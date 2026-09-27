@@ -7,19 +7,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   fetchAgentRuns,
-  fetchAgentRunStats,
   fetchAgentDetail,
   deleteAgentType,
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
-import { fetchStartRun } from '../../_services/agents-api';
+import { fetchRunStats, fetchStartRun } from '../../_services/agents-api';
+import { RUNS_PAGE_SIZE, runStatsBucket } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 import type { RunStats } from '@orbit/shared/api';
 
 export type DetailStatus = 'idle' | 'loading' | 'success' | 'error' | 'not_found';
-
-/** Page size for the runs tab's "load more" pagination. */
-const RUNS_PAGE_SIZE = 25;
 
 export interface AgentDetailStateShape {
   agent: AgentTypeRow | null;
@@ -63,6 +60,9 @@ export function useAgentDetail(
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
   const nextCursorRef = useRef<string | null>(initialNextCursor);
+  // Guards loadMoreRuns synchronously: loadingMoreRuns is state, so a second
+  // click before the re-render would otherwise fetch the same page twice.
+  const loadingMoreRef = useRef(false);
 
   // Poll for state transitions while the agent type is provisioning.
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -92,7 +92,7 @@ export function useAgentDetail(
 
     const [runsResult, statsResult] = await Promise.all([
       fetchAgentRuns(agent.id, agent, { limit: RUNS_PAGE_SIZE }),
-      fetchAgentRunStats(agent.id),
+      fetchRunStats(agent.id),
     ]);
     if (runsResult.error) {
       setError(runsResult.error);
@@ -109,7 +109,8 @@ export function useAgentDetail(
   }, [agent]);
 
   const loadMoreRuns = useCallback(async () => {
-    if (!agent || !nextCursorRef.current || loadingMoreRuns) return;
+    if (!agent || !nextCursorRef.current || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMoreRuns(true);
     setLoadMoreRunsError(null);
     const result = await fetchAgentRuns(agent.id, agent, {
@@ -125,8 +126,9 @@ export function useAgentDetail(
       setHasMoreRuns(result.hasMore);
       nextCursorRef.current = result.nextCursor;
     }
+    loadingMoreRef.current = false;
     setLoadingMoreRuns(false);
-  }, [agent, loadingMoreRuns]);
+  }, [agent]);
 
   const deleteAgent = useCallback(async (): Promise<boolean> => {
     if (!agent) return false;
@@ -134,14 +136,23 @@ export function useAgentDetail(
     return result.error === null;
   }, [agent]);
 
-  const deleteRun = useCallback(async (runId: string): Promise<{ error: string | null }> => {
-    const result = await apiDeleteRun(runId);
-    if (!result.error) {
-      setRuns((prev) => prev.filter((r) => r.id !== runId));
-      setRunStats((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
-    }
-    return result;
-  }, []);
+  const deleteRun = useCallback(
+    async (runId: string): Promise<{ error: string | null }> => {
+      const result = await apiDeleteRun(runId);
+      if (!result.error) {
+        const deleted = runs.find((r) => r.id === runId);
+        const bucket = deleted ? runStatsBucket(deleted.state) : null;
+        setRuns((prev) => prev.filter((r) => r.id !== runId));
+        setRunStats((prev) => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1),
+          ...(bucket ? { [bucket]: Math.max(0, prev[bucket] - 1) } : {}),
+        }));
+      }
+      return result;
+    },
+    [runs],
+  );
 
   const startRun = useCallback(
     async (

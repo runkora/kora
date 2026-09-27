@@ -401,35 +401,16 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// parseRunsCursor decodes the opaque "?cursor=<RFC3339Nano>|<id>" query
-// parameter (the same shape /v1/usage uses) into the keyset pair ListRuns
-// expects. Absent is the first page; a malformed value 400s rather than
-// silently falling back to the first page, which would loop a caller back to
-// rows it already has.
-func parseRunsCursor(raw string) (*time.Time, *string, *api.APIError, error) {
-	if raw == "" {
-		return nil, nil, nil, nil
-	}
-	parts := strings.SplitN(raw, "|", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		err := fmt.Errorf("cursor %q: expected <timestamp>|<id>", raw)
-		return nil, nil, api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", nil), err
-	}
-	t, err := time.Parse(time.RFC3339Nano, parts[0])
-	if err != nil {
-		return nil, nil, api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", nil), err
-	}
-	id := parts[1]
-	return &t, &id, nil, nil
-}
-
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
 
-	cursorTime, cursorID, apiErr, err := parseRunsCursor(r.URL.Query().Get("cursor"))
-	if apiErr != nil {
+	cursor, err := parseRunCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		// A malformed cursor 400s rather than falling back to the first page,
+		// which would loop a caller back to rows it already has.
+		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
@@ -453,7 +434,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	runs, hasMore, err := c.runs.ListRuns(ctx, agentTypeID, cursorTime, cursorID, limit)
+	runs, hasMore, err := c.runs.ListRuns(ctx, agentTypeID, cursor, limit)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -466,18 +447,15 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	var nextCursor *string
 	if hasMore && len(runs) > 0 {
 		last := runs[len(runs)-1]
-		s := last.CreatedAt.Format(time.RFC3339Nano) + "|" + last.ID
-		nextCursor = &s
-	}
-	if limit <= 0 {
-		limit = defaultRunsLimit
+		encoded := runCursor{CreatedAt: last.CreatedAt, ID: last.ID}.encode()
+		nextCursor = &encoded
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"runs":        runs,
 		"has_more":    hasMore,
 		"next_cursor": nextCursor,
-		"limit":       limit,
+		"limit":       runsPageSize(limit),
 	})
 }
 

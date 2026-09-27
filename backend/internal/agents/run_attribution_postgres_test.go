@@ -107,6 +107,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 		AgentTypeID:          at.ID,
 		ReadableAgentTypeIDs: []string{at.ID},
 		Visibility:           RunVisibility{SeeAll: true},
+		Limit:                defaultRunsLimit,
 	})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)

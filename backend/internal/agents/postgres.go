@@ -232,6 +232,10 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
+// activeRunStatesSQL lists the run states RunStats counts as active, shared by
+// its totals query and its per-agent-type breakdown.
+const activeRunStatesSQL = `('active', 'starting', 'pending', 'completing', 'idle')`
+
 // runListWhere builds the WHERE clause shared by ListRuns and RunStats:
 // tenant, optional agent-type narrowing, the readable-agent-type boundary,
 // and delegated-run visibility.
@@ -262,10 +266,13 @@ func runListWhere(tenantID string, filter RunListFilter) (string, []any) {
 // ListRuns returns a keyset-paginated page. It fetches limit+1 rows to detect
 // whether a next page exists without a separate COUNT(*) query.
 func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, filter RunListFilter) ([]Run, bool, error) {
+	if filter.Limit <= 0 {
+		return nil, false, fmt.Errorf("list runs: limit must be positive, got %d", filter.Limit)
+	}
 	where, args := runListWhere(tenantID, filter)
 	query := selectRun + " WHERE " + where
-	if filter.CursorTime != nil && filter.CursorID != nil {
-		args = append(args, *filter.CursorTime, *filter.CursorID)
+	if filter.Cursor != nil {
+		args = append(args, filter.Cursor.CreatedAt, filter.Cursor.ID)
 		// Strictly-less-than excludes the anchor row itself.
 		query += fmt.Sprintf(" AND (r.created_at, r.id) < ($%d, $%d)", len(args)-1, len(args))
 	}
@@ -274,12 +281,6 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, filt
 	// above depends on that ordering being stable.
 	query += " ORDER BY r.created_at DESC, r.id DESC"
 	limit := filter.Limit
-	if limit <= 0 {
-		limit = defaultRunsLimit
-	}
-	if limit > maxRunsLimit {
-		limit = maxRunsLimit
-	}
 	args = append(args, limit+1)
 	query += fmt.Sprintf(" LIMIT $%d", len(args))
 
@@ -315,7 +316,7 @@ func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, filt
 	query := `
 		SELECT
 			COUNT(*) AS total,
-			COUNT(*) FILTER (WHERE r.state IN ('active', 'starting', 'pending', 'completing', 'idle')) AS active,
+			COUNT(*) FILTER (WHERE r.state IN ` + activeRunStatesSQL + `) AS active,
 			COUNT(*) FILTER (WHERE r.state = 'completed') AS completed,
 			COUNT(*) FILTER (WHERE r.state IN ('failed', 'budget_exhausted')) AS failed,
 			AVG(EXTRACT(EPOCH FROM (r.completed_at - r.started_at)) * 1000)
@@ -342,7 +343,7 @@ func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, filt
 		SELECT r.agent_type_id, COUNT(*)
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
 		WHERE ` + where + `
-			AND r.state IN ('active', 'starting', 'pending', 'completing', 'idle')
+			AND r.state IN ` + activeRunStatesSQL + `
 		GROUP BY r.agent_type_id`
 	rows, err := r.pool.Query(ctx, byTypeQuery, args...)
 	if err != nil {

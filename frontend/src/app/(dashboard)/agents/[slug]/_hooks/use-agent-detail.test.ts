@@ -262,3 +262,79 @@ describe('useAgentDetail — loadMoreRuns', () => {
     expect(result.current.runs.map((r) => r.id)).toEqual(['run-1', 'run-2']);
   });
 });
+
+describe('useAgentDetail — loadMoreRuns guard', () => {
+  it('fetches the next page once when load more is triggered twice before it resolves', async () => {
+    const agent = agentTypeRow();
+    let requests = 0;
+    server.use(
+      http.get('/api/agents/types/agent-1/runs', () => {
+        requests += 1;
+        return HttpResponse.json({ data: [], has_more: false, next_cursor: null });
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useAgentDetail(agent, [runRow()], true, 'cursor-1', runStats(), null, 'success'),
+    );
+
+    await act(async () => {
+      await Promise.all([result.current.loadMoreRuns(), result.current.loadMoreRuns()]);
+    });
+
+    expect(requests).toBe(1);
+  });
+});
+
+describe('useAgentDetail — deleteRun', () => {
+  it('decrements the total and the deleted run’s status bucket', async () => {
+    const agent = agentTypeRow();
+    server.use(
+      http.delete('/api/agents/runs/run-1', () => new HttpResponse(null, { status: 204 })),
+    );
+
+    const { result } = renderHook(() =>
+      useAgentDetail(
+        agent,
+        [runRow({ id: 'run-1', state: 'failed' })],
+        false,
+        null,
+        runStats({ total: 10, completed: 8, failed: 1, active: 1 }),
+        null,
+        'success',
+      ),
+    );
+
+    await act(async () => {
+      await result.current.deleteRun('run-1');
+    });
+
+    expect(result.current.runs).toEqual([]);
+    expect(result.current.runStats).toMatchObject({ total: 9, completed: 8, failed: 0, active: 1 });
+  });
+
+  it('leaves the status buckets alone when the deleted run was never loaded', async () => {
+    const agent = agentTypeRow();
+    server.use(
+      http.delete('/api/agents/runs/run-unloaded', () => new HttpResponse(null, { status: 204 })),
+    );
+
+    const { result } = renderHook(() =>
+      useAgentDetail(
+        agent,
+        [runRow()],
+        false,
+        null,
+        runStats({ total: 10, completed: 8, failed: 1, active: 1 }),
+        null,
+        'success',
+      ),
+    );
+
+    await act(async () => {
+      await result.current.deleteRun('run-unloaded');
+    });
+
+    expect(result.current.runStats).toMatchObject({ total: 9, completed: 8, failed: 1, active: 1 });
+  });
+});

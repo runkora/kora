@@ -5,6 +5,7 @@ import { fetchConnections } from '../connections/_services/connections-server';
 import { fetchEnvironments } from '../environments/_services/environments-server';
 import { fetchAnalyticsFromGateway } from '../model-gateway/_services/analytics-server';
 import { fetchBudgetPrincipalsFromGateway } from '../model-gateway/_services/budgets-server';
+import { EMPTY_RUN_STATS } from '../agents/_types';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
 import type { RunStats } from '@orbit/shared/api';
 import type { ConnectionRow } from '../connections/_types';
@@ -27,14 +28,6 @@ export interface DashboardData {
 }
 
 /** The shape returned when there is no valid session — every section empty. */
-const EMPTY_RUN_STATS: RunStats = {
-  total: 0,
-  active: 0,
-  completed: 0,
-  failed: 0,
-  avg_completed_duration_ms: null,
-};
-
 export const EMPTY_DASHBOARD_DATA: DashboardData = {
   agentTypes: [],
   runs: [],
