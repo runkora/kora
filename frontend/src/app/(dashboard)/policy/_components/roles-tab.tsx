@@ -33,15 +33,18 @@ import { SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
-import { CreateRoleWizard } from './create-role-wizard';
-import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
-import { isDeclared, managedInGit } from '@runkora/lib/declarative';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
-import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
-import { ScopePicker } from '@runkora/components';
-import type { ScopeOption } from '@runkora/components';
-import { ViewToggle } from '@runkora/components';
-import { ManagedInGitBadge, ManagedInGitCallout, PermissionHint } from '@runkora/components';
+import { usePermissions } from '../../_components/permissions-provider';
+import { hasScope } from '@orbit/lib/permissions';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { ScopeChip } from '@orbit/components';
+import { ScopeTreePicker } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { ViewToggle } from '@orbit/components';
+
+// ── Reserved roles (cannot be modified via UI) ───────────────────────────────
+
+const RESERVED_ROLES = new Set(['platform-admin']);
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

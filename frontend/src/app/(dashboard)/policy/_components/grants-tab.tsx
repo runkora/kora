@@ -40,43 +40,17 @@ function budgetSummary(budget: BudgetAssignment): string {
   }
   return parts.join(' · ');
 }
-import { deleteGrantAction } from '../_actions/grants';
-import { useHasScope } from '../../_components/permissions-provider';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
-import {
-  PrincipalBadge,
-  principalLabel,
-  ScopeChip,
-  ScopeChipList,
-  scopeColumnFilter,
-} from '@runkora/components';
-import { FilterChip } from '@runkora/components';
-import { CreateGrantWizard } from './create-grant-wizard';
-import { GrantDetailModal } from './grant-detail-modal';
-import { GrantOwnerLink } from './grant-owner-link';
-import { ViewToggle } from '@runkora/components';
-import { PermissionHint } from '@runkora/components';
-
-const PRINCIPAL_TYPES: PrincipalType[] = ['AGENT', 'HUMAN', 'PAT', 'SERVICE'];
-
-function grantMatches(
-  g: Grant,
-  q: string,
-  patAttribution: Record<string, PATGrantAttribution>,
-  userAttribution: Record<string, PATAttributionEntry>,
-): boolean {
-  const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
-  return (
-    identity.primary.toLowerCase().includes(q) ||
-    (identity.email?.toLowerCase().includes(q) ?? false) ||
-    (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
-    (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
-    g.principal_id.toLowerCase().includes(q) ||
-    g.principal_type.toLowerCase().includes(q) ||
-    principalLabel(g.principal_type).toLowerCase().includes(q) ||
-    g.scopes.some((s) => s.toLowerCase().includes(q))
-  );
-}
+import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
+import { usePermissions } from '../../_components/permissions-provider';
+import { hasScope } from '@orbit/lib/permissions';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { ScopeChip } from '@orbit/components';
+import { ScopeTreePicker } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { FilterChip } from './filter-chip';
+import { PrincipalBadge } from './principal-badge';
+import { ViewToggle } from '@orbit/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

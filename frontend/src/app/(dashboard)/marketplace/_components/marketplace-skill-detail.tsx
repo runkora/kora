@@ -4,7 +4,8 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
+  CodeBlock,
+  Heading,
   SidebarLayout,
   SidebarLayoutMain,
   SidebarLayoutSidebar,
@@ -13,36 +14,20 @@ import {
 } from '@orbit/terra';
 import type { PackageDetail } from '@orbit/shared/api';
 
-interface SkillDetailProps {
+interface MarketplaceSkillDetailProps {
   skill: PackageDetail;
 }
 
-export function SkillDetail({ skill }: SkillDetailProps) {
-  const [org, repo] = skill.slug.split('/');
-
+export function MarketplaceSkillDetail({ skill }: MarketplaceSkillDetailProps) {
   return (
     <Stack gap="relaxed">
-      <Stack direction="horizontal" align="start" gap="comfortable">
-        <Stack grow gap="none" style={{ minWidth: 0 }}>
-          <Text as="span" weight="heavy" style={{ fontSize: 26, letterSpacing: '-0.02em' }}>
-            {skill.title_of_package}
-          </Text>
-          <Stack direction="horizontal" align="center" wrap style={{ gap: 10, marginTop: 6 }}>
-            <Text as="span" mono weight="strong" color="muted" style={{ fontSize: 13 }}>
-              {skill.slug}
-            </Text>
-            <Text as="span" style={{ color: 'var(--color-border)' }}>
-              ·
-            </Text>
-            <Text as="span" color="subtle" style={{ fontSize: 13 }}>
-              {skill.name_of_marketplace}
-            </Text>
-          </Stack>
-          <Text
-            size="supporting"
-            color="muted"
-            style={{ margin: '10px 0 0', lineHeight: 1.55, maxWidth: 620 }}
-          >
+      <Stack gap="snug" style={{ minWidth: 0 }}>
+        <Heading variant="title">{skill.title_of_package}</Heading>
+        <Text size="supporting" color="subtle">
+          {skill.name_of_marketplace}
+        </Text>
+        <Stack maxWidth="prose">
+          <Text size="supporting" color="muted">
             {skill.description}
           </Text>
         </Stack>
@@ -52,22 +37,25 @@ export function SkillDetail({ skill }: SkillDetailProps) {
         <SidebarLayoutMain>
           <Stack gap="comfortable" style={{ minWidth: 0 }}>
             <Stack direction="horizontal" align="baseline" justify="between">
-              <Text as="span" weight="strong" style={{ fontSize: 17 }}>
-                Contents
-              </Text>
+              <Heading variant="section">Contents</Heading>
               <Text as="span" size="caption" color="subtle">
                 {skill.resources_of_package.length} resource
                 {skill.resources_of_package.length === 1 ? '' : 's'}
               </Text>
             </Stack>
 
-            <FileCard name={skill.package.name_of_package} body={skill.package.body_of_package} />
+            <CodeBlock
+              filename={skill.package.name_of_package}
+              text={skill.package.body_of_package}
+              wrap
+            />
 
             {skill.resources_of_package.map((resource) => (
-              <FileCard
+              <CodeBlock
                 key={resource.path_of_resource_in_repo}
-                name={resource.name_of_resource}
-                body={resource.body_of_resource}
+                filename={resource.name_of_resource}
+                text={resource.body_of_resource}
+                wrap
               />
             ))}
           </Stack>
@@ -76,14 +64,10 @@ export function SkillDetail({ skill }: SkillDetailProps) {
         <SidebarLayoutSidebar>
           <Stack gap="comfortable" style={{ position: 'sticky', top: 0 }}>
             <Card column>
-              <CardHeader>
-                <CardTitle>Source</CardTitle>
-              </CardHeader>
+              <CardHeader title="Source" />
               <CardContent>
                 <Stack gap="cozy">
                   <SourceRow label="Marketplace" value={skill.name_of_marketplace} />
-                  <SourceRow label="Organisation" value={org} mono />
-                  <SourceRow label="Repository" value={repo} mono />
                   <SourceRow label="Path" value={skill.package.path_of_package_in_repo} mono />
                 </Stack>
               </CardContent>
@@ -92,21 +76,6 @@ export function SkillDetail({ skill }: SkillDetailProps) {
         </SidebarLayoutSidebar>
       </SidebarLayout>
     </Stack>
-  );
-}
-
-function FileCard({ name, body }: { name: string; body: string }) {
-  return (
-    <Card column>
-      <CardHeader>
-        <CardTitle>{name}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Text mono size="supporting" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-          {body}
-        </Text>
-      </CardContent>
-    </Card>
   );
 }
 

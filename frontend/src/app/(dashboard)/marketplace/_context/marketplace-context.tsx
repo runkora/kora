@@ -1,1 +1,83 @@
-// Marketplace context placeholder.
+'use client';
+
+// ── MarketplaceContext ────────────────────────────────────────────────────────
+//
+// Gives the MarketplaceStateShape to each component in the overview tree
+// without prop drilling. The RSC page passes the first result page to
+// `MarketplaceProvider`, which starts `useMarketplace` from it synchronously,
+// so there is no loading flash after hydration.
+//
+// The provider also saves the Marketplace that the user picks in the picker in
+// the user preferences (`marketplace.lastSelected`). When the URL names no
+// Marketplace, for example after the header Back button, the server opens the
+// saved Marketplace.
+//
+// A preferences PUT replaces the whole document. So the provider saves only
+// after an explicit pick that loads successfully, and never after a failed
+// preferences read, when the client holds only the defaults.
+
+import { createContext, useCallback, useContext } from 'react';
+import { usePreferences } from '../../_preferences/preferences-context';
+import { useMarketplace } from '../_hooks/use-marketplace';
+import type { MarketplaceStateShape } from '../_hooks/use-marketplace';
+import type { MarketplaceOverviewData } from '../_types';
+
+// ── Context ───────────────────────────────────────────────────────────────────
+
+const MarketplaceContext = createContext<MarketplaceStateShape | null>(null);
+
+// ── Provider ──────────────────────────────────────────────────────────────────
+
+interface MarketplaceProviderProps {
+  initialData: MarketplaceOverviewData;
+  initialError: string | null;
+  children: React.ReactNode;
+}
+
+export function MarketplaceProvider({
+  initialData,
+  initialError,
+  children,
+}: MarketplaceProviderProps) {
+  const { updatePreferences, loaded } = usePreferences();
+
+  // Called once after the load of a picked Marketplace succeeds. The server
+  // has checked the name against the Marketplace list.
+  const handleMarketplacePicked = useCallback(
+    (name: string) => {
+      if (!loaded) {
+        // The preferences read failed, so the client holds only the defaults.
+        // A PUT now would replace the user's stored preferences with them.
+        return;
+      }
+      // PreferencesProvider sends the PUT 500 ms after the last change.
+      updatePreferences((prev) => {
+        if (prev.marketplace.lastSelected === name) {
+          // No change. Keep the same object, so that no PUT is sent.
+          return prev;
+        }
+        return { ...prev, marketplace: { lastSelected: name } };
+      });
+    },
+    [loaded, updatePreferences],
+  );
+
+  const state = useMarketplace(initialData, initialError, handleMarketplacePicked);
+
+  return <MarketplaceContext.Provider value={state}>{children}</MarketplaceContext.Provider>;
+}
+
+// ── Consumer hook ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns the current MarketplaceStateShape.
+ *
+ * Throws if called outside a MarketplaceProvider. This is intentional.
+ */
+export function useMarketplaceContext(): MarketplaceStateShape {
+  const ctx = useContext(MarketplaceContext);
+  if (!ctx) {
+    throw new Error('useMarketplaceContext must be used inside <MarketplaceProvider>');
+  }
+  return ctx;
+}

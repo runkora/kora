@@ -1,8 +1,11 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
-import { Badge, Button, Icon, Show, Stack, Text } from '@runkora/hades';
-import { ThemeToggle } from './theme-toggle';
+import { Suspense, useSyncExternalStore } from 'react';
+
+import { usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
+import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
 
 /**
@@ -11,6 +14,14 @@ import { useSidebarState } from './sidebar-state';
  */
 interface SectionHeader {
   title: string;
+  tag?: string;
+  // showEndpoint renders the governed-endpoint note; the host is derived from the
+  // dashboard origin at render (not hardcoded) — see mcpGatewayHost.
+  showEndpoint?: boolean;
+  // keepQueryOnBack makes the detail Back button keep the query of the detail
+  // URL. Set it only for a section whose detail links carry the list state in
+  // the query, so that Back returns to the same list results.
+  keepQueryOnBack?: boolean;
 }
 
 const SECTIONS: Record<string, SectionHeader> = {
@@ -19,6 +30,9 @@ const SECTIONS: Record<string, SectionHeader> = {
   'model-gateway': { title: 'Model Gateway' },
   'mcp-gateway': { title: 'MCP Servers' },
   chat: { title: 'Chat' },
+  // The Skill links carry the overview browse values (marketplace, search,
+  // sort, page size, page). See marketplace/_utils/browse-params.ts.
+  marketplace: { title: 'Marketplace', keepQueryOnBack: true },
 };
 
 export function DashboardHeader() {
@@ -60,6 +74,15 @@ export function DashboardHeader() {
         {isDetail && header ? (
           // Detail: breadcrumb trail (section › item).
           <Stack direction="horizontal" align="center" style={{ gap: 10 }}>
+            {header.keepQueryOnBack === true ? (
+              // useSearchParams requires a Suspense boundary. The fallback is
+              // the plain Back button to the section root.
+              <Suspense fallback={<BackButton href={`/${section}`} />}>
+                <BackButtonWithQuery section={section} />
+              </Suspense>
+            ) : (
+              <BackButton href={`/${section}`} />
+            )}
             <Text as="span" style={{ fontSize: 13, color: 'var(--color-subtle)' }}>
               {header.title}
             </Text>
@@ -94,4 +117,41 @@ export function DashboardHeader() {
       </Stack>
     </Stack>
   );
+}
+
+/** The detail Back button. */
+function BackButton({ href }: { href: string }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      asChild
+      style={{ height: 28, padding: '0 9px 0 7px', gap: 5, fontSize: 12 }}
+    >
+      <Link href={href}>
+        <Icon name="chevron-left" size="xs" />
+        Back
+      </Link>
+    </Button>
+  );
+}
+
+/**
+ * The detail Back button for a section with `keepQueryOnBack`. It keeps the
+ * query of the detail URL, so that Back returns to the same list results.
+ * The link always stays in the section.
+ */
+function BackButtonWithQuery({ section }: { section: string }) {
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+
+  let href: string;
+  if (query) {
+    // The detail URL carries the list state. Return to the same results.
+    href = `/${section}?${query}`;
+  } else {
+    // The detail URL has no list state. Open the section root.
+    href = `/${section}`;
+  }
+  return <BackButton href={href} />;
 }
