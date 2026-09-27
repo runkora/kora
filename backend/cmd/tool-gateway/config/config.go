@@ -54,8 +54,12 @@ type Config struct {
 	} `yaml:"registry"`
 
 	Introspection struct {
-		// ReintrospectIntervalSecs is how often the publisher re-introspects
-		// every server's tool surface on a timer (besides on registry reload).
+		// ReintrospectIntervalSecs is the tick rate of the publisher's
+		// re-introspection timer (besides on registry reload). It is the
+		// polling granularity, not a per-server cadence: on each tick, a
+		// server is only actually re-introspected once its own
+		// reintrospectIntervalSeconds has elapsed since its last introspection
+		// (0 = reload-only, never due on the timer).
 		ReintrospectIntervalSecs int `yaml:"reintrospectIntervalSecs"`
 	} `yaml:"introspection"`
 
