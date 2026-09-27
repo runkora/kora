@@ -184,3 +184,22 @@ tokens, never hardcoded colours), see
 ```tsx
 <ThemeToggle />
 ```
+
+---
+
+## ViewToggle
+
+**Import:** `import { ViewToggle } from '@orbit/components'`
+
+**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Terra `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
+
+```tsx
+interface ViewToggleProps {
+  viewMode: 'cards' | 'list';
+  onToggle: (mode: 'cards' | 'list') => void;
+}
+```
+
+```tsx
+<ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+```

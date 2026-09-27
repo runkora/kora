@@ -1,113 +1,147 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Result range, rows-per-page and page controls, URL-driven. */
+/** @tier 3 — marketplace-scoped. Result range, rows-per-page and page controls. */
 
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Button, Icon, NativeSelect, Stack, Text } from '@orbit/terra';
+import { Button, Icon, NativeSelect, Separator, Stack, Text } from '@orbit/terra';
+import { useMarketplaceContext } from '../_context/marketplace-context';
+import { PAGE_SIZES } from '../_types';
 
-const PAGE_SIZES = [12, 24, 48];
+/** The number of page buttons on each side of the current page. */
+const PAGE_WINDOW = 2;
 
-interface PaginationProps {
-  total: number;
-  page: number;
-  pageSize: number;
-}
+/** A page number, or a gap that stands for hidden pages. */
+type PageItem = number | 'gap-before' | 'gap-after';
 
-export function MarketplacePagination({ total, page, pageSize }: PaginationProps) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+export function MarketplacePagination() {
+  const { browse, total, goToPage, setPageSize } = useMarketplaceContext();
+  const { page, pageSize } = browse;
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  let first: number;
+  if (total === 0) {
+    // No results. Show "0–0 of 0".
+    first = 0;
+  } else {
+    // The number of the first result on this page.
+    first = (page - 1) * pageSize + 1;
+  }
   const last = Math.min(total, page * pageSize);
 
-  function createPageURL(pageNumber: number) {
-    const params = new URLSearchParams(searchParams);
-    params.set('page', String(pageNumber));
-    return `${pathname}?${params.toString()}`;
-  }
-
-  function handlePageSizeChange(size: number) {
-    const params = new URLSearchParams(searchParams);
-    params.set('pageSize', String(size));
-    params.set('page', '1');
-    router.replace(`${pathname}?${params.toString()}`);
-  }
-
   return (
-    <Stack
-      direction="horizontal"
-      align="center"
-      justify="between"
-      wrap
-      gap="comfortable"
-      style={{ padding: '12px 16px', borderTop: '1px solid var(--color-border-subtle)' }}
-    >
-      <Stack direction="horizontal" align="center" gap="comfortable">
-        <Text as="span" size="caption" color="subtle" tabular>
-          {first}–{last} of {total}
-        </Text>
-        <Stack direction="horizontal" align="center" gap="snug">
-          <Text as="span" size="caption" color="subtle">
-            Rows
+    <Stack gap="none">
+      <Separator />
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        wrap
+        gap="comfortable"
+        paddingBlock="cozy"
+        paddingInline="comfortable"
+      >
+        <Stack direction="horizontal" align="center" gap="comfortable">
+          <Text as="span" size="caption" color="subtle" tabular>
+            {first}–{last} of {total}
           </Text>
-          <NativeSelect
-            value={String(pageSize)}
-            onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-            aria-label="Results per page"
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </NativeSelect>
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Text as="span" size="caption" color="subtle">
+              Rows
+            </Text>
+            <NativeSelect
+              value={String(pageSize)}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              aria-label="Results per page"
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </NativeSelect>
+          </Stack>
         </Stack>
-      </Stack>
 
-      <Stack direction="horizontal" align="center" gap="snug">
-        {page <= 1 ? (
-          <Button variant="outline" size="sm" disabled>
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => goToPage(page - 1)}
+          >
             <Icon name="chevron-left" size="2xs" />
             Previous
           </Button>
-        ) : (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={createPageURL(page - 1)}>
-              <Icon name="chevron-left" size="2xs" />
-              Previous
-            </Link>
-          </Button>
-        )}
 
-        {Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) =>
-          pageNumber === page ? (
-            <Button key={pageNumber} variant="secondary" size="sm" aria-current="page">
-              {pageNumber}
-            </Button>
-          ) : (
-            <Button key={pageNumber} variant="ghost" size="sm" asChild>
-              <Link href={createPageURL(pageNumber)}>{pageNumber}</Link>
-            </Button>
-          ),
-        )}
+          {pageItems(page, pageCount).map((item) => {
+            if (item === 'gap-before' || item === 'gap-after') {
+              return (
+                <Text key={item} as="span" size="caption" color="subtle" aria-hidden>
+                  …
+                </Text>
+              );
+            }
+            if (item === page) {
+              return (
+                <Button
+                  key={item}
+                  variant="secondary"
+                  size="sm"
+                  aria-current="page"
+                  aria-label={`Page ${item}`}
+                >
+                  {item}
+                </Button>
+              );
+            }
+            return (
+              <Button
+                key={item}
+                variant="ghost"
+                size="sm"
+                onClick={() => goToPage(item)}
+                aria-label={`Page ${item}`}
+              >
+                {item}
+              </Button>
+            );
+          })}
 
-        {page >= pageCount ? (
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= pageCount}
+            onClick={() => goToPage(page + 1)}
+          >
             Next
             <Icon name="chevron-right" size="2xs" />
           </Button>
-        ) : (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={createPageURL(page + 1)}>
-              Next
-              <Icon name="chevron-right" size="2xs" />
-            </Link>
-          </Button>
-        )}
+        </Stack>
       </Stack>
     </Stack>
   );
+}
+
+/**
+ * Returns the page buttons to show: the first page, the last page, and the
+ * pages within PAGE_WINDOW of the current page. A gap stands for each run of
+ * hidden pages. For example, page 7 of 20 gives 1 … 5 6 7 8 9 … 20.
+ */
+function pageItems(page: number, pageCount: number): PageItem[] {
+  const items: PageItem[] = [1];
+  const start = Math.max(2, page - PAGE_WINDOW);
+  const end = Math.min(pageCount - 1, page + PAGE_WINDOW);
+
+  if (start > 2) {
+    items.push('gap-before');
+  }
+  for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+    items.push(pageNumber);
+  }
+  if (end < pageCount - 1) {
+    items.push('gap-after');
+  }
+  if (pageCount > 1) {
+    items.push(pageCount);
+  }
+  return items;
 }

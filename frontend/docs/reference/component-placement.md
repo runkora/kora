@@ -207,6 +207,7 @@ Tier 2 components live at `frontend/src/components/` and are exported from `fron
 | `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.           |
 | `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>`, wrap in `<ul className="divide-y">`. |
 | `ThemeToggle`       | Light/dark theme switch. Calls `setTheme(...)` from `next-themes`; renders sun/dark and moon/light buttons. No props. See [Theming](./terra-design-system.md#theming-light--dark).                                                                      |
+| `ViewToggle`        | Card/list view switch: two icon buttons in a `ButtonGroup`, with `aria-pressed` on the active one. Key props: `viewMode: 'cards' \| 'list'`, `onToggle(mode)`. Used by policy (grants, roles) and marketplace.                                          |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 

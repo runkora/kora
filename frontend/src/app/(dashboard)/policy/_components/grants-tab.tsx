@@ -57,7 +57,7 @@ import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { PrincipalBadge } from './principal-badge';
-import { ViewToggle } from './view-toggle';
+import { ViewToggle } from '@orbit/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

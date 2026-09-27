@@ -12,10 +12,10 @@ import 'server-only';
 import type { Marketplace, PackageDetail, PackageOverview } from '@orbit/shared/api';
 
 export const MARKETPLACE_FIXTURES: Marketplace[] = [
-  { name: 'Platform Engineering', org: 'platform-engineering', repo: 'skills', branch: 'main' },
-  { name: 'ClearRoute Core', org: 'clearroute', repo: 'core-skills', branch: 'main' },
-  { name: 'ClearRoute Platform', org: 'clearroute', repo: 'platform-skills', branch: 'main' },
-  { name: 'Partner Reference', org: 'partner', repo: 'reference-skills', branch: 'main' },
+  { name: 'Platform Engineering' },
+  { name: 'ClearRoute Core' },
+  { name: 'ClearRoute Platform' },
+  { name: 'Partner Reference' },
 ];
 // ⟦REVIEW⟧
 

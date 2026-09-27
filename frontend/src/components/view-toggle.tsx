@@ -1,6 +1,7 @@
 /**
- * @tier 3 — policy scoped.
- * @promote-to-tier-2 if: a second feature area outside policy adds a card/list view toggle.
+ * @tier 2 — App-level shared. Card/list view switch for a result list. Used by
+ * policy (grants-tab, roles-tab) and marketplace (overview toolbar).
+ * @promote-to-tier-1 if: a second non-dashboard Orbit surface needs a card/list view switch.
  */
 import { Button, ButtonGroup, Icon } from '@orbit/terra';
 
@@ -17,6 +18,7 @@ export function ViewToggle({ viewMode, onToggle }: ViewToggleProps) {
         size="icon-sm"
         onClick={() => onToggle('cards')}
         aria-label="Card view"
+        aria-pressed={viewMode === 'cards'}
       >
         <Icon name="layout-grid" size="2xs" />
       </Button>
@@ -25,6 +27,7 @@ export function ViewToggle({ viewMode, onToggle }: ViewToggleProps) {
         size="icon-sm"
         onClick={() => onToggle('list')}
         aria-label="List view"
+        aria-pressed={viewMode === 'list'}
       >
         <Icon name="list" size="2xs" />
       </Button>

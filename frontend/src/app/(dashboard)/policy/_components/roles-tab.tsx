@@ -37,7 +37,7 @@ import { ScopeChip } from '@orbit/components';
 import { ScopeTreePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
-import { ViewToggle } from './view-toggle';
+import { ViewToggle } from '@orbit/components';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 

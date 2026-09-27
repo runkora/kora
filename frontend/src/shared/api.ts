@@ -838,9 +838,6 @@ export interface TriggerDeliveryRun {
 // Package refers to a Skill/PLugin.
 export interface Marketplace {
   name: string;
-  org: string;
-  repo: string;
-  branch?: string | null;
 }
 
 export interface GetMarketplaces {
@@ -876,12 +873,13 @@ export interface GetPackageOverview {
   total: number;
 }
 
+/** Sort order of a skill list, by skill name. The backend must accept the same values. */
+export type SkillSort = 'name-asc' | 'name-desc';
+
 export interface GetPackageOverviewParams {
   offset: number;
   limit: number;
   search?: string;
-}
-
-export interface GetPackageDetails {
-  package_detail: PackageDetail;
+  /** Sort order. The backend sorts before it applies offset and limit. Omit for the source order. */
+  sort?: SkillSort;
 }

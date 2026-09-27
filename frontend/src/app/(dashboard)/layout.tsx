@@ -11,7 +11,7 @@ import {
 import { AgentBuilderRoot } from './agents/_components/builder/agent-builder-root';
 import { SidebarStateProvider } from './_components/sidebar-state';
 import { PreferencesProvider } from './_preferences/preferences-context';
-import { getPreferences } from './_preferences/preferences-server';
+import { getPreferences, readPreferences } from './_preferences/preferences-server';
 import { mergeWithDefaults } from './_preferences/preferences.schema';
 import { getSession, isSessionValid } from '@orbit/server/session';
 
@@ -38,10 +38,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
     ? await getPreferences(session.accessToken)
     : mergeWithDefaults({});
 
+  // Tells PreferencesProvider whether the read succeeded. After a failed read,
+  // initialPreferences holds only the defaults. readPreferences shares the
+  // cached read with getPreferences, so this adds no request.
+  let preferencesLoaded: boolean;
+  if (isSessionValid(session)) {
+    preferencesLoaded = (await readPreferences(session.accessToken)).loaded;
+  } else {
+    // No session, so no read.
+    preferencesLoaded = false;
+  }
+
   return (
     <PermissionsProvider>
       <SidebarStateProvider>
-        <PreferencesProvider initialPreferences={initialPreferences}>
+        <PreferencesProvider initialPreferences={initialPreferences} loaded={preferencesLoaded}>
           <PageLayout
             sidebarHeader={<SidebarBrandHeader />}
             sidebar={<DashboardSidebar />}
