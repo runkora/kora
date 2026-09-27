@@ -213,3 +213,131 @@ func TestPostgres_RunStats_AverageCompletedDuration(t *testing.T) {
 		t.Errorf("AvgCompletedDurationMs = %d, want %d", *stats.AvgCompletedDurationMs, want)
 	}
 }
+
+// TestPostgres_RunVisibility_DelegatedRunsFollowTheSubject runs the
+// delegated-run visibility clause in runListWhere against a real database.
+// Every other Postgres test reads with SeeAll, so this is the only coverage of
+// that SQL. ListRuns and RunStats share the clause, so both are checked.
+func TestPostgres_RunVisibility_DelegatedRunsFollowTheSubject(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+
+	autonomous := seedRunAgentType(t, r, tenant)
+	delegated := seedRunAgentType(t, r, tenant)
+	if _, err := r.pool.Exec(ctx, `UPDATE agent_types SET identity_mode='delegated' WHERE id=$1`, delegated.ID); err != nil {
+		t.Fatalf("mark agent type delegated: %v", err)
+	}
+
+	base := time.Now().UTC()
+	seed := func(agentTypeID, createdBy string) string {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: agentTypeID, CreatedBy: createdBy, CreatedAt: base}
+		if err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		return run.ID
+	}
+	aliceDelegated1 := seed(delegated.ID, "alice")
+	aliceDelegated2 := seed(delegated.ID, "alice")
+	bobDelegated := seed(delegated.ID, "bob")
+	bobAutonomous := seed(autonomous.ID, "bob")
+
+	cases := []struct {
+		name       string
+		visibility RunVisibility
+		want       []string
+	}{
+		{"admin sees every run", RunVisibility{SeeAll: true}, []string{aliceDelegated1, aliceDelegated2, bobDelegated, bobAutonomous}},
+		{"subject sees own delegated runs and all autonomous runs", RunVisibility{Subject: "alice"}, []string{aliceDelegated1, aliceDelegated2, bobAutonomous}},
+		{"empty subject sees no delegated run", RunVisibility{}, []string{bobAutonomous}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := RunListFilter{
+				ReadableAgentTypeIDs: []string{autonomous.ID, delegated.ID},
+				Visibility:           tc.visibility,
+				Limit:                50,
+			}
+			runs, _, err := r.ListRuns(ctx, tenant, filter)
+			if err != nil {
+				t.Fatalf("ListRuns: %v", err)
+			}
+			got := make(map[string]bool, len(runs))
+			for _, run := range runs {
+				got[run.ID] = true
+			}
+			if len(got) != len(tc.want) {
+				t.Errorf("ListRuns returned %d runs, want %d", len(got), len(tc.want))
+			}
+			for _, id := range tc.want {
+				if !got[id] {
+					t.Errorf("ListRuns is missing run %s", id)
+				}
+			}
+
+			stats, err := r.RunStats(ctx, tenant, filter)
+			if err != nil {
+				t.Fatalf("RunStats: %v", err)
+			}
+			if stats.Total != len(tc.want) {
+				t.Errorf("RunStats.Total = %d, want %d", stats.Total, len(tc.want))
+			}
+		})
+	}
+}
+
+// TestPostgres_RunStats_ScopedToOneAgentType covers the agent-type path of
+// RunStats, which the agent detail page reads: counts cover only that agent
+// type, and the per-agent-type active breakdown belongs to the tenant-wide
+// call alone.
+func TestPostgres_RunStats_ScopedToOneAgentType(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	a := seedRunAgentType(t, r, tenant)
+	b := seedRunAgentType(t, r, tenant)
+
+	base := time.Now().UTC()
+	seed := func(agentTypeID string, state RunState) {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: agentTypeID, CreatedAt: base}
+		if err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1 WHERE id=$2`, string(state), run.ID); err != nil {
+			t.Fatalf("set run state: %v", err)
+		}
+	}
+	seed(a.ID, RunStateActive)
+	seed(a.ID, RunStateCompleted)
+	seed(a.ID, RunStateFailed)
+	seed(b.ID, RunStateActive)
+
+	readable := []string{a.ID, b.ID}
+	scoped, err := r.RunStats(ctx, tenant, RunListFilter{
+		AgentTypeID:          a.ID,
+		ReadableAgentTypeIDs: readable,
+		Visibility:           RunVisibility{SeeAll: true},
+	})
+	if err != nil {
+		t.Fatalf("RunStats scoped: %v", err)
+	}
+	if scoped.Total != 3 || scoped.Active != 1 || scoped.Completed != 1 || scoped.Failed != 1 {
+		t.Errorf("scoped stats = total %d active %d completed %d failed %d, want 3/1/1/1",
+			scoped.Total, scoped.Active, scoped.Completed, scoped.Failed)
+	}
+	if len(scoped.ActiveByAgentType) != 0 {
+		t.Errorf("scoped ActiveByAgentType = %v, want empty", scoped.ActiveByAgentType)
+	}
+
+	tenantWide, err := r.RunStats(ctx, tenant, RunListFilter{
+		ReadableAgentTypeIDs: readable,
+		Visibility:           RunVisibility{SeeAll: true},
+	})
+	if err != nil {
+		t.Fatalf("RunStats tenant-wide: %v", err)
+	}
+	if tenantWide.Total != 4 || tenantWide.Active != 2 {
+		t.Errorf("tenant-wide stats = total %d active %d, want 4/2", tenantWide.Total, tenantWide.Active)
+	}
+	if tenantWide.ActiveByAgentType[a.ID] != 1 || tenantWide.ActiveByAgentType[b.ID] != 1 {
+		t.Errorf("tenant-wide ActiveByAgentType = %v, want 1 for each agent type", tenantWide.ActiveByAgentType)
+	}
+}

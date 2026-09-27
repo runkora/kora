@@ -400,13 +400,26 @@ func TestHandleListRuns_LimitAboveCeiling_Returns400(t *testing.T) {
 }
 
 func TestHandleListRuns_MalformedCursor_Returns400(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	cases := []struct {
+		name   string
+		cursor string
+	}{
+		{"no separator", "not-a-valid-cursor"},
+		{"empty timestamp", "%7Crun-1"},
+		{"empty id", "2026-09-27T00:00:00Z%7C"},
+		{"unparseable timestamp", "yesterday%7Crun-1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 
-	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&cursor=not-a-valid-cursor")
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+			w := getRequest(t, c.handleListRuns, "tenant_id=t-1&cursor="+tc.cursor)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+		})
 	}
 }
 
