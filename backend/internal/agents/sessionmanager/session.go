@@ -86,6 +86,7 @@ type session struct {
 	sandboxLost  atomic.Bool
 	lostAttempts atomic.Int64
 	sandboxEpoch atomic.Int64
+	lostMu       sync.Mutex // orders userReplied against markSandboxLost
 	provisionMu  sync.Mutex
 	guard        loopGuard
 }
@@ -404,8 +405,12 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (San
 	if err == nil {
 		return sandbox, nil
 	}
-	if runCtx.Err() == nil && s.sandboxEpoch.Load() == epoch {
-		reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts)
+	// A closed or replaced session is not evidence the sandbox is gone.
+	if runCtx.Err() != nil {
+		return Sandbox{}, err
+	}
+	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, epoch) {
+		return Sandbox{}, err
 	}
 	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)
 }
@@ -703,6 +708,9 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	bgCtx := context.Background()
+	// The process is gone: stop work still bound to this session, such as a
+	// sandbox retry, before a resumed session takes over or the run ends.
+	s.cancel()
 
 	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
 	// so the next message can be delivered to a warm process. Run transitions to idle.

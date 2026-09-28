@@ -149,19 +149,30 @@ func carrySandboxState(from, to *session) {
 // userReplied lifts the guardrails' hold on a run: the user is back in the loop
 // and may have asked for exactly what was blocked.
 func (reg *Registry) userReplied(s *session) {
+	s.lostMu.Lock()
 	s.sandboxEpoch.Add(1)
 	s.sandboxLost.Store(false)
+	s.lostMu.Unlock()
 	s.guard.reset()
 }
 
 // markSandboxLost records the loss once per episode: a durable run event for
-// the user, and a flag that makes further provision requests fail fast.
-func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts int) {
-	s.lostAttempts.Store(int64(attempts))
-	if s.sandboxLost.Swap(true) {
-		return
+// the user, and a flag that makes further provision requests fail fast. It
+// does nothing, and reports false, when the user replied after the retries
+// began (epoch moved on): their reply lifted the block.
+func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts int, epoch int64) bool {
+	s.lostMu.Lock()
+	if s.sandboxEpoch.Load() != epoch {
+		s.lostMu.Unlock()
+		return false
 	}
-	reg.emitRunError(ctx, s.runID, runErrorSandboxLost, reg.sandboxLostMessage(s.runID))
+	s.lostAttempts.Store(int64(attempts))
+	first := !s.sandboxLost.Swap(true)
+	s.lostMu.Unlock()
+	if first {
+		reg.emitRunError(ctx, s.runID, runErrorSandboxLost, reg.sandboxLostMessage(s.runID))
+	}
+	return true
 }
 
 // sandboxLostMessage tells the user and the model what happened, what survived,
