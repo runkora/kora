@@ -1,24 +1,19 @@
 // Converts GitHub's webhook schemas from its OpenAPI description into the Orbit
 // trigger schema format: {events: {<X-GitHub-Event>: schema}, definitions}.
 //
-// Usage: node github.mjs [path-to-api.github.com.json]
-// Without a path, the pinned commit below is downloaded.
+// Usage: node github.mjs <path-to-api.github.com.json>
+// The README pins the source commit and shows how to fetch it.
 
 import { readFile, writeFile } from 'node:fs/promises';
 
-// Pinned to a commit on main; the repository stopped tagging releases in 2022.
-const SOURCE_COMMIT = '0029c0d4a6d330559abe0e45b22263bbe1c6b1a7';
-const SOURCE_URL = `https://raw.githubusercontent.com/github/rest-api-description/${SOURCE_COMMIT}/descriptions/api.github.com/api.github.com.json`;
 const OUTPUT = new URL('../../backend/internal/triggers/schemas/github.json', import.meta.url);
 
 const COMPONENT_REF = '#/components/schemas/';
 const DEFINITION_REF = '#/definitions/';
 
 async function loadSource(path) {
-  if (path) return JSON.parse(await readFile(path, 'utf8'));
-  const res = await fetch(SOURCE_URL);
-  if (!res.ok) throw new Error(`fetch ${SOURCE_URL}: ${res.status}`);
-  return res.json();
+  if (!path) throw new Error('usage: node github.mjs <path-to-api.github.com.json>');
+  return JSON.parse(await readFile(path, 'utf8'));
 }
 
 // eventName derives the X-GitHub-Event value from the operation ID, e.g.
