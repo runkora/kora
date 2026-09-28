@@ -265,9 +265,8 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{slug}.
 // Returns the token breakdown and spend recorded against the agent's SPIFFE
-// principal over the last 7 days, scoped to the caller's verified tenant. Any authenticated tenant member may read it (the agent overview
-// page is already tenant-scoped); the query filters by tenant_id so no
-// cross-tenant leakage is possible.
+// principal over the last 7 days, scoped to the caller's verified tenant.
+// The route requires agents:types:read, and the query filters by tenant_id.
 func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

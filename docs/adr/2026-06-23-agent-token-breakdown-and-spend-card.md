@@ -189,7 +189,7 @@ Touches **Who is this agent?**: the aggregates now read the agent identity exact
 
 ### Context
 
-The principal format stated above is wrong. Agent pods receive `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}` from the `orbit-tenant-agent` ClusterSPIFFEID (`charts/orbit/templates/platform/clusterspiffeids.yaml`), where the trust domain is per install and the namespace is the tenant namespace (`orbit-tenant-{tenant}`). Identity keeps that URI as the principal ID and normalises per-run sandbox SVIDs (`.../agent/{slug}/sandbox/{run-id}`) to it, so every `inference_usage` row an agent writes carries it as `principal_id` with `principal_type = 'AGENT'`. The last path segment is the agent type slug, not its UUID. The gateway built `spiffe://orbit/{tenantID}/agent/{agentTypeID}` instead, so no row ever matched and the agents list and agent overview showed "—". On the local cluster, 0 of 491 agent rows in the last 7 days matched.
+The principal format stated above is wrong. Agent pods receive `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}` from the `orbit-tenant-agent` ClusterSPIFFEID (`charts/orbit/templates/platform/clusterspiffeids.yaml`), where the trust domain is per install and the namespace is the tenant namespace (`orbit-tenant-{tenant}`). Identity keeps that URI as the principal ID and normalises per-run sandbox SVIDs (`.../agent/{slug}/sandbox/{run-id}`) to it, so every `inference_usage` row an agent writes carries it as `principal_id` with `principal_type = 'AGENT'`. The last path segment is the agent type slug, not its UUID. The gateway built `spiffe://orbit/{tenantID}/agent/{agentTypeID}` instead, so no row ever matched and the agents list and agent overview showed "—".
 
 The run list's `tokens_used` field has no source: orbit-agents never had such a column, so the "Tokens" column in the run tables and the runs-based fallback on the agents list were always empty.
 
@@ -213,4 +213,5 @@ Option B.
 - The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace.
 - Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
 - The suffix match cannot use the `principal_id` index; the query scans the tenant's rows for the last 7 days through `(tenant_id, created_at)`.
+- Delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
 - Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.

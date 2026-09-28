@@ -70,7 +70,6 @@ export interface RunRow {
   createdAt: string;
   /** Elapsed ms: completedAt - startedAt, or now - startedAt for active runs, or null if not started. */
   durationMs: number | null;
-  /** Total tokens consumed by this run, or null if not available. */
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
