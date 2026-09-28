@@ -525,7 +525,7 @@ describe('toTriggerUpdateRequest', () => {
     expect(toTriggerUpdateRequest({ name: 'renamed' })).toEqual({ name: 'renamed' });
   });
 
-  it('sends a sender restriction whole, since update replaces it', () => {
+  it('sends a sender restriction whole', () => {
     expect(
       toTriggerUpdateRequest({ senderRestriction: { logins: [], associations: ['MEMBER'] } }),
     ).toEqual({ sender_restriction: { logins: [], associations: ['MEMBER'] } });

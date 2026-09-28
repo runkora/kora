@@ -276,11 +276,11 @@ func (s *Service) fanOut(
 	// Two reasons a listening trigger does not fire, and an admin needs to tell
 	// them apart because the fixes differ:
 	//
-	//   filtered  — this trigger wanted this event type, but its sender
+	//   filtered:  this trigger wanted this event type, but its sender
 	//               restriction or its match_condition excluded this
 	//               particular event. Recorded per trigger with the cause:
 	//               the fix is a trigger setting.
-	//   unmatched — no trigger wanted this event type at all. Not recorded per
+	//   unmatched: no trigger wanted this event type at all. Not recorded per
 	//               trigger (there is nobody to attribute it to) and not a
 	//               filter decision, so it does not multiply rows on a noisy
 	//               source. The fix is a missing trigger.

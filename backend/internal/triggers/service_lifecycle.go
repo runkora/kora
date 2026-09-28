@@ -162,7 +162,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		Name:              strings.TrimSpace(req.Name),
 		AgentTypeID:       at.ID,
 		AgentSlug:         at.Slug,
-		EventType:         req.EventType,
+		EventType:         strings.TrimSpace(req.EventType),
 		MatchCondition:    req.MatchCondition,
 		PromptTemplate:    req.PromptTemplate,
 		GrantID:           &grantID,
@@ -384,7 +384,7 @@ func applyTriggerEdits(t *Trigger, req UpdateTriggerRequest) {
 		t.Name = strings.TrimSpace(*req.Name)
 	}
 	if req.EventType != nil {
-		t.EventType = *req.EventType
+		t.EventType = strings.TrimSpace(*req.EventType)
 	}
 	if req.MatchCondition != nil {
 		t.MatchCondition = req.MatchCondition

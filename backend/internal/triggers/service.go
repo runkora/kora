@@ -365,7 +365,7 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if req.SourceID == "" {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
 	}
-	if req.EventType == "" {
+	if strings.TrimSpace(req.EventType) == "" {
 		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 	}
 	return validateFieldKeys(req.PromptTemplate, req.MatchCondition)

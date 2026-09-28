@@ -5,7 +5,6 @@ import {
   completePattern,
   dataBlockPreview,
   eventTypeCatalog,
-  insertAtCursor,
   manualCatalog,
   scheduledCatalog,
   schemaCatalog,
@@ -110,33 +109,5 @@ describe('manualCatalog', () => {
 
   it('names the field it came from', () => {
     expect(manualCatalog([field({ label: 'Row limit' })])[0]?.description).toContain('Row limit');
-  });
-});
-
-describe('insertAtCursor', () => {
-  it('inserts at the cursor', () => {
-    expect(insertAtCursor('Review  now', 7, 'pr.title')).toBe('Review {{ pr.title }} now');
-  });
-
-  it('inserts at the start and the end', () => {
-    expect(insertAtCursor('tail', 0, 'event')).toBe('{{ event }}tail');
-    expect(insertAtCursor('head ', 5, 'event')).toBe('head {{ event }}');
-  });
-
-  it('appends with a space when the textarea was never focused', () => {
-    expect(insertAtCursor('Review the PR', null, 'pr.title')).toBe('Review the PR {{ pr.title }}');
-  });
-
-  it('does not double the space when the text already ends in one', () => {
-    expect(insertAtCursor('Review ', null, 'pr.title')).toBe('Review {{ pr.title }}');
-  });
-
-  it('is the whole value when the prompt is empty', () => {
-    expect(insertAtCursor('', null, 'pr.title')).toBe('{{ pr.title }}');
-  });
-
-  it('appends rather than corrupting when the cursor is out of range', () => {
-    expect(insertAtCursor('abc', 99, 'event')).toBe('abc {{ event }}');
-    expect(insertAtCursor('abc', -1, 'event')).toBe('abc {{ event }}');
   });
 });

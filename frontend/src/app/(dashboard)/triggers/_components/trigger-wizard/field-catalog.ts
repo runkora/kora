@@ -155,19 +155,3 @@ export function dataBlockPreview(template: string): string {
   const json = JSON.stringify(Object.fromEntries(keys.map((k) => [k, ''])), null, 2);
   return `${template}\n\n<delivery-data>\n${DATA_BLOCK_PREAMBLE}\n${json}\n</delivery-data>`;
 }
-
-/**
- * Inserts a `{{ token }}` placeholder at the cursor.
- *
- * A null cursor means the textarea was never focused, so the placeholder is
- * appended — clicking a field should always do something, and appending is the
- * one guess that never destroys what was typed.
- */
-export function insertAtCursor(text: string, cursor: number | null, token: string): string {
-  const placeholder = `{{ ${token} }}`;
-  if (cursor === null || cursor < 0 || cursor > text.length) {
-    if (!text) return placeholder;
-    return text.endsWith(' ') ? `${text}${placeholder}` : `${text} ${placeholder}`;
-  }
-  return `${text.slice(0, cursor)}${placeholder}${text.slice(cursor)}`;
-}

@@ -452,3 +452,21 @@ func TestNormalizeRestriction_Bounds(t *testing.T) {
 		})
 	}
 }
+
+func TestWebhookEventType_WhitespaceIsMissing(t *testing.T) {
+	f := newPayloadFixture(t)
+	ctx := context.Background()
+	req := CreateTriggerRequest{Kind: KindWebhook, SourceID: f.src.ID, Name: "w", AgentTypeID: "at-1", EventType: "   ", PromptTemplate: "p"}
+	if _, err := f.deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+		t.Errorf("create with a blank event type = %v, want ErrValidation", err)
+	}
+	req.EventType = " issue_comment "
+	created, err := f.deps.triggers.CreateTrigger(ctx, testTenant, req)
+	if err != nil || created.EventType != "issue_comment" {
+		t.Fatalf("create = %+v, %v; want event type issue_comment", created, err)
+	}
+	blank := "  "
+	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, created.ID, UpdateTriggerRequest{EventType: &blank}); !errors.Is(err, ErrValidation) {
+		t.Errorf("update to a blank event type = %v, want ErrValidation", err)
+	}
+}

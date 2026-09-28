@@ -1,8 +1,8 @@
 /**
  * Integration tests for POST /api/triggers.
  *
- * The route copies an explicit list of fields to orbit-triggers, so each
- * field the backend accepts needs a test that it reaches the backend.
+ * The route copies an explicit list of fields to orbit-triggers. Each field the
+ * backend accepts needs a test that the route forwards it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
@@ -74,5 +74,29 @@ describe('POST /api/triggers', () => {
       logins: ['octocat'],
       associations: ['MEMBER'],
     });
+  });
+
+  it('rejects a webhook trigger without an event type', async () => {
+    let called = false;
+    server.use(
+      http.post(TRIGGERS_URL, () => {
+        called = true;
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'comment-review',
+        agent_type_id: 'agent-1',
+        prompt_template: '{{ comment.body }}',
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
   });
 });

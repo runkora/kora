@@ -101,8 +101,7 @@ func (c *Catalog) Fields(eventType string) []Field {
 	return append(slices.Clone(c.events[eventType]), metaFields...)
 }
 
-// resolve follows $ref chains and returns the definitions on the current
-// branch, which stops recursion.
+// resolve follows a $ref chain. It returns nil for a ref already on the branch.
 func (b *catalogBuilder) resolve(node schemaNode, stack []string) (schemaNode, []string, error) {
 	for {
 		ref, ok := node["$ref"].(string)

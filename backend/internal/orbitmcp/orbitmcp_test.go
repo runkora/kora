@@ -201,6 +201,12 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 		t.Errorf("fields hit %q?%q", gotPath, gotQuery)
 	}
 
+	gotPath = ""
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{"source_id": "src-1", "name": "t"}})
+	if gotPath != "" {
+		t.Errorf("create without event_type reached the backend at %q", gotPath)
+	}
+
 	restriction := map[string]any{"logins": []any{"octocat"}, "associations": []any{"MEMBER"}}
 	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
 		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "sender_restriction": restriction,

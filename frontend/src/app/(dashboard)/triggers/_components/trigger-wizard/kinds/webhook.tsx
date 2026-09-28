@@ -42,6 +42,9 @@ import type {
 } from '../types';
 
 /** Providers with a signature adapter in the backend. Nothing else verifies. */
+
+// A new source or provider has its own events, fields and senders.
+const RESET_EVENT = { eventType: '', filters: [], senderLogins: '', senderAssociations: [] };
 const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
   {
     id: 'github',
@@ -94,10 +97,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
           onValueChange={(v) =>
             patch({
               sourceChoice: v,
-              eventType: '',
-              filters: [],
-              senderLogins: '',
-              senderAssociations: [],
+              ...RESET_EVENT,
             })
           }
           aria-label="Webhook source"
@@ -111,10 +111,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                 onSelect={(v) =>
                   patch({
                     sourceChoice: v,
-                    eventType: '',
-                    filters: [],
-                    senderLogins: '',
-                    senderAssociations: [],
+                    ...RESET_EVENT,
                   })
                 }
                 icon="webhook"
@@ -128,10 +125,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
               onSelect={(v) =>
                 patch({
                   sourceChoice: v,
-                  eventType: '',
-                  filters: [],
-                  senderLogins: '',
-                  senderAssociations: [],
+                  ...RESET_EVENT,
                 })
               }
               icon="plus"
@@ -170,10 +164,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
               onValueChange={(v) =>
                 patch({
                   newSourceProvider: v,
-                  eventType: '',
-                  filters: [],
-                  senderLogins: '',
-                  senderAssociations: [],
+                  ...RESET_EVENT,
                 })
               }
               aria-label="Provider"
@@ -187,10 +178,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                     onSelect={(v) =>
                       patch({
                         newSourceProvider: v,
-                        eventType: '',
-                        filters: [],
-                        senderLogins: '',
-                        senderAssociations: [],
+                        ...RESET_EVENT,
                       })
                     }
                     icon={p.icon}

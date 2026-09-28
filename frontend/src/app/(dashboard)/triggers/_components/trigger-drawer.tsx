@@ -459,7 +459,7 @@ export function TriggerDrawer({
 
   const subtitle =
     trigger.kind === 'webhook'
-      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || '—'}`
+      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'no event type (never fires)'}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';

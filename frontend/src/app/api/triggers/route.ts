@@ -11,9 +11,11 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
   const kind = body.kind ?? 'webhook';
   switch (kind) {
     case 'webhook':
-      // event_type is legal empty: it means every event the source emits.
       if (!body.source_id) {
         return 'source_id is required for webhook triggers';
+      }
+      if (!body.event_type?.trim()) {
+        return 'event_type is required for webhook triggers';
       }
       return null;
     case 'scheduled':
