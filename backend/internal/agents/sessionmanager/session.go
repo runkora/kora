@@ -66,6 +66,7 @@ type SessionConfig struct {
 type session struct {
 	runID            string
 	runner           Runner
+	runCtx           context.Context // canceled when the session closes
 	cancel           context.CancelFunc
 	done             chan struct{}
 	model            string
@@ -79,10 +80,14 @@ type session struct {
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
 	// sandboxLost makes provision requests fail fast once the sandbox could not
-	// be replaced, until the user's next message.
-	sandboxLost atomic.Bool
-	provisionMu sync.Mutex
-	guard       loopGuard
+	// be replaced, until the user's next message. lostAttempts is how many
+	// attempts that took; sandboxEpoch counts user messages, so a retry that
+	// fails after the user replied does not re-block them.
+	sandboxLost  atomic.Bool
+	lostAttempts atomic.Int64
+	sandboxEpoch atomic.Int64
+	provisionMu  sync.Mutex
+	guard        loopGuard
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -130,6 +135,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	s := &session{
 		runID:        cfg.RunID,
 		runner:       cfg.Runner,
+		runCtx:       runCtx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
 		model:        cfg.Model,
@@ -157,15 +163,6 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	return nil
 }
 
-// hosts reports whether this pod is running the given run. Loopback tells the
-// /internal routes that the caller is in this pod, not which run it belongs to.
-func (reg *Registry) hosts(runID string) bool {
-	reg.mu.RLock()
-	defer reg.mu.RUnlock()
-	_, ok := reg.sessions[runID]
-	return ok
-}
-
 // Send delivers a user text message to an existing session.
 func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	reg.mu.RLock()
@@ -177,8 +174,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if err := s.runner.Send(ctx, text); err != nil {
 		return err
 	}
-	s.guard.reset()
-	s.sandboxLost.Store(false)
+	reg.userReplied(s)
 	// The first user message is the run's task. Generate its summary once, in the
 	// background, over the agent's own authorized inference path.
 	s.summarizeOnce.Do(func() {
@@ -221,7 +217,11 @@ func (reg *Registry) SendToolResult(ctx context.Context, runID, toolUseID, conte
 	if !ok {
 		return ErrSessionNotFound
 	}
-	return s.runner.SendToolResult(ctx, toolUseID, content)
+	if err := s.runner.SendToolResult(ctx, toolUseID, content); err != nil {
+		return err
+	}
+	reg.userReplied(s)
+	return nil
 }
 
 // Interrupt signals the CLI subprocess to stop its current in-progress turn
@@ -307,6 +307,8 @@ type Sandbox struct {
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
+	// Only runs this pod hosts: loopback tells the /internal routes that the
+	// caller is in this pod, not which run it belongs to.
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
@@ -393,13 +395,17 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (San
 	if s.sandboxLost.Load() {
 		return Sandbox{}, ErrSandboxLost
 	}
-	detached := context.WithoutCancel(ctx)
-	sandbox, err := reg.provisionWithRetry(detached, s.runID)
+	epoch := s.sandboxEpoch.Load()
+	runCtx := s.runCtx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s.runID)
 	if err == nil {
 		return sandbox, nil
 	}
-	if reg.hosts(s.runID) {
-		reg.markSandboxLost(detached, s)
+	if runCtx.Err() == nil && s.sandboxEpoch.Load() == epoch {
+		reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts)
 	}
 	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)
 }
@@ -723,8 +729,9 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{})}
+				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{})}
 				newS.isIdle.Store(true)
+				carrySandboxState(s, newS)
 				// Swap only if s is still the registered session. If a concurrent
 				// Close() already claimed it, abandon the new runner so it is not
 				// leaked as an untracked process.

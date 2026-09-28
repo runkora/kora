@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,6 +284,8 @@ func (r *guardRunner) Send(_ context.Context, text string) error {
 	return nil
 }
 
+func (r *guardRunner) queuesMidTurnMessages() bool { return true }
+
 func (r *guardRunner) Interrupt() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -305,6 +309,8 @@ func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	// An unbuffered send returns once drain has taken the event, so this one
 	// guarantees the previous one was fully handled.
 	runner.events <- toolUse(t, "d", "Read", map[string]string{"file_path": "/x"})
+	// Close before reading the notifier: drain may still be inside Notify.
+	_ = reg.Close(context.Background(), "run-1")
 
 	runner.mu.Lock()
 	sent, interrupted := runner.sent, runner.interrupted
@@ -324,5 +330,141 @@ func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	if len(n.warnings) != 1 || n.warnings[0] != want {
 		t.Errorf("recorded warnings = %v, want [%v]", n.warnings, want)
 	}
-	_ = reg.Close(context.Background(), "run-1")
+}
+
+// Polling that sees its result change is progress, not a loop.
+func TestLoopGuard_RepeatedCallWithChangingResultIsNotALoop(t *testing.T) {
+	g := &loopGuard{}
+	in := map[string]string{"task_id": "b1"}
+	for i := range 10 {
+		id := fmt.Sprintf("t%d", i)
+		if v, _ := g.observe(toolUse(t, id, "TaskOutput", in), testLimits); v != loopOK {
+			t.Fatalf("call %d: verdict %v, want OK", i, v)
+		}
+		ev, _ := newEvent(EventTypeToolResult, ToolResultPayload{ToolUseID: id, Content: fmt.Sprintf("line %d", i)})
+		g.observe(ev, testLimits)
+	}
+}
+
+// Filler between re-arms that only looks (echo, tail, notes) is not progress.
+func TestLoopGuard_LookOnlyFillerDoesNotResetWaits(t *testing.T) {
+	g := &loopGuard{}
+	var got []loopVerdict
+	for i := range 4 {
+		f, m := fmt.Sprintf("f%d", i), fmt.Sprintf("m%d", i)
+		for _, ev := range []Event{
+			toolUse(t, f, "Bash", map[string]string{"command": fmt.Sprintf("echo still waiting; tail -5 /tmp/x%d.log", i)}), toolResult(t, f, false),
+			toolUse(t, m, "Monitor", map[string]int{"n": i}), toolResult(t, m, false),
+		} {
+			if v, _ := g.observe(ev, testLimits); v != loopOK {
+				got = append(got, v)
+			}
+		}
+	}
+	if fmt.Sprint(got) != fmt.Sprint([]loopVerdict{loopWarn, loopPause}) {
+		t.Errorf("verdicts = %v, want warn then pause", got)
+	}
+}
+
+func TestIsLookOnlyCommand(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		"echo still waiting":         true,
+		"sleep 5; cat /tmp/x.log":    true,
+		"date":                       true,
+		"git push":                   false,
+		"tail -f x.log | grep ERROR": false,
+		"":                           false,
+	} {
+		if got := isLookOnlyCommand(cmd); got != want {
+			t.Errorf("isLookOnlyCommand(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// A runner that would start a second turn gets no mid-turn warning, only the record.
+func TestApplyLoopGuard_NoWarningMessageForNonQueuingRunner(t *testing.T) {
+	n := &failingNotifier{}
+	reg, _ := newTestRegistry(t, n)
+	reg.SetGuardrails(Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3})
+	runner := &sendRecorder{stubRunner: newStubRunner(nil)}
+	s := &session{runID: "run-1", runner: runner, done: make(chan struct{})}
+	in := map[string]string{"command": "gh pr view 7"}
+	reg.applyLoopGuard(context.Background(), s, toolUse(t, "a", "Bash", in))
+	reg.applyLoopGuard(context.Background(), s, toolUse(t, "b", "Bash", in))
+	if len(runner.sent) != 0 {
+		t.Errorf("sent %q to a runner that does not queue mid-turn messages", runner.sent)
+	}
+	if len(n.warnings) != 1 {
+		t.Errorf("recorded warnings = %v, want one", n.warnings)
+	}
+}
+
+type sendRecorder struct {
+	*stubRunner
+	sent []string
+}
+
+func (r *sendRecorder) Send(_ context.Context, text string) error {
+	r.sent = append(r.sent, text)
+	return nil
+}
+
+// Retries stop when the session closes, so a closed run cannot get a sandbox pod.
+func TestProvisionSandbox_RetriesStopWhenSessionCloses(t *testing.T) {
+	n := &failingNotifier{failures: 100}
+	reg, _ := newTestRegistry(t, n)
+	reg.SetGuardrails(Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
+	runCtx, cancel := context.WithCancel(context.Background())
+	hostSession(reg, "run-1")
+	reg.sessions["run-1"].runCtx = runCtx
+
+	done := make(chan error)
+	go func() {
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+		done <- err
+	}()
+	for {
+		n.mu.Lock()
+		calls := n.calls
+		n.mu.Unlock()
+		if calls == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.calls != 1 || len(n.runErrors) != 0 {
+		t.Errorf("after close: calls = %d, run errors = %v; want 1 and none", n.calls, n.runErrors)
+	}
+}
+
+// The fast-fail answer is a 503 that carries the model-facing message.
+func TestHandleProvisionSandbox_LostSandboxIs503(t *testing.T) {
+	c, ws := sandboxTestController(t)
+	hostSession(c.registry, "run-1")
+	s := c.registry.sessions["run-1"]
+	s.sandboxLost.Store(true)
+	s.lostAttempts.Store(3)
+	tok, err := mintRunToken(ws, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", nil)
+	r.SetPathValue("runID", "run-1")
+	r.Header.Set(runTokenHeader, tok)
+	c.handleProvisionSandbox(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var body struct{ Code, Message string }
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Code != runErrorSandboxLost || !strings.Contains(body.Message, "after 3 attempt(s)") {
+		t.Errorf("body = %+v", body)
+	}
 }

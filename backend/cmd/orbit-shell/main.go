@@ -248,8 +248,9 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
-	// Longer than the session-manager's provision budget, so its verdict arrives.
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	// Longer than the session-manager's provision budget plus its egress canary,
+	// so its verdict arrives.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
