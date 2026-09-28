@@ -606,6 +606,12 @@ func TestHandleProviderFields(t *testing.T) {
 		t.Errorf("missing event_type status = %d, want 400", w.Code)
 	}
 
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields?event_type=%20",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("blank event_type status = %d, want 400", w.Code)
+	}
+
 	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/gitlab/fields?event_type=push",
 		map[string]string{"provider": "gitlab"}, nil)
 	if w.Code != http.StatusNotFound {

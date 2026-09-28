@@ -259,6 +259,7 @@ func (s *SourceService) ProviderEventTypes(provider string) (*EventTypesResponse
 
 // ProviderFields lists the fields a trigger on one of a provider's event types can reference.
 func (s *SourceService) ProviderFields(provider, eventType string) (*FieldsResponse, error) {
+	eventType = strings.TrimSpace(eventType)
 	if eventType == "" {
 		return nil, fmt.Errorf("%w: event_type is required", ErrValidation)
 	}
