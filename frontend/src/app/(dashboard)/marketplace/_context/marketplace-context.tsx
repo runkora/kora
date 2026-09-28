@@ -9,8 +9,8 @@
 //
 // The provider also saves the Marketplace that the user picks in the picker in
 // the user preferences (`marketplace.lastSelected`). When the URL names no
-// Marketplace, for example after the header Back button, the server opens the
-// saved Marketplace.
+// Marketplace, for example after a click on the sidebar entry, the server
+// opens the saved Marketplace.
 //
 // A preferences PUT replaces the whole document. So the provider saves only
 // after an explicit pick that loads successfully, and never after a failed
