@@ -85,9 +85,9 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 // Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md
 // and docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md:
 //
-//	Agent:        spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
+//	Agent:        spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-slug}
 //	Per-run sandbox:
-//	              spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
+//	              spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-slug}/sandbox/{run-id}
 //	Service:      spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
 //	System:       spiffe://orbit.{instance-id}/system/{component-name}
 //
@@ -117,8 +117,8 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
 	// Parse tenant and principal type/ID from the path structure:
-	// /tenant/{tenant-id}/agent/{agent-id}
-	// /tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
+	// /tenant/{tenant-id}/agent/{agent-slug}
+	// /tenant/{tenant-id}/agent/{agent-slug}/sandbox/{run-id}
 	// /tenant/{tenant-id}/service/{service-id}
 	// /system/{component-name}
 	var tenantID, displayName, runID string

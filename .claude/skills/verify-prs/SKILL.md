@@ -133,7 +133,7 @@ Then **prove behaviour**, not just that it built:
 - **Need data?** Seed it directly in Postgres
   (`docker exec orbit-postgres psql -U orbit -d orbit -c "…"`). Read the query/handler first
   so rows match how it's read (e.g. usage keyed by the agent SPIFFE principal
-  `spiffe://orbit/{tenant}/agent/{id}`; deliveries that satisfy the `WHERE`/`JOIN`). Note
+  `spiffe://{trust-domain}/tenant/orbit-tenant-{tenant}/agent/{slug}`; deliveries that satisfy the `WHERE`/`JOIN`). Note
   what you seeded — harmless in dev.
 
 **Restore the cluster** when done: redeploy the affected services from an **up-to-date local

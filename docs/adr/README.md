@@ -91,7 +91,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
 - [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
-- [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted` · 2026-05-11
+- [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
@@ -208,7 +208,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
 | 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted | 0051 |
-| 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted | 0057 |
+| 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |
 | 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted | 0050 |
 | 2026-05-11 | [Agent Workspace Model](2026-05-11-agent-workspace-model.md) | Accepted | 0055 |
