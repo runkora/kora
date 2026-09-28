@@ -1,0 +1,39 @@
+{
+  "events": {
+    "alert.firing": { "$ref": "#/definitions/notification" },
+    "alert.resolved": { "$ref": "#/definitions/notification" }
+  },
+  "definitions": {
+    "notification": {
+      "type": "object",
+      "properties": {
+        "version": { "type": "string", "description": "Webhook payload format version" },
+        "groupKey": { "type": "string", "description": "Key identifying the alert group" },
+        "truncatedAlerts": { "type": "integer", "description": "How many alerts were left out because of max_alerts" },
+        "status": { "type": "string", "enum": ["firing", "resolved"], "description": "Status of the alert group" },
+        "receiver": { "type": "string", "description": "Name of the receiver that sent the notification" },
+        "groupLabels": { "$ref": "#/definitions/labels", "description": "Labels the alerts were grouped by" },
+        "commonLabels": { "$ref": "#/definitions/labels", "description": "Labels shared by every alert in the group" },
+        "commonAnnotations": { "$ref": "#/definitions/labels", "description": "Annotations shared by every alert in the group" },
+        "externalURL": { "type": "string", "description": "Link back to the Alertmanager that sent the notification" },
+        "alerts": { "type": "array", "items": { "$ref": "#/definitions/alert" } }
+      }
+    },
+    "alert": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["firing", "resolved"], "description": "Status of the alert" },
+        "labels": { "$ref": "#/definitions/labels", "description": "Labels of the alert" },
+        "annotations": { "$ref": "#/definitions/labels", "description": "Annotations of the alert" },
+        "startsAt": { "type": "string", "description": "When the alert started firing" },
+        "endsAt": { "type": "string", "description": "When the alert ended" },
+        "generatorURL": { "type": "string", "description": "Link to the source of the alert" },
+        "fingerprint": { "type": "string", "description": "Fingerprint identifying the alert" }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
