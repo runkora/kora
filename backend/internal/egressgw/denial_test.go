@@ -1,6 +1,8 @@
 package egressgw
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -211,5 +214,47 @@ func TestPolicyDenialReason(t *testing.T) {
 		if got != tc.want || label != tc.wantLabel {
 			t.Errorf("policyDenialReason(%v) = (%s, %q), want (%s, %q)", tc.reasons, got, label, tc.want, tc.wantLabel)
 		}
+	}
+}
+
+// Deny logs carry the method and path so a denial can be diagnosed, but never
+// the query string or headers, which can carry tokens.
+func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
+	tests := []struct {
+		name, method, path, wantLog string
+		setup                       func(f *fixture)
+	}{
+		{name: "policy denial", method: http.MethodGet, path: "/anything", wantLog: "egress denied by policy",
+			setup: func(f *fixture) { f.eval.allow = false }},
+		{name: "classify denial", method: "PROPFIND", path: "/other-owner/repo.git/info/refs", wantLog: "egress denied: adapter could not classify action"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tc.setup != nil {
+				tc.setup(f)
+			}
+			var logs bytes.Buffer
+			broker := NewBroker(f.eval, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+
+			r := httptest.NewRequest(tc.method, "https://"+f.connectionHost+tc.path+"?access_token=query-secret", nil)
+			r.Header.Set("Authorization", "Bearer header-secret")
+			_, err := broker.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))
+			if !errors.Is(err, ErrForbidden) {
+				t.Fatalf("err = %v, want ErrForbidden", err)
+			}
+
+			out := logs.String()
+			for _, want := range []string{tc.wantLog, tc.method, tc.path} {
+				if !strings.Contains(out, want) {
+					t.Errorf("deny log missing %q:\n%s", want, out)
+				}
+			}
+			for _, leak := range []string{"query-secret", "header-secret", "access_token"} {
+				if strings.Contains(out, leak) {
+					t.Errorf("deny log leaks %q:\n%s", leak, out)
+				}
+			}
+		})
 	}
 }
