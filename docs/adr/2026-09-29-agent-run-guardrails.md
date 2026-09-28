@@ -64,7 +64,7 @@ Nothing stops a run that has stopped making progress.
 
 **Option B: a PreToolUse hook denying Agent and Skill calls.** Works under `--dangerously-skip-permissions`, but the hook cannot tell whether a skill forks, and it adds a hook binary to the image.
 
-**Option C: native Claude Code limits set per run.** `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` makes the Agent tool refuse over-limit launches with "Concurrent subagent limit reached ... Do not retry" (present in the pinned 2.1.276 binary). `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` removes the Agent tool from any context at depth 1, which includes a forked skill: verified with Claude Code 2.1.283, where a `context: fork` skill could not launch subagents at depth 1 and launched two at depth 2.
+**Option C: native Claude Code limits set per run.** `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` makes the Agent tool refuse over-limit launches with "Concurrent subagent limit reached ... Do not retry" (present in the 2.1.276 binary the session-manager image currently installs from `@anthropic-ai/claude-code@2`). `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` removes the Agent tool from any context at depth 1, which includes a forked skill: verified with Claude Code 2.1.283, where a `context: fork` skill could not launch subagents at depth 1 and launched two at depth 2.
 
 ---
 
@@ -94,7 +94,7 @@ Nothing stops a run that has stopped making progress.
 - Agent types gain `max_concurrent_subagents` (integer, null for the Claude Code default) and `nested_subagents` (boolean, default true), in the API, the Orbit MCP agent tools and the dashboard agent configuration.
 - `session-manager` sets `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` from the first and, when the second is false, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`.
 - "Whether skills may fork" is enforced as spawn depth. A forked skill runs as a subagent, so with `nested_subagents` false a forked skill still runs but cannot launch subagents of its own. That removes the fan-out; Claude Code has no switch that stops a skill forking at all.
-- A test in the session-manager image build fails when the pinned Claude Code binary no longer contains `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` or `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`.
+- A step in the session-manager image build fails when the installed Claude Code binary no longer contains `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` or `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`.
 - A type with the `agents` tool scope removed keeps having no Agent tool at all; these fields only bound it when granted.
 
 ### Three questions
