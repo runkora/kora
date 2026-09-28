@@ -1214,11 +1214,6 @@ func (m *mockRepository) PurgePayloads(_ context.Context, defaultDays int) (int6
 	return n, nil
 }
 
-// drainPending runs one worker tick synchronously.
-//
-// Dispatch is asynchronous by design — every fire is queued so it survives a
-// restart — so a test that wants to observe the run must drain the queue. This
-// keeps those tests end-to-end rather than stopping at "it was queued".
 // mustRegistry returns one registry shared by every test; building the GitHub
 // catalog is slow under -race.
 var mustRegistry = sync.OnceValue(func() *Registry {
@@ -1229,6 +1224,11 @@ var mustRegistry = sync.OnceValue(func() *Registry {
 	return r
 })
 
+// drainPending runs one worker tick synchronously.
+//
+// Dispatch is asynchronous by design — every fire is queued so it survives a
+// restart — so a test that wants to observe the run must drain the queue. This
+// keeps those tests end-to-end rather than stopping at "it was queued".
 func drainPending(t *testing.T, svc *Service, repo *mockRepository) {
 	t.Helper()
 	claimed, err := repo.ClaimPending(context.Background(), 64)

@@ -458,10 +458,7 @@ func normalizeRestriction(registry *Registry, provider string, r *SenderRestrict
 	if r.empty() {
 		return nil, nil
 	}
-	adapter, ok := registry.Get(provider)
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, provider)
-	}
+	adapter, _ := registry.Get(provider)
 	si, ok := adapter.(senderIdentifier)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s sources do not identify senders, so a sender restriction cannot apply", ErrValidation, provider)

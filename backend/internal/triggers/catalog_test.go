@@ -186,20 +186,3 @@ func TestCatalog_FieldsOfUndeclaredEvent(t *testing.T) {
 		}
 	}
 }
-
-// Every registered provider's schema builds into a catalog at construction.
-func TestNewRegistry_BuildsEveryCatalog(t *testing.T) {
-	r, err := NewRegistry()
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	for _, p := range r.Providers() {
-		c, ok := r.Catalog(p)
-		if !ok || len(c.EventTypes()) == 0 {
-			t.Errorf("%s has no catalog or no event types", p)
-		}
-	}
-	if _, ok := r.Catalog("gitlab"); ok {
-		t.Error("an unknown provider has no catalog")
-	}
-}

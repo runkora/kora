@@ -79,10 +79,9 @@ func (r *Registry) Get(provider string) (SourceAdapter, bool) {
 	return a, ok
 }
 
-// Catalog returns a provider's catalog.
-func (r *Registry) Catalog(provider string) (*Catalog, bool) {
-	c, ok := r.catalogs[provider]
-	return c, ok
+// Catalog returns a provider's catalog, or nil for an unknown provider.
+func (r *Registry) Catalog(provider string) *Catalog {
+	return r.catalogs[provider]
 }
 
 // Providers returns the registered provider ids (for validation/UI).

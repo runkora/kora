@@ -611,21 +611,16 @@ type UpdateRetentionRequest struct {
 
 // ─── Event catalog ──────────────────────────────────────────────────────────
 
-// EventTypesResponse answers "what can I write a trigger for on this source?".
+// EventTypesResponse lists the event types a trigger can listen for.
 //
-// Declared is every event type in the provider's schema. Observed is what this
-// source has sent, including events newer than the schema.
+// Declared is every event type in the provider's schema. Observed is what a
+// source has sent, including events newer than the schema; a provider's catalog
+// has none.
 // Associations are the values a sender restriction may name, empty when the
 // provider identifies no sender.
 type EventTypesResponse struct {
 	Declared     []string `json:"declared"`
-	Observed     []string `json:"observed"`
-	Associations []string `json:"associations"`
-}
-
-// ProviderEventTypesResponse is a provider's catalog, independent of any source.
-type ProviderEventTypesResponse struct {
-	Declared     []string `json:"declared"`
+	Observed     []string `json:"observed,omitempty"`
 	Associations []string `json:"associations"`
 }
 

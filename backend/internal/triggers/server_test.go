@@ -550,9 +550,16 @@ func TestHandleProviderEventTypes(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
 	}
-	got := decode[ProviderEventTypesResponse](t, w)
+	got := decode[EventTypesResponse](t, w)
 	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
 		t.Errorf("response = %+v", got)
+	}
+
+	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/alertmanager/event-types",
+		map[string]string{"provider": ProviderAlertmanager}, nil)
+	if am := decode[EventTypesResponse](t, w); !slices.Equal(am.Declared, []string{"alert.firing", "alert.resolved"}) ||
+		am.Associations == nil || len(am.Associations) != 0 {
+		t.Errorf("alertmanager = %+v, want its two types and an empty association list", am)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",
@@ -581,9 +588,27 @@ func TestHandleProviderFields(t *testing.T) {
 		t.Errorf("fields = %+v, want the commonLabels pattern field", got.Fields)
 	}
 
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields?event_type=issue_comment",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	paths := map[string]bool{}
+	for _, f := range decode[FieldsResponse](t, w).Fields {
+		paths[f.Path] = true
+	}
+	for _, want := range []string{"comment.body", "issue.title", "sender.login", metaEventType} {
+		if !paths[want] {
+			t.Errorf("issue_comment fields are missing %s", want)
+		}
+	}
+
 	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields",
 		map[string]string{"provider": ProviderGitHub}, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("missing event_type status = %d, want 400", w.Code)
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/gitlab/fields?event_type=push",
+		map[string]string{"provider": "gitlab"}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown provider status = %d, want 404", w.Code)
 	}
 }

@@ -53,15 +53,6 @@ func placeholderKeys(tmpl string) []string {
 	return keys
 }
 
-// deliveryMeta holds the meta fields the platform supplies for one delivery.
-func deliveryMeta(eventType, providerDeliveryID, sourceName string) map[string]string {
-	return map[string]string{
-		metaEventType:  eventType,
-		metaDeliveryID: providerDeliveryID,
-		metaSource:     sourceName,
-	}
-}
-
 // triggerFields builds one trigger's field map: the meta fields plus every
 // delivery path the trigger references, resolved against the decoded body.
 func triggerFields(t Trigger, doc any, meta map[string]string) map[string]string {
@@ -118,11 +109,7 @@ func stringValue(v any) string {
 // validateFieldKeys checks the keys a webhook trigger's prompt and match
 // condition name against the key grammar and the known meta fields.
 func validateFieldKeys(tmpl string, condition map[string][]string) error {
-	keys := placeholderKeys(tmpl)
-	for k := range condition {
-		keys = append(keys, k)
-	}
-	for _, k := range keys {
+	for _, k := range referencedKeys(Trigger{PromptTemplate: tmpl, MatchCondition: condition}) {
 		if !fieldKeyPattern.MatchString(k) {
 			return fmt.Errorf("%w: %q is not a valid field name", ErrValidation, k)
 		}

@@ -264,7 +264,7 @@ func (s *Service) fanOut(
 	if !a.truncated {
 		doc = decodeBody(a.body)
 	}
-	meta := deliveryMeta(eventType, a.providerDeliveryID, src.Name)
+	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
 	sender, hasSender := identifySender(adapter, eventType, doc)
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
@@ -296,7 +296,7 @@ func (s *Service) fanOut(
 		if t.EventType != eventType {
 			continue
 		}
-		if !senderAllowed(t.SenderRestriction, adapter, sender, hasSender) {
+		if !senderAllowed(t.SenderRestriction, sender, hasSender) {
 			s.outcomes.insert(ctx, &DeliveryRun{
 				TenantID: src.TenantID, DeliveryID: deliveryID,
 				TriggerID: t.ID, TriggerName: t.Name,
@@ -353,22 +353,16 @@ func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, b
 	return si.Sender(eventType, doc)
 }
 
-// senderAllowed applies a trigger's sender restriction. An event with no sender
-// fails any restriction.
-func senderAllowed(r *SenderRestriction, adapter SourceAdapter, s Sender, ok bool) bool {
+// senderAllowed applies a trigger's sender restriction. Stored logins are
+// already normalised. An event with no sender fails any restriction.
+func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if r.empty() {
 		return true
 	}
-	si, identifies := adapter.(senderIdentifier)
-	if !ok || !identifies {
+	if !ok {
 		return false
 	}
-	for _, login := range r.Logins {
-		if si.NormalizeLogin(login) == s.Login {
-			return true
-		}
-	}
-	return s.Association != "" && slices.Contains(r.Associations, s.Association)
+	return slices.Contains(r.Logins, s.Login) || (s.Association != "" && slices.Contains(r.Associations, s.Association))
 }
 
 // runStatusForDispatchError maps a dispatch failure to the per-trigger outcome

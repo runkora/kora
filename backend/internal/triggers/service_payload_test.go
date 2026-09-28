@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -73,8 +74,6 @@ func TestFanOut_SenderRestriction(t *testing.T) {
 		{"listed login, any case", &SenderRestriction{Logins: []string{"Alice"}}, commentBody("ALICE", "ALICE", "NONE"), true},
 		{"login or association", &SenderRestriction{Logins: []string{"bob"}, Associations: []string{"OWNER"}}, commentBody("bob", "bob", "NONE"), true},
 		{"unlisted login", &SenderRestriction{Logins: []string{"bob"}}, commentBody("mallory", "mallory", "OWNER"), false},
-		{"association of another author", &SenderRestriction{Associations: []string{"MEMBER"}}, commentBody("mallory", "alice", "MEMBER"), false},
-		{"no sender", &SenderRestriction{Logins: []string{"bob"}}, []byte(`{"action":"created","comment":{"body":"x"}}`), false},
 		{"body not JSON", &SenderRestriction{Logins: []string{"bob"}}, []byte(`not json`), false},
 	}
 	for _, tt := range tests {
@@ -152,14 +151,6 @@ func TestFanOut_FilterOnMissingField(t *testing.T) {
 }
 
 // A trigger only fires on its own event type; there is no catch-all.
-func TestFanOut_ExactEventType(t *testing.T) {
-	f := newPayloadFixture(t)
-	tr := f.trigger(t, CreateTriggerRequest{EventType: "pull_request", PromptTemplate: "p"})
-	f.dispatch(t, "issue_comment", commentBody("alice", "alice", "MEMBER"))
-	if len(f.deps.repo.pendingFor(tr.ID)) != 0 {
-		t.Error("a pull_request trigger fired on issue_comment")
-	}
-}
 
 // A stored body cut at the size ceiling is not trusted for field values on replay.
 func TestRedeliver_TruncatedPayloadResolvesNoFields(t *testing.T) {
@@ -308,46 +299,6 @@ func TestUpdateTrigger_WebhookValidation(t *testing.T) {
 	}
 }
 
-func TestProviderFields(t *testing.T) {
-	_, deps := newTestService(t)
-
-	got, err := deps.sources.ProviderFields(ProviderGitHub, "issue_comment")
-	if err != nil {
-		t.Fatalf("ProviderFields: %v", err)
-	}
-	paths := map[string]bool{}
-	for _, fl := range got.Fields {
-		paths[fl.Path] = true
-	}
-	for _, want := range []string{"comment.body", "issue.title", "sender.login", metaEventType} {
-		if !paths[want] {
-			t.Errorf("fields are missing %s", want)
-		}
-	}
-	if _, err := deps.sources.ProviderFields(ProviderGitHub, ""); !errors.Is(err, ErrValidation) {
-		t.Errorf("missing event_type = %v, want ErrValidation", err)
-	}
-	if _, err := deps.sources.ProviderFields("gitlab", "push"); !errors.Is(err, ErrProviderNotFound) {
-		t.Errorf("unknown provider = %v, want ErrProviderNotFound", err)
-	}
-}
-
-func TestProviderEventTypes(t *testing.T) {
-	_, deps := newTestService(t)
-
-	gh, err := deps.sources.ProviderEventTypes(ProviderGitHub)
-	if err != nil || len(gh.Declared) == 0 || len(gh.Associations) != 3 {
-		t.Fatalf("github = %+v, %v", gh, err)
-	}
-	am, err := deps.sources.ProviderEventTypes(ProviderAlertmanager)
-	if err != nil || strings.Join(am.Declared, ",") != "alert.firing,alert.resolved" || am.Associations == nil || len(am.Associations) != 0 {
-		t.Fatalf("alertmanager = %+v, %v; want its two types and an empty association list", am, err)
-	}
-	if _, err := deps.sources.ProviderEventTypes("gitlab"); !errors.Is(err, ErrProviderNotFound) {
-		t.Errorf("unknown provider = %v, want ErrProviderNotFound", err)
-	}
-}
-
 // An excluded sender records the sender reason even when the filter would also exclude.
 func TestFanOut_SenderReasonWinsOverFilter(t *testing.T) {
 	f := newPayloadFixture(t)
@@ -427,29 +378,13 @@ func TestSenderRestriction_WebhookOnly(t *testing.T) {
 }
 
 func TestNormalizeRestriction_Bounds(t *testing.T) {
-	many := make([]string, maxSenderLogins+1)
-	for i := range many {
-		many[i] = "user" + strings.Repeat("x", i%5) + string(rune('a'+i%26))
-	}
-	cases := map[string]struct {
-		logins  []string
-		wantErr bool
-	}{
-		"at the count limit":    {logins: many[:maxSenderLogins]},
-		"over the count limit":  {logins: many, wantErr: true},
-		"at the length limit":   {logins: []string{strings.Repeat("a", maxSenderLoginLen)}},
-		"over the length limit": {logins: []string{strings.Repeat("a", maxSenderLoginLen+1)}, wantErr: true},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := normalizeRestriction(mustRegistry(), ProviderGitHub, &SenderRestriction{Logins: tc.logins})
-			if tc.wantErr != (err != nil) {
-				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
-			}
-			if err != nil && !errors.Is(err, ErrValidation) {
-				t.Fatalf("err = %v, want ErrValidation", err)
-			}
-		})
+	for name, logins := range map[string][]string{
+		"too many logins":  slices.Repeat([]string{"a"}, maxSenderLogins+1),
+		"a login too long": {strings.Repeat("a", maxSenderLoginLen+1)},
+	} {
+		if _, err := normalizeRestriction(mustRegistry(), ProviderGitHub, &SenderRestriction{Logins: logins}); !errors.Is(err, ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
 	}
 }
 

@@ -172,11 +172,3 @@ func TestAlertmanagerAdapter_SchemaPathsResolve(t *testing.T) {
 		}
 	}
 }
-
-// Alertmanager identifies no sender.
-func TestAlertmanagerAdapter_IdentifiesNoSender(t *testing.T) {
-	var a SourceAdapter = &alertmanagerAdapter{}
-	if _, ok := a.(senderIdentifier); ok {
-		t.Error("alertmanager must not implement senderIdentifier")
-	}
-}

@@ -3,7 +3,6 @@ package triggers
 import (
 	"encoding/json"
 	"regexp"
-	"strings"
 )
 
 // templateVarPattern matches `{{ key }}` placeholders (with optional surrounding
@@ -37,17 +36,7 @@ func renderWebhookPrompt(tmpl string, fields map[string]string) string {
 	for _, k := range keys {
 		data[k] = fields[k]
 	}
-	block, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		// A map of strings always encodes; an empty block is the safe fallback.
-		block = []byte("{}")
-	}
-	var b strings.Builder
-	b.WriteString(tmpl)
-	b.WriteString("\n\n<delivery-data>\n")
-	b.WriteString(deliveryDataPreamble)
-	b.WriteString("\n")
-	b.Write(block)
-	b.WriteString("\n</delivery-data>")
-	return b.String()
+	// A map of strings always encodes.
+	block, _ := json.MarshalIndent(data, "", "  ")
+	return tmpl + "\n\n<delivery-data>\n" + deliveryDataPreamble + "\n" + string(block) + "\n</delivery-data>"
 }

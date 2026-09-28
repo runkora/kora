@@ -239,7 +239,7 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
 	}
-	catalog, _ := s.registry.Catalog(src.Provider)
+	catalog := s.registry.Catalog(src.Provider)
 	observed, err := s.repo.ObservedEventTypes(ctx, src.ID)
 	if err != nil {
 		return nil, err
@@ -249,12 +249,12 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 
 // ProviderEventTypes lists a provider's declared event types and the
 // associations a sender restriction may name.
-func (s *SourceService) ProviderEventTypes(provider string) (*ProviderEventTypesResponse, error) {
+func (s *SourceService) ProviderEventTypes(provider string) (*EventTypesResponse, error) {
 	adapter, catalog, err := s.providerCatalog(provider)
 	if err != nil {
 		return nil, err
 	}
-	return &ProviderEventTypesResponse{Declared: catalog.EventTypes(), Associations: associationsOf(adapter)}, nil
+	return &EventTypesResponse{Declared: catalog.EventTypes(), Associations: associationsOf(adapter)}, nil
 }
 
 // ProviderFields lists the fields a trigger on one of a provider's event types can reference.
@@ -274,7 +274,7 @@ func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalo
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %q", ErrProviderNotFound, provider)
 	}
-	catalog, _ := s.registry.Catalog(provider)
+	catalog := s.registry.Catalog(provider)
 	return adapter, catalog, nil
 }
 

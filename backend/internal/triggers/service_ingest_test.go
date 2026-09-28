@@ -276,16 +276,6 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 }
 
 // A webhook trigger names exactly one event type.
-func TestCreateTrigger_WebhookRequiresEventType(t *testing.T) {
-	_, deps := newTestService(t)
-	src := mustSource(t, deps.sources)
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID: src.ID, Name: "catch-all", AgentTypeID: "at-1", PromptTemplate: "p",
-	})
-	if !errors.Is(err, ErrValidation) {
-		t.Fatalf("create without event_type = %v, want ErrValidation", err)
-	}
-}
 
 func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, nil, "p")

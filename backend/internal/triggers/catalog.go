@@ -120,17 +120,24 @@ func (b *catalogBuilder) resolve(node schemaNode, stack []string) (schemaNode, [
 	}
 }
 
+// walk records the enum values and shape of the node at path, then descends
+// into its variants, properties and list items. Variants share the path, so
+// they are walked even at the depth cap to complete a field's enum.
 func (b *catalogBuilder) walk(raw any, path, stack []string) error {
 	node, _ := raw.(schemaNode)
-	if node == nil || len(path) >= maxCatalogDepth {
+	if node == nil {
 		return nil
 	}
 	node, stack, err := b.resolve(node, stack)
 	if err != nil || node == nil {
 		return err
 	}
+	b.collect(node, path)
 	if err := b.walkVariants(node, path, stack); err != nil {
 		return err
+	}
+	if len(path) >= maxCatalogDepth {
+		return nil
 	}
 	props, _ := node["properties"].(schemaNode)
 	if err := b.walkProperties(props, path, stack); err != nil {
@@ -142,9 +149,24 @@ func (b *catalogBuilder) walk(raw any, path, stack []string) error {
 		}
 	}
 	if len(props) == 0 && len(path) > 0 && opensToData(node["additionalProperties"]) {
-		b.add(append(slices.Clone(path), patternSegment), "", nil, true)
+		b.add(append(slices.Clone(path), patternSegment), "", true)
 	}
 	return nil
+}
+
+// collect adds a node's enum values to the field at path. Null resolves empty
+// and is left out.
+func (b *catalogBuilder) collect(node schemaNode, path []string) {
+	f, ok := b.fields[strings.Join(path, ".")]
+	if !ok {
+		return
+	}
+	values, _ := node["enum"].([]any)
+	for _, v := range values {
+		if s := stringValue(v); s != "" && !slices.Contains(f.Enum, s) {
+			f.Enum = append(f.Enum, s)
+		}
+	}
 }
 
 // walkVariants walks every allOf, anyOf and oneOf branch at the same path.
@@ -199,20 +221,16 @@ func (b *catalogBuilder) record(raw any, path, stack []string) error {
 	if desc == "" && resolved != nil {
 		desc, _ = resolved["description"].(string)
 	}
-	enum, err := b.enumValues(resolved, rstack)
-	if err != nil {
-		return err
-	}
-	group := path[0]
+	f := b.add(path, desc, false)
 	if len(path) == 1 && !b.composite(resolved, rstack) {
-		group = eventGroup
+		f.Group = eventGroup
+	} else {
+		f.Group = path[0]
 	}
-	f := b.add(path, desc, enum, false)
-	f.Group = group
 	return nil
 }
 
-func (b *catalogBuilder) add(path []string, desc string, enum []string, pattern bool) *Field {
+func (b *catalogBuilder) add(path []string, desc string, pattern bool) *Field {
 	p := strings.Join(path, ".")
 	f, ok := b.fields[p]
 	if !ok {
@@ -222,43 +240,7 @@ func (b *catalogBuilder) add(path []string, desc string, enum []string, pattern 
 	if f.Description == "" {
 		f.Description = desc
 	}
-	for _, v := range enum {
-		if !slices.Contains(f.Enum, v) {
-			f.Enum = append(f.Enum, v)
-		}
-	}
 	return f
-}
-
-// enumValues collects enum values through combinators, converted to the
-// strings a delivery value resolves to. Null resolves empty and is left out.
-func (b *catalogBuilder) enumValues(node schemaNode, stack []string) ([]string, error) {
-	if node == nil {
-		return nil, nil
-	}
-	var out []string
-	values, _ := node["enum"].([]any)
-	for _, v := range values {
-		if s := stringValue(v); s != "" {
-			out = append(out, s)
-		}
-	}
-	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
-		subs, _ := node[key].([]any)
-		for _, sub := range subs {
-			sn, _ := sub.(schemaNode)
-			resolved, rstack, err := b.resolve(sn, stack)
-			if err != nil {
-				return nil, err
-			}
-			more, err := b.enumValues(resolved, rstack)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, more...)
-		}
-	}
-	return out, nil
 }
 
 // composite reports whether a schema has fields of its own, through combinators.

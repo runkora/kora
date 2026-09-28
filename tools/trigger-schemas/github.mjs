@@ -11,11 +11,6 @@ const OUTPUT = new URL('../../backend/internal/triggers/schemas/github.json', im
 const COMPONENT_REF = '#/components/schemas/';
 const DEFINITION_REF = '#/definitions/';
 
-async function loadSource(path) {
-  if (!path) throw new Error('usage: node github.mjs <path-to-api.github.com.json>');
-  return JSON.parse(await readFile(path, 'utf8'));
-}
-
 // eventName derives the X-GitHub-Event value from the operation ID, e.g.
 // "projects-v2-item/created" -> "projects_v2_item". The X-GitHub-Event examples
 // in the description are wrong for some events ("discussions", "project-v2").
@@ -49,7 +44,9 @@ function sorted(node) {
   return Object.fromEntries(Object.keys(node).sort().map((k) => [k, sorted(node[k])]));
 }
 
-const source = await loadSource(process.argv[2]);
+const input = process.argv[2];
+if (!input) throw new Error('usage: node github.mjs <path-to-api.github.com.json>');
+const source = JSON.parse(await readFile(input, 'utf8'));
 const components = source.components.schemas;
 
 const variants = new Map();

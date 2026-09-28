@@ -30,8 +30,8 @@ func TestRegistry(t *testing.T) {
 
 // Alertmanager's declared event types are exactly the values EventType produces.
 func TestAlertmanagerAdapter_DeclaredTypesMatchEventType(t *testing.T) {
-	c, ok := mustRegistry().Catalog(ProviderAlertmanager)
-	if !ok {
+	c := mustRegistry().Catalog(ProviderAlertmanager)
+	if c == nil {
 		t.Fatal("alertmanager has no catalog")
 	}
 	a := &alertmanagerAdapter{}
