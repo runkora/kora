@@ -104,6 +104,21 @@ func TestLoopGuard_RepeatedCalls(t *testing.T) {
 	}
 }
 
+// Claude Code relabels each Bash call; the label must not hide a repeat.
+func TestLoopGuard_DescriptionDoesNotHideARepeat(t *testing.T) {
+	g := &loopGuard{}
+	var got []loopVerdict
+	for i := range 5 {
+		in := map[string]string{"command": "cat missing-file.txt", "description": fmt.Sprintf("attempt %d of 5", i+1)}
+		if v, _ := g.observe(toolUse(t, fmt.Sprintf("t%d", i), "Bash", in), testLimits); v != loopOK {
+			got = append(got, v)
+		}
+	}
+	if fmt.Sprint(got) != fmt.Sprint([]loopVerdict{loopWarn, loopPause}) {
+		t.Errorf("verdicts = %v, want warn then pause", got)
+	}
+}
+
 func TestLoopGuard_DifferentCallBreaksTheStreak(t *testing.T) {
 	g := &loopGuard{}
 	same := map[string]string{"command": "gh pr view 1"}
