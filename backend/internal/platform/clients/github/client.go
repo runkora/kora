@@ -250,6 +250,21 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("get installation call: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var body installationResponse
+	if err = c.DecodeJSON(span, resp, &body); err != nil {
+		return nil, err
+	}
+	return body.Permissions, nil
+}
+
 // GetTree returns the flat recursive file tree for the given repository ref
 // (branch, tag, or commit SHA). Only the path, type, and SHA of each entry
 // are populated. Returns ErrTreeTruncated when GitHub marks the response
@@ -273,12 +288,6 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
-
-	var body installationResponse
-	if err = c.DecodeJSON(span, resp, &body); err != nil {
-		return nil, err
-	}
-	return body.Permissions, nil
 	var body treeResponse
 	if err := c.DecodeJSON(span, resp, &body); err != nil {
 		return nil, err
@@ -289,32 +298,31 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 	return body.Tree, nil
 }
 
-
 // GetRawContent fetches the raw byte content of a single file at path in
 // the repository, at the given ref (branch, tag, or commit SHA).
 func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error) {
-    endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, org, repo, path, ref)
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-    if err != nil {
-        return nil, fmt.Errorf("build get-raw-content request: %w", err)
-    }
-    req.Header.Set("Authorization", "Bearer "+token)
-    req.Header.Set("Accept", "application/vnd.github.raw+json")
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, org, repo, path, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get-raw-content request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github.raw+json")
 
-    _, span, resp, err := c.Do(ctx, "github.Client.GetRawContent", req)
-    defer span.End()
-    if err != nil {
-        return nil, err
-    }
-    defer func() { _ = resp.Body.Close() }()
+	_, span, resp, err := c.Do(ctx, "github.Client.GetRawContent", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
 
-    if resp.StatusCode != http.StatusOK {
-        return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
-    }
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
 
-    data, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("read response body: %w", err)
-    }
-    return data, nil
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	return data, nil
 }
