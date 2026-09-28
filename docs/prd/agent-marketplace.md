@@ -14,7 +14,7 @@ Orbit needs Marketplaces where users can find and review agent skills and plugin
 
 ### Current State
 
-Orbit manages agent identity, policy, models, connections, MCP tools, environments, and agent runs. It does not give users a number of X Marketplaces for reusable skills and plugins.
+Orbit manages agent identity, policy, models, connections, MCP tools, environments, and agent runs. It does not give users a Marketplace for reusable skills and plugins.
 
 Today, users must search across different repositories and interpret package information by themselves.
 
