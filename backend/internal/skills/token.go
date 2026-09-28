@@ -198,4 +198,3 @@ func (p *TokenProvider) mint(ctx context.Context) mintResult {
 	}
 	return mintResult{token: tok.Token, expiresAt: tok.ExpiresAt}
 }
-
