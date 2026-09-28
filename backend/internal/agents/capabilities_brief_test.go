@@ -61,3 +61,14 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 		t.Errorf("none brief should still mention provision_sandbox for local builds, got:\n%s", none)
 	}
 }
+
+// A whitelist miss is a reset TLS handshake with no body, so the brief is the
+// only place the agent can learn what that failure means.
+func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
+	brief := renderCapabilitiesBrief(&EffectiveAccess{Hosts: []string{"api.github.com"}})
+	for _, want := range []string{"connection reset or TLS handshake failure", "egress allowlist", "names the host, the action, and the grant"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief missing %q", want)
+		}
+	}
+}
