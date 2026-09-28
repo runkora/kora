@@ -3,9 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   DELIVERY_EXCERPT_MAX,
   LIMITS,
-  eventOptionsFor,
   toTriggerUpdateRequest,
-  PROVIDER_EVENTS,
   DELIVERY_SUMMARY_MAX,
   deliveryDetail,
   deliveryDotStatus,
@@ -476,28 +474,6 @@ describe('isRedeliverable', () => {
   });
 });
 
-describe('eventOptionsFor', () => {
-  it('offers the provider common events', () => {
-    expect(eventOptionsFor('github', '')).toEqual(PROVIDER_EVENTS.github);
-    expect(eventOptionsFor('alertmanager', '')).toEqual(['firing', 'resolved']);
-  });
-
-  it('keeps an event the trigger already listens on, even off the common list', () => {
-    // The backend takes whatever the provider sends, so a trigger can hold an
-    // event the console does not list. Dropping it would rewrite the trigger.
-    expect(eventOptionsFor('github', 'deployment_status')).toContain('deployment_status');
-  });
-
-  it('does not duplicate an event already listed', () => {
-    const options = eventOptionsFor('github', 'push');
-    expect(options.filter((e) => e === 'push')).toHaveLength(1);
-  });
-
-  it('is empty for a provider with no adapter', () => {
-    expect(eventOptionsFor('gitlab', '')).toEqual([]);
-  });
-});
-
 describe('LIMITS', () => {
   it('stops the parallel ceiling where the backend does', () => {
     // maxParallelCeiling in internal/triggers/service.go, and the DB check
@@ -549,8 +525,10 @@ describe('toTriggerUpdateRequest', () => {
     expect(toTriggerUpdateRequest({ name: 'renamed' })).toEqual({ name: 'renamed' });
   });
 
-  it('sends an empty event type, which means any event rather than unchanged', () => {
-    expect(toTriggerUpdateRequest({ eventType: '' })).toEqual({ event_type: '' });
+  it('sends a sender restriction whole, since update replaces it', () => {
+    expect(
+      toTriggerUpdateRequest({ senderRestriction: { logins: [], associations: ['MEMBER'] } }),
+    ).toEqual({ sender_restriction: { logins: [], associations: ['MEMBER'] } });
   });
 
   it('defaults catch-up rather than sending undefined', () => {

@@ -56,6 +56,21 @@ describe('webhook drafts', () => {
     });
   });
 
+  it('sends the sender restriction when the draft carries one, and omits it otherwise', async () => {
+    await createFromWizardDraft(
+      draft({ senderRestriction: { logins: ['octocat'], associations: ['MEMBER'] } }),
+      OPTIONS,
+    );
+    expect(mockCreateTrigger).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+      }),
+    );
+
+    await createFromWizardDraft(draft(), OPTIONS);
+    expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('sender_restriction');
+  });
+
   it('creates the source first, and passes its one-time secret through', async () => {
     mockCreateSource.mockResolvedValue({
       source: { id: 'src-new', secret: 'whsec_abc' },

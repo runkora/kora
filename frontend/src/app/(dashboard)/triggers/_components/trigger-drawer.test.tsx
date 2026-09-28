@@ -1,5 +1,29 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+
+// The drawer reads the source's schema catalogue from the API.
+const api = vi.hoisted(() => ({
+  fetchEventTypes: vi.fn(),
+  fetchProviderEventTypes: vi.fn(),
+  fetchProviderFields: vi.fn(),
+}));
+vi.mock('../_services/triggers-api', () => api);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.fetchProviderEventTypes.mockResolvedValue({
+    eventTypes: { declared: ['push', 'issue_comment'], associations: ['OWNER', 'MEMBER'] },
+    error: null,
+  });
+  api.fetchEventTypes.mockResolvedValue({
+    eventTypes: { declared: [], observed: ['custom'], associations: [] },
+    error: null,
+  });
+  api.fetchProviderFields.mockResolvedValue({
+    fields: [{ path: 'ref', group: 'event', description: 'The pushed ref' }],
+    error: null,
+  });
+});
 
 import { TriggerDrawer } from './trigger-drawer';
 import type { SourceRow, TriggerRow } from '../_types';
@@ -9,7 +33,7 @@ import { makeTrigger } from '../_types/fixtures';
 function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
   return makeTrigger({
     matchCondition: { action: ['opened'] },
-    promptTemplate: 'Review {{ push.branch }}',
+    promptTemplate: 'Review {{ ref }}',
     ...overrides,
   });
 }
@@ -101,6 +125,59 @@ describe('event and filter editing', () => {
 
     expect(await screen.findByText('event_type is not valid for this source')).toBeTruthy();
     expect((screen.getByLabelText('Filter 1 values') as HTMLInputElement).value).toBe('closed');
+  });
+});
+
+describe('schema catalogue', () => {
+  it("offers the provider's event types and the source's received ones, and the edited event's fields", async () => {
+    renderDrawer(trigger());
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    expect(await screen.findByText('issue_comment')).toBeTruthy();
+    expect(screen.getByText('custom')).toBeTruthy();
+    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('github');
+    expect(api.fetchEventTypes).toHaveBeenCalledWith('src-1');
+    expect(api.fetchProviderFields).toHaveBeenCalledWith('github', 'push');
+
+    fireEvent.click(screen.getByText('issue_comment'));
+    expect(screen.getByRole('button', { name: 'Save filters' })).toBeTruthy();
+    expect(api.fetchProviderFields).toHaveBeenCalledWith('github', 'issue_comment');
+  });
+
+  it('previews the first message with the data block', () => {
+    renderDrawer(trigger());
+    expect(screen.getByText('First message')).toBeTruthy();
+    expect(screen.getByText(/"ref": ""/)).toBeTruthy();
+  });
+});
+
+describe('sender restriction editing', () => {
+  it('saves the logins and associations as the replacement restriction', async () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger(), onEdit);
+    fireEvent.change(await screen.findByLabelText('Logins'), {
+      target: { value: 'octocat, hubot' },
+    });
+    fireEvent.click(screen.getByText('member'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save senders' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
+      senderRestriction: { logins: ['octocat', 'hubot'], associations: ['MEMBER'] },
+    });
+  });
+
+  it('seeds from the stored restriction', async () => {
+    renderDrawer(trigger({ senderRestriction: { logins: ['octocat'], associations: ['OWNER'] } }));
+    expect(((await screen.findByLabelText('Logins')) as HTMLInputElement).value).toBe('octocat');
+  });
+
+  it('is absent when the provider identifies no sender', async () => {
+    api.fetchProviderEventTypes.mockResolvedValue({
+      eventTypes: { declared: ['alert.firing'], associations: [] },
+      error: null,
+    });
+    renderDrawer(trigger());
+    await screen.findByRole('button', { name: 'Event type' });
+    expect(screen.queryByText('Senders')).toBeNull();
   });
 });
 

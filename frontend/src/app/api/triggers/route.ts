@@ -57,6 +57,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     prompt_template: body.prompt_template,
     schedule_config: body.schedule_config,
     manual_config: body.manual_config,
+    sender_restriction: body.sender_restriction,
     max_parallel: body.max_parallel,
     overflow: body.overflow,
     max_queue_depth: body.max_queue_depth,

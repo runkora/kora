@@ -45,7 +45,7 @@ export interface TriggerDraft {
   name: string;
   promptTemplate: string;
   source?: { existingId: string } | { newName: string; provider: string };
-  /** Webhook only. Empty string means any event type. */
+  /** Webhook only. */
   eventType?: string;
   /**
    * Webhook only. field → allowed values; a delivery matches when every clause
@@ -53,6 +53,8 @@ export interface TriggerDraft {
    * is set, which matches every delivery of the chosen event.
    */
   matchCondition?: Record<string, string[]>;
+  /** Webhook only. Omitted when anyone may fire the trigger. */
+  senderRestriction?: { logins: string[]; associations: string[] };
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -102,6 +104,10 @@ export interface TriggerWizardProps {
 export interface WizardFilter {
   field: string;
   values: string;
+  /** The pattern family being completed, e.g. `commonLabels.<name>`. */
+  pattern?: string;
+  /** The name typed to complete `pattern`. */
+  patternName?: string;
 }
 
 /** One row of the manual trigger's field builder. */
@@ -123,10 +129,12 @@ export interface WizardState {
   sourceChoice: string;
   newSourceName: string;
   newSourceProvider: string;
-  /** Empty string means any event type. */
   eventType: string;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: WizardFilter[];
+  /** Raw while typed; split on commas and whitespace in the draft. */
+  senderLogins: string;
+  senderAssociations: string[];
 
   // ── Schedule ──
   freq: Frequency;
@@ -213,24 +221,16 @@ export interface DoneContentProps {
   secret?: string;
 }
 
-/**
- * One field a delivery of this kind carries.
- *
- * The backend matches `match_condition` and renders `{{ dotted.field }}`
- * placeholders over the same per-adapter map, so one catalog serves the filter
- * picker and the prompt builder alike.
- */
+/** One `var.` value a scheduled or manual fire supplies to the prompt. */
 export interface FieldCatalogEntry {
-  /** Dotted token, e.g. `pr.base_ref`. */
+  /** Dotted token, e.g. `var.date`. */
   token: string;
   /** One line, in the words a person would use. */
   description: string;
   /** A plausible sample value, rendered by the prompt preview. */
   example?: string;
-  /** Picker group heading, e.g. "Pull request". Defaults from the token prefix. */
+  /** Picker group heading, e.g. "Schedule". Defaults from the token prefix. */
   group?: string;
-  /** Webhook event types this field exists for. Omitted means every event. */
-  events?: string[];
 }
 
 /**

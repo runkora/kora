@@ -46,7 +46,7 @@ function firesOn(t: TriggerRow): string {
     case 'manual':
       return 'on demand';
     default:
-      return t.eventType || 'any event';
+      return t.eventType || '—';
   }
 }
 

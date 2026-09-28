@@ -74,6 +74,8 @@ export function baseState(sources: { id: string }[]): WizardState {
     newSourceProvider: 'github',
     eventType: '',
     filters: [],
+    senderLogins: '',
+    senderAssociations: [],
 
     freq: 'daily',
     interval: '15',
@@ -143,6 +145,20 @@ export function validateFilters(filters: WizardFilter[]): StepValidation {
   });
   if (halfWritten) return { valid: false, hint: 'Finish or remove the empty filter' };
   return VALID;
+}
+
+/** Splits the logins box on commas and whitespace, dropping blanks and repeats. */
+export function splitLogins(raw: string): string[] {
+  return [...new Set(raw.split(/[\s,]+/).filter(Boolean))];
+}
+
+/** The sender restriction as the API takes it; undefined when nothing is set, which means anyone. */
+export function senderRestrictionFrom(
+  logins: string,
+  associations: string[],
+): { logins: string[]; associations: string[] } | undefined {
+  const list = splitLogins(logins);
+  return list.length > 0 || associations.length > 0 ? { logins: list, associations } : undefined;
 }
 
 /** Renders the composed condition for the review step. */

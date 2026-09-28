@@ -17,6 +17,9 @@ import type {
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerEventTypes,
+  TriggerField,
+  TriggerProviderEventTypes,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -111,6 +114,39 @@ export async function updateSource(
     json('PATCH', payload),
   );
   return { source: res.data, error: res.error };
+}
+
+/** The event types this source has sent, beside its provider's declared ones. */
+export async function fetchEventTypes(
+  sourceId: string,
+): Promise<{ eventTypes: TriggerEventTypes | null; error: string | null }> {
+  const res = await send<TriggerEventTypes>(ApiRoute.triggerSources.eventTypes(sourceId), {
+    cache: 'no-store',
+  });
+  return { eventTypes: res.data, error: res.error };
+}
+
+/** The event types in a provider's schema, and the sender associations it knows. */
+export async function fetchProviderEventTypes(
+  provider: string,
+): Promise<{ eventTypes: TriggerProviderEventTypes | null; error: string | null }> {
+  const res = await send<TriggerProviderEventTypes>(
+    ApiRoute.triggerProviders.eventTypes(provider),
+    { cache: 'no-store' },
+  );
+  return { eventTypes: res.data, error: res.error };
+}
+
+/** One event type's fields, from the provider's schema. */
+export async function fetchProviderFields(
+  provider: string,
+  eventType: string,
+): Promise<{ fields: TriggerField[]; error: string | null }> {
+  const res = await send<{ fields?: TriggerField[] }>(
+    ApiRoute.triggerProviders.fields(provider, eventType),
+    { cache: 'no-store' },
+  );
+  return { fields: res.data?.fields ?? [], error: res.error };
 }
 
 // ── Triggers ──────────────────────────────────────────────────────────────────

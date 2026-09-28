@@ -6,7 +6,10 @@ import type {
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerEventTypes,
+  TriggerField,
   TriggerFireRequest,
+  TriggerProviderEventTypes,
   TriggerFireResponse,
   TriggerUpdateRequest,
   WebhookSource,
@@ -94,6 +97,48 @@ export async function updateSource(
 
 export async function deleteSource(accessToken: string, id: string): Promise<void> {
   await request<void>(`/trigger-sources/${id}`, accessToken, { method: 'DELETE' });
+}
+
+// GET /api/v1/trigger-sources/{id}/event-types: the provider's declared event
+// types, the ones this source has sent, and the sender associations it knows.
+export async function sourceEventTypes(
+  accessToken: string,
+  id: string,
+): Promise<TriggerEventTypes> {
+  const body = await request<TriggerEventTypes>(`/trigger-sources/${id}/event-types`, accessToken);
+  return {
+    declared: body?.declared ?? [],
+    observed: body?.observed ?? [],
+    associations: body?.associations ?? [],
+  };
+}
+
+// GET /api/v1/trigger-providers/{provider}/event-types: the event types in the
+// provider's schema, and the sender associations it knows.
+export async function providerEventTypes(
+  accessToken: string,
+  provider: string,
+): Promise<TriggerProviderEventTypes> {
+  const body = await request<TriggerProviderEventTypes>(
+    `/trigger-providers/${encodeURIComponent(provider)}/event-types`,
+    accessToken,
+  );
+  return { declared: body?.declared ?? [], associations: body?.associations ?? [] };
+}
+
+// GET /api/v1/trigger-providers/{provider}/fields: one event type's fields,
+// from the provider's schema.
+export async function providerFields(
+  accessToken: string,
+  provider: string,
+  eventType: string,
+): Promise<TriggerField[]> {
+  const q = new URLSearchParams({ event_type: eventType }).toString();
+  const body = await request<{ fields?: TriggerField[] }>(
+    `/trigger-providers/${encodeURIComponent(provider)}/fields?${q}`,
+    accessToken,
+  );
+  return body?.fields ?? [];
 }
 
 // ---------------------------------------------------------------------------

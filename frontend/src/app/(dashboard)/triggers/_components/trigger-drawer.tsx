@@ -40,21 +40,27 @@ import {
   SegmentedControl,
 } from '@orbit/terra';
 import { CopyButton, EmptyState } from '@orbit/components';
-import { KIND_ICON, LIMITS, eventOptionsFor } from '../_types';
+import { KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
+import { CatalogPicker } from './catalog-picker';
+import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
 import { FilterRowsEditor } from './filter-rows-editor';
+import { SenderRestrictionEditor } from './sender-restriction-editor';
+import type { SenderRestrictionDraft } from './sender-restriction-editor';
+import { useSourceCatalog } from './use-source-catalog';
 import {
-  catalogPatterns,
+  eventTypeCatalog,
+  schemaCatalog,
   scheduledCatalog,
   toTemplateCatalog,
-  webhookCatalog,
 } from './trigger-wizard/field-catalog';
 import {
   describeMatchCondition,
   matchConditionFrom,
+  splitLogins,
   validateFilters,
 } from './trigger-wizard/wizard-state';
 import {
@@ -74,9 +80,10 @@ import { useEditableSection } from './use-editable-section';
 export interface TriggerEditPatch {
   name?: string;
   promptTemplate?: string;
-  /** Empty string means any event type. */
   eventType?: string;
   matchCondition?: Record<string, string[]>;
+  /** Replaces the restriction; both lists empty removes it. */
+  senderRestriction?: { logins: string[]; associations: string[] };
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
 
@@ -354,6 +361,36 @@ export function TriggerDrawer({
     validate: (value) => validateFilters(value.filters).hint,
   });
 
+  const storedSenders = useMemo(
+    () => ({
+      logins: (trigger?.senderRestriction.logins ?? []).join(', '),
+      associations: trigger?.senderRestriction.associations ?? [],
+    }),
+    [trigger?.senderRestriction],
+  );
+  const saveSenders = useCallback(
+    (value: SenderRestrictionDraft) =>
+      savePatch({
+        senderRestriction: { logins: splitLogins(value.logins), associations: value.associations },
+      }),
+    [savePatch],
+  );
+  const senders = useEditableSection(storedSenders, editKey, saveSenders, {
+    isEqual: (a, b) =>
+      a.logins === b.logins &&
+      a.associations.length === b.associations.length &&
+      a.associations.every((x) => b.associations.includes(x)),
+  });
+
+  // The catalogue follows the event being edited.
+  const webhookSource =
+    trigger?.kind === 'webhook' ? sources.find((s) => s.id === trigger.sourceId) : undefined;
+  const sourceCatalog = useSourceCatalog(
+    webhookSource?.provider ?? '',
+    webhookSource?.id ?? '',
+    filters.value.eventType,
+  );
+
   const storedSchedule = useMemo(
     () => ({
       cronExpression: trigger?.scheduleConfig?.cronExpression ?? '',
@@ -409,15 +446,10 @@ export function TriggerDrawer({
   const shown = mine.slice(0, DELIVERY_SAMPLE);
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
 
-  const provider = source?.provider ?? '';
-  // The catalog follows the event being edited, not the stored one, so the
-  // fields on offer match the trigger the person is about to save.
+  const webhookFields = schemaCatalog(sourceCatalog.fields);
   const promptCatalog =
     trigger.kind === 'webhook'
-      ? toTemplateCatalog(
-          webhookCatalog(provider, filters.value.eventType),
-          catalogPatterns(provider),
-        )
+      ? webhookFields
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
         : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
@@ -427,7 +459,7 @@ export function TriggerDrawer({
 
   const subtitle =
     trigger.kind === 'webhook'
-      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'any event'}`
+      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || '—'}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
@@ -697,22 +729,19 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <SegmentedControl
+                  <CatalogPicker
                     aria-label="Event type"
                     value={filters.value.eventType}
-                    onChange={(v) => filters.setValue({ ...filters.value, eventType: v })}
-                    options={[
-                      { value: '', label: 'Any event' },
-                      ...eventOptionsFor(provider, trigger.eventType).map((ev) => ({
-                        value: ev,
-                        label: ev,
-                      })),
-                    ]}
+                    placeholder="Choose an event"
+                    catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
+                    searchPlaceholder="Search events…"
+                    disabled={!editable}
+                    onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
                   />
 
                   <FilterRowsEditor
                     rows={filters.value.filters}
-                    fields={webhookCatalog(provider, filters.value.eventType)}
+                    fields={webhookFields}
                     onChange={setFilterRows}
                     canAdd={editable}
                   />
@@ -734,6 +763,27 @@ export function TriggerDrawer({
                 </Stack>
               )}
 
+              {/* Senders: who may fire it, when the provider says who caused an event. */}
+              {trigger.kind === 'webhook' && sourceCatalog.associations.length > 0 && (
+                <Stack gap="snug">
+                  <SenderRestrictionEditor
+                    idPrefix="drawer"
+                    available={sourceCatalog.associations}
+                    value={senders.value}
+                    onChange={senders.setValue}
+                    disabled={!editable}
+                  />
+                  <EditActions
+                    dirty={senders.dirty}
+                    pending={senders.pending}
+                    error={senders.error}
+                    saveLabel="Save senders"
+                    onSave={senders.save}
+                    onDiscard={senders.discard}
+                  />
+                </Stack>
+              )}
+
               {/* Prompt: what the run is actually asked to do. */}
               <Stack gap="snug">
                 <SectionLabel>Prompt</SectionLabel>
@@ -750,6 +800,7 @@ export function TriggerDrawer({
                       : undefined
                   }
                 />
+                {trigger.kind === 'webhook' && <DataBlockPreview template={prompt.value} />}
                 <EditActions
                   dirty={prompt.dirty}
                   pending={prompt.pending}

@@ -16,6 +16,7 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     agentSlug: 'coder',
     eventType: 'push',
     matchCondition: {},
+    senderRestriction: { logins: [], associations: [] },
     promptTemplate: 'go',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',

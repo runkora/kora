@@ -1,0 +1,78 @@
+/**
+ * Integration tests for POST /api/triggers.
+ *
+ * The route copies an explicit list of fields to orbit-triggers, so each
+ * field the backend accepts needs a test that it reaches the backend.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { NextRequest } from 'next/server';
+import { server } from '@orbit/test-utils';
+
+vi.mock('@orbit/server/config', () => ({
+  config: { orbitTriggersUrl: 'http://test-triggers-svc' },
+}));
+
+vi.mock('@orbit/server/session', () => ({
+  getSession: vi.fn(),
+  isSessionValid: vi.fn().mockReturnValue(true),
+}));
+
+import { POST } from './route';
+import { getSession } from '@orbit/server/session';
+
+const TRIGGERS_URL = 'http://test-triggers-svc/triggers';
+
+function makeSession() {
+  return {
+    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    accessToken: 'test-access-token',
+    refreshToken: 'test-refresh',
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    tenantId: 'test-tenant',
+    permissions: { scopes: ['triggers:write'], evaluatedAt: 0 },
+  };
+}
+
+function makePostRequest(body: unknown): NextRequest {
+  return new NextRequest('http://localhost/api/triggers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+describe('POST /api/triggers', () => {
+  beforeEach(() => {
+    vi.mocked(getSession).mockResolvedValue(makeSession() as never);
+  });
+
+  it('forwards sender_restriction to orbit-triggers', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'comment-review',
+        agent_type_id: 'agent-1',
+        event_type: 'issue_comment',
+        prompt_template: '{{ comment.body }}',
+        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.sender_restriction).toEqual({
+      logins: ['octocat'],
+      associations: ['MEMBER'],
+    });
+  });
+});

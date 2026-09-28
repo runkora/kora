@@ -1,5 +1,26 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+
+import type { TriggerField } from '@orbit/shared/api';
+
+// The wizard reads each provider's schema catalogue from the API.
+const GITHUB_FIELDS: Record<string, TriggerField[]> = {
+  issue_comment: [
+    { path: 'action', group: 'event', description: 'What happened', enum: ['created', 'edited'] },
+    { path: 'comment.body', group: 'comment', description: 'The comment text' },
+    { path: 'meta.event_type', group: 'meta', description: 'The event type' },
+  ],
+};
+const ALERT_FIELDS: TriggerField[] = [
+  { path: 'status', group: 'event', description: 'firing or resolved' },
+  { path: 'commonLabels.<name>', group: 'commonLabels', description: 'A label', pattern: true },
+];
+const api = vi.hoisted(() => ({
+  fetchEventTypes: vi.fn(),
+  fetchProviderEventTypes: vi.fn(),
+  fetchProviderFields: vi.fn(),
+}));
+vi.mock('../../_services/triggers-api', () => api);
 
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
@@ -14,6 +35,25 @@ const CONTEXT: WizardContext = {
   sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }],
   ingestHost: 'orbit.local.clearroute.io:8443',
 };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.fetchProviderEventTypes.mockImplementation(async (provider: string) => ({
+    eventTypes:
+      provider === 'alertmanager'
+        ? { declared: ['alert.firing'], associations: [] }
+        : { declared: ['issue_comment', 'push'], associations: ['OWNER', 'MEMBER'] },
+    error: null,
+  }));
+  api.fetchEventTypes.mockResolvedValue({
+    eventTypes: { declared: [], observed: ['custom'], associations: [] },
+    error: null,
+  });
+  api.fetchProviderFields.mockImplementation(async (provider: string, eventType: string) => ({
+    fields: provider === 'alertmanager' ? ALERT_FIELDS : (GITHUB_FIELDS[eventType] ?? []),
+    error: null,
+  }));
+});
 
 function renderWizard(initialKind?: TriggerKind) {
   return render(
@@ -68,22 +108,52 @@ describe('TriggerWizard step phase', () => {
 });
 
 describe('filters and prompt fields', () => {
-  it('offers the source provider fields behind the Insert field picker', () => {
+  async function chooseEvent(name: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    fireEvent.click(await screen.findByText(name));
+  }
+
+  function fillNameAndPrompt(text = 'go') {
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'gh' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = text;
+    fireEvent.input(prompt);
+  }
+
+  it("lists the source's event types from its schema, and ones it has sent", async () => {
     renderWizard('webhook');
-    // src-1 is a github source, so github fields, unnarrowed on "any event".
-    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
-    expect(screen.getByText('repo.full_name')).toBeTruthy();
-    expect(screen.getByText('pr.base_ref')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    expect(await screen.findByText('issue_comment')).toBeTruthy();
+    expect(screen.getByText('custom')).toBeTruthy();
+    expect(screen.getByLabelText('Search events')).toBeTruthy();
+    expect(screen.queryByText('any event')).toBeNull();
   });
 
-  it('inserts a placeholder into the prompt when a field is picked', () => {
+  it('holds Continue until an event is chosen', async () => {
     renderWizard('webhook');
+    fillNameAndPrompt();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+    await chooseEvent('issue_comment');
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it("offers the chosen event's fields, and meta, behind the Insert field picker", async () => {
+    renderWizard('webhook');
+    await chooseEvent('issue_comment');
     fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
-    fireEvent.click(screen.getByText('repo.full_name'));
-    // The editor serialises tokens back to braces; the pill shows the bare token.
+    expect(await screen.findByText('comment.body')).toBeTruthy();
+    expect(screen.getByText('meta.event_type')).toBeTruthy();
+  });
+
+  it('inserts a placeholder and previews the first message with the data block', async () => {
+    renderWizard('webhook');
+    await chooseEvent('issue_comment');
+    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
+    fireEvent.click(await screen.findByText('comment.body'));
     const prompt = screen.getByRole('textbox', { name: 'Prompt' });
-    expect(prompt.textContent).toContain('repo.full_name');
     expect(prompt.querySelector('[data-slot=template-token]')).toBeTruthy();
+    expect(screen.getByText('First message')).toBeTruthy();
+    expect(screen.getByText(/<delivery-data>/)).toBeTruthy();
   });
 
   it('adds and removes a filter row', () => {
@@ -98,25 +168,27 @@ describe('filters and prompt fields', () => {
     expect(screen.queryByLabelText('Filter 1 field')).toBeNull();
   });
 
-  it('blocks Continue on a half-written filter', () => {
+  it('picks a filter field, hints its allowed values, and blocks a half-written filter', async () => {
     renderWizard('webhook');
-    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'gh' } });
-    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
-    prompt.textContent = 'go';
-    fireEvent.input(prompt);
-    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+    fillNameAndPrompt();
+    await chooseEvent('issue_comment');
 
     fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
-    fireEvent.change(screen.getByLabelText('Filter 1 field'), { target: { value: 'action' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter 1 field' }));
+    fireEvent.click(await screen.findByText('What happened'));
 
+    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(
+      'placeholder',
+      'created | edited',
+    );
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByText('Finish or remove the empty filter')).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'opened' } });
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'created' } });
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
   });
 
-  it('lists the Alertmanager label patterns as hints, not chips', () => {
+  it('completes a pattern field with the name the author enters', async () => {
     render(
       <TriggerWizard
         initialKind="webhook"
@@ -127,10 +199,80 @@ describe('filters and prompt fields', () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
-    expect(screen.getByText('group.labels.<name>')).toBeTruthy();
-    // A pattern is not insertable: its literal token is not a real field.
-    expect(screen.queryByRole('option', { name: /group\.labels/ })).toBeNull();
+    fillNameAndPrompt();
+    await chooseEvent('alert.firing');
+    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filter 1 field' }));
+    fireEvent.click(await screen.findByText('commonLabels.<name>'));
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'critical' } });
+
+    // A pattern with no name is not a field yet.
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+    fireEvent.change(screen.getByLabelText('Filter 1 name'), { target: { value: 'severity' } });
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('drops the typed senders when the source changes provider', async () => {
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[
+          { id: 'src-1', name: 'acme/widgets', provider: 'github' },
+          { id: 'src-2', name: 'prod alerts', provider: 'alertmanager' },
+        ]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(await screen.findByLabelText('Logins'), { target: { value: 'octocat' } });
+    fireEvent.click(screen.getByText('member'));
+
+    fireEvent.click(screen.getByText('prod alerts'));
+    fireEvent.click(screen.getByText('acme/widgets'));
+    expect(((await screen.findByLabelText('Logins')) as HTMLInputElement).value).toBe('');
+    expect(screen.getByRole('checkbox', { name: 'member' })).not.toBeChecked();
+  });
+
+  it('offers a sender restriction only when the provider identifies senders', async () => {
+    const view = renderWizard('webhook');
+    expect(await screen.findByText('Senders')).toBeTruthy();
+    expect(screen.getByLabelText('Logins')).toBeTruthy();
+    expect(screen.getByText('member')).toBeTruthy();
+    view.unmount();
+
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Event type' });
+    expect(screen.queryByText('Senders')).toBeNull();
+  });
+
+  it("reads a new source's catalogue from the provider being created", async () => {
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    expect(await screen.findByText('issue_comment')).toBeTruthy();
+    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('github');
+    expect(api.fetchEventTypes).not.toHaveBeenCalled();
+    expect(screen.queryByText('custom')).toBeNull();
   });
 });
 
