@@ -202,8 +202,12 @@ export type { ProgressProps } from './components/progress';
 export { Output } from './components/output';
 export type { OutputProps } from './components/output';
 
-export { TemplateField } from './components/template-field';
-export type { TemplateFieldProps, TemplateCatalogEntry } from './components/template-field';
+export { TemplateField, TemplateCatalogList } from './components/template-field';
+export type {
+  TemplateFieldProps,
+  TemplateCatalogEntry,
+  TemplateCatalogListProps,
+} from './components/template-field';
 /**
  * The minimal template-model surface: parse a template, write one back, agree
  * with the token grammar, and render a preview (`exampleMap` builds the map

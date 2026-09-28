@@ -296,7 +296,10 @@ describe('TemplateCatalogList', () => {
       <TemplateCatalogList catalog={CATALOG} onSelect={onSelect} autoFocusSearch={false} />,
     );
     fireEvent.click(container.querySelector('[data-token="pr.number"]')!);
-    expect(onSelect).toHaveBeenCalledWith('pr.number');
+    expect(onSelect).toHaveBeenCalledWith(
+      'pr.number',
+      expect.objectContaining({ token: 'pr.number' }),
+    );
   });
 
   it('lists a pattern family but never lets it be chosen', () => {
@@ -309,6 +312,38 @@ describe('TemplateCatalogList', () => {
       'aria-disabled',
       'true',
     );
+  });
+
+  it('lets a pattern family be chosen when the caller completes it', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <TemplateCatalogList
+        catalog={CATALOG}
+        onSelect={onSelect}
+        autoFocusSearch={false}
+        selectablePatterns
+      />,
+    );
+    expect(container.querySelector('[data-slot="template-catalog-pattern"]')).toBeNull();
+    const pattern = container.querySelector('[data-token="group.labels.<name>"]')!;
+    expect(pattern).toHaveAttribute('data-pattern', 'true');
+    fireEvent.click(pattern);
+    expect(onSelect).toHaveBeenCalledWith(
+      'group.labels.<name>',
+      expect.objectContaining({ pattern: true }),
+    );
+  });
+
+  it('names the search box after its placeholder', () => {
+    render(
+      <TemplateCatalogList
+        catalog={CATALOG}
+        onSelect={vi.fn()}
+        autoFocusSearch={false}
+        searchPlaceholder="Search events…"
+      />,
+    );
+    expect(screen.getByLabelText('Search events')).toHaveAttribute('placeholder', 'Search events…');
   });
 
   it('filters on token and description', () => {
@@ -324,7 +359,7 @@ describe('TemplateCatalogList', () => {
   it('says so when nothing matches', () => {
     render(<TemplateCatalogList catalog={CATALOG} onSelect={vi.fn()} autoFocusSearch={false} />);
     fireEvent.change(screen.getByLabelText('Search fields'), { target: { value: 'zzz' } });
-    expect(screen.getByText(/No fields match/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing matches/)).toBeInTheDocument();
   });
 
   it('moves the active row with the arrow keys and inserts it on Enter', () => {
@@ -340,7 +375,10 @@ describe('TemplateCatalogList', () => {
       'repo.full_name',
     );
     fireEvent.keyDown(search, { key: 'Enter' });
-    expect(onSelect).toHaveBeenCalledWith('repo.full_name');
+    expect(onSelect).toHaveBeenCalledWith(
+      'repo.full_name',
+      expect.objectContaining({ token: 'repo.full_name' }),
+    );
   });
 
   it('wraps the active row past both ends, skipping pattern entries', () => {
