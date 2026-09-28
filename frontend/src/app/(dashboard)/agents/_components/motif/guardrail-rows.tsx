@@ -177,7 +177,7 @@ export function GuardrailsFields({
         onToggle={(on) => onChange('subagentCapOn', on)}
         icon="users"
         title="Subagents"
-        desc="Max subagents a run may have running at once (runtime default of 20 when off)"
+        desc="Claude Code agents: max subagents a run may have running at once (runtime default of 20 when off)"
       >
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
           <Stack maxWidth="form-field-sm">
@@ -201,7 +201,7 @@ export function GuardrailsFields({
         onToggle={(on) => onChange('nestedSubagents', on)}
         icon="route"
         title="Nested subagents"
-        desc="Let subagents and forked skills start subagents of their own. Off stops a skill fanning out."
+        desc="Claude Code agents: let subagents and forked skills start subagents of their own. Off stops a skill fanning out."
       />
     </Stack>
   );

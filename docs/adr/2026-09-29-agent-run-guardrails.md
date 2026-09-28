@@ -97,6 +97,7 @@ Nothing stops a run that has stopped making progress.
 - "Whether skills may fork" is enforced as spawn depth. A forked skill runs as a subagent, so with `nested_subagents` false a forked skill still runs but cannot launch subagents of its own. That removes the fan-out; Claude Code has no switch that stops a skill forking at all.
 - A step in the session-manager image build fails when the installed Claude Code binary no longer contains `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` or `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`.
 - A type with the `agents` tool scope removed keeps having no Agent tool at all; these fields only bound it when granted.
+- The policy applies to Claude Code agent types, since it is enforced through Claude Code's own settings. Codex and OpenCode runs are not bounded by it; the Orbit MCP tools and the dashboard say so.
 
 ### Three questions
 

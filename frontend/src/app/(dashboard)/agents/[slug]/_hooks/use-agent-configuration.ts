@@ -211,10 +211,14 @@ export function useAgentConfiguration() {
       setSaveError('Max concurrent runs must be between 1 and 50.');
       return;
     }
+    // Empty means the switch is off: 0 asks the API for the runtime default.
     const subagentCap = maxConcurrentSubagents === '' ? 0 : Number(maxConcurrentSubagents);
-    if (!Number.isInteger(subagentCap) || subagentCap < 0 || subagentCap > 50) {
+    if (
+      maxConcurrentSubagents !== '' &&
+      (!Number.isInteger(subagentCap) || subagentCap < 1 || subagentCap > 50)
+    ) {
       setSaveSuccess(false);
-      setSaveError('Max concurrent subagents must be between 1 and 50.');
+      setSaveError('Max concurrent subagents must be between 1 and 50, or switched off.');
       return;
     }
     setSaving(true);

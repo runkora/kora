@@ -208,7 +208,8 @@ type AgentType struct {
 	EnvironmentID           *string `json:"environment_id,omitempty"`
 	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
 	// MaxConcurrentSubagents caps the subagents a run may have running at once.
-	// nil leaves the agent runtime's default. See docs/adr/2026-09-29-agent-run-guardrails.md.
+	// nil leaves the agent runtime's default. Enforced for Claude Code only.
+	// See docs/adr/2026-09-29-agent-run-guardrails.md.
 	MaxConcurrentSubagents *int `json:"max_concurrent_subagents"`
 	// NestedSubagents lets subagents and forked skills launch subagents of their own.
 	NestedSubagents bool           `json:"nested_subagents"`
