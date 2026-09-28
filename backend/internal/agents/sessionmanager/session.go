@@ -78,6 +78,11 @@ type session struct {
 	// sandbox is this run's descriptor, once provisioned. Kept in memory because
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
+	// sandboxLost makes provision requests fail fast once the sandbox could not
+	// be replaced, until the user's next message.
+	sandboxLost atomic.Bool
+	provisionMu sync.Mutex
+	guard       loopGuard
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -87,6 +92,7 @@ type Registry struct {
 	notifier    Notifier
 	summarizer  *summarizer
 	idleTimeout time.Duration
+	guardrails  Guardrails
 	mu          sync.RWMutex
 	sessions    map[string]*session
 }
@@ -99,6 +105,7 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		notifier:    notifier,
 		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
+		guardrails:  DefaultGuardrails(),
 		sessions:    make(map[string]*session),
 	}
 }
@@ -170,6 +177,8 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if err := s.runner.Send(ctx, text); err != nil {
 		return err
 	}
+	s.guard.reset()
+	s.sandboxLost.Store(false)
 	// The first user message is the run's task. Generate its summary once, in the
 	// background, over the agent's own authorized inference path.
 	s.summarizeOnce.Do(func() {
@@ -298,9 +307,16 @@ type Sandbox struct {
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
-	if !reg.hosts(runID) {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
 		return "", ErrSessionNotFound
 	}
+	// One provision per run at a time: parallel Bash calls that all find the
+	// sandbox dead then share one replacement instead of racing for several.
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
 
 	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
 	if !pathsOK {
@@ -322,14 +338,9 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		)
 	}
 
-	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID, ahead)
+	sandbox, err := reg.provision(ctx, s, ahead)
 	if err != nil {
 		return "", err
-	}
-	// Checked here too, not only in the notifier: half a descriptor would be
-	// written as empty files, which orbit-shell cannot use.
-	if sandbox.Endpoint == "" || sandbox.ExecToken == "" {
-		return "", ErrSandboxIncomplete
 	}
 	endpoint := sandbox.Endpoint
 
@@ -363,6 +374,34 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	}
 	reg.rememberSandbox(runID, sandbox)
 	return endpoint, nil
+}
+
+// provision gets a sandbox from orbit-agents. A pre-provision tries once, since
+// the agent can still ask later. An agent's request retries within the
+// guardrail, and a final failure marks the sandbox lost.
+//
+// The retries outlive the caller: Claude Code kills a Bash call after its own
+// timeout, and the outcome must still be recorded.
+func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (Sandbox, error) {
+	if ahead {
+		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true)
+		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
+			err = ErrSandboxIncomplete
+		}
+		return sandbox, err
+	}
+	if s.sandboxLost.Load() {
+		return Sandbox{}, ErrSandboxLost
+	}
+	detached := context.WithoutCancel(ctx)
+	sandbox, err := reg.provisionWithRetry(detached, s.runID)
+	if err == nil {
+		return sandbox, nil
+	}
+	if reg.hosts(s.runID) {
+		reg.markSandboxLost(detached, s)
+	}
+	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)
 }
 
 // rememberSandbox records the run's descriptor on its session.
@@ -639,6 +678,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			}
 
 			reg.pushEvent(ctx, cfg.RunID, ev)
+			reg.applyLoopGuard(ctx, s, ev)
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
@@ -791,7 +831,7 @@ func (reg *Registry) emitRunError(ctx context.Context, runID, code, message stri
 // replayed transcript. internal/agents/pubsub.go holds the authoritative copy.
 func isDurableEvent(t EventType) bool {
 	switch t {
-	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:
+	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError, EventTypeGuardrailWarning:
 		return true
 	}
 	return false

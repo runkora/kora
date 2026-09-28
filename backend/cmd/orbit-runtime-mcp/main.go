@@ -23,7 +23,10 @@ func main() {
 	srv := &mcpServer{
 		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
 		runID:             requireEnv("ORBIT_RUN_ID"),
-		httpClient:        &http.Client{Timeout: 120 * time.Second},
+		// Longer than the session-manager's provision budget (5 minutes across
+		// its retries), so the tool reports the session-manager's verdict instead of
+		// its own timeout.
+		httpClient: &http.Client{Timeout: 6 * time.Minute},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
 		log.Fatalf("orbit-runtime-mcp: %v", err)
@@ -165,7 +168,16 @@ func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
 	switch params.Name {
 	case "provision_sandbox":
 		if err := s.provisionSandbox(); err != nil {
-			return errResponse(req.ID, -32000, fmt.Sprintf("provision_sandbox failed: %v", err))
+			// A tool result with isError, not a JSON-RPC error: the model reads the
+			// text, which tells it what survived and what to do next.
+			return jsonRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]any{
+					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("provision_sandbox failed: %v", err)}},
+					"isError": true,
+				},
+			}
 		}
 		return jsonRPCResponse{
 			JSONRPC: "2.0",
@@ -196,6 +208,12 @@ func (s *mcpServer) provisionSandbox() error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+			return errors.New(apiErr.Message)
+		}
 		return fmt.Errorf("session-manager returned %d: %s", resp.StatusCode, string(body))
 	}
 	return nil

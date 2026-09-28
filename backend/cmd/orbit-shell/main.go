@@ -248,7 +248,8 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Longer than the session-manager's provision budget, so its verdict arrives.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
@@ -262,6 +263,13 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode/100 != 2 {
+		// The session-manager words a lost sandbox for the model; pass it through.
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&apiErr) == nil && apiErr.Message != "" {
+			return sandbox{}, errors.New(apiErr.Message)
+		}
 		return sandbox{}, fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
 	}
 	// Drain the body so the connection can be reused / cleanly closed.

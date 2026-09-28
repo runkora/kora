@@ -20,11 +20,12 @@ type PushedEvent struct {
 // The session-manager keeps its own copy to choose a delivery timeout. Only this
 // one decides persistence, so drift costs a bad timeout, not a lost row.
 var durableEventTypes = map[string]bool{
-	"message_complete": true,
-	"text_block":       true,
-	"tool_use":         true,
-	"tool_result":      true,
-	"run_error":        true,
+	"message_complete":  true,
+	"text_block":        true,
+	"tool_use":          true,
+	"tool_result":       true,
+	"run_error":         true,
+	"guardrail_warning": true,
 }
 
 // replayOnlyEventTypes are persisted for replay but withheld from live

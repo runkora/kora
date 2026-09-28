@@ -12,6 +12,9 @@ const (
 	EventTypeToolUse         EventType = "tool_use"
 	EventTypeToolResult      EventType = "tool_result"
 	EventTypeRunError        EventType = "run_error"
+	// EventTypeGuardrailWarning records that the loop guard warned the agent
+	// (docs/adr/2026-09-29-agent-run-guardrails.md).
+	EventTypeGuardrailWarning EventType = "guardrail_warning"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
 	// Not written to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md); consumed by orbit-agents SSE subscribers.
@@ -64,6 +67,14 @@ type ToolResultPayload struct {
 type RunErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// GuardrailWarningPayload records a loop guard warning: which loop, how many
+// calls it had run to, and the tool involved.
+type GuardrailWarningPayload struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
+	Tool  string `json:"tool"`
 }
 
 // TextDeltaPayload carries one chunk of streamed assistant text.

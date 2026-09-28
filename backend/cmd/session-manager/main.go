@@ -84,6 +84,16 @@ func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout)
+	g := cfg.Guardrails
+	registry.SetGuardrails(sessionmanager.Guardrails{
+		SandboxProvisionAttempts: g.SandboxProvisionAttempts,
+		SandboxProvisionBackoff:  time.Duration(g.SandboxProvisionBackoffSecs) * time.Second,
+		SandboxProvisionBudget:   time.Duration(g.SandboxProvisionBudgetSecs) * time.Second,
+		RepeatedCallWarn:         g.RepeatedCallWarn,
+		RepeatedCallPause:        g.RepeatedCallPause,
+		WaitRearmWarn:            g.WaitRearmWarn,
+		WaitRearmPause:           g.WaitRearmPause,
+	})
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,
