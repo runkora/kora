@@ -183,6 +183,7 @@ export type { BreadcrumbsProps, BreadcrumbsItem } from './components/breadcrumbs
 export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './components/tooltip';
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
+export type { PopoverContentProps } from './components/popover';
 
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
 export type { TabsTriggerProps } from './components/tabs';

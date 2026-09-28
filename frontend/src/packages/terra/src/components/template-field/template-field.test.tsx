@@ -280,9 +280,23 @@ describe('TemplateField picker', () => {
     expect(onChange).toHaveBeenCalledWith('Review {{ pr.number }}');
     expect(editorOf(container).querySelectorAll('[data-slot="template-token"]')).toHaveLength(1);
   });
+
+  it('opens modally so the list scrolls inside a dialog', async () => {
+    const { container } = render(
+      <TemplateField value="" onChange={vi.fn()} catalog={CATALOG} aria-label="Prompt" />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Insert field' }));
+    await screen.findByText('pr.number');
+    expect(container).toHaveAttribute('aria-hidden', 'true');
+  });
 });
 
 describe('TemplateCatalogList', () => {
+  it('shows the full description on hover', () => {
+    render(<TemplateCatalogList catalog={CATALOG} onSelect={vi.fn()} autoFocusSearch={false} />);
+    expect(screen.getByText('Pull request number')).toHaveAttribute('title', 'Pull request number');
+  });
+
   it('groups entries under their headings', () => {
     render(<TemplateCatalogList catalog={CATALOG} onSelect={vi.fn()} autoFocusSearch={false} />);
     expect(screen.getByText('Pull request')).toBeInTheDocument();

@@ -50,8 +50,12 @@ const EntryBody = ({
   tokenClassName: string;
 }) => (
   <>
-    <span className={cn('shrink-0 font-mono text-[11.5px]', tokenClassName)}>{entry.token}</span>
-    <span className="truncate text-[11px] text-subtle">{entry.description}</span>
+    <span className={cn('min-w-0 break-all font-mono text-[11.5px]', tokenClassName)}>
+      {entry.token}
+    </span>
+    <span className="min-w-0 flex-1 truncate text-[11px] text-subtle" title={entry.description}>
+      {entry.description}
+    </span>
   </>
 );
 
@@ -133,7 +137,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
       <div
         ref={ref}
         data-slot="template-catalog"
-        className={cn('flex w-96 flex-col gap-1', className)}
+        className={cn('flex w-full min-w-0 flex-col gap-1', className)}
         onKeyDown={handleKeyDown}
       >
         <Input
@@ -152,7 +156,10 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
           </Text>
         )}
 
-        <div className="max-h-64 overflow-y-auto" data-slot="template-catalog-results">
+        <div
+          className="max-h-64 overflow-y-auto overflow-x-hidden"
+          data-slot="template-catalog-results"
+        >
           {groups.length === 0 ? (
             <Text size="supporting" color="subtle" className="px-2 py-3">
               Nothing matches “{query}”.
