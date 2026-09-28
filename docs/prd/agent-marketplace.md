@@ -266,7 +266,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 
 - Users must understand different repository structures and package formats.
 - Orbit cannot offer one consistent view of source, contents, package needs, checks, and health.
-- High usage will hit GIthub’s API limit.
+- High usage will hit GitHub’s API limit.
 
 ### Alternative 2: Provide a Links-Only Marketplace
 
