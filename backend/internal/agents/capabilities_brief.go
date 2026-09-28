@@ -70,7 +70,9 @@ func renderCapabilitiesBrief(access *EffectiveAccess) string {
 	b.WriteString("1. Retry the clone (with backoff) until it succeeds. Transient `connection reset by peer` errors during sandbox startup resolve on their own.\n")
 	b.WriteString("2. Before branching, committing, or pushing, verify the working copy is a real clone: `git remote get-url origin` must succeed and `git fetch origin` must be able to reach the base branch.\n")
 	b.WriteString("3. If `git clone` keeps failing after retries, surface the error — do not fall back to `git init`.\n")
-	b.WriteString("\nA connection reset or TLS handshake failure to a host not listed under Network access means egress policy blocked it: retrying will not help, and an admin must add the host to this agent's egress allowlist. A 403 from Orbit's egress gateway names the host, the action, and the grant that would allow it.\n")
+	if !access.Open {
+		b.WriteString("\nA connection reset or TLS handshake failure to a host not listed under Network access means egress policy blocked it: retrying will not help, and an admin must add the host to this agent's egress allowlist. A 403 from Orbit's egress gateway names the host, the action, and the grant that would allow it.\n")
+	}
 
 	return b.String()
 }

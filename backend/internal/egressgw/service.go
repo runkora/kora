@@ -248,6 +248,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 	}
 
 	var authorized []string
+	reasons := []string{primary.Reason}
 	if primary.Allow {
 		authorized = append(authorized, cls.Action)
 	}
@@ -267,6 +268,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		if decision.Allow {
 			authorized = append(authorized, alt)
 		}
+		reasons = append(reasons, decision.Reason)
 	}
 
 	if len(authorized) == 0 {
@@ -277,14 +279,10 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "tenant_id", Value: tenantID},
 			logging.Field{Key: "reason", Value: primary.Reason},
 		)
-		// Only a missing grant is fixed by granting; any other label means a held
-		// grant did not apply, and naming a scope would send an admin hunting.
-		if primary.Reason != "" && primary.Reason != noMatchingGrant {
-			d := deny(DenialGrantNotApplied, host, conn, cls, nil)
-			d.PolicyReason = primary.Reason
-			return nil, d
-		}
-		return nil, deny(DenialNotGranted, host, conn, cls, nil)
+		reason, label := policyDenialReason(reasons)
+		d := deny(reason, host, conn, cls, nil)
+		d.PolicyReason = label
+		return nil, d
 	}
 	return authorized, nil
 }
@@ -317,6 +315,32 @@ func scopePath(conn *credentials.Connection, action, qualifier string) (segments
 
 // noMatchingGrant is the policy bundle's default deny label: no grant covers the call.
 const noMatchingGrant = "deny:no_matching_grant"
+
+// grantNotAppliedLabels are the bundle's labels for a grant that is held but did
+// not apply to this call, where granting again would not help.
+var grantNotAppliedLabels = map[string]bool{
+	"deny:delegation_required": true,
+	"deny:no_delegation_scope": true,
+	"deny:no_delegator_grant":  true,
+	"deny:no_agent_grant":      true,
+}
+
+// policyDenialReason picks the denial reason from the primary and alternate
+// decisions. A held grant that did not apply wins, since only it explains the
+// call; a missing grant comes next; anything else is an operational failure.
+func policyDenialReason(reasons []string) (DenialReason, string) {
+	for _, r := range reasons {
+		if grantNotAppliedLabels[r] {
+			return DenialGrantNotApplied, r
+		}
+	}
+	for _, r := range reasons {
+		if r == "" || r == noMatchingGrant {
+			return DenialNotGranted, ""
+		}
+	}
+	return DenialPolicyUnavailable, ""
+}
 
 // deny builds the caller-facing Denial for a refused call.
 func deny(reason DenialReason, host string, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {

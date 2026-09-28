@@ -72,3 +72,10 @@ func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
 		}
 	}
 }
+
+// Open egress has no allowlist, so the brief must not describe one.
+func TestRenderCapabilitiesBrief_OpenOmitsAllowlistHint(t *testing.T) {
+	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}); strings.Contains(brief, "egress allowlist") {
+		t.Error("open-egress brief mentions an allowlist")
+	}
+}

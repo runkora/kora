@@ -191,3 +191,25 @@ func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
 		t.Errorf("RequiredScope = %q, want connection:github:issues:orbit:read", d.RequiredScope)
 	}
 }
+
+// The denial reason follows the most informative decision across the primary
+// and alternate actions, and operational results never read as a grant problem.
+func TestPolicyDenialReason(t *testing.T) {
+	tests := []struct {
+		reasons   []string
+		want      DenialReason
+		wantLabel string
+	}{
+		{[]string{"deny:no_matching_grant"}, DenialNotGranted, ""},
+		{[]string{"deny:delegation_required"}, DenialGrantNotApplied, "deny:delegation_required"},
+		{[]string{"deny:no_matching_grant", "deny:delegation_required"}, DenialGrantNotApplied, "deny:delegation_required"},
+		{[]string{"no policy configured for tenant"}, DenialPolicyUnavailable, ""},
+		{[]string{"deny:no_policy_result", "deny:no_matching_grant"}, DenialNotGranted, ""},
+	}
+	for _, tc := range tests {
+		got, label := policyDenialReason(tc.reasons)
+		if got != tc.want || label != tc.wantLabel {
+			t.Errorf("policyDenialReason(%v) = (%s, %q), want (%s, %q)", tc.reasons, got, label, tc.want, tc.wantLabel)
+		}
+	}
+}
