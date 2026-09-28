@@ -405,3 +405,110 @@ func TestWebhookEventType_WhitespaceIsMissing(t *testing.T) {
 		t.Errorf("update to a blank event type = %v, want ErrValidation", err)
 	}
 }
+
+// commentText is an issue_comment delivery from a member with the given body.
+func commentText(action, text string) []byte {
+	return []byte(`{"action":"` + action + `","comment":{"body":"` + text + `","user":{"login":"alice"},"author_association":"MEMBER"},
+		"issue":{"number":7},"repository":{"full_name":"acme/widgets"},"sender":{"login":"alice"}}`)
+}
+
+func TestFanOut_MatchContains(t *testing.T) {
+	mention := map[string][]string{"comment.body": {"@kora-agent"}}
+	tests := []struct {
+		name       string
+		condition  map[string][]string
+		contains   map[string][]string
+		body       []byte
+		wantQueued bool
+	}{
+		{"mention in any case", nil, mention, commentText("created", "Hey @Kora-Agent, can you look?"), true},
+		{"no mention", nil, mention, commentText("created", "Looks good to me"), false},
+		{"mention but the exact filter fails", map[string][]string{"action": {"edited"}}, mention, commentText("created", "@kora-agent please"), false},
+		{"mention and the exact filter passes", map[string][]string{"action": {"created"}}, mention, commentText("created", "@kora-agent please"), true},
+		{"missing field", nil, map[string][]string{"comment.missing": {"x"}}, commentText("created", "@kora-agent"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newPayloadFixture(t)
+			tr := f.trigger(t, CreateTriggerRequest{PromptTemplate: "{{ comment.body }}", MatchCondition: tt.condition, MatchContains: tt.contains})
+			runs := f.dispatch(t, "issue_comment", tt.body)
+
+			queued := len(f.deps.repo.pendingFor(tr.ID)) == 1
+			if queued != tt.wantQueued {
+				t.Fatalf("queued = %v, want %v (outcomes %+v)", queued, tt.wantQueued, runs)
+			}
+			if !tt.wantQueued && (len(runs) != 1 || runs[0].Status != RunStatusFiltered) {
+				t.Errorf("outcomes = %+v, want one filtered row", runs)
+			}
+		})
+	}
+}
+
+func TestMatchContains_Validation(t *testing.T) {
+	tooMany := make([]string, maxContainsValues+1)
+	for i := range tooMany {
+		tooMany[i] = "x"
+	}
+	for name, contains := range map[string]map[string][]string{
+		"empty substring":    {"comment.body": {""}},
+		"too many values":    {"comment.body": tooMany},
+		"substring too long": {"comment.body": {strings.Repeat("a", maxContainsValueLen+1)}},
+		"invalid key":        {"reactions.+1": {"x"}},
+		"unknown meta field": {"meta.nope": {"x"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPayloadFixture(t)
+			_, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+				SourceID: f.src.ID, AgentTypeID: "at-1", Name: "t", EventType: "issue_comment", PromptTemplate: "p", MatchContains: contains,
+			})
+			if !errors.Is(err, ErrValidation) {
+				t.Errorf("create = %v, want ErrValidation", err)
+			}
+		})
+	}
+}
+
+func TestMatchContains_WebhookOnly(t *testing.T) {
+	_, deps := newTestService(t)
+	ctx := context.Background()
+	contains := map[string][]string{"var.env": {"prod"}}
+	for _, req := range []CreateTriggerRequest{
+		{Kind: KindManual, Name: "m", AgentTypeID: "at-1", PromptTemplate: "p", MatchContains: contains},
+		{Kind: KindScheduled, Name: "s", AgentTypeID: "at-1", PromptTemplate: "p", MatchContains: contains,
+			ScheduleConfig: &ScheduleConfig{CronExpression: "0 9 * * *", Timezone: "UTC"}},
+	} {
+		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+			t.Errorf("%s create = %v, want ErrValidation", req.Kind, err)
+		}
+	}
+	manual := mustManualTrigger(t, deps.triggers)
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, UpdateTriggerRequest{MatchContains: contains}); !errors.Is(err, ErrValidation) {
+		t.Errorf("manual update = %v, want ErrValidation", err)
+	}
+}
+
+func TestUpdateTrigger_MatchContainsReplaceAndClear(t *testing.T) {
+	f := newPayloadFixture(t)
+	ctx := context.Background()
+	tr := f.trigger(t, CreateTriggerRequest{PromptTemplate: "p", MatchContains: map[string][]string{"comment.body": {"@kora-agent"}}})
+
+	replaced, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {"@other"}}})
+	if err != nil || !slices.Equal(replaced.MatchContains["comment.body"], []string{"@other"}) {
+		t.Fatalf("replace = %+v, %v", replaced, err)
+	}
+	cleared, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{}})
+	if err != nil || len(cleared.MatchContains) != 0 {
+		t.Fatalf("clear = %+v, %v", cleared, err)
+	}
+	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {""}}}); !errors.Is(err, ErrValidation) {
+		t.Errorf("update with an empty substring = %v, want ErrValidation", err)
+	}
+}
+
+func TestMarshalKindConfig_MatchContains(t *testing.T) {
+	tr := &Trigger{Kind: KindWebhook, MatchContains: map[string][]string{"comment.body": {"@kora-agent"}}}
+	b, err := marshalKindConfig(tr)
+	if err != nil || string(b) != `{"match_contains":{"comment.body":["@kora-agent"]}}` {
+		t.Fatalf("marshalKindConfig = %s, %v", b, err)
+	}
+}

@@ -142,26 +142,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			body := map[string]any{}
-			if a.Name != nil {
-				body["name"] = *a.Name
-			}
-			if a.EventType != nil {
-				body["event_type"] = *a.EventType
-			}
-			if a.MatchCondition != nil {
-				body["match_condition"] = a.MatchCondition
-			}
-			if a.PromptTemplate != nil {
-				body["prompt_template"] = *a.PromptTemplate
-			}
-			if a.SenderRestriction != nil {
-				body["sender_restriction"] = a.SenderRestriction
-			}
-			if a.Enabled != nil {
-				body["enabled"] = *a.Enabled
-			}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), body))
+			return jsonResult(jc.Patch(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), updateTriggerBody(a)))
 		})
 
 	addTool(srv, "triggers.delete",
@@ -190,6 +171,33 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 		})
 }
 
+// updateTriggerBody carries only the fields the caller supplied.
+func updateTriggerBody(a updateTriggerArgs) map[string]any {
+	body := map[string]any{}
+	if a.Name != nil {
+		body["name"] = *a.Name
+	}
+	if a.EventType != nil {
+		body["event_type"] = *a.EventType
+	}
+	if a.MatchCondition != nil {
+		body["match_condition"] = a.MatchCondition
+	}
+	if a.MatchContains != nil {
+		body["match_contains"] = a.MatchContains
+	}
+	if a.PromptTemplate != nil {
+		body["prompt_template"] = *a.PromptTemplate
+	}
+	if a.SenderRestriction != nil {
+		body["sender_restriction"] = a.SenderRestriction
+	}
+	if a.Enabled != nil {
+		body["enabled"] = *a.Enabled
+	}
+	return body
+}
+
 // ── tool argument types ───────────────────────────────────────────────────────
 
 type triggerIDArgs struct {
@@ -215,6 +223,7 @@ type createTriggerArgs struct {
 	AgentSlug         string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
 	EventType         string              `json:"event_type" jsonschema:"the provider event type to fire on (e.g. issue_comment); see triggers.providers.event_types"`
 	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"optional filter: field path (e.g. action) to allowed values; a delivery must match every entry"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"optional filter: field path to substrings; the field must contain one of them, ignoring case"`
 	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
 }
@@ -224,6 +233,7 @@ type updateTriggerArgs struct {
 	Name              *string             `json:"name,omitempty" jsonschema:"new name"`
 	EventType         *string             `json:"event_type,omitempty" jsonschema:"new event type"`
 	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"replaces the contains filter: field path to substrings; an empty map removes it"`
 	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
 	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`

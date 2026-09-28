@@ -164,6 +164,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		AgentSlug:         at.Slug,
 		EventType:         strings.TrimSpace(req.EventType),
 		MatchCondition:    req.MatchCondition,
+		MatchContains:     req.MatchContains,
 		PromptTemplate:    req.PromptTemplate,
 		GrantID:           &grantID,
 		Enabled:           true,
@@ -357,8 +358,8 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 		if err = s.applyWebhookUpdate(ctx, t, req); err != nil {
 			return nil, err
 		}
-	} else if req.SenderRestriction != nil {
-		return nil, errSenderRestrictionWebhookOnly
+	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+		return nil, err
 	}
 	if req.Enabled != nil {
 		applyEnabledFields(t, *req.Enabled)
@@ -426,10 +427,16 @@ func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
 }
 
 // applyWebhookUpdate validates the event type and field keys when the request
-// edits them, and replaces the sender restriction when the request carries one.
-// A PATCH that edits neither is not checked against them.
+// edits them, and replaces match_contains and the sender restriction when the
+// request carries them. A PATCH that edits none of them is not checked.
 func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
-	if req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil {
+	if req.MatchContains != nil {
+		if err := validateContains(req.MatchContains); err != nil {
+			return err
+		}
+		t.MatchContains = req.MatchContains
+	}
+	if req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil || req.MatchContains != nil {
 		if t.EventType == "" {
 			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 		}

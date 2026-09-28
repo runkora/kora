@@ -1737,3 +1737,37 @@ func TestPostgres_WebhookSenderRestriction(t *testing.T) {
 		t.Errorf("restriction after clearing = %+v, want nil", cleared.SenderRestriction)
 	}
 }
+
+func TestPostgres_WebhookMatchContains(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "mentions", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
+		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
+		MatchContains:     map[string][]string{"comment.body": {"@kora-agent"}},
+		SenderRestriction: &SenderRestriction{Associations: []string{"MEMBER"}},
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.MatchContains["comment.body"][0] != "@kora-agent" || got.SenderRestriction == nil {
+		t.Fatalf("round-trip = %+v, %+v", got.MatchContains, got.SenderRestriction)
+	}
+
+	got.MatchContains = nil
+	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if cleared.MatchContains != nil || cleared.SenderRestriction == nil {
+		t.Errorf("after clearing contains = %+v, restriction = %+v", cleared.MatchContains, cleared.SenderRestriction)
+	}
+}

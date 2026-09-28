@@ -222,6 +222,18 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	if got, _ := gotBody["sender_restriction"].(map[string]any); got["logins"] == nil {
 		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
 	}
+
+	contains := map[string]any{"comment.body": []any{"@kora-agent"}}
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
+		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "match_contains": contains,
+	}})
+	if got, _ := gotBody["match_contains"].(map[string]any); got["comment.body"] == nil {
+		t.Errorf("create did not forward match_contains: %v", gotBody["match_contains"])
+	}
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "match_contains": map[string]any{}}})
+	if got, ok := gotBody["match_contains"].(map[string]any); !ok || len(got) != 0 {
+		t.Errorf("update did not forward an empty match_contains: %v", gotBody["match_contains"])
+	}
 }
 
 // TestConnectorsDiscoveryAndForwarding covers the connectors surface: the

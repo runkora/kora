@@ -34,9 +34,11 @@ func decodeBody(body []byte) any {
 // referencedKeys lists the field keys a trigger's prompt and match condition name.
 func referencedKeys(t Trigger) []string {
 	keys := placeholderKeys(t.PromptTemplate)
-	for k := range t.MatchCondition {
-		if !slices.Contains(keys, k) {
-			keys = append(keys, k)
+	for _, m := range []map[string][]string{t.MatchCondition, t.MatchContains} {
+		for k := range m {
+			if !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
 		}
 	}
 	return keys

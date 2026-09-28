@@ -69,3 +69,27 @@ func TestMatchesCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchesContains(t *testing.T) {
+	fields := map[string]string{"comment.body": "Hey @Kora-Agent, please review", "action": "created"}
+
+	tests := []struct {
+		name     string
+		contains map[string][]string
+		want     bool
+	}{
+		{"no entries match all", nil, true},
+		{"substring ignoring case", map[string][]string{"comment.body": {"@kora-agent"}}, true},
+		{"absent substring", map[string][]string{"comment.body": {"@other-bot"}}, false},
+		{"any listed substring", map[string][]string{"comment.body": {"@other-bot", "PLEASE"}}, true},
+		{"every entry must pass", map[string][]string{"comment.body": {"review"}, "action": {"edit"}}, false},
+		{"missing field contains nothing", map[string][]string{"comment.missing": {"x"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesContains(tt.contains, fields); got != tt.want {
+				t.Errorf("matchesContains = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

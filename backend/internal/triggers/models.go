@@ -343,6 +343,8 @@ type Trigger struct {
 	ManualConfig *ManualConfig `json:"manual_config,omitempty"`
 	// SenderRestriction limits who can fire a webhook trigger; nil fires for every sender.
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains maps a field to substrings, one of which it must contain.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -515,6 +517,8 @@ type CreateTriggerRequest struct {
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
 	// SenderRestriction applies to webhook triggers only.
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains applies to webhook triggers only.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -554,6 +558,8 @@ type UpdateTriggerRequest struct {
 	// SenderRestriction replaces the stored restriction when present; one with
 	// both lists empty removes it.
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains replaces the stored map when present; an empty map removes it.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings
@@ -645,7 +651,8 @@ func (r *SenderRestriction) empty() bool {
 
 // WebhookConfig is the kind_config for a webhook trigger.
 type WebhookConfig struct {
-	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.

@@ -306,7 +306,7 @@ func (s *Service) fanOut(
 			continue
 		}
 		fields := triggerFields(t, doc, meta)
-		if !matchesCondition(t.MatchCondition, fields) {
+		if !matchesCondition(t.MatchCondition, fields) || !matchesContains(t.MatchContains, fields) {
 			// Insert without deriving: the summary is computed once, below,
 			// after the whole fan-out is written.
 			s.outcomes.insert(ctx, &DeliveryRun{

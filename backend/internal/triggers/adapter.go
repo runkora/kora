@@ -109,6 +109,18 @@ func matchesCondition(condition map[string][]string, fields map[string]string) b
 	return true
 }
 
+// matchesContains reports whether every field in contains holds at least one of
+// its substrings, ignoring case. A missing field is "" and contains nothing.
+func matchesContains(contains map[string][]string, fields map[string]string) bool {
+	for key, subs := range contains {
+		value := strings.ToLower(fields[key])
+		if !slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(value, strings.ToLower(sub)) }) {
+			return false
+		}
+	}
+	return true
+}
+
 // validateProvider returns nil if the provider has a registered adapter.
 func (r *Registry) validateProvider(provider string) error {
 	if _, ok := r.Get(provider); !ok {
