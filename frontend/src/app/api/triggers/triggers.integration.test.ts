@@ -76,6 +76,32 @@ describe('POST /api/triggers', () => {
     });
   });
 
+  it('forwards match_contains to orbit-triggers', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'kora-mentions',
+        agent_type_id: 'agent-1',
+        event_type: 'issue_comment',
+        prompt_template: '{{ comment.body }}',
+        match_contains: { 'comment.body': ['@kora-agent'] },
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.match_contains).toEqual({ 'comment.body': ['@kora-agent'] });
+  });
+
   it('rejects a webhook trigger without an event type', async () => {
     let called = false;
     server.use(

@@ -39,6 +39,37 @@ describe('FilterRowsEditor', () => {
     expect((screen.getByLabelText('Filter 1 name') as HTMLInputElement).value).toBe('severity');
   });
 
+  it('defaults a row to is and switches it to contains', () => {
+    render(<Harness initial={[{ field: 'status', values: '' }]} />);
+    const operator = screen.getByLabelText('Filter 1 operator') as HTMLSelectElement;
+    expect(operator.value).toBe('is');
+    fireEvent.change(operator, { target: { value: 'contains' } });
+    expect((screen.getByLabelText('Filter 1 operator') as HTMLSelectElement).value).toBe(
+      'contains',
+    );
+  });
+
+  it('hints allowed values only on is rows', () => {
+    const fields: SchemaCatalogEntry[] = [
+      { token: 'action', description: '', group: 'event', enum: ['created', 'edited'] },
+    ];
+    render(
+      <FilterRowsEditor
+        rows={[
+          { field: 'action', values: '' },
+          { field: 'action', operator: 'contains', values: '' },
+        ]}
+        fields={fields}
+        onChange={() => undefined}
+      />,
+    );
+    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(
+      'placeholder',
+      'created | edited',
+    );
+    expect(screen.getByLabelText('Filter 2 values')).toHaveAttribute('placeholder', 'text | other');
+  });
+
   it('offers a neutral values hint for a field with no listed values', () => {
     render(<Harness initial={[{ field: 'status', values: '' }]} />);
     expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(

@@ -8,7 +8,7 @@
  */
 
 import { useId, type ReactNode } from 'react';
-import { Checkbox, FormField, Input, SectionLabel, Stack, Text } from '@orbit/terra';
+import { Card, Checkbox, FormField, Grid, Input, SectionLabel, Stack, Text } from '@orbit/terra';
 
 export interface SenderRestrictionDraft {
   /** Raw while typed; split on commas and whitespace when saved. */
@@ -16,13 +16,20 @@ export interface SenderRestrictionDraft {
   associations: string[];
 }
 
+/** Card text for the repository relationships GitHub reports; other values show as-is. */
+const ROLE_TEXT: Record<string, { title: string; description: string }> = {
+  OWNER: { title: 'Owner', description: 'Owns the repository' },
+  MEMBER: { title: 'Member', description: 'Member of the organisation' },
+  COLLABORATOR: { title: 'Collaborator', description: 'Invited to the repository' },
+};
+
 interface SenderRestrictionEditorProps {
   /** The association values the provider reports; empty hides the control. */
   available: string[];
   value: SenderRestrictionDraft;
   onChange: (next: SenderRestrictionDraft) => void;
   disabled?: boolean;
-  /** Rendered under the checkboxes, e.g. the drawer's save and discard buttons. */
+  /** Rendered under the role cards, e.g. the drawer's save and discard buttons. */
   actions?: ReactNode;
 }
 
@@ -62,18 +69,49 @@ export function SenderRestrictionEditor({
           placeholder="octocat, hubot"
         />
       </FormField>
-      <Stack direction="horizontal" gap="relaxed" wrap>
-        {available.map((association) => (
-          <Checkbox
-            key={association}
-            checked={value.associations.includes(association)}
-            disabled={disabled}
-            onChange={(on) => toggle(association, on)}
-          >
-            {association.toLowerCase()}
-          </Checkbox>
-        ))}
-      </Stack>
+      <Grid cols={3} gap="cozy">
+        {available.map((association) => {
+          const checked = value.associations.includes(association);
+          const text = ROLE_TEXT[association] ?? {
+            title: association.toLowerCase(),
+            description: '',
+          };
+          return (
+            <Card key={association} selected={checked} selectedVariant="outline">
+              <Stack
+                direction="horizontal"
+                align="start"
+                justify="between"
+                gap="cozy"
+                padding="cozy"
+                onClick={() => !disabled && toggle(association, !checked)}
+                style={{ cursor: disabled ? 'default' : 'pointer' }}
+              >
+                <Stack gap="none">
+                  <Text as="span" weight="strong">
+                    {text.title}
+                  </Text>
+                  {text.description && (
+                    <Text as="span" size="caption" color="subtle">
+                      {text.description}
+                    </Text>
+                  )}
+                </Stack>
+                {/* The card's click toggles; stop the checkbox's own click from toggling twice. */}
+                <Stack onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    size="lg"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(on) => toggle(association, on)}
+                    aria-label={text.title}
+                  />
+                </Stack>
+              </Stack>
+            </Card>
+          );
+        })}
+      </Grid>
       {actions}
     </Stack>
   );

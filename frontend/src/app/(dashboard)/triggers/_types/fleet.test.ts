@@ -16,6 +16,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     agentSlug: 'coder',
     eventType: 'push',
     matchCondition: {},
+    matchContains: {},
     senderRestriction: { logins: [], associations: [] },
     promptTemplate: 'go',
     enabled: true,

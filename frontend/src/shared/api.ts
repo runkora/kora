@@ -714,6 +714,8 @@ export interface Trigger {
   event_type?: string;
   /** field → allowed values; a delivery matches when every clause is satisfied. Webhook only. */
   match_condition?: Record<string, string[]>;
+  /** field → substrings, matched ignoring case; omitted when unset. Webhook only. */
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Present for scheduled triggers only. */
   schedule_config?: ScheduleConfig;
@@ -768,6 +770,7 @@ export interface TriggerCreateRequest {
   /** Required for webhook triggers. */
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Required for scheduled triggers. */
   schedule_config?: ScheduleConfig;
@@ -793,6 +796,8 @@ export interface TriggerUpdateRequest {
   name?: string;
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  /** Replaces the contains filters when present; `{}` removes them. */
+  match_contains?: Record<string, string[]>;
   prompt_template?: string;
   enabled?: boolean;
   /** For scheduled triggers: update the cron schedule. */

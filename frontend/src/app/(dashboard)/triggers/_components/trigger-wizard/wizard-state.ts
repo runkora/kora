@@ -8,7 +8,7 @@ import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
 import type { Senders } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
-import type { FilterRow } from '../filter-rows-editor';
+import type { FilterOperator, FilterRow } from '../filter-rows-editor';
 import type {
   KindStep,
   StepValidation,
@@ -116,21 +116,35 @@ export function splitFilterValues(values: string): string[] {
 }
 
 /**
- * Folds the filter rows into the backend's `match_condition` shape.
+ * Folds the rows with one operator into the backend's field → alternatives map.
  *
  * Returns undefined when nothing is set: an empty object would read as a
  * condition that happens to be satisfied, where the trigger genuinely has none.
  * Repeating a field merges its values, since a clause is a set of alternatives.
  */
-export function matchConditionFrom(filters: FilterRow[]): Record<string, string[]> | undefined {
+function conditionFrom(
+  filters: FilterRow[],
+  operator: FilterOperator,
+): Record<string, string[]> | undefined {
   const condition: Record<string, string[]> = {};
   for (const row of filters) {
+    if ((row.operator ?? 'is') !== operator) continue;
     const field = row.field.trim();
     const values = splitFilterValues(row.values);
     if (!field || values.length === 0) continue;
     condition[field] = [...(condition[field] ?? []), ...values];
   }
   return Object.keys(condition).length > 0 ? condition : undefined;
+}
+
+/** The `is` rows as the backend's `match_condition`. */
+export function matchConditionFrom(filters: FilterRow[]): Record<string, string[]> | undefined {
+  return conditionFrom(filters, 'is');
+}
+
+/** The `contains` rows as the backend's `match_contains`. */
+export function matchContainsFrom(filters: FilterRow[]): Record<string, string[]> | undefined {
+  return conditionFrom(filters, 'contains');
 }
 
 /**
@@ -162,11 +176,15 @@ export function senderRestrictionFrom(draft: SenderRestrictionDraft): Senders | 
 
 /** Renders the composed condition for the review step. */
 export function describeMatchCondition(filters: FilterRow[]): string | null {
-  const condition = matchConditionFrom(filters);
-  if (!condition) return null;
-  return Object.entries(condition)
-    .map(([field, values]) => `${field}=${values.join('|')}`)
-    .join(' · ');
+  const parts = [
+    ...Object.entries(matchConditionFrom(filters) ?? {}).map(
+      ([field, values]) => `${field}=${values.join('|')}`,
+    ),
+    ...Object.entries(matchContainsFrom(filters) ?? {}).map(
+      ([field, values]) => `${field} contains ${values.join('|')}`,
+    ),
+  ];
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 /** The Target step: an agent, and limits the platform will accept. */

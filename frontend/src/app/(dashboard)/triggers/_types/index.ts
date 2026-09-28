@@ -79,6 +79,8 @@ export interface TriggerRow {
   /** Webhook triggers only. */
   eventType: string;
   matchCondition: Record<string, string[]>;
+  /** Webhook triggers only. field → substrings, matched ignoring case. */
+  matchContains: Record<string, string[]>;
   /** Webhook triggers only. Both lists empty means anyone may fire it. */
   senderRestriction: Senders;
   promptTemplate: string;
@@ -190,6 +192,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     agentSlug: t.agent_slug,
     eventType: t.event_type ?? '',
     matchCondition: t.match_condition ?? {},
+    matchContains: t.match_contains ?? {},
     senderRestriction: {
       logins: t.sender_restriction?.logins ?? [],
       associations: t.sender_restriction?.associations ?? [],
@@ -270,6 +273,8 @@ export interface TriggerPatch {
   /** Webhook only. */
   eventType?: string;
   matchCondition?: Record<string, string[]>;
+  /** Webhook only. Replaces the contains filters; empty removes them. */
+  matchContains?: Record<string, string[]>;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
   scheduleConfig?: TriggerScheduleDraft;
@@ -304,6 +309,7 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
     ...(patch.promptTemplate !== undefined && { prompt_template: patch.promptTemplate }),
     ...(patch.eventType !== undefined && { event_type: patch.eventType }),
     ...(patch.matchCondition !== undefined && { match_condition: patch.matchCondition }),
+    ...(patch.matchContains !== undefined && { match_contains: patch.matchContains }),
     ...(patch.senderRestriction !== undefined && {
       sender_restriction: patch.senderRestriction,
     }),

@@ -118,6 +118,23 @@ describe('event and filter editing', () => {
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
       eventType: 'push',
       matchCondition: { action: ['closed'] },
+      matchContains: {},
+    });
+  });
+
+  it('saves a contains row to match_contains', async () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger(), onEdit);
+    fireEvent.change(screen.getByLabelText('Filter 1 operator'), { target: { value: 'contains' } });
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), {
+      target: { value: '@kora-agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save filters' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
+      eventType: 'push',
+      matchCondition: {},
+      matchContains: { action: ['@kora-agent'] },
     });
   });
 
@@ -161,7 +178,7 @@ describe('sender restriction editing', () => {
     fireEvent.change(await screen.findByLabelText('Logins'), {
       target: { value: 'octocat, hubot' },
     });
-    fireEvent.click(screen.getByText('member'));
+    fireEvent.click(screen.getByText('Member'));
     fireEvent.click(screen.getByRole('button', { name: 'Save senders' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {

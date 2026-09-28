@@ -20,6 +20,7 @@ import { CopyButton } from '@orbit/components';
 import {
   describeMatchCondition,
   matchConditionFrom,
+  matchContainsFrom,
   senderRestrictionFrom,
   splitLogins,
   validateFilters,
@@ -326,6 +327,7 @@ export const webhookKind: TriggerKindDefinition = {
     // The match condition is webhook-only, so it is folded here beside the
     // source and event it belongs to rather than in the shared draft builder.
     const matchCondition = matchConditionFrom(state.filters);
+    const matchContains = matchContainsFrom(state.filters);
     const senderRestriction = senderRestrictionFrom(state.senders);
     return {
       source:
@@ -334,6 +336,7 @@ export const webhookKind: TriggerKindDefinition = {
           : { existingId: state.sourceChoice },
       eventType: state.eventType,
       ...(matchCondition ? { matchCondition } : {}),
+      ...(matchContains ? { matchContains } : {}),
       ...(senderRestriction ? { senderRestriction } : {}),
     };
   },

@@ -64,6 +64,19 @@ describe('webhook validation and draft', () => {
     ).toEqual({ logins: ['octocat', 'hubot'], associations: ['MEMBER'] });
   });
 
+  it('splits is and contains rows between the two filter maps', () => {
+    const patch = webhookKind.draftPatch({
+      ...ready,
+      eventType: 'issue_comment',
+      filters: [
+        { field: 'action', values: 'created' },
+        { field: 'comment.body', operator: 'contains', values: '@kora-agent' },
+      ],
+    });
+    expect(patch.matchCondition).toEqual({ action: ['created'] });
+    expect(patch.matchContains).toEqual({ 'comment.body': ['@kora-agent'] });
+  });
+
   it('summarises the senders for review', () => {
     const rows = webhookKind.summarize(
       { ...ready, eventType: 'push', senders: { logins: '', associations: ['OWNER'] } },

@@ -42,7 +42,7 @@ export function CatalogPicker({
 }: CatalogPickerProps) {
   const [open, setOpen] = useState(false);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -58,7 +58,7 @@ export function CatalogPicker({
           <Icon name="chevron-down" size="2xs" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start">
+      <PopoverContent align="start" matchTriggerWidth>
         <TemplateCatalogList
           catalog={catalog}
           searchPlaceholder={searchPlaceholder}

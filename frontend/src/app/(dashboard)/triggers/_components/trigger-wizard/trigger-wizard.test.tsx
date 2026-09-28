@@ -233,19 +233,19 @@ describe('filters and prompt fields', () => {
       />,
     );
     fireEvent.change(await screen.findByLabelText('Logins'), { target: { value: 'octocat' } });
-    fireEvent.click(screen.getByText('member'));
+    fireEvent.click(screen.getByText('Member'));
 
     fireEvent.click(screen.getByText('prod alerts'));
     fireEvent.click(screen.getByText('acme/widgets'));
     expect(((await screen.findByLabelText('Logins')) as HTMLInputElement).value).toBe('');
-    expect(screen.getByRole('checkbox', { name: 'member' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Member' })).not.toBeChecked();
   });
 
   it('offers a sender restriction only when the provider identifies senders', async () => {
     const view = renderWizard('webhook');
     expect(await screen.findByText('Senders')).toBeTruthy();
     expect(screen.getByLabelText('Logins')).toBeTruthy();
-    expect(screen.getByText('member')).toBeTruthy();
+    expect(screen.getByText('Member')).toBeTruthy();
     view.unmount();
 
     render(

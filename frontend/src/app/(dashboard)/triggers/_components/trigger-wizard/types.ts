@@ -56,6 +56,8 @@ export interface TriggerDraft {
    * is set, which matches every delivery of the chosen event.
    */
   matchCondition?: Record<string, string[]>;
+  /** Webhook only. field → substrings, matched ignoring case; omitted when unset. */
+  matchContains?: Record<string, string[]>;
   /** Webhook only. Omitted when anyone may fire the trigger. */
   senderRestriction?: Senders;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };

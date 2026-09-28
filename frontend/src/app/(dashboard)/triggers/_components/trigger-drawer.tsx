@@ -61,6 +61,7 @@ import {
 import {
   describeMatchCondition,
   matchConditionFrom,
+  matchContainsFrom,
   splitLogins,
   validateFilters,
 } from './trigger-wizard/wizard-state';
@@ -82,6 +83,7 @@ export interface TriggerEditPatch {
   promptTemplate?: string;
   eventType?: string;
   matchCondition?: Record<string, string[]>;
+  matchContains?: Record<string, string[]>;
   /** Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
@@ -339,9 +341,9 @@ export function TriggerDrawer({
   const storedFilters = useMemo(
     () => ({
       eventType: trigger?.eventType ?? '',
-      filters: filtersFromMatchCondition(trigger?.matchCondition),
+      filters: filtersFromMatchCondition(trigger?.matchCondition, trigger?.matchContains),
     }),
-    [trigger?.eventType, trigger?.matchCondition],
+    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains],
   );
   const saveFilters = useCallback(
     (value: { eventType: string; filters: FilterRow[] }) =>
@@ -350,6 +352,7 @@ export function TriggerDrawer({
       savePatch({
         eventType: value.eventType,
         matchCondition: matchConditionFrom(value.filters) ?? {},
+        matchContains: matchContainsFrom(value.filters) ?? {},
       }),
     [savePatch],
   );

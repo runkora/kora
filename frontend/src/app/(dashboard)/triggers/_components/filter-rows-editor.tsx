@@ -5,10 +5,11 @@
  *
  * Used by the wizard (creating a trigger) and the drawer (correcting one), so
  * the same gesture, vocabulary and placeholder appear on both surfaces. A row
- * is a field and its alternatives; every row must match for a delivery to fire.
+ * is a field, an operator and its alternatives; every row must match for a
+ * delivery to fire.
  */
 
-import { Button, Icon, Input, Stack } from '@orbit/terra';
+import { Button, Icon, Input, NativeSelect, Stack } from '@orbit/terra';
 import { CatalogPicker } from './catalog-picker';
 import { completePattern } from './trigger-wizard/field-catalog';
 import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
@@ -19,6 +20,8 @@ import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
  */
 export interface FilterRow {
   field: string;
+  /** `is` matches a value exactly; `contains` matches text in it, ignoring case. Absent means `is`. */
+  operator?: FilterOperator;
   values: string;
   /**
    * The pattern family being completed, e.g. `commonLabels.<name>`, while the
@@ -28,6 +31,8 @@ export interface FilterRow {
   /** The name typed to complete `pattern`. */
   patternName?: string;
 }
+
+export type FilterOperator = 'is' | 'contains';
 
 interface FilterRowsEditorProps {
   rows: FilterRow[];
@@ -39,13 +44,15 @@ interface FilterRowsEditorProps {
 }
 
 const DEFAULT_VALUES_HINT = 'value | other';
+const CONTAINS_HINT = 'text | other';
 
 export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: FilterRowsEditorProps) {
   const setRow = (index: number, next: Partial<FilterRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...next } : row)));
 
-  const valuesHint = (field: string) => {
-    const allowed = fields.find((entry) => entry.token === field)?.enum;
+  const valuesHint = (row: FilterRow) => {
+    if (row.operator === 'contains') return CONTAINS_HINT;
+    const allowed = fields.find((entry) => entry.token === row.field)?.enum;
     return allowed ? allowed.join(' | ') : DEFAULT_VALUES_HINT;
   };
 
@@ -83,13 +90,21 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
               />
             </Stack>
           )}
+          <NativeSelect
+            aria-label={`Filter ${i + 1} operator`}
+            value={row.operator ?? 'is'}
+            onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
+          >
+            <option value="is">is</option>
+            <option value="contains">contains</option>
+          </NativeSelect>
           <Stack grow minWidth="none">
             <Input
               mono
               aria-label={`Filter ${i + 1} values`}
               value={row.values}
               onChange={(e) => setRow(i, { values: e.target.value })}
-              placeholder={valuesHint(row.field)}
+              placeholder={valuesHint(row)}
             />
           </Stack>
           <Button

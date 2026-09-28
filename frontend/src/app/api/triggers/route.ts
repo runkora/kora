@@ -56,6 +56,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     agent_type_id: body.agent_type_id,
     event_type: body.event_type,
     match_condition: body.match_condition ?? {},
+    match_contains: body.match_contains,
     prompt_template: body.prompt_template,
     schedule_config: body.schedule_config,
     manual_config: body.manual_config,

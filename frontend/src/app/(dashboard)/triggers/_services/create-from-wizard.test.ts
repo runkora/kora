@@ -126,6 +126,17 @@ describe('webhook drafts', () => {
       expect.objectContaining({ match_condition: { action: ['opened'] } }),
     );
   });
+
+  it('folds the contains filters through when some were set', async () => {
+    await createFromWizardDraft(
+      draft({ matchContains: { 'comment.body': ['@kora-agent'] } }),
+      OPTIONS,
+    );
+
+    expect(mockCreateTrigger).toHaveBeenCalledWith(
+      expect.objectContaining({ match_contains: { 'comment.body': ['@kora-agent'] } }),
+    );
+  });
 });
 
 describe('scheduled drafts', () => {
