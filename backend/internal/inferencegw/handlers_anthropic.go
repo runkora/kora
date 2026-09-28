@@ -290,7 +290,7 @@ func anthropicErrorType(code string) string {
 		return "invalid_request_error"
 	case api.ErrCodeUnauthorized: // "unauthorized"
 		return "authentication_error"
-	case "policy_denied":
+	case "policy_denied", "provider_auth_failed":
 		return "permission_error"
 	default:
 		return "api_error"
@@ -464,6 +464,9 @@ func (c *Controller) handleMessagesStream(
 	ctx := r.Context()
 
 	events, err := c.svc.AnthropicMessagesStream(ctx, params)
+	if err == nil {
+		events, err = awaitStreamStart(ctx, events, func(ev AnthropicStreamEvent) error { return ev.Err })
+	}
 	if err != nil {
 		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
 		return

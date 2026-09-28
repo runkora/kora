@@ -83,6 +83,9 @@ func (c *Controller) handleChatCompletionsStream(
 	ctx := r.Context()
 
 	chunks, err := c.svc.ChatCompletionStream(ctx, params)
+	if err == nil {
+		chunks, err = awaitStreamStart(ctx, chunks, func(res OpenAIStreamResult) error { return res.Err })
+	}
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return

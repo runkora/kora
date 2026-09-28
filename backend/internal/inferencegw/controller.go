@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -132,6 +133,12 @@ func connectorClientErrorResponse(err error) *api.APIError {
 			msg = "the request was rejected as invalid by the upstream provider"
 		}
 		return api.BadRequestError("invalid_request", msg, nil)
+	case "AUTH_FAILED":
+		// The provider rejected Orbit's credentials, not the caller's. 403 is final
+		// for agent runtimes, and unlike 401 is not read as the caller's own key
+		// being invalid. The provider's text stays in the log, never the body.
+		msg := fmt.Sprintf("the %s provider rejected Orbit's credentials for this model; an administrator must fix the provider credentials", connErr.Provider)
+		return api.ForbiddenError("provider_auth_failed", msg, map[string]any{"error_code": connErr.Code})
 	}
 	return nil
 }
