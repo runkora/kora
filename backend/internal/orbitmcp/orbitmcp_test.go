@@ -171,6 +171,53 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	}
 }
 
+// TestTriggerProviderToolsAndSenderRestriction covers the provider catalog
+// tools and sender_restriction forwarding on trigger create and update.
+func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
+	var gotPath, gotQuery string
+	var gotBody map[string]any
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "triggers.providers.event_types", "arguments": map[string]any{"provider": "github"}})
+	if gotPath != "/api/v1/trigger-providers/github/event-types" {
+		t.Errorf("event_types hit %q", gotPath)
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.providers.fields", "arguments": map[string]any{"provider": "github", "event_type": "issue_comment"}})
+	if gotPath != "/api/v1/trigger-providers/github/fields" || gotQuery != "event_type=issue_comment" {
+		t.Errorf("fields hit %q?%q", gotPath, gotQuery)
+	}
+
+	restriction := map[string]any{"logins": []any{"octocat"}, "associations": []any{"MEMBER"}}
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
+		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "sender_restriction": restriction,
+	}})
+	if gotPath != "/api/v1/triggers" {
+		t.Errorf("create hit %q", gotPath)
+	}
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["associations"] == nil || got["logins"] == nil {
+		t.Errorf("create did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": restriction}})
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["logins"] == nil {
+		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+}
+
 // TestConnectorsDiscoveryAndForwarding covers the connectors surface: the
 // agents.connectors discovery tool hits the connections catalog, and agents.create
 // forwards the nested connectors + connectivity intent for the backend to compile.
@@ -482,7 +529,8 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"triggers.sources.delete": "triggers:write", "triggers.list": "triggers:read",
 		"triggers.get": "triggers:read", "triggers.create": "triggers:write",
 		"triggers.update": "triggers:write", "triggers.delete": "triggers:write",
-		"triggers.deliveries.list": "triggers:read",
+		"triggers.deliveries.list":       "triggers:read",
+		"triggers.providers.event_types": "triggers:read", "triggers.providers.fields": "triggers:read",
 	}
 
 	for tool, want := range wantRequires {

@@ -21,7 +21,34 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	triggers := base + "/triggers"
 
 	registerTriggerSourceTools(srv, sources, jc)
+	registerTriggerProviderTools(srv, base+"/trigger-providers", jc)
 	registerTriggerBindingTools(srv, base, triggers, jc)
+}
+
+// registerTriggerProviderTools wires each provider's schema catalog: the event
+// types a trigger can listen for and the fields it can template or filter on.
+func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *orbitjson.Client) {
+	addTool(srv, "triggers.providers.event_types",
+		"List the event types a webhook provider (e.g. github, alertmanager) sends, from its published schema, "+
+			"and the sender associations a trigger's sender_restriction may name (empty when the provider identifies no sender).",
+		func(ctx context.Context, a providerArgs) (*sdk.CallToolResult, error) {
+			if a.Provider == "" {
+				return toolError(errors.New("provider is required")), nil
+			}
+			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/event-types", nil))
+		})
+
+	addTool(srv, "triggers.providers.fields",
+		"List the fields of one provider event type, by schema path (e.g. comment.body), with descriptions and "+
+			"allowed values. These paths are what prompt_template placeholders and match_condition keys name.",
+		func(ctx context.Context, a providerFieldsArgs) (*sdk.CallToolResult, error) {
+			if a.Provider == "" || a.EventType == "" {
+				return toolError(errors.New("provider and event_type are required")), nil
+			}
+			q := url.Values{}
+			q.Set("event_type", a.EventType)
+			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/fields", q))
+		})
 }
 
 // registerTriggerSourceTools wires the webhook trigger sources (the endpoints
@@ -101,10 +128,10 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 	addTool(srv, "triggers.create",
 		"Create a trigger: when the given source delivers an event of event_type matching match_condition, start "+
 			"a run of the target agent (by agent_type_id or agent_slug) using prompt_template. Call triggers.sources.list "+
-			"for source ids and agents.list for agent ids.",
+			"for source ids, agents.list for agent ids, and triggers.providers.fields for the field paths an event carries.",
 		func(ctx context.Context, a createTriggerArgs) (*sdk.CallToolResult, error) {
-			if a.SourceID == "" || a.Name == "" {
-				return toolError(errors.New("source_id and name are required")), nil
+			if a.SourceID == "" || a.Name == "" || a.EventType == "" {
+				return toolError(errors.New("source_id, name and event_type are required")), nil
 			}
 			return jsonResult(jc.Post(ctx, callerToken(ctx), triggers, a))
 		})
@@ -127,6 +154,9 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			}
 			if a.PromptTemplate != nil {
 				body["prompt_template"] = *a.PromptTemplate
+			}
+			if a.SenderRestriction != nil {
+				body["sender_restriction"] = a.SenderRestriction
 			}
 			if a.Enabled != nil {
 				body["enabled"] = *a.Enabled
@@ -179,22 +209,38 @@ type updateSourceArgs struct {
 }
 
 type createTriggerArgs struct {
-	SourceID       string              `json:"source_id" jsonschema:"the webhook source id this trigger listens on"`
-	Name           string              `json:"name" jsonschema:"the trigger name"`
-	AgentTypeID    string              `json:"agent_type_id,omitempty" jsonschema:"target agent type id (or use agent_slug)"`
-	AgentSlug      string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
-	EventType      string              `json:"event_type,omitempty" jsonschema:"the source event type to fire on (e.g. push, issues)"`
-	MatchCondition map[string][]string `json:"match_condition,omitempty" jsonschema:"optional field→allowed-values filter on the event payload"`
-	PromptTemplate string              `json:"prompt_template,omitempty" jsonschema:"the prompt the started run receives (may reference event fields)"`
+	SourceID          string              `json:"source_id" jsonschema:"the webhook source id this trigger listens on"`
+	Name              string              `json:"name" jsonschema:"the trigger name"`
+	AgentTypeID       string              `json:"agent_type_id,omitempty" jsonschema:"target agent type id (or use agent_slug)"`
+	AgentSlug         string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
+	EventType         string              `json:"event_type" jsonschema:"the provider event type to fire on (e.g. issue_comment); see triggers.providers.event_types"`
+	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"optional filter: field path (e.g. action) to allowed values; a delivery must match every entry"`
+	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
 }
 
 type updateTriggerArgs struct {
-	ID             string              `json:"id" jsonschema:"the trigger id"`
-	Name           *string             `json:"name,omitempty" jsonschema:"new name"`
-	EventType      *string             `json:"event_type,omitempty" jsonschema:"new event type"`
-	MatchCondition map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
-	PromptTemplate *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
-	Enabled        *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+	ID                string              `json:"id" jsonschema:"the trigger id"`
+	Name              *string             `json:"name,omitempty" jsonschema:"new name"`
+	EventType         *string             `json:"event_type,omitempty" jsonschema:"new event type"`
+	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
+	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
+	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+}
+
+type senderRestriction struct {
+	Logins       []string `json:"logins,omitempty" jsonschema:"sender logins allowed to fire the trigger"`
+	Associations []string `json:"associations,omitempty" jsonschema:"sender associations allowed to fire the trigger, from triggers.providers.event_types"`
+}
+
+type providerArgs struct {
+	Provider string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+}
+
+type providerFieldsArgs struct {
+	Provider  string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+	EventType string `json:"event_type" jsonschema:"the provider event type (e.g. issue_comment)"`
 }
 
 type listDeliveriesArgs struct {
