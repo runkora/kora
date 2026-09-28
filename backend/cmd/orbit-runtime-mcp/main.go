@@ -23,10 +23,9 @@ func main() {
 	srv := &mcpServer{
 		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
 		runID:             requireEnv("ORBIT_RUN_ID"),
-		// Longer than the session-manager's provision budget (5 minutes across
-		// its retries), so the tool reports the session-manager's verdict instead of
-		// its own timeout.
-		httpClient: &http.Client{Timeout: 6 * time.Minute},
+		// Longer than the session-manager's worst case (5 minute provision budget
+		// plus the 90s egress canary), so the tool reports its verdict, not a timeout.
+		httpClient: &http.Client{Timeout: 8 * time.Minute},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
 		log.Fatalf("orbit-runtime-mcp: %v", err)

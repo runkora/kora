@@ -74,17 +74,18 @@ Nothing stops a run that has stopped making progress.
 
 ### G1 sandbox loss
 
-- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 300). Pre-provisioning at run start keeps its single attempt.
+- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 300). Each attempt gets an equal share of the budget, so one hung call to orbit-agents cannot use every retry. Pre-provisioning at run start keeps its single attempt.
 - Provisioning is serialised per run, so parallel Bash calls that all find the sandbox dead share one replacement.
-- The retries run detached from the caller, since Claude Code kills a Bash call at its own timeout and the outcome must still be recorded.
-- On final failure the run records one `run_error` with code `sandbox_lost`, and every later provision request fails at once with HTTP 503 `sandbox_lost` and the same message. The message names the run workspace by its concrete path (`/workspaces/<run-id>`), says whether files under it are intact, says that files outside it are lost, and says that Bash and `provision_sandbox` will fail until the user replies. The next user message clears the state.
+- The retries are bound to the session, not the caller: Claude Code kills a Bash call at its own timeout and the outcome must still be recorded, and closing the run stops them so no sandbox is created for a finished run.
+- A resumed session (after an interrupt) keeps the run's sandbox descriptor and its lost state.
+- On final failure the run records one `run_error` with code `sandbox_lost`, and every later provision request fails at once with HTTP 503 `sandbox_lost` and the same message. The message names the run workspace by its concrete path (`/workspaces/<run-id>`), says whether files under it are intact, says that files outside it are lost, and says that Bash and `provision_sandbox` will fail until the user replies. The next user message or answer to a question clears the state, and a retry that fails after the user replied does not re-block them.
 - `sandbox_lost` does not end the turn. The model keeps going and receives the tool error on its next Bash or `provision_sandbox` call.
-- `orbit-runtime-mcp` returns that message as a tool result with `isError`, and `orbit-shell` prints it as the command's error. Both clients wait longer than the budget.
+- `orbit-runtime-mcp` returns that message as a tool result with `isError`, and `orbit-shell` prints it as the command's error. Both clients wait 8 minutes, longer than the budget plus the 90s egress canary.
 
 ### G2 loop breaker
 
-- The drain loop keeps two counts per run. **Repeated calls**: consecutive `tool_use` events with the same name and input. **Wait re-arms**: Monitor, CronCreate and ScheduleWakeup calls, and Bash calls that only sleep, reset by any successful result from a tool that is neither a wait nor a read-only tool (Read, Glob, Grep, task and cron listing).
-- At the warning threshold (`repeatedCallWarn` 4, `waitRearmWarn` 6) the run records a durable `guardrail_warning` event carrying `kind` (`repeated_call` or `wait_rearm`), `count` and `tool`, and the platform sends the model one message through the runner's stdin path, naming the loop and asking it to change approach or stop and tell the user. The model-facing text is not recorded as a `human_message`.
+- The drain loop keeps two counts per run. **Repeated calls**: consecutive `tool_use` events with the same name and input whose results are also unchanged; a call whose result differs from the last one restarts the count, so polling that sees progress is not a loop. **Wait re-arms**: Monitor, CronCreate and ScheduleWakeup calls, and Bash calls that only sleep, reset by any successful result from a call that does more than look. Looking means the read-only tools (Read, Glob, Grep, task and cron listing, TodoWrite and task notes) and Bash commands made only of `echo`, `cat`, `tail`, `head`, `ls`, `date`, `pwd`, `wc` and `sleep`.
+- At the warning threshold (`repeatedCallWarn` 4, `waitRearmWarn` 6) the run records a durable `guardrail_warning` event carrying `kind` (`repeated_call` or `wait_rearm`), `count` and `tool`, and, for Claude Code, the platform sends the model one message through the runner's stdin path, naming the loop and asking it to change approach or stop and tell the user. Claude Code queues that message to the next tool boundary; Codex and OpenCode would start a second turn, so they get the recorded warning and the pause without the message. The model-facing text is not recorded as a `human_message`.
 - At the pause threshold (`repeatedCallPause` 8, `waitRearmPause` 12) the run records `run_error` with code `loop_detected` and is interrupted through the existing interrupt path. That ends the turn and leaves the run idle for the user.
 - Counts survive turn boundaries, because wake-ups from a Monitor start new turns. A user message resets them.
 - All thresholds are `session-manager` configuration under `guardrails`.
@@ -113,14 +114,16 @@ G3 touches **What can it access?**: an agent type now bounds how much parallel w
 
 ### Negative
 
-- A legitimate long wait, such as watching CI through more than twelve Monitor re-arms with no other work, is paused. The user resumes it with a message.
+- A legitimate long wait, such as watching CI through more than twelve Monitor re-arms with no other work, or polling the same command eight times while its output stays the same, is paused. The user resumes it with a message.
+- Counts are run-wide: tool calls from parallel subagents interleave in one stream, so a streak in one subagent is broken by another's calls, and waits are summed across them.
+- Alternating between two failing calls is not a repeated-call streak; only the wait count or the user catches it.
 - How the chat shows `sandbox_lost` and `loop_detected` depends on the run-state semantics in the Run Activity Events ADR: run state comes only from `run_state` events, so neither code marks the run failed.
 - `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` is not in the public Claude Code documentation. The image build check catches its removal, not a change in its behaviour.
 - The chat shows a `guardrail_warning` only once the run view renders that event type.
 
 ### Neutral
 
-- Tool names the loop guard recognises (Monitor, CronCreate, ScheduleWakeup, Read, Glob, Grep) are Claude Code names; the repeated-call count applies to every framework.
+- Tool names the loop guard recognises (Monitor, CronCreate, ScheduleWakeup, Read, Glob, Grep) are Claude Code names. The repeated-call count also sees OpenCode's calls, but not Codex's: the Codex runner's tool input carries a per-call item id, so no two calls compare equal.
 
 ---
 
