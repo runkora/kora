@@ -425,3 +425,30 @@ func TestSenderRestriction_WebhookOnly(t *testing.T) {
 		t.Errorf("manual update = %v, want ErrValidation", err)
 	}
 }
+
+func TestNormalizeRestriction_Bounds(t *testing.T) {
+	many := make([]string, maxSenderLogins+1)
+	for i := range many {
+		many[i] = "user" + strings.Repeat("x", i%5) + string(rune('a'+i%26))
+	}
+	cases := map[string]struct {
+		logins  []string
+		wantErr bool
+	}{
+		"at the count limit":    {logins: many[:maxSenderLogins]},
+		"over the count limit":  {logins: many, wantErr: true},
+		"at the length limit":   {logins: []string{strings.Repeat("a", maxSenderLoginLen)}},
+		"over the length limit": {logins: []string{strings.Repeat("a", maxSenderLoginLen+1)}, wantErr: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := normalizeRestriction(mustRegistry(), ProviderGitHub, &SenderRestriction{Logins: tc.logins})
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err != nil && !errors.Is(err, ErrValidation) {
+				t.Fatalf("err = %v, want ErrValidation", err)
+			}
+		})
+	}
+}

@@ -475,10 +475,16 @@ func normalizeRestriction(registry *Registry, provider string, r *SenderRestrict
 			out.Associations = append(out.Associations, a)
 		}
 	}
+	if len(r.Logins) > maxSenderLogins {
+		return nil, fmt.Errorf("%w: a sender restriction lists at most %d logins", ErrValidation, maxSenderLogins)
+	}
 	for _, login := range r.Logins {
 		login = si.NormalizeLogin(strings.TrimSpace(login))
 		if login == "" {
 			return nil, fmt.Errorf("%w: sender logins must not be empty", ErrValidation)
+		}
+		if len(login) > maxSenderLoginLen {
+			return nil, fmt.Errorf("%w: sender logins must be %d characters or fewer", ErrValidation, maxSenderLoginLen)
 		}
 		if !slices.Contains(out.Logins, login) {
 			out.Logins = append(out.Logins, login)

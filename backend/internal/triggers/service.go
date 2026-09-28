@@ -219,6 +219,9 @@ const (
 const (
 	maxNameLen           = 128
 	maxPromptTemplateLen = 8 << 10 // 8 KiB
+	// Every delivery scans a restriction's logins, so the list stays short.
+	maxSenderLogins   = 100
+	maxSenderLoginLen = 100
 )
 
 // validateTextBounds checks the free-text fields of a create or update. Applied
