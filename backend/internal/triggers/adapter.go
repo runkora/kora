@@ -111,8 +111,12 @@ func matchesCondition(condition map[string][]string, fields map[string]string) b
 
 // matchesContains reports whether every field in contains holds at least one of
 // its substrings, ignoring case. A missing field is "" and contains nothing.
+// Empty substring lists are ignored, as in matchesCondition.
 func matchesContains(contains map[string][]string, fields map[string]string) bool {
 	for key, subs := range contains {
+		if len(subs) == 0 {
+			continue
+		}
 		value := strings.ToLower(fields[key])
 		if !slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(value, strings.ToLower(sub)) }) {
 			return false

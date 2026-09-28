@@ -38,10 +38,16 @@ describe('SenderRestrictionEditor', () => {
     expect(onChange).toHaveBeenCalledWith({ logins: '', associations: [] });
   });
 
+  it('highlights a card on hover and keyboard focus unless disabled', () => {
+    renderEditor();
+    expect(screen.getByText('Owner').closest('[data-interactive]')).not.toBeNull();
+  });
+
   it('ignores card clicks while disabled', () => {
     const onChange = renderEditor([], true);
     fireEvent.click(screen.getByText('Owner'));
     expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByText('Owner').closest('[data-interactive]')).toBeNull();
   });
 
   it('renders nothing when the provider reports no relationships', () => {

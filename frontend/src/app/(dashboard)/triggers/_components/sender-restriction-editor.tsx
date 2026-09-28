@@ -77,7 +77,12 @@ export function SenderRestrictionEditor({
             description: '',
           };
           return (
-            <Card key={association} selected={checked} selectedVariant="outline">
+            <Card
+              key={association}
+              interactive={!disabled}
+              selected={checked}
+              selectedVariant="outline"
+            >
               <Stack
                 direction="horizontal"
                 align="start"
@@ -85,7 +90,6 @@ export function SenderRestrictionEditor({
                 gap="cozy"
                 padding="cozy"
                 onClick={() => !disabled && toggle(association, !checked)}
-                style={{ cursor: disabled ? 'default' : 'pointer' }}
               >
                 <Stack gap="none">
                   <Text as="span" weight="strong">

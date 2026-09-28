@@ -83,6 +83,7 @@ func TestMatchesContains(t *testing.T) {
 		{"absent substring", map[string][]string{"comment.body": {"@other-bot"}}, false},
 		{"any listed substring", map[string][]string{"comment.body": {"@other-bot", "PLEASE"}}, true},
 		{"every entry must pass", map[string][]string{"comment.body": {"review"}, "action": {"edit"}}, false},
+		{"empty list is ignored", map[string][]string{"comment.body": {}}, true},
 		{"missing field contains nothing", map[string][]string{"comment.missing": {"x"}}, false},
 	}
 	for _, tt := range tests {
