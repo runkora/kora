@@ -158,7 +158,7 @@ func TestInferenceErrorResponse_ProviderFailurePerDialect(t *testing.T) {
 		wantCode      string
 		wantAnthropic string
 	}{
-		{"bedrock 403", &ConnectorError{Provider: ProviderBedrock, Code: "AUTH_FAILED", HTTPStatus: 403, ProviderMessage: providerText},
+		{"bedrock 403", &ConnectorError{Provider: ProviderName("bedrock:us"), Code: "AUTH_FAILED", HTTPStatus: 403, ProviderMessage: providerText},
 			http.StatusForbidden, "provider_auth_failed", "permission_error"},
 		{"vertexai 401", &ConnectorError{Provider: ProviderVertexAI, Code: "AUTH_FAILED", HTTPStatus: 401, ProviderMessage: providerText},
 			http.StatusForbidden, "provider_auth_failed", "permission_error"},
@@ -212,8 +212,9 @@ func TestInferenceErrorResponse_ProviderFailurePerDialect(t *testing.T) {
 					if strings.Contains(msg, providerText) {
 						t.Errorf("body leaks the provider's auth error text: %q", msg)
 					}
-					if !strings.Contains(msg, string(tc.connErr.Provider)) {
-						t.Errorf("body does not name the provider %q: %q", tc.connErr.Provider, msg)
+					family, alias, _ := strings.Cut(string(tc.connErr.Provider), ":")
+					if !strings.Contains(msg, "the "+family+" provider") || (alias != "" && strings.Contains(msg, alias+" provider")) {
+						t.Errorf("body should name the provider family %q and no account alias: %q", family, msg)
 					}
 				}
 			}

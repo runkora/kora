@@ -76,3 +76,21 @@ func TestAwaitStreamStart_SlowStreamPassesThrough(t *testing.T) {
 		t.Fatalf("got (%v, %v), want the original channel and no error", out, err)
 	}
 }
+
+// A stream that closes without events, or a caller that goes away, returns the
+// original channel with no error and no event consumed.
+func TestAwaitStreamStart_ClosedOrCanceled(t *testing.T) {
+	t.Parallel()
+	closed := make(chan AnthropicStreamEvent)
+	close(closed)
+	if out, err := awaitStreamStart(context.Background(), closed, eventErr); err != nil || out != (<-chan AnthropicStreamEvent)(closed) {
+		t.Errorf("closed stream: got (%v, %v)", out, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	pending := make(chan AnthropicStreamEvent)
+	if out, err := awaitStreamStart(ctx, pending, eventErr); err != nil || out != (<-chan AnthropicStreamEvent)(pending) {
+		t.Errorf("canceled ctx: got (%v, %v)", out, err)
+	}
+}

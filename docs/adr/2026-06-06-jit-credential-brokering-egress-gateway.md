@@ -538,16 +538,21 @@ Touches *What can it access?* Enforcement is unchanged; only the body of the bro
 
 | `details.reason` | When | Message names |
 |---|---|---|
-| `not_granted` | The grant covers neither the classified action nor an alternate | Host, action, qualifier, connection, and `details.required_scope`: the scope a grant must cover |
+| `not_granted` | No grant covers the classified action or an alternate (`deny:no_matching_grant`) | Host, action, qualifier, connection, and `details.required_scope`: the scope a grant must cover |
+| `grant_not_applied` | A held grant did not apply, for example `deny:delegation_required` | Host, action, connection, and the policy decision label in `details.policy_reason`; no scope, since granting would not help |
 | `unclassified` | The adapter cannot map the request to an action | Host and connection; no grant can allow it |
 | `credential_refused` | The upstream refused to mint for an authorized action | Action and connection; the fix is the upstream permission (for GitHub, the App installation) |
 | `policy_unavailable` | Policy evaluation failed (fail-closed) | Host; retry |
 
-The body carries only the caller's own request and its own tenant's connection name and scope vocabulary. It never carries the grants the caller holds, other connections, the OPA reason, the underlying error text, or credential material.
+The body carries only the caller's own request and its own tenant's connection name and scope vocabulary. It never carries the grants the caller holds, other connections, the underlying error text, or credential material. The only policy output it carries is the decision label on a `grant_not_applied` denial, which is our own bundle's vocabulary.
 
 A host outside the egress whitelist is refused by the sandbox OPA sidecar on the generated `CONNECT`, before any TLS is terminated (Amendment 2). The agent sees a reset TLS handshake; that path has no HTTP layer to carry a body and is unchanged.
 
-**Consequences.** Agents and operators can act on a denial from the response alone. The required scope in the body is information the caller could already derive from the published scope vocabulary.
+The capabilities brief tells the agent that a connection reset or TLS handshake failure to a host outside its list means egress policy blocked it, and that retrying will not help.
+
+`details.required_scope` is built from the action the adapter classified, with its qualifier: the narrowest scope that would allow the call. It never names an alternate or a covering umbrella, unless the umbrella is itself the classified action (a GraphQL call classifies as `repo:read` or `repo:write`).
+
+**Consequences.** Agents and operators can act on a denial from the response alone. The required scope in the body is information the caller could already derive from the published scope vocabulary. The hint can still steer an operator into over-granting: granting a broader covering scope such as `connection:github:repo:read`, or dropping the qualifier, satisfies the denial while widening access beyond the one call. The hint names the narrow scope so the least-privilege grant is the obvious one.
 
 ## Validation
 

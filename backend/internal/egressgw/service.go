@@ -277,6 +277,13 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "tenant_id", Value: tenantID},
 			logging.Field{Key: "reason", Value: primary.Reason},
 		)
+		// Only a missing grant is fixed by granting; any other label means a held
+		// grant did not apply, and naming a scope would send an admin hunting.
+		if primary.Reason != "" && primary.Reason != noMatchingGrant {
+			d := deny(DenialGrantNotApplied, host, conn, cls, nil)
+			d.PolicyReason = primary.Reason
+			return nil, d
+		}
 		return nil, deny(DenialNotGranted, host, conn, cls, nil)
 	}
 	return authorized, nil
@@ -307,6 +314,9 @@ func scopePath(conn *credentials.Connection, action, qualifier string) (segments
 	}
 	return segments, verb
 }
+
+// noMatchingGrant is the policy bundle's default deny label: no grant covers the call.
+const noMatchingGrant = "deny:no_matching_grant"
 
 // deny builds the caller-facing Denial for a refused call.
 func deny(reason DenialReason, host string, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {

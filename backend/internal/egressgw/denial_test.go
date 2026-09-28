@@ -62,6 +62,16 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 			wantInMsg:  []string{"not granted repo:read on connection github", "grant connection:github:repo:read"},
 		},
 		{
+			name:        "a held grant that did not apply names the policy reason, not a scope",
+			method:      http.MethodGet,
+			path:        "/anything",
+			setup:       func(f *fixture) { f.eval.allow, f.eval.reason = false, "deny:delegation_required" },
+			wantReason:  DenialGrantNotApplied,
+			wantAction:  "repo:read",
+			wantInMsg:   []string{"grant for repo:read on connection github does not apply", "deny:delegation_required"},
+			wantNoScope: true,
+		},
+		{
 			name:        "unclassified request says no grant can allow it",
 			method:      "PROPFIND",
 			path:        "/x",
@@ -169,5 +179,15 @@ func TestDeny_NotGrantedQualified(t *testing.T) {
 	want := "Orbit egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
 	if d.Message() != want {
 		t.Errorf("Message() = %q, want %q", d.Message(), want)
+	}
+}
+
+// The hint names the classified action, never an alternate, so it points at the
+// narrowest grant that allows the call.
+func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
+	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
+		credentials.Classification{Action: "issues:read", Qualifier: "orbit", Alternates: []string{"pulls:read"}}, nil)
+	if d.RequiredScope != "connection:github:issues:orbit:read" {
+		t.Errorf("RequiredScope = %q, want connection:github:issues:orbit:read", d.RequiredScope)
 	}
 }
