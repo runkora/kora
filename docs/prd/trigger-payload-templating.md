@@ -106,6 +106,7 @@ A delivery is only accepted if it carries the provider's signature or shared sec
 - [ ] A filter row is a searchable field dropdown, listing the same fields as the prompt builder, with a free-form value box next to it.
 - [ ] For a field named by the sender's own data, such as an alert label, the author picks the field and enters the name, for example `severity`.
 - [ ] Where the provider's schema lists the allowed values of a field, such as an action being `created`, `edited` or `deleted`, the value box shows them as a hint.
+- [ ] A filter row matches either an exact value or text the field contains, such as a comment containing `@kora-agent`. Contains ignores case.
 - [ ] A filter on a field the delivery does not contain treats the field as empty.
 - [ ] A delivery excluded by the filter is recorded as filtered.
 

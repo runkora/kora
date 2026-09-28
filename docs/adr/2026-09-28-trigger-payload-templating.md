@@ -297,6 +297,18 @@ Terra's `TemplateCatalogList` is a searchable, grouped picker with keyboard navi
 
 `TemplateCatalogList` gains a `searchPlaceholder` prop for the event type picker, and its `Pattern` entries become selectable.
 
+### Decision 6: Contains filters
+
+`match_condition` matches exact values only, so a trigger cannot select comments that mention a name. A webhook trigger gains `match_contains`, with the same shape as `match_condition`: a field key maps to a list of substrings.
+
+- A delivery passes a `match_contains` entry when the field's resolved value contains any listed substring, compared case-insensitively. A missing field resolves to `""` and contains nothing.
+- A delivery must pass every entry of `match_condition` and of `match_contains`.
+- Keys follow the Decision 2 grammar and are resolved like any other referenced key.
+- Create and update reject an empty substring, more than 20 substrings for one field, and a substring over 256 characters. Every delivery scans these lists.
+- It is stored in the webhook trigger's `kind_config` next to the sender restriction, so no migration is needed. The API carries it as `match_contains` on the trigger and on create and update requests; update replaces it when present.
+
+In the console, each filter row chooses **is** or **contains** before its value box. Contains rows save to `match_contains`.
+
 ---
 
 ## Implementation
@@ -313,6 +325,7 @@ Terra's `TemplateCatalogList` is a searchable, grouped picker with keyboard navi
 8. `adapter_github.go`: `senderIdentifier`, with fixtures for `issue_comment`, `pull_request_review`, `pull_request` opened and labeled, and `push`.
 9. Require `event_type` on webhook create and update, and drop the empty-means-any branch in `fanOut`.
 10. Update the comments that describe a curated field map, deferred injection hardening or catch-all triggers: `SourceAdapter` in `adapter.go`, `template.go`, `fanOut`, and the event type validation in `service.go`.
+11. `match_contains`: `WebhookConfig`, request and response fields, validation, referenced keys, and the check in `fanOut` after `matchesCondition`. The MCP `triggers.create` and `triggers.update` tools accept it.
 
 ### Tooling
 
@@ -325,6 +338,7 @@ Terra's `TemplateCatalogList` is a searchable, grouped picker with keyboard navi
 3. Remove `PROVIDER_EVENTS` and the webhook entries of `field-catalog.ts`.
 4. Data block form in the webhook template preview.
 5. Sender restriction control on the webhook kind.
+6. An **is** or **contains** choice on each filter row, saved to `match_condition` or `match_contains`.
 
 ### Docs
 
