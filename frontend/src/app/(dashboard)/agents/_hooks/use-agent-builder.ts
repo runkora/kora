@@ -89,6 +89,9 @@ export interface BuilderFields {
   runBudgetUsd: string;
   capacityOn: boolean;
   capacity: string;
+  subagentCapOn: boolean;
+  subagentCap: string;
+  nestedSubagents: boolean;
 }
 
 export interface BuilderCatalogues {
@@ -162,6 +165,9 @@ const EMPTY_FIELDS: BuilderFields = {
   runBudgetUsd: '5.00',
   capacityOn: false,
   capacity: '10',
+  subagentCapOn: false,
+  subagentCap: '4',
+  nestedSubagents: true,
 };
 
 /** The draft payload: a partial create request plus builder-only resume state. */
@@ -210,6 +216,10 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
   if (fields.capacityOn && Number(fields.capacity) > 0) {
     payload.max_concurrent_runs_per_pod = Number(fields.capacity);
   }
+  if (fields.subagentCapOn && Number(fields.subagentCap) > 0) {
+    payload.max_concurrent_subagents = Number(fields.subagentCap);
+  }
+  payload.nested_subagents = fields.nestedSubagents;
   return payload;
 }
 
@@ -241,6 +251,9 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     capacity: payload.max_concurrent_runs_per_pod
       ? String(payload.max_concurrent_runs_per_pod)
       : '10',
+    subagentCapOn: (payload.max_concurrent_subagents ?? 0) > 0,
+    subagentCap: payload.max_concurrent_subagents ? String(payload.max_concurrent_subagents) : '4',
+    nestedSubagents: payload.nested_subagents ?? true,
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
   return { fields, step };

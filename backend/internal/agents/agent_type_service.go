@@ -147,6 +147,9 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 			return fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
 		}
 	}
+	if vErr := validateSubagentCap(req.MaxConcurrentSubagents); vErr != nil {
+		return vErr
+	}
 	if req.Connectors != nil {
 		if vErr := ValidateConnectors(req.Connectors); vErr != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
@@ -200,6 +203,10 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 		return out, fmt.Errorf("%w: %w", ErrInvalidIdentityMode, err)
 	}
 	out.identityMode = req.IdentityMode.OrDefault()
+
+	if err := validateSubagentCap(req.MaxConcurrentSubagents); err != nil {
+		return out, err
+	}
 
 	// Connectivity posture: default to deny-by-default (none) when omitted.
 	connectivity := Connectivity{Mode: ConnectivityNone}
@@ -314,6 +321,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
 	}
+
+	at.MaxConcurrentSubagents = subagentCap(req.MaxConcurrentSubagents)
+	at.NestedSubagents = req.NestedSubagents == nil || *req.NestedSubagents
 
 	if err := s.repo.CreateAgentType(ctx, at); err != nil {
 		if errors.Is(err, ErrSlugTaken) {
@@ -583,6 +593,36 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 	return at, nil
 }
 
+// maxSubagentCap bounds max_concurrent_subagents; the agent runtime's own default is 20.
+const maxSubagentCap = 50
+
+// validateSubagentCap accepts nil or 0 (the runtime default) and 1..maxSubagentCap.
+func validateSubagentCap(n *int) error {
+	if n == nil || (*n >= 0 && *n <= maxSubagentCap) {
+		return nil
+	}
+	return fmt.Errorf("%w: max_concurrent_subagents must be between 1 and %d, or 0 for the default", ErrInvalidSubagentPolicy, maxSubagentCap)
+}
+
+// subagentCap stores 0 as nil, the runtime default.
+func subagentCap(n *int) *int {
+	if n == nil || *n == 0 {
+		return nil
+	}
+	v := *n
+	return &v
+}
+
+// applySubagentPolicyUpdate copies the subagent policy fields req sets onto at.
+func applySubagentPolicyUpdate(at *AgentType, req UpdateAgentTypeRequest) {
+	if req.MaxConcurrentSubagents != nil {
+		at.MaxConcurrentSubagents = subagentCap(req.MaxConcurrentSubagents)
+	}
+	if req.NestedSubagents != nil {
+		at.NestedSubagents = *req.NestedSubagents
+	}
+}
+
 // applyAgentTypeUpdates copies non-nil fields from req onto at.
 func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	if req.Name != nil {
@@ -603,6 +643,7 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	if req.ModelID != nil {
 		at.ModelID = req.ModelID
 	}
+	applySubagentPolicyUpdate(at, req)
 	if req.ToolScopes != nil {
 		at.ToolScopes = req.ToolScopes
 	}

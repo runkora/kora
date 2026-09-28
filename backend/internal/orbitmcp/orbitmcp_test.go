@@ -137,6 +137,38 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}
 }
 
+// TestSubagentPolicyForwarded proves agents.create and agents.update pass the
+// subagent policy through, including an explicit false for nested_subagents.
+func TestSubagentPolicyForwarded(t *testing.T) {
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"at-1"}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"agents.create", map[string]any{"name": "Reviewer", "slug": "reviewer", "model_id": "m", "max_concurrent_subagents": 2, "nested_subagents": false}},
+		{"agents.update", map[string]any{"agent_type_id": "at-1", "max_concurrent_subagents": 2, "nested_subagents": false}},
+	} {
+		call("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args})
+		if gotBody["max_concurrent_subagents"] != float64(2) || gotBody["nested_subagents"] != false {
+			t.Errorf("%s forwarded %v, want max_concurrent_subagents 2 and nested_subagents false", tc.tool, gotBody)
+		}
+	}
+}
+
 // TestTriggerToolsUseTriggersBackend guards the fix for the trigger tools
 // 404ing in dev: they must call the orbit-triggers backend, not identity. The
 // trigger-sources/triggers/deliveries endpoints moved out of the identity binary

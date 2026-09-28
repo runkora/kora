@@ -119,6 +119,8 @@ type createAgentArgs struct {
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
 	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments.list tool to list"`
 	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
+	MaxConcurrentSubagents  *int             `json:"max_concurrent_subagents,omitempty" jsonschema:"most subagents a run may have running at once, 1 to 50 (omit or 0 for the runtime default of 20)"`
+	NestedSubagents         *bool            `json:"nested_subagents,omitempty" jsonschema:"whether subagents and forked skills may launch subagents of their own (default true). false stops a forked skill fanning out into parallel subagents"`
 }
 
 // connectorArg is one credential connection the agent may use and the actions
@@ -153,4 +155,6 @@ type updateAgentArgs struct {
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
 	EnvironmentID           *string          `json:"environment_id,omitempty" jsonschema:"id of a connectivity/connector environment to attach; empty string detaches — call the agents.environments.list tool to list"`
+	MaxConcurrentSubagents  *int             `json:"max_concurrent_subagents,omitempty" jsonschema:"new cap on subagents running at once, 1 to 50; 0 restores the runtime default"`
+	NestedSubagents         *bool            `json:"nested_subagents,omitempty" jsonschema:"whether subagents and forked skills may launch subagents of their own"`
 }

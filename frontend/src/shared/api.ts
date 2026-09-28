@@ -354,6 +354,10 @@ export interface AgentType {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod: number;
+  /** Most subagents a run may have running at once; null = runtime default. */
+  max_concurrent_subagents?: number | null;
+  /** Whether subagents and forked skills may launch subagents of their own. */
+  nested_subagents?: boolean;
   state: AgentTypeState;
   created_at: string;
   updated_at: string;
@@ -460,6 +464,9 @@ export interface CreateAgentTypeRequest {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod?: number;
+  /** Omit or 0 for the runtime default. */
+  max_concurrent_subagents?: number;
+  nested_subagents?: boolean;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
@@ -542,6 +549,9 @@ export interface UpdateAgentTypeRequest {
   framework?: AgentFramework;
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
+  /** 0 restores the runtime default. */
+  max_concurrent_subagents?: number;
+  nested_subagents?: boolean;
   model_id?: string;
   tool_scopes?: string[];
   grant_scopes?: string[];

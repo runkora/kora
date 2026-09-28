@@ -205,16 +205,34 @@ type AgentType struct {
 	// EnvironmentID references a tenant Environment whose egress hosts and
 	// connectors are merged into this agent's effective grant. nil = no
 	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
-	EnvironmentID           *string        `json:"environment_id,omitempty"`
-	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
-	State                   AgentTypeState `json:"state"`
-	CreatedAt               time.Time      `json:"created_at"`
-	UpdatedAt               time.Time      `json:"updated_at"`
-	ModelID                 *string        `json:"model_id,omitempty"`
+	EnvironmentID           *string `json:"environment_id,omitempty"`
+	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
+	// MaxConcurrentSubagents caps the subagents a run may have running at once.
+	// nil leaves the agent runtime's default. See docs/adr/2026-09-29-agent-run-guardrails.md.
+	MaxConcurrentSubagents *int `json:"max_concurrent_subagents"`
+	// NestedSubagents lets subagents and forked skills launch subagents of their own.
+	NestedSubagents bool           `json:"nested_subagents"`
+	State           AgentTypeState `json:"state"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	ModelID         *string        `json:"model_id,omitempty"`
 	// Budget mirrors the budget on the agent's policy grant. Transient: never
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
 	Budget *AgentBudget `json:"budget,omitempty"`
+}
+
+// SubagentLimits returns the agent runtime's concurrent-subagent cap and spawn
+// depth for this type; 0 means the runtime default. Depth 1 keeps subagents and
+// forked skills from launching subagents of their own.
+func (at AgentType) SubagentLimits() (maxConcurrent, spawnDepth int) {
+	if at.MaxConcurrentSubagents != nil {
+		maxConcurrent = *at.MaxConcurrentSubagents
+	}
+	if !at.NestedSubagents {
+		spawnDepth = 1
+	}
+	return maxConcurrent, spawnDepth
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set

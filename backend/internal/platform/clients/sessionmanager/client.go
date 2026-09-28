@@ -106,6 +106,10 @@ type CreateSessionRequest struct {
 	// immediately, rather than waiting for the agent to ask for one. It provisions
 	// in the background, so the session is created either way.
 	ProvisionSandbox bool `json:"provision_sandbox,omitempty"`
+	// MaxConcurrentSubagents and MaxSubagentSpawnDepth carry the agent type's
+	// subagent policy; 0 leaves the agent runtime's default.
+	MaxConcurrentSubagents int `json:"max_concurrent_subagents,omitempty"`
+	MaxSubagentSpawnDepth  int `json:"max_subagent_spawn_depth,omitempty"`
 }
 
 // CreateSession starts a new agent subprocess on the target pod.

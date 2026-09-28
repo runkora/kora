@@ -70,6 +70,9 @@ export function AgentConfigurationTab() {
     runBudgetUsd: cfg.budgetPerRunUSD || '5.00',
     capacityOn,
     capacity: cfg.maxConcurrentRuns,
+    subagentCapOn: cfg.maxConcurrentSubagents !== '',
+    subagentCap: cfg.maxConcurrentSubagents || '4',
+    nestedSubagents: cfg.nestedSubagents,
   };
 
   const onGuardrailChange = <K extends keyof GuardrailValues>(
@@ -97,6 +100,16 @@ export function AgentConfigurationTab() {
         break;
       case 'capacity':
         cfg.setMaxConcurrentRuns(String(value));
+        break;
+      // Off clears the cap, which the save sends as 0: back to the runtime default.
+      case 'subagentCapOn':
+        cfg.setMaxConcurrentSubagents(value ? '4' : '');
+        break;
+      case 'subagentCap':
+        cfg.setMaxConcurrentSubagents(String(value));
+        break;
+      case 'nestedSubagents':
+        cfg.setNestedSubagents(Boolean(value));
         break;
     }
   };
@@ -289,7 +302,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="shield"
               title="Guardrails"
-              description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+              description="Set the ceilings Orbit enforces at runtime: spend, capacity and subagent limits."
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>

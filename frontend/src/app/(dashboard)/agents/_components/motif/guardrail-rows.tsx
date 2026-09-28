@@ -24,6 +24,9 @@ export interface GuardrailValues {
   runBudgetUsd: string;
   capacityOn: boolean;
   capacity: string;
+  subagentCapOn: boolean;
+  subagentCap: string;
+  nestedSubagents: boolean;
 }
 
 export function GuardrailRow({
@@ -168,6 +171,38 @@ export function GuardrailsFields({
           </Text>
         </Stack>
       </GuardrailRow>
+
+      <GuardrailRow
+        on={values.subagentCapOn}
+        onToggle={(on) => onChange('subagentCapOn', on)}
+        icon="users"
+        title="Subagents"
+        desc="Max subagents a run may have running at once (runtime default of 20 when off)"
+      >
+        <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
+          <Stack maxWidth="form-field-sm">
+            <Input
+              mono
+              compact
+              inputMode="numeric"
+              value={values.subagentCap}
+              onChange={(e) => onChange('subagentCap', e.target.value)}
+              aria-label="Max concurrent subagents"
+            />
+          </Stack>
+          <Text as="span" size="micro" color="subtle">
+            at once
+          </Text>
+        </Stack>
+      </GuardrailRow>
+
+      <GuardrailRow
+        on={values.nestedSubagents}
+        onToggle={(on) => onChange('nestedSubagents', on)}
+        icon="route"
+        title="Nested subagents"
+        desc="Let subagents and forked skills start subagents of their own. Off stops a skill fanning out."
+      />
     </Stack>
   );
 }

@@ -250,6 +250,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
 		ProvisionSandbox: req.ProvisionSandbox,
 	}
+	smReq.MaxConcurrentSubagents, smReq.MaxSubagentSpawnDepth = at.SubagentLimits()
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
 	}

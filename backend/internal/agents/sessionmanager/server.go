@@ -242,6 +242,11 @@ type CreateSessionRequest struct {
 	// ProvisionSandbox provisions this run's sandbox immediately instead of
 	// waiting for the agent to ask for one.
 	ProvisionSandbox bool `json:"provision_sandbox"`
+	// MaxConcurrentSubagents and MaxSubagentSpawnDepth are the agent type's
+	// subagent policy; 0 leaves Claude Code's default
+	// (docs/adr/2026-09-29-agent-run-guardrails.md).
+	MaxConcurrentSubagents int `json:"max_concurrent_subagents"`
+	MaxSubagentSpawnDepth  int `json:"max_subagent_spawn_depth"`
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -293,6 +298,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
 		}
 		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID)...)
+		extraEnv = append(extraEnv, subagentPolicyEnv(req)...)
 		runner = NewClaudeRunner(ClaudeRunnerConfig{
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
 			WrapperPath:       c.cfg.WrapperPath,
@@ -632,6 +638,19 @@ func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 		"endpoint":   sandbox.Endpoint,
 		"exec_token": sandbox.ExecToken,
 	})
+}
+
+// subagentPolicyEnv sets Claude Code's own subagent limits from the agent
+// type's policy. An unset value leaves Claude Code's default.
+func subagentPolicyEnv(req CreateSessionRequest) []string {
+	var env []string
+	if req.MaxConcurrentSubagents > 0 {
+		env = append(env, fmt.Sprintf("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=%d", req.MaxConcurrentSubagents))
+	}
+	if req.MaxSubagentSpawnDepth > 0 {
+		env = append(env, fmt.Sprintf("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=%d", req.MaxSubagentSpawnDepth))
+	}
+	return env
 }
 
 // inferenceURLForRun builds the per-run inference base URL used for

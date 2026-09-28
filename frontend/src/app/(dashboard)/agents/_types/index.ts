@@ -37,6 +37,9 @@ export interface AgentTypeRow {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcpTools: string[];
   maxConcurrentRunsPerPod: number;
+  /** null = the runtime default. */
+  maxConcurrentSubagents: number | null;
+  nestedSubagents: boolean;
   systemPrompt: string;
   createdAt: string;
   updatedAt: string;
@@ -102,6 +105,8 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     connectors: a.connectors ?? [],
     mcpTools: a.mcp_tools ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
+    maxConcurrentSubagents: a.max_concurrent_subagents ?? null,
+    nestedSubagents: a.nested_subagents ?? true,
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,
     updatedAt: a.updated_at,

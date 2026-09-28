@@ -70,6 +70,14 @@ ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 # Install claude CLI.
 RUN npm install -g @anthropic-ai/claude-code@2
 
+# Agent-type subagent policy sets these Claude Code env vars
+# (docs/adr/2026-09-29-agent-run-guardrails.md). Fail the build when a release
+# stops reading them rather than let the policy lapse silently.
+RUN claude_bin="$(readlink -f "$(command -v claude)")" && \
+    for v in CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH; do \
+      grep -qa "$v" "$claude_bin" || { echo "claude no longer reads $v" >&2; exit 1; }; \
+    done
+
 # Install OpenCode (Node.js app; ACP stdio mode requires no additional system packages).
 # Validate opencode.acp protocol compatibility on upgrade.
 RUN npm install -g opencode-ai@1

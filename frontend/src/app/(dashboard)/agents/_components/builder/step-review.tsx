@@ -104,6 +104,11 @@ export function StepReview() {
               value: fields.capacityOn ? `${fields.capacity} runs / pod` : 'Service default',
               mono: fields.capacityOn,
             },
+            {
+              label: 'Subagents',
+              value: `${fields.subagentCapOn ? `${fields.subagentCap} at once` : 'Runtime default'}${fields.nestedSubagents ? '' : ', no nesting'}`,
+              mono: fields.subagentCapOn,
+            },
           ]}
         />
       </Wizard.ReviewStep>
