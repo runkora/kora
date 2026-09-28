@@ -76,7 +76,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   // Fetch 7-day token breakdown and spend from the inference gateway.
   useEffect(() => {
     if (!agent) return;
-    void fetchAgentTypeUsage(agent.id).then(({ usage }) => {
+    void fetchAgentTypeUsage(agent.slug).then(({ usage }) => {
       if (usage) setAgentUsage(usage);
     });
   }, [agent]);
@@ -150,16 +150,6 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         cell: (row) => (
           <Text mono size="supporting">
             {formatDuration(row.durationMs)}
-          </Text>
-        ),
-      },
-      {
-        id: 'tokens',
-        header: 'Tokens',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.tokensUsed ? fmtTokens(row.tokensUsed) : '—'}
           </Text>
         ),
       },

@@ -1052,21 +1052,21 @@ func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunU
 	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
 }
 
-// GetAgentTypeUsage returns the token breakdown and spend recorded against an
-// agent type's principal over the last 7 days. Returns a zero-value result
+// GetAgentTypeUsage returns the token breakdown and spend recorded against the
+// agent with the given slug over the last 7 days. Returns a zero-value result
 // (not an error) when no usage repository is configured.
-func (s *Service) GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error) {
+func (s *Service) GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error) {
 	if s.usage == nil {
-		return AgentTypeUsage{AgentTypeID: agentTypeID}, nil
+		return AgentTypeUsage{AgentSlug: slug}, nil
 	}
-	u, err := s.usage.GetAgentTypeUsage(ctx, tenantID, agentTypeID)
+	u, err := s.usage.GetAgentTypeUsage(ctx, tenantID, slug)
 	if err != nil {
 		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
 	}
 	return u, nil
 }
 
-// ListAgentTypeUsage returns the 7-day token breakdown and spend per agent type
+// ListAgentTypeUsage returns the 7-day token breakdown and spend per agent slug
 // for the tenant. Returns an empty slice (not an error) when no usage
 // repository is configured.
 func (s *Service) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {

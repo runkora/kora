@@ -1,7 +1,7 @@
 # Agent Token Breakdown and Spend Card
 
 **Date:** 2026-06-23  
-**Status:** Accepted  
+**Status:** Accepted; Amendment 1 Proposed  
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
@@ -180,3 +180,37 @@ Data is fetched on component mount via a `useEffect`/`useState` inside `AgentOve
 
 - The SPIFFE principal ID format `spiffe://orbit/{tenantID}/agent/{agentTypeID}` is already established in `k8s.go:agentSpiffeID`. The inference-gateway constructs the same format in the handler.
 - No new database index is needed: `inference_usage` already has an index on `(tenant_id, principal_id, created_at)` from the analytics work (ADR `2026-04-27-inference-analytics`).
+
+---
+
+## Amendment 1 (2026-09-29): Aggregates key on the agent slug in the attested SPIFFE path
+
+Touches **Who is this agent?**: the aggregates now read the agent identity exactly as SPIRE attests it. Access is unchanged: both endpoints keep the `agents:types:read` route scope and the tenant filter from the verified token.
+
+### Context
+
+The principal format stated above is wrong. Agent pods receive `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}` from the `orbit-tenant-agent` ClusterSPIFFEID (`charts/orbit/templates/platform/clusterspiffeids.yaml`), where the trust domain is per install and the namespace is the tenant namespace (`orbit-tenant-{tenant}`). Identity keeps that URI as the principal ID and normalises per-run sandbox SVIDs (`.../agent/{slug}/sandbox/{run-id}`) to it, so every `inference_usage` row an agent writes carries it as `principal_id` with `principal_type = 'AGENT'`. The last path segment is the agent type slug, not its UUID. The gateway built `spiffe://orbit/{tenantID}/agent/{agentTypeID}` instead, so no row ever matched and the agents list and agent overview showed "—". On the local cluster, 0 of 491 agent rows in the last 7 days matched.
+
+The run list's `tokens_used` field has no source: orbit-agents never had such a column, so the "Tokens" column in the run tables and the runs-based fallback on the agents list were always empty.
+
+### Options
+
+- **A. Rebuild the full principal in the gateway** from a configured trust domain and the `orbit-tenant-` namespace convention. Exact match on the existing index, but duplicates two facts the gateway does not own and breaks silently if either changes.
+- **B. Key by slug, matching the `/agent/{slug}` suffix of agent principals within the tenant.** The trust domain and namespace are not reconstructed. Within one tenant, a slug is unique (`agent_types (tenant_id, slug)`) and is the identity SPIRE attests.
+- **C. Attribute by run**: ask orbit-agents for the agent's run IDs and sum `inference_usage` by `run_id`. Correct, but adds a cross-service call and an unbounded `IN` list.
+
+### Decision
+
+Option B.
+
+- `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant, `principal_type = 'AGENT'`, and the last `len('/agent/{slug}')` characters of `principal_id` equal `/agent/{slug}`. The comparison is exact, so no input character acts as a wildcard, and `probe` never counts `token-probe` rows. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
+- `GET /v1/usage/agent-types` groups the same rows by the slug taken from the last `/agent/{slug}` path segment.
+- Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug.
+- The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
+
+### Consequences
+
+- The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace.
+- Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
+- The suffix match cannot use the `principal_id` index; the query scans the tenant's rows for the last 7 days through `(tenant_id, created_at)`.
+- Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.

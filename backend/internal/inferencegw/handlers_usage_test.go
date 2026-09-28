@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -696,29 +697,47 @@ func TestHandleGetRunUsage_MissingClaims(t *testing.T) {
 	}
 }
 
-// ── GET /usage/agent-type/{agentTypeID} ───────────────────────────────────────
+// ── GET /usage/agent-type/{slug} ─────────────────────────────────────────────
 
 func TestHandleGetAgentTypeUsage(t *testing.T) {
 	t.Parallel()
-	usage := newMockUsageRepo()
-	svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
-	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
-
-	req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/type-abc", nil)
-	req.SetPathValue("agentTypeID", "type-abc")
-	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
-	w := httptest.NewRecorder()
-	c.handleGetAgentTypeUsage(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	tests := []struct {
+		name       string
+		slug       string
+		wantStatus int
+	}{
+		{"valid slug", "token-probe", http.StatusOK},
+		{"empty slug", "", http.StatusBadRequest},
+		{"wildcard characters", "probe%", http.StatusBadRequest},
+		{"path separator", "a/b", http.StatusBadRequest},
+		{"too long", strings.Repeat("a", 64), http.StatusBadRequest},
 	}
-	var got AgentTypeUsage
-	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.AgentTypeID != "type-abc" {
-		t.Errorf("AgentTypeID = %q, want type-abc", got.AgentTypeID)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
+			c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+			req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/x", nil)
+			req.SetPathValue("slug", tc.slug)
+			req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+			w := httptest.NewRecorder()
+			c.handleGetAgentTypeUsage(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body: %s", w.Code, tc.wantStatus, w.Body)
+			}
+			if tc.wantStatus != http.StatusOK {
+				return
+			}
+			var got AgentTypeUsage
+			if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if got.AgentSlug != tc.slug {
+				t.Errorf("AgentSlug = %q, want %q", got.AgentSlug, tc.slug)
+			}
+		})
 	}
 }
 
@@ -727,8 +746,8 @@ func TestHandleGetAgentTypeUsage_MissingClaims(t *testing.T) {
 	svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
 	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/type-abc", nil)
-	req.SetPathValue("agentTypeID", "type-abc")
+	req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/token-probe", nil)
+	req.SetPathValue("slug", "token-probe")
 	w := httptest.NewRecorder()
 	c.handleGetAgentTypeUsage(w, req)
 

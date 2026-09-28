@@ -325,14 +325,14 @@ export const ApiRoute = {
     previewEffectiveAccess: (): `${typeof API_BASE}/agents/types/effective-access` =>
       `${API_BASE}/agents/types/effective-access`,
     /**
-     * `/api/agents/types/[typeId]/usage`
+     * `/api/agents/types/usage/[slug]`
      *
-     * GET — returns the agent type's 7-day token breakdown and spend, sourced
+     * GET — returns the agent's 7-day token breakdown and spend by slug, sourced
      *       from the inference gateway. Powers the token breakdown and spend
      *       cards on the agent overview page.
      */
-    usage: (id: string): `${typeof API_BASE}/agents/types/${string}/usage` =>
-      `${API_BASE}/agents/types/${id}/usage`,
+    usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>
+      `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}`,
     /**
      * `/api/agents/types/usage`
      *

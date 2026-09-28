@@ -71,7 +71,6 @@ export interface RunRow {
   /** Elapsed ms: completedAt - startedAt, or now - startedAt for active runs, or null if not started. */
   durationMs: number | null;
   /** Total tokens consumed by this run, or null if not available. */
-  tokensUsed: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
@@ -142,7 +141,6 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
     completedAt: r.completed_at,
     createdAt: r.created_at,
     durationMs,
-    tokensUsed: r.tokens_used ?? null,
     toolCalls: r.tool_calls ?? null,
     summary: r.summary ?? null,
   };

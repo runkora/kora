@@ -11,6 +11,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ─── GET /v1/usage ───────────────────────────────────────────────────────────
@@ -262,10 +263,9 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
 }
 
-// handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{agentTypeID}.
-// Returns the token breakdown and spend recorded against the agent type's
-// SPIFFE principal over the last 7 days, scoped to the caller's verified
-// tenant. Any authenticated tenant member may read it (the agent overview
+// handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{slug}.
+// Returns the token breakdown and spend recorded against the agent's SPIFFE
+// principal over the last 7 days, scoped to the caller's verified tenant. Any authenticated tenant member may read it (the agent overview
 // page is already tenant-scoped); the query filters by tenant_id so no
 // cross-tenant leakage is possible.
 func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
@@ -277,13 +277,14 @@ func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	agentTypeID := r.PathValue("agentTypeID")
-	if agentTypeID == "" {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "agent type id is required", nil), nil)
+	// Slugs are pod label values (spiffe.io/agent), so anything else cannot be an agent principal.
+	slug := r.PathValue("slug")
+	if slug == "" || len(validation.IsValidLabelValue(slug)) > 0 {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "a valid agent slug is required", nil), nil)
 		return
 	}
 
-	usage, err := c.svc.GetAgentTypeUsage(ctx, claims.Orbit.TenantID, agentTypeID)
+	usage, err := c.svc.GetAgentTypeUsage(ctx, claims.Orbit.TenantID, slug)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent type usage", nil), err)
 		return
@@ -293,7 +294,7 @@ func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Requ
 }
 
 // handleListAgentTypeUsage handles GET /v1/usage/agent-types. Returns the
-// 7-day token breakdown and spend per agent type for the caller's verified
+// 7-day token breakdown and spend per agent slug for the caller's verified
 // tenant, powering the total + per-agent cost on the agents list page. Scoped
 // to the caller's tenant; the query filters by tenant_id so no cross-tenant
 // leakage is possible.
