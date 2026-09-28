@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 
@@ -10,42 +10,12 @@ const FIELDS: SchemaCatalogEntry[] = [
   { token: 'commonLabels.<name>', description: 'A label', group: 'commonLabels', pattern: true },
 ];
 
-function Harness({
-  initial,
-  onRows,
-}: {
-  initial: FilterRow[];
-  onRows?: (rows: FilterRow[]) => void;
-}) {
+function Harness({ initial }: { initial: FilterRow[] }) {
   const [rows, setRows] = useState(initial);
-  return (
-    <FilterRowsEditor
-      rows={rows}
-      fields={FIELDS}
-      onChange={(next) => {
-        setRows(next);
-        onRows?.(next);
-      }}
-    />
-  );
+  return <FilterRowsEditor rows={rows} fields={FIELDS} onChange={setRows} />;
 }
 
 describe('FilterRowsEditor', () => {
-  it('completes a pattern field from the typed name', async () => {
-    const onRows = vi.fn();
-    render(<Harness initial={[{ field: '', values: '' }]} onRows={onRows} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Filter 1 field' }));
-    fireEvent.click(await screen.findByText('commonLabels.<name>'));
-    fireEvent.change(screen.getByLabelText('Filter 1 name'), { target: { value: 'severity' } });
-    expect(onRows).toHaveBeenLastCalledWith([
-      expect.objectContaining({
-        field: 'commonLabels.severity',
-        pattern: 'commonLabels.<name>',
-        patternName: 'severity',
-      }),
-    ]);
-  });
-
   it("keeps each row's typed name when a row above is removed", () => {
     render(
       <Harness

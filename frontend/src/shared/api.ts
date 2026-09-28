@@ -676,19 +676,13 @@ export interface SenderRestriction {
 }
 
 /**
- * GET /trigger-sources/:id/event-types. Declared types come from the
- * provider's schema, observed ones from what the source has sent.
+ * GET /trigger-sources/:id/event-types and GET /trigger-providers/:provider/event-types.
+ * Declared types come from the provider's schema, observed ones from what a
+ * source has sent; the provider endpoint has no observed types.
  */
 export interface TriggerEventTypes {
   declared: string[];
-  observed: string[];
-  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
-  associations?: string[];
-}
-
-/** GET /trigger-providers/:provider/event-types. */
-export interface TriggerProviderEventTypes {
-  declared: string[];
+  observed?: string[];
   /** Association values a sender restriction may name; empty when the provider identifies no sender. */
   associations: string[];
 }

@@ -7,6 +7,7 @@
  * sender.
  */
 
+import { useId, type ReactNode } from 'react';
 import { Checkbox, FormField, Input, SectionLabel, Stack, Text } from '@orbit/terra';
 
 export interface SenderRestrictionDraft {
@@ -21,8 +22,8 @@ interface SenderRestrictionEditorProps {
   value: SenderRestrictionDraft;
   onChange: (next: SenderRestrictionDraft) => void;
   disabled?: boolean;
-  /** Distinguishes the login input's id when two editors share a page. */
-  idPrefix: string;
+  /** Rendered under the checkboxes, e.g. the drawer's save and discard buttons. */
+  actions?: ReactNode;
 }
 
 export function SenderRestrictionEditor({
@@ -30,8 +31,9 @@ export function SenderRestrictionEditor({
   value,
   onChange,
   disabled,
-  idPrefix,
+  actions,
 }: SenderRestrictionEditorProps) {
+  const loginsId = useId();
   if (available.length === 0) return null;
   const toggle = (association: string, on: boolean) =>
     onChange({
@@ -50,9 +52,9 @@ export function SenderRestrictionEditor({
           ticked relationship to the repository.
         </Text>
       </Stack>
-      <FormField label="Logins" id={`${idPrefix}-sender-logins`}>
+      <FormField label="Logins" id={loginsId}>
         <Input
-          id={`${idPrefix}-sender-logins`}
+          id={loginsId}
           mono
           value={value.logins}
           disabled={disabled}
@@ -72,6 +74,7 @@ export function SenderRestrictionEditor({
           </Checkbox>
         ))}
       </Stack>
+      {actions}
     </Stack>
   );
 }

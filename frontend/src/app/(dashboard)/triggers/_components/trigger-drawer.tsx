@@ -41,13 +41,14 @@ import {
 } from '@orbit/terra';
 import { CopyButton, EmptyState } from '@orbit/components';
 import { KIND_ICON, LIMITS } from '../_types';
-import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { CatalogPicker } from './catalog-picker';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
 import { FilterRowsEditor } from './filter-rows-editor';
+import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
@@ -70,7 +71,6 @@ import {
   timezoneOptions,
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
-import type { EditFilterRow } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 
 /**
@@ -83,7 +83,7 @@ export interface TriggerEditPatch {
   eventType?: string;
   matchCondition?: Record<string, string[]>;
   /** Replaces the restriction; both lists empty removes it. */
-  senderRestriction?: { logins: string[]; associations: string[] };
+  senderRestriction?: Senders;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
 
@@ -344,7 +344,7 @@ export function TriggerDrawer({
     [trigger?.eventType, trigger?.matchCondition],
   );
   const saveFilters = useCallback(
-    (value: { eventType: string; filters: EditFilterRow[] }) =>
+    (value: { eventType: string; filters: FilterRow[] }) =>
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
@@ -378,8 +378,7 @@ export function TriggerDrawer({
   const senders = useEditableSection(storedSenders, editKey, saveSenders, {
     isEqual: (a, b) =>
       a.logins === b.logins &&
-      a.associations.length === b.associations.length &&
-      a.associations.every((x) => b.associations.includes(x)),
+      [...a.associations].sort().join() === [...b.associations].sort().join(),
   });
 
   // The catalogue follows the event being edited.
@@ -454,7 +453,7 @@ export function TriggerDrawer({
         ? toTemplateCatalog(scheduledCatalog())
         : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
-  const setFilterRows = (rows: EditFilterRow[]) =>
+  const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
 
   const subtitle =
@@ -764,24 +763,23 @@ export function TriggerDrawer({
               )}
 
               {/* Senders: who may fire it, when the provider says who caused an event. */}
-              {trigger.kind === 'webhook' && sourceCatalog.associations.length > 0 && (
-                <Stack gap="snug">
-                  <SenderRestrictionEditor
-                    idPrefix="drawer"
-                    available={sourceCatalog.associations}
-                    value={senders.value}
-                    onChange={senders.setValue}
-                    disabled={!editable}
-                  />
-                  <EditActions
-                    dirty={senders.dirty}
-                    pending={senders.pending}
-                    error={senders.error}
-                    saveLabel="Save senders"
-                    onSave={senders.save}
-                    onDiscard={senders.discard}
-                  />
-                </Stack>
+              {trigger.kind === 'webhook' && (
+                <SenderRestrictionEditor
+                  available={sourceCatalog.associations}
+                  value={senders.value}
+                  onChange={senders.setValue}
+                  disabled={!editable}
+                  actions={
+                    <EditActions
+                      dirty={senders.dirty}
+                      pending={senders.pending}
+                      error={senders.error}
+                      saveLabel="Save senders"
+                      onSave={senders.save}
+                      onDiscard={senders.discard}
+                    />
+                  }
+                />
               )}
 
               {/* Prompt: what the run is actually asked to do. */}

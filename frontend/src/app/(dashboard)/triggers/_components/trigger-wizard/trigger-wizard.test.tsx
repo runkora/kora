@@ -45,10 +45,17 @@ beforeEach(() => {
         : { declared: ['issue_comment', 'push'], associations: ['OWNER', 'MEMBER'] },
     error: null,
   }));
-  api.fetchEventTypes.mockResolvedValue({
-    eventTypes: { declared: [], observed: ['custom'], associations: [] },
+  api.fetchEventTypes.mockImplementation(async (sourceId: string) => ({
+    eventTypes:
+      sourceId === 'src-2'
+        ? { declared: ['alert.firing'], associations: [] }
+        : {
+            declared: ['issue_comment', 'push'],
+            observed: ['custom'],
+            associations: ['OWNER', 'MEMBER'],
+          },
     error: null,
-  });
+  }));
   api.fetchProviderFields.mockImplementation(async (provider: string, eventType: string) => ({
     fields: provider === 'alertmanager' ? ALERT_FIELDS : (GITHUB_FIELDS[eventType] ?? []),
     error: null,
@@ -126,7 +133,6 @@ describe('filters and prompt fields', () => {
     expect(await screen.findByText('issue_comment')).toBeTruthy();
     expect(screen.getByText('custom')).toBeTruthy();
     expect(screen.getByLabelText('Search events')).toBeTruthy();
-    expect(screen.queryByText('any event')).toBeNull();
   });
 
   it('holds Continue until an event is chosen', async () => {

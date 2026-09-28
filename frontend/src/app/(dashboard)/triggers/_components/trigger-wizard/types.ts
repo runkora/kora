@@ -12,6 +12,9 @@ import type * as React from 'react';
 import type { IconName } from '@orbit/terra';
 import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
 import type { Frequency } from './cron';
+import type { FilterRow } from '../filter-rows-editor';
+import type { SenderRestrictionDraft } from '../sender-restriction-editor';
+import type { Senders } from '../../_types';
 
 export type { TriggerKind, TriggerOverflow };
 
@@ -54,7 +57,7 @@ export interface TriggerDraft {
    */
   matchCondition?: Record<string, string[]>;
   /** Webhook only. Omitted when anyone may fire the trigger. */
-  senderRestriction?: { logins: string[]; associations: string[] };
+  senderRestriction?: Senders;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -95,21 +98,6 @@ export interface TriggerWizardProps {
   onClose: () => void;
 }
 
-/**
- * One row of the webhook match-condition builder.
- *
- * `values` stays a raw string while being edited, split on `|` only when the
- * draft is built: splitting on every keystroke would fight the person typing.
- */
-export interface WizardFilter {
-  field: string;
-  values: string;
-  /** The pattern family being completed, e.g. `commonLabels.<name>`. */
-  pattern?: string;
-  /** The name typed to complete `pattern`. */
-  patternName?: string;
-}
-
 /** One row of the manual trigger's field builder. */
 export interface WizardField {
   /** Stable local id — the key is derived from the label and may collide mid-edit. */
@@ -131,10 +119,8 @@ export interface WizardState {
   newSourceProvider: string;
   eventType: string;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
-  filters: WizardFilter[];
-  /** Raw while typed; split on commas and whitespace in the draft. */
-  senderLogins: string;
-  senderAssociations: string[];
+  filters: FilterRow[];
+  senders: SenderRestrictionDraft;
 
   // ── Schedule ──
   freq: Frequency;

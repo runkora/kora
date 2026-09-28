@@ -9,7 +9,6 @@ import type {
   TriggerEventTypes,
   TriggerField,
   TriggerFireRequest,
-  TriggerProviderEventTypes,
   TriggerFireResponse,
   TriggerUpdateRequest,
   WebhookSource,
@@ -118,8 +117,8 @@ export async function sourceEventTypes(
 export async function providerEventTypes(
   accessToken: string,
   provider: string,
-): Promise<TriggerProviderEventTypes> {
-  const body = await request<TriggerProviderEventTypes>(
+): Promise<TriggerEventTypes> {
+  const body = await request<TriggerEventTypes>(
     `/trigger-providers/${encodeURIComponent(provider)}/event-types`,
     accessToken,
   );

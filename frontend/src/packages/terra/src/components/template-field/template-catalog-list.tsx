@@ -179,7 +179,6 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                       type="button"
                       data-slot="template-catalog-item"
                       data-token={entry.token}
-                      data-pattern={entry.pattern ? 'true' : undefined}
                       data-active={isActive ? 'true' : undefined}
                       onMouseEnter={() => setActive(index)}
                       onClick={() => onSelect(entry.token, entry)}

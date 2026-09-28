@@ -19,7 +19,6 @@ import type {
   TriggerDelivery,
   TriggerEventTypes,
   TriggerField,
-  TriggerProviderEventTypes,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -129,11 +128,10 @@ export async function fetchEventTypes(
 /** The event types in a provider's schema, and the sender associations it knows. */
 export async function fetchProviderEventTypes(
   provider: string,
-): Promise<{ eventTypes: TriggerProviderEventTypes | null; error: string | null }> {
-  const res = await send<TriggerProviderEventTypes>(
-    ApiRoute.triggerProviders.eventTypes(provider),
-    { cache: 'no-store' },
-  );
+): Promise<{ eventTypes: TriggerEventTypes | null; error: string | null }> {
+  const res = await send<TriggerEventTypes>(ApiRoute.triggerProviders.eventTypes(provider), {
+    cache: 'no-store',
+  });
   return { eventTypes: res.data, error: res.error };
 }
 

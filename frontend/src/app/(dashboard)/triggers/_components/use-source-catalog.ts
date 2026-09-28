@@ -2,12 +2,12 @@
 
 /**
  * @tier 3 — triggers-scoped. Loads what a webhook trigger can listen for and
- * read: the provider's schema event types, sender associations and the chosen
- * event's fields, plus the event types an existing source has actually sent.
+ * read: the schema event types, sender associations and the chosen event's
+ * fields, plus the event types an existing source has actually sent.
  */
 
 import { useEffect, useState } from 'react';
-import type { TriggerField, TriggerProviderEventTypes } from '@orbit/shared/api';
+import type { TriggerEventTypes, TriggerField } from '@orbit/shared/api';
 import {
   fetchEventTypes,
   fetchProviderEventTypes,
@@ -33,40 +33,30 @@ interface Answer<T> {
 
 /**
  * `provider` empty means nothing to ask yet. `sourceId` empty means a new
- * source with no received event types.
+ * source: its event types come from the provider, with none received.
  */
 export function useSourceCatalog(
   provider: string,
   sourceId: string,
   eventType: string,
 ): SourceCatalog {
-  const [types, setTypes] = useState<Answer<TriggerProviderEventTypes | null> | null>(null);
-  const [observed, setObserved] = useState<Answer<string[]> | null>(null);
+  const [types, setTypes] = useState<Answer<TriggerEventTypes | null> | null>(null);
   const [fields, setFields] = useState<Answer<TriggerField[]> | null>(null);
+  const typesKey = sourceId ? `source/${sourceId}` : provider ? `provider/${provider}` : '';
   const fieldsKey = provider && eventType ? `${provider}/${eventType}` : '';
 
   useEffect(() => {
-    if (!provider) return;
-    // A response for a provider no longer chosen must not overwrite the current one.
+    if (!typesKey) return;
+    // A response for a source or provider no longer chosen must not overwrite the current one.
     let live = true;
-    void fetchProviderEventTypes(provider).then(({ eventTypes, error }) => {
-      if (live) setTypes({ key: provider, value: eventTypes, error });
+    const load = sourceId ? fetchEventTypes(sourceId) : fetchProviderEventTypes(provider);
+    void load.then(({ eventTypes, error }) => {
+      if (live) setTypes({ key: typesKey, value: eventTypes, error });
     });
     return () => {
       live = false;
     };
-  }, [provider]);
-
-  useEffect(() => {
-    if (!sourceId) return;
-    let live = true;
-    void fetchEventTypes(sourceId).then(({ eventTypes, error }) => {
-      if (live) setObserved({ key: sourceId, value: eventTypes?.observed ?? [], error });
-    });
-    return () => {
-      live = false;
-    };
-  }, [sourceId]);
+  }, [typesKey, sourceId, provider]);
 
   useEffect(() => {
     if (!fieldsKey) return;
@@ -79,14 +69,13 @@ export function useSourceCatalog(
     };
   }, [fieldsKey, provider, eventType]);
 
-  const currentTypes = types !== null && types.key === provider ? types : null;
-  const currentObserved = observed !== null && observed.key === sourceId ? observed : null;
+  const currentTypes = types !== null && types.key === typesKey ? types : null;
   const currentFields = fields !== null && fields.key === fieldsKey ? fields : null;
   return {
     declared: currentTypes?.value?.declared ?? [],
-    observed: currentObserved?.value ?? [],
+    observed: currentTypes?.value?.observed ?? [],
     associations: currentTypes?.value?.associations ?? [],
     fields: currentFields?.value ?? [],
-    error: currentTypes?.error ?? currentObserved?.error ?? currentFields?.error ?? null,
+    error: currentTypes?.error ?? currentFields?.error ?? null,
   };
 }

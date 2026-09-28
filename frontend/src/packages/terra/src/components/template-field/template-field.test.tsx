@@ -325,9 +325,7 @@ describe('TemplateCatalogList', () => {
       />,
     );
     expect(container.querySelector('[data-slot="template-catalog-pattern"]')).toBeNull();
-    const pattern = container.querySelector('[data-token="group.labels.<name>"]')!;
-    expect(pattern).toHaveAttribute('data-pattern', 'true');
-    fireEvent.click(pattern);
+    fireEvent.click(container.querySelector('[data-token="group.labels.<name>"]')!);
     expect(onSelect).toHaveBeenCalledWith(
       'group.labels.<name>',
       expect.objectContaining({ pattern: true }),

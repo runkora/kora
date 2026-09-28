@@ -11,17 +11,7 @@
 import type { InputField } from '@orbit/shared/api';
 import { inputsToCatalog } from './trigger-wizard/field-catalog';
 import type { FieldCatalogEntry } from './trigger-wizard/types';
-
-/**
- * One editable filter row. Values stay a raw string while being typed.
- *
- * Structurally the wizard's `WizardFilter`: both surfaces edit the same rows
- * through the shared `FilterRowsEditor`.
- */
-export interface EditFilterRow {
-  field: string;
-  values: string;
-}
+import type { FilterRow } from './filter-rows-editor';
 
 /**
  * Turns a stored `match_condition` back into editable rows.
@@ -31,7 +21,7 @@ export interface EditFilterRow {
  */
 export function filtersFromMatchCondition(
   condition: Record<string, string[]> | undefined,
-): EditFilterRow[] {
+): FilterRow[] {
   if (!condition) return [];
   return Object.entries(condition).map(([field, values]) => ({
     field,
@@ -58,7 +48,7 @@ export function manualInputsCatalog(inputs: InputField[] | undefined): FieldCata
 }
 
 /** Whether two filter row lists carry the same content. */
-export function sameFilters(a: EditFilterRow[], b: EditFilterRow[]): boolean {
+export function sameFilters(a: FilterRow[], b: FilterRow[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((row, i) => row.field === b[i]?.field && row.values === b[i]?.values);
 }

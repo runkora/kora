@@ -16,7 +16,11 @@ beforeEach(() => {
     error: null,
   });
   api.fetchEventTypes.mockResolvedValue({
-    eventTypes: { declared: [], observed: ['custom'], associations: [] },
+    eventTypes: {
+      declared: ['push', 'issue_comment'],
+      observed: ['custom'],
+      associations: ['OWNER', 'MEMBER'],
+    },
     error: null,
   });
   api.fetchProviderFields.mockResolvedValue({
@@ -129,13 +133,13 @@ describe('event and filter editing', () => {
 });
 
 describe('schema catalogue', () => {
-  it("offers the provider's event types and the source's received ones, and the edited event's fields", async () => {
+  it("offers the source's schema and received event types, and the edited event's fields", async () => {
     renderDrawer(trigger());
     fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
     expect(await screen.findByText('issue_comment')).toBeTruthy();
     expect(screen.getByText('custom')).toBeTruthy();
-    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('github');
     expect(api.fetchEventTypes).toHaveBeenCalledWith('src-1');
+    expect(api.fetchProviderEventTypes).not.toHaveBeenCalled();
     expect(api.fetchProviderFields).toHaveBeenCalledWith('github', 'push');
 
     fireEvent.click(screen.getByText('issue_comment'));
@@ -171,7 +175,7 @@ describe('sender restriction editing', () => {
   });
 
   it('is absent when the provider identifies no sender', async () => {
-    api.fetchProviderEventTypes.mockResolvedValue({
+    api.fetchEventTypes.mockResolvedValue({
       eventTypes: { declared: ['alert.firing'], associations: [] },
       error: null,
     });

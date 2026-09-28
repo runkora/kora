@@ -41,10 +41,10 @@ import type {
   WizardState,
 } from '../types';
 
-/** Providers with a signature adapter in the backend. Nothing else verifies. */
-
 // A new source or provider has its own events, fields and senders.
-const RESET_EVENT = { eventType: '', filters: [], senderLogins: '', senderAssociations: [] };
+const RESET_EVENT = { eventType: '', filters: [], senders: { logins: '', associations: [] } };
+
+/** Providers with a signature adapter in the backend. Nothing else verifies. */
 const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
   {
     id: 'github',
@@ -61,7 +61,7 @@ const PROVIDERS: { id: string; name: string; description: string; icon: IconName
 ];
 
 /** The provider whose schema the step reads: the chosen source's, or the new source's. */
-export function catalogProvider(state: WizardState, sources: { id: string; provider: string }[]) {
+function catalogProvider(state: WizardState, sources: { id: string; provider: string }[]) {
   if (state.sourceChoice === NEW_SOURCE) return state.newSourceProvider;
   return sources.find((s) => s.id === state.sourceChoice)?.provider ?? '';
 }
@@ -94,12 +94,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         </Stack>
         <RadioGroup
           value={state.sourceChoice}
-          onValueChange={(v) =>
-            patch({
-              sourceChoice: v,
-              ...RESET_EVENT,
-            })
-          }
+          onValueChange={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
           aria-label="Webhook source"
         >
           <Grid cols={2} gap="cozy">
@@ -108,12 +103,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                 key={s.id}
                 value={s.id}
                 selected={state.sourceChoice === s.id}
-                onSelect={(v) =>
-                  patch({
-                    sourceChoice: v,
-                    ...RESET_EVENT,
-                  })
-                }
+                onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
                 icon="webhook"
                 title={s.name}
                 description={s.provider}
@@ -122,12 +112,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
             <RadioCard
               value={NEW_SOURCE}
               selected={state.sourceChoice === NEW_SOURCE}
-              onSelect={(v) =>
-                patch({
-                  sourceChoice: v,
-                  ...RESET_EVENT,
-                })
-              }
+              onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
               icon="plus"
               title="New source"
               description="Register a new origin and get its signing secret."
@@ -161,12 +146,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
             <SectionLabel>Provider</SectionLabel>
             <RadioGroup
               value={state.newSourceProvider}
-              onValueChange={(v) =>
-                patch({
-                  newSourceProvider: v,
-                  ...RESET_EVENT,
-                })
-              }
+              onValueChange={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
               aria-label="Provider"
             >
               <Grid cols={2} gap="cozy">
@@ -175,12 +155,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                     key={p.id}
                     value={p.id}
                     selected={state.newSourceProvider === p.id}
-                    onSelect={(v) =>
-                      patch({
-                        newSourceProvider: v,
-                        ...RESET_EVENT,
-                      })
-                    }
+                    onSelect={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
                     icon={p.icon}
                     title={p.name}
                     description={p.description}
@@ -223,12 +198,9 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       </Stack>
 
       <SenderRestrictionEditor
-        idPrefix="wizard"
         available={catalog.associations}
-        value={{ logins: state.senderLogins, associations: state.senderAssociations }}
-        onChange={(next) =>
-          patch({ senderLogins: next.logins, senderAssociations: next.associations })
-        }
+        value={state.senders}
+        onChange={(senders) => patch({ senders })}
       />
 
       <PromptField
@@ -346,7 +318,7 @@ export const webhookKind: TriggerKindDefinition = {
     ];
     const filters = describeMatchCondition(state.filters);
     if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
-    const senders = [...splitLogins(state.senderLogins), ...state.senderAssociations];
+    const senders = [...splitLogins(state.senders.logins), ...state.senders.associations];
     if (senders.length > 0) rows.push({ key: 'Senders', value: senders.join(', '), mono: true });
     return rows;
   },
@@ -354,7 +326,7 @@ export const webhookKind: TriggerKindDefinition = {
     // The match condition is webhook-only, so it is folded here beside the
     // source and event it belongs to rather than in the shared draft builder.
     const matchCondition = matchConditionFrom(state.filters);
-    const senderRestriction = senderRestrictionFrom(state.senderLogins, state.senderAssociations);
+    const senderRestriction = senderRestrictionFrom(state.senders);
     return {
       source:
         state.sourceChoice === NEW_SOURCE

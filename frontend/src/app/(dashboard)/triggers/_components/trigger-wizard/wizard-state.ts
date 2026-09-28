@@ -6,6 +6,9 @@
 
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
+import type { Senders } from '../../_types';
+import type { SenderRestrictionDraft } from '../sender-restriction-editor';
+import type { FilterRow } from '../filter-rows-editor';
 import type {
   KindStep,
   StepValidation,
@@ -13,7 +16,6 @@ import type {
   TriggerKind,
   TriggerKindDefinition,
   WizardField,
-  WizardFilter,
   WizardState,
 } from './types';
 
@@ -74,8 +76,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     newSourceProvider: 'github',
     eventType: '',
     filters: [],
-    senderLogins: '',
-    senderAssociations: [],
+    senders: { logins: '', associations: [] },
 
     freq: 'daily',
     interval: '15',
@@ -121,7 +122,7 @@ export function splitFilterValues(values: string): string[] {
  * condition that happens to be satisfied, where the trigger genuinely has none.
  * Repeating a field merges its values, since a clause is a set of alternatives.
  */
-export function matchConditionFrom(filters: WizardFilter[]): Record<string, string[]> | undefined {
+export function matchConditionFrom(filters: FilterRow[]): Record<string, string[]> | undefined {
   const condition: Record<string, string[]> = {};
   for (const row of filters) {
     const field = row.field.trim();
@@ -137,7 +138,7 @@ export function matchConditionFrom(filters: WizardFilter[]): Record<string, stri
  * but silently does nothing, so the trigger would fire on deliveries the person
  * believes it excludes.
  */
-export function validateFilters(filters: WizardFilter[]): StepValidation {
+export function validateFilters(filters: FilterRow[]): StepValidation {
   const halfWritten = filters.some((row) => {
     const hasField = Boolean(row.field.trim());
     const hasValues = splitFilterValues(row.values).length > 0;
@@ -153,16 +154,14 @@ export function splitLogins(raw: string): string[] {
 }
 
 /** The sender restriction as the API takes it; undefined when nothing is set, which means anyone. */
-export function senderRestrictionFrom(
-  logins: string,
-  associations: string[],
-): { logins: string[]; associations: string[] } | undefined {
-  const list = splitLogins(logins);
-  return list.length > 0 || associations.length > 0 ? { logins: list, associations } : undefined;
+export function senderRestrictionFrom(draft: SenderRestrictionDraft): Senders | undefined {
+  const logins = splitLogins(draft.logins);
+  const { associations } = draft;
+  return logins.length > 0 || associations.length > 0 ? { logins, associations } : undefined;
 }
 
 /** Renders the composed condition for the review step. */
-export function describeMatchCondition(filters: WizardFilter[]): string | null {
+export function describeMatchCondition(filters: FilterRow[]): string | null {
   const condition = matchConditionFrom(filters);
   if (!condition) return null;
   return Object.entries(condition)

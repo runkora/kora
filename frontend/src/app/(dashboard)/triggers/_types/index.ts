@@ -14,6 +14,7 @@
 import type { IconName } from '@orbit/terra';
 import type {
   InputField,
+  SenderRestriction,
   Trigger,
   TriggerDelivery,
   TriggerKind,
@@ -23,6 +24,9 @@ import type {
 } from '@orbit/shared/api';
 
 export type { InputField, TriggerKind, TriggerOverflow };
+
+/** Who may fire a webhook trigger; both lists empty means anyone. */
+export type Senders = Required<SenderRestriction>;
 
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
@@ -76,7 +80,7 @@ export interface TriggerRow {
   eventType: string;
   matchCondition: Record<string, string[]>;
   /** Webhook triggers only. Both lists empty means anyone may fire it. */
-  senderRestriction: { logins: string[]; associations: string[] };
+  senderRestriction: Senders;
   promptTemplate: string;
   /** Scheduled triggers only. */
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
@@ -267,7 +271,7 @@ export interface TriggerPatch {
   eventType?: string;
   matchCondition?: Record<string, string[]>;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
-  senderRestriction?: { logins: string[]; associations: string[] };
+  senderRestriction?: Senders;
   scheduleConfig?: TriggerScheduleDraft;
   enabled?: boolean;
   dedupeEnabled?: boolean;

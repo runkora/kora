@@ -74,12 +74,15 @@ describe('useSourceCatalog', () => {
     expect(result.current.fields.map((f) => f.path)).toEqual(['comment.body']);
   });
 
-  it('asks a source for its received event types only when one is chosen', async () => {
+  it('asks the source for event types when one exists, else the provider', async () => {
     api.fetchProviderEventTypes.mockResolvedValue({ eventTypes: null, error: null });
     renderHook(() => useSourceCatalog('github', '', ''));
+    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('github');
     expect(api.fetchEventTypes).not.toHaveBeenCalled();
 
+    vi.clearAllMocks();
     renderHook(() => useSourceCatalog('github', 'src-1', ''));
     expect(api.fetchEventTypes).toHaveBeenCalledWith('src-1');
+    expect(api.fetchProviderEventTypes).not.toHaveBeenCalled();
   });
 });

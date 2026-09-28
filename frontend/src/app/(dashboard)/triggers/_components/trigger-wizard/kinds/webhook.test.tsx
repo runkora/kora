@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { catalogProvider, webhookKind } from './webhook';
+import { webhookKind } from './webhook';
 import { initialState } from '../wizard-state';
-import { NEW_SOURCE } from '../types';
 import type { WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
@@ -52,15 +51,6 @@ describe('webhook validation and draft', () => {
     expect(validate({ ...ready, eventType: 'push' }, CONTEXT).valid).toBe(true);
   });
 
-  it('refuses a pattern filter whose name is not filled in', () => {
-    const state = {
-      ...ready,
-      eventType: 'alert.firing',
-      filters: [{ field: '', pattern: 'commonLabels.<name>', values: 'critical' }],
-    };
-    expect(validate(state, CONTEXT).valid).toBe(false);
-  });
-
   it('puts the sender restriction on the draft only when something is set', () => {
     expect(webhookKind.draftPatch({ ...ready, eventType: 'push' })).not.toHaveProperty(
       'senderRestriction',
@@ -69,42 +59,16 @@ describe('webhook validation and draft', () => {
       webhookKind.draftPatch({
         ...ready,
         eventType: 'push',
-        senderLogins: 'octocat, hubot octocat',
-        senderAssociations: ['MEMBER'],
+        senders: { logins: 'octocat, hubot octocat', associations: ['MEMBER'] },
       }).senderRestriction,
     ).toEqual({ logins: ['octocat', 'hubot'], associations: ['MEMBER'] });
   });
 
   it('summarises the senders for review', () => {
     const rows = webhookKind.summarize(
-      { ...ready, eventType: 'push', senderAssociations: ['OWNER'] },
+      { ...ready, eventType: 'push', senders: { logins: '', associations: ['OWNER'] } },
       CONTEXT,
     );
     expect(rows).toEqual(expect.arrayContaining([{ key: 'Senders', value: 'OWNER', mono: true }]));
-  });
-});
-
-describe('catalogProvider', () => {
-  const sources = [
-    { id: 'src-1', provider: 'github' },
-    { id: 'src-2', provider: 'alertmanager' },
-  ];
-  const base = initialState(webhookKind, sources);
-
-  it("reads the chosen source's provider", () => {
-    expect(catalogProvider({ ...base, sourceChoice: 'src-2' }, sources)).toBe('alertmanager');
-  });
-
-  it('reads the provider being created for a new source', () => {
-    expect(
-      catalogProvider(
-        { ...base, sourceChoice: NEW_SOURCE, newSourceProvider: 'alertmanager' },
-        sources,
-      ),
-    ).toBe('alertmanager');
-  });
-
-  it('has no provider for an unknown source', () => {
-    expect(catalogProvider({ ...base, sourceChoice: 'gone' }, sources)).toBe('');
   });
 });

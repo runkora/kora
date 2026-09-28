@@ -26,7 +26,6 @@ interface CatalogPickerProps {
   searchPlaceholder?: string;
   /** Lets `pattern` entries be chosen; the caller completes them. */
   selectablePatterns?: boolean;
-  catalogLabel?: string;
   disabled?: boolean;
   'aria-label': string;
 }
@@ -38,7 +37,6 @@ export function CatalogPicker({
   onSelect,
   searchPlaceholder,
   selectablePatterns,
-  catalogLabel,
   disabled,
   'aria-label': ariaLabel,
 }: CatalogPickerProps) {
@@ -63,7 +61,6 @@ export function CatalogPicker({
       <PopoverContent align="start">
         <TemplateCatalogList
           catalog={catalog}
-          catalogLabel={catalogLabel}
           searchPlaceholder={searchPlaceholder}
           selectablePatterns={selectablePatterns}
           onSelect={(token, entry) => {
