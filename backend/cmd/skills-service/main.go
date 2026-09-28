@@ -107,7 +107,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.RedisClie
     return redis, nil
 }
 
-func initRegistry(ctx context.Context, logger logging.Logger) (*skills.Registry, error) {
+func initRegistry(_ context.Context, logger logging.Logger) (*skills.Registry, error) {
     return skills.NewRegistry(sc.Current.Marketplace.SourcesConfigPath, logger)
 }
 

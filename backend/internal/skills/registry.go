@@ -76,7 +76,7 @@ func (r *Registry) FindByName(name string) (MarketplaceSource, bool) {
 // Watch watches the directory containing marketplace-sources.json and reloads
 // on change. Kubernetes rotates the "..data" symlink atomically on a ConfigMap
 // update — watching the directory (not the file) catches it. A debounce
-// coalesces event bursts. The goroutine exits when ctx is cancelled.
+// coalesces event bursts. The goroutine exits when ctx is canceled.
 func (r *Registry) Watch(ctx context.Context) {
 	if r.path == "" {
 		return
