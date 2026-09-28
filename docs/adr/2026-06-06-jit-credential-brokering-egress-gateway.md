@@ -526,6 +526,29 @@ The adapters, the per-tenant CA / TLS termination, the mint/inject flows, the tw
 
 ---
 
+## Amendment 4 (2026-09-29): Denials name the host, the action, and what would allow it
+
+**Status:** Proposed
+
+Touches *What can it access?* Enforcement is unchanged; only the body of the broker's 403 changes.
+
+**Context.** The broker answered every policy denial with `403 {"code":"forbidden","message":"egress denied"}`. Agents could not tell a denial from a credential problem or a transient fault, and attributed denials to the wrong cause.
+
+**Decision.** The 403 body keeps `code: forbidden` and gains a message and `details` built from the broker's own decision:
+
+| `details.reason` | When | Message names |
+|---|---|---|
+| `not_granted` | The grant covers neither the classified action nor an alternate | Host, action, qualifier, connection, and `details.required_scope`: the scope a grant must cover |
+| `unclassified` | The adapter cannot map the request to an action | Host and connection; no grant can allow it |
+| `credential_refused` | The upstream refused to mint for an authorized action | Action and connection; the fix is the upstream permission (for GitHub, the App installation) |
+| `policy_unavailable` | Policy evaluation failed (fail-closed) | Host; retry |
+
+The body carries only the caller's own request and its own tenant's connection name and scope vocabulary. It never carries the grants the caller holds, other connections, the OPA reason, the underlying error text, or credential material.
+
+A host outside the egress whitelist is refused by the sandbox OPA sidecar on the generated `CONNECT`, before any TLS is terminated (Amendment 2). The agent sees a reset TLS handshake; that path has no HTTP layer to carry a body and is unchanged.
+
+**Consequences.** Agents and operators can act on a denial from the response alone. The required scope in the body is information the caller could already derive from the published scope vocabulary.
+
 ## Validation
 
 ### Success Metrics
@@ -566,4 +589,4 @@ The adapters, the per-tenant CA / TLS termination, the mint/inject flows, the tw
 
 The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
-**Last Updated:** 2026-06-12
+**Last Updated:** 2026-09-29

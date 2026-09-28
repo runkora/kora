@@ -134,11 +134,11 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 }
 
 // handleBrokerError maps a Broker.Authorize sentinel to the right HTTP error
-// response. The broker's errors are already structured; we don't expose
-// internal reasons to the caller (especially policy denials) beyond a coarse
-// code.
+// response. A policy denial names the host, action and what would allow it;
+// nothing else about the tenant's grants or connections is exposed.
 func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *platformapi.APIError
+	var denial *Denial
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
 		apiErr = platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "unauthenticated", nil)
@@ -152,6 +152,8 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
+	case errors.As(err, &denial):
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(), denial.Details())
 	case errors.Is(err, ErrForbidden):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):
