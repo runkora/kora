@@ -483,3 +483,58 @@ func TestHandleProvisionSandbox_LostSandboxIs503(t *testing.T) {
 		t.Errorf("body = %+v", body)
 	}
 }
+
+// A user reply that lands while retries are in flight wins: the late failure
+// neither re-blocks the run nor records a loss.
+func TestMarkSandboxLost_StaleEpochIsIgnored(t *testing.T) {
+	n := &failingNotifier{}
+	reg, _ := newTestRegistry(t, n)
+	hostSession(reg, "run-1")
+	s := reg.sessions["run-1"]
+	epoch := s.sandboxEpoch.Load()
+	reg.userReplied(s)
+	if reg.markSandboxLost(context.Background(), s, 3, epoch) {
+		t.Fatal("markSandboxLost claimed a loss from before the user replied")
+	}
+	if s.sandboxLost.Load() || len(n.runErrors) != 0 {
+		t.Errorf("lost = %v, run errors = %v; want neither", s.sandboxLost.Load(), n.runErrors)
+	}
+}
+
+// An agent process that exits on its own stops its session's sandbox retries.
+func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
+	n := &failingNotifier{failures: 100}
+	reg, _ := newTestRegistry(t, n)
+	reg.SetGuardrails(Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
+	runner := newStubRunner(nil)
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: runner}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	done := make(chan error)
+	go func() {
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+		done <- err
+	}()
+	for {
+		n.mu.Lock()
+		calls := n.calls
+		n.mu.Unlock()
+		if calls == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	_ = runner.Close()
+	err := <-done
+	if errors.Is(err, ErrSandboxLost) {
+		t.Errorf("err = %v; a canceled retry must not report the sandbox lost", err)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, e := range n.runErrors {
+		if e.Code == runErrorSandboxLost {
+			t.Errorf("recorded %v after the runner exited", e)
+		}
+	}
+}
