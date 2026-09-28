@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Alert, Button, Icon, Text } from '@orbit/terra';
+import { Alert, Button, Icon, Stack, Text } from '@orbit/terra';
 import { EmptyState } from '@orbit/components';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadSkillDetail } from '../_services/marketplace-server';
@@ -14,10 +14,10 @@ interface SkillDetailPageProps {
 
 export default async function SkillDetailPage({ params, searchParams }: SkillDetailPageProps) {
   const { slug: segments } = await params;
-  // The Skill link carries the browse values of the overview. The header Back
-  // button keeps them, and the "Skill not found" message uses them for its
-  // link. parseBrowseParams validates each value, so the link always opens
-  // the overview.
+  // The Skill link carries the browse values of the overview. The back link of
+  // this page and the "Skill not found" message use them, so that they return
+  // to the same results (PRD FR-17). parseBrowseParams validates each value,
+  // so the link always opens the overview.
   const backHref = buildOverviewUrl(parseBrowseParams(recordToSearchParams(await searchParams)));
   const session = await getSession();
 
@@ -37,23 +37,50 @@ export default async function SkillDetailPage({ params, searchParams }: SkillDet
   if (!result.ok && result.status === 404) {
     // No Skill has this slug.
     return (
-      <EmptyState
-        icon="box"
-        title="Skill not found"
-        description="No Skill in this Marketplace matches this address."
-        action={
-          <Button asChild>
-            <Link href={backHref}>Back to Skills</Link>
-          </Button>
-        }
-      />
+      <Stack gap="comfortable">
+        <BackToSkillsLink href={backHref} />
+        <EmptyState
+          icon="box"
+          title="Skill not found"
+          description="No Skill in this Marketplace matches this address."
+          action={
+            <Button asChild>
+              <Link href={backHref}>Back to Skills</Link>
+            </Button>
+          }
+        />
+      </Stack>
     );
   }
 
   if (!result.ok) {
     // The load failed. This is not a missing Skill. The notice has a retry.
-    return <MarketplaceSkillLoadError />;
+    return (
+      <Stack gap="comfortable">
+        <BackToSkillsLink href={backHref} />
+        <MarketplaceSkillLoadError />
+      </Stack>
+    );
   }
 
-  return <MarketplaceSkillDetail skill={result.skill} />;
+  return (
+    <Stack gap="comfortable">
+      <BackToSkillsLink href={backHref} />
+      <MarketplaceSkillDetail skill={result.skill} />
+    </Stack>
+  );
+}
+
+/** The link back to the overview results that the Skill URL carries. */
+function BackToSkillsLink({ href }: { href: string }) {
+  return (
+    <Stack direction="horizontal">
+      <Button variant="ghost" size="sm" asChild>
+        <Link href={href}>
+          <Icon name="arrow-left" size="xs" />
+          Skills
+        </Link>
+      </Button>
+    </Stack>
+  );
 }
