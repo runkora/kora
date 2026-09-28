@@ -41,21 +41,26 @@ type Config struct {
 		URL string `yaml:"url"`
 	} `yaml:"orbitAgents"`
 
+	// Runner holds the settings that apply to every agent framework.
+	Runner struct {
+		// WrapperPath is the path to orbit-session-runner, used by every framework.
+		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
+		// so Landlock and a PID namespace are applied first. Empty disables it,
+		// which is local dev on macOS.
+		WrapperPath string `yaml:"wrapperPath"`
+
+		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
+		// tool commands run in the run's sandbox. Claude Code reads it from
+		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
+		// OpenCode from the "shell" key written into opencode.json. Empty leaves
+		// OpenCode on the container's shell.
+		ShellPath string `yaml:"shellPath"`
+	} `yaml:"runner"`
+
 	Claude struct {
 		// BinaryPath overrides the location of the claude binary.
 		// Defaults to "claude" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// WrapperPath is the path to orbit-session-runner. When set, it is
-		// invoked as: WrapperPath <workDir> <BinaryPath> [args...]
-		// to apply Landlock filesystem restrictions before exec'ing claude.
-		// Empty disables the wrapper (used in local dev on macOS).
-		WrapperPath string `yaml:"wrapperPath"`
-
-		// DefaultModel is the model passed to Claude Code when the session
-		// creation request does not specify one. For the Orbit inference
-		// gateway, use the virtual model name (e.g. "anthropic/claude-sonnet-4-6").
-		DefaultModel string `yaml:"defaultModel"`
 
 		// Bare enables --bare mode (no CLAUDE.md discovery, no OAuth/keychain).
 		// Required in containers where ANTHROPIC_API_KEY is set via env var.
@@ -66,18 +71,12 @@ type Config struct {
 		// BinaryPath overrides the location of the codex binary.
 		// Defaults to "codex" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// DefaultModel is used when the session creation request omits a model.
-		DefaultModel string `yaml:"defaultModel"`
 	} `yaml:"codex"`
 
 	OpenCode struct {
 		// BinaryPath overrides the location of the opencode binary.
 		// Defaults to "opencode" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
-
-		// DefaultModel is used when the session creation request omits a model.
-		DefaultModel string `yaml:"defaultModel"`
 	} `yaml:"opencode"`
 
 	InferenceGateway struct {
@@ -105,7 +104,9 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current holds all non-secret configuration for the session-manager.
-// Secrets (Postgres DSN, API key) must be supplied via environment variables.
+// Secrets must be supplied via environment variables. The session-manager
+// reaches no database: run events travel to orbit-agents over HTTP, which is
+// what keeps database credentials out of the pod the agent runs in.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/session-manager", config.Environment())
 	if v := os.Getenv("ORBIT_AGENTS_URL"); v != "" {

@@ -151,7 +151,7 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	// MCP notifications carry no id and expect no response body (202).
 	if strings.HasPrefix(req.Method, "notifications/") {
-		w.WriteHeader(http.StatusAccepted)
+		api.NoBody(w, http.StatusAccepted)
 		return
 	}
 

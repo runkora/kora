@@ -141,23 +141,31 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	// A passthrough host has no connection scope to check against. Its
 	// reachability was settled by the egress posture at the caller's OPA
 	// sidecar, which the agent cannot bypass.
+	action, also := cls.Action, []string(nil)
 	if registered {
-		if perr := b.evaluatePolicy(ctx, claims, conn, cls, tenantID); perr != nil {
+		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, tenantID)
+		if perr != nil {
 			span.SetAttributes(attribute.Bool("orbit.allowed", false))
 			span.RecordError(perr)
 			span.SetStatus(codes.Error, ErrForbidden.Error())
 			return Decision{}, perr
 		}
+		action, also = authorized[0], authorized[1:]
 	}
-	span.SetAttributes(attribute.Bool("orbit.allowed", true))
+	span.SetAttributes(
+		attribute.Bool("orbit.allowed", true),
+		attribute.String("orbit.action", action),
+		attribute.StringSlice("orbit.also_authorized", also),
+	)
 
 	// Mint.
 	identity := credentials.CallerIdentity{
-		TenantID:    tenantID,
-		PrincipalID: claims.Subject,
-		RunID:       claims.Orbit.Claims["run_id"],
-		Action:      cls.Action,
-		Qualifier:   cls.Qualifier,
+		TenantID:       tenantID,
+		PrincipalID:    claims.Subject,
+		RunID:          claims.Orbit.Claims["run_id"],
+		Action:         action,
+		Qualifier:      cls.Qualifier,
+		AlsoAuthorized: also,
 	}
 	cred, err := connector.Mint(ctx, identity)
 	if err != nil {
@@ -169,7 +177,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		if errors.Is(err, credentials.ErrCredentialScopeRejected) {
 			b.logger.Info(ctx, "egress denied: upstream refused credential scope",
 				logging.Field{Key: "connection", Value: conn.Name},
-				logging.Field{Key: "action", Value: cls.Action},
+				logging.Field{Key: "action", Value: action},
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "tenant_id", Value: tenantID},
 			)
@@ -185,12 +193,12 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "run_id", Value: identity.RunID},
 		logging.Field{Key: "host", Value: req.Host},
-		logging.Field{Key: "action", Value: cls.Action},
+		logging.Field{Key: "action", Value: action},
 		logging.Field{Key: "qualifier", Value: cls.Qualifier},
 		logging.Field{Key: "registered", Value: registered},
 	)
 
-	return Decision{Connection: conn, Action: cls.Action, Qualifier: cls.Qualifier, Credential: cred}, nil
+	return Decision{Connection: conn, Action: action, Qualifier: cls.Qualifier, Credential: cred}, nil
 }
 
 // classify asks the connector to map the request to its policy action and the
@@ -215,26 +223,19 @@ func (b *Broker) classify(ctx context.Context, connector credentials.Connector, 
 	return cls, nil
 }
 
-// evaluatePolicy checks the classified call against the caller's grants. The
-// required scope is connection:<name>:<category>[:<qualifier>]:<verb>. The
-// action fragment's category joins the path so unqualified and parent grants
-// cover by prefix and qualified grants must match. Single-word actions ("use")
-// keep their legacy two-segment shape. Fail-closed on evaluator error.
-func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, tenantID string) error {
-	category, verb := splitActionFragment(cls.Action)
-	segments := []string{conn.Name}
-	if category != "" {
-		segments = append(segments, category)
-	}
-	if cls.Qualifier != "" {
-		segments = append(segments, cls.Qualifier)
-	}
-	decision, err := b.policy.Check(ctx, policy.CheckInput{
-		Claims:       claims,
-		ResourceType: resourceType,
-		PathSegments: segments,
-		Action:       verb,
-	})
+// evaluatePolicy checks the classified call against the caller's grants and
+// returns the actions the grant covers: the classified action first when held,
+// then each held alternate. The required scope is
+// connection:<name>:<category>[:<qualifier>]:<verb>. The action fragment's
+// category joins the path so unqualified and parent grants cover by prefix and
+// qualified grants must match. Single-word actions ("use") keep their legacy
+// two-segment shape.
+//
+// The call is denied only when the grant covers none of them. An evaluator
+// error on the classified action fails closed; one on an alternate drops that
+// alternate.
+func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, tenantID string) ([]string, error) {
+	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
 		b.logger.Error(ctx, "policy evaluation failed",
 			logging.Field{Key: "connection", Value: conn.Name},
@@ -242,19 +243,61 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return fmt.Errorf("%w: %w", ErrForbidden, err)
+		return nil, fmt.Errorf("%w: %w", ErrForbidden, err)
 	}
-	if !decision.Allow {
+
+	var authorized []string
+	if primary.Allow {
+		authorized = append(authorized, cls.Action)
+	}
+	for _, alt := range cls.Alternates {
+		decision, err := b.checkAction(ctx, claims, conn, alt, cls.Qualifier)
+		if err != nil {
+			// Skipping an alternate only narrows the credential, so an
+			// alternate that cannot be evaluated is treated as not held.
+			b.logger.Warn(ctx, "policy evaluation failed for alternate action",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "action", Value: alt},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		if decision.Allow {
+			authorized = append(authorized, alt)
+		}
+	}
+
+	if len(authorized) == 0 {
 		b.logger.Info(ctx, "egress denied by policy",
 			logging.Field{Key: "connection", Value: conn.Name},
 			logging.Field{Key: "action", Value: cls.Action},
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "tenant_id", Value: tenantID},
-			logging.Field{Key: "reason", Value: decision.Reason},
+			logging.Field{Key: "reason", Value: primary.Reason},
 		)
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
-	return nil
+	return authorized, nil
+}
+
+// checkAction asks the policy service whether the caller's grant covers one
+// action on this connection and qualifier.
+func (b *Broker) checkAction(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, action, qualifier string) (policy.Result, error) {
+	category, verb := splitActionFragment(action)
+	segments := []string{conn.Name}
+	if category != "" {
+		segments = append(segments, category)
+	}
+	if qualifier != "" {
+		segments = append(segments, qualifier)
+	}
+	return b.policy.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		ResourceType: resourceType,
+		PathSegments: segments,
+		Action:       verb,
+	})
 }
 
 // splitActionFragment splits an adapter action fragment ("issues:write") at its

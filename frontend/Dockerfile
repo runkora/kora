@@ -22,7 +22,7 @@
 # deps and builder run on the build platform, and only the runner stage builds
 # per target. The standalone output traces sharp for /_next/image, so pnpm
 # installs its linux musl binaries for both image architectures.
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
 
 WORKDIR /app
 
@@ -85,7 +85,7 @@ RUN pnpm build
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS runner
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
 
 WORKDIR /app
 

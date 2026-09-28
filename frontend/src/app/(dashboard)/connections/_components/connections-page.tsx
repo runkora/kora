@@ -2,12 +2,17 @@
 
 /** @tier 3 — connections-scoped. Read-only UI for the /connections list page. */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge, DataTable, Heading, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { EmptyState } from '@orbit/components';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';
+import { ConnectionDetailModal } from './connection-detail-modal';
+
+// Rows commonly carry a dozen-plus actions; showing them all made rows wrap to
+// several lines. The rest are one click away in the detail modal.
+const MAX_INLINE_ACTIONS = 3;
 
 interface ConnectionsPageProps {
   rows: ConnectionRow[];
@@ -30,6 +35,8 @@ function connectionMatchesSearch(row: ConnectionRow, q: string): boolean {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
+  const [selectedConnection, setSelectedConnection] = useState<ConnectionRow | null>(null);
+
   const columns = useMemo<DataTableColumn<ConnectionRow>[]>(
     () => [
       {
@@ -38,6 +45,7 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
+        gridWidth: '180px',
         cell: (row) => (
           <Text mono size="supporting" weight="emphasis">
             {row.name}
@@ -50,6 +58,7 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         locked: true,
         sortable: true,
         sortAccessor: (row) => adapterLabel(row.adapter),
+        gridWidth: '150px',
         cell: (row) => (
           <Badge variant="secondary" size="sm">
             {adapterLabel(row.adapter)}
@@ -60,32 +69,51 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         id: 'actions',
         header: 'Grantable actions',
         locked: true,
-        cell: (row) =>
-          row.actions.length === 0 ? (
-            <Text size="supporting" color="muted">
-              —
-            </Text>
-          ) : (
-            <Stack direction="horizontal" gap="tight" wrap>
-              {row.actions.map((action) => (
+        gridWidth: 'minmax(0, 1.4fr)',
+        cell: (row) => {
+          if (row.actions.length === 0) {
+            return (
+              <Text size="supporting" color="muted">
+                —
+              </Text>
+            );
+          }
+          const shown = row.actions.slice(0, MAX_INLINE_ACTIONS);
+          const remaining = row.actions.length - shown.length;
+          return (
+            <Stack
+              direction="horizontal"
+              align="center"
+              gap="tight"
+              minWidth="none"
+              overflow="hidden"
+            >
+              {shown.map((action) => (
                 <Badge key={action} variant="elevated" size="sm" mono>
                   {action}
                 </Badge>
               ))}
+              {remaining > 0 && (
+                <Text size="caption" color="subtle" truncate>
+                  +{remaining} more
+                </Text>
+              )}
             </Stack>
-          ),
+          );
+        },
       },
       {
         id: 'usedBy',
         header: 'Used by',
         locked: true,
+        gridWidth: 'minmax(0, 1fr)',
         cell: (row) =>
           row.usedBy.length === 0 ? (
             <Text size="supporting" color="muted">
               Not attached
             </Text>
           ) : (
-            <Stack direction="horizontal" gap="tight" wrap>
+            <Stack direction="horizontal" gap="tight" wrap minWidth="none">
               {row.usedBy.map((usage) => (
                 <Badge key={usage.slug} variant="outline" size="sm">
                   {usage.name}
@@ -133,8 +161,15 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
           defaultSortDir="asc"
           emptyMessage="No connections."
           filteredEmptyMessage="No connections match your search."
+          onRowClick={setSelectedConnection}
+          rowLabel={(row) => `View details for ${row.name}`}
         />
       )}
+
+      <ConnectionDetailModal
+        connection={selectedConnection}
+        onClose={() => setSelectedConnection(null)}
+      />
     </Stack>
   );
 }

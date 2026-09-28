@@ -2,13 +2,17 @@ package agents
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -65,12 +70,14 @@ type K8sProvisionerConfig struct {
 	SandboxGRPCPort     int32
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
-	GitAuthorName             string
-	GitAuthorEmail            string
-	SessionManagerPostgresSSL string
+	GitAuthorName  string
+	GitAuthorEmail string
 	// OTLPEndpoint is passed to the session-manager so a provisioned agent
 	// exports to the same collector as the platform. Empty disables its export.
 	OTLPEndpoint string
+	// SamplingRate is passed alongside it so a provisioned agent samples at the
+	// same rate as the platform. Empty keeps the image's own default.
+	SamplingRate string
 	// ImagePullSecrets names the Secrets, present in every tenant namespace,
 	// that runtime-created pods pull the session-manager and sandbox images with.
 	ImagePullSecrets []string
@@ -261,6 +268,10 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 			return ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, slug, metav1.DeleteOptions{}))
 		},
 		func() error {
+			// Sweeps claims that predate the retention policy set below.
+			return p.deleteWorkspacePVCs(ctx, at, namespace)
+		},
+		func() error {
 			return p.deleteAgentGrant(ctx, at, namespace)
 		},
 		func() error {
@@ -360,9 +371,21 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 
 // ── Sandbox provisioning ──────────────────────────────────────────────────────
 
+// errSandboxToken is the span status for a sandbox that has no usable exec token.
+var errSandboxToken = errors.New("sandbox exec token unavailable")
+
+// Sandbox is a ready sandbox pod: where to reach its exec server, and the
+// per-run token that server requires.
+type Sandbox struct {
+	Endpoint  string `json:"endpoint"`
+	ExecToken string `json:"exec_token"`
+}
+
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
-// be Ready. Returns the gRPC endpoint string ("podIP:port") on success.
-// The caller (session-manager) is responsible for writing the endpoint file.
+// be Ready. Returns where to reach its exec server ("podIP:port") and the
+// per-run token that server requires on every call; a caller holding only the
+// endpoint cannot execute anything. The caller (session-manager) writes both
+// into the run's workspace (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
 // The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container
@@ -371,7 +394,7 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 // mount is scoped with SubPath: run.ID (see sandboxContainer); this run's
 // sandbox pod only ever has its own {runID} directory mounted, never a
 // sibling run's. See https://github.com/clear-route/orbit/issues/134.
-func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error) {
+func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (Sandbox, error) {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", run.ID),
@@ -381,7 +404,14 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	)
 	defer span.End()
 
-	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters)
+	token, err := newSandboxExecToken()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errSandboxToken.Error())
+		return Sandbox{}, fmt.Errorf("mint sandbox exec token: %w", err)
+	}
+
+	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters, token)
 	podName := pod.Name
 	// Owner reference on the parent StatefulSet: sandbox pods share its
 	// workspace PVC via subPath, so their lifecycle is bound to it. Deleting
@@ -396,7 +426,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "apply Pod patches")
-		return "", fmt.Errorf("apply Pod patches: %w", err)
+		return Sandbox{}, fmt.Errorf("apply Pod patches: %w", err)
 	}
 
 	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
@@ -413,7 +443,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		if repErr != nil {
 			span.RecordError(repErr)
 			span.SetStatus(codes.Error, "replace dead sandbox pod")
-			return "", repErr
+			return Sandbox{}, repErr
 		}
 		p.logger.Info(ctx, "Sandbox pod already exists",
 			logging.Field{Key: "run_id", Value: run.ID},
@@ -423,29 +453,115 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	default:
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create sandbox pod")
-		return "", fmt.Errorf("create sandbox pod: %w", err)
+		return Sandbox{}, fmt.Errorf("create sandbox pod: %w", err)
 	}
 
-	podIP, err := p.waitForPodReady(ctx, podName, namespace)
+	ready, err := p.waitForPodReady(ctx, podName, namespace)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "wait for sandbox pod ready")
-		return "", fmt.Errorf("wait for sandbox pod ready: %w", err)
+		return Sandbox{}, fmt.Errorf("wait for sandbox pod ready: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort)
+	// Read the token off the ready pod, not the freshly minted one: a reused pod
+	// still holds the token it was created with.
+	liveToken := sandboxExecTokenOf(ready)
+	if liveToken == "" {
+		span.SetStatus(codes.Error, errSandboxToken.Error())
+		return Sandbox{}, fmt.Errorf("%w: pod %s carries no %s", errSandboxToken, podName, sandboxExecTokenEnv)
+	}
+
+	endpoint := fmt.Sprintf("%s:%d", ready.Status.PodIP, p.cfg.SandboxGRPCPort)
 	span.SetAttributes(attribute.String("endpoint", endpoint))
 	p.logger.Info(ctx, "Sandbox pod ready",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "pod", Value: podName},
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
-	return endpoint, nil
+	return Sandbox{Endpoint: endpoint, ExecToken: liveToken}, nil
+}
+
+// errSandboxUnusable reports a sandbox pod that exists but cannot serve the
+// run. Distinct from no pod at all, which is the only state that may route the
+// agent's command to a local shell.
+var errSandboxUnusable = errors.New("sandbox pod unusable")
+
+// LookupSandbox returns the run's sandbox as its live pod describes it, and
+// whether one exists. It creates nothing.
+//
+// The pod is the durable record: it carries the exec token in its spec and the
+// endpoint in its status, and it outlives both the session-manager's memory and
+// anything the agent can delete from its workspace. A pod that is not ready has
+// no usable endpoint yet, so it reports no sandbox rather than a half one.
+func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error) {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.LookupSandbox",
+		trace.WithAttributes(
+			attribute.String("run_id", runID),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return Sandbox{}, false, nil
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get sandbox pod")
+		return Sandbox{}, false, fmt.Errorf("get sandbox pod: %w", err)
+	}
+	// A pod that exists but cannot be used is not the same answer as no pod.
+	// found=false reaches orbit-shell as "this run never had a sandbox", which
+	// sends the command to a local shell, so only a genuinely absent pod earns
+	// it. Everything else is an error, and the caller stops.
+	switch {
+	case pod.DeletionTimestamp != nil:
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating", errSandboxUnusable, pod.Name)
+	case pod.Status.Phase == corev1.PodFailed, pod.Status.Phase == corev1.PodSucceeded:
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is %s", errSandboxUnusable, pod.Name, pod.Status.Phase)
+	case pod.Status.PodIP == "":
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s has no address yet", errSandboxUnusable, pod.Name)
+	}
+	token := sandboxExecTokenOf(pod)
+	if token == "" {
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s carries no %s", errSandboxUnusable, pod.Name, sandboxExecTokenEnv)
+	}
+	return Sandbox{
+		Endpoint:  fmt.Sprintf("%s:%d", pod.Status.PodIP, p.cfg.SandboxGRPCPort),
+		ExecToken: token,
+	}, true, nil
+}
+
+// newSandboxExecToken mints the per-run secret that sandbox-exec requires on
+// every Execute. 32 bytes from crypto/rand, hex encoded so it survives an env var.
+func newSandboxExecToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// sandboxExecTokenOf returns the exec token the pod was created with, or empty
+// if it carries none.
+func sandboxExecTokenOf(pod *corev1.Pod) string {
+	for _, c := range pod.Spec.Containers {
+		if c.Name != sandboxContainerName {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == sandboxExecTokenEnv {
+				return e.Value
+			}
+		}
+	}
+	return ""
 }
 
 // buildSandboxPod renders the sandbox pod for a run before manifest patches
 // are applied.
-func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) *corev1.Pod {
+func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster, execToken string) *corev1.Pod {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
 	// PVC name follows StatefulSet volumeClaimTemplate convention:
 	// {volumeName}-{statefulSetName}-{ordinal}
@@ -511,7 +627,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			ImagePullSecrets: imagePullSecretRefs(p.cfg.ImagePullSecrets),
 			SecurityContext:  restrictedPodSecurityContext(),
 			Volumes:          sandboxVolumes(workspacesPVC, p.cfg),
-			Containers:       []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID)},
+			Containers:       []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID, execToken)},
 		},
 	}
 
@@ -620,12 +736,12 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 	return nil
 }
 
-// waitForPodReady polls until the pod is Ready, returning its pod IP.
+// waitForPodReady polls until the pod is Ready, returning the ready pod.
 // Respects the deadline on ctx (the session-manager enforces 300s). The poll
 // budget allows for a cold sandbox-exec image pull on a fresh orbit node plus
 // istio/sidecar startup; keep it below the session-manager client timeout.
-func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace string) (string, error) {
-	var podIP string
+func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace string) (*corev1.Pod, error) {
+	var ready *corev1.Pod
 	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, 240*time.Second, true, func(ctx context.Context) (bool, error) {
 		pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
@@ -639,19 +755,19 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 		}
 		for _, cond := range pod.Status.Conditions {
 			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-				podIP = pod.Status.PodIP
+				ready = pod
 				return true, nil
 			}
 		}
 		return false, nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if podIP == "" {
-		return "", fmt.Errorf("pod ready but no IP assigned")
+	if ready.Status.PodIP == "" {
+		return nil, fmt.Errorf("pod ready but no IP assigned")
 	}
-	return podIP, nil
+	return ready, nil
 }
 
 // sandboxContainerEnv builds the env block for the sandbox-exec container.
@@ -677,9 +793,12 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // When SystemNamespace is empty (defensive; should never happen in
 // production) the CA env is omitted so the sandbox simply has no governed
 // egress.
-func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir string) []corev1.EnvVar {
+func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir, execToken string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
+		// This run's exec token. The agent can read it, which grants nothing it
+		// does not already have; it cannot read another run's.
+		{Name: sandboxExecTokenEnv, Value: execToken},
 		// WORKSPACE is this run's subPath-scoped workspace (see sandboxVolumes/
 		// sandboxContainer). sandbox-exec uses it to derive a per-run HOME
 		// (mirroring orbit-session-runner's {workDir}/.runhome, see
@@ -830,7 +949,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 // sibling runs co-located on the same pod ordinal share the underlying PVC
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/clear-route/orbit/issues/134.
-func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, runID string) corev1.Container {
+func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, runID, execToken string) corev1.Container {
 	workspaceDir := filepath.Join("/workspaces", runID)
 	mounts := []corev1.VolumeMount{
 		{Name: "workspaces", MountPath: workspaceDir, SubPath: runID},
@@ -856,7 +975,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		)
 	}
 	return corev1.Container{
-		Name:  "sandbox-exec",
+		Name:  sandboxContainerName,
 		Image: cfg.SandboxImage,
 		// Always so a freshly built :latest image (new toolchain/versions) reaches
 		// new sandboxes; PullIfNotPresent would keep serving the node's cached
@@ -878,7 +997,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 				Drop: []corev1.Capability{"ALL"},
 			},
 		},
-		Env:          sandboxContainerEnv(cfg, kubeClusters, workspaceDir),
+		Env:          sandboxContainerEnv(cfg, kubeClusters, workspaceDir, execToken),
 		VolumeMounts: mounts,
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -1140,6 +1259,24 @@ func scopeSetsEqual(a, b []string) bool {
 	return true
 }
 
+// deleteWorkspacePVCs removes the agent's workspace claims by label.
+// DeleteCollection isn't used because the fake clientset used in tests
+// doesn't implement it.
+func (p *K8sProvisioner) deleteWorkspacePVCs(ctx context.Context, at AgentType, namespace string) error {
+	selector := labels.SelectorFromSet(agentTypeLabels(at)).String()
+	list, err := p.client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return ignoreNotFound(err)
+	}
+	var firstErr error
+	for _, pvc := range list.Items {
+		if err := ignoreNotFound(p.client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // deleteAgentGrant removes all policy-service grants for this agent's SPIFFE
 // principal. Best-effort; logs and returns nil if no grants exist or the
 // policy client is unavailable.
@@ -1256,6 +1393,13 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"
 
+// sandboxContainerName is the sandbox-exec container in every sandbox pod.
+const sandboxContainerName = "sandbox-exec"
+
+// sandboxExecTokenEnv carries the per-run secret sandbox-exec requires on every
+// Execute (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+const sandboxExecTokenEnv = execauth.TokenEnv
+
 // restrictedPodSecurityContext is the pod half of the restricted Pod Security
 // Standard, shared by the agent pod and the sandboxes that mount its workspace
 // claim. fsGroup is what makes that claim writable on storage classes which
@@ -1333,26 +1477,14 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							Ports: []corev1.ContainerPort{
 								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
 							},
-							EnvFrom: []corev1.EnvFromSource{
-								{
-									ConfigMapRef: &corev1.ConfigMapEnvSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: at.TenantID + "-config",
-										},
-									},
-								},
-								{
-									SecretRef: &corev1.SecretEnvSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "orbit-secrets",
-										},
-									},
-								},
-							},
+							// No envFrom: the session-manager reads no Secret and no
+							// ConfigMap. It reaches Postgres through orbit-agents, so the
+							// tenant pod holds no database credential for an agent to read
+							// out of its own environment.
 							Env: []corev1.EnvVar{
 								{Name: "ANTHROPIC_BASE_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
-								{Name: "ORBIT_POSTGRES_SSL_MODE", Value: p.cfg.SessionManagerPostgresSSL},
 								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
+								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
@@ -1387,9 +1519,15 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 					},
 				},
 			},
+			// WhenScaled stays Retain: an HPA scale-down is not agent deletion.
+			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+				WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "workspaces"},
+					// Labeled so DeprovisionAgentType can select it by agent type.
+					ObjectMeta: metav1.ObjectMeta{Name: "workspaces", Labels: labels},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources: corev1.VolumeResourceRequirements{

@@ -22,6 +22,28 @@ type CodexRunnerConfig struct {
 	// BinaryPath is the path to the codex binary. Defaults to "codex".
 	BinaryPath string
 
+	// WrapperPath is the path to orbit-session-runner. When set, codex is invoked
+	// as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a PID
+	// namespace are applied first. Empty invokes codex directly, with no
+	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	WrapperPath string
+
+	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
+	// orbit-shell callback variables).
+	ExtraEnv []string
+
+	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// sandbox. Always http://localhost:{port}, since it runs in this pod.
+	SessionManagerURL string
+
+	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
+	// disables the governed entries.
+	ToolGatewayURL string
+
+	// MCPServers are the governed MCP servers this agent holds tool grants on,
+	// one streamable-HTTP entry each.
+	MCPServers []string
+
 	// Model is passed to thread/start. May be empty.
 	Model string
 
@@ -127,16 +149,25 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 // prior conversation. Otherwise Start issues thread/start to create a new thread and
 // captures the returned thread ID.
 func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
+	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
+	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
 	codexHome, err := r.writeCodexConfig(workDir)
 	if err != nil {
 		return fmt.Errorf("codex: write config: %w", err)
 	}
-	r.cmd.Env = append(os.Environ(),
-		"CODEX_HOME="+codexHome,
+	homeEnv, err := runHomeDirs(workDir)
+	if err != nil {
+		return fmt.Errorf("codex: %w", err)
+	}
+	runEnv := []string{
+		"CODEX_HOME=" + codexHome,
 		"ORBIT_INFERENCE_KEY=orbit-managed",
-	)
+	}
+	runEnv = append(runEnv, r.cfg.ExtraEnv...)
+	// HOME and TMPDIR last: nothing earlier may move the agent off the only
+	// directory Landlock makes writable.
+	r.cmd.Env = withRunEnv(os.Environ(), append(runEnv, homeEnv...))
 
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
@@ -205,9 +236,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		if r.cfg.Model != "" {
 			threadStartParams["model"] = r.cfg.Model
 		}
-		if r.cfg.SystemPrompt != "" {
-			threadStartParams["developerInstructions"] = r.cfg.SystemPrompt
-		}
+		threadStartParams["developerInstructions"] = codexDeveloperInstructions(r.cfg.SystemPrompt)
 		threadID, err := r.sendRPCAndExtractThreadID(ctx, "thread/start", threadStartParams)
 		if err != nil {
 			cleanupProc()
@@ -307,6 +336,52 @@ func (r *CodexRunner) Close() error {
 		}
 	})
 	return firstErr
+}
+
+// sandboxToolInstructions tells a Codex agent to provision a sandbox, and where
+// to find the tool. Codex keeps MCP tools out of the model's tool list until
+// they are searched for. Claude Code and OpenCode list them directly.
+const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, or call anything outside. If the tool is not already in your tool list, search for it by name.`
+
+// codexDeveloperInstructions is the agent's own prompt with the sandbox
+// instructions appended, or those instructions alone when the agent has no prompt.
+func codexDeveloperInstructions(systemPrompt string) string {
+	if systemPrompt == "" {
+		return sandboxToolInstructions
+	}
+	return systemPrompt + "\n\n" + sandboxToolInstructions
+}
+
+// mcpServersTOML renders the [mcp_servers.*] tables: the runtime server the agent
+// provisions its sandbox through, plus one streamable-HTTP entry per MCP server
+// it holds tool grants on.
+//
+// Without the runtime server a Codex run cannot ask for a sandbox; without the
+// remote entries its mcp_tools grants do nothing. Field names follow Codex's
+// RawMcpServerConfig at the pinned CLI version.
+func (r *CodexRunner) mcpServersTOML() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `
+[mcp_servers.runtime]
+command = "orbit-runtime-mcp"
+args    = []
+
+[mcp_servers.runtime.env]
+ORBIT_SESSION_MANAGER_URL = %q
+ORBIT_RUN_ID              = %q
+`, r.cfg.SessionManagerURL, r.cfg.RunID)
+
+	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
+	// injects the platform token on the way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
+	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
+		for _, server := range r.cfg.MCPServers {
+			fmt.Fprintf(&b, `
+[mcp_servers.%s]
+url = %q
+`, server, url+"/v1/mcp/"+server)
+		}
+	}
+	return b.String()
 }
 
 // sendRPCRequest sends a request with the given method and params, registers a
@@ -704,6 +779,13 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	// so the actual secret value never appears on the command line or in the file.
 	configContent := fmt.Sprintf(`model_provider = "orbit"
 model = %q
+# Codex refuses to run a command unless it can sandbox it with bubblewrap, which
+# this image does not carry: without this it panics with "bubblewrap is
+# unavailable" and no command runs at all. Orbit's boundary is the sandbox pod
+# and the Landlock wrapper around this process, so a second sandbox nested inside
+# them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+# Stays above the first table header: a key after one belongs to that table.
+sandbox_mode = "danger-full-access"
 
 [model_providers.orbit]
 name     = "Orbit"
@@ -713,7 +795,17 @@ wire_api = "responses"
 
 [projects.%q]
 trust_level = "trusted"
-`, r.cfg.Model, perRunURL, workDir)
+
+# Codex's unified exec runs a persistent shell session and sends it a startup
+# script that names its resolved shell by path, which is meaningless once
+# orbit-shell forwards the command into the sandbox container. The legacy shell
+# tool sends one self-contained command per call, which is the same shape Claude
+# Code uses and the shape orbit-shell implements
+# (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+[features]
+shell_tool = true
+unified_exec = false
+%s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {

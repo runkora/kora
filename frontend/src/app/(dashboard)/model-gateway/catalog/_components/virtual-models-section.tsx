@@ -1,7 +1,18 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Badge, Button, Icon, SegmentedControl, Stack, StatusDot, Text } from '@orbit/terra';
+import {
+  Badge,
+  Button,
+  Icon,
+  SegmentedControl,
+  Stack,
+  StatusDot,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
@@ -33,13 +44,33 @@ function VmEffectivePriceCell({ model }: { model: VirtualModel }) {
       </Stack>
     );
   }
+
+  if (model.pricing.non_token_only) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="muted"
+            size="icon-sm"
+            aria-label="Non-token pricing — priced by image, request, second, or audio dimensions, not tokens"
+          >
+            <Icon name="info" size="2xs" color="muted" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Non-token pricing — priced by image, request, second, or audio dimensions, not tokens
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
   return (
     <Stack gap="none">
       <Text size="supporting" mono color="foreground">
-        {fmtCost(model.pricing.effective_input_cost_per_1m)}/1M
+        {fmtCost(model.pricing.effective_input_cost_per_1m ?? 0)}/1M
       </Text>
       <Text size="caption" color="muted" mono>
-        out: {fmtCost(model.pricing.effective_output_cost_per_1m)}/1M
+        out: {fmtCost(model.pricing.effective_output_cost_per_1m ?? 0)}/1M
       </Text>
     </Stack>
   );
@@ -103,8 +134,14 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        headerTooltip:
+          'The lowest per-1M token price across all token-priced enabled routes, after overrides. Routes without token pricing are excluded.',
         sortable: true,
-        sortAccessor: (m) => m.pricing?.effective_input_cost_per_1m ?? -1,
+        sortAccessor: (m) =>
+          m.pricing
+            ? (m.pricing.effective_input_cost_per_1m ?? 0) +
+              (m.pricing.effective_output_cost_per_1m ?? 0)
+            : -1,
         cell: (m) => <VmEffectivePriceCell model={m} />,
       },
       {

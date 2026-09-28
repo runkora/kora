@@ -73,6 +73,10 @@ type CallerIdentity struct {
 	// repository name), empty when none. Adapters that support it mint the
 	// credential narrowed to this resource.
 	Qualifier string
+	// AlsoAuthorized lists the classification's alternates that the caller's
+	// grant also holds. Adapters widen the credential by exactly these and no
+	// others.
+	AlsoAuthorized []string
 }
 
 // Sentinel errors. Callers may test for these with errors.Is.

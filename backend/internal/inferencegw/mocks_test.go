@@ -165,12 +165,6 @@ func (m *mockInferenceUsageRepository) GetPrincipalRoles(_ context.Context, tena
 	return m.principalRoles[tenantID+"\x00"+principalID], nil
 }
 
-// ── shared test helpers ────────────────────────────────────────────────────────
-
-// f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
-//
-//go:fix inline
-
 // ── mockPricingCatalogRepository ─────────────────────────────────────────────
 
 var _ PricingCatalogRepository = (*mockPricingCatalogRepository)(nil)

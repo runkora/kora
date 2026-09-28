@@ -103,6 +103,11 @@ func DecodeConfig(conn Connection, out any) error {
 type Classification struct {
 	Action    string
 	Qualifier string
+	// Alternates are further actions that also authorize this request, for a
+	// route the path alone cannot attribute to one category. The broker checks
+	// Action and each alternate against the caller's grant, denies only when
+	// none is held, and mints the credential for every one that is.
+	Alternates []string
 }
 
 // ActionDeclaration describes one action an adapter can classify. The Action

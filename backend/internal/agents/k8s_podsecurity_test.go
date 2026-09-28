@@ -29,12 +29,13 @@ func podSecurityProvisioner() *K8sProvisioner {
 			TrustDomain:         "orbit.example.com",
 			SystemNamespace:     "orbit-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
+			SamplingRate:        "1.0",
 		},
 	}
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil)
+	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil, "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -131,12 +132,17 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
 		t.Errorf("ORBIT_OTLP_ENDPOINT = %q, want %q", got, want)
 	}
+	// Without this a provisioned agent samples at its image default, so its
+	// traces are dropped at a different rate than the platform's.
+	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
+		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
+	}
 }
 
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil
-	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil); pod.Spec.ImagePullSecrets != nil {
+	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil, "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
 		t.Errorf("sandbox imagePullSecrets = %+v, want field omitted", pod.Spec.ImagePullSecrets)
 	}
 	at := AgentType{Slug: "coder", TenantID: "acme"}

@@ -38,6 +38,8 @@ spec:
           env:
             - name: ORBIT_OTLP_ENDPOINT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
+            - name: ORBIT_SAMPLING_RATE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "policyGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "policyGateway") | nindent 12 }}

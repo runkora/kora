@@ -246,6 +246,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
+		// The session-manager pre-provisions, because it is the only component that
+		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
+		ProvisionSandbox: req.ProvisionSandbox,
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
@@ -261,10 +264,6 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, fmt.Errorf("set run active: %w", err)
 	}
 	run.State = RunStateActive
-
-	// Optional pre-provisioning: warm the sandbox pod so the first tool call avoids
-	// cold-start latency. Runs in the background (see maybeWarmSandbox).
-	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace, *at)
 
 	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
 
@@ -503,9 +502,29 @@ func (s *RunService) deprovisionSandbox(ctx context.Context, run *Run) {
 	)
 }
 
-// PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
-func (s *RunService) PublishEvent(_ context.Context, runID string, ev PushedEvent) {
-	s.pubsub.Publish(runID, ev)
+// PublishEvent persists a pushed event from a session-manager pod and fans it
+// out to live SSE subscribers. Durable types are written to run_events and
+// carry the assigned sequence number; replay-only types are persisted and
+// withheld from subscribers, who receive the same content through the delta
+// events. A failed write is returned so the pushing session-manager learns the
+// event was not recorded.
+func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {
+	var writeErr error
+	if durableEventType(ev.Type) {
+		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload})
+		if err != nil {
+			// Fan out anyway, unsequenced, and report the failure. Subscribers keep
+			// seeing the run while the database is down, and the pusher learns the
+			// row is missing. Same shape as a failed run_state write.
+			writeErr = fmt.Errorf("persist %s event: %w", ev.Type, err)
+		} else {
+			ev.SequenceNo = seqNo
+		}
+	}
+	if !replayOnlyEventType(ev.Type) {
+		s.pubsub.Publish(runID, ev)
+	}
+	return writeErr
 }
 
 // ListRunEvents returns persisted events for a run after the given sequence number.
@@ -681,10 +700,17 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	return nil
 }
 
-// ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
-// request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port").
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
-	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
+// ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
+// failure: the caller routes work locally for the former and refuses for the
+// latter.
+var ErrNoSandbox = errors.New("run has no sandbox")
+
+// GetSandbox returns the run's sandbox without creating one. The session-manager
+// asks when its own memory has none, which happens after a restart, and the
+// answer comes from the live pod rather than the run's workspace, which the
+// agent can delete.
+func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.GetSandbox",
 		trace.WithAttributes(attribute.String("run_id", runID)),
 	)
 	defer span.End()
@@ -693,31 +719,83 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get run")
-		return "", err
+		return Sandbox{}, err
+	}
+
+	sandbox, ok, err := s.k8s.LookupSandbox(ctx, runID, s.cfg.TenantNamespaceFn(run.TenantID))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "lookup sandbox")
+		return Sandbox{}, err
+	}
+	if !ok {
+		return Sandbox{}, ErrNoSandbox
+	}
+	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
+	return sandbox, nil
+}
+
+// ErrKubeconfigNotReady declines a sandbox pre-provision while the connection
+// registry is still loading. Not a run failure: the caller loses the warm
+// start and the next on-demand request provisions normally.
+var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-provision")
+
+// ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
+// request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
+// the exec token that sandbox requires.
+//
+// ahead marks a pre-provision, which exists to spare the first command the
+// pod's cold start. It refuses while the connection registry is loading, since
+// the pod would keep an empty kubeconfig for the rest of the run. An on-demand
+// request provisions either way: no kubeconfig beats no sandbox.
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
+		trace.WithAttributes(
+			attribute.String("run_id", runID),
+			attribute.Bool("ahead", ahead),
+		),
+	)
+	defer span.End()
+
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get run")
+		return Sandbox{}, err
 	}
 
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
-		return "", fmt.Errorf("get agent type: %w", err)
+		return Sandbox{}, fmt.Errorf("get agent type: %w", err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, s.sandboxKubeClusters(ctx, *at))
+	kubeClusters, kubeReady := s.sandboxKubeClusters(ctx, *at)
+	if ahead && !kubeReady {
+		span.SetStatus(codes.Error, "kubeconfig not resolved")
+		s.logger.Warn(ctx, "Skipping sandbox pre-provision: the connection registry has not resolved",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "agent_type", Value: at.Slug},
+		)
+		return Sandbox{}, ErrKubeconfigNotReady
+	}
+
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, kubeClusters)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision sandbox pod")
-		return "", fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("endpoint", endpoint))
+	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},
-		logging.Field{Key: "endpoint", Value: endpoint},
+		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
-	return endpoint, nil
+	return sandbox, nil
 }
 
 // providePod ensures the agent type's k8s resources exist (idempotent, fast
@@ -840,43 +918,6 @@ func (s *RunService) StartReaper(ctx context.Context) {
 	}
 }
 
-// maybeWarmSandbox eagerly provisions the run's sandbox pod in the background when
-// enabled, so the first tool call avoids cold-start latency. Best-effort and
-// idempotent — the session-manager's later on-demand ProvisionSandbox reuses the
-// warmed pod. The request ctx ends when StartRun returns, so we detach from its
-// cancellation (keeping its trace via WithoutCancel) and cap the warm-up so a stuck
-// pod cannot leak the goroutine.
-func (s *RunService) maybeWarmSandbox(ctx context.Context, enabled bool, run Run, slug, namespace string, at AgentType) {
-	if !enabled {
-		return
-	}
-	// Resolve BEFORE warming, and skip the warm-up entirely if the connection
-	// registry has not loaded yet. A warmed pod is reused by the run's later
-	// on-demand ProvisionSandbox (it only replaces a dead pod), so a sandbox
-	// warmed with an empty ORBIT_KUBE_CLUSTERS would leave the agent without a
-	// kubeconfig for the whole run. Skipping simply defers provisioning to the
-	// first tool call, by which point the registry is almost certainly mounted —
-	// warm-up is a latency optimization, never a correctness requirement.
-	kubeClusters, unresolved, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
-	if err != nil || unresolved > 0 {
-		s.logger.Warn(ctx, "skipping sandbox warm-up: connection registry not resolved",
-			logging.Field{Key: "run_id", Value: run.ID},
-			logging.Field{Key: "unresolved_connectors", Value: unresolved},
-		)
-		return
-	}
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
-		defer cancel()
-		if _, err := s.k8s.ProvisionSandbox(bgCtx, run, slug, namespace, kubeClusters); err != nil {
-			s.logger.Warn(bgCtx, "pre-provision sandbox failed",
-				logging.Field{Key: "run_id", Value: run.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}()
-}
-
 // publishReapedState persists and publishes a run_state event for a reaper-driven
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
@@ -908,17 +949,27 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 }
 
 // sandboxKubeClusters resolves the Kubernetes connections whose kubeconfig the
-// sandbox materializes. Best-effort by design: a registry that has not loaded
-// yet leaves the agent without a kubeconfig rather than failing the run — the
-// on-demand provisioning path runs at first tool call, long after start-up.
-func (s *RunService) sandboxKubeClusters(ctx context.Context, at AgentType) []kubeconfig.Cluster {
-	clusters, _, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
+// sandbox materializes, and reports whether that answer is complete.
+//
+// ready is false when the connection registry has not loaded, which
+// KubeClusters reports as unresolved > 0 and is a different answer from "this
+// agent has no Kubernetes connection". The sandbox pod is reused for the whole
+// run rather than rebuilt, so an incomplete answer persists.
+func (s *RunService) sandboxKubeClusters(ctx context.Context, at AgentType) (clusters []kubeconfig.Cluster, ready bool) {
+	clusters, unresolved, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
 	if err != nil {
 		s.logger.Warn(ctx, "resolve kubeconfig clusters for sandbox",
 			logging.Field{Key: "agent_type", Value: at.Slug},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil
+		return nil, false
 	}
-	return clusters
+	if unresolved > 0 {
+		s.logger.Warn(ctx, "connection registry has not resolved every connector for this sandbox",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "unresolved_connectors", Value: unresolved},
+		)
+		return clusters, false
+	}
+	return clusters, true
 }

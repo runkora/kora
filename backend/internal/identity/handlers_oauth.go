@@ -1,7 +1,7 @@
 package identity
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"net/http"
 
@@ -61,17 +61,12 @@ func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r 
 		CodeChallengeMethodsSupported:     []string{"S256"},
 		TokenEndpointAuthMethodsSupported: []string{"none"},
 	}
-	w.Header().Set("Content-Type", "application/json")
 	// URLs are derived from the request host, so this must never be shared-cached
 	// across hosts — a poisoned cached copy would point clients at an attacker's
 	// authorization/token endpoints. no-store + Vary close that vector.
 	w.Header().Set("Cache-Control", "no-store, private")
 	w.Header().Set("Vary", "X-Forwarded-Host, X-Forwarded-Proto")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(meta); err != nil {
-		c.logger.Error(ctx, "failed to write AS metadata response",
-			logging.Field{Key: "error", Value: err.Error()})
-	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, meta)
 }
 
 // ── OAuth authorization-code + PKCE (MCP profile) ─────────────────────────────
@@ -113,7 +108,7 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 			api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 		return
 	}
-	writeOAuthJSON(w, http.StatusOK, map[string]string{"code": code})
+	writeOAuthJSON(ctx, w, c.logger, http.StatusOK, map[string]string{"code": code})
 }
 
 // handleOAuthToken handles POST /identity/oauth/token (public, RFC 6749
@@ -123,7 +118,7 @@ func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024) // bound the token-endpoint body
 	if err := r.ParseForm(); err != nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		writeOAuthError(ctx, w, c.logger, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
 	var (
@@ -145,33 +140,31 @@ func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, ErrInvalidOAuthRequest):
-		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeOAuthError(ctx, w, c.logger, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	case errors.Is(err, ErrInvalidOAuthGrant):
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+		writeOAuthError(ctx, w, c.logger, http.StatusBadRequest, "invalid_grant", err.Error())
 		return
 	case err != nil:
 		c.logger.Error(ctx, "oauth token exchange failed", logging.Field{Key: "error", Value: err.Error()})
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token exchange failed")
+		writeOAuthError(ctx, w, c.logger, http.StatusInternalServerError, "server_error", "token exchange failed")
 		return
 	}
-	writeOAuthJSON(w, http.StatusOK, resp)
+	writeOAuthJSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
 // writeOAuthJSON writes a no-store JSON response (token/code endpoints must not cache).
 // CORS headers are set on all responses so remote MCP clients (e.g. Claude Desktop)
 // can call the registration and token endpoints cross-origin.
-func writeOAuthJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
+func writeOAuthJSON(ctx context.Context, w http.ResponseWriter, logger logging.Logger, status int, body any) {
 	w.Header().Set("Cache-Control", "no-store")
 	setOAuthCORSHeaders(w)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	api.JSON(ctx, w, logger, status, body)
 }
 
 // writeOAuthError writes an RFC 6749 {error, error_description} response.
-func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
-	writeOAuthJSON(w, status, map[string]string{"error": code, "error_description": desc})
+func writeOAuthError(ctx context.Context, w http.ResponseWriter, logger logging.Logger, status int, code, desc string) {
+	writeOAuthJSON(ctx, w, logger, status, map[string]string{"error": code, "error_description": desc})
 }
 
 // setOAuthCORSHeaders sets CORS headers on the public OAuth back-channel
@@ -185,10 +178,10 @@ func setOAuthCORSHeaders(w http.ResponseWriter) {
 
 // handleOAuthCORSPreflight handles OPTIONS preflight requests for the public
 // OAuth back-channel endpoints (/oauth/register, /oauth/token).
-func (c *Controller) handleOAuthCORSPreflight(w http.ResponseWriter, _ *http.Request) {
+func (c *Controller) handleOAuthCORSPreflight(w http.ResponseWriter, r *http.Request) {
 	setOAuthCORSHeaders(w)
 	w.Header().Set("Access-Control-Max-Age", "86400")
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(r.Context(), w, c.logger, http.StatusNoContent, nil)
 }
 
 // clientRegistrationResponse is the RFC 7591 registration response.
@@ -213,17 +206,17 @@ func (c *Controller) handleRegisterClient(w http.ResponseWriter, r *http.Request
 	client, err := c.svc.RegisterClient(ctx, req)
 	switch {
 	case errors.Is(err, ErrDCRDisabled):
-		writeOAuthError(w, http.StatusForbidden, "access_denied", "dynamic client registration is disabled")
+		writeOAuthError(ctx, w, c.logger, http.StatusForbidden, "access_denied", "dynamic client registration is disabled")
 		return
 	case errors.Is(err, ErrInvalidClientMetadata):
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		writeOAuthError(ctx, w, c.logger, http.StatusBadRequest, "invalid_client_metadata", err.Error())
 		return
 	case err != nil:
 		c.logger.Error(ctx, "client registration failed", logging.Field{Key: "error", Value: err.Error()})
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "registration failed")
+		writeOAuthError(ctx, w, c.logger, http.StatusInternalServerError, "server_error", "registration failed")
 		return
 	}
-	writeOAuthJSON(w, http.StatusCreated, clientRegistrationResponse{
+	writeOAuthJSON(ctx, w, c.logger, http.StatusCreated, clientRegistrationResponse{
 		ClientID:                client.ClientID,
 		RedirectURIs:            client.RedirectURIs,
 		TokenEndpointAuthMethod: "none",
@@ -249,15 +242,15 @@ func (c *Controller) handleGetClient(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	client, err := c.svc.GetClient(ctx, r.PathValue("id"))
 	if errors.Is(err, ErrClientNotFound) {
-		writeOAuthError(w, http.StatusNotFound, "not_found", "client not registered")
+		writeOAuthError(ctx, w, c.logger, http.StatusNotFound, "not_found", "client not registered")
 		return
 	}
 	if err != nil {
 		c.logger.Error(ctx, "get client failed", logging.Field{Key: "error", Value: err.Error()})
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to load client")
+		writeOAuthError(ctx, w, c.logger, http.StatusInternalServerError, "server_error", "failed to load client")
 		return
 	}
-	writeOAuthJSON(w, http.StatusOK, consentClientInfo{
+	writeOAuthJSON(ctx, w, c.logger, http.StatusOK, consentClientInfo{
 		ClientID:     client.ClientID,
 		ClientName:   client.ClientName,
 		RedirectURIs: client.RedirectURIs,

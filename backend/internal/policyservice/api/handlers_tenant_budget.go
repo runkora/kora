@@ -114,5 +114,5 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }

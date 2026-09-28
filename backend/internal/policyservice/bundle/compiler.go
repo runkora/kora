@@ -86,6 +86,9 @@ type Config struct {
 	// seen by the Istio IngressGateway `:authority` header. Used only by the
 	// gateway bundle to bypass OPA enforcement for browser UI traffic.
 	FrontendHost string
+	// TelemetryCollector is the platform collector's host:port. Tenant pods may
+	// send OTLP export calls to it without a grant. Empty disables the rule.
+	TelemetryCollector string
 }
 
 // grantsDocument is the JSON structure of data/grants/data.json.
@@ -147,9 +150,10 @@ type routesDocument struct {
 // configDocument is the JSON structure of data/config/data.json.
 // It holds cluster-specific values so that authz.rego remains cluster-agnostic.
 type configDocument struct {
-	JWKSURL  string `json:"jwks_url"`
-	Issuer   string `json:"issuer"`
-	Audience string `json:"audience"`
+	JWKSURL            string `json:"jwks_url"`
+	Issuer             string `json:"issuer"`
+	Audience           string `json:"audience"`
+	TelemetryCollector string `json:"telemetry_collector,omitempty"`
 }
 
 // gatewayConfigDocument is the JSON structure of data/config/data.json in the
@@ -605,9 +609,10 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 
 	// Build config data document (cluster-specific values for authz.rego).
 	cfgJSON, err := json.Marshal(configDocument{
-		JWKSURL:  cfg.JWKSURL,
-		Issuer:   cfg.Issuer,
-		Audience: cfg.Audience,
+		JWKSURL:            cfg.JWKSURL,
+		Issuer:             cfg.Issuer,
+		Audience:           cfg.Audience,
+		TelemetryCollector: cfg.TelemetryCollector,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal config: %w", err)
@@ -713,7 +718,12 @@ func buildGatewayBundle(
 ) ([]byte, string, error) {
 	revision := fmt.Sprintf("gateway-%d", time.Now().UnixNano())
 
-	cfgJSON, err := json.Marshal(gatewayConfigDocument(cfg))
+	cfgJSON, err := json.Marshal(gatewayConfigDocument{
+		JWKSURL:      cfg.JWKSURL,
+		Issuer:       cfg.Issuer,
+		Audience:     cfg.Audience,
+		FrontendHost: cfg.FrontendHost,
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal gateway config: %w", err)
 	}

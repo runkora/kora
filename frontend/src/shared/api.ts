@@ -50,8 +50,26 @@ export interface ToolScopeDefinition {
 
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
-  effective_input_cost_per_1m: number;
-  effective_output_cost_per_1m: number;
+  /** Effective per-1M token input cost (0 for free-tier; absent only when non_token_only). */
+  effective_input_cost_per_1m?: number;
+  /** Effective per-1M token output cost (0 for free-tier; absent only when non_token_only). */
+  effective_output_cost_per_1m?: number;
+  cache_read_cost_per_1m?: number;
+  cache_write_cost_per_1m?: number;
+  // Non-token dimensions — absent when zero:
+  image_input_cost?: number;
+  image_output_cost?: number;
+  request_input_cost?: number;
+  request_output_cost?: number;
+  second_input_cost?: number;
+  second_output_cost?: number;
+  audio_input_cost_per_1m?: number;
+  audio_output_cost_per_1m?: number;
+  /**
+   * True when the VM has no token-priced routes and pricing reflects
+   * non-token dimensions only. Token cost fields will be absent.
+   */
+  non_token_only?: boolean;
 }
 
 /** Raw model object returned by the inference gateway. */

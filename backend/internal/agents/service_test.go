@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -461,6 +462,38 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 }
 
+// Pre-provisioning is forwarded to the session-manager, the only component that
+// writes the sandbox descriptor. A pod warmed without one sits idle.
+func TestStartRun_ForwardsProvisionSandbox(t *testing.T) {
+	for _, requested := range []bool{true, false} {
+		t.Run(strconv.FormatBool(requested), func(t *testing.T) {
+			svc, repo, _, sm := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{
+				ID: "at-1", TenantID: "t-1", Slug: "bot",
+				Framework:               AgentFrameworkClaudeCode,
+				MaxConcurrentRunsPerPod: 5,
+			})
+
+			if _, err := svc.StartRun(context.Background(), StartRunRequest{
+				TenantID:         "t-1",
+				AgentTypeID:      at.ID,
+				ProvisionSandbox: requested,
+			}); err != nil {
+				t.Fatalf("StartRun: %v", err)
+			}
+
+			sm.mu.Lock()
+			defer sm.mu.Unlock()
+			if len(sm.sessions) != 1 {
+				t.Fatalf("expected 1 session-manager call, got %d", len(sm.sessions))
+			}
+			if got := sm.sessions[0].ProvisionSandbox; got != requested {
+				t.Errorf("ProvisionSandbox forwarded as %v, want %v", got, requested)
+			}
+		})
+	}
+}
+
 func TestStartRun_FailedStartMarksRunFailed(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
@@ -752,19 +785,22 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	endpoint, err := svc.ProvisionSandbox(context.Background(), "run-1")
+	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if endpoint != "10.0.0.5:50051" {
-		t.Errorf("endpoint = %q, want 10.0.0.5:50051", endpoint)
+	if sandbox.Endpoint != "10.0.0.5:50051" {
+		t.Errorf("endpoint = %q, want 10.0.0.5:50051", sandbox.Endpoint)
+	}
+	if sandbox.ExecToken == "" {
+		t.Error("expected an exec token alongside the endpoint")
 	}
 }
 
 func TestProvisionSandbox_RunNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
-	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent")
+	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent", false)
 	if err == nil {
 		t.Fatal("expected error for missing run")
 	}
@@ -1245,5 +1281,98 @@ func TestAgentType_MCPServers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// PublishEvent is where a pushed event becomes a run_events row. The
+// session-manager holds no database connection, so it cannot notice a lost one.
+func TestPublishEvent_DurableEventIsRecorded(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	if err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "tool_use",
+		Payload: []byte(`{"name":"Bash"}`),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	events, err := repo.ListRunEvents(context.Background(), "run-1", 0)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "tool_use" {
+		t.Fatalf("expected one recorded tool_use, got %+v", events)
+	}
+
+	select {
+	case got := <-ch:
+		if got.SequenceNo != events[0].SequenceNo {
+			t.Errorf("published sequence %d, recorded %d", got.SequenceNo, events[0].SequenceNo)
+		}
+	default:
+		t.Error("expected the event to reach subscribers")
+	}
+}
+
+// A replay-only type is recorded but withheld from subscribers, who already have
+// the same content from the delta events.
+func TestPublishEvent_ReplayOnlyEventIsNotPublished(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	if err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "text_block",
+		Payload: []byte(`{"content":"hi"}`),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	events, err := repo.ListRunEvents(context.Background(), "run-1", 0)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected the event to be recorded, got %+v", events)
+	}
+	select {
+	case got := <-ch:
+		t.Errorf("expected no fan-out for a replay-only event, got %+v", got)
+	default:
+	}
+}
+
+// A failed write still fans out, as an ephemeral event, and reports the failure:
+// a subscriber should keep seeing the run while the database is unavailable, and
+// the pushing session-manager should learn the row is missing.
+func TestPublishEvent_WriteFailureStillPublishesAndReports(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+	repo.appendRunEventErr = errors.New("database is down")
+
+	ch, cancel := svc.run.SubscribeRun("run-1")
+	defer cancel()
+
+	err := svc.run.PublishEvent(context.Background(), "run-1", PushedEvent{
+		Type:    "tool_use",
+		Payload: []byte(`{"name":"Bash"}`),
+	})
+	if err == nil {
+		t.Fatal("expected the write failure to be reported")
+	}
+
+	select {
+	case got := <-ch:
+		if got.SequenceNo != 0 {
+			t.Errorf("expected an unsequenced event after a failed write, got %d", got.SequenceNo)
+		}
+	default:
+		t.Error("expected the event to reach subscribers despite the failed write")
 	}
 }

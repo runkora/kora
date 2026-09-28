@@ -28,8 +28,7 @@ type ClaudeRunnerConfig struct {
 	// When empty, BinaryPath is invoked directly (no filesystem restriction).
 	WrapperPath string
 
-	// Model overrides the default model (e.g. "claude-sonnet-4-6").
-	// Empty means use Claude Code's default.
+	// Model is the agent type's model, passed as --model (e.g. "anthropic/claude-sonnet-5").
 	Model string
 
 	// AllowedTools is the set of Claude Code tool names the agent may use
@@ -152,10 +151,7 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 	if claudeBinary == "" {
 		claudeBinary = "claude"
 	}
-	if r.cfg.WrapperPath != "" {
-		return r.cfg.WrapperPath, append([]string{workDir, claudeBinary}, args...)
-	}
-	return claudeBinary, args
+	return wrapExec(r.cfg.WrapperPath, workDir, claudeBinary, args...)
 }
 
 // buildRunEnv constructs the subprocess environment from the inherited base env

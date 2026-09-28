@@ -126,7 +126,7 @@ func TestProcessor_HandleRequestHeaders_WithToken(t *testing.T) {
 	cache := NewTokenCache()
 	cache.Set("bearer-xyz", time.Now().Add(5*time.Minute))
 
-	p := NewProcessor(cache, nil, discardLogger())
+	p := NewProcessor(cache, nil, "", discardLogger())
 	resp := p.handleRequestHeaders(context.Background(), nil)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
@@ -156,7 +156,7 @@ func TestProcessor_HandleRequestHeaders_WithToken(t *testing.T) {
 
 func TestProcessor_HandleRequestHeaders_EmptyCache(t *testing.T) {
 	cache := NewTokenCache() // nothing Set
-	p := NewProcessor(cache, nil, discardLogger())
+	p := NewProcessor(cache, nil, "", discardLogger())
 	resp := p.handleRequestHeaders(context.Background(), nil)
 	if resp == nil {
 		t.Fatal("expected non-nil response")

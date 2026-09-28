@@ -96,7 +96,7 @@ func TestKubeClusters_NoResolverWired(t *testing.T) {
 func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
 
-	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, "/workspaces/run-1")
+	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, "/workspaces/run-1", "test-exec-token")
 	var got string
 	for _, e := range env {
 		if e.Name == kubeconfig.ClustersEnvVar {
@@ -111,7 +111,7 @@ func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 		t.Errorf("decoded %+v (err %v), want the one cluster", clusters, err)
 	}
 
-	for _, e := range sandboxContainerEnv(cfg, nil, "/workspaces/run-1") {
+	for _, e := range sandboxContainerEnv(cfg, nil, "/workspaces/run-1", "test-exec-token") {
 		if e.Name == kubeconfig.ClustersEnvVar {
 			t.Errorf("%s must be omitted when the agent has no kubernetes connection, got %q", e.Name, e.Value)
 		}
@@ -128,7 +128,7 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
 	runID := "run-abc-123"
 
-	c := sandboxContainer(cfg, nil, runID)
+	c := sandboxContainer(cfg, nil, runID, "test-exec-token")
 
 	var found bool
 	var gotMountPath, gotSubPath string

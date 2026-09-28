@@ -174,6 +174,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | global.nodeSelector | object | `{}` |  |
 | global.observability.collectorNamespace | string | `""` |  |
 | global.observability.otlpEndpoint | string | `""` |  |
+| global.observability.samplingRate | string | `""` |  |
 | global.postgres.captureQueryText | bool | `false` |  |
 | global.postgres.sslMode | string | `"require"` |  |
 | global.priorityClassName | string | `""` |  |

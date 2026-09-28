@@ -11,7 +11,7 @@ import (
 )
 
 // Responses calls the Azure OpenAI-compatible responses endpoint.
-func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewParams) (*inferencegw.ResponsesResult, error) {
 	c.logger.Debug(ctx, "azure: responses start",
 		logging.Field{Key: "model", Value: params.Model},
 	)
@@ -24,7 +24,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 		return nil, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
 	}
 
-	return resp, nil
+	return &inferencegw.ResponsesResult{Response: resp}, nil
 }
 
 // ResponsesStream opens a streaming responses request via the Azure OpenAI-compatible endpoint.

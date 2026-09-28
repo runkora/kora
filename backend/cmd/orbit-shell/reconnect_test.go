@@ -11,18 +11,22 @@ import (
 func TestReprovisionSandbox_RewritesAndReturnsEndpoint(t *testing.T) {
 	ws := t.TempDir()
 	const fresh = "10.0.0.7:50051"
+	const freshToken = "tok-fresh"
 
 	var gotMethod, gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath = r.Method, r.URL.Path
-		// Simulate the session-manager re-provisioning and rewriting the file
-		// that sandboxEndpoint() reads.
+		// Simulate the session-manager re-provisioning and rewriting the files
+		// that readSandbox() reads.
 		dir := filepath.Join(ws, ".sandbox")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Errorf("mkdir: %v", err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "endpoint"), []byte(fresh), 0o600); err != nil {
 			t.Errorf("write: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "exec-token"), []byte(freshToken), 0o600); err != nil {
+			t.Errorf("write token: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -36,8 +40,11 @@ func TestReprovisionSandbox_RewritesAndReturnsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reprovisionSandbox: %v", err)
 	}
-	if got != fresh {
-		t.Fatalf("expected fresh endpoint %q, got %q", fresh, got)
+	if got.endpoint != fresh {
+		t.Fatalf("expected fresh endpoint %q, got %q", fresh, got.endpoint)
+	}
+	if got.token != freshToken {
+		t.Fatalf("expected fresh token %q, got %q", freshToken, got.token)
 	}
 	if gotMethod != http.MethodPost {
 		t.Fatalf("expected POST, got %s", gotMethod)

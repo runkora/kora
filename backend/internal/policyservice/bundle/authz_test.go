@@ -44,6 +44,8 @@ type bundleOpts struct {
 	// jwksURL overrides the default failing JWKS URL for Layer-1 tests that
 	// need real JWT verification (pair with startJWKSServer / signTestJWT).
 	jwksURL string
+	// telemetryCollector is the collector authority compiled into data.config.
+	telemetryCollector string
 }
 
 // compileAndPrepare compiles a real OPA bundle using the same compiler the
@@ -60,9 +62,10 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 		jwksURL = opts.jwksURL
 	}
 	cfg := bundle.Config{
-		JWKSURL:  jwksURL,
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		JWKSURL:            jwksURL,
+		Issuer:             "orbit",
+		Audience:           "orbit-platform",
+		TelemetryCollector: opts.telemetryCollector,
 	}
 
 	routeStore := routes.NewStore()

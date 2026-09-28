@@ -188,7 +188,7 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {

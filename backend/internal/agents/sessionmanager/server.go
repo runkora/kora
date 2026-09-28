@@ -1,6 +1,7 @@
 package sessionmanager
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,17 +16,20 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // ControllerConfig holds defaults that the controller applies to new sessions.
 type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
-	// ClaudeWrapperPath is the path to orbit-session-runner. When set, it wraps
-	// the claude subprocess to apply Landlock filesystem restrictions (docs/adr/2026-06-04-per-session-home-isolation.md).
-	ClaudeWrapperPath string
-	// ClaudeDefaultModel is used when the session request omits a model.
-	ClaudeDefaultModel string
+	// WrapperPath is the path to orbit-session-runner. When set, every agent
+	// subprocess runs through it, applying Landlock and a PID namespace
+	// (docs/adr/2026-06-04-per-session-home-isolation.md).
+	WrapperPath string
+	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
+	// Codex resolve it from the image.
+	ShellPath string
 	// ClaudeBare enables --bare mode (required in containers).
 	ClaudeBare bool
 	// SelfPort is the port this session-manager listens on. orbit-runtime-mcp
@@ -37,13 +41,9 @@ type ControllerConfig struct {
 
 	// CodexBinaryPath overrides the codex binary location. Defaults to "codex".
 	CodexBinaryPath string
-	// CodexDefaultModel is used when the session request omits a model for Codex.
-	CodexDefaultModel string
 
 	// OpenCodeBinaryPath overrides the opencode binary location. Defaults to "opencode".
 	OpenCodeBinaryPath string
-	// OpenCodeDefaultModel is used when the session request omits a model for OpenCode.
-	OpenCodeDefaultModel string
 
 	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
 	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
@@ -52,6 +52,10 @@ type ControllerConfig struct {
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
 	// into the per-run MCP config so agents reach governed tools through it.
 	ToolGatewayURL string
+
+	// OTLPEndpoint is the platform collector Claude Code exports to. Empty
+	// disables its telemetry.
+	OTLPEndpoint string
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -206,6 +210,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session/{runID}/interrupt", c.handleInterruptSession)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
 // handleHealth returns liveness + active session count.
@@ -234,6 +239,9 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
+	// ProvisionSandbox provisions this run's sandbox immediately instead of
+	// waiting for the agent to ask for one.
+	ProvisionSandbox bool `json:"provision_sandbox"`
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -251,8 +259,9 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, and tenant_id are required", nil)
+	// The model comes from the agent type in the platform; there is no fallback.
+	if req.RunID == "" || req.AgentTypeID == "" || req.TenantID == "" || req.Model == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "run_id, agent_type_id, tenant_id, and model are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -262,18 +271,19 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	runToken, ok := c.prepareRun(w, r, req)
+	if !ok {
+		return
+	}
+
 	var runner Runner
-	var model, inferenceURL string
+	var inferenceURL string
 	switch req.Framework {
 	case "claude-code", "":
 		// Empty framework also routes to claude-code: rows that pre-date
 		// service.CreateAgentType's empty→claude-code defaulting still carry
 		// the migration's NOT NULL DEFAULT '' value.
-		model = req.Model
-		if model == "" {
-			model = c.cfg.ClaudeDefaultModel
-		}
-		extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
+		extraEnv := c.runEnv(req.RunID, runToken)
 		// Run identity travels as a base-URL path prefix: point this subprocess at
 		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
 		// budgets. Transparent to the agent runtime; the inherited pod-level value
@@ -282,10 +292,11 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
 			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
 		}
+		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID)...)
 		runner = NewClaudeRunner(ClaudeRunnerConfig{
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
-			WrapperPath:       c.cfg.ClaudeWrapperPath,
-			Model:             model,
+			WrapperPath:       c.cfg.WrapperPath,
+			Model:             req.Model,
 			AllowedTools:      req.AllowedTools,
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
@@ -297,31 +308,34 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			Logger:            c.logger,
 		})
 	case "codex":
-		model = req.Model
-		if model == "" {
-			model = c.cfg.CodexDefaultModel
-		}
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewCodexRunner(CodexRunnerConfig{
 			BinaryPath:          c.cfg.CodexBinaryPath,
-			Model:               model,
+			WrapperPath:         c.cfg.WrapperPath,
+			Model:               req.Model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
 			SystemPrompt:        req.SystemPrompt,
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
 		})
 	case "opencode":
-		model = req.Model
-		if model == "" {
-			model = c.cfg.OpenCodeDefaultModel
-		}
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
 			BinaryPath:          c.cfg.OpenCodeBinaryPath,
-			Model:               model,
+			WrapperPath:         c.cfg.WrapperPath,
+			ShellPath:           c.cfg.ShellPath,
+			Model:               req.Model,
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
 		})
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
@@ -334,7 +348,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		AgentTypeID:  req.AgentTypeID,
 		TenantID:     req.TenantID,
 		Runner:       runner,
-		Model:        model,
+		Model:        req.Model,
 		InferenceURL: inferenceURL,
 	}
 
@@ -349,7 +363,101 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if req.ProvisionSandbox {
+		c.provisionSandboxAhead(ctx, req.RunID)
+	}
+
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
+}
+
+// provisionSandboxAhead provisions the run's sandbox up front, so the first
+// command does not pay the pod's cold start.
+//
+// Runs in the background: provisioning waits on pod readiness and the egress
+// canary, which takes minutes, and the session is created either way. A failure
+// is logged only; the agent can still request one itself. The context is
+// detached from the request, which ends with this handler.
+func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
+	bgCtx := context.WithoutCancel(ctx)
+	go func() {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true); err != nil {
+			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+}
+
+// prepareRun rejects a request no runner can serve and returns the run's token,
+// which the runner's environment carries to the agent. Returns false and writes
+// the response when the run cannot start.
+//
+// The framework is checked before the token is written, so a request that
+// cannot produce a session leaves nothing behind for the run.
+func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req CreateSessionRequest) (string, bool) {
+	ctx := r.Context()
+	switch req.Framework {
+	// Empty means claude-code, for rows predating the defaulting in
+	// service.CreateAgentType.
+	case "claude-code", "", "codex", "opencode":
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return "", false
+	}
+
+	runToken, err := mintRunToken(c.cfg.WorkspacesBasePath, req.RunID)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to prepare the run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return "", false
+	}
+	return runToken, true
+}
+
+// runEnv is the per-run environment every agent subprocess needs.
+//
+// WORKSPACE is where orbit-shell reads the sandbox descriptor. The URL and run
+// ID let it call back here, which it needs to replace a sandbox whose pod has
+// gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
+// proves the caller is in this pod, which every run here satisfies.
+// orbit-shell is a child of the agent and inherits this environment.
+func (c *Controller) runEnv(runID, runToken string) []string {
+	return []string{
+		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
+		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
+		"ORBIT_RUN_ID=" + runID,
+		"ORBIT_RUN_TOKEN=" + runToken,
+	}
+}
+
+// requireRunToken binds the caller to the run in the path. Returns false and
+// writes the response when it cannot.
+//
+// The run ID is validated first because it becomes a path segment when the
+// token is read. handleCreateSession validates the one it is given; this is
+// the same guard for an ID that arrives from the URL.
+func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, runID string) bool {
+	ctx := r.Context()
+	if !validRunID.MatchString(runID) {
+		c.logger.Warn(ctx, "Rejected internal call with an unusable run id",
+			logging.Field{Key: "path", Value: r.URL.Path},
+		)
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "run_id must be a single path-safe segment", map[string]any{"field": "run_id"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return false
+	}
+	if verifyRunToken(c.cfg.WorkspacesBasePath, runID, r.Header.Get(runTokenHeader)) {
+		return true
+	}
+	c.logger.Warn(ctx, "Rejected internal call without this run's token",
+		logging.Field{Key: "path", Value: r.URL.Path},
+		logging.Field{Key: "run_id", Value: runID},
+	)
+	apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not this run", map[string]any{"run_id": runID})
+	api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	return false
 }
 
 // SendMessageRequest is the body for POST /session/{runID}/messages.
@@ -383,7 +491,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 // SendToolResultRequest is the body for POST /session/{runID}/tool-results.
@@ -419,7 +527,7 @@ func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 // handleInterruptSession sends SIGINT to the subprocess, stopping the current
@@ -439,7 +547,7 @@ func (c *Controller) handleInterruptSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 // handleCloseSession terminates a session and cleans up the subprocess.
@@ -458,7 +566,7 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
@@ -467,15 +575,57 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
 
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false)
 	if err != nil {
+		// A run this pod does not host is a caller aimed at the wrong session,
+		// which a 500 would bury among ordinary Kubernetes failures.
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// handleGetSandbox reports this run's sandbox, or 404 if it has none.
+//
+// orbit-shell asks when the workspace descriptor is missing, which the agent can
+// arrange by deleting it. 404 is the only answer that sends it to a local shell.
+func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
+
+	sandbox, ok, err := c.registry.Sandbox(ctx, runID)
+	if err != nil {
+		// Not 404: orbit-shell reads that as permission to run the command
+		// locally. A lookup we could not complete must stop the command, not
+		// relax where it runs.
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "could not determine this run's sandbox", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	if !ok {
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }
 
 // inferenceURLForRun builds the per-run inference base URL used for
@@ -494,4 +644,33 @@ func toolGatewayURLForRun(gatewayURL, runID string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
+}
+
+// claudeTelemetryEnv returns the environment that has Claude Code export its
+// traces, metrics and events to the platform collector, with every turn a child
+// of the span in ctx. Empty when no endpoint is configured, matching the
+// platform services. See docs/adr/2026-09-18-agent-runtime-trace-propagation.md.
+func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) []string {
+	if endpoint == "" {
+		return nil
+	}
+	env := []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+		"OTEL_TRACES_EXPORTER=otlp",
+		"OTEL_METRICS_EXPORTER=otlp",
+		"OTEL_LOGS_EXPORTER=otlp",
+		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=" + endpoint,
+		// ANTHROPIC_BASE_URL points at the inference gateway, and Claude Code
+		// only sends traceparent to a non-Anthropic base URL when told to.
+		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
+		"OTEL_RESOURCE_ATTRIBUTES=orbit.run_id=" + runID + ",orbit.tenant_id=" + tenantID,
+	}
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	for _, key := range carrier.Keys() {
+		env = append(env, strings.ToUpper(key)+"="+carrier.Get(key))
+	}
+	return env
 }

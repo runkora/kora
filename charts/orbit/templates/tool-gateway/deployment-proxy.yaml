@@ -49,6 +49,8 @@ spec:
               value: proxy
             - name: ORBIT_OTLP_ENDPOINT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
+            - name: ORBIT_SAMPLING_RATE
+              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "toolGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: ORBIT_POSTGRES_SSL_MODE

@@ -42,4 +42,9 @@ type Config struct {
 	// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4). Zero
 	// falls back to 5 minutes.
 	DelegationNegativeTTL time.Duration
+
+	// CollectorAuthority is the platform telemetry collector's host:port.
+	// Requests to it carry no token (docs/adr/2026-09-18-telemetry-collector-platform-destination.md).
+	// Empty when no collector is configured.
+	CollectorAuthority string
 }

@@ -21,16 +21,34 @@ import (
 // SDK wire types — no hand-rolled translation layer, so tool calls, function
 // calling, logprobs, and all other fields pass through unchanged.
 type OpenAIConnector interface {
-	ChatCompletion(ctx context.Context, req openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
+	ChatCompletion(ctx context.Context, req openai.ChatCompletionNewParams) (*OpenAIResult, error)
 	ChatCompletionStream(ctx context.Context, req openai.ChatCompletionNewParams) (<-chan OpenAIStreamResult, error)
+}
+
+// OpenAIResult is a non-streaming chat answer plus its cache-write token count.
+// Anthropic prices a cache write above ordinary input, and neither the OpenAI
+// nor the Responses usage shape has a field for that bucket, so a provider
+// translating from Anthropic reports it here. Zero for providers that do not
+// write cache. Never serialized to the client.
+type OpenAIResult struct {
+	Completion          *openai.ChatCompletion
+	CacheCreationTokens int64
+}
+
+// ResponsesResult is the Responses equivalent of OpenAIResult.
+type ResponsesResult struct {
+	Response            *responses.Response
+	CacheCreationTokens int64
 }
 
 // OpenAIStreamResult is one element emitted on a ChatCompletionStream channel.
 // On a mid-stream provider error Err is non-nil and Chunk is nil; callers must
 // check Err before using Chunk. The channel is always closed when the stream ends.
+// CacheCreationTokens carries the cache-write count, as on OpenAIResult.
 type OpenAIStreamResult struct {
-	Chunk *openai.ChatCompletionChunk
-	Err   error
+	Chunk               *openai.ChatCompletionChunk
+	Err                 error
+	CacheCreationTokens int64
 }
 
 // AnthropicStreamEvent wraps a raw Anthropic SDK stream event with an optional
@@ -67,12 +85,15 @@ type EmbeddingsConnector interface {
 type ResponsesStreamResult struct {
 	Event responses.ResponseStreamEventUnion
 	Err   error
+	// CacheCreationTokens carries the cache-write count on the terminal event,
+	// matching the side channel on OpenAIStreamResult.
+	CacheCreationTokens int64
 }
 
 // ResponsesConnector is the OpenAI Responses API dialect surface of a provider.
 // It is invoked when the client calls POST /v1/responses.
 type ResponsesConnector interface {
-	Responses(ctx context.Context, req responses.ResponseNewParams) (*responses.Response, error)
+	Responses(ctx context.Context, req responses.ResponseNewParams) (*ResponsesResult, error)
 	ResponsesStream(ctx context.Context, req responses.ResponseNewParams) (<-chan ResponsesStreamResult, error)
 }
 
@@ -286,8 +307,23 @@ func (e ConnectorError) Unwrap() error {
 // ModelPricing
 // ============================================================================
 
-// ModelPricing holds per-million-token cost data for a specific provider+model.
-// Pricing data flows exclusively from PricingCache -- never from the connector.
+// ModelPricing is the runtime pricing snapshot for a single provider+model pair.
+// It is populated exclusively by DatabasePricingCache.Refresh() from the
+// model_pricing DB table and served from an atomic in-memory snapshot — never
+// fetched from the connector on the hot path.
+//
+// Naming convention: token and audio cost fields use the Per1M or PerMillion
+// suffix (USD per 1,000,000 units). Per-unit fields (image, request, second)
+// do not carry a unit suffix because they are not scaled — their comment makes
+// the unit explicit. This naming is intentionally consistent with
+// PricingCatalogEntry (DB layer) and PricingEntry (frontend API type) to avoid
+// confusion when tracing a value through the pipeline.
+//
+// Do not confuse with:
+//   - ModelPriceEntry (pricing_source.go) — the raw parsed row from the LiteLLM
+//     JSON before it is written to the DB.
+//   - PricingCatalogEntry (pricing_catalog.go) — the DB struct, which holds
+//     both synced and override columns separately.
 type ModelPricing struct {
 	Provider                 ProviderName
 	ModelID                  string
@@ -295,6 +331,15 @@ type ModelPricing struct {
 	OutputCostPerMillion     float64 // USD per 1,000,000 output tokens
 	CacheReadCostPerMillion  float64 // USD per 1,000,000 cache-read tokens (0 → use 10% of input)
 	CacheWriteCostPerMillion float64 // USD per 1,000,000 cache-write tokens (0 → use 125% of input)
+	// Non-token dimensions — 0 when not applicable for this model:
+	ImageInputCost       float64 // USD per image input (per-unit, not scaled)
+	ImageOutputCost      float64 // USD per image output (per-unit, not scaled)
+	RequestInputCost     float64 // USD flat per-request input (per-unit, not scaled)
+	RequestOutputCost    float64 // USD flat per-request output (per-unit, not scaled)
+	SecondInputCost      float64 // USD per-second input, e.g. audio/video (per-unit, not scaled)
+	SecondOutputCost     float64 // USD per-second output (per-unit, not scaled)
+	AudioInputCostPer1M  float64 // USD per 1,000,000 audio tokens input
+	AudioOutputCostPer1M float64 // USD per 1,000,000 audio tokens output
 }
 
 // EstimatedCostUSD returns the estimated total cost for the given token counts,

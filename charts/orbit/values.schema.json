@@ -68,6 +68,15 @@
             },
             "collectorNamespace": {
               "type": "string"
+            },
+            "samplingRate": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "pattern": "^$|^(0(\\.[0-9]+)?|1(\\.0+)?)$",
+              "minimum": 0,
+              "maximum": 1
             }
           }
         }

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ── Notify ────────────────────────────────────────────────────────────────────
@@ -17,7 +19,7 @@ func TestHTTPNotifier_Notify_2xxSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta}); err != nil {
 		t.Errorf("unexpected error for 204: %v", err)
 	}
@@ -30,7 +32,7 @@ func TestHTTPNotifier_Notify_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta})
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
@@ -50,7 +52,7 @@ func TestHTTPNotifier_Notify_4xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.Notify(context.Background(), "run-1", Event{Type: EventTypeTextDelta})
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
@@ -65,7 +67,7 @@ func TestHTTPNotifier_CompleteRun_2xxSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.CompleteRun(context.Background(), "run-1", "active", false); err != nil {
 		t.Errorf("unexpected error for 204: %v", err)
 	}
@@ -78,7 +80,7 @@ func TestHTTPNotifier_CompleteRun_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.CompleteRun(context.Background(), "run-1", "active", false)
 	if err == nil {
 		t.Fatal("expected error for 409 response, got nil")
@@ -100,7 +102,7 @@ func TestHTTPNotifier_SetSummary_PostsSummaryToRunURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	if err := n.SetSummary(context.Background(), "run-1", "Refactor the auth module"); err != nil {
 		t.Fatalf("unexpected error for 204: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestHTTPNotifier_SetSummary_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 	err := n.SetSummary(context.Background(), "run-1", "x")
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
@@ -135,17 +137,20 @@ func TestHTTPNotifier_ProvisionSandbox_OKReturnsEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"endpoint":"10.0.0.1:50051"}`)) //nolint:errcheck
+		w.Write([]byte(`{"endpoint":"10.0.0.1:50051","exec_token":"tok-1"}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
-	endpoint, err := n.ProvisionSandbox(context.Background(), "run-1")
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if endpoint != "10.0.0.1:50051" {
-		t.Errorf("endpoint = %q, want 10.0.0.1:50051", endpoint)
+	if sandbox.Endpoint != "10.0.0.1:50051" {
+		t.Errorf("endpoint = %q, want 10.0.0.1:50051", sandbox.Endpoint)
+	}
+	if sandbox.ExecToken != "tok-1" {
+		t.Errorf("exec token = %q, want tok-1", sandbox.ExecToken)
 	}
 }
 
@@ -156,12 +161,123 @@ func TestHTTPNotifier_ProvisionSandbox_Non2xxReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewHTTPNotifier(srv.URL)
-	_, err := n.ProvisionSandbox(context.Background(), "run-1")
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", false)
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
 	}
 	if !strings.Contains(err.Error(), "404") {
 		t.Errorf("error should mention status code, got: %v", err)
+	}
+}
+
+// The ahead flag reaches orbit-agents only as a query parameter. A dropped or
+// malformed one turns every pre-provision into an on-demand request, which is
+// silent and brings back the empty-kubeconfig race.
+func TestHTTPNotifier_ProvisionSandbox_AheadQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ahead bool
+		want  string
+	}{
+		{name: "pre-provision", ahead: true, want: "true"},
+		{name: "on demand", ahead: false, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotQuery, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.Query().Get("ahead")
+				gotPath = r.URL.Path
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			if _, err := n.ProvisionSandbox(context.Background(), "run-1", tc.ahead); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotQuery != tc.want {
+				t.Errorf("ahead query = %q, want %q", gotQuery, tc.want)
+			}
+			if gotPath != "/internal/runs/run-1/provision-sandbox" {
+				t.Errorf("path = %q", gotPath)
+			}
+		})
+	}
+}
+
+// GetSandbox must tell "this run has no sandbox" (404) apart from a failed
+// lookup. Collapsing them sends the agent's command to a local shell whenever
+// orbit-agents is briefly unreachable.
+func TestHTTPNotifier_GetSandbox(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		body      string
+		wantFound bool
+		wantErr   bool
+	}{
+		{name: "has one", status: http.StatusOK, body: `{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`, wantFound: true},
+		{name: "has none", status: http.StatusNotFound, body: `{"code":"resource_not_found"}`},
+		{name: "lookup failed", status: http.StatusInternalServerError, body: `{"code":"internal_error"}`, wantErr: true},
+		{name: "half an answer", status: http.StatusOK, body: `{"endpoint":"10.0.0.5:50051"}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				w.WriteHeader(tc.status)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			sb, found, err := n.GetSandbox(context.Background(), "run-1")
+
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
+			}
+			if found != tc.wantFound {
+				t.Errorf("found = %v, want %v", found, tc.wantFound)
+			}
+			if tc.wantFound && sb.ExecToken != "tok-1" {
+				t.Errorf("sandbox = %+v", sb)
+			}
+			if gotPath != "/internal/runs/run-1/sandbox" {
+				t.Errorf("path = %q", gotPath)
+			}
+		})
+	}
+}
+
+// Only orbit-agents' own 404 means "this run has no sandbox". A stale route
+// during a rolling deploy answers 404 too, and reading that as no sandbox
+// hands the agent a local shell.
+func TestHTTPNotifier_GetSandbox_UnlabelledNotFoundIsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "nginx style", body: "404 page not found"},
+		{name: "different code", body: `{"code":"route_not_found"}`},
+		{name: "empty body", body: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(tc.body)) //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+			_, found, err := n.GetSandbox(context.Background(), "run-1")
+			if err == nil {
+				t.Fatal("a 404 without the resource_not_found code was read as no sandbox")
+			}
+			if found {
+				t.Error("found = true on an error")
+			}
+		})
 	}
 }

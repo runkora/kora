@@ -389,6 +389,214 @@ func TestToVirtualModelRoutes_Empty(t *testing.T) {
 	}
 }
 
+// ─── toPricingEntryJSON ───────────────────────────────────────────────────────
+
+func TestToPricingEntryJSON_TokenFields(t *testing.T) {
+	t.Parallel()
+	v := 2.0
+	input := &v
+	e := &PricingCatalogEntry{
+		Provider:       ProviderBedrock,
+		ModelID:        "anthropic.claude-sonnet-4-6",
+		SyncedInput:    3.0,
+		SyncedOutput:   15.0,
+		OverrideInput:  input,
+		OverrideOutput: nil,
+	}
+	got := toPricingEntryJSON(e)
+	if got.EffectiveInput != 2.0 {
+		t.Errorf("EffectiveInput = %v, want 2.0 (override applied)", got.EffectiveInput)
+	}
+	if got.EffectiveOutput != 15.0 {
+		t.Errorf("EffectiveOutput = %v, want 15.0 (synced fallback)", got.EffectiveOutput)
+	}
+	if !got.HasOverride {
+		t.Errorf("HasOverride = false, want true (input override set)")
+	}
+}
+
+func TestToPricingEntryJSON_NonTokenFields(t *testing.T) {
+	t.Parallel()
+	e := &PricingCatalogEntry{
+		Provider:                      ProviderBedrock,
+		ModelID:                       "image-model",
+		SyncedImageInputCostPerImage:  0.001,
+		SyncedImageOutputCostPerImage: 0.002,
+		SyncedRequestInputCost:        0.005,
+		SyncedRequestOutputCost:       0.006,
+		SyncedSecondInputCost:         0.0001,
+		SyncedSecondOutputCost:        0.0002,
+		SyncedAudioInputCostPer1M:     1.5,
+		SyncedAudioOutputCostPer1M:    3.0,
+	}
+	got := toPricingEntryJSON(e)
+	if got.SyncedImageInputCostPerImage != 0.001 {
+		t.Errorf("SyncedImageInputCostPerImage = %v, want 0.001", got.SyncedImageInputCostPerImage)
+	}
+	if got.SyncedAudioInputCostPer1M != 1.5 {
+		t.Errorf("SyncedAudioInputCostPer1M = %v, want 1.5", got.SyncedAudioInputCostPer1M)
+	}
+	if got.SyncedAudioOutputCostPer1M != 3.0 {
+		t.Errorf("SyncedAudioOutputCostPer1M = %v, want 3.0", got.SyncedAudioOutputCostPer1M)
+	}
+	if got.HasOverride {
+		t.Errorf("HasOverride = true, want false (no overrides set)")
+	}
+}
+
+func TestToPricingEntryJSON_NoOverride_EffectiveEqualsSynced(t *testing.T) {
+	t.Parallel()
+	e := &PricingCatalogEntry{
+		Provider:     ProviderVertexAI,
+		ModelID:      "gemini-2.0-flash",
+		SyncedInput:  5.0,
+		SyncedOutput: 20.0,
+	}
+	got := toPricingEntryJSON(e)
+	if got.EffectiveInput != 5.0 {
+		t.Errorf("EffectiveInput = %v, want 5.0", got.EffectiveInput)
+	}
+	if got.EffectiveOutput != 20.0 {
+		t.Errorf("EffectiveOutput = %v, want 20.0", got.EffectiveOutput)
+	}
+	if got.HasOverride {
+		t.Errorf("HasOverride = true, want false")
+	}
+}
+
+// ─── vmCatalogPricing ─────────────────────────────────────────────────────────
+
+func TestVmCatalogPricing_NoRoutes(t *testing.T) {
+	t.Parallel()
+	if got := vmCatalogPricing(VirtualModel{}, nil); got != nil {
+		t.Errorf("expected nil for empty VM, got %+v", got)
+	}
+}
+
+func TestVmCatalogPricing_NoPricingData(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "anthropic.claude-sonnet-4-6", Enabled: true},
+		},
+	}
+	if got := vmCatalogPricing(vm, map[string]*pricingEntryJSON{}); got != nil {
+		t.Errorf("expected nil when pricing map is empty, got %+v", got)
+	}
+}
+
+func TestVmCatalogPricing_NonTokenFallback(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
+		},
+	}
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/image-model": {
+			Provider:                     "bedrock",
+			ModelID:                      "image-model",
+			SyncedImageInputCostPerImage: 0.001, // non-token only — no effective token costs
+		},
+	}
+	got := vmCatalogPricing(vm, pricingMap)
+	if got == nil {
+		t.Fatal("expected non-nil: non-token fallback should fire when no token-priced route exists")
+	}
+	if !got.NonTokenOnly {
+		t.Errorf("NonTokenOnly = false, want true")
+	}
+
+	// A client reading the wire response, not the Go struct, must not see the
+	// two token fields at all: the model has no token price, and 0 reads as
+	// "free" rather than "not applicable".
+	if got.EffectiveInputCostPer1M != nil {
+		t.Errorf("EffectiveInputCostPer1M = %v, want nil (omitted from the wire)", *got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M != nil {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want nil (omitted from the wire)", *got.EffectiveOutputCostPer1M)
+	}
+
+	// The whole point of the fallback: the route's own non-token dimensions
+	// reach the client, or "see model details" in the UI has nothing to show.
+	if got.ImageInputCost != 0.001 {
+		t.Errorf("ImageInputCost = %v, want 0.001 (propagated from the route)", got.ImageInputCost)
+	}
+}
+
+// The best-branch (token-priced) response must also omit the two fields via a
+// pointer, matching modelObjectPricing's contract on /v1/models: present and
+// nullable, not present-and-zero.
+func TestVmCatalogPricing_TokenPricedRouteUsesPointers(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "claude", Enabled: true},
+		},
+	}
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/claude": {
+			Provider:        "bedrock",
+			ModelID:         "claude",
+			EffectiveInput:  3,
+			EffectiveOutput: 15,
+		},
+	}
+	got := vmCatalogPricing(vm, pricingMap)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *3", got.EffectiveInputCostPer1M)
+	}
+	if got.EffectiveOutputCostPer1M == nil || *got.EffectiveOutputCostPer1M != 15 {
+		t.Errorf("EffectiveOutputCostPer1M = %v, want *15", got.EffectiveOutputCostPer1M)
+	}
+}
+
+func TestVmCatalogPricing_NilWhenNeitherPricing(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "free-model", Enabled: true},
+		},
+	}
+	// Model exists but has no token or non-token costs.
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/free-model": {Provider: "bedrock", ModelID: "free-model"},
+	}
+	if got := vmCatalogPricing(vm, pricingMap); got != nil {
+		t.Errorf("expected nil when no token or non-token pricing, got %+v", got)
+	}
+}
+
+// ─── pricingEntryHasNonToken ──────────────────────────────────────────────────
+
+func TestPricingEntryHasNonToken(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		p    *pricingEntryJSON
+		want bool
+	}{
+		{"all zero", &pricingEntryJSON{}, false},
+		{"image input", &pricingEntryJSON{SyncedImageInputCostPerImage: 0.001}, true},
+		{"image output", &pricingEntryJSON{SyncedImageOutputCostPerImage: 0.002}, true},
+		{"request input", &pricingEntryJSON{SyncedRequestInputCost: 0.005}, true},
+		{"second input", &pricingEntryJSON{SyncedSecondInputCost: 0.0001}, true},
+		{"audio input", &pricingEntryJSON{SyncedAudioInputCostPer1M: 1.0}, true},
+		{"token only — no non-token", &pricingEntryJSON{EffectiveInput: 3.0, EffectiveOutput: 15.0}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := pricingEntryHasNonToken(tc.p); got != tc.want {
+				t.Errorf("pricingEntryHasNonToken = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // ─── lookupPricing ────────────────────────────────────────────────────────────
 
 func TestLookupPricing(t *testing.T) {
@@ -511,5 +719,67 @@ func TestCanonicalPricingProvider(t *testing.T) {
 				t.Errorf("canonicalPricingProvider(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestVmCatalogPricing_PicksLowestEffectiveCost(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "cheap-model", Enabled: true},
+			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
+		},
+	}
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/cheap-model": {
+			Provider:        "bedrock",
+			ModelID:         "cheap-model",
+			EffectiveInput:  1.0,
+			EffectiveOutput: 5.0,
+		},
+		"vertexai/expensive-model": {
+			Provider:        "vertexai",
+			ModelID:         "expensive-model",
+			EffectiveInput:  3.0,
+			EffectiveOutput: 15.0,
+		},
+	}
+	got := vmCatalogPricing(vm, pricingMap)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 1.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *1.0 (cheap-model)", got.EffectiveInputCostPer1M)
+	}
+}
+
+func TestVmCatalogPricing_SkipsDisabledRoutes(t *testing.T) {
+	t.Parallel()
+	vm := VirtualModel{
+		Routes: []VirtualModelRoute{
+			{Provider: ProviderBedrock, ModelID: "cheap-model", Enabled: false},
+			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
+		},
+	}
+	pricingMap := map[string]*pricingEntryJSON{
+		"bedrock/cheap-model": {
+			Provider:        "bedrock",
+			ModelID:         "cheap-model",
+			EffectiveInput:  1.0,
+			EffectiveOutput: 5.0,
+		},
+		"vertexai/expensive-model": {
+			Provider:        "vertexai",
+			ModelID:         "expensive-model",
+			EffectiveInput:  3.0,
+			EffectiveOutput: 15.0,
+		},
+	}
+	got := vmCatalogPricing(vm, pricingMap)
+	if got == nil {
+		t.Fatal("expected non-nil pricing")
+	}
+	if got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3.0 {
+		t.Errorf("EffectiveInputCostPer1M = %v, want *3.0 (disabled cheap route ignored)", got.EffectiveInputCostPer1M)
 	}
 }

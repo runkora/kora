@@ -143,6 +143,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/events", c.handlePushEvent)
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
 }
 
 // handleHealth returns liveness status.
@@ -166,8 +167,9 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 	}
 	// Tenant is derived from the verified platform claims by the service layer;
 	// any request-body tenant_id is ignored. See docs/adr/2026-06-04-orbit-agents-authorization-model.md.
-	if req.Name == "" || req.Slug == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "name and slug are required", nil)
+	// The model is required: a session runs only the agent type's own model.
+	if req.Name == "" || req.Slug == "" || req.ModelID == nil || *req.ModelID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "name, slug, and model_id are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -280,6 +282,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	req.ID = id
+	if req.ModelID != nil && *req.ModelID == "" {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "model_id cannot be cleared", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
 
 	at, err := c.agentTypes.UpdateAgentType(ctx, req)
 	if err != nil {
@@ -326,7 +333,7 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -455,7 +462,7 @@ func (c *Controller) handleTerminateRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 type sendMessageRequest struct {
@@ -499,7 +506,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) {
@@ -527,7 +534,7 @@ func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	api.NoBody(w, http.StatusAccepted)
 }
 
 // ── Internal callbacks ────────────────────────────────────────────────────────
@@ -581,7 +588,7 @@ func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // handleStreamEvents serves a Server-Sent Events stream for a run.
@@ -696,7 +703,8 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		apiErr := api.InternalError(api.ErrCodeInternalError, "streaming not supported", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
@@ -724,7 +732,8 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 			logging.Field{Key: "run_id", Value: id},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list run events", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 	var lastReplayedSeqNo int64
@@ -765,8 +774,8 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handlePushEvent receives an event pushed by a session-manager pod and fans
-// it out to any live SSE subscribers for that run.
+// handlePushEvent receives an event pushed by a session-manager pod, records the
+// durable ones, and fans out to any live SSE subscribers for that run.
 func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -779,8 +788,12 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.runs.PublishEvent(ctx, id, ev)
-	w.WriteHeader(http.StatusNoContent)
+	if err := c.runs.PublishEvent(ctx, id, ev); err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to record run event", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
 // setRunSummaryRequest is the body for POST /internal/runs/{id}/summary.
@@ -810,7 +823,37 @@ func (c *Controller) handleSetRunSummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// handleGetRunSandbox reports the run's sandbox without creating one, for a
+// session-manager whose own memory has none. 404 means the run has no sandbox,
+// which is the answer that legitimately routes pre-sandbox work locally.
+func (c *Controller) handleGetRunSandbox(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+
+	sandbox, err := c.runs.GetSandbox(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNoSandbox) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no sandbox for this run", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to look up the sandbox", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	// exec_token goes only to the session-manager that owns the run, which
+	// authorizeCallback has already bound to this run.
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
@@ -820,10 +863,23 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	endpoint, err := c.runs.ProvisionSandbox(ctx, id)
+	// ahead marks a pre-provision, which declines to create a pod while the
+	// connection registry is still loading. Absent means on-demand, so an older
+	// session-manager keeps the behavior it had.
+	ahead := r.URL.Query().Get("ahead") == "true"
+
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrKubeconfigNotReady) {
+			// 503, not 409: nothing about the run conflicts, the connection
+			// registry has simply not loaded yet, and the next request
+			// succeeds once it has.
+			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "sandbox pre-provision deferred: connection registry not resolved", map[string]any{"run_id": id})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -832,5 +888,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+	// exec_token goes only to the session-manager that owns the run: the route is
+	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
+	// has already bound the caller to this run.
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":   sandbox.Endpoint,
+		"exec_token": sandbox.ExecToken,
+	})
 }

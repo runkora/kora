@@ -68,6 +68,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) — `Accepted` · 2026-06-15
 - [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) — `Accepted` · 2026-06-22
 - [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) — `Accepted` · 2026-06-19
+- [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) — `Accepted` · 2026-07-24
 
 ### Agents Control Plane & Execution
 
@@ -93,6 +94,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
+- [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
+- [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted` · 2026-06-04
@@ -111,7 +114,9 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Proposed` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
+- [Terra Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
+- [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 
 ### MCP / Tool Gateway
 
@@ -238,6 +243,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-20 | [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) | Accepted | — |
 | 2026-06-22 | [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) | Accepted | — |
 | 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted | — |
+| 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-06 | [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) | Proposed | — |
 | 2026-07-17 | [Agent Builder](2026-07-17-agent-builder.md) | Accepted | — |
 | 2026-07-17 | [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) | Accepted | — |
@@ -246,9 +252,11 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted | — |
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
+| 2026-08-03 | [Terra Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
+| 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
@@ -263,4 +271,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
+| 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
+| 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
+| 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

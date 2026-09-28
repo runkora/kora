@@ -3,6 +3,7 @@
 /** @tier 3 — agents/[slug]-scoped. Overview tab: stats, recent runs, system prompt, scopes, metadata. */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
@@ -18,12 +19,14 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { ScopeChip, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtTokens } from '@orbit/utils';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { fetchAgentTypeUsage } from '../_services/agent-detail-api';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 import { AgentBudgetCard } from './agent-budget-card';
+import { StartedByCell } from './started-by-cell';
 import type { AgentTypeUsage } from '@orbit/shared/api';
 
 const PROMPT_PREVIEW_LENGTH = 300;
@@ -66,6 +69,7 @@ interface AgentOverviewTabProps {
 
 export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   const { agent, runs } = useAgentDetailContext();
+  const router = useRouter();
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [agentUsage, setAgentUsage] = useState<AgentTypeUsage | null>(null);
 
@@ -163,11 +167,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         id: 'startedBy',
         header: 'Started by',
         locked: true,
-        cell: (row) => (
-          <Text size="supporting" color="muted">
-            {row.createdByName ?? row.createdBy}
-          </Text>
-        ),
+        cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
@@ -261,6 +261,12 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
                 Recent Runs
               </Text>
             }
+            onRowClick={(row) => {
+              if (agent) {
+                router.push(APP_ROUTES.agents.run(agent.slug, row.id));
+              }
+            }}
+            rowLabel={(row) => `View run ${row.id}`}
           />
 
           {/* System prompt — wrapping CodeBlock so long lines wrap within the

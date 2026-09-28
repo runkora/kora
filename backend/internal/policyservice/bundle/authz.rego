@@ -348,6 +348,18 @@ _is_platform_internal_path if {
 	startswith(input.attributes.request.http.path, prefix)
 }
 
+# OTLP export calls from a tenant pod to the platform's telemetry collector.
+# Telemetry is platform infrastructure, not an agent action, so no grant
+# applies, and the identity-proxy sends no token. Bound to the configured
+# collector's authority, which the mesh routes by name. See
+# docs/adr/2026-09-18-telemetry-collector-platform-destination.md.
+_is_platform_internal_path if {
+	_is_envoy
+	collector := data.config.telemetry_collector
+	lower(input.attributes.request.http.headers[":authority"]) == lower(collector)
+	startswith(input.attributes.request.http.path, "/opentelemetry.proto.collector.")
+}
+
 # ══ DELEGATION FAIL-CLOSED MARKER ════════════════════════════════════════════
 #
 # A grant carrying delegation_required marks its principal as a delegated agent
