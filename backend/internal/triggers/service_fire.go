@@ -362,7 +362,10 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 	// Inline, before the replay is acknowledged: the same durability rule as
 	// ingest. A crash before the rows exist means no 2xx and the caller can
 	// retry, rather than a replay the platform reported accepted and then lost.
-	s.dispatch(context.WithoutCancel(ctx), *src, adapter, dup.ID, dup.EventType, dup.Payload)
+	s.dispatch(context.WithoutCancel(ctx), *src, adapter, arrival{
+		deliveryID: dup.ID, providerDeliveryID: dup.ProviderDeliveryID, eventType: dup.EventType,
+		body: dup.Payload, truncated: dup.PayloadBytes > maxPayloadBytes,
+	})
 
 	return &RedeliverResponse{DeliveryID: dup.ID, RedeliveryOf: rootID}, nil
 }

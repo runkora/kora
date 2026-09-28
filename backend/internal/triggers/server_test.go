@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -538,5 +539,51 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	}
 	if got := eval.scopeAsked(); got != "trigger:"+trig.ID+":fire" {
 		t.Errorf("checked scope %q, want the specific trigger's fire scope", got)
+	}
+}
+
+func TestHandleProviderEventTypes(t *testing.T) {
+	c, _, _ := newTestController(t)
+
+	w := call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/github/event-types",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	got := decode[ProviderEventTypesResponse](t, w)
+	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+		t.Errorf("response = %+v", got)
+	}
+
+	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",
+		map[string]string{"provider": "gitlab"}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown provider status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleProviderFields(t *testing.T) {
+	c, _, _ := newTestController(t)
+
+	w := call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/alertmanager/fields?event_type=alert.firing",
+		map[string]string{"provider": ProviderAlertmanager}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	got := decode[FieldsResponse](t, w)
+	var pattern bool
+	for _, f := range got.Fields {
+		if f.Path == "commonLabels.<name>" && f.Pattern {
+			pattern = true
+		}
+	}
+	if !pattern {
+		t.Errorf("fields = %+v, want the commonLabels pattern field", got.Fields)
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("missing event_type status = %d, want 400", w.Code)
 	}
 }

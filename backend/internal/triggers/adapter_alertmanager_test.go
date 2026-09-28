@@ -138,97 +138,45 @@ func TestAlertmanagerAdapter_DeliveryID(t *testing.T) {
 	}
 }
 
-func TestAlertmanagerAdapter_Fields_Firing(t *testing.T) {
-	a := &alertmanagerAdapter{}
-	f := a.Fields("alert.firing", []byte(firingAlertmanagerBody))
-	want := map[string]string{
-		"event":                           "alert.firing",
-		"status":                          "firing",
-		"receiver":                        "orbit",
-		"group_key":                       `{}:{alertname="HighCPU"}`,
-		"external_url":                    "https://alertmanager.example.com",
-		"alerts.count":                    "1",
-		"group.labels.alertname":          "HighCPU",
-		"common.labels.alertname":         "HighCPU",
-		"common.labels.severity":          "critical",
-		"common.labels.service":           "api",
-		"common.annotations.summary":      "CPU above 90%",
-		"common.annotations.description":  "api pod has been >90% CPU for 5m",
-		"first_alert.status":              "firing",
-		"first_alert.starts_at":           "2026-07-21T10:00:00Z",
-		"first_alert.generator_url":       "https://prometheus.example.com/g?e=1",
-		"first_alert.fingerprint":         "abc123",
-		"first_alert.labels.alertname":    "HighCPU",
-		"first_alert.labels.instance":     "api-0",
-		"first_alert.annotations.summary": "CPU above 90%",
+// The schema's paths resolve against a real Alertmanager body.
+func TestAlertmanagerAdapter_SchemaPathsResolve(t *testing.T) {
+	c, err := BuildCatalog((&alertmanagerAdapter{}).Schema())
+	if err != nil {
+		t.Fatalf("BuildCatalog: %v", err)
 	}
-	for k, v := range want {
-		if f[k] != v {
-			t.Errorf("field %q = %q, want %q", k, f[k], v)
+	doc := decodeBody([]byte(firingAlertmanagerBody))
+	want := map[string]string{
+		"status":                    "firing",
+		"receiver":                  "orbit",
+		"commonLabels.severity":     "critical",
+		"commonAnnotations.summary": "CPU above 90%",
+		"alerts.0.status":           "firing",
+	}
+	for path, value := range want {
+		if got := resolvePath(doc, path); got != value {
+			t.Errorf("resolve %s = %q, want %q", path, got, value)
 		}
 	}
-	// Match condition: severity=critical AND alertname=HighCPU should match.
-	cond := map[string][]string{
-		"common.labels.severity":  {"critical"},
-		"common.labels.alertname": {"HighCPU"},
+	paths := map[string]Field{}
+	for _, f := range c.Fields("alert.firing") {
+		paths[f.Path] = f
 	}
-	if !matchesCondition(cond, f) {
-		t.Error("expected match for severity=critical, alertname=HighCPU")
+	for _, p := range []string{"status", "receiver", "alerts.0.status", "alerts.0.fingerprint"} {
+		if _, ok := paths[p]; !ok {
+			t.Errorf("catalog is missing %s", p)
+		}
 	}
-	// A trigger gating on severity=warning must NOT match.
-	if matchesCondition(map[string][]string{"common.labels.severity": {"warning"}}, f) {
-		t.Error("expected no match for severity=warning")
-	}
-}
-
-func TestAlertmanagerAdapter_Fields_Resolved(t *testing.T) {
-	a := &alertmanagerAdapter{}
-	body := []byte(`{"version":"4","groupKey":"g","status":"resolved","receiver":"orbit",
-		"commonLabels":{"alertname":"HighCPU"},"commonAnnotations":{},
-		"alerts":[{"status":"resolved","labels":{"alertname":"HighCPU"},"annotations":{},"startsAt":"2026-07-21T10:00:00Z","endsAt":"2026-07-21T10:15:00Z","fingerprint":"abc123"}]}`)
-	f := a.Fields("alert.resolved", body)
-	if f["event"] != "alert.resolved" {
-		t.Errorf("event = %q, want alert.resolved", f["event"])
-	}
-	if f["status"] != "resolved" {
-		t.Errorf("status = %q, want resolved", f["status"])
-	}
-	if f["first_alert.status"] != "resolved" {
-		t.Errorf("first_alert.status = %q, want resolved", f["first_alert.status"])
-	}
-	if f["first_alert.ends_at"] != "2026-07-21T10:15:00Z" {
-		t.Errorf("first_alert.ends_at = %q, want the resolution timestamp", f["first_alert.ends_at"])
-	}
-	if f["common.labels.alertname"] != "HighCPU" {
-		t.Errorf("common.labels.alertname = %q", f["common.labels.alertname"])
+	for _, p := range []string{"commonLabels.<name>", "alerts.0.annotations.<name>"} {
+		if !paths[p].Pattern {
+			t.Errorf("%s should be a pattern field", p)
+		}
 	}
 }
 
-func TestAlertmanagerAdapter_Fields_Malformed(t *testing.T) {
-	a := &alertmanagerAdapter{}
-	// Garbage body must not panic and yields empty optional fields.
-	f := a.Fields("alert.firing", []byte(`not json`))
-	if f["event"] != "alert.firing" {
-		t.Errorf("event should still be set, got %q", f["event"])
-	}
-	if f["alerts.count"] != "0" {
-		t.Errorf("alerts.count = %q, want 0 for malformed body", f["alerts.count"])
-	}
-	if f["common.labels.severity"] != "" {
-		t.Errorf("common.labels.severity should be empty for malformed body")
-	}
-}
-
-func TestAlertmanagerAdapter_Fields_NoAlerts(t *testing.T) {
-	// A group-level notification with an empty alerts array (unusual but possible)
-	// must not populate any first_alert.* fields.
-	a := &alertmanagerAdapter{}
-	body := []byte(`{"version":"4","groupKey":"g","status":"firing","alerts":[]}`)
-	f := a.Fields("alert.firing", body)
-	if f["alerts.count"] != "0" {
-		t.Errorf("alerts.count = %q, want 0", f["alerts.count"])
-	}
-	if _, ok := f["first_alert.status"]; ok {
-		t.Error("first_alert.status must not be set when alerts is empty")
+// Alertmanager identifies no sender.
+func TestAlertmanagerAdapter_IdentifiesNoSender(t *testing.T) {
+	var a SourceAdapter = &alertmanagerAdapter{}
+	if _, ok := a.(senderIdentifier); ok {
+		t.Error("alertmanager must not implement senderIdentifier")
 	}
 }

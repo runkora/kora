@@ -1702,3 +1702,38 @@ func TestPostgres_TouchPendingClaims_FreshensTheWaitingBatch(t *testing.T) {
 		t.Errorf("re-stamped claims were reclaimed anyway: %d rows", len(reclaimed))
 	}
 }
+
+// A webhook trigger's sender restriction round-trips through kind_config, and
+// clearing it writes the empty config back.
+func TestPostgres_WebhookSenderRestriction(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "restricted", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
+		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
+		SenderRestriction: &SenderRestriction{Logins: []string{"alice"}, Associations: []string{"MEMBER"}},
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.SenderRestriction == nil || got.SenderRestriction.Logins[0] != "alice" || got.SenderRestriction.Associations[0] != "MEMBER" {
+		t.Fatalf("restriction round-trip = %+v", got.SenderRestriction)
+	}
+
+	got.SenderRestriction = nil
+	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if cleared.SenderRestriction != nil {
+		t.Errorf("restriction after clearing = %+v, want nil", cleared.SenderRestriction)
+	}
+}

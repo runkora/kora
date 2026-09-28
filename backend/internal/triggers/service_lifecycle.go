@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ type triggerStore interface {
 // disabling it moves work in the queue (admission).
 type TriggerService struct {
 	repo      triggerStore
+	registry  *Registry
 	policy    *policyclient.Client
 	agents    *agentsclient.Client
 	minter    TokenMinter
@@ -46,13 +48,14 @@ type TriggerService struct {
 // NewTriggerService constructs the trigger lifecycle half of Triggers.
 func NewTriggerService(
 	repo triggerStore,
+	registry *Registry,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
 	minter TokenMinter,
 	admission *Admission,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -123,6 +126,10 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, err
 	}
+	restriction, err := normalizeRestriction(s.registry, src.Provider, req.SenderRestriction)
+	if err != nil {
+		return nil, err
+	}
 
 	at, err := s.resolveAgentType(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, req.AgentTypeID)
 	if err != nil {
@@ -147,19 +154,20 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	grants = append(grants, grantID)
 
 	t := &Trigger{
-		ID:             id,
-		TenantID:       tenantID,
-		Kind:           KindWebhook,
-		TargetKind:     TargetKindAgent,
-		SourceID:       req.SourceID,
-		Name:           strings.TrimSpace(req.Name),
-		AgentTypeID:    at.ID,
-		AgentSlug:      at.Slug,
-		EventType:      req.EventType,
-		MatchCondition: req.MatchCondition,
-		PromptTemplate: req.PromptTemplate,
-		GrantID:        &grantID,
-		Enabled:        true,
+		ID:                id,
+		TenantID:          tenantID,
+		Kind:              KindWebhook,
+		TargetKind:        TargetKindAgent,
+		SourceID:          req.SourceID,
+		Name:              strings.TrimSpace(req.Name),
+		AgentTypeID:       at.ID,
+		AgentSlug:         at.Slug,
+		EventType:         req.EventType,
+		MatchCondition:    req.MatchCondition,
+		PromptTemplate:    req.PromptTemplate,
+		GrantID:           &grantID,
+		Enabled:           true,
+		SenderRestriction: restriction,
 	}
 	// Already validated by validateWebhookTriggerCreate above, before the grant
 	// existed; the rollback here is belt and braces.
@@ -345,6 +353,13 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if err = applyKindConfigUpdate(t, req); err != nil {
 		return nil, err
 	}
+	if t.Kind == KindWebhook {
+		if err = s.applyWebhookUpdate(ctx, t, req); err != nil {
+			return nil, err
+		}
+	} else if req.SenderRestriction != nil {
+		return nil, errSenderRestrictionWebhookOnly
+	}
 	if req.Enabled != nil {
 		applyEnabledFields(t, *req.Enabled)
 	}
@@ -408,6 +423,68 @@ func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
 		t.ScheduleConfig = req.ScheduleConfig
 	}
 	return nil
+}
+
+// applyWebhookUpdate validates the event type and field keys when the request
+// edits them, and replaces the sender restriction when the request carries one.
+// A PATCH that edits neither is not checked against them.
+func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+	if req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil {
+		if t.EventType == "" {
+			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+		}
+		if err := validateFieldKeys(t.PromptTemplate, t.MatchCondition); err != nil {
+			return err
+		}
+	}
+	if req.SenderRestriction == nil {
+		return nil
+	}
+	src, err := s.repo.GetSource(ctx, t.TenantID, t.SourceID)
+	if err != nil {
+		return err
+	}
+	restriction, err := normalizeRestriction(s.registry, src.Provider, req.SenderRestriction)
+	if err != nil {
+		return err
+	}
+	t.SenderRestriction = restriction
+	return nil
+}
+
+// normalizeRestriction validates a sender restriction against the source's
+// adapter and returns it with logins normalized. An empty restriction is nil.
+func normalizeRestriction(registry *Registry, provider string, r *SenderRestriction) (*SenderRestriction, error) {
+	if r.empty() {
+		return nil, nil
+	}
+	adapter, ok := registry.Get(provider)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, provider)
+	}
+	si, ok := adapter.(senderIdentifier)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s sources do not identify senders, so a sender restriction cannot apply", ErrValidation, provider)
+	}
+	out := &SenderRestriction{}
+	for _, a := range r.Associations {
+		if !slices.Contains(si.Associations(), a) {
+			return nil, fmt.Errorf("%w: association %q is not one of %s", ErrValidation, a, strings.Join(si.Associations(), ", "))
+		}
+		if !slices.Contains(out.Associations, a) {
+			out.Associations = append(out.Associations, a)
+		}
+	}
+	for _, login := range r.Logins {
+		login = si.NormalizeLogin(strings.TrimSpace(login))
+		if login == "" {
+			return nil, fmt.Errorf("%w: sender logins must not be empty", ErrValidation)
+		}
+		if !slices.Contains(out.Logins, login) {
+			out.Logins = append(out.Logins, login)
+		}
+	}
+	return out, nil
 }
 
 // DeleteTrigger removes a trigger and all its policy grants.

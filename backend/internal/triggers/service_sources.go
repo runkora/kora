@@ -228,11 +228,8 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 
 // SourceEventTypes answers "what can I write a trigger for on this source?".
 //
-// Declared comes from the adapter (what the platform models); observed comes
-// from this source's own history (what it has actually sent). Both are needed:
-// an admin whose trigger never fires is usually looking at an event type that
-// never arrived, and an event that arrives but is not declared is the signal
-// that the adapter should grow a case for it.
+// Declared comes from the provider's schema. Observed comes from this source's
+// history, including events newer than the schema.
 func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, sourceID)
 	if err != nil {
@@ -242,13 +239,50 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
 	}
+	catalog, _ := s.registry.Catalog(src.Provider)
 	observed, err := s.repo.ObservedEventTypes(ctx, src.ID)
 	if err != nil {
 		return nil, err
 	}
-	declared := adapter.EventTypes()
-	if declared == nil {
-		declared = []string{}
+	return &EventTypesResponse{Declared: catalog.EventTypes(), Observed: observed, Associations: associationsOf(adapter)}, nil
+}
+
+// ProviderEventTypes lists a provider's declared event types and the
+// associations a sender restriction may name.
+func (s *SourceService) ProviderEventTypes(provider string) (*ProviderEventTypesResponse, error) {
+	adapter, catalog, err := s.providerCatalog(provider)
+	if err != nil {
+		return nil, err
 	}
-	return &EventTypesResponse{Declared: declared, Observed: observed}, nil
+	return &ProviderEventTypesResponse{Declared: catalog.EventTypes(), Associations: associationsOf(adapter)}, nil
+}
+
+// ProviderFields lists the fields a trigger on one of a provider's event types can reference.
+func (s *SourceService) ProviderFields(provider, eventType string) (*FieldsResponse, error) {
+	if eventType == "" {
+		return nil, fmt.Errorf("%w: event_type is required", ErrValidation)
+	}
+	_, catalog, err := s.providerCatalog(provider)
+	if err != nil {
+		return nil, err
+	}
+	return &FieldsResponse{Fields: catalog.Fields(eventType)}, nil
+}
+
+func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalog, error) {
+	adapter, ok := s.registry.Get(provider)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %q", ErrProviderNotFound, provider)
+	}
+	catalog, _ := s.registry.Catalog(provider)
+	return adapter, catalog, nil
+}
+
+// associationsOf returns the associations a provider's sender restriction may
+// name, empty when it identifies no sender.
+func associationsOf(adapter SourceAdapter) []string {
+	if si, ok := adapter.(senderIdentifier); ok {
+		return si.Associations()
+	}
+	return []string{}
 }

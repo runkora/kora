@@ -10,6 +10,7 @@ import (
 // SourceAdapter is the per-source plug-in that makes the inbound pipeline generic.
 // Each provider (GitHub, Alertmanager, and later others) implements it. The
 // pipeline (verify → match → template → dispatch → log) is adapter-agnostic.
+// The fields a trigger can read come from the provider's schema.
 //
 // One adapter per file: see adapter_github.go, adapter_alertmanager.go. To add
 // a new adapter, drop a new adapter_<provider>.go file with the implementation
@@ -27,40 +28,61 @@ type SourceAdapter interface {
 	DeliveryID(headers http.Header, body []byte) string
 	// EventType returns the canonical event type for the delivery.
 	EventType(headers http.Header, body []byte) string
-	// Fields parses the payload into a flat, allow-listed map of dotted keys →
-	// string values, used for both condition matching and prompt templating.
-	Fields(eventType string, body []byte) map[string]string
-	// EventTypes returns the event types this adapter MODELS: the ones Fields
-	// extracts provider-specific values for, and therefore the ones a trigger
-	// can match richly on.
-	//
-	// It is deliberately not "every event the provider can emit". A source may
-	// send anything, and a catch-all trigger (empty event_type) still fires on
-	// it with the adapter's common fields — so this is a catalog of what the
-	// platform understands, not a restriction on what it accepts. What actually
-	// arrived is answered separately, from delivery history.
-	EventTypes() []string
+	// Schema returns the provider's schema in the Orbit format: event types
+	// mapped to the JSON Schema of their payloads. See BuildCatalog.
+	Schema() []byte
 }
 
-// Registry maps provider id → adapter.
+// senderIdentifier is implemented by adapters whose provider reports who
+// caused an event. The adapter owns its provider's rules: which associations
+// exist, and how logins compare.
+type senderIdentifier interface {
+	// Sender reads the sender from the decoded body. Login is normalized;
+	// ok is false when this event carries no sender.
+	Sender(eventType string, body any) (s Sender, ok bool)
+	// NormalizeLogin puts a login in the form Sender returns, for comparison.
+	NormalizeLogin(login string) string
+	// Associations lists the association values a restriction may name.
+	Associations() []string
+}
+
+// Sender is who caused an event, as the provider reports it.
+type Sender struct {
+	Login       string
+	Association string
+}
+
+// Registry maps provider id → adapter and its catalog.
 type Registry struct {
 	adapters map[string]SourceAdapter
+	catalogs map[string]*Catalog
 }
 
-// NewRegistry builds the adapter registry with all v1 adapters registered.
-func NewRegistry() *Registry {
-	r := &Registry{adapters: make(map[string]SourceAdapter)}
-	r.register(&githubAdapter{})
-	r.register(&alertmanagerAdapter{})
-	return r
+// NewRegistry registers every adapter and builds its catalog. A schema that
+// does not build fails startup.
+func NewRegistry() (*Registry, error) {
+	r := &Registry{adapters: make(map[string]SourceAdapter), catalogs: make(map[string]*Catalog)}
+	for _, a := range []SourceAdapter{&githubAdapter{}, &alertmanagerAdapter{}} {
+		c, err := BuildCatalog(a.Schema())
+		if err != nil {
+			return nil, fmt.Errorf("build %s catalog: %w", a.Provider(), err)
+		}
+		r.adapters[a.Provider()] = a
+		r.catalogs[a.Provider()] = c
+	}
+	return r, nil
 }
-
-func (r *Registry) register(a SourceAdapter) { r.adapters[a.Provider()] = a }
 
 // Get returns the adapter for a provider, or (nil, false) if unregistered.
 func (r *Registry) Get(provider string) (SourceAdapter, bool) {
 	a, ok := r.adapters[provider]
 	return a, ok
+}
+
+// Catalog returns a provider's catalog.
+func (r *Registry) Catalog(provider string) (*Catalog, bool) {
+	c, ok := r.catalogs[provider]
+	return c, ok
 }
 
 // Providers returns the registered provider ids (for validation/UI).

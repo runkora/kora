@@ -359,17 +359,25 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	// An empty event_type is legal and means "any event this source emits";
-	// dispatch treats '' as match-all.
 	if req.SourceID == "" {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
 	}
-	return nil
+	if req.EventType == "" {
+		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+	}
+	return validateFieldKeys(req.PromptTemplate, req.MatchCondition)
 }
+
+// errSenderRestrictionWebhookOnly refuses a sender restriction on a trigger
+// with no delivery to read a sender from.
+var errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
 
 func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
+	}
+	if req.SenderRestriction != nil {
+		return errSenderRestrictionWebhookOnly
 	}
 	if req.ScheduleConfig == nil {
 		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
@@ -380,6 +388,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
+	}
+	if req.SenderRestriction != nil {
+		return errSenderRestrictionWebhookOnly
 	}
 	return validateManualInputs(req.ManualConfig)
 }

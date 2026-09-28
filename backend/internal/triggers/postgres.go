@@ -228,6 +228,14 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 			if len(mc.Inputs) > 0 {
 				t.ManualConfig = &mc
 			}
+		case KindWebhook:
+			var wc WebhookConfig
+			if err := json.Unmarshal(kindConfigJSON, &wc); err != nil {
+				return nil, fmt.Errorf("unmarshal webhook config: %w", err)
+			}
+			if !wc.SenderRestriction.empty() {
+				t.SenderRestriction = wc.SenderRestriction
+			}
 		}
 	}
 	return &t, nil
@@ -578,6 +586,12 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 		b, err := json.Marshal(t.ManualConfig)
 		if err != nil {
 			return nil, fmt.Errorf("marshal manual config: %w", err)
+		}
+		return b, nil
+	case t.Kind == KindWebhook && !t.SenderRestriction.empty():
+		b, err := json.Marshal(WebhookConfig{SenderRestriction: t.SenderRestriction})
+		if err != nil {
+			return nil, fmt.Errorf("marshal webhook config: %w", err)
 		}
 		return b, nil
 	}
