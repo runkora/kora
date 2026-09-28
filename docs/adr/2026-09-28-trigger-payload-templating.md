@@ -13,7 +13,7 @@
 
 ### Background
 
-A webhook delivery passes through one pipeline for every provider (`internal/triggers/service_ingest.go`, `fanOut`):
+A webhook delivery passes through one pipeline for every provider (`backend/internal/triggers/service_ingest.go`, `fanOut`):
 
 1. `adapter.Fields(eventType, body)` flattens the payload into a curated `map[string]string`.
 2. Each trigger on the source is checked against the event type, then `matchesCondition(t.MatchCondition, fields)`.
@@ -22,13 +22,13 @@ A webhook delivery passes through one pipeline for every provider (`internal/tri
 
 The curated map is the only thing steps 2 and 4 can read. [Agent triggers and webhook ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) Decision item 3 and [Extended trigger types](2026-06-20-extended-trigger-types.md) "Prompt templating and the field map" both rule out arbitrary payload access and defer treating field values as untrusted.
 
-The vocabulary is maintained by hand in three places that have drifted apart:
+The vocabulary is maintained by hand in three places that disagree:
 
 - `SourceAdapter.EventTypes()` declares `issues`, `pull_request` and `push` for GitHub, and `alert.firing` and `alert.resolved` for Alertmanager.
 - `PROVIDER_EVENTS` in the console (`triggers/_types/index.ts`) offers `push`, `pull_request`, `issues`, `release` and `workflow_run` for GitHub, and `firing` and `resolved` for Alertmanager.
 - `field-catalog.ts` restates each adapter's `Fields` keys for the prompt builder and filter picker.
 
-GitHub's OpenAPI description (`github/rest-api-description`) includes JSON Schema for its webhook payloads under `x-webhooks`: one operation per event and action, 77 distinct event types, each stating its `X-GitHub-Event` value. Schemas carry field descriptions and the allowed values of enumerated fields such as `action`. An event has hundreds of fields, up to about 1,200, most under a few top-level objects that recur across events (`repository`, `sender`, `organization`, `installation`), and paths nest up to 7 levels.
+GitHub's OpenAPI description (`github/rest-api-description`) includes JSON Schema for its webhook payloads under `x-webhooks`. It has one operation per event and action, covering 77 event types, and each operation states its `X-GitHub-Event` value. Schemas carry field descriptions and the allowed values of enumerated fields such as `action`. Fields per event range from 24 (`github_app_authorization`) to 1,871 (`issues`), with 230 for `push`. Most sit under top-level objects that recur across events (`repository`, `sender`, `organization`, `installation`). Paths nest up to 10 levels.
 
 Ingest accepts bodies up to 5 MiB. The delivery row stores the body up to 1 MiB (`payload`, truncated beyond that and purged after tenant retention); a duplicate delivery stores none.
 
@@ -66,7 +66,7 @@ The change touches **What can it access?** A webhook trigger's run executes unde
 
 Each adapter supplies its provider's schema in one Orbit format. Shared code builds the catalogue of event types and fields from it and serves it to the console.
 
-- Pros: the full vocabulary is available before any delivery, with descriptions and allowed values. One list serves the API and the console. A new provider supplies a file, not code.
+- Pros: the full vocabulary is available before any delivery, with descriptions and allowed values. One list serves the API and the console. A new provider supplies a schema file instead of field-extraction code.
 - Cons: the schema lags the provider until it is updated, and GitHub's adds about 2 MB, minified, to the triggers binary.
 
 #### 1D: The provider's schema, compiled into the frontend
@@ -127,7 +127,10 @@ The template is kept with its placeholders as written. The named values follow i
 ```json
 {
   "events": {
-    "issue_comment": { "oneOf": [{ "$ref": "#/definitions/webhook-issue-comment-created" }, "..."] },
+    "issue_comment": { "oneOf": [
+      { "$ref": "#/definitions/webhook-issue-comment-created" },
+      { "$ref": "#/definitions/webhook-issue-comment-edited" }
+    ] },
     "push": { "$ref": "#/definitions/webhook-push" }
   },
   "definitions": { "...": "..." }
@@ -170,7 +173,7 @@ The builder walks each event's schema:
 - It resolves `$ref` and descends `properties`, `allOf`, `anyOf` and `oneOf`. Array `items` contribute paths at index `0`.
 - An object with no `properties` whose `additionalProperties` is `true` or a schema, such as Alertmanager's `commonLabels`, has data as its keys. It becomes one `Pattern` field, such as `commonLabels.<name>`.
 - `Group` is the path's first segment. Top-level scalars such as `action` share one group. `Enum` is the union of `enum` values across variants, converted to strings by the resolution rules in Decision 2.
-- A `$ref` already on the current branch is not descended again, and depth is capped at 8.
+- A `$ref` already on the current branch is not descended again. Depth is capped at 16; GitHub's deepest path is 10.
 - A path with a segment outside `[A-Za-z0-9_]`, such as GitHub's `reactions.+1`, is skipped.
 - `BuildCatalog` fails on a schema with a top-level `meta` property. A test builds every registered provider's catalogue.
 
@@ -187,9 +190,9 @@ The builder walks each event's schema:
 
 A webhook trigger names exactly one event type. Create and update reject an empty `event_type`, and `fanOut` matches event types exactly; the empty-means-any rule is removed.
 
-A field key matches `^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`, in templates and match conditions alike. A key starting `meta.` names a meta field; any other key is a path into the delivery body. Each segment is an object key; an all-digit segment applied to a list is an index. Create and update reject a malformed key or an unknown `meta.` key. A delivery path missing from the catalogue is accepted, since the schema can lag the provider.
+A field key matches `^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`, in templates and match conditions alike. A key starting `meta.` names a meta field; any other key is a path into the delivery body. Each segment is an object key; an all-digit segment applied to a list is an index. Create and update reject a malformed key or an unknown `meta.` key. The API accepts a delivery path missing from the catalogue, because the schema can lag the provider.
 
-The body is decoded once per delivery, with `UseNumber` to keep large integer IDs exact. The decoded value is shared by field resolution and sender identification. A body that is not exactly one JSON value, including trailing data after it, resolves no delivery fields. A replayed body truncated at 1 MiB resolves no delivery fields. Resolution strips NUL characters, which Postgres JSONB rejects. Resolution converts the value at the path to a string:
+The body is decoded once per delivery, with `UseNumber` to keep large integer IDs exact. The decoded value is shared by field resolution and sender identification. A body that is not exactly one JSON value, including trailing data after it, resolves no delivery fields. A stored body whose `PayloadBytes` exceeds 1 MiB was truncated, and a redelivery of it resolves no delivery fields. Resolution strips NUL characters, which Postgres JSONB rejects. Resolution converts the value at the path to a string:
 
 | Value | Resolves to |
 |---|---|
@@ -230,7 +233,7 @@ The block is `json.MarshalIndent` over the keys the template's placeholders name
 
 ### Decision 4: Sender restriction is trigger configuration checked before the match condition
 
-The restriction is stored in `kind_config`, unused by webhook triggers today.
+The restriction is stored in `kind_config`, unused by webhook triggers today. The API carries it as `sender_restriction` on the trigger, and on create and update requests. Update replaces the restriction when the field is present, as it does for `schedule_config` and `manual_config`; sending one with both lists empty removes it.
 
 ```go
 // WebhookConfig is the kind_config for a webhook trigger.
@@ -262,14 +265,14 @@ type Sender struct {
 }
 ```
 
-Evaluation in `fanOut`, after the event type check and before `matchesCondition`. An event from an excluded sender records the sender reason even when the match condition would also have excluded it.
+`fanOut` evaluates the restriction after the event type check and before `matchesCondition`. An event from an excluded sender records the sender reason even when the match condition would also have excluded it.
 
 - A trigger without a restriction, or with both lists empty, is unrestricted.
 - A sender passes if its normalised login matches a listed login, normalised the same way, or if its association is listed.
 - An event that carries no sender fails a restriction.
 - A sender that fails is recorded with status `filtered` and the reason `event excluded by the trigger's sender restriction`.
 
-The GitHub adapter implements `senderIdentifier`. `Login` is `sender.login`, lowercased because GitHub logins are case-insensitive. `Association` is the `author_association` of the first of `comment`, `review`, `answer`, `discussion`, `issue`, `pull_request` present in the body whose `user.login` equals the sender; otherwise it is empty. `Associations()` returns `OWNER`, `MEMBER` and `COLLABORATOR`. Events without a `sender`, such as `security_advisory`, report none. An empty association passes no association rule, so a `push`, or a `labeled` action by someone other than the author, can only pass through the login list.
+The GitHub adapter implements `senderIdentifier`. `Login` is `sender.login`, lowercased because GitHub logins are case-insensitive. `Association` is the `author_association` of the first of `comment`, `review`, `answer`, `discussion`, `issue`, `pull_request` present in the body whose `user.login` equals the sender; otherwise it is empty. `Associations()` returns `OWNER`, `MEMBER` and `COLLABORATOR`. An empty association passes no association rule. A `push`, or a `labeled` action by someone other than the author, passes only through the login list.
 
 The API rejects a restriction on a trigger whose source's adapter does not implement `senderIdentifier`, and rejects associations outside the adapter's `Associations()`. Alertmanager does not implement it. The `event-types` response carries the adapter's associations, empty when it identifies no sender, and the console builds the control from them.
 
@@ -279,25 +282,27 @@ Terra's `TemplateCatalogList` is a searchable, grouped picker with keyboard navi
 
 - **Event type:** a `Popover` with `TemplateCatalogList` over `declared` and `observed`, replacing `PROVIDER_EVENTS`.
 - **Prompt builder:** `TemplateField` gets its catalogue from the fields endpoint for the chosen event type.
-- **Filter row:** a searchable field dropdown and a free-form value box, as today. A `Popover` with `TemplateCatalogList` replaces the `NativeSelect` in `filter-rows-editor.tsx`; the value box is unchanged. Filter fields are picked, never typed. Picking a `Pattern` entry such as `commonLabels.<name>` asks for the name in a Terra `Input` and produces `commonLabels.severity`. For a field with `Enum`, the value box's placeholder lists the allowed values.
+- **Filter row:** a searchable field dropdown and a free-form value box. A `Popover` with `TemplateCatalogList` replaces the `NativeSelect` in `filter-rows-editor.tsx`, and the value box is unchanged.
+- **Pattern fields:** picking an entry such as `commonLabels.<name>` asks for the name in a Terra `Input` and produces `commonLabels.severity`.
+- **Enum hints:** for a field with `Enum`, the value box's placeholder lists the allowed values.
 - **Preview:** for webhook triggers, the template preview renders the data block form.
 
 `field-catalog.ts` keeps only the manual and scheduled `var.` entries.
 
-Two changes to `TemplateCatalogList` need approval under AGENTS.md before implementation: a `searchPlaceholder` prop, so the event type picker reads "Search events", and selectable `Pattern` entries, which today are listed but not selectable.
+`TemplateCatalogList` gains a `searchPlaceholder` prop for the event type picker, and its `Pattern` entries become selectable.
 
 ---
 
 ## Implementation
 
-### Backend (`internal/triggers/`)
+### Backend (`backend/internal/triggers/`)
 
 1. `schemas/github.json`, `schemas/alertmanager.json`, and `Schema()` on both adapters. Remove `Fields`, `EventTypes`, the GitHub payload structs used only by `Fields`, and the Alertmanager derived-key helpers and bounds.
-2. `catalog.go`: `BuildCatalog`, the meta fields and the reserved-name check. Tests cover `$ref` cycles, `allOf`/`oneOf` merging, arrays, `additionalProperties`, enums, common fields, and a build of every registered schema.
+2. `catalog.go`: `BuildCatalog`, the meta fields and the reserved-name check. Tests cover `$ref` cycles, `allOf`/`oneOf` merging, arrays, `additionalProperties`, enums, and a build of every registered schema.
 3. `payload.go`: decode, collect a trigger's referenced keys and resolve them. Table tests cover nested keys, list indexes, numbers, null, missing paths, trailing data and NUL.
 4. `fanOut`: decode once, then per trigger check the sender restriction, build the trigger's field map, match and admit with it.
 5. `template.go`: the webhook renderer with the data block; `startRunForTriggerWithFields` picks the renderer by trigger kind. Tests include a value containing `</delivery-data>`.
-6. `models.go`, `postgres.go`: `WebhookConfig` in `marshalKindConfig` and the `kind_config` read path, and key and restriction validation on create and update.
+6. `models.go`, `postgres.go`: `WebhookConfig` in `marshalKindConfig` and the `kind_config` read path, `sender_restriction` on the trigger and its create and update requests, and key and restriction validation.
 7. `server.go`: the fields endpoint, and `declared` and the sender associations on `event-types`.
 8. `adapter_github.go`: `senderIdentifier`, with fixtures for `issue_comment`, `pull_request_review`, `pull_request` opened and labeled, and `push`.
 9. Require `event_type` on webhook create and update, and drop the empty-means-any branch in `fanOut`.
@@ -307,7 +312,7 @@ Two changes to `TemplateCatalogList` need approval under AGENTS.md before implem
 
 `tools/trigger-schemas/`: the GitHub import script, the pinned source release, and a README on regenerating `schemas/github.json`.
 
-### Frontend (`src/app/(dashboard)/triggers/`)
+### Frontend (`frontend/src/app/(dashboard)/triggers/`)
 
 1. Client calls for the fields endpoint and the updated `event-types` response.
 2. Event type and filter field pickers on `TemplateCatalogList`, with name entry for `Pattern` fields and enum values as the value box placeholder. Remove the "any event" option.
