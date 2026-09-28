@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Button, DataTable, Icon, SegmentedControl, Stack, Text } from '@orbit/terra';
+import { Button, DataTable, SegmentedControl, Stack, Text } from '@orbit/terra';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
@@ -13,6 +13,7 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
+import { StartedByCell } from './started-by-cell';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -152,27 +153,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         id: 'startedBy',
         header: 'Started by',
         locked: true,
-        cell: (row) => (
-          <Stack direction="horizontal" align="center" gap="tight">
-            {row.startedByTrigger ? (
-              <>
-                <Icon name="zap" size="2xs" color="accent" label="" />
-                <Text size="supporting" color="muted">
-                  {row.startedByTrigger.triggerName ?? row.startedByTrigger.triggerId}
-                </Text>
-              </>
-            ) : (
-              <Text size="supporting" color="muted">
-                {row.createdByName ?? row.createdBy}
-              </Text>
-            )}
-            {row.delegated && (
-              <Badge variant="default" size="sm">
-                Delegated
-              </Badge>
-            )}
-          </Stack>
-        ),
+        cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
