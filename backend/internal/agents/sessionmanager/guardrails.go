@@ -362,17 +362,29 @@ func (r *ClaudeRunner) queuesMidTurnMessages() bool { return true }
 
 // countRepeat extends the repeated-call streak when p matches the last call.
 func (g *loopGuard) countRepeat(p ToolUsePayload) {
-	var compact bytes.Buffer
-	if json.Compact(&compact, p.Input) != nil {
-		compact.Write(p.Input)
-	}
-	key := p.Name + "\x00" + compact.String()
+	key := p.Name + "\x00" + callKey(p.Input)
 	if key == g.lastCall {
 		g.repeats++
 	} else {
 		g.lastCall, g.lastResult, g.repeats = key, "", 1
 	}
 	g.lastID = p.ID
+}
+
+// callKey is a tool input in canonical form without its "description", a
+// free-text label Claude Code rewrites on every call ("attempt 2 of 10").
+func callKey(input json.RawMessage) string {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(input, &fields) != nil {
+		var compact bytes.Buffer
+		if json.Compact(&compact, input) != nil {
+			return string(input)
+		}
+		return compact.String()
+	}
+	delete(fields, "description")
+	canonical, _ := json.Marshal(fields)
+	return string(canonical)
 }
 
 // bashCommand extracts the command from a Bash tool input.
