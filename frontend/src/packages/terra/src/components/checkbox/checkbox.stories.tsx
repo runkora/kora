@@ -1,86 +1,104 @@
+import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '../layout/stack';
-import { Text } from '../typography/typography';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Checkbox } from './checkbox';
 
+/**
+ * Checkbox
+ *
+ * A tick box with an optional label. Use it for choices that can be on or off
+ * independently of each other.
+ */
 const meta: Meta<typeof Checkbox> = {
   title: 'Terra/Atoms/Checkbox',
   component: Checkbox,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
-  argTypes: {
-    variant: {
-      control: 'select',
-      options: ['default', 'row'],
-    },
-    checked: { control: 'boolean' },
-    indeterminate: { control: 'boolean' },
-    disabled: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Checkbox>;
 
-export const Default: Story = {
-  args: { checked: true, children: 'Enable notifications' },
-};
+function Controlled({ label, initial = false }: { label: string; initial?: boolean }) {
+  const [checked, setChecked] = React.useState(initial);
+  return (
+    <Checkbox checked={checked} onChange={setChecked}>
+      {label}
+    </Checkbox>
+  );
+}
 
-/** `indeterminate` is used for select-all checkboxes when a subset of items is selected. */
-export const Indeterminate: Story = {
-  args: { checked: false, indeterminate: true, children: 'Select all' },
-};
-
-/** `variant="row"` stretches to full width with a hover highlight and bottom border — used in list pickers. */
-export const RowVariant: Story = {
-  name: 'Row variant',
+export const Overview: Story = {
   render: () => (
-    <div style={{ width: 320 }}>
-      <Stack gap="none">
-        <Checkbox variant="row" checked={true} paddingBlock="tight" paddingInline="snug">
-          <Text size="caption">platform:grants:read</Text>
-        </Checkbox>
-        <Checkbox variant="row" checked={false} paddingBlock="tight" paddingInline="snug">
-          <Text size="caption">platform:grants:write</Text>
-        </Checkbox>
-        <Checkbox
-          variant="row"
-          checked={false}
-          indeterminate={true}
-          paddingBlock="tight"
-          paddingInline="snug"
-        >
-          <Text size="caption" color="subtle">
-            Select all platform scopes
-          </Text>
-        </Checkbox>
-      </Stack>
+    <div className="max-w-sm space-y-8">
+      <Example title="Single choice">
+        <Controlled label="Send email notifications" initial />
+      </Example>
+      <Example title="A list of choices">
+        <div className="flex flex-col gap-3">
+          <Controlled label="Read files" initial />
+          <Controlled label="Write files" />
+          <Controlled label="Run commands" />
+        </div>
+      </Example>
     </div>
   ),
 };
 
-/** Sizes side by side. `md` is the default and `lg` is used on selectable cards, such as the MCP server list. */
-export const Sizes: Story = {
+export const Options: Story = {
   render: () => (
-    <Stack gap="comfortable">
-      {(['md', 'lg'] as const).map((size) => (
-        <Stack key={size} direction="horizontal" gap="relaxed" align="center">
-          <Text size="caption" color="muted" mono>
-            {size}
-          </Text>
-          <Checkbox size={size} checked={false} aria-label={`${size} unchecked`} />
-          <Checkbox size={size} checked={true} aria-label={`${size} checked`} />
-          <Checkbox size={size} checked={false} indeterminate={true} aria-label={`${size} mixed`} />
-          <Checkbox size={size} checked={true} disabled={true} aria-label={`${size} disabled`} />
-        </Stack>
-      ))}
-    </Stack>
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="checked={false}" use="Not selected.">
+          <Checkbox checked={false} onChange={() => {}}>
+            Read files
+          </Checkbox>
+        </Option>
+        <Option name="checked" use="Selected.">
+          <Checkbox checked onChange={() => {}}>
+            Read files
+          </Checkbox>
+        </Option>
+        <Option
+          name="indeterminate"
+          use="Some, but not all, of a group is selected. Use it on a select-all box."
+        >
+          <Checkbox checked={false} indeterminate onChange={() => {}}>
+            Select all tools
+          </Checkbox>
+        </Option>
+        <Option name="disabled" use="Cannot be changed.">
+          <Checkbox checked disabled onChange={() => {}}>
+            Required by policy
+          </Checkbox>
+        </Option>
+        <Option name='size="md"' use="The standard 20px box. The default.">
+          <Checkbox checked onChange={() => {}}>
+            Medium
+          </Checkbox>
+        </Option>
+        <Option name='size="lg"' use="A larger 22px box, easier to hit on touch screens.">
+          <Checkbox size="lg" checked onChange={() => {}}>
+            Large
+          </Checkbox>
+        </Option>
+        <Option
+          name='variant="row"'
+          use="A full-width row that highlights on hover. Good for long lists."
+        >
+          <div className="max-w-xs">
+            <Checkbox variant="row" paddingBlock="snug" checked={false} onChange={() => {}}>
+              github-mcp
+            </Checkbox>
+          </div>
+        </Option>
+        <Option
+          name="aria-label"
+          use="A box with no visible text still needs a name for screen readers."
+        >
+          <Checkbox aria-label="Select server" checked={false} onChange={() => {}} />
+        </Option>
+      </OptionTable>
+    </div>
   ),
-};
-
-/** Disabled state — pointer events removed, opacity reduced. */
-export const Disabled: Story = {
-  args: { checked: true, disabled: true, children: 'Read-only setting' },
 };

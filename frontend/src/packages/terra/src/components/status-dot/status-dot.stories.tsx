@@ -1,77 +1,95 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '../layout/stack';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Text } from '../typography/typography';
 import { StatusDot } from './status-dot';
 
+/**
+ * StatusDot
+ *
+ * A small coloured circle that shows the state of something. Put a text label beside it,
+ * because colour alone is not enough.
+ */
 const meta: Meta<typeof StatusDot> = {
   title: 'Terra/Atoms/StatusDot',
   component: StatusDot,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
-  argTypes: {
-    status: {
-      control: 'select',
-      options: ['healthy', 'degraded', 'error', 'idle', 'pending', 'muted', 'accent'],
-    },
-    size: {
-      control: 'select',
-      options: ['sm', 'md', 'lg'],
-    },
-    glow: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof StatusDot>;
 
-export const Default: Story = {
-  args: { status: 'healthy', size: 'md' },
-};
+const AGENTS = [
+  { status: 'healthy', label: 'Support agent running' },
+  { status: 'degraded', label: 'Billing agent slow' },
+  { status: 'error', label: 'Deploy agent failed' },
+  { status: 'idle', label: 'Report agent idle' },
+  { status: 'pending', label: 'Triage agent starting' },
+] as const;
 
-/** All seven status variants — healthy / degraded / error / idle / pending / muted / accent */
-export const StatusVariants: Story = {
+export const Overview: Story = {
   render: () => (
-    <Stack direction="horizontal" gap="comfortable" align="center" wrap>
-      {(['healthy', 'degraded', 'error', 'idle', 'pending', 'muted', 'accent'] as const).map(
-        (status) => (
-          <Stack key={status} gap="tight" align="center">
-            <StatusDot status={status} />
-            <Text size="micro" color="muted">
-              {status}
-            </Text>
-          </Stack>
-        ),
-      )}
-    </Stack>
+    <div className="max-w-md space-y-8">
+      <Example title="Beside a label">
+        <div className="space-y-3">
+          {AGENTS.map(({ status, label }) => (
+            <div key={status} className="flex items-center gap-2">
+              <StatusDot status={status} glow={status === 'healthy'} pulse={status === 'pending'} />
+              <Text size="supporting">{label}</Text>
+            </div>
+          ))}
+        </div>
+      </Example>
+    </div>
   ),
 };
 
-/** Three sizes: sm (6 px) / md (10 px) / lg (12 px) */
-export const Sizes: Story = {
+export const Options: Story = {
   render: () => (
-    <Stack direction="horizontal" gap="comfortable" align="center">
-      {(['sm', 'md', 'lg'] as const).map((size) => (
-        <Stack key={size} gap="tight" align="center">
-          <StatusDot status="healthy" size={size} />
-          <Text size="micro" color="muted">
-            {size}
-          </Text>
-        </Stack>
-      ))}
-    </Stack>
-  ),
-};
-
-/** Glow ring reinforces "live / active" vs "inactive / error" at a glance */
-export const WithGlow: Story = {
-  render: () => (
-    <Stack direction="horizontal" gap="comfortable" align="center">
-      <StatusDot status="healthy" glow />
-      <StatusDot status="degraded" glow />
-      <StatusDot status="error" glow />
-      <StatusDot status="pending" glow />
-    </Stack>
+    <div className="max-w-5xl space-y-10">
+      <OptionTable title="Status">
+        <Option name='status="healthy"' use="Working normally. The default.">
+          <StatusDot status="healthy" />
+        </Option>
+        <Option name='status="degraded"' use="Working, with warnings.">
+          <StatusDot status="degraded" />
+        </Option>
+        <Option name='status="error"' use="Something failed.">
+          <StatusDot status="error" />
+        </Option>
+        <Option name='status="idle"' use="Not running and not scheduled.">
+          <StatusDot status="idle" />
+        </Option>
+        <Option name='status="pending"' use="Starting up or waiting for a decision.">
+          <StatusDot status="pending" />
+        </Option>
+        <Option name='status="muted"' use="Switched off. Says nothing about health.">
+          <StatusDot status="muted" />
+        </Option>
+        <Option name='status="accent"' use="The brand colour, for example in a chart key.">
+          <StatusDot status="accent" />
+        </Option>
+      </OptionTable>
+      <OptionTable title="Size and effects">
+        <Option name='size="sm"' use="6 px. Inside a table cell or a badge.">
+          <StatusDot size="sm" />
+        </Option>
+        <Option name='size="md"' use="10 px. The default.">
+          <StatusDot size="md" />
+        </Option>
+        <Option name='size="lg"' use="12 px. In a header or a large card.">
+          <StatusDot size="lg" />
+        </Option>
+        <Option name="glow" use="Add a soft ring so a live state stands out. Not used with muted.">
+          <div className="flex items-center gap-4">
+            <StatusDot status="healthy" glow />
+            <StatusDot status="error" glow />
+          </div>
+        </Option>
+        <Option name="pulse" use="Fade in and out to show something is in progress.">
+          <StatusDot status="pending" glow pulse />
+        </Option>
+      </OptionTable>
+    </div>
   ),
 };

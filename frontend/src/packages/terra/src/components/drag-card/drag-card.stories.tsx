@@ -1,164 +1,88 @@
-/**
- * DragCard
- *
- * A draggable card that expresses visual drag-state through typed boolean
- * props rather than dynamic className strings. Pass standard HTML drag event
- * handlers (`draggable`, `onDragStart`, `onDragOver`, `onDrop`, etc.) via
- * the normal props spread.
- *
- * The three visual states:
- *
- * - **Default** — neutral surface with a subtle border.
- * - **Dragging** — the card being dragged: dimmed (40% opacity) and
- *   scaled down slightly (98%) to signal it is "in flight".
- * - **Drop target** — a stationary card that the dragged item is hovering
- *   over: accent border with a faint accent tint to indicate it accepts a
- *   drop.
- *
- * ```tsx
- * <DragCard
- *   draggable
- *   dragging={draggingIdx === idx}
- *   dropTarget={overIdx === idx && draggingIdx !== null}
- *   onDragStart={() => handleDragStart(idx)}
- *   onDrop={() => handleDrop(idx)}
- * >
- *   …content…
- * </DragCard>
- * ```
- */
-
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Icon } from '../icon/icon';
 import { Stack } from '../layout/stack';
 import { Text } from '../typography/typography';
 import { DragCard } from './drag-card';
 
-// ─── Meta ─────────────────────────────────────────────────────────────────────
-
+/**
+ * DragCard
+ *
+ * A card that can be dragged to reorder a list. It shows whether it is being dragged or is
+ * the place a dragged card would land. Drag events come from the browser as usual.
+ */
 const meta: Meta<typeof DragCard> = {
   title: 'Terra/Atoms/DragCard',
   component: DragCard,
-  parameters: {
-    layout: 'padded',
-  },
   tags: ['autodocs'],
-  argTypes: {
-    dragging: {
-      control: 'boolean',
-      description: 'True while this card is being dragged — dims and scales it.',
-    },
-    dropTarget: {
-      control: 'boolean',
-      description: 'True when a dragged card is hovering over this one — shows accent border/tint.',
-    },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof DragCard>;
 
-// ─── Stories ──────────────────────────────────────────────────────────────────
-
-/** Interactive story — toggle `dragging` and `dropTarget` in the Controls panel. */
-export const Default: Story = {
-  args: {
-    dragging: false,
-    dropTarget: false,
-  },
-  render: (args) => (
-    <DragCard {...args} className="max-w-sm">
+function Row({ title, detail }: { title: string; detail: string }) {
+  return (
+    <>
       <Icon name="grip-vertical" color="muted" cursorGrab />
       <Stack gap="none">
         <Text size="supporting" weight="emphasis" mono>
-          anthropic / claude-3-5-haiku
+          {title}
         </Text>
         <Text size="caption" color="muted">
-          Priority 1 · Enabled
+          {detail}
         </Text>
       </Stack>
-    </DragCard>
+    </>
+  );
+}
+
+export const Overview: Story = {
+  render: () => (
+    <div className="max-w-md">
+      <Example title="A priority list">
+        <Stack gap="snug">
+          {[
+            { title: 'AWS Bedrock', detail: 'anthropic.claude-3-haiku' },
+            { title: 'Vertex AI', detail: 'claude-3-5-sonnet' },
+            { title: 'Azure OpenAI', detail: 'gpt-4o' },
+          ].map((route) => (
+            <DragCard key={route.title} draggable>
+              <Row {...route} />
+            </DragCard>
+          ))}
+        </Stack>
+      </Example>
+    </div>
   ),
 };
 
-/**
- * All three visual states rendered simultaneously for comparison.
- * In real usage only one card is `dragging` and at most one is `dropTarget`
- * at any given time.
- */
-export const States: Story = {
+export const Options: Story = {
   render: () => (
-    <Stack gap="snug" className="max-w-sm">
-      <DragCard>
-        <Icon name="grip-vertical" color="muted" cursorGrab />
-        <Stack gap="none">
-          <Text size="supporting" weight="emphasis" mono>
-            Default
-          </Text>
-          <Text size="caption" color="muted">
-            Idle — not being dragged
-          </Text>
-        </Stack>
-      </DragCard>
-
-      <DragCard dragging>
-        <Icon name="grip-vertical" color="muted" cursorGrab />
-        <Stack gap="none">
-          <Text size="supporting" weight="emphasis" mono>
-            Dragging
-          </Text>
-          <Text size="caption" color="muted">
-            This card is in flight
-          </Text>
-        </Stack>
-      </DragCard>
-
-      <DragCard dropTarget>
-        <Icon name="grip-vertical" color="muted" cursorGrab />
-        <Stack gap="none">
-          <Text size="supporting" weight="emphasis" mono>
-            Drop target
-          </Text>
-          <Text size="caption" color="muted">
-            Dragged card hovering over this slot
-          </Text>
-        </Stack>
-      </DragCard>
-    </Stack>
-  ),
-};
-
-/**
- * A realistic route priority list with three entries, illustrating how
- * DragCard composes with StepDot (priority number), Toggle, and action
- * buttons.
- */
-export const RouteList: Story = {
-  name: 'Route list composition',
-  render: () => (
-    <Stack gap="snug" className="max-w-md">
-      {[
-        { provider: 'AWS Bedrock', model: 'anthropic.claude-3-haiku', idx: 1 },
-        { provider: 'Vertex AI', model: 'claude-3-5-sonnet@20241022', idx: 2 },
-        { provider: 'Azure OpenAI', model: 'gpt-4o', idx: 3 },
-      ].map(({ provider, model, idx }) => (
-        <DragCard key={idx}>
-          <Stack direction="vertical" align="center" gap="tight" shrink paddingTop="snug">
-            <Icon name="grip-vertical" color="muted" cursorGrab />
-            <Text size="micro" color="muted" mono>
-              {idx}
-            </Text>
-          </Stack>
-          <Stack direction="vertical" grow gap="tight" minWidth="none">
-            <Text size="supporting" weight="emphasis">
-              {provider}
-            </Text>
-            <Text size="caption" color="muted" mono>
-              {model}
-            </Text>
-          </Stack>
-        </DragCard>
-      ))}
-    </Stack>
+    <div className="max-w-5xl">
+      <OptionTable
+        title="Options"
+        note="Set both from your own drag handlers. At most one card is dragging and one is the drop target at a time."
+      >
+        <Option name="default" use="A card at rest.">
+          <DragCard>
+            <Row title="AWS Bedrock" detail="Priority 1" />
+          </DragCard>
+        </Option>
+        <Option name="dragging" use="The card being carried. It is dimmed and slightly smaller.">
+          <DragCard dragging>
+            <Row title="Vertex AI" detail="Priority 2" />
+          </DragCard>
+        </Option>
+        <Option
+          name="dropTarget"
+          use="The card the dragged one is over. It gets an accent border and tint."
+        >
+          <DragCard dropTarget>
+            <Row title="Azure OpenAI" detail="Priority 3" />
+          </DragCard>
+        </Option>
+      </OptionTable>
+    </div>
   ),
 };

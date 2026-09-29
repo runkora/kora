@@ -1,77 +1,85 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { NativeSelect } from './native-select';
+import { Label } from '../label/label';
 
+/**
+ * NativeSelect
+ *
+ * A dropdown that uses the browser's own menu. Use it for short lists, or when
+ * you need groups.
+ */
 const meta: Meta<typeof NativeSelect> = {
   title: 'Terra/Atoms/NativeSelect',
   component: NativeSelect,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
-  argTypes: {
-    hasError: { control: 'boolean' },
-    disabled: { control: 'boolean' },
-    mono: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof NativeSelect>;
 
-export const Default: Story = {
+export const Overview: Story = {
   render: () => (
-    <NativeSelect defaultValue="bedrock" className="w-56">
-      <option value="bedrock">AWS Bedrock</option>
-      <option value="vertexai">Vertex AI</option>
-      <option value="openai">OpenAI</option>
-    </NativeSelect>
+    <div className="max-w-sm space-y-8">
+      <Example title="With a label">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-provider">Provider</Label>
+          <NativeSelect id="overview-provider" defaultValue="bedrock">
+            <option value="bedrock">AWS Bedrock</option>
+            <option value="vertexai">Vertex AI</option>
+            <option value="anthropic">Anthropic</option>
+          </NativeSelect>
+        </div>
+      </Example>
+      <Example title="With groups">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-model">Model</Label>
+          <NativeSelect id="overview-model" defaultValue="sonnet">
+            <optgroup label="Claude">
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+            </optgroup>
+            <optgroup label="Llama">
+              <option value="llama-70b">Llama 70B</option>
+            </optgroup>
+          </NativeSelect>
+        </div>
+      </Example>
+    </div>
   ),
 };
 
-/** optgroup support — useful for model catalogs grouped by provider */
-export const WithOptgroup: Story = {
+export const Options: Story = {
   render: () => (
-    <NativeSelect defaultValue="claude-3" className="w-56">
-      <optgroup label="Anthropic">
-        <option value="claude-3">claude-3-opus</option>
-        <option value="claude-haiku">claude-haiku</option>
-      </optgroup>
-      <optgroup label="OpenAI">
-        <option value="gpt-4">gpt-4o</option>
-        <option value="gpt-3.5">gpt-3.5-turbo</option>
-      </optgroup>
-    </NativeSelect>
-  ),
-};
-
-export const ErrorState: Story = {
-  render: () => (
-    <NativeSelect hasError defaultValue="" className="w-56">
-      <option value="" disabled>
-        Select a provider
-      </option>
-      <option value="bedrock">AWS Bedrock</option>
-      <option value="vertexai">Vertex AI</option>
-    </NativeSelect>
-  ),
-};
-
-/** Mono — use for region or identifier values */
-export const Mono: Story = {
-  render: () => (
-    <NativeSelect mono defaultValue="us-east-1" className="w-56">
-      <option value="us-east-1">us-east-1</option>
-      <option value="us-west-2">us-west-2</option>
-      <option value="eu-west-1">eu-west-1</option>
-    </NativeSelect>
-  ),
-};
-
-export const Disabled: Story = {
-  render: () => (
-    <NativeSelect disabled defaultValue="bedrock" className="w-56">
-      <option value="bedrock">AWS Bedrock</option>
-      <option value="vertexai">Vertex AI</option>
-    </NativeSelect>
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="default" use="A closed dropdown showing the chosen option.">
+          <NativeSelect aria-label="Provider" defaultValue="bedrock">
+            <option value="bedrock">AWS Bedrock</option>
+            <option value="vertexai">Vertex AI</option>
+          </NativeSelect>
+        </Option>
+        <Option name="disabled" use="The choice cannot be changed.">
+          <NativeSelect aria-label="Provider, disabled" disabled defaultValue="bedrock">
+            <option value="bedrock">AWS Bedrock</option>
+          </NativeSelect>
+        </Option>
+        <Option name="hasError" use="Marks the choice as invalid. Show a message next to it.">
+          <NativeSelect aria-label="Provider, invalid" hasError defaultValue="">
+            <option value="" disabled>
+              Choose a provider
+            </option>
+            <option value="bedrock">AWS Bedrock</option>
+          </NativeSelect>
+        </Option>
+        <Option name="mono" use="Fixed-width text for technical values such as model IDs.">
+          <NativeSelect aria-label="Model ID" mono defaultValue="claude-sonnet-4-5">
+            <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+            <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+          </NativeSelect>
+        </Option>
+      </OptionTable>
+    </div>
   ),
 };

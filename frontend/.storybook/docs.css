@@ -12,7 +12,6 @@ html body .sbdocs {
   color: var(--terra-raw-white);
   font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
 }
-
 html
   body
   .sbdocs
@@ -35,12 +34,11 @@ html
     input,
     select,
     textarea
-  ) {
+  ):not(.docs-story *) {
   color: var(--terra-raw-white);
   font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
 }
-
-html body .sbdocs a {
+html body .sbdocs a:not(.docs-story *) {
   color: var(--terra-raw-accent-400);
 }
 
@@ -55,34 +53,30 @@ html body .docblock-source {
   background: var(--terra-raw-950);
   border-color: var(--terra-raw-border-subtle);
 }
-
-html body .sbdocs :is(td, tr) {
+html body .sbdocs :is(td, tr):not(.docs-story *) {
   background: transparent;
   border-color: var(--terra-raw-border-subtle);
 }
-
-html body .sbdocs :is(input, select, textarea) {
+html body .sbdocs :is(input, select, textarea):not(.docs-story *) {
   background: var(--terra-raw-900);
   border-color: var(--terra-raw-border-subtle);
 }
-
-html body .sbdocs button {
+html body .sbdocs button:not(.docs-story *) {
   background: transparent;
 }
 
 /* Code */
-html body .sbdocs :is(code, pre, .docblock-source) {
+html body .sbdocs :is(code, pre):not(.docs-story *),
+html body .sbdocs .docblock-source {
   font-family: var(--font-geist-mono, ui-monospace, monospace);
   color: var(--terra-raw-white);
 }
-
-html body .sbdocs :not(pre) > code {
+html body .sbdocs :not(pre) > code:not(.docs-story *) {
   background: var(--terra-raw-900);
   border-color: var(--terra-raw-border-subtle);
 }
-
-html body .sbdocs pre,
-html body .sbdocs pre code {
+html body .sbdocs pre:not(.docs-story *),
+html body .sbdocs pre code:not(.docs-story *) {
   background: transparent;
 }
 
@@ -122,7 +116,7 @@ html body .docblock-argstable :is(td, tr) {
 }
 
 /* The code panel under each story has a fixed black background. */
-html body .sbdocs-preview > div:last-child > div {
+html body .sbdocs-preview > div:not(.docs-story):not(:first-child) > div {
   background: var(--terra-raw-900) !important;
 }
 
@@ -132,4 +126,8 @@ html body .docblock-argstable :is(span, div, code) {
 }
 html body .docblock-argstable td:first-child :is(span, div) {
   color: var(--terra-raw-white);
+}
+
+html body .sbdocs :is(.token.punctuation, .token.operator) {
+  color: var(--terra-raw-300);
 }

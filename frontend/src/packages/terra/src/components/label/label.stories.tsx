@@ -1,56 +1,47 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Label } from './label';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Input } from '../input/input';
+import { Label } from './label';
 
+/**
+ * Label
+ *
+ * The name of a form control. Clicking it focuses the control.
+ */
 const meta: Meta<typeof Label> = {
   title: 'Terra/Atoms/Label',
   component: Label,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Label>;
 
-export const Default: Story = {
-  args: { children: 'Agent name' },
-};
-
-export const PairedWithInput: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="flex flex-col gap-1.5 w-72">
-      <Label htmlFor="paired-input">Policy name</Label>
-      <Input id="paired-input" placeholder="e.g. read-only-s3" />
+    <div className="max-w-sm space-y-8">
+      <Example title="Above an input">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-agent">Agent name</Label>
+          <Input id="overview-agent" placeholder="policy-auditor" />
+        </div>
+      </Example>
     </div>
   ),
 };
 
-export const PairedWithDisabledInput: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="flex flex-col gap-1.5 w-72">
-      <Label htmlFor="disabled-input">Service token</Label>
-      <Input id="disabled-input" disabled placeholder="Not available" />
-    </div>
-  ),
-};
-
-export const MultipleLabels: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4 w-72">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ml-name">Name</Label>
-        <Input id="ml-name" placeholder="Agent display name" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ml-id">Identifier</Label>
-        <Input id="ml-id" placeholder="e.g. apollo-3" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ml-token">API token</Label>
-        <Input id="ml-token" type="password" placeholder="sk-…" />
-      </div>
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="htmlFor" use="Links the label to the control with the same id.">
+          <div className="flex max-w-xs flex-col gap-1.5">
+            <Label htmlFor="opt-email">Email</Label>
+            <Input id="opt-email" type="email" placeholder="you@example.com" />
+          </div>
+        </Option>
+      </OptionTable>
     </div>
   ),
 };

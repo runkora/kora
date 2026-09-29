@@ -1,95 +1,108 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Info, Trash2, Copy } from 'lucide-react';
+import { Example, Frame, Option, OptionTable } from '../../docs/story-ui';
+import { Button } from '../button/button';
+import { Icon } from '../icon/icon';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip';
 
-const meta: Meta = {
+/**
+ * A short label that appears when someone hovers or focuses an element. Use it
+ * for a hint, not for anything the person needs to read. The samples here are
+ * held open so you can see them.
+ */
+const meta: Meta<typeof Tooltip> = {
   title: 'Terra/Atoms/Tooltip',
-  parameters: {
-    layout: 'centered',
-  },
+  component: Tooltip,
   tags: ['autodocs'],
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <Story />
-      </TooltipProvider>
-    ),
-  ],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
-type Story = StoryObj;
+type Story = StoryObj<typeof Tooltip>;
 
-export const Default: Story = {
-  render: () => (
-    <Tooltip>
-      <TooltipTrigger className="text-sm text-muted underline decoration-dotted cursor-help">
-        Hover me
-      </TooltipTrigger>
-      <TooltipContent>Supplementary context</TooltipContent>
-    </Tooltip>
-  ),
-};
+function Stage({ children }: { children: React.ReactNode }) {
+  return (
+    <Frame className="flex min-h-32 items-center justify-center">
+      <div className="flex justify-center">{children}</div>
+    </Frame>
+  );
+}
 
-export const OnIconButton: Story = {
-  render: () => (
-    <Tooltip>
+function CopyHint({
+  side,
+  align,
+  label = 'Copy to clipboard',
+}: {
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+  label?: string;
+}) {
+  return (
+    <Tooltip open>
       <TooltipTrigger asChild>
-        <button
-          className="p-2 rounded-md text-muted hover:text-foreground hover:bg-surface-elevated transition-colors"
-          aria-label="View policy info"
-        >
-          <Info size={16} />
-        </button>
+        <Button variant="secondary" size="icon" aria-label="Copy">
+          <Icon name="copy" size="sm" />
+        </Button>
       </TooltipTrigger>
-      <TooltipContent>View policy details</TooltipContent>
+      <TooltipContent side={side} align={align}>
+        {label}
+      </TooltipContent>
     </Tooltip>
+  );
+}
+
+export const Overview: Story = {
+  render: () => (
+    <TooltipProvider>
+      <div className="max-w-xl space-y-8">
+        <Example title="Tooltip on an icon button">
+          <Stage>
+            <CopyHint />
+          </Stage>
+        </Example>
+      </div>
+    </TooltipProvider>
   ),
 };
 
-export const DestructiveAction: Story = {
+export const Options: Story = {
   render: () => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className="p-2 rounded-md text-muted hover:text-status-error hover:bg-surface-elevated transition-colors"
-          aria-label="Revoke credentials"
+    <TooltipProvider>
+      <div className="max-w-5xl">
+        <OptionTable
+          title="Options"
+          note="Side and alignment go on TooltipContent. Wrap the app in TooltipProvider once."
         >
-          <Trash2 size={16} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>Revoke credentials — this cannot be undone</TooltipContent>
-    </Tooltip>
-  ),
-};
-
-export const Positions: Story = {
-  render: () => (
-    <div className="grid grid-cols-2 gap-8 p-12">
-      {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
-        <Tooltip key={side}>
-          <TooltipTrigger className="px-3 py-1.5 text-xs rounded border border-border text-muted capitalize">
-            {side}
-          </TooltipTrigger>
-          <TooltipContent side={side}>Tooltip on {side}</TooltipContent>
-        </Tooltip>
-      ))}
-    </div>
-  ),
-};
-
-export const CopyAction: Story = {
-  render: () => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono text-muted bg-surface-elevated border border-border-subtle hover:text-foreground transition-colors"
-          aria-label="Copy agent ID"
-        >
-          apollo-3 <Copy size={12} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>Copy agent ID to clipboard</TooltipContent>
-    </Tooltip>
+          <Option name='side="top"' use="Shows above the element. The default.">
+            <Stage>
+              <CopyHint side="top" />
+            </Stage>
+          </Option>
+          <Option name='side="bottom"' use="Shows below the element.">
+            <Stage>
+              <CopyHint side="bottom" />
+            </Stage>
+          </Option>
+          <Option name='side="left" / "right"' use="Shows beside the element.">
+            <Stage>
+              <div className="flex gap-40">
+                <CopyHint side="left" label="Left" />
+                <CopyHint side="right" label="Right" />
+              </div>
+            </Stage>
+          </Option>
+          <Option
+            name='align="start" / "end"'
+            use="Lines the label up with one edge of the element."
+          >
+            <Stage>
+              <div className="flex gap-40">
+                <CopyHint side="bottom" align="start" label="Start of the button" />
+                <CopyHint side="top" align="end" label="End of the button" />
+              </div>
+            </Stage>
+          </Option>
+        </OptionTable>
+      </div>
+    </TooltipProvider>
   ),
 };
