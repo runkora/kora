@@ -92,8 +92,8 @@ function toRgb(ctx: CanvasRenderingContext2D, value: string): Rgb {
   ctx.fillStyle = '#000';
   ctx.fillStyle = value;
   ctx.fillRect(0, 0, 1, 1);
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return [r, g, b];
+  const data = ctx.getImageData(0, 0, 1, 1).data;
+  return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0];
 }
 
 function luminance([r, g, b]: Rgb): number {
@@ -105,11 +105,14 @@ function luminance([r, g, b]: Rgb): number {
 }
 
 function ratio(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 type Resolved = Record<string, Rgb>;
+
+const rgbOf = (tokens: Resolved, cssVar: string): Rgb => tokens[cssVar] ?? [0, 0, 0];
 
 /** Resolves the colours used on this page, and again when the brand or theme changes. */
 function useResolvedTokens(cssVars: string[]): Resolved {
@@ -196,7 +199,7 @@ function ContrastTable() {
     const targets = p.against ? [p.against] : SURFACES;
     return targets.map((t) => ({
       target: t,
-      value: ratio(tokens[p.cssVar], tokens[t.cssVar]),
+      value: ratio(rgbOf(tokens, p.cssVar), rgbOf(tokens, t.cssVar)),
     }));
   };
 
@@ -218,7 +221,7 @@ function ContrastTable() {
           </div>
           <div className="grid gap-px" style={{ gridTemplateColumns: '220px repeat(4, 1fr)' }}>
             <span />
-            {group.pairs[0].against ? (
+            {group.pairs[0]?.against ? (
               <Text size="caption" color="subtle" className="col-span-4 px-2">
                 Fill
               </Text>
@@ -236,7 +239,7 @@ function ContrastTable() {
                   <div className="flex items-center gap-2 py-1.5">
                     <span
                       className="h-4 w-4 shrink-0 rounded-sm ring-1 ring-inset ring-border"
-                      style={{ background: hex(tokens[p.cssVar]) }}
+                      style={{ background: hex(rgbOf(tokens, p.cssVar)) }}
                     />
                     <Text size="supporting">{p.label}</Text>
                   </div>
@@ -246,8 +249,8 @@ function ContrastTable() {
                       ratioValue={r.value}
                       need={p.need}
                       onFill={Boolean(p.against)}
-                      fg={tokens[p.cssVar]}
-                      bg={tokens[r.target.cssVar]}
+                      fg={rgbOf(tokens, p.cssVar)}
+                      bg={rgbOf(tokens, r.target.cssVar)}
                     />
                   ))}
                   {p.against &&

@@ -45,8 +45,8 @@ function AgentNote({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        side={side}
-        align={align}
+        {...(side ? { side } : {})}
+        {...(align ? { align } : {})}
         className="w-56 p-3"
         onOpenAutoFocus={keepStill}
         onInteractOutside={keepStill}

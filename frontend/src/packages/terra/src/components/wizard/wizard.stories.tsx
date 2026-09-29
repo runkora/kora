@@ -1,370 +1,633 @@
+import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Card, CardContent, Icon, Stack, Text } from '../../index';
+import {
+  Button,
+  Card,
+  CardContent,
+  FormField,
+  Grid,
+  Heading,
+  Icon,
+  Input,
+  RadioCard,
+  RadioGroup,
+  SegmentedControl,
+  Stack,
+  Text,
+  Textarea,
+} from '../../index';
+import type { IconName } from '../icon/icon';
+import { Frame, Option, OptionTable } from '../../docs/story-ui';
 import { Wizard } from './wizard';
 
+/**
+ * A wizard is a full-screen builder that walks someone through creating one thing in ordered
+ * steps. It has a step rail, a footer with Back and Continue, and a review step before the final
+ * submit. Use it when the input is too big for a dialog and the order of the steps matters.
+ */
 const meta: Meta<typeof Wizard> = {
   title: 'Terra/Organisms/Wizard',
   component: Wizard,
   tags: ['autodocs'],
-  parameters: {
-    layout: 'fullscreen',
-  },
+  parameters: { layout: 'padded' },
 };
 export default meta;
 
 type Story = StoryObj<typeof Wizard>;
 
 const STEPS = [
-  { id: 'identity', title: 'Identity', sub: 'Name and slug' },
-  { id: 'behaviour', title: 'Behaviour', sub: 'Model and instructions' },
-  { id: 'tools', title: 'Tools & access', sub: 'MCP servers, scopes' },
-  { id: 'guardrails', title: 'Guardrails', sub: 'Budgets and capacity' },
-  { id: 'review', title: 'Review', sub: 'Confirm and create' },
+  { id: 'basics', title: 'Basics', sub: 'Name and describe it' },
+  { id: 'delivery', title: 'Delivery', sub: 'How events arrive' },
+  { id: 'review', title: 'Review', sub: 'Check and create' },
 ];
 
-const PolicyCheckedInfo = () => (
+type Kind = { id: string; icon: IconName; title: string; description: string };
+
+const KINDS: Kind[] = [
+  {
+    id: 'Webhook',
+    icon: 'webhook',
+    title: 'Webhook',
+    description: 'Starts when another system sends a request.',
+  },
+  {
+    id: 'Schedule',
+    icon: 'clock',
+    title: 'Schedule',
+    description: 'Starts at set times, like every weekday at 9am.',
+  },
+  {
+    id: 'Email',
+    icon: 'send',
+    title: 'Email',
+    description: 'Starts when a message arrives at an address.',
+  },
+];
+
+const RailNote = () => (
   <Card subtle>
     <CardContent padded compact>
       <Stack gap="tight">
         <Stack direction="horizontal" align="center" gap="snug">
           <Icon name="info" size="xs" color="accent" label="" />
           <Text as="span" size="caption" weight="heavy" color="muted">
-            Policy-checked
+            Checked before it runs
           </Text>
         </Stack>
         <Text size="micro" color="subtle">
-          A trigger starts work as the agent it targets. Every run is checked against that
-          agent&apos;s grants before anything executes.
+          Every run is checked against the agent&apos;s permissions first.
         </Text>
       </Stack>
     </CardContent>
   </Card>
 );
 
-const IdentityFirstInfo = () => (
-  <Card subtle>
-    <CardContent padded compact>
-      <Stack gap="tight">
-        <Stack direction="horizontal" align="center" gap="snug">
-          <Icon name="info" size="xs" color="accent" label="" />
-          <Text as="span" size="caption" weight="heavy" color="muted">
-            Identity-first
-          </Text>
-        </Stack>
-        <Text size="micro" color="subtle">
-          Every agent gets a verified identity before it can touch a single tool. Access is checked
-          before execution, never after.
-        </Text>
-      </Stack>
-    </CardContent>
-  </Card>
+const StepHeading = ({ title, description }: { title: string; description: string }) => (
+  <Stack gap="snug">
+    <Heading variant="subsection">{title}</Heading>
+    <Text size="supporting" color="muted">
+      {description}
+    </Text>
+  </Stack>
 );
 
-// ── Default ───────────────────────────────────────────────────────────────────
+const SaveStatus = ({ saving }: { saving: boolean }) => (
+  <Stack direction="horizontal" align="center" gap="snug" paddingInline="comfortable">
+    <Icon name={saving ? 'refresh-cw' : 'check-circle'} size="xs" color="subtle" label="" />
+    <Text as="span" size="micro" color="subtle">
+      {saving ? 'Saving…' : 'Saved'}
+    </Text>
+  </Stack>
+);
 
-export const Default: Story = {
-  render: () => (
-    <Wizard
-      open
-      onClose={() => undefined}
-      icon="zap"
-      title="New agent"
-      subtitle="draft · abc123"
-      rail={
-        <Wizard.Rail
-          label="Create agent"
-          steps={STEPS}
-          current={1}
-          maxVisited={2}
-          onGoTo={() => undefined}
-          footer={<IdentityFirstInfo />}
-        />
-      }
-      footer={
-        <Wizard.Footer
-          step={1}
-          totalSteps={STEPS.length}
-          onBack={() => undefined}
-          onNext={() => undefined}
-        />
-      }
-    >
-      <Wizard.Step>
-        <Text size="supporting" color="muted">
-          Step content goes here.
-        </Text>
-      </Wizard.Step>
-    </Wizard>
-  ),
-};
+const DELIVERY_OPTIONS = [
+  { value: 'each', label: 'One run per event' },
+  { value: 'batch', label: 'Group events' },
+];
 
-// ── Header variants (via Wizard props) ────────────────────────────────────────
+type Phase = 'pick' | 'flow' | 'done';
 
-export const WithSubtitle: Story = {
-  render: () => (
-    <Wizard
-      open
-      onClose={() => undefined}
-      icon="zap"
-      title="New agent"
-      subtitle="draft · abc123"
-      rail={
-        <Wizard.Rail
-          label="Create agent"
-          steps={STEPS}
-          current={0}
-          maxVisited={0}
-          onGoTo={() => undefined}
-        />
-      }
-      footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
-    >
-      <Wizard.Step>
-        <Text size="supporting" color="muted">
-          Step content.
-        </Text>
-      </Wizard.Step>
-    </Wizard>
-  ),
-};
+function TriggerWizardDemo() {
+  const [open, setOpen] = React.useState(false);
+  const [phase, setPhase] = React.useState<Phase>('pick');
+  const [kind, setKind] = React.useState<Kind>(KINDS[0] as Kind);
+  const [step, setStep] = React.useState(0);
+  const [maxVisited, setMaxVisited] = React.useState(0);
+  const [name, setName] = React.useState('');
+  const [description, setDescription] = React.useState('');
+  const [delivery, setDelivery] = React.useState('batch');
+  const [saving, setSaving] = React.useState(false);
+  const [pending, setPending] = React.useState(false);
+  const timers = React.useRef<number[]>([]);
 
-export const WithActions: Story = {
-  render: () => (
-    <Wizard
-      open
-      onClose={() => undefined}
-      icon="zap"
-      title="New agent"
-      subtitle="draft · abc123"
-      actions={
-        <Stack direction="horizontal" align="center" gap="snug">
-          <Text as="span" size="caption" color="subtle">
-            Draft saved
-          </Text>
-        </Stack>
-      }
-      rail={
-        <Wizard.Rail
-          label="Create agent"
-          steps={STEPS}
-          current={0}
-          maxVisited={0}
-          onGoTo={() => undefined}
-        />
-      }
-      footer={<Wizard.Footer step={0} totalSteps={STEPS.length} onNext={() => undefined} />}
-    >
-      <Wizard.Step>
-        <Text size="supporting" color="muted">
-          Step content.
-        </Text>
-      </Wizard.Step>
-    </Wizard>
-  ),
-};
+  React.useEffect(() => {
+    const active = timers.current;
+    return () => active.forEach((t) => window.clearTimeout(t));
+  }, []);
 
-// ── fullPage step ─────────────────────────────────────────────────────────────
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(window.setTimeout(fn, ms));
+  };
 
-export const FullPageStep: Story = {
-  render: () => (
-    <Wizard open onClose={() => undefined} icon="zap" title="New agent">
-      <Wizard.Step fullPage>
-        <Stack grow align="center" justify="center" gap="comfortable" padding="loose">
-          <Icon
-            name="check-circle"
-            size="xl"
-            color="accent"
-            container
-            containerVariant="accent"
-            circle
-            label=""
-          />
-          <Text size="supporting" color="muted" align="center">
-            Full-page content — no rail or footer. Progress bar frozen.
-          </Text>
-        </Stack>
-      </Wizard.Step>
-    </Wizard>
-  ),
-};
+  const edit = (apply: () => void) => {
+    apply();
+    setSaving(true);
+    later(() => setSaving(false), 700);
+  };
 
-// ── Footer variants ───────────────────────────────────────────────────────────
+  const start = () => {
+    setPhase('pick');
+    setStep(0);
+    setMaxVisited(0);
+    setName('');
+    setDescription('');
+    setDelivery('batch');
+    setPending(false);
+    setSaving(false);
+    setOpen(true);
+  };
 
-export const FooterFirstStep: Story = {
-  render: () => (
-    <Wizard.Footer step={0} totalSteps={5} onNext={() => undefined} nextDisabled={false} />
-  ),
-};
+  const choose = (id: string) => {
+    setKind(KINDS.find((k) => k.id === id) ?? (KINDS[0] as Kind));
+    setPhase('flow');
+  };
 
-export const FooterMidFlow: Story = {
-  render: () => (
-    <Wizard.Footer step={2} totalSteps={5} onBack={() => undefined} onNext={() => undefined} />
-  ),
-};
+  const goTo = (index: number) => {
+    setStep(index);
+    setMaxVisited((m) => Math.max(m, index));
+  };
 
-export const FooterSubmit: Story = {
-  render: () => (
-    <Wizard.Footer
-      step={4}
-      totalSteps={5}
-      onBack={() => undefined}
-      onNext={() => undefined}
-      onSubmit={() => undefined}
-      submitLabel="Create trigger"
-    />
-  ),
-};
+  const isLast = step === STEPS.length - 1;
+  const nameMissing = phase === 'flow' && step === 0 && name.trim() === '';
+  const batchWarning = phase === 'flow' && step === 1 && delivery === 'each';
 
-export const FooterPending: Story = {
-  render: () => (
-    <Wizard.Footer
-      step={4}
-      totalSteps={5}
-      onBack={() => undefined}
-      onNext={() => undefined}
-      onSubmit={() => undefined}
-      pending
-    />
-  ),
-};
+  let hint: string | undefined;
+  if (nameMissing) hint = 'Add a name to continue.';
+  if (batchWarning)
+    hint = 'A busy source can start many runs at once. Group events to slow it down.';
 
-export const FooterWithHint: Story = {
-  render: () => (
-    <Wizard.Footer
-      step={1}
-      totalSteps={5}
-      onBack={() => undefined}
-      onNext={() => undefined}
-      nextDisabled
-    />
-  ),
-};
+  const submit = () => {
+    setPending(true);
+    later(() => {
+      setPending(false);
+      setPhase('done');
+    }, 1200);
+  };
 
-export const FooterChooseKindBack: Story = {
-  render: () => (
-    <Wizard.Footer
-      step={0}
-      totalSteps={4}
-      onBack={() => undefined}
-      backLabel="Choose kind"
-      onNext={() => undefined}
-    />
-  ),
-};
+  const inFlow = phase === 'flow';
 
-// ── Review screen ─────────────────────────────────────────────────────────────
-
-export const ReviewScreen: Story = {
-  render: () => (
-    <Wizard.ReviewStep>
-      <Wizard.ReviewCard
-        icon="user"
-        title="Identity"
-        onEdit={() => undefined}
-        rows={[
-          { label: 'Name', value: 'my-agent' },
-          { label: 'Slug', value: 'my-agent', mono: true },
-          { label: 'Identity model', value: 'SPIFFE / SVID' },
-        ]}
-      />
-      <Wizard.ReviewCard
-        icon="bot"
-        title="Behaviour"
-        onEdit={() => undefined}
-        rows={[
-          { label: 'Model', value: 'claude-sonnet-4-5 · Anthropic' },
-          { label: 'Framework', value: 'Claude Code' },
-          { label: 'Instructions', value: 'You are a helpful assistant…' },
-        ]}
-      />
-      <Wizard.ReviewCard
-        icon="zap"
-        title="Scheduled trigger"
-        onEdit={() => undefined}
-        rows={[
-          { label: 'Name', value: 'nightly-scan', mono: true },
-          { label: 'Kind', value: 'Scheduled' },
-          { label: 'Schedule', value: '0 2 * * *', mono: true },
-        ]}
+  return (
+    <>
+      <Button onClick={start}>Open the wizard</Button>
+      <Wizard
+        open={open}
+        onClose={() => setOpen(false)}
+        icon={phase === 'pick' ? 'zap' : kind.icon}
+        title="New trigger"
+        subtitle="drf_8f21c0"
+        hintVariant={nameMissing ? 'error' : 'warning'}
+        {...(hint ? { hint } : {})}
+        {...(inFlow
+          ? {
+              actions: <SaveStatus saving={saving} />,
+              rail: (
+                <Wizard.Rail
+                  label="New trigger"
+                  steps={STEPS}
+                  current={step}
+                  maxVisited={maxVisited}
+                  onGoTo={setStep}
+                  footer={<RailNote />}
+                />
+              ),
+              footer: (
+                <Wizard.Footer
+                  step={step}
+                  totalSteps={STEPS.length}
+                  onNext={() => goTo(step + 1)}
+                  nextDisabled={nameMissing}
+                  submitLabel="Create trigger"
+                  pending={pending}
+                  pendingLabel="Creating…"
+                  {...(step > 0 ? { onBack: () => setStep(step - 1) } : {})}
+                  {...(isLast ? { onSubmit: submit } : {})}
+                />
+              ),
+            }
+          : {})}
       >
-        <Stack gap="tight" paddingBlock="snug">
-          <Text as="span" size="caption" color="subtle">
-            Prompt
+        {phase === 'pick' && (
+          <Wizard.Step fullPage>
+            <Stack grow overflowY="auto" align="center">
+              <Stack
+                minWidth={{ lg: 'document' }}
+                maxWidth={{ lg: 'document' }}
+                padding="loose"
+                gap="relaxed"
+              >
+                <StepHeading
+                  title="New trigger"
+                  description="Choose what starts it. You can change the details on the next steps."
+                />
+                <RadioGroup value="" aria-label="Trigger kind">
+                  <Grid cols={3} gap="comfortable">
+                    {KINDS.map((k) => (
+                      <RadioCard
+                        key={k.id}
+                        value={k.id}
+                        selected={false}
+                        onSelect={choose}
+                        icon={k.icon}
+                        title={k.title}
+                        description={k.description}
+                      />
+                    ))}
+                  </Grid>
+                </RadioGroup>
+              </Stack>
+            </Stack>
+          </Wizard.Step>
+        )}
+
+        {inFlow && step === 0 && (
+          <Wizard.Step>
+            <StepHeading
+              title="Basics"
+              description={`Give the ${kind.title.toLowerCase()} trigger a name people will recognise.`}
+            />
+            <FormField label="Name" required>
+              <Input
+                value={name}
+                placeholder="Support inbox"
+                onChange={(e) => edit(() => setName(e.target.value))}
+              />
+            </FormField>
+            <FormField label="Description" hint="Optional. Shown in the trigger list.">
+              <Textarea
+                value={description}
+                placeholder="Starts the triage agent for each new support request."
+                onChange={(e) => edit(() => setDescription(e.target.value))}
+              />
+            </FormField>
+          </Wizard.Step>
+        )}
+
+        {inFlow && step === 1 && (
+          <Wizard.Step>
+            <StepHeading title="Delivery" description="Choose how events turn into runs." />
+            <Stack gap="snug">
+              <Text weight="heavy">Delivery mode</Text>
+              <SegmentedControl
+                aria-label="Delivery mode"
+                options={DELIVERY_OPTIONS}
+                value={delivery}
+                onChange={(v) => edit(() => setDelivery(v))}
+              />
+              <Text size="supporting" color="muted">
+                {delivery === 'each'
+                  ? 'Every event starts its own run right away.'
+                  : 'Events are collected and sent to one run every 5 minutes.'}
+              </Text>
+            </Stack>
+          </Wizard.Step>
+        )}
+
+        {inFlow && step === 2 && (
+          <Wizard.Step>
+            <StepHeading
+              title="Review"
+              description="Check the details. Use Edit to go back and change anything."
+            />
+            <Wizard.ReviewStep>
+              <Wizard.ReviewCard
+                icon={kind.icon}
+                title="Basics"
+                onEdit={() => setStep(0)}
+                rows={[
+                  { label: 'Kind', value: kind.title },
+                  { label: 'Name', value: name },
+                ]}
+              >
+                <Stack paddingBlock="snug">
+                  <Text size="caption" color={description ? 'foreground' : 'subtle'}>
+                    {description || 'No description'}
+                  </Text>
+                </Stack>
+              </Wizard.ReviewCard>
+              <Wizard.ReviewCard
+                icon="route"
+                title="Delivery"
+                onEdit={() => setStep(1)}
+                rows={[
+                  {
+                    label: 'Mode',
+                    value: delivery === 'each' ? 'One run per event' : 'Group events',
+                  },
+                  {
+                    label: 'Window',
+                    value: delivery === 'each' ? 'None' : '5 minutes',
+                  },
+                ]}
+              />
+              <Wizard.ReviewCard
+                icon="shield-check"
+                title="Access"
+                rows={[
+                  { label: 'Runs as', value: 'support-triage', mono: true },
+                  { label: 'Checked by', value: 'Agent permissions' },
+                ]}
+              />
+            </Wizard.ReviewStep>
+          </Wizard.Step>
+        )}
+
+        {phase === 'done' && (
+          <Wizard.Step fullPage>
+            <Stack grow align="center" justify="center" gap="relaxed" padding="loose">
+              <Icon
+                name="check-circle"
+                size="md"
+                container
+                containerVariant="accent"
+                color="accent"
+                label=""
+              />
+              <Stack gap="snug" align="center" textAlign="center">
+                <Heading variant="subsection">Trigger created</Heading>
+                <Text size="supporting" color="muted">
+                  {name} is live and will start runs as soon as events arrive.
+                </Text>
+              </Stack>
+              <Button onClick={() => setOpen(false)}>Done</Button>
+            </Stack>
+          </Wizard.Step>
+        )}
+      </Wizard>
+    </>
+  );
+}
+
+/**
+ * The whole flow with local state: pick a kind, fill in three steps, review, submit, and finish.
+ * Continue stays disabled until the name is filled, the delivery step shows a warning for one
+ * option, and the rail lets you jump back to any step you have reached.
+ */
+export const Overview: Story = {
+  render: () => <TriggerWizardDemo />,
+};
+
+type Demo = 'error-hint' | 'warning-hint' | 'actions' | 'full-page';
+
+const DEMO_TITLES: Record<Demo, string> = {
+  'error-hint': 'Error hint',
+  'warning-hint': 'Warning hint',
+  actions: 'Header actions',
+  'full-page': 'Full page step',
+};
+
+function MiniWizard({ demo, onClose }: { demo: Demo; onClose: () => void }) {
+  const fullPage = demo === 'full-page';
+  const hint =
+    demo === 'error-hint'
+      ? 'Add a name to continue.'
+      : demo === 'warning-hint'
+        ? 'A busy source can start many runs at once.'
+        : undefined;
+
+  return (
+    <Wizard
+      open
+      onClose={onClose}
+      icon="zap"
+      title={DEMO_TITLES[demo]}
+      subtitle="drf_8f21c0"
+      hintVariant={demo === 'warning-hint' ? 'warning' : 'error'}
+      {...(hint ? { hint } : {})}
+      {...(demo === 'actions'
+        ? {
+            actions: (
+              <Stack direction="horizontal" align="center" gap="snug" paddingInline="comfortable">
+                <Icon name="check-circle" size="xs" color="subtle" label="" />
+                <Text as="span" size="micro" color="subtle">
+                  Saved
+                </Text>
+              </Stack>
+            ),
+          }
+        : {})}
+      {...(fullPage
+        ? {}
+        : {
+            footer: (
+              <Wizard.Footer
+                step={0}
+                totalSteps={3}
+                onNext={onClose}
+                nextDisabled={demo === 'error-hint'}
+              />
+            ),
+          })}
+    >
+      <Wizard.Step fullPage={fullPage}>
+        <Stack grow align="center" justify="center" gap="relaxed">
+          <Text color="muted">
+            {fullPage
+              ? 'A full page step hides the rail and footer.'
+              : 'The banner sits above the step content.'}
           </Text>
-          <Text size="caption" mono color="muted" preserveWhitespace>
-            {'Run the nightly security scan.\nReport findings to the webhook.'}
-          </Text>
+          {fullPage && <Button onClick={onClose}>Done</Button>}
         </Stack>
-      </Wizard.ReviewCard>
-    </Wizard.ReviewStep>
-  ),
-};
+      </Wizard.Step>
+    </Wizard>
+  );
+}
 
-// ── Rail states ───────────────────────────────────────────────────────────────
+function RailDemo({
+  initial,
+  maxVisited,
+  footer,
+}: {
+  initial: number;
+  maxVisited: number;
+  footer?: React.ReactNode;
+}) {
+  const [current, setCurrent] = React.useState(initial);
+  return (
+    <Frame>
+      <Wizard.Rail
+        label="New trigger"
+        steps={STEPS}
+        current={current}
+        maxVisited={maxVisited}
+        onGoTo={setCurrent}
+        footer={footer}
+      />
+    </Frame>
+  );
+}
 
-export const RailStep0: Story = {
-  render: () => (
-    <Wizard.Rail
-      label="Create agent"
-      steps={STEPS}
-      current={0}
-      maxVisited={0}
-      onGoTo={() => undefined}
-      footer={<IdentityFirstInfo />}
-    />
-  ),
-};
+const noop = () => undefined;
 
-export const RailStep2: Story = {
-  render: () => (
-    <Wizard.Rail
-      label="Create agent"
-      steps={STEPS}
-      current={2}
-      maxVisited={2}
-      onGoTo={() => undefined}
-      footer={<IdentityFirstInfo />}
-    />
-  ),
-};
+function PartsDemo() {
+  const [demo, setDemo] = React.useState<Demo | null>(null);
+  const opener = (d: Demo) => (
+    <Button variant="secondary" onClick={() => setDemo(d)}>
+      Open {DEMO_TITLES[d].toLowerCase()} demo
+    </Button>
+  );
 
-export const RailAllComplete: Story = {
-  render: () => (
-    <Wizard.Rail
-      label="Create agent"
-      steps={STEPS}
-      current={STEPS.length}
-      maxVisited={STEPS.length - 1}
-      onGoTo={() => undefined}
-      footer={<IdentityFirstInfo />}
-    />
-  ),
-};
+  return (
+    <Stack gap="loose">
+      <OptionTable
+        title="Wizard.Rail"
+        note="The step list. It shows where you are, and lets you go back to steps you have reached."
+      >
+        <Option name="First step" use="Later steps are disabled until they are reached.">
+          <RailDemo initial={0} maxVisited={0} />
+        </Option>
+        <Option
+          name="Middle step"
+          use="Earlier steps show a check. Steps up to maxVisited can be clicked."
+        >
+          <RailDemo initial={1} maxVisited={2} />
+        </Option>
+        <Option name="All complete" use="Set current past the last step.">
+          <RailDemo initial={STEPS.length} maxVisited={2} />
+        </Option>
+        <Option name="footer" use="An info card pinned to the bottom of the rail.">
+          <RailDemo initial={0} maxVisited={1} footer={<RailNote />} />
+        </Option>
+      </OptionTable>
 
-// ── Rail footer variants ──────────────────────────────────────────────────────
+      <OptionTable
+        title="Wizard.Footer"
+        note="Back, step count, and the main action. Handlers are empty here."
+      >
+        <Option name="First step" use="Leave out onBack and the Back button is hidden.">
+          <Frame>
+            <Wizard.Footer step={0} totalSteps={3} onNext={noop} />
+          </Frame>
+        </Option>
+        <Option name="Middle of the flow" use="Back and Continue.">
+          <Frame>
+            <Wizard.Footer step={1} totalSteps={3} onBack={noop} onNext={noop} />
+          </Frame>
+        </Option>
+        <Option name="Last step" use="Pass onSubmit to swap Continue for the submit action.">
+          <Frame>
+            <Wizard.Footer
+              step={2}
+              totalSteps={3}
+              onBack={noop}
+              onNext={noop}
+              onSubmit={noop}
+              submitLabel="Create trigger"
+            />
+          </Frame>
+        </Option>
+        <Option name="pending" use="Disables both buttons and shows pendingLabel while saving.">
+          <Frame>
+            <Wizard.Footer
+              step={2}
+              totalSteps={3}
+              onBack={noop}
+              onNext={noop}
+              onSubmit={noop}
+              submitLabel="Create trigger"
+              pending
+              pendingLabel="Creating…"
+            />
+          </Frame>
+        </Option>
+        <Option name="backLabel" use="Rename the Back button.">
+          <Frame>
+            <Wizard.Footer
+              step={1}
+              totalSteps={3}
+              onBack={noop}
+              backLabel="Previous"
+              onNext={noop}
+            />
+          </Frame>
+        </Option>
+      </OptionTable>
 
-export const RailFooterPolicyChecked: Story = {
-  render: () => (
-    <Wizard.Rail
-      label="New trigger"
-      steps={STEPS.slice(0, 3)}
-      current={0}
-      maxVisited={0}
-      onGoTo={() => undefined}
-      footer={<PolicyCheckedInfo />}
-    />
-  ),
-};
+      <OptionTable
+        title="Wizard.ReviewCard"
+        note="A summary of one step, used on the review step inside Wizard.ReviewStep."
+      >
+        <Option name="rows" use="Label and value pairs. Set mono for ids and code.">
+          <Wizard.ReviewCard
+            icon="webhook"
+            title="Basics"
+            rows={[
+              { label: 'Kind', value: 'Webhook' },
+              { label: 'Name', value: 'Support inbox' },
+              { label: 'Runs as', value: 'support-triage', mono: true },
+            ]}
+          />
+        </Option>
+        <Option name="onEdit" use="Adds an Edit button that takes the reader back to that step.">
+          <Wizard.ReviewCard
+            icon="route"
+            title="Delivery"
+            onEdit={noop}
+            rows={[
+              { label: 'Mode', value: 'Group events' },
+              { label: 'Window', value: '5 minutes' },
+            ]}
+          />
+        </Option>
+        <Option name="children" use="Block content under the rows, like a long description.">
+          <Wizard.ReviewCard
+            icon="file-text"
+            title="Description"
+            onEdit={noop}
+            rows={[{ label: 'Length', value: '61 characters' }]}
+          >
+            <Stack paddingBlock="snug">
+              <Text size="caption">Starts the triage agent for each new support request.</Text>
+            </Stack>
+          </Wizard.ReviewCard>
+        </Option>
+      </OptionTable>
 
-export const RailFooterIdentityFirst: Story = {
-  render: () => (
-    <Wizard.Rail
-      label="Create agent"
-      steps={STEPS.slice(0, 3)}
-      current={0}
-      maxVisited={0}
-      onGoTo={() => undefined}
-      footer={<IdentityFirstInfo />}
-    />
-  ),
+      <OptionTable
+        title="Only inside an open wizard"
+        note="These need the full-screen modal. Each button opens a small wizard that shows just that part."
+      >
+        <Option
+          name="hint"
+          use="Red banner when the step is invalid. Pair it with nextDisabled on the footer."
+        >
+          {opener('error-hint')}
+        </Option>
+        <Option
+          name='hintVariant="warning"'
+          use="Amber banner when the step is valid but worth a second look."
+        >
+          {opener('warning-hint')}
+        </Option>
+        <Option name="actions" use="Controls in the header, like a save status.">
+          {opener('actions')}
+        </Option>
+        <Option
+          name="Wizard.Step fullPage"
+          use="Fills the modal with no rail or footer. Use it before and after the flow."
+        >
+          {opener('full-page')}
+        </Option>
+      </OptionTable>
+
+      {demo && <MiniWizard demo={demo} onClose={() => setDemo(null)} />}
+    </Stack>
+  );
+}
+
+/**
+ * The pieces that render on their own, shown inline, plus small demos for the parts that only
+ * work inside an open wizard.
+ */
+export const Parts: Story = {
+  render: () => <PartsDemo />,
 };

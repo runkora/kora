@@ -76,7 +76,7 @@ const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
         {/* With an icon, the radio shares the icon's row. Without one, it sits on the title's row so there is no empty strip above the title. */}
         <Stack
           direction={icon ? 'vertical' : 'horizontal'}
-          align={icon ? undefined : 'start'}
+          {...(icon ? {} : { align: 'start' as const })}
           gap="snug"
           data-slot="radio-card"
           disabled={Boolean(disabled)}

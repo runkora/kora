@@ -43,7 +43,7 @@ function CopyHint({
           <Icon name="copy" size="sm" />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side={side} align={align}>
+      <TooltipContent {...(side ? { side } : {})} {...(align ? { align } : {})}>
         {label}
       </TooltipContent>
     </Tooltip>

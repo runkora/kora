@@ -75,7 +75,7 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
                   size="supporting"
                   weight="heavy"
                   color="muted"
-                  className={isActive ? 'text-accent-foreground' : undefined}
+                  {...(isActive ? { className: 'text-accent-foreground' } : {})}
                 >
                   {section.title}
                 </Text>
@@ -84,7 +84,7 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
                     as="span"
                     size="micro"
                     color="subtle"
-                    className={isActive ? 'text-accent-foreground' : undefined}
+                    {...(isActive ? { className: 'text-accent-foreground' } : {})}
                   >
                     {section.sub}
                   </Text>

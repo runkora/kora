@@ -1258,7 +1258,7 @@ function DataTablePagination({
       <span className="grow" />
       <span className="text-xs whitespace-nowrap text-subtle">Rows per page</span>
       <NativeSelect
-        className="h-8 w-auto min-w-0 px-2 py-0 text-xs"
+        className="h-8 w-auto min-w-0 pl-2 py-0 text-xs"
         aria-label={`${noun} per page`}
         value={String(pageSize)}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}

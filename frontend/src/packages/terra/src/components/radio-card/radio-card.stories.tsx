@@ -57,7 +57,7 @@ function Single({
   start: boolean;
   title: string;
   description?: string;
-  icon?: React.ComponentProps<typeof RadioCard>['icon'];
+  icon?: NonNullable<React.ComponentProps<typeof RadioCard>['icon']>;
   disabled?: boolean;
 }) {
   const [value, setValue] = React.useState(start ? 'a' : '');

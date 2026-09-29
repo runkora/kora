@@ -111,7 +111,12 @@ function OpenButton({
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
         {label}
       </Button>
-      <SidePanel open={open} onClose={() => setOpen(false)} size={size} width={width}>
+      <SidePanel
+        open={open}
+        onClose={() => setOpen(false)}
+        {...(size ? { size } : {})}
+        {...(width ? { width } : {})}
+      >
         {children(() => setOpen(false))}
       </SidePanel>
     </>

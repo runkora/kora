@@ -156,8 +156,8 @@ function OpenButton({
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        size={size}
-        dismissOnOutsideClick={dismissOnOutsideClick}
+        {...(size ? { size } : {})}
+        {...(dismissOnOutsideClick === undefined ? {} : { dismissOnOutsideClick })}
       >
         {children(() => setOpen(false))}
       </Modal>

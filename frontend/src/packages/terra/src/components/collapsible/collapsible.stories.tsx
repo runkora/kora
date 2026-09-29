@@ -24,7 +24,7 @@ type Story = StoryObj<typeof Collapsible>;
 
 function ToolList({ name, tools, open }: { name: string; tools: string[]; open?: boolean }) {
   return (
-    <Collapsible defaultOpen={open}>
+    <Collapsible {...(open === undefined ? {} : { defaultOpen: open })}>
       <Stack gap="snug" align="start">
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="sm">
