@@ -589,7 +589,7 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	// (e.g. inference gateway returning 5xx after exhausted retries).
 	// textBlockEmitted=true means text was already flushed before tool calls,
 	// so the turn has content even if textBuf is now empty.
-	if textLen == 0 && !r.textBlockEmitted && !r.textBuf.wasTaken() && w.StopReason != "end_turn" {
+	if !r.turnHadText() && w.StopReason != "end_turn" {
 		if r.interrupted.Load() {
 			return // SIGINT caused the empty turn — runner will restart via --resume
 		}
@@ -614,6 +614,12 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	r.thinkingBuf.Reset()
 	r.textBlockEmitted = false
 	r.emit(EventTypeMessageStop, nil)
+}
+
+// turnHadText reports whether the turn wrote anything: text still buffered,
+// text recorded before a tool call, or text taken by a mid-turn message.
+func (r *ClaudeRunner) turnHadText() bool {
+	return r.textBuf.Len() > 0 || r.textBlockEmitted || r.textBuf.wasTaken()
 }
 
 // endTurnWithError records a failed turn. The subprocess keeps reading input
