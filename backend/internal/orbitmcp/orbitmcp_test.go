@@ -511,7 +511,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 	wantRequires := map[string]string{
 		// orbit-agents  /api/v1/agent-types  → agents:types:{read,write}
 		"agents.list": "agents:types:read", "agents.get": "agents:types:read",
-		"agents.tool_scopes": "agents:types:read", "agents.create": "agents:types:write",
+		"agents.create": "agents:types:write",
 		"agents.update": "agents:types:write", "agents.delete": "agents:types:write",
 		"agents.connectors": "platform:connections:read",
 		// orbit-agents  /api/v1/environments  → agents:environments:{read,write}

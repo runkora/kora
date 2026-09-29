@@ -92,13 +92,12 @@ func PodURL(slug string, ordinal int, namespace string) string {
 // (the dependency direction would be backwards) and a shared type in internal/platform/ would
 // pull session-manager domain concepts into the platform layer.
 type CreateSessionRequest struct {
-	RunID        string   `json:"run_id"`
-	AgentTypeID  string   `json:"agent_type_id"`
-	TenantID     string   `json:"tenant_id"`
-	Framework    string   `json:"framework,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	AllowedTools []string `json:"allowed_tools,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
+	RunID        string `json:"run_id"`
+	AgentTypeID  string `json:"agent_type_id"`
+	TenantID     string `json:"tenant_id"`
+	Framework    string `json:"framework,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; the
 	// runner provisions one governed endpoint (/v1/mcp/<server>) per entry.
 	MCPServers []string `json:"mcp_servers,omitempty"`

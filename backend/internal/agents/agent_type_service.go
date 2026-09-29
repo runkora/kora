@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -269,11 +268,6 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		return nil, err
 	}
 
-	toolScopes := req.ToolScopes
-	if !slices.Contains(toolScopes, "mcp") {
-		toolScopes = append(toolScopes, "mcp")
-	}
-
 	// grant_scopes is NOT NULL in the database; default a missing slice to an
 	// empty one so a request that omits the field still creates cleanly.
 	grantScopes := req.GrantScopes
@@ -303,7 +297,6 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		SystemPrompt:            req.SystemPrompt,
 		Framework:               framework,
 		IdentityMode:            validated.identityMode,
-		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
 		Connectivity:            validated.connectivity,
 		Connectors:              req.Connectors,
@@ -602,9 +595,6 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.ModelID != nil {
 		at.ModelID = req.ModelID
-	}
-	if req.ToolScopes != nil {
-		at.ToolScopes = req.ToolScopes
 	}
 	if req.GrantScopes != nil {
 		at.GrantScopes = req.GrantScopes

@@ -311,7 +311,6 @@ export const ApiRoute = {
       `${API_BASE}/agents/types/${id}`,
     delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
       `${API_BASE}/agents/types/${id}`,
-    toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
     connectors: (): `${typeof API_BASE}/agents/connectors` => `${API_BASE}/agents/connectors`,
     mcpTools: (): `${typeof API_BASE}/agents/mcp-tools` => `${API_BASE}/agents/mcp-tools`,
     effectiveAccess: (id: string): `${typeof API_BASE}/agents/types/${string}/effective-access` =>

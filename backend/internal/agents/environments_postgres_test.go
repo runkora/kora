@@ -69,7 +69,6 @@ func TestPostgres_ListAgentTypesByEnvironment(t *testing.T) {
 		Slug:                    "builder-" + uuid.NewString()[:8],
 		SystemPrompt:            "build things",
 		Framework:               AgentFrameworkClaudeCode,
-		ToolScopes:              []string{"tool:bash"},
 		GrantScopes:             []string{"inference:invoke"},
 		MaxConcurrentRunsPerPod: 1,
 		State:                   AgentTypeStateActive,

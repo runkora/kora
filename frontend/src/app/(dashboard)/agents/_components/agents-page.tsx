@@ -374,14 +374,11 @@ export function AgentsPage() {
                     {agent.description || 'No description.'}
                   </Text>
 
-                  {/* Meta row: framework badge + tool count. The identity model
+                  {/* Meta row: framework badge. The identity model
                       sits in the header next to status, where posture signals live. */}
                   <Stack direction="horizontal" gap="tight" wrap>
                     <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
                       {agent.framework}
-                    </Badge>
-                    <Badge variant="secondary" size="sm">
-                      {agent.toolScopes.length} tools
                     </Badge>
                   </Stack>
 

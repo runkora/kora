@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,73 +44,6 @@ func drainN(t *testing.T, ch <-chan Event, n int) []Event {
 		evs = append(evs, ev)
 	}
 	return evs
-}
-
-// ── scopesToClaudeTools ───────────────────────────────────────────────────────
-
-// autoTools are always injected regardless of configured scopes.
-var autoTools = map[string]bool{
-	"LSP": true, "Monitor": true,
-	"CronCreate": true, "CronDelete": true, "CronList": true,
-	"ToolSearch": true, "Skill": true,
-}
-
-func TestScopesToClaudeTools_Empty(t *testing.T) {
-	got := scopesToClaudeTools(nil)
-	// Auto-scopes are always injected; empty selectable scopes still produce output.
-	if got == "default" {
-		t.Errorf("empty scopes = %q, want auto-scope tools (not default)", got)
-	}
-	for tool := range autoTools {
-		if !strings.Contains(got, tool) {
-			t.Errorf("auto tool %q missing from result %q", tool, got)
-		}
-	}
-}
-
-func TestScopesToClaudeTools_KnownScopes(t *testing.T) {
-	got := scopesToClaudeTools([]string{"shell", "filesystem"})
-	tools := strings.Split(got, ",")
-	// Expect selectable tools plus all auto tools.
-	wantTools := map[string]bool{
-		"Bash": true, "Read": true, "Write": true, "Edit": true,
-		"Glob": true, "Grep": true,
-	}
-	maps.Copy(wantTools, autoTools)
-	for _, tool := range tools {
-		if !wantTools[tool] {
-			t.Errorf("unexpected tool %q in result %q", tool, got)
-		}
-		delete(wantTools, tool)
-	}
-	for tool := range wantTools {
-		t.Errorf("missing expected tool %q in result %q", tool, got)
-	}
-}
-
-func TestScopesToClaudeTools_UnknownScopesIgnored(t *testing.T) {
-	got := scopesToClaudeTools([]string{"unknown-scope"})
-	// Unknown selectable scopes produce no extra tools; auto tools still present.
-	if got == "default" {
-		t.Errorf("unknown scope = %q, want auto-scope tools (not default)", got)
-	}
-	for tool := range autoTools {
-		if !strings.Contains(got, tool) {
-			t.Errorf("auto tool %q missing from result %q", tool, got)
-		}
-	}
-}
-
-func TestScopesToClaudeTools_NoDuplicates(t *testing.T) {
-	got := scopesToClaudeTools([]string{"shell", "shell"})
-	tools := strings.Split(got, ",")
-	seen := map[string]int{}
-	for _, tool := range tools {
-		seen[tool]++
-		if seen[tool] > 1 {
-			t.Errorf("duplicate tool %q in result %q", tool, got)
-		}
-	}
 }
 
 // ── handleStreamEvent ─────────────────────────────────────────────────────────

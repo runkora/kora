@@ -13,7 +13,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -30,10 +29,6 @@ type ClaudeRunnerConfig struct {
 
 	// Model is the agent type's model, passed as --model (e.g. "anthropic/claude-sonnet-5").
 	Model string
-
-	// AllowedTools is the set of Claude Code tool names the agent may use
-	// (e.g. ["Bash", "Edit", "Read"]). Derived from the agent type's tool_scopes.
-	AllowedTools []string
 
 	// SystemPrompt is appended to Claude's default system prompt via
 	// --append-system-prompt. Empty means no additional prompt is injected.
@@ -79,7 +74,8 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       [--resume ID] [--bare] [--model M] [--tools T,...]
+//	       [--resume ID] [--bare] [--model M]
+//	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
@@ -132,7 +128,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 	if r.cfg.Model != "" {
 		args = append(args, "--model", r.cfg.Model)
 	}
-	args = append(args, "--tools", scopesToClaudeTools(r.cfg.AllowedTools))
+	args = append(args, "--disallowedTools", strings.Join(claudeExcludedTools, ","))
 	if r.cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", r.cfg.SystemPrompt)
 	}
@@ -246,7 +242,6 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		logging.Field{Key: "pid", Value: r.cmd.Process.Pid},
 		logging.Field{Key: "model", Value: r.cfg.Model},
 		logging.Field{Key: "bare", Value: r.cfg.Bare},
-		logging.Field{Key: "tool_count", Value: len(r.cfg.AllowedTools)},
 	)
 
 	go r.logStderr(ctx, stderr)
@@ -699,15 +694,14 @@ func isExitKilled(err error) bool {
 		strings.Contains(s, "context canceled")
 }
 
-// scopesToClaudeTools converts Orbit tool scope names to the Claude Code --tools
-// flag value. The scope→tool mapping (and the always-on auto scopes) live in the
-// shared toolscopes package so this and the agents API stay in lockstep.
-func scopesToClaudeTools(scopes []string) string {
-	tools := toolscopes.ClaudeTools(scopes)
-	if len(tools) == 0 {
-		return "default"
-	}
-	return strings.Join(tools, ",")
+// claudeExcludedTools are the Claude Code built-ins that cannot work headless or would reach the network outside the sandbox.
+// Every agent gets all other built-in tools; this list is platform policy, not agent configuration.
+var claudeExcludedTools = []string{
+	"WebSearch",        // Anthropic server-side tool, not served through the inference gateway.
+	"WebFetch",         // fetches from the session-manager container, outside the sandbox's egress policy.
+	"AskUserQuestion",  // auto-rejected in headless stream-json mode: nobody can answer it.
+	"PushNotification", // calls Anthropic's hosted service from the session-manager container, outside the egress policy.
+	"DesignSync",       // calls Claude Design from the session-manager container, outside the egress policy.
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────

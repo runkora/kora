@@ -60,7 +60,6 @@ type CreateAgentTypeRequest struct {
 	// IdentityMode selects the agent's identity model: autonomous (default) or
 	// delegated. Immutable after creation — see docs/adr/2026-07-23-delegated-agent-identity.md.
 	IdentityMode IdentityMode  `json:"identity_mode"`
-	ToolScopes   []string      `json:"tool_scopes"`
 	GrantScopes  []string      `json:"grant_scopes"`
 	Connectivity *Connectivity `json:"connectivity"`
 	Connectors   []Connector   `json:"connectors"`
@@ -83,7 +82,6 @@ type UpdateAgentTypeRequest struct {
 	Framework               *AgentFramework `json:"framework"`
 	MaxConcurrentRunsPerPod *int            `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string         `json:"model_id"`
-	ToolScopes              []string        `json:"tool_scopes"`
 	GrantScopes             []string        `json:"grant_scopes"`
 	// Budget updates the agent's grant budget. nil = unchanged; both limits
 	// zero = remove the budget.

@@ -15,7 +15,7 @@ A second threat was confirmed by agent self-test: all runs share the same Linux 
 
 - The sibling run's workspace UUID (embedded in the `--mcp-config` path)
 - The sibling run's `--model` selection
-- The sibling run's `--tools` grant list
+- The sibling run's `--tools` grant list (since removed: [agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1)
 - The sibling run's `--append-system-prompt` content **verbatim**
 
 This means any run can:
