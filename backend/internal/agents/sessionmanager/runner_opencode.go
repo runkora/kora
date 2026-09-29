@@ -113,6 +113,7 @@ type OpenCodeRunner struct {
 	pendingPrompts map[int64]bool             // in-flight session/prompt requests; a message sent mid-turn adds a second
 	nextID         atomic.Int64
 	toolCalls      map[string]*openCodeToolCall // tool calls seen this session, by toolCallId
+	turnActive     bool                         // something was emitted since the last message_stop
 	replaying      atomic.Bool                  // true while session/load replay is in progress; suppresses ephemeral events so the channel does not fill before drain() starts
 }
 
@@ -600,6 +601,11 @@ func (r *OpenCodeRunner) endTurn(resp openCodeMsg) {
 	if resp.Result != nil {
 		_ = json.Unmarshal(resp.Result, &result)
 	}
+	// A message sent mid-turn is read by the running prompt, and its own prompt
+	// then answers with nothing left to do; that answer ends no turn.
+	if !r.turnActive && r.textBuf.Len() == 0 && r.thinkingBuf.Len() == 0 && resp.Error == nil {
+		return
+	}
 	switch {
 	case resp.Error != nil:
 		r.flushPartial()
@@ -793,6 +799,7 @@ func (r *OpenCodeRunner) emit(t EventType, payload any) {
 	if r.replaying.Load() {
 		return
 	}
+	r.turnActive = t != EventTypeMessageStop
 	if payload == nil {
 		r.events <- Event{Type: t}
 		return

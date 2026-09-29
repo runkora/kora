@@ -414,3 +414,22 @@ func TestRunnerParity_TextBeforeACallIsKeptInOrder(t *testing.T) {
 		}
 	}
 }
+
+// OpenCode reads a message sent mid-turn inside the running prompt; the second
+// prompt then answers with nothing done, which must not open and close a turn.
+func TestOpenCode_SecondPromptAnsweringEmptyEndsNoTurn(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.handleSessionUpdate(context.Background(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "DONE-EARLY"},
+	}))
+	for _, id := range []int64{1, 2} {
+		r.pendingPrompts[id] = true
+	}
+	for _, id := range []int64{1, 2} {
+		r.dispatchResponse(context.Background(), openCodeMsg{ID: &id, Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+	}
+	want := []EventType{EventTypeTextDelta, EventTypeMessageComplete, EventTypeMessageStop}
+	if got := eventTypes(drainAvailable(r.events)); !slices.Equal(got, want) {
+		t.Errorf("events = %v, want %v", got, want)
+	}
+}
