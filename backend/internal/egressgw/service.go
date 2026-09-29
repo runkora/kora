@@ -131,7 +131,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrForbidden.Error())
-		return Decision{}, err
+		return Decision{}, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err)
 	}
 	span.SetAttributes(
 		attribute.String("orbit.action", cls.Action),
@@ -143,7 +143,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	// sidecar, which the agent cannot bypass.
 	action, also := cls.Action, []string(nil)
 	if registered {
-		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, tenantID)
+		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, req, tenantID)
 		if perr != nil {
 			span.SetAttributes(attribute.Bool("orbit.allowed", false))
 			span.RecordError(perr)
@@ -181,7 +181,8 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "tenant_id", Value: tenantID},
 			)
-			return Decision{}, fmt.Errorf("%w: %w", ErrForbidden, err)
+			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
+			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
 		}
 		return Decision{}, fmt.Errorf("mint credential: %w", err)
 	}
@@ -215,9 +216,10 @@ func (b *Broker) classify(ctx context.Context, connector credentials.Connector, 
 			logging.Field{Key: "connection", Value: conn.Name},
 			logging.Field{Key: "host", Value: req.Host},
 			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "path", Value: requestPath(req)},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return credentials.Classification{}, fmt.Errorf("%w: %w", ErrForbidden, err)
+		return credentials.Classification{}, err
 	}
 
 	return cls, nil
@@ -234,7 +236,7 @@ func (b *Broker) classify(ctx context.Context, connector credentials.Connector, 
 // The call is denied only when the grant covers none of them. An evaluator
 // error on the classified action fails closed; one on an alternate drops that
 // alternate.
-func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, tenantID string) ([]string, error) {
+func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest, tenantID string) ([]string, error) {
 	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
 		b.logger.Error(ctx, "policy evaluation failed",
@@ -243,10 +245,11 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, fmt.Errorf("%w: %w", ErrForbidden, err)
+		return nil, deny(DenialPolicyUnavailable, req.Host, conn, cls, err)
 	}
 
 	var authorized []string
+	reasons := []string{primary.Reason}
 	if primary.Allow {
 		authorized = append(authorized, cls.Action)
 	}
@@ -266,17 +269,24 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		if decision.Allow {
 			authorized = append(authorized, alt)
 		}
+		reasons = append(reasons, decision.Reason)
 	}
 
 	if len(authorized) == 0 {
 		b.logger.Info(ctx, "egress denied by policy",
 			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "path", Value: requestPath(req)},
 			logging.Field{Key: "action", Value: cls.Action},
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "tenant_id", Value: tenantID},
 			logging.Field{Key: "reason", Value: primary.Reason},
 		)
-		return nil, ErrForbidden
+		reason, label := policyDenialReason(reasons)
+		d := deny(reason, req.Host, conn, cls, nil)
+		d.PolicyReason = label
+		return nil, d
 	}
 	return authorized, nil
 }
@@ -284,20 +294,75 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 // checkAction asks the policy service whether the caller's grant covers one
 // action on this connection and qualifier.
 func (b *Broker) checkAction(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, action, qualifier string) (policy.Result, error) {
-	category, verb := splitActionFragment(action)
-	segments := []string{conn.Name}
-	if category != "" {
-		segments = append(segments, category)
-	}
-	if qualifier != "" {
-		segments = append(segments, qualifier)
-	}
+	segments, verb := scopePath(conn, action, qualifier)
 	return b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
 		ResourceType: resourceType,
 		PathSegments: segments,
 		Action:       verb,
 	})
+}
+
+// scopePath returns the policy path segments and verb for one action on a
+// connection: connection:<name>:<category>[:<qualifier>]:<verb>.
+func scopePath(conn *credentials.Connection, action, qualifier string) (segments []string, verb string) {
+	category, verb := splitActionFragment(action)
+	segments = []string{conn.Name}
+	if category != "" {
+		segments = append(segments, category)
+	}
+	if qualifier != "" {
+		segments = append(segments, qualifier)
+	}
+	return segments, verb
+}
+
+// requestPath is the request path for deny logs. The query string and headers
+// are left out: either can carry tokens.
+func requestPath(req EgressRequest) string {
+	if req.URL == nil {
+		return ""
+	}
+	return req.URL.Path
+}
+
+// noMatchingGrant is the policy bundle's default deny label: no grant covers the call.
+const noMatchingGrant = "deny:no_matching_grant"
+
+// grantNotAppliedLabels are the bundle's labels for a grant that is held but did
+// not apply to this call, where granting again would not help.
+var grantNotAppliedLabels = map[string]bool{
+	"deny:delegation_required": true,
+	"deny:no_delegation_scope": true,
+	"deny:no_delegator_grant":  true,
+	"deny:no_agent_grant":      true,
+}
+
+// policyDenialReason picks the denial reason from the primary and alternate
+// decisions. A held grant that did not apply wins, since only it explains the
+// call; a missing grant comes next; anything else is an operational failure.
+func policyDenialReason(reasons []string) (DenialReason, string) {
+	for _, r := range reasons {
+		if grantNotAppliedLabels[r] {
+			return DenialGrantNotApplied, r
+		}
+	}
+	for _, r := range reasons {
+		if r == "" || r == noMatchingGrant {
+			return DenialNotGranted, ""
+		}
+	}
+	return DenialPolicyUnavailable, ""
+}
+
+// deny builds the caller-facing Denial for a refused call.
+func deny(reason DenialReason, host string, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
+	d := &Denial{Reason: reason, Host: host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier, cause: cause}
+	if reason == DenialNotGranted {
+		segments, verb := scopePath(conn, cls.Action, cls.Qualifier)
+		d.RequiredScope = policy.DeriveRequiredScope(resourceType, segments, verb)
+	}
+	return d
 }
 
 // splitActionFragment splits an adapter action fragment ("issues:write") at its
