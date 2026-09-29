@@ -33,6 +33,11 @@ func stripMantleUnsupportedInputItems(params responses.ResponseNewParams) respon
 			if emptyReasoning {
 				continue
 			}
+			// Codex omits item ids when store is false. The SDK marks the reasoning id required
+			// and would send "id":"", which Mantle rejects as a duplicate once two items share it.
+			if r.ID == "" {
+				r.SetExtraFields(map[string]any{"id": param.Omit})
+			}
 		}
 		// All type="message" items deserialize as OfMessage (first discriminator).
 		// Mantle rejects messages with no content, so patch empty ones to use an
