@@ -5,6 +5,7 @@ import {
   deriveFieldKey,
   initialState,
   matchConditionFrom,
+  matchContainsFrom,
   admissionSummary,
   parallelWord,
   previewBody,
@@ -254,6 +255,18 @@ describe('matchConditionFrom', () => {
     expect(matchConditionFrom([{ field: '', values: '' }])).toBeUndefined();
   });
 
+  it('leaves contains rows out of the exact condition', () => {
+    expect(
+      matchConditionFrom([{ field: 'comment.body', operator: 'contains', values: '@kora' }]),
+    ).toBeUndefined();
+    expect(
+      matchContainsFrom([
+        { field: 'action', values: 'created' },
+        { field: 'comment.body', operator: 'contains', values: '@kora | @Kora-Agent' },
+      ]),
+    ).toEqual({ 'comment.body': ['@kora', '@Kora-Agent'] });
+  });
+
   it('ignores a half-written row rather than sending a broken clause', () => {
     expect(matchConditionFrom([{ field: 'action', values: '' }])).toBeUndefined();
     expect(matchConditionFrom([{ field: '', values: 'opened' }])).toBeUndefined();
@@ -296,6 +309,15 @@ describe('describeMatchCondition', () => {
 
   it('is null when there is nothing to say', () => {
     expect(describeMatchCondition([])).toBeNull();
+  });
+
+  it('spells out contains rows', () => {
+    expect(
+      describeMatchCondition([
+        { field: 'action', values: 'created' },
+        { field: 'comment.body', operator: 'contains', values: '@kora-agent' },
+      ]),
+    ).toBe('action=created · comment.body contains @kora-agent');
   });
 });
 

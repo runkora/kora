@@ -7,8 +7,17 @@ describe('filtersFromMatchCondition', () => {
     expect(
       filtersFromMatchCondition({ action: ['opened', 'synchronize'], 'pr.base_ref': ['main'] }),
     ).toEqual([
-      { field: 'action', values: 'opened | synchronize' },
-      { field: 'pr.base_ref', values: 'main' },
+      { field: 'action', operator: 'is', values: 'opened | synchronize' },
+      { field: 'pr.base_ref', operator: 'is', values: 'main' },
+    ]);
+  });
+
+  it('turns stored contains filters into contains rows after the exact ones', () => {
+    expect(
+      filtersFromMatchCondition({ action: ['created'] }, { 'comment.body': ['@kora-agent'] }),
+    ).toEqual([
+      { field: 'action', operator: 'is', values: 'created' },
+      { field: 'comment.body', operator: 'contains', values: '@kora-agent' },
     ]);
   });
 
@@ -78,5 +87,20 @@ describe('sameFilters', () => {
       ),
     ).toBe(false);
     expect(sameFilters([], [{ field: 'action', values: 'opened' }])).toBe(false);
+  });
+
+  it('treats a missing operator as is', () => {
+    expect(
+      sameFilters([{ field: 'a', values: 'x' }], [{ field: 'a', operator: 'is', values: 'x' }]),
+    ).toBe(true);
+  });
+
+  it('tells is and contains apart', () => {
+    expect(
+      sameFilters(
+        [{ field: 'a', operator: 'is', values: 'x' }],
+        [{ field: 'a', operator: 'contains', values: 'x' }],
+      ),
+    ).toBe(false);
   });
 });

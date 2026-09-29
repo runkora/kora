@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { TemplateField } from './template-field';
+import { TemplateCatalogList } from './template-catalog-list';
 import type { TemplateCatalogEntry } from './template-model';
 import { CodeBlock } from '../code-block';
 import { Label } from '../label';
@@ -243,4 +244,30 @@ export const TallerEditor: Story = {
       minRows={8}
     />
   ),
+};
+
+/** Shows the token `onSelect` receives. */
+function CatalogListDemo() {
+  const [chosen, setChosen] = React.useState('');
+  return (
+    <div className="flex flex-col gap-2">
+      <TemplateCatalogList
+        catalog={LONG_CATALOG}
+        onSelect={(token) => setChosen(token)}
+        searchPlaceholder="Search events…"
+        selectablePatterns
+        autoFocusSearch={false}
+      />
+      <CodeBlock text={chosen || 'Nothing chosen yet'} />
+    </div>
+  );
+}
+
+/**
+ * The picker on its own, as a standalone field or event chooser. With
+ * `selectablePatterns` the pattern families can be chosen; the caller asks for
+ * the `<name>` that completes them.
+ */
+export const CatalogListWithSelectablePatterns: Story = {
+  render: () => <CatalogListDemo />,
 };

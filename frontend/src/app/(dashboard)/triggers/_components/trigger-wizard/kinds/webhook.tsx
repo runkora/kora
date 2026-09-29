@@ -4,7 +4,6 @@
  * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
 
 import {
-  Button,
   FormField,
   Grid,
   Icon,
@@ -21,13 +20,19 @@ import { CopyButton } from '@orbit/components';
 import {
   describeMatchCondition,
   matchConditionFrom,
+  matchContainsFrom,
+  senderRestrictionFrom,
+  splitLogins,
   validateFilters,
   validateNamedPromptStep,
 } from '../wizard-state';
 import { PromptField, TriggerNameField } from '../shared-fields';
-import { catalogPatterns, webhookCatalog, toTemplateCatalog } from '../field-catalog';
+import { eventTypeCatalog, schemaCatalog } from '../field-catalog';
+import { CatalogPicker } from '../../catalog-picker';
+import { DataBlockPreview } from '../../data-block-preview';
 import { FilterRowsEditor } from '../../filter-rows-editor';
-import { PROVIDER_EVENTS } from '../../../_types';
+import { SenderRestrictionEditor } from '../../sender-restriction-editor';
+import { useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
 import { NEW_SOURCE } from '../types';
 import type {
@@ -36,6 +41,9 @@ import type {
   TriggerKindDefinition,
   WizardState,
 } from '../types';
+
+// A new source or provider has its own events, fields and senders.
+const RESET_EVENT = { eventType: '', filters: [], senders: { logins: '', associations: [] } };
 
 /** Providers with a signature adapter in the backend. Nothing else verifies. */
 const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
@@ -53,13 +61,20 @@ const PROVIDERS: { id: string; name: string; description: string; icon: IconName
   },
 ];
 
+/** The provider whose schema the step reads: the chosen source's, or the new source's. */
+function catalogProvider(state: WizardState, sources: { id: string; provider: string }[]) {
+  if (state.sourceChoice === NEW_SOURCE) return state.newSourceProvider;
+  return sources.find((s) => s.id === state.sourceChoice)?.provider ?? '';
+}
+
 function StepSource({ state, patch, context }: StepComponentProps) {
   const { sources, ingestHost } = context;
-  const selected = sources.find((s) => s.id === state.sourceChoice);
-  const provider =
-    state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (selected?.provider ?? '');
-  const events = PROVIDER_EVENTS[provider] ?? [];
-  const catalog = webhookCatalog(provider, state.eventType);
+  const catalog = useSourceCatalog(
+    catalogProvider(state, sources),
+    state.sourceChoice === NEW_SOURCE ? '' : state.sourceChoice,
+    state.eventType,
+  );
+  const fields = schemaCatalog(catalog.fields);
 
   return (
     <Stack gap="relaxed">
@@ -80,7 +95,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         </Stack>
         <RadioGroup
           value={state.sourceChoice}
-          onValueChange={(v) => patch({ sourceChoice: v })}
+          onValueChange={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
           aria-label="Webhook source"
         >
           <Grid cols={2} gap="cozy">
@@ -89,7 +104,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                 key={s.id}
                 value={s.id}
                 selected={state.sourceChoice === s.id}
-                onSelect={(v) => patch({ sourceChoice: v })}
+                onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
                 icon="webhook"
                 title={s.name}
                 description={s.provider}
@@ -98,7 +113,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
             <RadioCard
               value={NEW_SOURCE}
               selected={state.sourceChoice === NEW_SOURCE}
-              onSelect={(v) => patch({ sourceChoice: v })}
+              onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
               icon="plus"
               title="New source"
               description="Register a new origin and get its signing secret."
@@ -132,7 +147,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
             <SectionLabel>Provider</SectionLabel>
             <RadioGroup
               value={state.newSourceProvider}
-              onValueChange={(v) => patch({ newSourceProvider: v, eventType: '' })}
+              onValueChange={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
               aria-label="Provider"
             >
               <Grid cols={2} gap="cozy">
@@ -141,7 +156,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                     key={p.id}
                     value={p.id}
                     selected={state.newSourceProvider === p.id}
-                    onSelect={(v) => patch({ newSourceProvider: v, eventType: '' })}
+                    onSelect={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
                     icon={p.icon}
                     title={p.name}
                     description={p.description}
@@ -156,32 +171,16 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       <Stack gap="snug">
         <SectionLabel>Event</SectionLabel>
         <Text size="caption" color="subtle">
-          A trigger matches one event type. Leave it on any event to fire on everything the source
-          sends.
+          The event type this trigger listens for, from the provider&apos;s published schema.
         </Text>
-        <Stack direction="horizontal" gap="snug" wrap>
-          <Button
-            size="xs"
-            shape="pill"
-            variant={state.eventType === '' ? 'accent-outline' : 'outline-muted'}
-            aria-pressed={state.eventType === ''}
-            onClick={() => patch({ eventType: '' })}
-          >
-            any event
-          </Button>
-          {events.map((ev) => (
-            <Button
-              key={ev}
-              size="xs"
-              shape="pill"
-              variant={state.eventType === ev ? 'accent-outline' : 'outline-muted'}
-              aria-pressed={state.eventType === ev}
-              onClick={() => patch({ eventType: ev })}
-            >
-              {ev}
-            </Button>
-          ))}
-        </Stack>
+        <CatalogPicker
+          aria-label="Event type"
+          value={state.eventType}
+          placeholder="Choose an event"
+          catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
+          searchPlaceholder="Search events…"
+          onSelect={(eventType) => patch({ eventType, filters: [] })}
+        />
       </Stack>
 
       <Stack gap="snug">
@@ -194,23 +193,30 @@ function StepSource({ state, patch, context }: StepComponentProps) {
 
         <FilterRowsEditor
           rows={state.filters}
-          fields={catalog}
+          fields={fields}
           onChange={(filters) => patch({ filters })}
         />
       </Stack>
 
+      <SenderRestrictionEditor
+        available={catalog.associations}
+        value={state.senders}
+        onChange={(senders) => patch({ senders })}
+      />
+
       <PromptField
         value={state.promptTemplate}
         onChange={(next) => patch({ promptTemplate: next })}
-        hint="What the run starts with. Fields are filled from the delivery that fires it."
-        catalog={toTemplateCatalog(catalog, catalogPatterns(provider))}
+        hint="What the run starts with. Delivery values follow it in a block marked as untrusted data."
+        catalog={fields}
         catalogLabel={
           state.eventType
-            ? `Fields on ${state.eventType} deliveries from this source.`
-            : 'Fields across every event this source sends; per-event fields are empty on other events.'
+            ? `Fields on ${state.eventType} deliveries.`
+            : 'Choose an event to see its fields.'
         }
-        placeholder="Review {{ pr.title }} on {{ repo.full_name }} and comment on anything risky."
+        placeholder="Answer the question in {{ comment.body }} on {{ issue.html_url }}."
       />
+      <DataBlockPreview template={state.promptTemplate} />
     </Stack>
   );
 }
@@ -224,6 +230,7 @@ function validateSource(state: WizardState) {
     } else if (!s.sourceChoice) {
       return { valid: false, hint: 'Choose where deliveries come from.' };
     }
+    if (!s.eventType) return { valid: false, hint: 'Choose the event this trigger listens for.' };
     return validateFilters(s.filters);
   });
 }
@@ -308,22 +315,20 @@ export const webhookKind: TriggerKindDefinition = {
             ? `${state.newSourceName || '—'} (new, ${state.newSourceProvider})`
             : (source?.name ?? '—'),
       },
-      { key: 'Event', value: state.eventType || 'any event', mono: true },
+      { key: 'Event', value: state.eventType, mono: true },
     ];
     const filters = describeMatchCondition(state.filters);
     if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
+    const senders = [...splitLogins(state.senders.logins), ...state.senders.associations];
+    if (senders.length > 0) rows.push({ key: 'Senders', value: senders.join(', '), mono: true });
     return rows;
-  },
-  fieldCatalog: (state, context) => {
-    const source = context.sources.find((s) => s.id === state.sourceChoice);
-    const provider =
-      state.sourceChoice === NEW_SOURCE ? state.newSourceProvider : (source?.provider ?? '');
-    return webhookCatalog(provider, state.eventType);
   },
   draftPatch: (state) => {
     // The match condition is webhook-only, so it is folded here beside the
     // source and event it belongs to rather than in the shared draft builder.
     const matchCondition = matchConditionFrom(state.filters);
+    const matchContains = matchContainsFrom(state.filters);
+    const senderRestriction = senderRestrictionFrom(state.senders);
     return {
       source:
         state.sourceChoice === NEW_SOURCE
@@ -331,6 +336,8 @@ export const webhookKind: TriggerKindDefinition = {
           : { existingId: state.sourceChoice },
       eventType: state.eventType,
       ...(matchCondition ? { matchCondition } : {}),
+      ...(matchContains ? { matchContains } : {}),
+      ...(senderRestriction ? { senderRestriction } : {}),
     };
   },
   doneContent: DoneContent,

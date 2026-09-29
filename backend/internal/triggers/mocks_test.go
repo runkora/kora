@@ -658,7 +658,7 @@ func newTestSourceService(t *testing.T, repo sourceStore, policy *policyclient.C
 	if err != nil {
 		t.Fatalf("newSecretCipher: %v", err)
 	}
-	return NewSourceService(repo, NewRegistry(), cipher, policy, "/api/v1/webhooks/", silentLogger())
+	return NewSourceService(repo, mustRegistry(), cipher, policy, "/api/v1/webhooks/", silentLogger())
 }
 
 func newTestService(t *testing.T) (*Service, *testDeps) {
@@ -680,10 +680,10 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
 	admission := NewAdmission(repo, silentLogger())
-	svc := NewService(repo, NewRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
+	svc := NewService(repo, mustRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc)
-	deps.triggers = NewTriggerService(repo, pc, ac, minter, admission, silentLogger())
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, minter, admission, silentLogger())
 	return svc, deps
 }
 
@@ -1213,6 +1213,16 @@ func (m *mockRepository) PurgePayloads(_ context.Context, defaultDays int) (int6
 	}
 	return n, nil
 }
+
+// mustRegistry returns one registry shared by every test; building the GitHub
+// catalog is slow under -race.
+var mustRegistry = sync.OnceValue(func() *Registry {
+	r, err := NewRegistry()
+	if err != nil {
+		panic(err)
+	}
+	return r
+})
 
 // drainPending runs one worker tick synchronously.
 //

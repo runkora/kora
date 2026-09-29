@@ -154,7 +154,10 @@ func initController(
 		metrics = nil
 	}
 
-	registry := triggers.NewRegistry()
+	registry, err := triggers.NewRegistry()
+	if err != nil {
+		return nil, nil, fmt.Errorf("init trigger providers: %w", err)
+	}
 
 	// One admission controller, shared: it holds no per-caller state, and two
 	// instances deciding the same trigger's ceiling would be two answers.
@@ -177,6 +180,7 @@ func initController(
 	// disabling one moves work already in the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
+		registry,
 		policyClient,
 		agentsClient,
 		identityClient,
@@ -244,6 +248,7 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/trigger-sources", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/trigger-sources", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/trigger-sources", Method: "DELETE", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-providers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "POST", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},

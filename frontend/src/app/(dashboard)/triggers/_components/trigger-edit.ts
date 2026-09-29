@@ -2,8 +2,7 @@
  * @tier 3 — triggers-scoped. Pure helpers for editing a trigger in place.
  *
  * The drawer edits a stored trigger rather than a draft, so it needs the
- * inverse of the wizard's builders: a stored `match_condition` back into
- * editable rows, stored manual inputs into a template catalog, and a cron
+ * inverse of the wizard's builders: stored filters back into editable rows, stored manual inputs into a template catalog, and a cron
  * expression checked before it is sent. Kept free of React so each rule is
  * unit-testable on its own.
  */
@@ -11,32 +10,25 @@
 import type { InputField } from '@orbit/shared/api';
 import { inputsToCatalog } from './trigger-wizard/field-catalog';
 import type { FieldCatalogEntry } from './trigger-wizard/types';
+import type { FilterRow } from './filter-rows-editor';
 
 /**
- * One editable filter row. Values stay a raw string while being typed.
+ * Turns a stored `match_condition` and `match_contains` back into editable rows.
  *
- * Structurally the wizard's `WizardFilter`: both surfaces edit the same rows
- * through the shared `FilterRowsEditor`.
- */
-export interface EditFilterRow {
-  field: string;
-  values: string;
-}
-
-/**
- * Turns a stored `match_condition` back into editable rows.
- *
- * Order is the object's own, which is the order the backend returned; there is
- * no meaningful sort for clauses that all have to match anyway.
+ * Order is the objects' own, `is` rows first; there is no meaningful sort for
+ * clauses that all have to match anyway.
  */
 export function filtersFromMatchCondition(
   condition: Record<string, string[]> | undefined,
-): EditFilterRow[] {
-  if (!condition) return [];
-  return Object.entries(condition).map(([field, values]) => ({
-    field,
-    values: values.join(' | '),
-  }));
+  contains?: Record<string, string[]>,
+): FilterRow[] {
+  const rows = (entries: Record<string, string[]> | undefined, operator: FilterRow['operator']) =>
+    Object.entries(entries ?? {}).map(([field, values]) => ({
+      field,
+      operator,
+      values: values.join(' | '),
+    }));
+  return [...rows(condition, 'is'), ...rows(contains, 'contains')];
 }
 
 /**
@@ -58,7 +50,12 @@ export function manualInputsCatalog(inputs: InputField[] | undefined): FieldCata
 }
 
 /** Whether two filter row lists carry the same content. */
-export function sameFilters(a: EditFilterRow[], b: EditFilterRow[]): boolean {
+export function sameFilters(a: FilterRow[], b: FilterRow[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((row, i) => row.field === b[i]?.field && row.values === b[i]?.values);
+  return a.every(
+    (row, i) =>
+      row.field === b[i]?.field &&
+      (row.operator ?? 'is') === (b[i]?.operator ?? 'is') &&
+      row.values === b[i]?.values,
+  );
 }

@@ -219,7 +219,34 @@ const (
 const (
 	maxNameLen           = 128
 	maxPromptTemplateLen = 8 << 10 // 8 KiB
+	// Every delivery scans a restriction's logins, so the list stays short.
+	maxSenderLogins   = 100
+	maxSenderLoginLen = 100
+	// Every delivery searches a field for each substring.
+	maxContainsValues   = 20
+	maxContainsValueLen = 256
 )
+
+// validateContains checks a match_contains map's keys and substring bounds.
+func validateContains(contains map[string][]string) error {
+	if err := validateFieldKeys("", contains); err != nil {
+		return err
+	}
+	for key, subs := range contains {
+		if len(subs) > maxContainsValues {
+			return fmt.Errorf("%w: match_contains lists at most %d values for %q", ErrValidation, maxContainsValues, key)
+		}
+		for _, sub := range subs {
+			if sub == "" {
+				return fmt.Errorf("%w: match_contains values for %q must not be empty", ErrValidation, key)
+			}
+			if len(sub) > maxContainsValueLen {
+				return fmt.Errorf("%w: match_contains values must be %d characters or fewer", ErrValidation, maxContainsValueLen)
+			}
+		}
+	}
+	return nil
+}
 
 // validateTextBounds checks the free-text fields of a create or update. Applied
 // identically to both, so a value that could not be created cannot be edited in
@@ -359,16 +386,40 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	// An empty event_type is legal and means "any event this source emits";
-	// dispatch treats '' as match-all.
 	if req.SourceID == "" {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
+	}
+	if strings.TrimSpace(req.EventType) == "" {
+		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+	}
+	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
+		return err
+	}
+	return validateContains(req.MatchContains)
+}
+
+// Scheduled and manual triggers have no delivery to read a sender or field from.
+var (
+	errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
+	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook triggers only", ErrValidation)
+)
+
+// refuseWebhookOnly rejects the webhook-only fields on another kind of trigger.
+func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string) error {
+	if restriction != nil {
+		return errSenderRestrictionWebhookOnly
+	}
+	if contains != nil {
+		return errMatchContainsWebhookOnly
 	}
 	return nil
 }
 
 func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
 		return err
 	}
 	if req.ScheduleConfig == nil {
@@ -379,6 +430,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
 		return err
 	}
 	return validateManualInputs(req.ManualConfig)

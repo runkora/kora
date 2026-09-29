@@ -150,8 +150,13 @@ func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SourceEventTypes: %v", err)
 	}
-	if !slices.Equal(got.Declared, []string{"issues", "pull_request", "push"}) {
-		t.Errorf("declared = %v, want the github adapter's modeled events", got.Declared)
+	for _, want := range []string{"issue_comment", "pull_request", "push"} {
+		if !slices.Contains(got.Declared, want) {
+			t.Errorf("declared = %v, want it to include %s from the schema", got.Declared, want)
+		}
+	}
+	if !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+		t.Errorf("associations = %v, want github's", got.Associations)
 	}
 	if !slices.Equal(got.Observed, []string{"pull_request", "release"}) {
 		t.Errorf("observed = %v, want what this source actually sent", got.Observed)

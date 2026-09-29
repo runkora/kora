@@ -209,28 +209,47 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 			return nil, fmt.Errorf("unmarshal match condition: %w", err)
 		}
 	}
-	if len(kindConfigJSON) > 0 && string(kindConfigJSON) != "{}" {
-		// kind_config is polymorphic: its shape follows the trigger's kind.
-		switch t.Kind {
-		case KindScheduled:
-			var sc ScheduleConfig
-			if err := json.Unmarshal(kindConfigJSON, &sc); err != nil {
-				return nil, fmt.Errorf("unmarshal schedule config: %w", err)
-			}
-			if sc.CronExpression != "" {
-				t.ScheduleConfig = &sc
-			}
-		case KindManual:
-			var mc ManualConfig
-			if err := json.Unmarshal(kindConfigJSON, &mc); err != nil {
-				return nil, fmt.Errorf("unmarshal manual config: %w", err)
-			}
-			if len(mc.Inputs) > 0 {
-				t.ManualConfig = &mc
-			}
-		}
+	if err := decodeKindConfig(&t, kindConfigJSON); err != nil {
+		return nil, err
 	}
 	return &t, nil
+}
+
+// decodeKindConfig reads kind_config, whose shape follows the trigger's kind.
+func decodeKindConfig(t *Trigger, raw []byte) error {
+	if len(raw) == 0 || string(raw) == "{}" {
+		return nil
+	}
+	switch t.Kind {
+	case KindScheduled:
+		var sc ScheduleConfig
+		if err := json.Unmarshal(raw, &sc); err != nil {
+			return fmt.Errorf("unmarshal schedule config: %w", err)
+		}
+		if sc.CronExpression != "" {
+			t.ScheduleConfig = &sc
+		}
+	case KindManual:
+		var mc ManualConfig
+		if err := json.Unmarshal(raw, &mc); err != nil {
+			return fmt.Errorf("unmarshal manual config: %w", err)
+		}
+		if len(mc.Inputs) > 0 {
+			t.ManualConfig = &mc
+		}
+	case KindWebhook:
+		var wc WebhookConfig
+		if err := json.Unmarshal(raw, &wc); err != nil {
+			return fmt.Errorf("unmarshal webhook config: %w", err)
+		}
+		if !wc.SenderRestriction.empty() {
+			t.SenderRestriction = wc.SenderRestriction
+		}
+		if len(wc.MatchContains) > 0 {
+			t.MatchContains = wc.MatchContains
+		}
+	}
+	return nil
 }
 
 func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) error {
@@ -578,6 +597,16 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 		b, err := json.Marshal(t.ManualConfig)
 		if err != nil {
 			return nil, fmt.Errorf("marshal manual config: %w", err)
+		}
+		return b, nil
+	case t.Kind == KindWebhook && (!t.SenderRestriction.empty() || len(t.MatchContains) > 0):
+		wc := WebhookConfig{MatchContains: t.MatchContains}
+		if !t.SenderRestriction.empty() {
+			wc.SenderRestriction = t.SenderRestriction
+		}
+		b, err := json.Marshal(wc)
+		if err != nil {
+			return nil, fmt.Errorf("marshal webhook config: %w", err)
 		}
 		return b, nil
 	}
