@@ -19,7 +19,6 @@ function run(overrides: Partial<RunRow> = {}): RunRow {
     completedAt: '2026-09-01T00:01:00Z',
     createdAt: '2026-09-01T00:00:00Z',
     durationMs: 60_000,
-    tokensUsed: 100,
     toolCalls: 1,
     summary: null,
     ...overrides,

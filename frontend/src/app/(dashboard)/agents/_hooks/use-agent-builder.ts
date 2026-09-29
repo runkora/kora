@@ -24,7 +24,6 @@ import type {
   McpCatalogTool,
   McpServer,
   ModelObject,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import {
   createAgentType,
@@ -35,7 +34,6 @@ import {
   fetchEnvironments,
   fetchMcpCatalogue,
   fetchModels,
-  fetchToolScopes,
   updateDraft,
 } from '../_services/agents-api';
 import type { AgentTypeRow } from '../_types';
@@ -76,7 +74,6 @@ export interface BuilderFields {
   framework: AgentFramework;
   modelId: string;
   mcpTools: string[];
-  toolScopes: string[];
   connectors: Connector[];
   connectivityMode: ConnectivityMode;
   /** Textarea form — one host per line (connectivity-fields hostsToText). */
@@ -93,13 +90,12 @@ export interface BuilderFields {
 
 export interface BuilderCatalogues {
   models: ModelObject[];
-  toolScopes: ToolScopeDefinition[];
   connections: ConnectionCatalogEntry[];
   mcpServers: McpServer[];
   mcpCatalog: McpCatalogTool[];
   environments: Environment[];
-  status: Record<'models' | 'toolScopes' | 'connections' | 'mcp' | 'environments', LoadStatus>;
-  errors: Partial<Record<'models' | 'toolScopes' | 'connections' | 'mcp' | 'environments', string>>;
+  status: Record<'models' | 'connections' | 'mcp' | 'environments', LoadStatus>;
+  errors: Partial<Record<'models' | 'connections' | 'mcp' | 'environments', string>>;
 }
 
 /**
@@ -150,7 +146,6 @@ const EMPTY_FIELDS: BuilderFields = {
   framework: 'claude-code',
   modelId: '',
   mcpTools: [],
-  toolScopes: [],
   connectors: [],
   connectivityMode: 'none',
   connectivityHosts: '',
@@ -200,7 +195,6 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
     framework: fields.framework,
     model_id: fields.modelId || undefined,
     mcp_tools: fields.mcpTools,
-    tool_scopes: fields.toolScopes,
     connectors: fields.connectors,
     connectivity: { mode: fields.connectivityMode, hosts },
     environment_id: fields.environmentId || undefined,
@@ -225,7 +219,6 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     framework: payload.framework ?? 'claude-code',
     modelId: payload.model_id ?? '',
     mcpTools: payload.mcp_tools ?? [],
-    toolScopes: payload.tool_scopes ?? [],
     connectors: payload.connectors ?? [],
     connectivityMode: payload.connectivity?.mode ?? 'none',
     connectivityHosts: (payload.connectivity?.hosts ?? []).join('\n'),
@@ -272,7 +265,6 @@ export function useAgentBuilder(params: {
   const [created, setCreated] = useState<AgentTypeRow | null>(null);
   const [catalogues, setCatalogues] = useState<BuilderCatalogues>({
     models: [],
-    toolScopes: [],
     connections: [],
     mcpServers: [],
     mcpCatalog: [],
@@ -281,7 +273,6 @@ export function useAgentBuilder(params: {
     // initial status is 'loading' rather than set from inside the effect.
     status: {
       models: 'loading',
-      toolScopes: 'loading',
       connections: 'loading',
       mcp: 'loading',
       environments: 'loading',
@@ -358,14 +349,6 @@ export function useAgentBuilder(params: {
         models: data,
         status: { ...c.status, models: error ? 'error' : 'success' },
         errors: { ...c.errors, models: error ?? undefined },
-      })),
-    );
-    void fetchToolScopes().then(({ data, error }) =>
-      setCatalogues((c) => ({
-        ...c,
-        toolScopes: data,
-        status: { ...c.status, toolScopes: error ? 'error' : 'success' },
-        errors: { ...c.errors, toolScopes: error ?? undefined },
       })),
     );
     void fetchConnections().then(({ data, error }) =>

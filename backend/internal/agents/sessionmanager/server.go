@@ -229,13 +229,12 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 // separate because the client package cannot import the server package (the
 // dependency direction would be backwards).
 type CreateSessionRequest struct {
-	RunID        string   `json:"run_id"`
-	AgentTypeID  string   `json:"agent_type_id"`
-	TenantID     string   `json:"tenant_id"`
-	Framework    string   `json:"framework"`
-	Model        string   `json:"model"`
-	AllowedTools []string `json:"allowed_tools"`
-	SystemPrompt string   `json:"system_prompt"`
+	RunID        string `json:"run_id"`
+	AgentTypeID  string `json:"agent_type_id"`
+	TenantID     string `json:"tenant_id"`
+	Framework    string `json:"framework"`
+	Model        string `json:"model"`
+	SystemPrompt string `json:"system_prompt"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
@@ -297,7 +296,6 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
 			WrapperPath:       c.cfg.WrapperPath,
 			Model:             req.Model,
-			AllowedTools:      req.AllowedTools,
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
 			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),

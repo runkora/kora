@@ -61,13 +61,6 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.AgentTypeID)))
 		})
 
-	addTool(srv, "agents.tool_scopes",
-		"List the selectable tool scopes for an agent type — each scope, what it does, and the tools it grants. "+
-			"Use this to choose values for the tool_scopes field of agents.create / agents.update.",
-		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/tool-scopes", nil))
-		})
-
 	addTool(srv, "agents.connectors",
 		"List the credential connections available in the caller's tenant — each connection's name, adapter, and "+
 			"the actions it supports. Use this to fill the connectors field of agents.create / agents.update.",
@@ -112,7 +105,6 @@ type createAgentArgs struct {
 	Framework               string           `json:"framework,omitempty" jsonschema:"agent CLI framework"`
 	IdentityMode            string           `json:"identity_mode,omitempty" jsonschema:"identity model, immutable after creation (default autonomous): autonomous = the agent acts as itself on its own grant; delegated = the agent acts on behalf of the person who runs it, bounded by the intersection of its grant and that person's live access"`
 	ModelID                 string           `json:"model_id" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-5)"`
-	ToolScopes              []string         `json:"tool_scopes,omitempty" jsonschema:"tool scopes the agent may use — call the agents.tool_scopes tool to list the valid scopes and what each grants"`
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
@@ -147,7 +139,6 @@ type updateAgentArgs struct {
 	Framework               *string          `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
 	ModelID                 *string          `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
 	MaxConcurrentRunsPerPod *int             `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
-	ToolScopes              []string         `json:"tool_scopes,omitempty" jsonschema:"replacement set of tool scopes — call the agents.tool_scopes tool to list valid scopes"`
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`

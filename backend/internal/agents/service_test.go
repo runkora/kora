@@ -431,8 +431,8 @@ func TestStartRun_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework:  AgentFrameworkClaudeCode,
-		ToolScopes: []string{"shell"}, SystemPrompt: "be helpful",
+		Framework:               AgentFrameworkClaudeCode,
+		SystemPrompt:            "be helpful",
 		MaxConcurrentRunsPerPod: 5,
 	})
 

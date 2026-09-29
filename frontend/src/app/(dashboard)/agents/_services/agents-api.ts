@@ -16,7 +16,6 @@ import type {
   ModelObject,
   Run,
   StartRunRequest,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
@@ -42,8 +41,8 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
 }
 
 // ── fetchAgentTypesUsage ──────────────────────────────────────────────────────
-// Returns the 7-day token + spend aggregate per agent type, keyed by agent type
-// id for direct lookup. Never throws; on error returns an empty map.
+// Returns the 7-day token + spend aggregate per agent, keyed by agent slug (the
+// identity the gateway attributes usage to). Never throws; on error returns an empty map.
 
 export async function fetchAgentTypesUsage(): Promise<{
   byAgentType: Record<string, AgentTypeUsage>;
@@ -64,7 +63,7 @@ export async function fetchAgentTypesUsage(): Promise<{
   }
   const body = (await res.json()) as { data: AgentTypeUsage[] };
   const byAgentType: Record<string, AgentTypeUsage> = {};
-  for (const u of body.data ?? []) byAgentType[u.agent_type_id] = u;
+  for (const u of body.data ?? []) byAgentType[u.agent_slug] = u;
   return { byAgentType, error: null };
 }
 
@@ -310,17 +309,6 @@ export function fetchModels(): Promise<{ data: ModelObject[]; error: string | nu
       ((b as { data?: ModelObject[] }).data ?? []).filter(
         (m) => m.status === 'available' && m.capabilities.includes('chat'),
       ),
-    [],
-  );
-}
-
-export function fetchToolScopes(): Promise<{
-  data: ToolScopeDefinition[];
-  error: string | null;
-}> {
-  return fetchCatalogue(
-    ApiRoute.agentTypes.toolScopes(),
-    (b) => (b as { data?: ToolScopeDefinition[] }).data ?? [],
     [],
   );
 }

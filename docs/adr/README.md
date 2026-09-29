@@ -83,16 +83,16 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
-- [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted` · 2026-06-04
+- [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted` · 2026-06-04
-- [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted` · 2026-05-11
+- [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
 - [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted` · 2026-05-11
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
 - [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
-- [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted` · 2026-05-11
+- [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
@@ -109,7 +109,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted` · 2026-06-20
 - [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Accepted` · 2026-06-20
-- [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted` · 2026-06-23
+- [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-09-29)` · 2026-06-23
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
@@ -210,9 +210,9 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
 | 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted | 0051 |
-| 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted | 0057 |
+| 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |
 | 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
-| 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted | 0050 |
+| 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
 | 2026-05-11 | [Agent Workspace Model](2026-05-11-agent-workspace-model.md) | Accepted | 0055 |
 | 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
 | 2026-05-11 | [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
@@ -224,7 +224,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-04 | [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) | Accepted | 0063 |
 | 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted | 0062 |
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
-| 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted | — |
+| 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted (Amended 2026-09-29) | — |
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted | — |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
@@ -243,7 +243,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
 | 2026-06-20 | [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) | Accepted | — |
 | 2026-06-22 | [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) | Accepted | — |
-| 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted | — |
+| 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted (Amended 2026-09-29) | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-06 | [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) | Proposed | — |
 | 2026-07-17 | [Agent Builder](2026-07-17-agent-builder.md) | Accepted | — |

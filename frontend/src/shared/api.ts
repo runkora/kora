@@ -41,13 +41,6 @@ export type ModelCapability =
   | 'rerank' // POST /v1/rerank (handler not yet active)
   | 'audio'; // TTS / live audio (no standard endpoint yet)
 
-/** A tool scope definition returned by GET /api/agents/tool-scopes. */
-export interface ToolScopeDefinition {
-  scope: string;
-  description: string;
-  tools: string[];
-}
-
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
   /** Effective per-1M token input cost (0 for free-tier; absent only when non_token_only). */
@@ -347,7 +340,6 @@ export interface AgentType {
   framework: AgentFramework;
   /** Identity model — immutable after creation. Absent on pre-migration payloads (= autonomous). */
   identity_mode?: AgentIdentityMode;
-  tool_scopes: string[];
   grant_scopes: string[];
   connectivity: Connectivity;
   connectors?: Connector[];
@@ -393,8 +385,6 @@ export interface Run {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-  /** Total tokens consumed by this run, if available. */
-  tokens_used?: number;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
@@ -435,7 +425,8 @@ export interface RunsListResponse {
  * Mirrors Go: inferencegw.AgentTypeUsage
  */
 export interface AgentTypeUsage {
-  agent_type_id: string;
+  /** Agent slug: the last segment of the agent SPIFFE principal the gateway attributes usage to. */
+  agent_slug: string;
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
@@ -453,7 +444,6 @@ export interface CreateAgentTypeRequest {
   framework?: AgentFramework;
   /** Identity model. Omit for the default (autonomous). Immutable after creation. */
   identity_mode?: AgentIdentityMode;
-  tool_scopes?: string[];
   grant_scopes?: string[];
   connectivity?: Connectivity;
   connectors?: Connector[];
@@ -543,7 +533,6 @@ export interface UpdateAgentTypeRequest {
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
-  tool_scopes?: string[];
   grant_scopes?: string[];
   /** Budget update: omit = unchanged; both limits zero = remove. */
   budget?: AgentBudget;

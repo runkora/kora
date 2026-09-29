@@ -48,7 +48,6 @@ func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string) AgentT
 		Slug:                    "reviewer-" + uuid.NewString()[:8],
 		State:                   AgentTypeStateActive,
 		MaxConcurrentRunsPerPod: 5,
-		ToolScopes:              []string{},
 		GrantScopes:             []string{},
 		Connectors:              []Connector{},
 		MCPTools:                []string{},

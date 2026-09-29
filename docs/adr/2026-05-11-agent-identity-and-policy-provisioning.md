@@ -1,6 +1,6 @@
 # Agent Identity & Policy Provisioning
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-09-29)
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** When a managed agent type is created, the platform must ensure its pods receive a SPIFFE identity and that grants are provisioned in the policy service. This ADR defines the provisioning model, lifecycle, and the identity path the platform assigns to agent workloads.
@@ -26,9 +26,9 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 ### Goals
 
 - Agent pods receive a SPIFFE identity automatically via the existing ClusterSPIFFEID — no manual SPIRE configuration
-- Grants created automatically from the agent type's `tool_scopes`
+- Grants created automatically from the agent type definition
 - Both cleaned up automatically on agent type deletion
-- Least-privilege: agents only access what their `tool_scopes` specify
+- Least-privilege: agents only access what their grant specifies
 - No manual SPIRE or policy configuration required from tenant users
 
 ### Non-Goals
@@ -95,20 +95,22 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 
 ### SPIFFE Identity for Managed Agents
 
+*(Amended 2026-09-29: the agent path segment is the agent type slug, not its ID, and the extracted tenant ID drops the `orbit-tenant-` prefix. See [agent token breakdown, Amendment 1](2026-06-23-agent-token-breakdown-and-spend-card.md).)*
+
 The SPIFFE ID assigned to managed agent pods follows the platform's tenant agent path ([dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)):
 
 ```
-spiffe://{trust-domain}/tenant/{namespace}/agent/{agent_type_id}
+spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}
 ```
 
-For a managed agent type with ID `{agent_type_id}` in tenant namespace `orbit-tenant-{tenant_id}`:
+For a managed agent type with slug `{slug}` in tenant namespace `orbit-tenant-{tenant_id}`:
 
 ```
-spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{agent_type_id}
+spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}
 ```
 
 This is issued automatically by the `orbit-tenant-agent` ClusterSPIFFEID when the pod carries:
-- Label: `spiffe.io/agent={agent_type_id}`
+- Label: `spiffe.io/agent={slug}`
 - Namespace label: `orbit.io/role: tenant` (already set on all tenant namespaces)
 
 `orbit-agents` sets this label in the StatefulSet pod template spec at agent type creation time. No SPIRE registration code is required.
@@ -119,11 +121,11 @@ The `XFCCPrincipalExtractor` (identity-service) parses the SPIFFE URI at JWT exc
 
 | Path segment | Value |
 |---|---|
-| `/tenant/{namespace}` → `TenantID` | `orbit-tenant-{tenant_id}` |
-| `/agent/{agent_type_id}` → `ID` | full SPIFFE URI |
+| `/tenant/{namespace}` → `TenantID` | `{tenant_id}` (the `orbit-tenant-` prefix is stripped) |
+| `/agent/{slug}` → `ID` | full SPIFFE URI |
 | `principal_type` | `AGENT` |
 
-The `principal_id` used throughout the platform (grants, audit logs, usage attribution) is the **full SPIFFE URI**: `spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{agent_type_id}`. This is deterministic from the agent type ID and tenant ID.
+The `principal_id` used throughout the platform (grants, audit logs, usage attribution) is the **full SPIFFE URI**: `spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}`. This is deterministic from the agent type slug and tenant ID.
 
 No identity-service mapping registration is needed — the SPIFFE path encodes all required information.
 
@@ -135,12 +137,12 @@ When an agent type is created, `orbit-agents` calls the policy-service to create
 {
   "tenant_id":      "{tenant_id}",
   "principal_type": "AGENT",
-  "principal_id":   "spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{agent_type_id}",
+  "principal_id":   "spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}",
   "scopes":         ["{scope1}", "{scope2}", ...]
 }
 ```
 
-`tool_scopes` from the agent type definition map directly to grant scopes. The policy-service validates each scope against the scope vocabulary ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)).
+The agent type's grant scopes (`grant_scopes`, plus the scopes compiled from its connectivity, connectors and MCP tools) map directly to grant scopes; `tool_scopes` never fed the grant and is removed ([agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1). The policy-service validates each scope against the scope vocabulary ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)).
 
 `orbit-agents` is a SYSTEM principal — `resolveTenantID` in the policy-service passes the supplied `tenant_id` through directly for SYSTEM callers rather than deriving it from the JWT. orbit-agents must therefore explicitly supply the agent type's tenant identifier.
 

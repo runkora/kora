@@ -172,11 +172,11 @@ export async function updateAgentType(
 // ── fetchAgentTypeUsage ───────────────────────────────────────────────────────
 
 export async function fetchAgentTypeUsage(
-  id: string,
+  slug: string,
 ): Promise<{ usage: AgentTypeUsage | null; error: string | null }> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.agentTypes.usage(id), { cache: 'no-store' });
+    res = await fetch(ApiRoute.agentTypes.usage(slug), { cache: 'no-store' });
   } catch {
     return { usage: null, error: 'Network error: could not reach the server.' };
   }

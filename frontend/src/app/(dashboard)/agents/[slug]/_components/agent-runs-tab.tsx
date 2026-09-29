@@ -15,14 +15,6 @@ import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
 import { StartedByCell } from './started-by-cell';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
 // ── Status groupings ──────────────────────────────────────────────────────────
 
 const ACTIVE_STATES = ['pending', 'starting', 'active', 'idle', 'completing'];
@@ -174,16 +166,6 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         cell: (row) => (
           <Text mono size="supporting">
             {formatDuration(row.durationMs)}
-          </Text>
-        ),
-      },
-      {
-        id: 'tokens',
-        header: 'Tokens',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.tokensUsed ? formatTokens(row.tokensUsed) : '—'}
           </Text>
         ),
       },

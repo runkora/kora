@@ -369,6 +369,43 @@ func TestCodexReadLoop_DispatchResponseDeliveredToPending(t *testing.T) {
 	}
 }
 
+// bufferWriteCloser captures what the runner writes to Codex's stdin.
+type bufferWriteCloser struct{ bytes.Buffer }
+
+func (*bufferWriteCloser) Close() error { return nil }
+
+// An unhandled server request must get an immediate error reply; Codex blocks on it.
+func TestCodexReadLoop_UnknownServerRequestGetsErrorReply(t *testing.T) {
+	r := newTestCodexRunner()
+	stdin := &bufferWriteCloser{}
+	r.stdin = stdin
+
+	fixture := `{"id":7,"method":"mcpServer/elicitation/request","params":{"serverName":"runtime"}}` + "\n"
+	go r.readLoop(t.Context(), strings.NewReader(fixture))
+	collectEvents(r.events)
+
+	var reply struct {
+		ID     *int64          `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  *codexRPCError  `json:"error"`
+	}
+	if err := json.Unmarshal(stdin.Bytes(), &reply); err != nil {
+		t.Fatalf("stdin = %q, want one JSON reply: %v", stdin.String(), err)
+	}
+	if reply.ID == nil || *reply.ID != 7 {
+		t.Errorf("reply id = %v, want 7", reply.ID)
+	}
+	if reply.Result != nil {
+		t.Errorf("reply result = %s, want none", reply.Result)
+	}
+	if reply.Error == nil || reply.Error.Code != codexMethodNotFound {
+		t.Fatalf("reply error = %+v, want code %d", reply.Error, codexMethodNotFound)
+	}
+	if !strings.Contains(reply.Error.Message, "mcpServer/elicitation/request") {
+		t.Errorf("reply error message = %q, want it to name the method", reply.Error.Message)
+	}
+}
+
 // ── SendToolResult ────────────────────────────────────────────────────────────
 
 func TestCodexSendToolResult_NotSupported(t *testing.T) {

@@ -157,6 +157,9 @@ type InferenceUsageRecord struct {
 	CreatedAt                    time.Time        `json:"created_at"`
 	// RunID is the agent run this request belonged to ("" for non-run traffic).
 	RunID string `json:"run_id,omitempty"`
+	// AgentSlug is the agent segment of an AGENT principal's SPIFFE path ("" for
+	// other principals); per-agent usage aggregates key on it.
+	AgentSlug string `json:"agent_slug,omitempty"`
 	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
 	// the durable record behind role-pool counter rehydration.
 	PrincipalRoles []string `json:"principal_roles,omitempty"`
@@ -386,12 +389,11 @@ type RunUsage struct {
 	TotalTokens int64   `json:"total_tokens"`
 }
 
-// AgentTypeUsage is the spend and token breakdown recorded against an agent
-// type's SPIFFE principal over the last 7 days, returned by
-// GET /v1/usage/agent-type/{agentTypeID}. Powers the token breakdown and spend
-// cards on the agent overview page.
+// AgentTypeUsage is the spend and token breakdown recorded against an agent's
+// SPIFFE principal over the last 7 days, keyed by the agent slug in that
+// principal. Returned by GET /v1/usage/agent-type/{slug} and /v1/usage/agent-types.
 type AgentTypeUsage struct {
-	AgentTypeID         string  `json:"agent_type_id"`
+	AgentSlug           string  `json:"agent_slug"`
 	PromptTokens        int64   `json:"prompt_tokens"`
 	CompletionTokens    int64   `json:"completion_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`

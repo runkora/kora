@@ -193,7 +193,6 @@ type AgentType struct {
 	// IdentityMode is the agent's identity model (autonomous or delegated).
 	// Immutable after creation — see docs/adr/2026-07-23-delegated-agent-identity.md.
 	IdentityMode IdentityMode `json:"identity_mode"`
-	ToolScopes   []string     `json:"tool_scopes"`
 	GrantScopes  []string     `json:"grant_scopes"`
 	Connectivity Connectivity `json:"connectivity"`
 	Connectors   []Connector  `json:"connectors,omitempty"`

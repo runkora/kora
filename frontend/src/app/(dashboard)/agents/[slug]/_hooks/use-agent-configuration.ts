@@ -19,14 +19,12 @@ import type {
   McpCatalogTool,
   McpServer,
   ModelObject,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import {
   fetchConnections,
   fetchEnvironments,
   fetchMcpCatalogue,
   fetchModels,
-  fetchToolScopes,
 } from '../../_services/agents-api';
 import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -58,7 +56,6 @@ interface ConfigurationBaseline {
   framework: AgentFramework;
   systemPrompt: string;
   modelId: string;
-  toolScopes: string[];
   mcpTools: string[];
   connectors: Connector[];
   connectivityMode: ConnectivityMode;
@@ -77,7 +74,6 @@ function baselineFrom(agent: AgentTypeRow | null): ConfigurationBaseline {
     framework: (agent?.frameworkKey ?? 'claude-code') as AgentFramework,
     systemPrompt: agent?.systemPrompt ?? '',
     modelId: agent?.modelId ?? '',
-    toolScopes: agent?.toolScopes ?? [],
     mcpTools: agent?.mcpTools ?? [],
     connectors: agent?.connectors ?? [],
     connectivityMode: agent?.connectivity?.mode ?? 'none',
@@ -102,7 +98,6 @@ export function useAgentConfiguration() {
   const [framework, setFramework] = useState<AgentFramework>(initial.framework);
   const [systemPrompt, setSystemPrompt] = useState(initial.systemPrompt);
   const [modelId, setModelId] = useState(initial.modelId);
-  const [toolScopes, setToolScopes] = useState<string[]>(initial.toolScopes);
   const [mcpTools, setMcpTools] = useState<string[]>(initial.mcpTools);
   const [connectors, setConnectors] = useState<Connector[]>(initial.connectors);
   const [connectivityMode, setConnectivityMode] = useState<ConnectivityMode>(
@@ -120,7 +115,6 @@ export function useAgentConfiguration() {
   // ── Catalogues (same no-throw fetchers the builder uses) ────────────────────
   const [models, setModels] = useState<ModelObject[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
   const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
@@ -132,7 +126,6 @@ export function useAgentConfiguration() {
       setModels(data);
       setModelsError(error);
     });
-    void fetchToolScopes().then(({ data }) => setAvailableToolScopes(data));
     void fetchConnections().then(({ data }) => setAvailableConnections(data));
     void fetchMcpCatalogue().then(({ data, error }) => {
       setMcpServers(data.servers);
@@ -173,7 +166,6 @@ export function useAgentConfiguration() {
     framework !== savedBaseline.framework ||
     systemPrompt !== savedBaseline.systemPrompt ||
     modelId !== savedBaseline.modelId ||
-    sortedJson(toolScopes) !== sortedJson(savedBaseline.toolScopes) ||
     sortedJson(mcpTools) !== sortedJson(savedBaseline.mcpTools) ||
     normalizeConnectors(connectors) !== normalizeConnectors(savedBaseline.connectors) ||
     connectivityMode !== savedBaseline.connectivityMode ||
@@ -220,7 +212,6 @@ export function useAgentConfiguration() {
       system_prompt: trimmedSystemPrompt,
       max_concurrent_runs_per_pod: maxRuns,
       model_id: modelId,
-      tool_scopes: toolScopes,
       mcp_tools: mcpTools,
       connectors,
       connectivity: { mode: connectivityMode, hosts },
@@ -246,7 +237,6 @@ export function useAgentConfiguration() {
       framework,
       systemPrompt: trimmedSystemPrompt,
       modelId,
-      toolScopes,
       mcpTools,
       connectors,
       connectivityMode,
@@ -267,7 +257,6 @@ export function useAgentConfiguration() {
     framework,
     systemPrompt,
     modelId,
-    toolScopes,
     mcpTools,
     connectors,
     connectivityMode,
@@ -286,7 +275,6 @@ export function useAgentConfiguration() {
     setFramework(savedBaseline.framework);
     setSystemPrompt(savedBaseline.systemPrompt);
     setModelId(savedBaseline.modelId);
-    setToolScopes(savedBaseline.toolScopes);
     setMcpTools(savedBaseline.mcpTools);
     setConnectors(savedBaseline.connectors);
     setConnectivityMode(savedBaseline.connectivityMode);
@@ -330,8 +318,6 @@ export function useAgentConfiguration() {
     setSystemPrompt,
     modelId,
     setModelId,
-    toolScopes,
-    setToolScopes,
     mcpTools,
     setMcpTools,
     connectors,
@@ -353,7 +339,6 @@ export function useAgentConfiguration() {
     // catalogues
     models,
     modelsError,
-    availableToolScopes,
     availableConnections,
     mcpServers,
     mcpCatalog,

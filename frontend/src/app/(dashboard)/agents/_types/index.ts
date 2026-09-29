@@ -28,7 +28,6 @@ export interface AgentTypeRow {
   /** Identity model: acts as itself (autonomous) or as the person who runs it (delegated). Immutable. */
   identityMode: AgentIdentityMode;
   state: AgentTypeState;
-  toolScopes: string[];
   grantScopes: string[];
   /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
   connectivity: Connectivity;
@@ -70,8 +69,6 @@ export interface RunRow {
   createdAt: string;
   /** Elapsed ms: completedAt - startedAt, or now - startedAt for active runs, or null if not started. */
   durationMs: number | null;
-  /** Total tokens consumed by this run, or null if not available. */
-  tokensUsed: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
@@ -96,7 +93,6 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     frameworkKey: a.framework,
     identityMode: a.identity_mode ?? 'autonomous',
     state: a.state,
-    toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
     connectivity: a.connectivity ?? { mode: 'none' },
     connectors: a.connectors ?? [],
@@ -142,7 +138,6 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
     completedAt: r.completed_at,
     createdAt: r.created_at,
     durationMs,
-    tokensUsed: r.tokens_used ?? null,
     toolCalls: r.tool_calls ?? null,
     summary: r.summary ?? null,
   };

@@ -282,7 +282,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/agent-types and /v1/usage/agent-type/{id} report spend
+		// GET /v1/usage/agent-types and /v1/usage/agent-type/{slug} report spend
 		// per agent type rather than the caller's own usage, so they need a scope.
 		//
 		// That scope is agents:types:read, because an agent's spend is an
