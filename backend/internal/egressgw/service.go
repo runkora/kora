@@ -195,6 +195,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		logging.Field{Key: "run_id", Value: identity.RunID},
 		logging.Field{Key: "host", Value: req.Host},
 		logging.Field{Key: "action", Value: action},
+		logging.Field{Key: "also_authorized", Value: strings.Join(also, ",")},
 		logging.Field{Key: "qualifier", Value: cls.Qualifier},
 		logging.Field{Key: "registered", Value: registered},
 	)
@@ -233,9 +234,10 @@ func (b *Broker) classify(ctx context.Context, connector credentials.Connector, 
 // qualified grants must match. Single-word actions ("use") keep their legacy
 // two-segment shape.
 //
-// The call is denied only when the grant covers none of them. An evaluator
-// error on the classified action fails closed; one on an alternate drops that
-// alternate.
+// The call is denied when the grant covers none of them, or misses any of the
+// classification's AlsoRequired actions, which are appended when all are held.
+// An evaluator error on the classified action or a required one fails closed;
+// one on an alternate drops that alternate.
 func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest, tenantID string) ([]string, error) {
 	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
@@ -287,6 +289,37 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		d := deny(reason, req.Host, conn, cls, nil)
 		d.PolicyReason = label
 		return nil, d
+	}
+
+	for _, action := range cls.AlsoRequired {
+		required := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
+		decision, err := b.checkAction(ctx, claims, conn, action, cls.Qualifier)
+		if err != nil {
+			b.logger.Error(ctx, "policy evaluation failed",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "action", Value: action},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			return nil, deny(DenialPolicyUnavailable, req.Host, conn, required, err)
+		}
+		if !decision.Allow {
+			b.logger.Info(ctx, "egress denied by policy",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "host", Value: req.Host},
+				logging.Field{Key: "method", Value: req.Method},
+				logging.Field{Key: "path", Value: requestPath(req)},
+				logging.Field{Key: "action", Value: action},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "reason", Value: decision.Reason},
+			)
+			reason, label := policyDenialReason([]string{decision.Reason})
+			d := deny(reason, req.Host, conn, required, nil)
+			d.PolicyReason = label
+			return nil, d
+		}
+		authorized = append(authorized, action)
 	}
 	return authorized, nil
 }

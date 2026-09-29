@@ -108,6 +108,11 @@ type Classification struct {
 	// Action and each alternate against the caller's grant, denies only when
 	// none is held, and mints the credential for every one that is.
 	Alternates []string
+	// AlsoRequired are further actions the request needs as well as Action
+	// (or an alternate), for a request that spans categories. The broker
+	// denies unless the grant holds every one, and mints the credential for
+	// all of them.
+	AlsoRequired []string
 }
 
 // ActionDeclaration describes one action an adapter can classify. The Action
