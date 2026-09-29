@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-20-extended-trigger-types.md -->
 
-**Status:** Accepted
+**Status:** Accepted ("Prompt templating and the field map", the empty `event_type` rule in Decision 3, and Decision 7's declared event types superseded by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
 **Date:** 2026-07-27
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Extended Trigger Types](../prd/extended-trigger-types.md)

@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-07-21-alertmanager-webhook-adapter.md -->
 
-**Status:** Proposed
+**Status:** Accepted (the curated field set, sub-decision 3 and the injection-hardening non-goal superseded in part by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
 **Date:** 2026-07-21
 **Deciders:** Tom Morelly, Platform Engineering
 **Technical Story:** Second webhook source adapter for the Triggers framework — start agent runs from Prometheus Alertmanager notifications (on-call triage, alert-driven remediation, incident context gathering).

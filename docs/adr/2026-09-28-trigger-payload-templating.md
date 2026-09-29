@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-28-trigger-payload-templating.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-28
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Trigger Payload Templating](../prd/trigger-payload-templating.md)
@@ -339,10 +339,6 @@ In the console, each filter row chooses **is** or **contains** before its value 
 4. Data block form in the webhook template preview.
 5. Sender restriction control on the webhook kind.
 6. An **is** or **contains** choice on each filter row, saved to `match_condition` or `match_contains`.
-
-### Docs
-
-On acceptance, the status lines of the 2026-06-17, 2026-06-20 and 2026-07-21 ADRs record the sections this ADR supersedes.
 
 ### Migration Path
 
