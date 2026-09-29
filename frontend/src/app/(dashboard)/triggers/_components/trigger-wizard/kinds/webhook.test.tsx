@@ -34,3 +34,54 @@ describe('webhook DoneContent', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe('webhook validation and draft', () => {
+  const validate = webhookKind.steps[0]!.validate;
+  const ready = {
+    ...initialState(webhookKind, CONTEXT.sources),
+    name: 'gh',
+    promptTemplate: 'go',
+  };
+
+  it('requires an event type', () => {
+    expect(validate(ready, CONTEXT)).toEqual({
+      valid: false,
+      hint: 'Choose the event this trigger listens for.',
+    });
+    expect(validate({ ...ready, eventType: 'push' }, CONTEXT).valid).toBe(true);
+  });
+
+  it('puts the sender restriction on the draft only when something is set', () => {
+    expect(webhookKind.draftPatch({ ...ready, eventType: 'push' })).not.toHaveProperty(
+      'senderRestriction',
+    );
+    expect(
+      webhookKind.draftPatch({
+        ...ready,
+        eventType: 'push',
+        senders: { logins: 'octocat, hubot octocat', associations: ['MEMBER'] },
+      }).senderRestriction,
+    ).toEqual({ logins: ['octocat', 'hubot'], associations: ['MEMBER'] });
+  });
+
+  it('splits is and contains rows between the two filter maps', () => {
+    const patch = webhookKind.draftPatch({
+      ...ready,
+      eventType: 'issue_comment',
+      filters: [
+        { field: 'action', values: 'created' },
+        { field: 'comment.body', operator: 'contains', values: '@kora-agent' },
+      ],
+    });
+    expect(patch.matchCondition).toEqual({ action: ['created'] });
+    expect(patch.matchContains).toEqual({ 'comment.body': ['@kora-agent'] });
+  });
+
+  it('summarises the senders for review', () => {
+    const rows = webhookKind.summarize(
+      { ...ready, eventType: 'push', senders: { logins: '', associations: ['OWNER'] } },
+      CONTEXT,
+    );
+    expect(rows).toEqual(expect.arrayContaining([{ key: 'Senders', value: 'OWNER', mono: true }]));
+  });
+});

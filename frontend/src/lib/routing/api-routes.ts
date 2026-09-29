@@ -378,8 +378,20 @@ export const ApiRoute = {
       `${API_BASE}/trigger-sources/${id}`,
     delete: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
       `${API_BASE}/trigger-sources/${id}`,
+    eventTypes: (id: string): `${typeof API_BASE}/trigger-sources/${string}/event-types` =>
+      `${API_BASE}/trigger-sources/${id}/event-types`,
   },
 
+  /** Per-provider schema catalogue: event types, fields and sender associations. */
+  triggerProviders: {
+    eventTypes: (provider: string): `${typeof API_BASE}/trigger-providers/${string}/event-types` =>
+      `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/event-types`,
+    fields: (
+      provider: string,
+      eventType: string,
+    ): `${typeof API_BASE}/trigger-providers/${string}/fields?event_type=${string}` =>
+      `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/fields?event_type=${encodeURIComponent(eventType)}`,
+  },
   triggers: {
     list: (agentTypeId?: string): string =>
       agentTypeId

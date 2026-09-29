@@ -665,6 +665,39 @@ export interface SchedulePreviewResponse {
   timezone: string;
 }
 
+/**
+ * Who may fire a webhook trigger. A sender passes when its login or its
+ * association is listed; both lists empty means anyone.
+ */
+export interface SenderRestriction {
+  logins?: string[];
+  associations?: string[];
+}
+
+/**
+ * GET /trigger-sources/:id/event-types and GET /trigger-providers/:provider/event-types.
+ * Declared types come from the provider's schema, observed ones from what a
+ * source has sent; the provider endpoint has no observed types.
+ */
+export interface TriggerEventTypes {
+  declared: string[];
+  observed?: string[];
+  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
+  associations: string[];
+}
+
+/** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */
+export interface TriggerField {
+  /** Dotted path, e.g. `comment.body`, or `meta.event_type`. */
+  path: string;
+  group: string;
+  description?: string;
+  /** Allowed values, when the schema enumerates them. */
+  enum?: string[];
+  /** A family whose last segment is data, e.g. `commonLabels.<name>`. */
+  pattern?: boolean;
+}
+
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
 export interface Trigger {
   id: string;
@@ -680,11 +713,15 @@ export interface Trigger {
   event_type?: string;
   /** field → allowed values; a delivery matches when every clause is satisfied. Webhook only. */
   match_condition?: Record<string, string[]>;
+  /** field → substrings, matched ignoring case; omitted when unset. Webhook only. */
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Present for scheduled triggers only. */
   schedule_config?: ScheduleConfig;
   /** Present for manual triggers only: the inputs this trigger accepts. */
   manual_config?: ManualConfig;
+  /** Webhook triggers only. */
+  sender_restriction?: SenderRestriction;
   /**
    * What this trigger starts. "agent" is the only kind today; triggers are the
    * front door for starting work, and what gets started is a separate concern.
@@ -732,11 +769,14 @@ export interface TriggerCreateRequest {
   /** Required for webhook triggers. */
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Required for scheduled triggers. */
   schedule_config?: ScheduleConfig;
   /** For manual triggers: the inputs the console form and the API validate. */
   manual_config?: ManualConfig;
+  /** Webhook only. */
+  sender_restriction?: SenderRestriction;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -755,10 +795,14 @@ export interface TriggerUpdateRequest {
   name?: string;
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  /** Replaces the contains filters when present; `{}` removes them. */
+  match_contains?: Record<string, string[]>;
   prompt_template?: string;
   enabled?: boolean;
   /** For scheduled triggers: update the cron schedule. */
   schedule_config?: ScheduleConfig;
+  /** Webhook only. Replaces the restriction; both lists empty removes it. */
+  sender_restriction?: SenderRestriction;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './index';
 import { SHARED_STEPS } from '../shared-steps';
 import { initialState, stepsFor } from '../wizard-state';
-import { NEW_SOURCE } from '../types';
 import type { TriggerKind, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
@@ -73,10 +72,10 @@ describe('fieldCatalog', () => {
     return (def.fieldCatalog?.(state, CONTEXT) ?? []).map((e) => e.token);
   }
 
-  it('is offered by every kind built so far', () => {
-    for (const def of KINDS) {
-      expect(def.fieldCatalog).toBeTypeOf('function');
-    }
+  it('is offered by the scheduled and manual kinds; webhook fields come from the API', () => {
+    expect(TRIGGER_KINDS.scheduled.fieldCatalog).toBeTypeOf('function');
+    expect(TRIGGER_KINDS.manual.fieldCatalog).toBeTypeOf('function');
+    expect(TRIGGER_KINDS.webhook.fieldCatalog).toBeUndefined();
   });
 
   it('describes every token it offers', () => {
@@ -86,43 +85,6 @@ describe('fieldCatalog', () => {
         expect(entry.description.length).toBeGreaterThan(0);
       }
     }
-  });
-
-  it('reads the webhook catalog from the chosen source provider', () => {
-    const def = TRIGGER_KINDS.webhook;
-    // src-1 is a github source, so github fields.
-    expect(tokens(def)).toEqual(expect.arrayContaining(['repo.full_name', 'sender.login']));
-
-    const alertmanagerContext: WizardContext = {
-      ...CONTEXT,
-      sources: [{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }],
-    };
-    const state = { ...initialState(def, alertmanagerContext.sources), sourceChoice: 'src-2' };
-    const alertmanagerTokens = (def.fieldCatalog?.(state, alertmanagerContext) ?? []).map(
-      (e) => e.token,
-    );
-    expect(alertmanagerTokens).toEqual(expect.arrayContaining(['receiver', 'alerts.count']));
-    expect(alertmanagerTokens).not.toContain('repo.full_name');
-  });
-
-  it('reads the provider being created when the source is new', () => {
-    const def = TRIGGER_KINDS.webhook;
-    const state = {
-      ...initialState(def, CONTEXT.sources),
-      sourceChoice: NEW_SOURCE,
-      newSourceProvider: 'alertmanager',
-    };
-    expect((def.fieldCatalog?.(state, CONTEXT) ?? []).map((e) => e.token)).toEqual(
-      expect.arrayContaining(['group_key', 'first_alert.status']),
-    );
-  });
-
-  it('narrows the webhook catalog to the selected event', () => {
-    const def = TRIGGER_KINDS.webhook;
-    const base = initialState(def, CONTEXT.sources);
-    expect(tokens(def, { ...base, eventType: 'push' })).toContain('push.branch');
-    expect(tokens(def, { ...base, eventType: 'push' })).not.toContain('pr.title');
-    expect(tokens(def, { ...base, eventType: 'pull_request' })).toContain('pr.title');
   });
 
   it('offers the scheduler vars for a schedule', () => {

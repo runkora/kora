@@ -1,4 +1,6 @@
 export { TemplateField } from './template-field';
+export { TemplateCatalogList } from './template-catalog-list';
+export type { TemplateCatalogListProps } from './template-catalog-list';
 export type { TemplateFieldProps, TemplateCatalogEntry } from './template-field';
 export {
   parseTemplate,

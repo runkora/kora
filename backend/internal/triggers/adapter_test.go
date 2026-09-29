@@ -7,7 +7,7 @@ import (
 )
 
 func TestRegistry(t *testing.T) {
-	r := NewRegistry()
+	r := mustRegistry()
 	if _, ok := r.Get(ProviderGitHub); !ok {
 		t.Fatal("github adapter must be registered")
 	}
@@ -28,53 +28,19 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
-// Every event type GitHub declares must be one Fields actually has a case for —
-// i.e. one that yields more than the common set every event gets.
-//
-// This is what stops the catalog becoming a wish list: declaring an event type
-// without teaching Fields about it fails here, and so does deleting a case from
-// Fields while leaving its declaration behind.
-func TestGitHubAdapter_DeclaredEventTypesAreModeled(t *testing.T) {
-	a := &githubAdapter{}
-	body := []byte(`{"action":"opened","ref":"refs/heads/main",
-		"pull_request":{"number":1,"base":{"ref":"main"},"head":{"ref":"f"},"user":{"login":"a"}},
-		"issue":{"number":2,"title":"t","user":{"login":"a"}},
-		"repository":{"full_name":"acme/w"},"sender":{"login":"b"}}`)
-
-	declared := a.EventTypes()
-	if len(declared) == 0 {
-		t.Fatal("github declares no event types")
-	}
-	// The fields every event gets regardless of type. A declared type has to
-	// earn more than these.
-	common := a.Fields("release", body)
-	for _, et := range declared {
-		if got := a.Fields(et, body); len(got) <= len(common) {
-			t.Errorf("github declares %q but Fields extracts nothing specific for it", et)
-		}
-	}
-}
-
-// Alertmanager's catalog is a different shape: Fields does not branch on the
-// event type, so what the declaration must match is the closed set of values
-// EventType can return. A catalog entry no EventType call produces documents
-// a value that can never fire.
+// Alertmanager's declared event types are exactly the values EventType produces.
 func TestAlertmanagerAdapter_DeclaredTypesMatchEventType(t *testing.T) {
-	a := &alertmanagerAdapter{}
-	declared := a.EventTypes()
-
-	produced := []string{}
-	for _, status := range []string{"firing", "resolved"} {
-		got := a.EventType(nil, []byte(`{"groupKey":"g","status":"`+status+`"}`))
-		if !slices.Contains(declared, got) {
-			t.Errorf("EventType(%s) = %q, which is not in the declared catalog %v", status, got, declared)
-		}
-		produced = append(produced, got)
+	c := mustRegistry().Catalog(ProviderAlertmanager)
+	if c == nil {
+		t.Fatal("alertmanager has no catalog")
 	}
-	for _, d := range declared {
-		if !slices.Contains(produced, d) {
-			t.Errorf("catalog declares %q, which EventType never produces", d)
-		}
+	a := &alertmanagerAdapter{}
+	var produced []string
+	for _, status := range []string{"firing", "resolved"} {
+		produced = append(produced, a.EventType(nil, []byte(`{"groupKey":"g","status":"`+status+`"}`)))
+	}
+	if !slices.Equal(c.EventTypes(), produced) {
+		t.Errorf("declared %v, EventType produces %v", c.EventTypes(), produced)
 	}
 }
 
@@ -99,6 +65,31 @@ func TestMatchesCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := matchesCondition(tt.condition, fields); got != tt.want {
 				t.Errorf("matchesCondition = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchesContains(t *testing.T) {
+	fields := map[string]string{"comment.body": "Hey @Kora-Agent, please review", "action": "created"}
+
+	tests := []struct {
+		name     string
+		contains map[string][]string
+		want     bool
+	}{
+		{"no entries match all", nil, true},
+		{"substring ignoring case", map[string][]string{"comment.body": {"@kora-agent"}}, true},
+		{"absent substring", map[string][]string{"comment.body": {"@other-bot"}}, false},
+		{"any listed substring", map[string][]string{"comment.body": {"@other-bot", "PLEASE"}}, true},
+		{"every entry must pass", map[string][]string{"comment.body": {"review"}, "action": {"edit"}}, false},
+		{"empty list is ignored", map[string][]string{"comment.body": {}}, true},
+		{"missing field contains nothing", map[string][]string{"comment.missing": {"x"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesContains(tt.contains, fields); got != tt.want {
+				t.Errorf("matchesContains = %v, want %v", got, tt.want)
 			}
 		})
 	}

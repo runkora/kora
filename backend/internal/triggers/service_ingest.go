@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -119,7 +120,9 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	// no 2xx, so the provider retries and dedup resolves it. Detached from the
 	// request context so a client that hangs up mid-enqueue cannot abort it, and
 	// bounded by fanOut's own dispatchTimeout.
-	s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
+	s.dispatch(context.WithoutCancel(ctx), *src, adapter, arrival{
+		deliveryID: delivery.ID, providerDeliveryID: deliveryID, eventType: eventType, body: body,
+	})
 
 	return IngestAccepted, nil
 }
@@ -210,13 +213,25 @@ func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapte
 	// Inline, before the duplicate is acknowledged, for the same durability
 	// reason as the original fan-out: a 2xx must not precede the enqueue it
 	// promises. Detached from the request context, bounded by dispatchTimeout.
-	s.dispatchDuplicate(context.WithoutCancel(ctx), src, adapter, dup.ID, dup.EventType, body)
+	s.dispatchDuplicate(context.WithoutCancel(ctx), src, adapter, arrival{
+		deliveryID: dup.ID, providerDeliveryID: dup.ProviderDeliveryID, eventType: dup.EventType, body: body,
+	})
+}
+
+// arrival is one webhook delivery as fan-out sees it.
+type arrival struct {
+	deliveryID         string // the Orbit delivery row
+	providerDeliveryID string
+	eventType          string
+	body               []byte
+	// truncated marks a stored body cut at maxPayloadBytes; it resolves no delivery fields.
+	truncated bool
 }
 
 // dispatch matches the delivery against the source's triggers and starts a run
 // for each match under the source's mapped identity, recording the outcome.
-func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter SourceAdapter, deliveryID, eventType string, body []byte) {
-	s.fanOut(ctx, src, adapter, deliveryID, eventType, body, nil)
+func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter SourceAdapter, a arrival) {
+	s.fanOut(ctx, src, adapter, a, nil)
 }
 
 // dispatchDuplicate fans a repeat arrival out to the triggers that turned dedupe
@@ -225,8 +240,8 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 // A trigger with dedupe on records nothing here: the duplicate delivery row is
 // the acknowledgement, and adding a per-trigger row saying "did nothing" to
 // every trigger on a noisy source is noise, not audit.
-func (s *Service) dispatchDuplicate(ctx context.Context, src WebhookSource, adapter SourceAdapter, deliveryID, eventType string, body []byte) {
-	s.fanOut(ctx, src, adapter, deliveryID, eventType, body, func(t Trigger) bool { return !t.DedupeEnabled })
+func (s *Service) dispatchDuplicate(ctx context.Context, src WebhookSource, adapter SourceAdapter, a arrival) {
+	s.fanOut(ctx, src, adapter, a, func(t Trigger) bool { return !t.DedupeEnabled })
 }
 
 // fanOut matches a delivery against the source's triggers and admits each match.
@@ -238,14 +253,19 @@ func (s *Service) fanOut(
 	ctx context.Context,
 	src WebhookSource,
 	adapter SourceAdapter,
-	deliveryID, eventType string,
-	body []byte,
+	a arrival,
 	considers func(Trigger) bool,
 ) {
 	ctx, cancel := context.WithTimeout(ctx, dispatchTimeout)
 	defer cancel()
 
-	fields := adapter.Fields(eventType, body)
+	deliveryID, eventType := a.deliveryID, a.eventType
+	var doc any
+	if !a.truncated {
+		doc = decodeBody(a.body)
+	}
+	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
+	sender, hasSender := identifySender(adapter, eventType, doc)
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -256,25 +276,37 @@ func (s *Service) fanOut(
 	// Two reasons a listening trigger does not fire, and an admin needs to tell
 	// them apart because the fixes differ:
 	//
-	//   filtered  — this trigger wanted this event type, but its own
-	//               match_condition excluded this particular event. Recorded
-	//               per trigger: the fix is a filter setting.
-	//   unmatched — no trigger wanted this event type at all. Not recorded per
+	//   filtered:  this trigger wanted this event type, but its sender
+	//               restriction or its match_condition excluded this
+	//               particular event. Recorded per trigger with the cause:
+	//               the fix is a trigger setting.
+	//   unmatched: no trigger wanted this event type at all. Not recorded per
 	//               trigger (there is nobody to attribute it to) and not a
 	//               filter decision, so it does not multiply rows on a noisy
 	//               source. The fix is a missing trigger.
-	var matched []Trigger
+	type match struct {
+		trigger Trigger
+		fields  map[string]string
+	}
+	var matched []match
 	for _, t := range triggers {
 		if considers != nil && !considers(t) {
 			continue
 		}
-		// An empty event_type subscribes to every event the source emits; a
-		// non-empty one is an exact match. The console renders '' as "any
-		// event", and this is the line that makes that label true.
-		if t.EventType != "" && t.EventType != eventType {
+		if t.EventType != eventType {
 			continue
 		}
-		if !matchesCondition(t.MatchCondition, fields) {
+		if !senderAllowed(t.SenderRestriction, sender, hasSender) {
+			s.outcomes.insert(ctx, &DeliveryRun{
+				TenantID: src.TenantID, DeliveryID: deliveryID,
+				TriggerID: t.ID, TriggerName: t.Name,
+				Status: RunStatusFiltered,
+				Error:  new("event excluded by the trigger's sender restriction"),
+			})
+			continue
+		}
+		fields := triggerFields(t, doc, meta)
+		if !matchesCondition(t.MatchCondition, fields) || !matchesContains(t.MatchContains, fields) {
 			// Insert without deriving: the summary is computed once, below,
 			// after the whole fan-out is written.
 			s.outcomes.insert(ctx, &DeliveryRun{
@@ -285,7 +317,7 @@ func (s *Service) fanOut(
 			})
 			continue
 		}
-		matched = append(matched, t)
+		matched = append(matched, match{trigger: t, fields: fields})
 	}
 	if len(matched) == 0 {
 		// May still have filtered rows; the derived summary accounts for them.
@@ -301,8 +333,8 @@ func (s *Service) fanOut(
 	// begins when the worker claims it, so a fire the platform acknowledged
 	// survives a restart instead of vanishing between the two.
 	var queued int
-	for _, t := range matched {
-		if admitted, _ := s.admit(ctx, t, deliveryID, fields); admitted {
+	for _, m := range matched {
+		if admitted, _ := s.admit(ctx, m.trigger, deliveryID, m.fields); admitted {
 			queued++
 		}
 	}
@@ -310,6 +342,27 @@ func (s *Service) fanOut(
 		// Nothing will start, so the outcome is already final.
 		s.outcomes.derive(ctx, deliveryID)
 	}
+}
+
+// identifySender asks the adapter who caused the event, when its provider says.
+func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, bool) {
+	si, ok := adapter.(senderIdentifier)
+	if !ok || doc == nil {
+		return Sender{}, false
+	}
+	return si.Sender(eventType, doc)
+}
+
+// senderAllowed applies a trigger's sender restriction. Stored logins are
+// already normalised. An event with no sender fails any restriction.
+func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
+	if r.empty() {
+		return true
+	}
+	if !ok {
+		return false
+	}
+	return slices.Contains(r.Logins, s.Login) || (s.Association != "" && slices.Contains(r.Associations, s.Association))
 }
 
 // runStatusForDispatchError maps a dispatch failure to the per-trigger outcome
@@ -385,7 +438,12 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	if err != nil {
 		return "", err
 	}
-	prompt := renderTemplate(t.PromptTemplate, fields)
+	var prompt string
+	if t.Kind == KindWebhook {
+		prompt = renderWebhookPrompt(t.PromptTemplate, fields)
+	} else {
+		prompt = renderTemplate(t.PromptTemplate, fields)
+	}
 	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
 	if err != nil {
 		return "", fmt.Errorf("mint trigger token: %w", err)
