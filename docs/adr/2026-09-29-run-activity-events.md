@@ -2,10 +2,10 @@
 
 <!-- Filename: 2026-09-29-run-activity-events.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-29
 **Deciders:** Justin Wilkin
-**Technical Story:** Record what a Claude Code agent is doing, in the run's event log and on the live stream, so the run chat can show progress, results, stops, and retries. Extends [2026-05-11: Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) and [2026-05-11: Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md).
+**Technical Story:** Record what an agent is doing, whichever runtime runs it (Claude Code, Codex, OpenCode), in the run's event log and on the live stream, so the run chat can show progress, results, stops, and retries. Extends [2026-05-11: Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) and [2026-05-11: Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md).
 
 ---
 
@@ -14,13 +14,13 @@
 The Claude Code runner (`runner_claude.go`) turns the agent's stream-json stdout into Orbit events. It keeps text deltas, tool calls, tool results, and the turn result, and drops everything else. What it drops is most of what a person watching a run needs:
 
 - A `tool_result` whose `content` is an array of blocks fails to unmarshal and is skipped. MCP tools, the `Agent` (subagent) tool, and the runtime MCP's `provision_sandbox` all return arrays, so none of their results reach `run_events`.
-- In survey run `65188f01`, a tool call the harness rejected (`Bash` on an agent without the shell scope) recorded a `tool_result` with no matching `tool_use`, and the UI rendered no row for it.
 - Subagent calls carry `parent_tool_use_id` in the stream. The runner ignores it, so subagent calls appear as siblings of the parent's calls.
 - `system/api_retry` (provider errors being retried) and `tool_progress` (a long tool still running) are logged and dropped. A provider outage looks like endless thinking.
 - Sandbox provisioning spends 20 to 120 seconds in the session-manager (pod scheduling, then an egress canary) with no event at all.
 - An interrupt (SIGINT, then a `--resume` restart) discards the partial text of the stopped turn and leaves no record that the user stopped it. The resumed session has no idle timer, so it waits for the 30 minute reaper. The resumed model sees Claude Code's tool-rejection text and reads the stop as "the user does not want to proceed".
 - Two components move a run from `idle` to `active` on the same user message: `orbit-agents` in `SendMessage`, then the session-manager when the next event arrives. The second call fails with a 409 on every follow-up message.
 - A non-fatal `run_error` (an error result from a turn, after which the subprocess keeps reading input) leaves the backend run `active` with no idle timer, while the UI marks the run failed.
+- The Codex and OpenCode runners record less than the Claude runner, and some of it wrong. Codex records each tool call's whole notification (fresh ids, thread and turn ids, timestamps) as its input, no MCP result, and fails the run on any error, including one Codex is about to retry. OpenCode records `tool_use` at the ACP `pending` update, whose `rawInput` is `{"cwd":...}` for a shell call and `{}` for read and task, and never records a result, because results arrive as `tool_call_update`, which the runner ignores. A stop restarts OpenCode, and the resumed session's `session/load` replay re-emits every earlier call as new events.
 - The SSE stream sends each payload without a time, so the UI stamps events with its own clock, and a reload shows every replayed event at the reload time.
 
 This touches *How does it connect?* through auditability: every call the agent makes through a governed path, and the result it got back, is now in the run's record. It also makes *What can it access?* visible in the chat, since a denied call is now a recorded row with its error. Identity, policy evaluation, and credential handling are unchanged.
@@ -35,10 +35,9 @@ This touches *How does it connect?* through auditability: every call the agent m
 
 ### Non-Goals
 
-- Changing how interrupt works (SIGINT and `--resume` stay).
-- A platform-side message queue. Claude Code already delivers a message sent mid-turn at the next tool boundary, or after the turn when there is none.
+- Changing how Claude Code is interrupted (SIGINT and `--resume` stay).
+- A platform-side message queue. Claude Code already delivers a message sent mid-turn at the next tool boundary, or after the turn when there is none; Codex does the same for a `turn/steer`.
 - A second source of token use or cost. The inference gateway records every model call a run makes through its per-run inference URL, which subagents share, against the run (`GET /v1/usage/run/{id}`); the run header already reads it. Local run `933be1c4`, which spawned a subagent, has 8 recorded calls and 225,082 tokens there. Claude Code's `result` usage and `total_cost_usd` are therefore not recorded.
-- Codex and OpenCode runners. They keep their current events; the new types are optional for a runner.
 
 ---
 
@@ -98,7 +97,7 @@ This touches *How does it connect?* through auditability: every call the agent m
 - **Size cap.** A recorded `content` is capped at 64 KiB, cut on a UTF-8 boundary. A capped result carries `truncated: true` and `original_bytes`. Subagent outputs of 281 KB to 1.1 MB were seen in production runs; the event log is a record for people, and the agent itself still receives the full result.
 - **Line limit.** The runner reads stream-json lines of up to 32 MiB. The previous 1 MiB limit ended the scan, and every later event of the session, on the first larger tool result.
 - **Subagents.** `tool_use` and `tool_result` carry `parent_tool_use_id` when the call was made inside a subagent. Text deltas from inside a subagent are not added to the parent turn's text; the subagent's answer arrives as the `Agent` call's result.
-- **Rejected calls.** No special handling. Reproduced on the local cluster (run `1ab8118e`, token-probe, Claude Code 2.1.283) with the raw stdout logged: Claude Code emits the rejected call as an ordinary assistant `tool_use` block (`Bash`, `{"command":"date"}`), followed by the error `tool_result`, and the runner records both through the normal path. The survey run that lacked the `tool_use` ran on an earlier session-manager image; that build was not re-tested. The UI treats a result reading `No such tool available` as a refused call.
+- **Input.** Every runner records `tool_use.input` as the tool's own arguments object, and `name` as the tool's name. Consumers (the run chat, loop guards) key on the same shape whatever the runtime.
 
 ### New event types
 
@@ -123,12 +122,27 @@ Sandbox phases:
 
 The phases describe the outcome, not how the egress check works, so they hold when the check changes host or is skipped for agents with no connectivity.
 
+### Per runtime
+
+Each runner emits what its protocol carries. Where a protocol has no signal, the runner emits nothing rather than inventing one.
+
+| Capability | Claude Code (stream-json) | Codex (app-server, 0.142.1) | OpenCode (ACP, 1.18.33) |
+|---|---|---|---|
+| Tool call name and input | `tool_use` block: name and input as sent | `commandExecution` `{command, cwd}`; `mcpToolCall` named `mcp__<server>__<tool>` with its arguments; `fileChange` `{changes}`; `collabAgentToolCall` named by its tool (`spawnAgent`, `wait`, ...) with `{prompt, receiver_thread_ids}`; `webSearch` `{query}` | Name from the `pending` update's title; recorded at the first later update, whose `rawInput` is the real input |
+| Tool result | `tool_result` block, array content flattened | `item/completed`: `aggregatedOutput` with `Exit code N` and `is_error` on a non-zero exit, MCP result content or error, a declined command as an error | `tool_call_update` `completed`/`failed`: `rawOutput.output`, `Exit code N` and `is_error` from `metadata.exit` |
+| Subagent attribution | `parent_tool_use_id` on the subagent's messages | A subagent runs on its own thread; the `collabAgentToolCall` names it in `receiverThreadIds`, and its items carry that call as parent. Its text and turns do not reach the parent turn | None. The `task` tool runs a child session whose updates are not sent on the connection; only the task's result arrives (captured stream, run `89ba0b5a`) |
+| Long tool progress | `tool_progress` heartbeats every 30 s | No heartbeat; streamed command output and `item/mcpToolCall/progress` stand in, at most every 5 s | No heartbeat; repeated `in_progress` updates stand in, at most every 5 s |
+| Provider retries | `system/api_retry` with attempt, max, delay, status, class | `error` notification with `willRetry: true`; class and HTTP status from `codexErrorInfo`, attempt and max read from the message text when present | None. ACP has no retry notification; the prompt only answers when the retries end |
+| A message sent mid-turn | Read at the next tool boundary | `turn/steer` against the active turn, read at its next step; `turn/start` when no turn is active | A second `session/prompt`; OpenCode runs it after the current one |
+| Stop | SIGINT; the process exits and resumes with `--resume` | `turn/interrupt`; `turn/completed` with status `interrupted`; the process stays alive | ACP `session/cancel`; the prompt answers `stopReason: cancelled`; the process stays alive. SIGINT and `session/load` only when no prompt is in flight, and the replay emits nothing |
+| Failed turn | Error `result` | `error` without retry, then `turn/completed` with status `failed` | Error response to `session/prompt` |
+
 ### Interrupt
 
 - When the user stops a turn, the runner emits the turn's partial text and thinking as a `message_complete` with `interrupted: true` (only if there is any), then `turn_stopped`. A turn that ends in an error result also marks its partial text `interrupted: true`. Consumers such as the Orbit MCP `runs.events` tool and summaries can tell a partial from a finished answer.
 - A stop that arrives after the turn already finished records nothing.
-- The resumed session starts with its idle timer armed, so an interrupted run completes on the normal idle timeout.
-- The first message sent to the resumed session is prefixed with this note, followed by a blank line and the user's text:
+- A runtime that exits on a stop (Claude Code) is resumed with its idle timer armed, so an interrupted run completes on the normal idle timeout. A runtime that survives the stop (Codex, OpenCode) ends the turn with `message_stop` and idles like any finished turn.
+- The first message after a stop is prefixed with this note, followed by a blank line and the user's text:
 
   > [Orbit: the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]
 
@@ -174,7 +188,7 @@ The run chat (`frontend/src/app/(chat)/agents/[slug]/runs/[runId]/`) uses these 
 
 ### Neutral
 
-- Codex and OpenCode runs emit none of the new types. The UI treats every new type as optional.
+- Runtimes differ in what they can report (no subagent calls or retries from OpenCode). The UI treats every new type as optional.
 - The Orbit MCP `runs.events` tool returns the new types unchanged.
 
 ---

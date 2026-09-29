@@ -22,8 +22,10 @@ type scriptRunner struct {
 	mu      sync.Mutex
 	sendErr error
 	sent    []string
-	resume  *scriptRunner
-	stopped sync.Once
+	// survives makes Interrupt leave the process running, as Codex and OpenCode do.
+	survives bool
+	resume   *scriptRunner
+	stopped  sync.Once
 }
 
 func newScriptRunner() *scriptRunner { return &scriptRunner{events: make(chan Event, 16)} }
@@ -41,9 +43,14 @@ func (r *scriptRunner) Send(_ context.Context, text string) error {
 	r.sent = append(r.sent, text)
 	return nil
 }
-func (r *scriptRunner) Interrupt() error { r.stop(); return nil }
-func (r *scriptRunner) Close() error     { r.stop(); return nil }
-func (r *scriptRunner) stop()            { r.stopped.Do(func() { close(r.events) }) }
+func (r *scriptRunner) Interrupt() error {
+	if !r.survives {
+		r.stop()
+	}
+	return nil
+}
+func (r *scriptRunner) Close() error { r.stop(); return nil }
+func (r *scriptRunner) stop()        { r.stopped.Do(func() { close(r.events) }) }
 func (r *scriptRunner) NewResumeRunner() Runner {
 	if r.resume == nil {
 		return nil
@@ -346,4 +353,33 @@ type provisionPhaseNotifier struct {
 
 func (n *provisionPhaseNotifier) ProvisionSandbox(context.Context, string, bool) (Sandbox, error) {
 	return testSandbox(n.endpoint), nil
+}
+
+// Codex and OpenCode stop a turn without exiting: the session carries on, idles
+// normally, and the next message still carries the stop note.
+func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
+	reg, r, n := startScripted(t, time.Minute)
+	r.survives = true
+	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+
+	pushEvent(t, r, EventTypeTextDelta)
+	if err := reg.Interrupt(context.Background(), "run-1"); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	pushEvent(t, r, EventTypeTurnStopped)
+	pushEvent(t, r, EventTypeMessageStop)
+	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return slices.Contains(c, "idle") })
+
+	if err := reg.Send(context.Background(), "run-1", "carry on"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote + "carry on"}) {
+		t.Errorf("sent = %q, want the stop note first", got)
+	}
+	reg.mu.RLock()
+	s := reg.sessions["run-1"]
+	reg.mu.RUnlock()
+	if s == nil || s.runner != Runner(r) || s.interruptClose.Load() {
+		t.Error("the session should carry on with the same runner and no pending restart")
+	}
 }

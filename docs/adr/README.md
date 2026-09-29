@@ -97,7 +97,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
-- [Run Activity Events](2026-09-29-run-activity-events.md) — `Proposed` · 2026-09-29
+- [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
@@ -277,5 +277,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Proposed | — |
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted | — |
-| 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Proposed | — |
+| 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
