@@ -3,10 +3,10 @@ package triggers
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -101,118 +101,8 @@ func (a *alertmanagerAdapter) EventType(_ http.Header, body []byte) string {
 	}
 }
 
-// EventTypes lists the two Alertmanager statuses, in the namespaced form
-// EventType actually produces.
-//
-// The namespace matters here: a trigger's event_type is compared against what
-// EventType returns, so a catalog saying "firing" would document a value that
-// never matches anything.
-func (a *alertmanagerAdapter) EventTypes() []string {
-	return []string{"alert.firing", "alert.resolved"}
-}
+//go:embed schemas/alertmanager.json
+var alertmanagerSchema []byte
 
-// alertmanagerPayload covers the fields exposed to matching and templating.
-// Unknown/absent fields decode to zero values.
-type alertmanagerPayload struct {
-	Version           string            `json:"version"`
-	GroupKey          string            `json:"groupKey"`
-	Status            string            `json:"status"`
-	Receiver          string            `json:"receiver"`
-	ExternalURL       string            `json:"externalURL"`
-	GroupLabels       map[string]string `json:"groupLabels"`
-	CommonLabels      map[string]string `json:"commonLabels"`
-	CommonAnnotations map[string]string `json:"commonAnnotations"`
-	Alerts            []struct {
-		Status       string            `json:"status"`
-		Labels       map[string]string `json:"labels"`
-		Annotations  map[string]string `json:"annotations"`
-		StartsAt     string            `json:"startsAt"`
-		EndsAt       string            `json:"endsAt"`
-		GeneratorURL string            `json:"generatorURL"`
-		Fingerprint  string            `json:"fingerprint"`
-	} `json:"alerts"`
-}
-
-// Fields extracts the allow-listed templating/matching fields for an
-// Alertmanager delivery.
-//
-// SECURITY: common.annotations.*, first_alert.annotations.*, and every
-// labels.<key> value are attacker-influenceable — whoever authors the
-// Prometheus rule can craft their text — and are substituted into prompts
-// verbatim. Injection hardening is deferred platform-wide (as for GitHub
-// pr.title / issue.body); the real boundary is the agent's least-privilege
-// tools + human review, not the prompt text.
-func (a *alertmanagerAdapter) Fields(eventType string, body []byte) map[string]string {
-	var p alertmanagerPayload
-	_ = json.Unmarshal(body, &p) // tolerant: missing fields become empty strings
-
-	f := map[string]string{
-		"event":        eventType,
-		"status":       p.Status,
-		"receiver":     p.Receiver,
-		"group_key":    p.GroupKey,
-		"external_url": p.ExternalURL,
-		"alerts.count": strconv.Itoa(len(p.Alerts)),
-	}
-	putDerived(f, "group.labels.", p.GroupLabels)
-	putDerived(f, "common.labels.", p.CommonLabels)
-	putDerived(f, "common.annotations.", p.CommonAnnotations)
-	if len(p.Alerts) > 0 {
-		first := p.Alerts[0]
-		f["first_alert.status"] = first.Status
-		f["first_alert.starts_at"] = first.StartsAt
-		f["first_alert.ends_at"] = first.EndsAt
-		f["first_alert.generator_url"] = first.GeneratorURL
-		f["first_alert.fingerprint"] = first.Fingerprint
-		putDerived(f, "first_alert.labels.", first.Labels)
-		putDerived(f, "first_alert.annotations.", first.Annotations)
-	}
-	return f
-}
-
-// Bounds on the field names and values derived from a payload's own keys.
-//
-// Every other field in this map has a name the adapter chose. These do not: the
-// suffix comes from whoever wrote the Prometheus rule. An unbounded key can
-// shadow a field a trigger's match condition relies on ("event", "status"), or
-// carry the dots and spaces that make a template token unreadable, and an
-// unbounded value goes verbatim into a prompt and into the stored fields of
-// every queued fire.
-const (
-	maxDerivedKeyLen   = 64
-	maxDerivedValueLen = 4096
-)
-
-// putDerived copies payload-derived entries under a fixed prefix, keeping only
-// the keys that are safe to name a field with.
-//
-// The allow-list is [A-Za-z0-9_]: it is what a label key can legally be in
-// Prometheus, so nothing an operator can legitimately configure is lost, and a
-// key outside it is dropped rather than sanitized. Rewriting a key would invent
-// a field name that matches no trigger and appears in no catalog, which is
-// harder to diagnose than the field simply not being there.
-func putDerived(f map[string]string, prefix string, in map[string]string) {
-	for k, v := range in {
-		if !safeDerivedKey(k) {
-			continue
-		}
-		if len(v) > maxDerivedValueLen {
-			v = strings.ToValidUTF8(v[:maxDerivedValueLen], "")
-		}
-		f[prefix+k] = v
-	}
-}
-
-func safeDerivedKey(k string) bool {
-	if k == "" || len(k) > maxDerivedKeyLen {
-		return false
-	}
-	for _, r := range k {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
-		default:
-			return false
-		}
-	}
-	return true
-}
+// Schema returns the hand-written Alertmanager webhook schema.
+func (a *alertmanagerAdapter) Schema() []byte { return alertmanagerSchema }

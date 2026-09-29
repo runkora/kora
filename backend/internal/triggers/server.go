@@ -88,6 +88,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
+//	GET    /api/v1/trigger-providers/{provider}/event-types  Event catalog for a provider.
+//	GET    /api/v1/trigger-providers/{provider}/fields       Fields for one event type (?event_type=).
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
@@ -115,6 +117,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// Reading a source's event catalog is reading the source: it sits under
 	// the /trigger-sources prefix and takes triggers:read from the route table.
 	mux.HandleWithMiddleware("GET /trigger-sources/{id}/event-types", auth, c.handleSourceEventTypes)
+	// Provider catalogs serve the console before a source exists.
+	mux.HandleWithMiddleware("GET /trigger-providers/{provider}/event-types", auth, c.handleProviderEventTypes)
+	mux.HandleWithMiddleware("GET /trigger-providers/{provider}/fields", auth, c.handleProviderFields)
 
 	mux.HandleWithMiddleware("POST /triggers", auth, c.handleCreateTrigger)
 	mux.HandleWithMiddleware("GET /triggers", auth, c.handleListTriggers)
@@ -440,6 +445,26 @@ func (c *Controller) handleSourceEventTypes(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
+func (c *Controller) handleProviderEventTypes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.sources.ProviderEventTypes(r.PathValue("provider"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+func (c *Controller) handleProviderFields(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.sources.ProviderFields(r.PathValue("provider"), r.URL.Query().Get("event_type"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
 // ─── Payload retention ────────────────────────────────────────────────────────
 
 func (c *Controller) handleGetRetention(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +500,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	ctx := r.Context()
 	var ive *InputValidationError
 	switch {
-	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound):
+	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
+		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
 	case errors.Is(err, ErrTriggerAtCapacity):
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the

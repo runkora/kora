@@ -474,7 +474,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
           data-slot="template-field-toolbar"
           className="flex items-center gap-1 border-t border-border bg-surface-overlay px-2 py-1.5"
         >
-          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <Popover modal open={pickerOpen} onOpenChange={setPickerOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
@@ -488,7 +488,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
                 Insert field
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="p-1.5">
+            <PopoverContent align="start" className="w-96 p-1.5">
               <TemplateCatalogList
                 catalog={catalog}
                 catalogLabel={catalogLabel}

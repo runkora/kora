@@ -243,3 +243,23 @@ export const WithAnchor: Story = {
     </div>
   ),
 };
+
+/** The content matches its trigger's width, with an 18rem floor for narrow triggers. */
+export const MatchTriggerWidth: Story = {
+  render: () => (
+    <div className="w-[32rem]">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="secondary" size="sm" fullWidth>
+            Choose an event
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent matchTriggerWidth className="p-3">
+          <Text size="supporting" color="foreground">
+            As wide as the button that opened it.
+          </Text>
+        </PopoverContent>
+      </Popover>
+    </div>
+  ),
+};

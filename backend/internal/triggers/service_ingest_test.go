@@ -190,10 +190,10 @@ func TestIngest_Duplicate_HonoursPerTriggerDedupe(t *testing.T) {
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
 func TestDispatch_Match_StartsRun(t *testing.T) {
-	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pr.number }}")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pull_request.number }}")
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 1 {
@@ -206,8 +206,9 @@ func TestDispatch_Match_StartsRun(t *testing.T) {
 	if call.agentTypeID != "at-1" {
 		t.Errorf("run agentTypeID = %q", call.agentTypeID)
 	}
-	if !strings.Contains(call.initialMessage, "Review PR #42") {
-		t.Errorf("prompt not rendered: %q", call.initialMessage)
+	if !strings.HasPrefix(call.initialMessage, "Review PR #{{ pull_request.number }}\n\n<delivery-data>") ||
+		!strings.Contains(call.initialMessage, `"pull_request.number": "42"`) {
+		t.Errorf("prompt not rendered with its data block: %q", call.initialMessage)
 	}
 	// Minted token must be for the source's identity.
 	if len(deps.minter.calls) != 1 || deps.minter.calls[0].principalID != src.PrincipalID {
@@ -235,8 +236,8 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	})
 	deps.minter.reset()
 
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
-	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
+	svc.dispatch(context.Background(), *stored, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 2 {
@@ -274,43 +275,14 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	}
 }
 
-// An empty event_type subscribes to every event the source emits; the console
-// renders it as "any event" and dispatch must make that label true.
-func TestDispatch_EmptyEventType_MatchesAnyEvent(t *testing.T) {
-	svc, deps := newTestService(t)
-	src := mustSource(t, deps.sources)
-	if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-		SourceID:       src.ID,
-		Name:           "catch-all",
-		AgentTypeID:    "at-1",
-		AgentSlug:      "code-reviewer",
-		EventType:      "",
-		PromptTemplate: "handle {{ event.type }}",
-	}); err != nil {
-		t.Fatalf("CreateTrigger with empty event_type: %v", err)
-	}
-	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
-	delID := "deliv-any"
-	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
-		ID: delID, TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusVerified,
-	})
-	deps.minter.reset()
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
-
-	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
-	drainPending(t, svc, deps.repo)
-
-	if deps.agents.callCount() != 1 {
-		t.Fatalf("catch-all trigger did not fire: %d run starts", deps.agents.callCount())
-	}
-}
+// A webhook trigger names exactly one event type.
 
 func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, nil, "p")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
 	// Trigger is for pull_request; deliver a push.
-	svc.dispatch(context.Background(), src, adapter, delID, "push", []byte(`{"ref":"refs/heads/main"}`))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "push", body: []byte(`{"ref":"refs/heads/main"}`)})
 
 	if deps.agents.callCount() != 0 {
 		t.Error("event-type mismatch should not start a run")
@@ -322,10 +294,10 @@ func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
 
 func TestDispatch_ConditionMismatch_Skipped(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"pr.base_ref": {"main"}}, "p")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
 	// base_ref is "release", condition requires "main".
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "release")})
 	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 0 {
@@ -341,9 +313,9 @@ func TestDispatch_ConditionMismatch_Skipped(t *testing.T) {
 func TestDispatch_StartRunError_Failed(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
 	deps.agents.status = http.StatusInternalServerError
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	d := deps.repo.deliveryByID(delID)
@@ -371,9 +343,9 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
 	deps.agents.runErrBody = `{"code":"forbidden","message":"this agent uses the delegated identity model: runs can only be started by a person (HUMAN or PAT principal)"}`
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	d := deps.repo.deliveryByID(delID)
@@ -398,9 +370,9 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 func TestDispatch_MintError_Failed(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
 	deps.minter.err = errors.New("mint boom")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if deps.agents.callCount() != 0 {
@@ -436,9 +408,9 @@ func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
 		EventType: "pull_request", Status: StatusVerified,
 	})
 	deps.minter.reset()
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), *stored, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	runs := deps.repo.deliveryRunsFor(delID)
@@ -468,9 +440,9 @@ func TestDispatch_FanOut_RecordsEveryTriggerOutcome(t *testing.T) {
 // from "nothing was listening".
 func TestDispatch_OnlyFiltered_IsSkippedNotFailed(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"pr.base_ref": {"main"}}, "p")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "release")})
 	drainPending(t, svc, deps.repo)
 
 	runs := deps.repo.deliveryRunsFor(delID)
@@ -487,9 +459,9 @@ func TestDispatch_OnlyFiltered_IsSkippedNotFailed(t *testing.T) {
 // multiplier, and "nobody wanted this" is not a filter decision.
 func TestDispatch_UnmatchedEventType_RecordsNoTriggerOutcomes(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "issues", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "issues", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if runs := deps.repo.deliveryRunsFor(delID); len(runs) != 0 {
@@ -616,10 +588,10 @@ func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 // (delivery → run) already existed; without this one a person opening the run
 // sees only the trigger's SERVICE principal and cannot tell what caused it.
 func TestDispatch_StartRunCarriesTheBacklink(t *testing.T) {
-	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pr.number }}")
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pull_request.number }}")
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	call, ok := deps.agents.lastCall()
@@ -712,9 +684,9 @@ func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
 func TestStartRun_RetriesWhileAYoungGrantPropagates(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
 	deps.agents.statusOnce = http.StatusForbidden // one refusal, as an unpolled bundle gives
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if got := deps.agents.callCount(); got < 2 {
@@ -736,10 +708,10 @@ func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
 	}
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
-	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
 	start := time.Now()
-	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
 	drainPending(t, svc, deps.repo)
 
 	if elapsed := time.Since(start); elapsed >= agentTypeRetryBudget {

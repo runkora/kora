@@ -18,10 +18,17 @@ export interface TemplateCatalogListProps {
    * why it narrowed.
    */
   catalogLabel?: string;
-  /** Called with the bare token when a row is chosen. */
-  onSelect: (token: string) => void;
+  /** Called with the bare token, and its entry, when a row is chosen. */
+  onSelect: (token: string, entry: TemplateCatalogEntry) => void;
   /** Focus the search box on mount. Defaults to true. */
   autoFocusSearch?: boolean;
+  /** The search box placeholder, also its accessible name without the ellipsis. */
+  searchPlaceholder?: string;
+  /**
+   * Let `pattern` entries be chosen. The caller completes the family into a
+   * real token, e.g. by asking for the `<name>`.
+   */
+  selectablePatterns?: boolean;
   /** @internal Used for internal Terra composition via cn(). */
   className?: string;
 }
@@ -43,8 +50,12 @@ const EntryBody = ({
   tokenClassName: string;
 }) => (
   <>
-    <span className={cn('shrink-0 font-mono text-[11.5px]', tokenClassName)}>{entry.token}</span>
-    <span className="truncate text-[11px] text-subtle">{entry.description}</span>
+    <span className={cn('min-w-0 break-all font-mono text-[11.5px]', tokenClassName)}>
+      {entry.token}
+    </span>
+    <span className="min-w-0 flex-1 truncate text-[11px] text-subtle" title={entry.description}>
+      {entry.description}
+    </span>
   </>
 );
 
@@ -56,17 +67,31 @@ const EntryBody = ({
  * list with its own keyboard model, and knows nothing about where it is shown.
  *
  * Arrow keys move the active row across group boundaries, Enter inserts it.
- * `pattern` entries are shown but never selectable — the literal token is a
- * description of a family, not a field that resolves to anything.
+ * `pattern` entries are shown but not selectable unless `selectablePatterns`
+ * is set: the literal token describes a family, not a field that resolves.
  */
 export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCatalogListProps>(
-  ({ catalog, catalogLabel, onSelect, autoFocusSearch = true, className }, ref) => {
+  (
+    {
+      catalog,
+      catalogLabel,
+      onSelect,
+      autoFocusSearch = true,
+      searchPlaceholder = 'Search fields…',
+      selectablePatterns = false,
+      className,
+    },
+    ref,
+  ) => {
     const [query, setQuery] = React.useState('');
     const [active, setActive] = React.useState(0);
 
     const filtered = React.useMemo(() => filterCatalog(catalog, query), [catalog, query]);
     const groups = React.useMemo(() => groupCatalog(filtered), [filtered]);
-    const selectable = React.useMemo(() => filtered.filter((e) => !e.pattern), [filtered]);
+    const selectable = React.useMemo(
+      () => (selectablePatterns ? filtered : filtered.filter((e) => !e.pattern)),
+      [filtered, selectablePatterns],
+    );
 
     // Keep the active row inside the (possibly shrunken) result set.
     React.useEffect(() => {
@@ -102,7 +127,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
         } else if (event.key === 'Enter') {
           event.preventDefault();
           const entry = selectable[active];
-          if (entry) onSelect(entry.token);
+          if (entry) onSelect(entry.token, entry);
         }
       },
       [active, move, onSelect, selectable],
@@ -112,7 +137,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
       <div
         ref={ref}
         data-slot="template-catalog"
-        className={cn('flex w-96 flex-col gap-1', className)}
+        className={cn('flex w-full min-w-0 flex-col gap-1', className)}
         onKeyDown={handleKeyDown}
       >
         <Input
@@ -120,8 +145,8 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
           autoFocus={autoFocusSearch}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search fields…"
-          aria-label="Search fields"
+          placeholder={searchPlaceholder}
+          aria-label={searchPlaceholder.replace(/…$/, '')}
           data-slot="template-catalog-search"
         />
 
@@ -131,10 +156,13 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
           </Text>
         )}
 
-        <div className="max-h-64 overflow-y-auto" data-slot="template-catalog-results">
+        <div
+          className="max-h-64 overflow-y-auto overflow-x-hidden"
+          data-slot="template-catalog-results"
+        >
           {groups.length === 0 ? (
             <Text size="supporting" color="subtle" className="px-2 py-3">
-              No fields match “{query}”.
+              Nothing matches “{query}”.
             </Text>
           ) : (
             groups.map((group) => (
@@ -143,7 +171,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                 {group.entries.map((entry) => {
                   const index = indexOf(entry);
                   const isActive = index >= 0 && index === active;
-                  return entry.pattern ? (
+                  return entry.pattern && !selectablePatterns ? (
                     <div
                       key={entry.token}
                       data-slot="template-catalog-pattern"
@@ -160,7 +188,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
                       data-token={entry.token}
                       data-active={isActive ? 'true' : undefined}
                       onMouseEnter={() => setActive(index)}
-                      onClick={() => onSelect(entry.token)}
+                      onClick={() => onSelect(entry.token, entry)}
                       className={cn(
                         'flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left transition-colors',
                         'hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent',
