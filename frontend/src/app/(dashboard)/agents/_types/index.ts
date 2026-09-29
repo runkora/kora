@@ -28,7 +28,6 @@ export interface AgentTypeRow {
   /** Identity model: acts as itself (autonomous) or as the person who runs it (delegated). Immutable. */
   identityMode: AgentIdentityMode;
   state: AgentTypeState;
-  toolScopes: string[];
   grantScopes: string[];
   /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
   connectivity: Connectivity;
@@ -94,7 +93,6 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     frameworkKey: a.framework,
     identityMode: a.identity_mode ?? 'autonomous',
     state: a.state,
-    toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
     connectivity: a.connectivity ?? { mode: 'none' },
     connectors: a.connectors ?? [],

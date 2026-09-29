@@ -28,7 +28,6 @@ import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
 import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
-import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
 import { ConnectionCards } from '@orbit/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
 import { EnvironmentCard } from '../../_components/motif/environment-card';
@@ -199,7 +198,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="wrench"
               title="Tools & access"
-              description="The MCP servers, platform capabilities, and connections this agent may call. Every call is checked before it runs."
+              description="The MCP servers and connections this agent may call. Every call is checked before it runs."
             />
             <Text as="span" size="supporting" color="muted">
               <Text as="span" size="supporting" weight="heavy" color="accent">
@@ -220,18 +219,6 @@ export function AgentConfigurationTab() {
               granted={cfg.mcpTools}
               onChange={cfg.setMcpTools}
             />
-            <Separator span="full" />
-            <Stack gap="cozy">
-              <SectionLabel
-                title="Platform tools"
-                desc="Direct platform capabilities granted to the agent, beyond MCP servers."
-              />
-              <PlatformToolsCard
-                scopes={cfg.availableToolScopes}
-                granted={cfg.toolScopes}
-                onChange={cfg.setToolScopes}
-              />
-            </Stack>
             <Separator span="full" />
             <Stack gap="cozy">
               <SectionLabel

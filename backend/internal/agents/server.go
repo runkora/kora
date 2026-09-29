@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -107,12 +106,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
 	mux.Handle("GET /health", c.handleHealth)
-	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
 	// Draft routes live on a SIBLING prefix, not under /agent-types: ServeMux
 	// rejects "GET /api/v1/agent-types/drafts/{id}" as ambiguous against the
 	// existing "GET /api/v1/agent-types/{id}/effective-access" (neither is more
 	// specific — both match ".../drafts/effective-access"), and panics at boot.
-	// The single-segment tool-scopes literal has no such two-segment collision.
 	mux.Handle("POST /api/v1/agent-type-drafts", c.handleCreateDraft)
 	mux.Handle("GET /api/v1/agent-type-drafts", c.handleListDrafts)
 	mux.Handle("GET /api/v1/agent-type-drafts/{id}", c.handleGetDraft)
@@ -153,11 +150,6 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
-
-func (c *Controller) handleListToolScopes(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": toolscopes.Selectable})
-}
 
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

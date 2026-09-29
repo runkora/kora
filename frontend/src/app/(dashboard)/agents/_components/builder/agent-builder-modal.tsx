@@ -220,7 +220,7 @@ function SuccessPanel({ onClose }: { onClose: () => void }) {
     {
       icon: 'wrench',
       label: 'Access',
-      value: `${fields.mcpTools.length} MCP tools · ${fields.toolScopes.length} platform · ${fields.connectors.length} connections`,
+      value: `${fields.mcpTools.length} MCP tools · ${fields.connectors.length} connections`,
     },
     {
       icon: 'dollar-sign',

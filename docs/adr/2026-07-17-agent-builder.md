@@ -119,7 +119,7 @@ The golden path is an RSC prefetch feeding a hook plus context. A modal mounted 
 
 Catalogues therefore load when the builder first opens:
 
-- `agent-builder-modal.tsx` (`'use client'`) loads models, tool scopes, connectors, MCP tools, and environments on open, through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
+- `agent-builder-modal.tsx` (`'use client'`) loads models, connectors, MCP tools, and environments on open (the tool-scope catalogue is removed: [agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1), through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
 - `_hooks/use-agent-builder.ts` owns the draft, the current step, per-step validity, per-catalogue `LoadStatus`, and submission, satisfying an `AgentBuilderStateShape` in line with the upgrade contract commented at `use-agents.ts:8-9`.
 - `AgentBuilderProvider` exposes it. Step components consume the context and never fetch.
 - Draft writes are debounced and go through the draft update path.
@@ -173,7 +173,7 @@ New migration under `backend/cmd/orbit-agents/migrations/` creating `agent_type_
 
 `internal/agents/` gains the draft stack alongside the existing one, per the standard feature structure: a `DraftRepository` interface, its Postgres implementation, service methods, and handlers. It does not become its own feature package, because drafts are part of the agents feature and feature packages must not import each other.
 
-Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The `tool-scopes` precedent holds only for single-segment literals.
+Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The former single-segment `tool-scopes` literal did not collide, because the ambiguity needs two segments.
 
 | Route | Scope |
 |---|---|

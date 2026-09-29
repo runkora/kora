@@ -107,13 +107,12 @@ const metaRequiresKey = "orbit/requires"
 // HUMAN-only and no agent scope makes it work). The single source of truth for
 // the orbit (first-party, platform-calling) MCP; external MCPs declare nothing.
 var toolRequires = map[string][]string{
-	"agents.list":        {"agents:types:read"},
-	"agents.get":         {"agents:types:read"},
-	"agents.tool_scopes": {"agents:types:read"},
-	"agents.create":      {"agents:types:write"},
-	"agents.update":      {"agents:types:write"},
-	"agents.delete":      {"agents:types:write"},
-	"agents.connectors":  {"platform:connections:read"},
+	"agents.list":       {"agents:types:read"},
+	"agents.get":        {"agents:types:read"},
+	"agents.create":     {"agents:types:write"},
+	"agents.update":     {"agents:types:write"},
+	"agents.delete":     {"agents:types:write"},
+	"agents.connectors": {"platform:connections:read"},
 
 	"agents.environments.list":    {"agents:environments:read"},
 	"agents.environments.get":     {"agents:environments:read"},

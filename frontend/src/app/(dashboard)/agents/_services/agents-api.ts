@@ -16,7 +16,6 @@ import type {
   ModelObject,
   Run,
   StartRunRequest,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
@@ -310,17 +309,6 @@ export function fetchModels(): Promise<{ data: ModelObject[]; error: string | nu
       ((b as { data?: ModelObject[] }).data ?? []).filter(
         (m) => m.status === 'available' && m.capabilities.includes('chat'),
       ),
-    [],
-  );
-}
-
-export function fetchToolScopes(): Promise<{
-  data: ToolScopeDefinition[];
-  error: string | null;
-}> {
-  return fetchCatalogue(
-    ApiRoute.agentTypes.toolScopes(),
-    (b) => (b as { data?: ToolScopeDefinition[] }).data ?? [],
     [],
   );
 }
