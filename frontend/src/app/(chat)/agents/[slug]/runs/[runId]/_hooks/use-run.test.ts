@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '@orbit/test-utils/msw/server';
@@ -208,5 +208,232 @@ describe('useRun — server event envelope', () => {
       FakeEventSource.instances[0].emit('run_state', { at, payload: { state: 'idle' } });
     });
     expect(result.current.runState).toBe('idle');
+  });
+});
+
+describe('useRun — activity, delivery and stops', () => {
+  const at = '2026-09-29T01:02:03Z';
+  let messagesStatus = 202;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    messagesStatus = 202;
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    server.use(
+      http.get('/api/agents/runs/:runId', () =>
+        HttpResponse.json({
+          data: { state: 'active' },
+          agent_type: { name: 'Test', model_id: 'm' },
+        }),
+      ),
+      http.get('/api/agents/runs/:runId/usage', () =>
+        HttpResponse.json({ run_id: 'run-1', spend_usd: 0, total_tokens: 0 }),
+      ),
+      http.post('/api/agents/runs/:runId/messages', () =>
+        messagesStatus === 202
+          ? new HttpResponse(null, { status: 202 })
+          : HttpResponse.json(
+              { message: 'run is not accepting messages' },
+              { status: messagesStatus },
+            ),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function start() {
+    const hook = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const es = FakeEventSource.instances[0];
+    const emit = (type: string, payload: unknown) =>
+      act(() => {
+        es.emit(type, { at, payload });
+      });
+    act(() => es.open());
+    emit('run_state', { state: 'active' });
+    return { ...hook, emit };
+  }
+
+  const lastHuman = (turns: ReturnType<typeof useRun>['turns']) =>
+    turns.filter((t) => t.type === 'human').at(-1);
+
+  it('shows a mid-turn message queued until the agent acts after a tool boundary', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Bash', input: { command: 'sleep 8' } });
+    await act(async () => {
+      result.current.addHumanMessage('stop after this');
+      await Promise.resolve();
+    });
+    expect(lastHuman(result.current.turns)).toMatchObject({ delivery: 'queued' });
+
+    emit('tool_progress', { tool_use_id: 't1', elapsed_seconds: 5 });
+    expect(lastHuman(result.current.turns)).toMatchObject({ delivery: 'queued' });
+    emit('tool_result', { tool_use_id: 't1', content: '', is_error: false });
+    expect(lastHuman(result.current.turns)).toMatchObject({ delivery: 'queued' });
+    emit('text_delta', { delta: 'Stopping here.' });
+    expect(lastHuman(result.current.turns)).toMatchObject({ delivery: 'delivered' });
+  });
+
+  it('places a mid-turn message after what the agent already said, without repeating it', async () => {
+    const { result, emit } = await start();
+    emit('text_delta', { delta: 'Working on it. ' });
+    await act(async () => {
+      result.current.addHumanMessage('also do X');
+    });
+    emit('text_delta', { delta: 'Done.' });
+    emit('message_complete', { text: 'Working on it. Done.' });
+    const shape = result.current.turns.map((t) =>
+      t.type === 'agent'
+        ? t.elements.map((el) => (el.kind === 'text' ? el.content : el.kind))
+        : t.type,
+    );
+    expect(shape).toEqual([['Working on it. '], 'human', ['Done.']]);
+  });
+
+  it('clears the pending loader and ends running calls when a turn fails', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Bash', input: {} });
+    await act(async () => {
+      result.current.addHumanMessage('hurry');
+    });
+    emit('run_error', { code: 'agent_error', message: 'API Error: 500' });
+    expect(result.current.isPending).toBe(false);
+    const agent = result.current.turns.find((t) => t.type === 'agent');
+    expect(agent?.type === 'agent' && agent.elements[0]).toMatchObject({
+      tool: { id: 't1', status: 'stopped' },
+    });
+  });
+
+  it('on replay, places a message sent mid-turn after the calls made before it', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Bash', input: { command: 'sleep 8' } });
+    emit('human_message', { content: 'stop after this' });
+    emit('tool_result', { tool_use_id: 't1', content: '' });
+    emit('message_complete', { text: 'DONE-EARLY' });
+    expect(result.current.turns.map((t) => t.type)).toEqual(['agent', 'human', 'agent']);
+    const first = result.current.turns[0];
+    expect(first.type === 'agent' && first.elements[0]).toMatchObject({
+      tool: { id: 't1', status: 'done' },
+    });
+  });
+
+  it('surfaces a send the server refused', async () => {
+    messagesStatus = 409;
+    const { result } = await start();
+    await act(async () => {
+      result.current.addHumanMessage('hello');
+    });
+    await waitFor(() =>
+      expect(lastHuman(result.current.turns)).toMatchObject({
+        delivery: 'failed',
+        error: 'run is not accepting messages',
+      }),
+    );
+  });
+
+  it('keeps the partial text of a stopped turn with a stop marker', async () => {
+    const { result, emit } = await start();
+    emit('text_delta', { delta: 'Half an ans' });
+    emit('message_complete', { text: 'Half an ans', interrupted: true });
+    emit('turn_stopped', { reason: 'user' });
+    const turn = result.current.turns.at(-1);
+    expect(turn).toMatchObject({
+      type: 'agent',
+      elements: [{ kind: 'text', content: 'Half an ans' }, { kind: 'stopped' }],
+    });
+  });
+
+  it('reports what the agent is doing on the status line', async () => {
+    const { result, emit } = await start();
+    emit('sandbox_status', { phase: 'provisioning', elapsed_ms: 0 });
+    expect(result.current.liveActivity?.kind).toBe('sandbox');
+    emit('sandbox_status', { phase: 'egress_ready', elapsed_ms: 20000 });
+    emit('api_retry', { attempt: 3, max_retries: 10, error: 'server_error' });
+    expect(result.current.liveActivity).toMatchObject({
+      kind: 'retry',
+      attempt: 3,
+      maxRetries: 10,
+    });
+    emit('tool_use', { id: 't1', name: 'Bash', input: { command: 'go test ./...' } });
+    expect(result.current.liveActivity).toMatchObject({ kind: 'tool', tool: { id: 't1' } });
+  });
+
+  it('shows guardrail notices and a lost sandbox inside the turn', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Monitor', input: {} });
+    emit('guardrail_warning', { kind: 'wait_rearm', count: 6, tool: 'Monitor' });
+    emit('run_error', { code: 'sandbox_lost', message: 'pod gone' });
+    const turn = result.current.turns.at(-1);
+    expect(turn?.type === 'agent' && turn.elements.slice(1)).toEqual([
+      {
+        kind: 'notice',
+        message:
+          'Orbit asked the agent to change approach: Monitor re-armed 6 times with no new output.',
+      },
+      expect.objectContaining({ kind: 'notice', tone: 'error' }),
+    ]);
+    expect(result.current.runState).toBe('active');
+
+    emit('run_error', { code: 'loop_detected', message: 'paused' });
+    expect(result.current.turns.at(-1)).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('Reply to continue'),
+      detail: 'paused',
+    });
+  });
+
+  it('keeps the running call on the status line after a mid-turn message', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Bash', input: { command: 'sleep 8' } });
+    await act(async () => {
+      result.current.addHumanMessage('then stop');
+    });
+    expect(result.current.liveActivity).toMatchObject({ kind: 'tool', tool: { id: 't1' } });
+  });
+
+  it('keeps the running call on the status line after several mid-turn messages', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'Bash', input: { command: 'sleep 60' } });
+    for (const m of ['one', 'two', 'three']) {
+      await act(async () => {
+        result.current.addHumanMessage(m);
+      });
+    }
+    expect(result.current.liveActivity).toMatchObject({ kind: 'tool', tool: { id: 't1' } });
+  });
+
+  it('nests a subagent call under its Agent call after a mid-turn message split the turn', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 'a1', name: 'Agent', input: {} });
+    await act(async () => {
+      result.current.addHumanMessage('meanwhile');
+    });
+    emit('text_delta', { delta: 'Noted.' });
+    emit('tool_use', { id: 'c1', name: 'Bash', input: {}, parent_tool_use_id: 'a1' });
+    const first = result.current.turns[0];
+    expect(
+      first.type === 'agent' && first.elements.map((e) => e.kind === 'tool' && e.tool.id),
+    ).toEqual(['a1', 'c1']);
+  });
+
+  it('attaches a subagent call to its Agent call and records durations from server time', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 'a1', name: 'Agent', input: {} });
+    emit('tool_use', { id: 'c1', name: 'Bash', input: {}, parent_tool_use_id: 'a1' });
+    const turn = result.current.turns.at(-1);
+    expect(turn?.type === 'agent' && turn.elements[1]).toMatchObject({
+      kind: 'tool',
+      tool: { id: 'c1', parentId: 'a1', startedAt: Date.parse(at) },
+    });
   });
 });

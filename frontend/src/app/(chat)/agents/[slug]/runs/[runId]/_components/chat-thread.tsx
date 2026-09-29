@@ -17,6 +17,7 @@ import { Button, Icon, Stack, Text, OrbitalLoader } from '@orbit/terra';
 import { useRunContext } from '../_context/run-context';
 import { HumanTurnItem } from './human-turn';
 import { AgentTurnItem } from './agent-turn';
+import { StatusLine } from './status-line';
 import type { ErrorTurn } from '../_types';
 
 const AT_BOTTOM_THRESHOLD = 80; // px from bottom considered "at bottom"
@@ -35,9 +36,16 @@ function ErrorTurnItem({ turn }: { turn: ErrorTurn }) {
         border: '1px solid color-mix(in oklch, var(--color-status-error) 30%, transparent)',
       }}
     >
-      <Text style={{ fontSize: 14, color: 'var(--color-status-error)', lineHeight: 1.5, flex: 1 }}>
-        {turn.message}
-      </Text>
+      <Stack style={{ flex: 1, gap: 2, minWidth: 0 }}>
+        <Text style={{ fontSize: 14, color: 'var(--color-status-error)', lineHeight: 1.5 }}>
+          {turn.message}
+        </Text>
+        {turn.detail && (
+          <Text size="supporting" color="muted" style={{ overflowWrap: 'anywhere' }}>
+            {turn.detail}
+          </Text>
+        )}
+      </Stack>
       <Text as="span" style={{ fontSize: 12, color: 'var(--color-border)', flexShrink: 0 }}>
         {turn.timestamp}
       </Text>
@@ -46,7 +54,7 @@ function ErrorTurnItem({ turn }: { turn: ErrorTurn }) {
 }
 
 export function ChatThread() {
-  const { turns, isStreaming, isPending, isBusy } = useRunContext();
+  const { turns, isStreaming, isPending, isBusy, liveActivity } = useRunContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   // true when user has scrolled up — suppresses programmatic scroll
@@ -176,11 +184,15 @@ export function ChatThread() {
             );
           })}
 
-          {/* Pending/busy indicator: shown while waiting for the agent to start responding */}
-          {(isPending || isBusy) && !isStreaming && (
-            <Stack style={{ padding: '16px 20px' }}>
-              <OrbitalLoader size="md" />
-            </Stack>
+          {/* Status line: what the agent is doing while nothing visible streams */}
+          {liveActivity ? (
+            <StatusLine activity={liveActivity} />
+          ) : (
+            isPending && (
+              <Stack style={{ padding: '16px 20px' }}>
+                <OrbitalLoader size="md" />
+              </Stack>
+            )
           )}
         </Stack>
       </Stack>
