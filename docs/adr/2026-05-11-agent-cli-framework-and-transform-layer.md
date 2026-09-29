@@ -38,8 +38,7 @@ claude \
   --include-partial-messages \
   --dangerously-skip-permissions \
   --no-session-persistence \
-  --bare \
-  --disallowedTools WebSearch,WebFetch,AskUserQuestion
+  --disallowedTools WebSearch,WebFetch,AskUserQuestion,PushNotification,DesignSync
 ```
 
 | Flag | Purpose |
@@ -51,14 +50,14 @@ claude \
 | `--include-partial-messages` | Emit `stream_event` deltas as they arrive (token-level text streaming) |
 | `--dangerously-skip-permissions` | Bypass interactive permission dialogs (required in unattended container) |
 | `--no-session-persistence` | Do not write session files to the working directory |
-| `--bare` | Minimal mode: no CLAUDE.md discovery, no OAuth/keychain reads, no auto-memory, no hooks |
+| `--bare` | Minimal mode: no CLAUDE.md discovery, no OAuth/keychain reads, no auto-memory, no hooks. Off in containers (`claude.bare: false`) because it also caps the built-in tools at `Bash`, `Read` and `Edit` |
 | `--disallowedTools` | Remove the built-in tools that cannot work in a headless Orbit run (see Tool Restriction) |
 
 ### Critical Operational Notes
 
 **`--verbose` is required:** `--output-format stream-json` silently malfunctions without `--verbose`. This combination must be re-tested on every Claude Code version upgrade.
 
-**`--bare` is the container default:** `--bare` disables OAuth and keychain reads. Containers authenticate via `ANTHROPIC_API_KEY` env var. Local development uses `bare: false` (set via `config/local.yaml`) so developers can authenticate with OAuth instead.
+**`--bare` is off:** `--bare` disables OAuth and keychain reads, but it also caps the built-in tools at `Bash`, `Read` and `Edit`, so the session-manager runs with `claude.bare: false` in `config/base.yaml`. Containers authenticate via the `ANTHROPIC_API_KEY` env var either way.
 
 **`--dangerously-skip-permissions` refuses root:** The flag checks `process.getuid() === 0` and exits if running as root. The session-manager container runs as a non-root system user (`orbit`, UID 100).
 
@@ -308,7 +307,7 @@ Returns `202 Accepted` immediately. The actual response arrives as events in `ru
 ### Negative
 
 - `--verbose` is a required but undocumented peer of `--output-format stream-json` — brittle to Claude Code version changes; must be explicitly tested on each upgrade
-- `--bare` mode disables OAuth; containers require `ANTHROPIC_API_KEY` and Envoy JWT injection
+- Containers run without `--bare` and authenticate with `ANTHROPIC_API_KEY` and Envoy JWT injection
 - `--dangerously-skip-permissions` refuses root — image must run as a non-root user
 - `$SHELL` must be set explicitly in Alpine containers or Bash tool calls fail silently
 - Tool execution happens inside the subprocess — the session-manager cannot intercept tool calls for audit beyond what appears in the event stream

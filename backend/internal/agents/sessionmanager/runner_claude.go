@@ -75,7 +75,7 @@ type ClaudeRunnerConfig struct {
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
 //	       [--resume ID] [--bare] [--model M]
-//	       --disallowedTools WebSearch,WebFetch,AskUserQuestion [--append-system-prompt P]
+//	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
@@ -694,12 +694,14 @@ func isExitKilled(err error) bool {
 		strings.Contains(s, "context canceled")
 }
 
-// claudeExcludedTools are the Claude Code built-ins that cannot work in a headless Orbit run.
+// claudeExcludedTools are the Claude Code built-ins that cannot work headless or would reach the network outside the sandbox.
 // Every agent gets all other built-in tools; this list is platform policy, not agent configuration.
 var claudeExcludedTools = []string{
-	"WebSearch",       // Anthropic server-side tool, not served through the inference gateway.
-	"WebFetch",        // fetches from the session-manager container, outside the sandbox's egress policy.
-	"AskUserQuestion", // auto-rejected in headless stream-json mode: nobody can answer it.
+	"WebSearch",        // Anthropic server-side tool, not served through the inference gateway.
+	"WebFetch",         // fetches from the session-manager container, outside the sandbox's egress policy.
+	"AskUserQuestion",  // auto-rejected in headless stream-json mode: nobody can answer it.
+	"PushNotification", // calls Anthropic's hosted service from the session-manager container, outside the egress policy.
+	"DesignSync",       // calls Claude Design from the session-manager container, outside the egress policy.
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────

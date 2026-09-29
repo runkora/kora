@@ -202,6 +202,8 @@ Touches *What can it access?* The change removes a setting that never reached po
 | `WebSearch` | An Anthropic server-side tool, not served through the inference gateway |
 | `WebFetch` | It fetches from the session-manager container, not the sandbox, so its requests bypass the agent's egress policy |
 | `AskUserQuestion` | Auto-rejected in headless stream-json mode: no one can answer it |
+| `PushNotification` | It calls Anthropic's hosted notification service from the session-manager container, outside the agent's egress policy |
+| `DesignSync` | It calls Claude Design from the session-manager container, outside the agent's egress policy |
 
 - Codex and OpenCode runs are unchanged: neither runner restricted tools.
 - `api.DecodeJSON` does not reject unknown fields, so a REST client that still sends `tool_scopes` on create or update has it ignored. The Orbit MCP `agents.create` and `agents.update` schemas reject unknown properties, so an MCP caller that still passes `tool_scopes` gets a validation error. Responses no longer carry the field. `GET /api/v1/agent-types/tool-scopes` now matches `GET /api/v1/agent-types/{id}` and returns 404.

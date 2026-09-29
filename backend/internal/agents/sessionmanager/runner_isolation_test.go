@@ -51,7 +51,7 @@ func TestBuildFlags_ExcludedTools(t *testing.T) {
 	if i < 0 || i+1 >= len(flags) {
 		t.Fatalf("buildFlags() missing --disallowedTools value; got %v", flags)
 	}
-	if got, want := flags[i+1], "WebSearch,WebFetch,AskUserQuestion"; got != want {
+	if got, want := flags[i+1], "WebSearch,WebFetch,AskUserQuestion,PushNotification,DesignSync"; got != want {
 		t.Errorf("--disallowedTools = %q, want %q", got, want)
 	}
 }
