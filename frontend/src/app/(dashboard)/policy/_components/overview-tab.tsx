@@ -14,6 +14,7 @@ import {
   Heading,
   Separator,
   Stack,
+  StatCard,
   Text,
   TableRoot,
   Table,
@@ -25,7 +26,6 @@ import {
   Icon,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { MetricCard } from '@orbit/components';
 import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';
 import type {
@@ -114,41 +114,41 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
 
       {/* KPI Cards */}
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
-        <MetricCard
-          icon={<Icon name="shield-check" />}
+        <StatCard
+          icon={<Icon name="shield-check" size="xs" />}
           label="Grants"
           value={stats.grants.total}
-          href={APP_ROUTES.policy.grants}
+          footer={<Link href={APP_ROUTES.policy.grants}>View all →</Link>}
           breakdown={Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
             label: type,
             value: count,
           }))}
         />
-        <MetricCard
-          icon={<Icon name="user-check" />}
+        <StatCard
+          icon={<Icon name="user-check" size="xs" />}
           label="Roles"
           value={stats.roles.total}
-          href={APP_ROUTES.policy.roles}
+          footer={<Link href={APP_ROUTES.policy.roles}>View all →</Link>}
           breakdown={[
             { label: 'Reserved', value: stats.roles.reserved },
             { label: 'Custom', value: stats.roles.custom },
           ]}
         />
-        <MetricCard
-          icon={<Icon name="library" />}
+        <StatCard
+          icon={<Icon name="library" size="xs" />}
           label="Vocabulary"
           value={stats.vocabulary.total}
-          href={APP_ROUTES.policy.vocabulary}
+          footer={<Link href={APP_ROUTES.policy.vocabulary}>View all →</Link>}
           breakdown={Object.entries(stats.vocabulary.by_resource_type).map(([type, count]) => ({
             label: type,
             value: count,
           }))}
         />
-        <MetricCard
-          icon={<Icon name="route" />}
+        <StatCard
+          icon={<Icon name="route" size="xs" />}
           label="Routes"
           value={totalRouteCount}
-          href={APP_ROUTES.policy.routes}
+          footer={<Link href={APP_ROUTES.policy.routes}>View all →</Link>}
           breakdown={[
             { label: 'Services', value: serviceCount },
             { label: 'Endpoints', value: totalRouteCount },

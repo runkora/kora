@@ -1,10 +1,9 @@
-/**
- * @tier 2 — App-level shared. Cross-feature; used by model-gateway, policy, and all future
- * dashboard sections that need a zero-state placeholder.
- * @promote-to-tier-1 if: domain knowledge is removed and a second non-dashboard Orbit surface needs it.
- */
-import { Card, CardContent, Heading, Icon, Stack, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+import { Card, CardContent } from '../card';
+import { Icon } from '../icon';
+import type { IconName } from '../icon';
+import { Stack } from '../layout';
+import { Heading, Text } from '../typography';
 
 export interface EmptyStateProps {
   icon: IconName;
@@ -13,6 +12,7 @@ export interface EmptyStateProps {
   action?: React.ReactNode;
 }
 
+/** Placeholder for a list or page with nothing in it yet: icon, title, description, optional action. */
 export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
     <Card column>

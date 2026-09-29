@@ -11,10 +11,12 @@ import {
   PageSectionHeader,
   Progress,
   Stack,
+  StatCard,
   Text,
+  EmptyState,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { ClampedList, EmptyState, MetricCard, StatusBadge } from '@orbit/components';
+import { ClampedList, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
@@ -230,22 +232,22 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       <TenantCapCard cap={principals?.tenant_cap ?? null} />
 
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
-        <MetricCard
-          icon={<Icon name="dollar-sign" />}
+        <StatCard
+          icon={<Icon name="dollar-sign" size="xs" />}
           label="Period spend"
           value={fmtUsd(kpis.periodSpend)}
         />
-        <MetricCard
-          icon={<Icon name="users" />}
+        <StatCard
+          icon={<Icon name="users" size="xs" />}
           label="Budgeted principals"
           value={kpis.budgeted}
         />
-        <MetricCard
-          icon={<Icon name="triangle-alert" />}
+        <StatCard
+          icon={<Icon name="triangle-alert" size="xs" />}
           label="Near limit"
           value={kpis.nearLimit}
         />
-        <MetricCard icon={<Icon name="circle-x" />} label="Blocked" value={kpis.blocked} />
+        <StatCard icon={<Icon name="circle-x" size="xs" />} label="Blocked" value={kpis.blocked} />
       </Grid>
 
       <Callout>

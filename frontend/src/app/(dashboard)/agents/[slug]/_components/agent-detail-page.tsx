@@ -17,9 +17,10 @@ import {
   TabsList,
   TabsTrigger,
   Text,
+  EmptyState,
 } from '@orbit/terra';
 import Link from 'next/link';
-import { EmptyState, StatusBadge } from '@orbit/components';
+import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';

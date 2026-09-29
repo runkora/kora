@@ -4,12 +4,19 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
 import { Stack } from '@orbit/terra';
 import type { ConnectionCatalogEntry, Connector } from '@orbit/shared/api';
+import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
 import { ConnectionCards } from './connection-cards';
 
+/**
+ * ConnectionCards
+ *
+ * Grant an agent actions on each connection, one collapsible card per connection. Some connections can also narrow the grant to chosen resources, such as repositories.
+ */
 const meta: Meta<typeof ConnectionCards> = {
-  title: 'App/Shared/ConnectionCards',
+  title: 'App/Organisms/ConnectionCards',
   component: ConnectionCards,
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 export default meta;
 type Story = StoryObj<typeof ConnectionCards>;
@@ -48,59 +55,64 @@ function Controlled({
   );
 }
 
-export const Default: Story = {
-  render: () => <Controlled />,
-};
-
-export const PartiallyGranted: Story = {
+export const Overview: Story = {
   render: () => (
-    <Controlled initialValue={[{ connection: 'github', actions: ['contents:read'] }]} />
+    <Stack maxWidth="prose">
+      <Example title="Agent connections">
+        <Controlled
+          initialValue={[{ connection: 'github', actions: ['contents:read', 'issues:read'] }]}
+        />
+      </Example>
+    </Stack>
   ),
 };
 
-export const FullyGranted: Story = {
+export const Options: Story = {
   render: () => (
-    <Controlled
-      initialValue={[
-        {
-          connection: 'github',
-          actions: ['contents:read', 'contents:write', 'issues:read', 'issues:write'],
-        },
-        { connection: 'slack', actions: ['chat:write', 'channels:read', 'users:read'] },
-      ]}
-    />
+    <Stack maxWidth="wide">
+      <OptionTable title="Options">
+        <Option name="none granted" use="Every card starts empty. Open one to pick actions.">
+          <Controlled />
+        </Option>
+        <Option
+          name="partly granted"
+          use="Some actions chosen. The card checkbox shows a partial state."
+        >
+          <Controlled initialValue={[{ connection: 'github', actions: ['contents:read'] }]} />
+        </Option>
+        <Option name="fully granted" use="Every action chosen. The card checkbox is checked.">
+          <Controlled
+            initialValue={[
+              { connection: 'slack', actions: ['chat:write', 'channels:read', 'users:read'] },
+            ]}
+          />
+        </Option>
+        <Option
+          name="all resources"
+          use="A connection that supports resource scoping, with no resources chosen. Open the card to see the scope block and the baseline row."
+        >
+          <Controlled
+            initialValue={[{ connection: 'github', actions: ['issues:read', 'issues:write'] }]}
+          />
+        </Option>
+        <Option
+          name="selected resources"
+          use="Resources chosen. Action rows show the narrowed scope and the header shows the count."
+        >
+          <Controlled
+            initialValue={[
+              {
+                connection: 'github',
+                actions: ['contents:read', 'issues:write'],
+                resources: ['webapp', 'orbit'],
+              },
+            ]}
+          />
+        </Option>
+        <Option name="available: []" use="No connections exist yet, so the empty state shows.">
+          <Controlled available={[]} />
+        </Option>
+      </OptionTable>
+    </Stack>
   ),
-};
-
-/** Qualifier-capable connection granted with no resource narrowing, the
- * "All repositories" default. Expand the card to see the resource scope block
- * and the implied baseline row. */
-export const AllResources: Story = {
-  render: () => (
-    <Controlled
-      initialValue={[{ connection: 'github', actions: ['issues:read', 'issues:write'] }]}
-    />
-  ),
-};
-
-/** Resources selected on an attachment: action rows preview the qualified scope
- * form, and the header summary gains the repository count. */
-export const SelectedResources: Story = {
-  render: () => (
-    <Controlled
-      initialValue={[
-        {
-          connection: 'github',
-          actions: ['contents:read', 'issues:write'],
-          resources: ['webapp', 'orbit'],
-        },
-      ]}
-    />
-  ),
-};
-
-export const NoConnections: Story = {
-  render: () => {
-    return <ConnectionCards available={[]} value={[]} onChange={() => {}} />;
-  },
 };

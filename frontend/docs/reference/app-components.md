@@ -6,34 +6,6 @@ Before writing any UI boilerplate, check this list. If a component already cover
 
 ---
 
-## EmptyState
-
-**Import:** `import { EmptyState } from '@orbit/components'`
-
-**When to use:** Any section that can have zero items and needs a centred placeholder with an icon, title, description, and an optional CTA button.
-
-**When not to use:** Full-page error states (use `Alert variant="error"` from `@orbit/terra`); loading skeletons (use Terra `Skeleton`).
-
-```tsx
-interface EmptyStateProps {
-  icon: IconName;
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}
-```
-
-```tsx
-<EmptyState
-  icon="key"
-  title="No API keys yet"
-  description="Create a key to start making requests to the inference gateway."
-  action={<Button size="sm">Create your first key</Button>}
-/>
-```
-
----
-
 ## StatusBadge
 
 **Import:** `import { StatusBadge } from '@orbit/components'`
@@ -52,81 +24,6 @@ interface StatusBadgeProps {
 ```tsx
 <StatusBadge status="healthy" />
 <StatusBadge status="degraded" label="Bundle stale" />
-```
-
----
-
-## ConfirmDialog
-
-**Import:** `import { ConfirmDialog } from '@orbit/components'`
-
-**When to use:** Any destructive action that requires user confirmation: delete, revoke, reset. Composes `Modal` from Terra internally.
-
-**When not to use:** Non-destructive confirmations where a simple button pair suffices; use a standard inline form instead.
-
-```tsx
-interface ConfirmDialogProps {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  confirming?: boolean;
-  error?: string | null;
-  children?: React.ReactNode; // extra body content below description
-}
-```
-
-```tsx
-<ConfirmDialog
-  open={!!deleteTarget}
-  title="Delete Role"
-  description={`Remove "${deleteTarget?.role}" and all its scope mappings? This cannot be undone.`}
-  confirmLabel="Delete"
-  confirming={isDeleting}
-  error={deleteError}
-  onConfirm={() => void handleDelete(deleteTarget.role)}
-  onClose={() => setDeleteTarget(null)}
-/>
-```
-
----
-
-## MetricCard
-
-**Import:** `import { MetricCard } from '@orbit/components'`
-
-**When to use:** Any KPI/metric display in an overview or dashboard: icon + label + value + optional delta + optional breakdown rows + optional "View all" link.
-
-```tsx
-interface MetricCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  delta?: { text: string; positive: boolean; positiveIsBad?: boolean };
-  breakdown?: Array<{ label: string; value: string | number }>;
-  href?: string; // renders "View all →" footer link
-}
-```
-
-```tsx
-// Metric with delta
-<MetricCard
-  icon={<Icon name="activity" />}
-  label="Total Requests"
-  value={fmtNumCompact(requests.total)}
-  delta={{ text: '▲ 3.2% vs last 7 days', positive: true }}
-/>
-
-// Metric with breakdown and footer link (policy-style)
-<MetricCard
-  icon={<Icon name="shield-check" />}
-  label="Grants"
-  value={stats.grants.total}
-  href={APP_ROUTES.policy.grants}
-  breakdown={[{ label: 'Human', value: 12 }, { label: 'Agent', value: 34 }]}
-/>
 ```
 
 ---

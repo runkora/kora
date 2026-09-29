@@ -4,8 +4,7 @@
 
 import { useState } from 'react';
 import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, SidebarLayout, Stack, Text } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/terra';
 import {
   MCP_CLIENTS,
   buildMcpConfig,

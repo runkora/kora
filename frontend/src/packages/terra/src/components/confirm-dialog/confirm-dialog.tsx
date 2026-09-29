@@ -1,20 +1,9 @@
-/**
- * @tier 2 — App-level shared. Cross-feature; encodes the Orbit destructive-action
- * confirmation pattern: warning text, optional inline body content, cancel + destructive button.
- * Used by policy (grants, roles), model-gateway (tokens), and any future destructive flow.
- * @promote-to-tier-1 if: destructive-action semantics and error display are removed and it
- * becomes a generic confirmation dialog.
- */
-import {
-  Alert,
-  Button,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  Stack,
-  Text,
-} from '@orbit/terra';
+/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+import { Alert } from '../alert';
+import { Button } from '../button';
+import { Stack } from '../layout';
+import { Modal, ModalBody, ModalFooter, ModalHeader } from '../modal';
+import { Text } from '../typography';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -31,6 +20,7 @@ export interface ConfirmDialogProps {
   children?: React.ReactNode;
 }
 
+/** Modal that asks the user to confirm an action that cannot be undone. */
 export function ConfirmDialog({
   open,
   onClose,

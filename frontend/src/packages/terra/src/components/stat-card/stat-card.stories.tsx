@@ -53,6 +53,32 @@ export const Overview: Story = {
           />
         </Grid>
       </Example>
+      <Example title="With a change, a breakdown and a link">
+        <Grid cols={3} gap="snug">
+          <StatCard
+            label="Total requests"
+            value="4.8K"
+            delta={{ text: '▲ 18.2% vs last 7 days', positive: true }}
+            icon={<Icon name="activity" size="xs" />}
+          />
+          <StatCard
+            label="Error rate"
+            value="2.1%"
+            delta={{ text: '▲ 0.4 points', positive: true, positiveIsBad: true }}
+            icon={<Icon name="circle-x" size="xs" />}
+          />
+          <StatCard
+            label="Roles"
+            value={5}
+            breakdown={[
+              { label: 'Reserved', value: 3 },
+              { label: 'Custom', value: 2 },
+            ]}
+            footer={<a href="#roles">View all →</a>}
+            icon={<Icon name="user-check" size="xs" />}
+          />
+        </Grid>
+      </Example>
     </div>
   ),
 };
@@ -61,7 +87,10 @@ export const Options: Story = {
   render: () => (
     <div className="max-w-5xl">
       <OptionTable title="Options">
-        <Option name="label, value" use="The two required parts. The value uses a monospaced font.">
+        <Option
+          name="label, value"
+          use="The two required parts. The label can be any casing and shows in capitals. The value takes a string or a number and uses a monospaced font."
+        >
           <div className="w-56">
             <StatCard label="Connected providers" value="3" />
           </div>
@@ -78,6 +107,48 @@ export const Options: Story = {
               value="112"
               detail="drains in about 4 minutes"
               icon={<Icon name="clock" size="xs" />}
+            />
+          </div>
+        </Option>
+        <Option
+          name="delta"
+          use="A change indicator under the value, green when positive and amber when not. Add positiveIsBad when a rise is bad news."
+        >
+          <div className="w-56">
+            <StatCard
+              label="Total requests"
+              value="4.8K"
+              delta={{ text: '▲ 18.2% vs last 7 days', positive: true }}
+              icon={<Icon name="activity" size="xs" />}
+            />
+          </div>
+        </Option>
+        <Option
+          name="breakdown"
+          use="Label and value rows under a divider, for a figure made of parts."
+        >
+          <div className="w-56">
+            <StatCard
+              label="Roles"
+              value={5}
+              breakdown={[
+                { label: 'Reserved', value: 3 },
+                { label: 'Custom', value: 2 },
+              ]}
+              icon={<Icon name="user-check" size="xs" />}
+            />
+          </div>
+        </Option>
+        <Option
+          name="footer"
+          use="A slot at the bottom right for a link, so the page supplies its own router link."
+        >
+          <div className="w-56">
+            <StatCard
+              label="Grants"
+              value={42}
+              footer={<a href="#grants">View all →</a>}
+              icon={<Icon name="shield-check" size="xs" />}
             />
           </div>
         </Option>

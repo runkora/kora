@@ -26,6 +26,8 @@ import {
   Toggle,
   ToggleRow,
   PageSectionHeader,
+  EmptyState,
+  ConfirmDialog,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
@@ -53,9 +55,7 @@ import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
-import { ScopeTreePicker } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
-import { ConfirmDialog } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
 import { ViewToggle } from './view-toggle';
@@ -858,7 +858,7 @@ function CreateGrantModal({
                 ({selectedScopes.length} selected)
               </Text>
             </Stack>
-            <ScopeTreePicker
+            <ScopePicker
               scopes={availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}

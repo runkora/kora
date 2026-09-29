@@ -4,6 +4,7 @@
  * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
 
 import {
+  CopyButton,
   FormField,
   Grid,
   Icon,
@@ -16,7 +17,6 @@ import {
   FieldRow,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { CopyButton } from '@orbit/components';
 import {
   describeMatchCondition,
   matchConditionFrom,

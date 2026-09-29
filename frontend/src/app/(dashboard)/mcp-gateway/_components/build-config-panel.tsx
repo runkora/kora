@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import {
+  CopyButton,
   Button,
   Eyebrow,
   Grid,
@@ -17,7 +18,6 @@ import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
-import { CopyButton } from '@orbit/components';
 
 // Terra caption/micro variants are leading-none; the spec composed these labels
 // on the default 1.5 line box. `lineHeight` is kept inline where the line box

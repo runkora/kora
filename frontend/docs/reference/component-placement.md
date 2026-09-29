@@ -15,10 +15,10 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 | Tier  | Name             | Filesystem path                                       | Import path                             | Storybook title prefix                                                  |
 | ----- | ---------------- | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
 | **1** | Terra            | `frontend/src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'`      | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
-| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Shared/`                                                           |
+| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
-> **`App/Shared/` is a Storybook `title` field value: a sidebar path, not a filesystem directory.** Setting `title: 'App/Shared/MetricCard'` in a story file's meta places it under `App → Shared → MetricCard` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
+> **`App/Atoms/` and its siblings are Storybook `title` field values: sidebar paths, not filesystem directories.** Setting `title: 'App/Atoms/StatusBadge'` in a story file's meta places it under `App → Atoms → StatusBadge` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
 
 ---
 
@@ -26,13 +26,15 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 
 The `title` field in a story's `meta` object sets its position in the Storybook sidebar. These are sidebar hierarchy strings, not filesystem paths.
 
-| Tier               | Story title prefix | Example                              |
-| ------------------ | ------------------ | ------------------------------------ |
-| Tier 1: atoms      | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`          |
-| Tier 1: molecules  | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`     |
-| Tier 1: layout     | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`        |
-| Tier 1: organisms  | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'` |
-| Tier 2: app shared | `App/Shared/`      | `title: 'App/Shared/StatusBadge'`    |
+| Tier              | Story title prefix | Example                                  |
+| ----------------- | ------------------ | ---------------------------------------- |
+| Tier 1: atoms     | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`              |
+| Tier 1: molecules | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`         |
+| Tier 1: layout    | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`            |
+| Tier 1: organisms | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'`     |
+| Tier 2: atoms     | `App/Atoms/`       | `title: 'App/Atoms/StatusBadge'`         |
+| Tier 2: molecules | `App/Molecules/`   | `title: 'App/Molecules/ScopePicker'`     |
+| Tier 2: organisms | `App/Organisms/`   | `title: 'App/Organisms/ConnectionCards'` |
 
 ### Choosing atom, molecule or organism
 
@@ -225,12 +227,9 @@ Tier 2 components live at `frontend/src/components/` and are exported from `fron
 
 | Component           | Description                                                                                                                                                                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EmptyState`        | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`.                                                                                                      |
 | `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
 | `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                |
 | `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                             |
-| `ConfirmDialog`     | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`.                                                                |
-| `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.           |
 | `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>`, wrap in `<ul className="divide-y">`. |
 | `ThemeToggle`       | Light/dark theme switch. Calls `setTheme(...)` from `next-themes`; renders sun/dark and moon/light buttons. No props. See [Theming](./terra-design-system.md#theming-light--dark).                                                                      |
 
@@ -240,10 +239,10 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 
 ## Related Documents
 
-| Document                                                                                                                      | What it covers                                                                          |
-| ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained            |
-| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
-| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)                      |
-| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                           |
-| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names                   |
+| Document                                                                                                                      | What it covers                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained |
+| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: StatusBadge, EventFeedItem, ThemeToggle                |
+| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)           |
+| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                |
+| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names        |

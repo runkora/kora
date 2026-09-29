@@ -18,11 +18,13 @@ import {
   SegmentedControl,
   Separator,
   Stack,
+  StatCard,
   Text,
+  EmptyState,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import Link from 'next/link';
-import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
+import { StatusBadge } from '@orbit/components';
 import { fmtTokens, fmtUsd } from '@orbit/utils';
 import type { AgentTypeUsage } from '@orbit/shared/api';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -301,15 +303,31 @@ export function AgentsPage() {
 
       {/* Metric cards */}
       <Grid cols={{ base: 2, sm: 3, lg: 5 }} gap="comfortable">
-        <MetricCard icon={<Icon name="bot" />} label="Active Agents" value={activeAgentCount} />
-        <MetricCard icon={<Icon name="activity" />} label="Active Runs" value={activeRunCount} />
-        <MetricCard
-          icon={<Icon name="check-circle" />}
+        <StatCard
+          icon={<Icon name="bot" size="xs" />}
+          label="Active Agents"
+          value={activeAgentCount}
+        />
+        <StatCard
+          icon={<Icon name="activity" size="xs" />}
+          label="Active Runs"
+          value={activeRunCount}
+        />
+        <StatCard
+          icon={<Icon name="check-circle" size="xs" />}
           label="Completed Runs"
           value={completedTodayCount}
         />
-        <MetricCard icon={<Icon name="zap" />} label="Tokens Used" value={totalTokensUsed} />
-        <MetricCard icon={<Icon name="dollar-sign" />} label="Total Cost (7d)" value={totalCost} />
+        <StatCard
+          icon={<Icon name="zap" size="xs" />}
+          label="Tokens Used"
+          value={totalTokensUsed}
+        />
+        <StatCard
+          icon={<Icon name="dollar-sign" size="xs" />}
+          label="Total Cost (7d)"
+          value={totalCost}
+        />
       </Grid>
 
       {/* Section header */}

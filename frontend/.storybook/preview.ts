@@ -73,7 +73,7 @@ const preview: Preview = {
             'Organisms',
           ],
           'App',
-          ['Shared', 'Runs'],
+          ['Atoms', 'Molecules', 'Organisms', 'Runs'],
         ],
       },
     },

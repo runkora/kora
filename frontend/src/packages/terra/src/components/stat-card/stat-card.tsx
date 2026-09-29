@@ -17,6 +17,7 @@ const toneVariants = cva('', {
     tone: {
       default: '',
       error: 'text-status-error',
+      degraded: 'text-status-degraded',
       healthy: 'text-status-healthy',
     },
   },
@@ -33,18 +34,41 @@ export type StatCardTone = NonNullable<VariantProps<typeof toneVariants>['tone']
  */
 const VALUE_CLASSES = 'font-mono font-bold text-[25px] tracking-[-0.02em] text-foreground';
 
+/** A change indicator under the value. `positiveIsBad` inverts the colour for figures where up is worse. */
+export interface StatCardDelta {
+  text: string;
+  positive: boolean;
+  positiveIsBad?: boolean;
+}
+
+export interface StatCardBreakdownItem {
+  label: string;
+  value: string | number;
+}
+
+/** Healthy when the change is good news, degraded when it is not. */
+function deltaTone(delta: StatCardDelta): StatCardTone {
+  return delta.positive !== Boolean(delta.positiveIsBad) ? 'healthy' : 'degraded';
+}
+
 export interface StatCardProps
   extends
     Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>,
     VariantProps<typeof toneVariants> {
-  /** Short all-caps label, e.g. "ACTIVE TRIGGERS". Rendered in tracked small caps. */
+  /** Short label in any casing, e.g. "Active triggers". Rendered uppercase in tracked small caps. */
   label: string;
   /** The headline figure. Monospaced so a column of cards aligns digit-for-digit. */
-  value: string;
+  value: string | number;
   /** Supporting line under the value: a comparison, a breakdown, or a caveat. */
   detail?: string;
   /** Tone for the detail line alone, when it carries the signal rather than the value. */
   detailTone?: StatCardTone;
+  /** Change indicator under the value, coloured by `positive`. Renders below `detail` if both are set. */
+  delta?: StatCardDelta;
+  /** Small label and value rows under a divider, for a figure split into parts. */
+  breakdown?: StatCardBreakdownItem[];
+  /** Bottom-right slot for a link such as "View all". The caller supplies the link so Terra stays router-free. */
+  footer?: React.ReactNode;
   /** Icon rendered top-right, e.g. `<Icon name="activity" size="xs" />`. */
   icon?: React.ReactNode;
 }
@@ -56,9 +80,9 @@ export interface StatCardProps
  * line. Built for a row of four or five reporting one system's health, where
  * the figures must be comparable at a glance.
  *
- * Distinct from the app-level `MetricCard`, which carries a delta indicator, an
- * optional breakdown table and a "view all" link. This one is deliberately
- * flatter: in a five-across row those affordances stop being scannable.
+ * Optional `delta`, `breakdown` and `footer` cover overview cards that need a
+ * change indicator, a split of the figure or a link to the full view. Leave
+ * them off in a five-across row, where the flat form scans best.
  *
  * ```tsx
  * <StatCard label="SUCCESS RATE" value="98.9%" detail="2,387 ok · 27 failed"
@@ -66,7 +90,22 @@ export interface StatCardProps
  * ```
  */
 const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
-  ({ label, value, detail, detailTone = 'default', icon, tone, className, ...props }, ref) => (
+  (
+    {
+      label,
+      value,
+      detail,
+      detailTone = 'default',
+      delta,
+      breakdown,
+      footer,
+      icon,
+      tone,
+      className,
+      ...props
+    },
+    ref,
+  ) => (
     <div
       ref={ref}
       data-slot="stat-card"
@@ -86,6 +125,26 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
       {detail != null && (
         <div className={cn('mt-1 text-[11px] text-subtle', toneVariants({ tone: detailTone }))}>
           {detail}
+        </div>
+      )}
+      {delta != null && (
+        <div className={cn('mt-1 text-[11px]', toneVariants({ tone: deltaTone(delta) }))}>
+          {delta.text}
+        </div>
+      )}
+      {breakdown != null && breakdown.length > 0 && (
+        <dl className="mt-3 space-y-1 border-t border-border-subtle pt-3 text-[11px]">
+          {breakdown.map((item) => (
+            <div key={item.label} className="flex items-center justify-between gap-2">
+              <dt className="text-muted">{item.label}</dt>
+              <dd className="font-medium text-foreground">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {footer != null && (
+        <div className="mt-3 flex justify-end text-[11px] text-subtle [&_a]:transition-colors [&_a:hover]:text-foreground">
+          {footer}
         </div>
       )}
     </div>

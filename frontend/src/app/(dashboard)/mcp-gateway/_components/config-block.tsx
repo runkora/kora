@@ -1,8 +1,7 @@
 /** @tier 3 — mcp-gateway-scoped. Syntax-coloured config block (JSON or CLI) with copy. */
 'use client';
 
-import { Icon, Stack, Text } from '@orbit/terra';
-import { CopyButton } from '@orbit/components';
+import { CopyButton, Icon, Stack, Text } from '@orbit/terra';
 
 // Token colours follow the design spec.
 const TONE = {

@@ -4,11 +4,19 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, DataTable, SegmentedControl, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  DataTable,
+  SegmentedControl,
+  Stack,
+  Text,
+  ConfirmDialog,
+  EmptyState,
+} from '@orbit/terra';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
+import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';

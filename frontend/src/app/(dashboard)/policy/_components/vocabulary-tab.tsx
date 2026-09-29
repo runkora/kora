@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  CopyButton,
   Callout,
   Alert,
   Badge,
@@ -20,11 +21,10 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  EmptyState,
 } from '@orbit/terra';
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
-import { CopyButton } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 
 interface VocabularyTabProps {

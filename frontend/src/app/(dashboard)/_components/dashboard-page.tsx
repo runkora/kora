@@ -16,6 +16,7 @@ import {
   List,
   Progress,
   Stack,
+  StatCard,
   Table,
   TableBody,
   TableCell,
@@ -26,7 +27,6 @@ import {
   Text,
 } from '@orbit/terra';
 import { StatusBadge } from '@orbit/components';
-import { MetricCard } from '@orbit/components';
 import { EventFeedItem } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 
@@ -167,59 +167,33 @@ export function DashboardPage({
 
         {/* ── Inventory stat cards ── */}
         <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
-          <MetricCard
-            icon={
-              <Icon name="bot" size="sm" container containerVariant="surface-subtle" aria-hidden />
-            }
+          <StatCard
+            icon={<Icon name="bot" size="xs" aria-hidden />}
             label="Agent Types"
             value={String(agentTypes.length)}
             delta={{ text: 'registered', positive: true }}
-            href={APP_ROUTES.agents.list}
+            footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
           />
-          <MetricCard
-            icon={
-              <Icon
-                name="activity"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
+          <StatCard
+            icon={<Icon name="activity" size="xs" aria-hidden />}
             label="Active Runs"
             value={String(activeRunCount)}
             delta={{ text: `${runs.length} total`, positive: activeRunCount > 0 }}
-            href={APP_ROUTES.agents.list}
+            footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
           />
-          <MetricCard
-            icon={
-              <Icon
-                name="network"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
+          <StatCard
+            icon={<Icon name="network" size="xs" aria-hidden />}
             label="Connections"
             value={String(connections.length)}
             delta={{ text: 'configured', positive: true }}
-            href={APP_ROUTES.connections}
+            footer={<Link href={APP_ROUTES.connections}>View all →</Link>}
           />
-          <MetricCard
-            icon={
-              <Icon
-                name="layers"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
+          <StatCard
+            icon={<Icon name="layers" size="xs" aria-hidden />}
             label="Environments"
             value={String(environments.length)}
             delta={{ text: 'configured', positive: true }}
-            href={APP_ROUTES.environments}
+            footer={<Link href={APP_ROUTES.environments}>View all →</Link>}
           />
         </Grid>
 

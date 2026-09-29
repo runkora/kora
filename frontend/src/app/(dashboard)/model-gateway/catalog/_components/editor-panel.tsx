@@ -20,8 +20,8 @@ import {
   Text,
   Toggle,
   Icon,
+  ConfirmDialog,
 } from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';

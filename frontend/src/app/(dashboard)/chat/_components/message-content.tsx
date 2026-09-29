@@ -7,8 +7,7 @@
  */
 'use client';
 
-import { Code, Stack, Text } from '@orbit/terra';
-import { CopyButton } from '@orbit/components';
+import { CopyButton, Code, Stack, Text } from '@orbit/terra';
 
 export interface MessageContentProps {
   content: string;

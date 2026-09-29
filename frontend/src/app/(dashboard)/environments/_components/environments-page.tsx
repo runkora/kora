@@ -13,10 +13,12 @@ import {
   Icon,
   Stack,
   Text,
+  ConfirmDialog,
+  EmptyState,
   TruncatingBadge,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { ClampedList, ConfirmDialog, EmptyState } from '@orbit/components';
+import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentFormModal } from './environment-form-modal';

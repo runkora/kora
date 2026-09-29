@@ -15,8 +15,8 @@ import {
   Input,
   Stack,
   Text,
+  EmptyState,
 } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';

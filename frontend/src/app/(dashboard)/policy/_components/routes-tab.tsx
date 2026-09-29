@@ -5,6 +5,7 @@ import {
   Alert,
   Callout,
   DataTable,
+  EmptyState,
   Heading,
   Icon,
   Stack,
@@ -14,7 +15,6 @@ import {
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip, scopeColumnFilter } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {
   initialRegistrations: RouteRegistration[];

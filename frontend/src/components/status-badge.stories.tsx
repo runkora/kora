@@ -1,31 +1,65 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { StatusBadge, type OrbitStatus } from './status-badge';
+import { Stack } from '@orbit/terra';
+import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
+import { StatusBadge } from './status-badge';
 
+/**
+ * StatusBadge
+ *
+ * A small badge with a coloured dot that shows the health of an agent or resource. Use it wherever
+ * a status needs to be readable at a glance.
+ */
 const meta: Meta<typeof StatusBadge> = {
-  title: 'App/Shared/StatusBadge',
+  title: 'App/Atoms/StatusBadge',
   component: StatusBadge,
   tags: ['autodocs'],
-  argTypes: {
-    status: {
-      control: 'select',
-      options: [
-        'healthy',
-        'degraded',
-        'error',
-        'idle',
-        'pending',
-        'unknown',
-      ] satisfies OrbitStatus[],
-    },
-  },
+  parameters: { layout: 'padded' },
 };
 export default meta;
 type Story = StoryObj<typeof StatusBadge>;
 
-export const Default: Story = { args: { status: 'healthy' } };
-export const Degraded: Story = { args: { status: 'degraded' } };
-export const Error: Story = { args: { status: 'error' } };
-export const Idle: Story = { args: { status: 'idle' } };
-export const Pending: Story = { args: { status: 'pending' } };
-export const Unknown: Story = { args: { status: 'unknown' } };
-export const WithLabel: Story = { args: { status: 'degraded', label: 'Bundle stale' } };
+export const Overview: Story = {
+  render: () => (
+    <Stack maxWidth="prose">
+      <Example title="Agent health">
+        <Stack direction="horizontal" gap="snug" align="center">
+          <StatusBadge status="healthy" />
+          <StatusBadge status="degraded" />
+          <StatusBadge status="error" />
+        </Stack>
+      </Example>
+    </Stack>
+  ),
+};
+
+export const Options: Story = {
+  render: () => (
+    <Stack maxWidth="wide">
+      <OptionTable title="status">
+        <Option name="healthy" use="Working as expected.">
+          <StatusBadge status="healthy" />
+        </Option>
+        <Option name="degraded" use="Working, but slower or partly failing.">
+          <StatusBadge status="degraded" />
+        </Option>
+        <Option name="error" use="Not working and needs attention.">
+          <StatusBadge status="error" />
+        </Option>
+        <Option name="idle" use="Running with nothing to do.">
+          <StatusBadge status="idle" />
+        </Option>
+        <Option name="pending" use="Waiting to start or to be approved.">
+          <StatusBadge status="pending" />
+        </Option>
+        <Option name="unknown" use="No status has been reported yet. Shown muted.">
+          <StatusBadge status="unknown" />
+        </Option>
+      </OptionTable>
+      <OptionTable title="label">
+        <Option name="label" use="Replaces the default text when the status needs a specific word.">
+          <StatusBadge status="healthy" label="Running" />
+        </Option>
+      </OptionTable>
+    </Stack>
+  ),
+};

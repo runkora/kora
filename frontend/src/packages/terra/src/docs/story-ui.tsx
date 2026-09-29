@@ -64,7 +64,7 @@ export function OptionTable({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-2">
+    <section className="w-full max-w-5xl space-y-2">
       <div>
         <Heading variant="label" asChild>
           <h2>{title}</h2>

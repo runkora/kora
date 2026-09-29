@@ -168,8 +168,12 @@ export { DangerZone, dangerZoneVariants } from './components/danger-zone';
 export type { DangerZoneProps } from './components/danger-zone';
 
 export { StatCard } from './components/stat-card';
-export type { StatCardProps } from './components/stat-card';
+export type { StatCardProps, StatCardDelta, StatCardBreakdownItem } from './components/stat-card';
 
+export { CopyButton } from './components/copy-button';
+export type { CopyButtonProps } from './components/copy-button';
+export { CopyField } from './components/copy-field';
+export type { CopyFieldProps } from './components/copy-field';
 export { SegmentedControl } from './components/segmented-control';
 export type { SegmentedControlProps, SegmentedControlOption } from './components/segmented-control';
 
@@ -346,6 +350,12 @@ export type {
 export { BottomSheet } from './components/bottom-sheet';
 export type { BottomSheetProps } from './components/bottom-sheet';
 
+export { EmptyState } from './components/empty-state';
+export type { EmptyStateProps } from './components/empty-state';
+
+export { ConfirmDialog } from './components/confirm-dialog';
+export type { ConfirmDialogProps } from './components/confirm-dialog';
+
 export {
   TableRoot,
   Table,
@@ -391,3 +401,5 @@ export type {
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
 export { useDialog } from './hooks/use-dialog';
+export { useCopy } from './hooks/use-copy';
+export type { CopyStatus } from './hooks/use-copy';
