@@ -166,13 +166,30 @@ export const Options: Story = {
   ),
 };
 
+/** The list plus two pattern families, which need a name to complete them. */
+const CATALOG_WITH_PATTERNS: TemplateCatalogEntry[] = [
+  ...GITHUB_CATALOG,
+  {
+    token: 'group.labels.<name>',
+    description: 'Any label on the event, by name',
+    pattern: true,
+    group: 'Labels',
+  },
+  {
+    token: 'group.annotations.<name>',
+    description: 'Any annotation on the event, by name',
+    pattern: true,
+    group: 'Labels',
+  },
+];
+
 /** Shows the token `onSelect` receives. */
 function CatalogListDemo() {
   const [chosen, setChosen] = React.useState('');
   return (
     <div className="flex flex-col gap-2">
       <TemplateCatalogList
-        catalog={LONG_CATALOG}
+        catalog={CATALOG_WITH_PATTERNS}
         onSelect={(token) => setChosen(token)}
         searchPlaceholder="Search events…"
         selectablePatterns
