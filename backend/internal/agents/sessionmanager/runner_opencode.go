@@ -728,6 +728,11 @@ func (r *OpenCodeRunner) handleToolCall(id, title, status string, rawInput, rawO
 	}
 	if !c.recorded {
 		c.recorded, c.progressAt = true, time.Now()
+		if r.textBuf.Len() > 0 {
+			// Text written before a call is kept in order, as the Claude runner does.
+			r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+			r.textBuf.Reset()
+		}
 		if len(rawInput) == 0 {
 			rawInput = json.RawMessage(`{}`)
 		}

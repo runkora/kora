@@ -713,13 +713,27 @@ type codexItem struct {
 	Query             string                               `json:"query"`
 }
 
+// codexShellWrap matches Codex's command line for a shell call: the configured
+// shell run with -lc and the agent's command as one quoted argument.
+var codexShellWrap = regexp.MustCompile(`^\S+ -lc '(.*)'$`)
+
+// unwrapShell returns the command the agent asked for, without the shell Codex
+// wraps it in; anything else is returned as it is.
+func unwrapShell(command string) string {
+	m := codexShellWrap.FindStringSubmatch(command)
+	if m == nil {
+		return command
+	}
+	return strings.ReplaceAll(m[1], `'\''`, `'`)
+}
+
 // codexToolCall names a tool item and gives its own arguments as the recorded
 // input, in the same shape every runner records: what the tool was asked to do.
 // ok is false for items that are not tool calls (messages, reasoning, plans).
 func codexToolCall(it codexItem) (name string, input any, ok bool) {
 	switch it.Type {
 	case "commandExecution":
-		return "commandExecution", map[string]string{"command": it.Command, "cwd": it.Cwd}, true
+		return "commandExecution", map[string]string{"command": unwrapShell(it.Command), "cwd": it.Cwd}, true
 	case "fileChange":
 		return "fileChange", map[string]json.RawMessage{"changes": it.Changes}, true
 	case "mcpToolCall":
@@ -746,6 +760,11 @@ func (r *CodexRunner) handleItemStarted(params json.RawMessage, parent string) {
 		return
 	}
 	r.rememberChildThreads(p.Item)
+	if parent == "" && r.textBuf.Len() > 0 {
+		// Text written before a call is kept in order, as the Claude runner does.
+		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+		r.textBuf.Reset()
+	}
 	now := time.Now()
 	r.activeItems[p.Item.ID] = &codexActiveItem{name: name, parent: parent, startedAt: now, progressAt: now}
 	raw, _ := json.Marshal(input)
@@ -859,6 +878,10 @@ func codexItemResult(it codexItem, streamed string) (string, bool) {
 			if s.Message != nil {
 				parts = append(parts, *s.Message)
 			}
+		}
+		if len(parts) == 0 && len(it.ReceiverThreadIDs) > 0 {
+			// A spawn answers before the subagent does; its result is the thread it started.
+			return "Started subagent thread " + strings.Join(it.ReceiverThreadIDs, ", "), failed
 		}
 		return strings.Join(parts, "\n"), failed
 	}

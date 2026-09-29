@@ -367,3 +367,50 @@ func startedSleep(t *testing.T) *exec.Cmd {
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	return cmd
 }
+
+func TestCodex_UnwrapShell(t *testing.T) {
+	tests := map[string]string{
+		`/opt/orbit/shell/bash -lc 'echo a'`:             "echo a",
+		`/bin/bash -lc 'ls /usr | wc -l'`:                "ls /usr | wc -l",
+		`/bin/bash -lc 'echo '\''quoted'\'''`:            "echo 'quoted'",
+		`git status`:                                     "git status",
+		`/bin/bash -c 'not the login form we recognise'`: `/bin/bash -c 'not the login form we recognise'`,
+	}
+	for in, want := range tests {
+		if got := unwrapShell(in); got != want {
+			t.Errorf("unwrapShell(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Text the agent wrote before a call is recorded before the call, in every
+// runner, so replay keeps prose and calls in order.
+func TestRunnerParity_TextBeforeACallIsKeptInOrder(t *testing.T) {
+	codex := newTestCodexRunner()
+	codex.threadID.Store("thr-main")
+	for _, m := range []codexMsg{
+		{Method: "item/agentMessage/delta", Params: mustMarshal(map[string]any{"threadId": "thr-main", "delta": "Checking."})},
+		{Method: "item/started", Params: mustMarshal(map[string]any{"threadId": "thr-main", "item": map[string]any{"type": "commandExecution", "id": "t1", "command": "ls"}})},
+	} {
+		codex.handleNotification(context.Background(), m)
+	}
+	oc := newTestOpenCodeRunner()
+	for _, u := range []map[string]any{
+		{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "Checking."}},
+		{"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "bash", "status": "pending"},
+		{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress", "rawInput": map[string]string{"command": "ls"}},
+	} {
+		oc.handleSessionUpdate(context.Background(), makeSessionUpdateParams(u))
+	}
+	for name, ch := range map[string]<-chan Event{"codex": codex.events, "opencode": oc.events} {
+		evs := drainAvailable(ch)
+		want := []EventType{EventTypeTextDelta, EventTypeTextBlock, EventTypeToolUse}
+		if got := eventTypes(evs); !slices.Equal(got, want) {
+			t.Errorf("%s events = %v, want %v", name, got, want)
+			continue
+		}
+		if b := decode[TextBlockPayload](t, evs[1]); b.Content != "Checking." {
+			t.Errorf("%s text_block = %q", name, b.Content)
+		}
+	}
+}
