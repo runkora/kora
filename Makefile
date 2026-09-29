@@ -485,8 +485,8 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers migrate operator \
-	session-manager sandbox-mount sandbox-base
+	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers skills-service migrate operator \
+	session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived kora-system workload that `cluster-update` rolls

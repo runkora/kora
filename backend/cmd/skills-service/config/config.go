@@ -4,6 +4,7 @@ package skillsconfig
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -74,10 +75,11 @@ func (c *Config) CacheTTL() time.Duration {
 // must be present at boot; missing values return an error so the readiness
 // probe fails fast rather than surfacing a 5xx on the first user request.
 func (c *Config) ApplyEnvOverrides() error {
-	c.Marketplace.SourcesConfigPath = os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
-	if c.Marketplace.SourcesConfigPath == "" {
+	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
+	if dir == "" {
 		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
+	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "marketplace-sources.json")
 
 	if v := os.Getenv("MARKETPLACE_CACHE_TTL"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -88,19 +90,8 @@ func (c *Config) ApplyEnvOverrides() error {
 	}
 
 	c.GitHub.AppID = os.Getenv("GITHUB_APP_ID")
-	if c.GitHub.AppID == "" {
-		return fmt.Errorf("GITHUB_APP_ID environment variable is required")
-	}
-
 	c.GitHub.InstallationID = os.Getenv("GITHUB_APP_INSTALLATION_ID")
-	if c.GitHub.InstallationID == "" {
-		return fmt.Errorf("GITHUB_APP_INSTALLATION_ID environment variable is required")
-	}
-
 	c.GitHub.PrivateKeyPath = os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH")
-	if c.GitHub.PrivateKeyPath == "" {
-		return fmt.Errorf("GITHUB_APP_PRIVATE_KEY_PATH environment variable is required")
-	}
 
 	return nil
 }

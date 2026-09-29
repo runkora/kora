@@ -18,9 +18,15 @@ import (
 // several events in quick succession.
 const reloadDebounce = 200 * time.Millisecond
 
-// sourcesFile is the wire shape of marketplace-sources.json.
-type sourcesFile struct {
+// tenantSources is the per-tenant subtree inside marketplace-sources.json.
+type tenantSources struct {
 	Sources []MarketplaceSource `json:"sources"`
+}
+
+// sourcesFile is the wire shape of marketplace-sources.json.
+// Keys are tenant IDs; individual source entries carry no tenantId field.
+type sourcesFile struct {
+	Tenants map[string]tenantSources `json:"tenants"`
 }
 
 // Registry is the in-memory, hot-reloadable view of marketplace-sources.json.
@@ -30,7 +36,7 @@ type Registry struct {
 	logger logging.Logger
 
 	mu      sync.RWMutex
-	sources []MarketplaceSource
+	sources map[string][]MarketplaceSource // key: tenantID
 }
 
 // NewRegistry constructs a Registry for the given file path and reads the
@@ -44,28 +50,38 @@ func NewRegistry(path string, logger logging.Logger) (*Registry, error) {
 		return nil, err
 	}
 	r.sources = sources
+	total := 0
+	for _, ss := range sources {
+		total += len(ss)
+	}
 	logger.Info(context.Background(), "marketplace registry loaded",
 		logging.Field{Key: "path", Value: path},
-		logging.Field{Key: "sources", Value: len(sources)},
+		logging.Field{Key: "tenants", Value: len(sources)},
+		logging.Field{Key: "sources", Value: total},
 	)
 	return r, nil
 }
 
-// ListSources returns a copy of the current marketplace source list.
-func (r *Registry) ListSources() []MarketplaceSource {
+// ListSources returns a copy of the marketplace source list for tenantID.
+// Returns an empty slice if the tenant has no declared marketplaces.
+func (r *Registry) ListSources(tenantID string) []MarketplaceSource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]MarketplaceSource, len(r.sources))
-	copy(out, r.sources)
+	ss := r.sources[tenantID]
+	if len(ss) == 0 {
+		return []MarketplaceSource{}
+	}
+	out := make([]MarketplaceSource, len(ss))
+	copy(out, ss)
 	return out
 }
 
-// FindByName returns the MarketplaceSource whose Name field matches name
-// exactly (case-sensitive). Returns false if no match.
-func (r *Registry) FindByName(name string) (MarketplaceSource, bool) {
+// FindByName returns the MarketplaceSource for tenantID whose Name field
+// matches name exactly (case-sensitive). Returns false if no match.
+func (r *Registry) FindByName(tenantID, name string) (MarketplaceSource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, s := range r.sources {
+	for _, s := range r.sources[tenantID] {
 		if s.Name == name {
 			return s, true
 		}
@@ -149,21 +165,27 @@ func (r *Registry) reload(ctx context.Context) {
 		return
 	}
 
+	total := 0
+	for _, ss := range sources {
+		total += len(ss)
+	}
+
 	r.mu.Lock()
 	r.sources = sources
 	r.mu.Unlock()
 
 	r.logger.Info(ctx, "marketplace registry reloaded",
-		logging.Field{Key: "sources", Value: len(sources)})
+		logging.Field{Key: "tenants", Value: len(sources)},
+		logging.Field{Key: "sources", Value: total})
 }
 
 // loadSources reads and parses marketplace-sources.json. An absent file
-// returns an empty slice (not an error).
-func loadSources(path string) ([]MarketplaceSource, error) {
+// returns an empty map (not an error).
+func loadSources(path string) (map[string][]MarketplaceSource, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []MarketplaceSource{}, nil
+			return map[string][]MarketplaceSource{}, nil
 		}
 		return nil, err
 	}
@@ -172,10 +194,15 @@ func loadSources(path string) ([]MarketplaceSource, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, err
 	}
-	if f.Sources == nil {
-		return []MarketplaceSource{}, nil
+	out := make(map[string][]MarketplaceSource, len(f.Tenants))
+	for tenantID, ts := range f.Tenants {
+		if ts.Sources == nil {
+			out[tenantID] = []MarketplaceSource{}
+		} else {
+			out[tenantID] = ts.Sources
+		}
 	}
-	return f.Sources, nil
+	return out, nil
 }
 
 // isRelevantEvent reports whether an fsnotify event should trigger a reload:

@@ -2,6 +2,7 @@ package skillsconfig_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,9 +15,6 @@ import (
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("ORBIT_MARKETPLACE_SOURCES_CONFIG", "/tmp")
-	t.Setenv("GITHUB_APP_ID", "12345")
-	t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/key.pem")
 }
 
 func TestConfigLoadsFromBaseYAML(t *testing.T) {
@@ -43,6 +41,9 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 
 func TestApplyEnvOverridesPopulatesGitHubCredentials(t *testing.T) {
 	setRequiredEnv(t)
+	t.Setenv("GITHUB_APP_ID", "12345")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/key.pem")
 
 	var c sc.Config
 	if err := c.ApplyEnvOverrides(); err != nil {
@@ -58,8 +59,8 @@ func TestApplyEnvOverridesPopulatesGitHubCredentials(t *testing.T) {
 	if c.GitHub.PrivateKeyPath != "/tmp/key.pem" {
 		t.Errorf("PrivateKeyPath: got %q, want %q", c.GitHub.PrivateKeyPath, "/tmp/key.pem")
 	}
-	if c.Marketplace.SourcesConfigPath != "/tmp" {
-		t.Errorf("SourcesConfigPath: got %q, want %q", c.Marketplace.SourcesConfigPath, "/tmp")
+	if c.Marketplace.SourcesConfigPath != "/tmp/marketplace-sources.json" {
+		t.Errorf("SourcesConfigPath: got %q, want %q", c.Marketplace.SourcesConfigPath, "/tmp/marketplace-sources.json")
 	}
 }
 
@@ -94,9 +95,6 @@ func TestApplyEnvOverridesRequiredVars(t *testing.T) {
 		wantErr string
 	}{
 		{"missing sources config path", "ORBIT_MARKETPLACE_SOURCES_CONFIG", "ORBIT_MARKETPLACE_SOURCES_CONFIG"},
-		{"missing github app id", "GITHUB_APP_ID", "GITHUB_APP_ID"},
-		{"missing github installation id", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_INSTALLATION_ID"},
-		{"missing github private key path", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_PRIVATE_KEY_PATH"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,18 +106,9 @@ func TestApplyEnvOverridesRequiredVars(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error when %s is unset", tc.unset)
 			}
-			if !contains(err.Error(), tc.wantErr) {
+			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("error %q should mention %q", err.Error(), tc.wantErr)
 			}
 		})
 	}
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

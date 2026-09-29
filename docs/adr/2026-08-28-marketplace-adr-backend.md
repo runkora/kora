@@ -167,7 +167,7 @@ type SkillFile struct {
 ### Slug Format
 
 ```
-slug = "{marketplace-name}/{repo}/{skill-name}"
+slug = "{marketplace-name}/{skill-name}"
 ```
 
 Example: `clear-route-skills/react-expert`

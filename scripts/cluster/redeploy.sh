@@ -199,6 +199,18 @@ workload=deployment/kora-triggers
 restart=true
 EOF
       ;;
+    skills-service)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=skills-service
+image=orbit-skills-service
+values_key=skillsService
+namespace=orbit-system
+workload=deployment/orbit-skills-service
+restart=true
+EOF
+      ;;
     tool-gateway)
       # The publisher runs the same kora-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
@@ -301,21 +313,21 @@ list_services() {
   cat <<'EOF'
 identity            (deployment, kora-system, +mkcert CA layer)
 identity-proxy      (sidecar; restart by deleting injected pods)
-inference-gateway   (deployment, kora-system)
-policy-service      (deployment, kora-system)
-policy-gateway      (deployment, kora-system)
-egress-gateway      (deployment, kora-system)
-agents              (deployment, kora-system)
-frontend            (deployment, kora-system)
-kora-mcp            (deployment, kora-system)
-tool-gateway        (deployment, kora-system; also rolls the publisher)
-kora-triggers       (deployment, kora-system)
-migrate             (hook Job; re-applies the kora release so the schema migration runs)
-operator            (deployment, kora-system)
-example             (deployment, kora-tenant-<TENANT>)
-session-manager     (statefulset, kora-tenant-<TENANT>; --slug to override workload name)
-sandbox-mount       (node agent DaemonSet; re-applies the kora release)
-sandbox-base        (build-only; picked up by next sandbox)
+inference-gateway   (deployment, orbit-system)
+policy-service      (deployment, orbit-system)
+policy-gateway      (deployment, orbit-system)
+egress-gateway      (deployment, orbit-system)
+agents              (deployment, orbit-system)
+frontend            (deployment, orbit-system)
+orbit-mcp           (deployment, orbit-system)
+tool-gateway        (deployment, orbit-system; also rolls the publisher)
+orbit-triggers      (deployment, orbit-system)
+skills-service      (deployment, orbit-system)
+migrate             (hook Job; re-applies the orbit release so the schema migration runs)
+operator            (deployment, orbit-system)
+example             (deployment, orbit-tenant-<TENANT>)
+session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
+sandbox-exec        (build-only; picked up by next agent run)
 EOF
 }
 
