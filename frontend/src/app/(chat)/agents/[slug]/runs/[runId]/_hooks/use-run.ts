@@ -266,6 +266,16 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       setInProgressTurn(null);
     }
 
+    // Time of the event being handled, from the server's envelope. Turns take
+    // their timestamp from it so a reload shows when things happened.
+    let eventTime = '';
+    function read<T>(e: MessageEvent): T | null {
+      const parsed = parseEnvelope<T>(e.data);
+      if (!parsed) return null;
+      eventTime = parsed.time;
+      return parsed.payload;
+    }
+
     function ensureInProgress(): AgentTurn {
       if (!inProgressRef.current) {
         // First event for this agent turn — clear the "pending" gap indicator.
@@ -273,7 +283,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         const turn: AgentTurn = {
           type: 'agent',
           id: `a-${Date.now()}`,
-          timestamp: new Date().toTimeString().slice(0, 8),
+          timestamp: eventTime,
           elements: [],
         };
         inProgressRef.current = { turn, thinkingContent: '', hasSeenTextDelta: false };
@@ -303,7 +313,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     }
 
     es.addEventListener('text_delta', (e: MessageEvent) => {
-      const payload = safeParse<TextDeltaPayload>(e.data);
+      const payload = read<TextDeltaPayload>(e);
       if (!payload) return;
       ensureInProgress();
       if (inProgressRef.current) inProgressRef.current.hasSeenTextDelta = true;
@@ -320,7 +330,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('text_block', (e: MessageEvent) => {
-      const payload = safeParse<{ content: string }>(e.data);
+      const payload = read<{ content: string }>(e);
       if (!payload?.content) return;
       ensureInProgress();
       updateInProgress(
@@ -333,7 +343,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('thinking_delta', (e: MessageEvent) => {
-      const payload = safeParse<ThinkingDeltaPayload>(e.data);
+      const payload = read<ThinkingDeltaPayload>(e);
       if (!payload) return;
       ensureInProgress();
       const newContent = (inProgressRef.current?.thinkingContent ?? '') + payload.delta;
@@ -349,7 +359,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('tool_use', (e: MessageEvent) => {
-      const payload = safeParse<ToolUsePayload>(e.data);
+      const payload = read<ToolUsePayload>(e);
       if (!payload) return;
       ensureInProgress();
       const firstVal = payload.input ? Object.values(payload.input)[0] : '';
@@ -372,7 +382,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('tool_result', (e: MessageEvent) => {
-      const payload = safeParse<ToolResultPayload>(e.data);
+      const payload = read<ToolResultPayload>(e);
       if (!payload) return;
       const resultStr =
         typeof payload.content === 'string'
@@ -403,7 +413,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('message_complete', (e: MessageEvent) => {
-      const payload = safeParse<MessageCompletePayload>(e.data);
+      const payload = read<MessageCompletePayload>(e);
 
       // During replay, text/thinking deltas are not re-sent — only the stored
       // message_complete payload carries the content. Detect replay by checking
@@ -445,7 +455,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('run_state', (e: MessageEvent) => {
-      const payload = safeParse<RunStatePayload>(e.data);
+      const payload = read<RunStatePayload>(e);
       if (!payload?.state) return;
       // Flush any in-progress turn when the run goes idle (e.g. after an interrupt).
       // This ensures the interrupted turn is committed before any follow-up human
@@ -465,40 +475,55 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('human_message', (e: MessageEvent) => {
-      const payload = safeParse<{ content: string }>(e.data);
+      const payload = read<{ content: string }>(e);
       if (!payload?.content) return;
       // Skip if we sent this message ourselves (already optimistically rendered).
       const idx = pendingHumanMessages.current.indexOf(payload.content);
       if (idx !== -1) {
         pendingHumanMessages.current.splice(idx, 1);
+        // The optimistic bubble takes the server's time from its echo.
+        const time = eventTime;
+        setCommittedTurns((prev) => {
+          const at = prev.findIndex(
+            (t) => t.type === 'human' && t.content === payload.content && !t.timestamp,
+          );
+          if (at === -1) return prev;
+          const next = [...prev];
+          next[at] = { ...next[at], timestamp: time } as Turn;
+          return next;
+        });
         return;
       }
+      // Read now: the updater runs at render, after later events have moved eventTime.
+      const time = eventTime;
       setCommittedTurns((prev) => [
         ...prev,
         {
           type: 'human' as const,
           id: `h-${Date.now()}`,
           content: payload.content,
-          timestamp: new Date().toTimeString().slice(0, 8),
+          timestamp: time,
         },
       ]);
     });
 
     es.addEventListener('run_error', (e: MessageEvent) => {
-      const payload = safeParse<RunErrorPayload>(e.data);
+      const payload = read<RunErrorPayload>(e);
       if (!payload) return;
       flushInProgress();
+      const time = eventTime;
       setCommittedTurns((prev) => [
         ...prev,
         {
           type: 'error' as const,
           id: `err-${Date.now()}`,
-          timestamp: new Date().toTimeString().slice(0, 8),
+          timestamp: time,
           code: payload.code,
           message: payload.message,
         },
       ]);
-      setRunState('failed');
+      // Run state comes only from run_state events: most errors end a turn,
+      // not the run, and the backend reports the run's state separately.
     });
 
     return () => {
@@ -557,7 +582,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       type: 'human',
       id: `h-${Date.now()}`,
       content,
-      timestamp: new Date().toTimeString().slice(0, 8),
+      timestamp: '',
     };
     setIsPending(true);
     setCommittedTurns((prev) => [...prev, turn]);
@@ -606,12 +631,27 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function safeParse<T>(data: string): T | null {
+/**
+ * Unwraps an SSE event: `{"at": <RFC 3339>, "payload": <event>}`. `at` is the
+ * server's time for the event; `time` is it as local HH:MM:SS. A bare payload
+ * (an orbit-agents that predates the envelope) parses with an empty time.
+ */
+export function parseEnvelope<T>(data: string): { payload: T; time: string } | null {
+  let parsed: unknown;
   try {
-    return JSON.parse(data) as T;
+    parsed = JSON.parse(data);
   } catch {
     return null;
   }
+  if (parsed && typeof parsed === 'object' && 'at' in parsed && 'payload' in parsed) {
+    const env = parsed as { at: string; payload: T };
+    const at = new Date(env.at);
+    return {
+      payload: env.payload,
+      time: Number.isNaN(at.getTime()) ? '' : at.toTimeString().slice(0, 8),
+    };
+  }
+  return { payload: parsed as T, time: '' };
 }
 
 function deriveToolIcon(name: string): ToolIconName {

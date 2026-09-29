@@ -241,7 +241,7 @@ func TestOpenCodeDispatchResponse_PromptResponseEmitsMessageComplete(t *testing.
 
 	promptID := int64(7)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{
@@ -307,7 +307,7 @@ func TestOpenCodeReadLoop_SingleTurn(t *testing.T) {
 
 	promptID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -343,7 +343,7 @@ func TestOpenCodeReadLoop_ToolCallSequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -376,7 +376,7 @@ func TestOpenCodeReadLoop_ToolCallReplaySequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -454,7 +454,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 
 	turn1ID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn1ID
+	r.pendingPrompts[turn1ID] = true
 	r.pendingMu.Unlock()
 
 	go r.readLoop(t.Context(), pr)
@@ -491,7 +491,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 	// The read loop is now blocked at pr.Read() so setting pendingPromptID is safe.
 	turn2ID := int64(4)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn2ID
+	r.pendingPrompts[turn2ID] = true
 	r.pendingMu.Unlock()
 
 	// Turn 2: delta + prompt response.
@@ -523,7 +523,7 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 
 	promptID := int64(1)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := "not-json\n" +
@@ -838,7 +838,7 @@ func TestOpenCodeDispatchResponse_ErrorEmitsRunError(t *testing.T) {
 	r.stdin = nopWriteCloser{} // dispatchResponse calls r.stdin.Close() on error
 	id := int64(42)
 	r.pendingMu.Lock()
-	r.pendingPromptID = id
+	r.pendingPrompts[id] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{

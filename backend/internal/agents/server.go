@@ -1,10 +1,12 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -676,8 +678,6 @@ func queryInt(r *http.Request, key string, def int) int {
 
 // replays persisted events from run_events (honoring Last-Event-ID), then
 // streams live pushed events until the client disconnects.
-//
-//nolint:gocyclo // SSE handler with replay + dedup + live fanout; splitting into helpers would obscure the protocol flow
 func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -730,7 +730,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 	var lastReplayedSeqNo int64
 	for _, ev := range events {
-		fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.EventType, ev.Payload)
+		writeSSE(w, ev.SequenceNo, ev.EventType, ev.CreatedAt, ev.Payload)
 		if ev.SequenceNo > lastReplayedSeqNo {
 			lastReplayedSeqNo = ev.SequenceNo
 		}
@@ -750,20 +750,25 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 			if ev.SequenceNo > 0 && ev.SequenceNo <= lastReplayedSeqNo {
 				continue
 			}
-			payload := ev.Payload
-			if payload == nil {
-				payload = []byte("{}")
-			}
-			if ev.SequenceNo > 0 {
-				fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.Type, payload)
-			} else {
-				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
-			}
+			writeSSE(w, ev.SequenceNo, ev.Type, ev.At, ev.Payload)
 			flusher.Flush()
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// writeSSE writes one event. data is an envelope: "at" is when orbit-agents
+// recorded the event (or received it, for streaming-only types) and "payload"
+// is the event as stored, so clients never stamp events with their own clock.
+func writeSSE(w io.Writer, seqNo int64, eventType string, at time.Time, payload json.RawMessage) {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		payload = json.RawMessage("{}")
+	}
+	if seqNo > 0 {
+		fmt.Fprintf(w, "id: %d\n", seqNo)
+	}
+	fmt.Fprintf(w, "event: %s\ndata: {\"at\":%q,\"payload\":%s}\n\n", eventType, at.UTC().Format(time.RFC3339Nano), payload)
 }
 
 // handlePushEvent receives an event pushed by a session-manager pod, records the

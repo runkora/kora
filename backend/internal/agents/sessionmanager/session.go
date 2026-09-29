@@ -58,6 +58,11 @@ func egressCanaryCommand(host string) string {
 	return `code=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' https://` + host + `/); case "$code" in 000|502|503|504) exit 1;; esac`
 }
 
+// stopNote prefixes the first message after an interrupt. Without it the
+// resumed model sees only the harness's tool-rejection text and reads the stop
+// as the user refusing its work.
+const stopNote = "[Orbit: the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]\n\n"
+
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExists   = errors.New("session already exists")
@@ -94,6 +99,10 @@ type session struct {
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
+	stoppedByUser    atomic.Bool // true on a session resumed after an interrupt, until the next message carries stopNote
+	// wake tells drain a message was sent, so the idle timer stops before the
+	// turn's first event: a provider retrying for minutes emits no turn activity.
+	wake chan struct{}
 	// sandbox is this run's descriptor, once provisioned. Kept in memory because
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
@@ -144,6 +153,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		runner:       cfg.Runner,
 		cancel:       cancel,
 		done:         make(chan struct{}),
+		wake:         make(chan struct{}, 1),
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
 	}
@@ -159,7 +169,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		return fmt.Errorf("start runner: %w", err)
 	}
 
-	go reg.drain(runCtx, s, cfg)
+	go reg.drain(runCtx, s, cfg, false)
 
 	reg.logger.Info(ctx, "Session created",
 		logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -186,8 +196,20 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if err := s.runner.Send(ctx, text); err != nil {
+	toAgent := text
+	noted := s.stoppedByUser.CompareAndSwap(true, false)
+	if noted {
+		toAgent = stopNote + text
+	}
+	if err := s.runner.Send(ctx, toAgent); err != nil {
+		if noted {
+			s.stoppedByUser.Store(true)
+		}
 		return err
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 	// The first user message is the run's task. Generate its summary once, in the
 	// background, over the agent's own authorized inference path.
@@ -344,15 +366,21 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		)
 	}
 
+	started := time.Now()
+	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
 	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID, ahead)
+	if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
+		// Checked here too, not only in the notifier: half a descriptor would be
+		// written as empty files, which orbit-shell cannot use.
+		err = ErrSandboxIncomplete
+	}
 	if err != nil {
+		// The error names in-cluster addresses; the event is readable by anyone
+		// who can read the run, so it carries a fixed message and the log the rest.
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
 		return "", err
 	}
-	// Checked here too, not only in the notifier: half a descriptor would be
-	// written as empty files, which orbit-shell cannot use.
-	if sandbox.Endpoint == "" || sandbox.ExecToken == "" {
-		return "", ErrSandboxIncomplete
-	}
+	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
 	endpoint := sandbox.Endpoint
 
 	// Gate on egress readiness before handing the endpoint to the agent.
@@ -361,7 +389,13 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	// up to ~60s to fully settle. Returning before they are ready causes the
 	// first git/GitHub calls to land "connection reset by peer" — the exact
 	// failure that triggered orphan-branch PRs in issue #161.
-	if result, canaryErr := reg.awaitEgressReady(ctx, runID, sandbox); result == egressCanaryTimedOut {
+	result, canaryErr := reg.awaitEgressReady(ctx, runID, sandbox)
+	egressPhase, egressNote := SandboxPhaseEgressReady, ""
+	switch result {
+	case egressCanarySkipped:
+		egressPhase, egressNote = SandboxPhaseEgressSkipped, "egress check does not apply to this agent"
+	case egressCanaryTimedOut:
+		egressPhase, egressNote = SandboxPhaseEgressSkipped, "egress check did not pass in time"
 		reg.logger.Warn(ctx, "Egress canary did not pass within timeout — proceeding anyway",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: canaryErr.Error()},
@@ -371,20 +405,44 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		// agent can still run local-only work. The agent will retry git operations
 		// on its own if they fail.
 	}
-
-	if err := os.MkdirAll(sandboxDir, 0o700); err != nil {
-		return "", fmt.Errorf("create sandbox dir: %w", err)
+	if err := writeSandboxDescriptor(sandboxDir, tokenFile, endpointFile, sandbox); err != nil {
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
+		return "", err
 	}
-	// Token first, endpoint last: orbit-shell keys off the endpoint, so it never
-	// sees one whose token is still missing.
-	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
-		return "", fmt.Errorf("write exec token: %w", err)
-	}
-	if err := os.WriteFile(endpointFile, []byte(endpoint), 0o600); err != nil {
-		return "", fmt.Errorf("write endpoint: %w", err)
-	}
+	// Recorded only once the agent can use the sandbox, so the log never ends
+	// on a success phase for a provision that failed.
+	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote)
 	reg.rememberSandbox(runID, sandbox)
 	return endpoint, nil
+}
+
+// writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell
+// keys off the endpoint, so it never sees one whose token is still missing.
+func writeSandboxDescriptor(dir, tokenFile, endpointFile string, sandbox Sandbox) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create sandbox dir: %w", err)
+	}
+	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
+		return fmt.Errorf("write exec token: %w", err)
+	}
+	if err := os.WriteFile(endpointFile, []byte(sandbox.Endpoint), 0o600); err != nil {
+		return fmt.Errorf("write endpoint: %w", err)
+	}
+	return nil
+}
+
+// sandboxStatus reports a provisioning phase to orbit-agents. Best-effort, and
+// detached from ctx so a caller that gave up still leaves the phase recorded.
+func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string) {
+	ev, err := newEvent(EventTypeSandboxStatus, SandboxStatusPayload{
+		Phase:     phase,
+		ElapsedMs: time.Since(started).Milliseconds(),
+		Message:   message,
+	})
+	if err != nil {
+		return
+	}
+	reg.pushEvent(context.WithoutCancel(ctx), runID, ev)
 }
 
 // rememberSandbox records the run's descriptor on its session.
@@ -587,8 +645,10 @@ func endpointAlive(endpoint string) bool {
 // runner cancels it (new turn started). If the timer fires, the session is
 // closed and the run is marked completed.
 //
-// Runs in its own goroutine; ctx is the session-scoped context.
-func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
+// Runs in its own goroutine; ctx is the session-scoped context. startIdle arms
+// the idle timer at once, for a session resumed after an interrupt, whose run
+// the caller has already moved to idle.
+func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, startIdle bool) {
 	defer func() {
 		reg.completeDrain(s, cfg)
 	}()
@@ -596,13 +656,23 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	var idleTimerC <-chan time.Time // nil = no timer armed (blocks in select)
 	var idleTimer *time.Timer
 
-	armIdle := func() {
+	startTimer := func() {
 		if idleTimer != nil {
 			idleTimer.Stop()
 		}
 		idleTimer = time.NewTimer(reg.idleTimeout)
 		idleTimerC = idleTimer.C
 		s.isIdle.Store(true)
+	}
+	if startIdle {
+		startTimer()
+		reg.logger.Info(ctx, "Session idle timer armed",
+			logging.Field{Key: "run_id", Value: cfg.RunID},
+			logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
+		)
+	}
+	armIdle := func() {
+		startTimer()
 		if err := reg.notifier.IdleRun(ctx, cfg.RunID); err != nil {
 			reg.logger.Warn(ctx, "Failed to transition run to idle",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -643,9 +713,10 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 				return
 			}
 
-			if ev.Type == EventTypeMessageStop {
+			switch {
+			case ev.Type == EventTypeMessageStop:
 				armIdle()
-			} else {
+			case !isStatusEvent(ev.Type):
 				disarmIdle()
 			}
 
@@ -655,21 +726,21 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			// this run will be rejected, so idling would strand the run. When
 			// the subprocess exits on its own after a budget error this just
 			// accelerates the same teardown.
-			if ev.Type == EventTypeRunError {
-				var p RunErrorPayload
-				if json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted" {
-					s.budgetExhausted.Store(true)
-					reg.pushEvent(ctx, cfg.RunID, ev)
-					reg.logger.Info(ctx, "Session budget exhausted — closing",
-						logging.Field{Key: "run_id", Value: cfg.RunID},
-					)
-					s.cancel()
-					_ = s.runner.Close()
-					return
-				}
+			if isBudgetExhausted(ev) {
+				s.budgetExhausted.Store(true)
+				reg.pushEvent(ctx, cfg.RunID, ev)
+				reg.logger.Info(ctx, "Session budget exhausted — closing",
+					logging.Field{Key: "run_id", Value: cfg.RunID},
+				)
+				s.cancel()
+				_ = s.runner.Close()
+				return
 			}
 
 			reg.pushEvent(ctx, cfg.RunID, ev)
+
+		case <-s.wake:
+			disarmIdle()
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
@@ -697,6 +768,14 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	// in the gap between removing s and re-registering newS, return ErrSessionNotFound,
 	// and leave the freshly-started runner untracked and never terminated.
 	if s.interruptClose.Load() {
+		// Idle is reported before the resumed session starts: a message it takes
+		// right away must find its activation after this, not before.
+		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
+			reg.logger.Warn(bgCtx, "Failed to idle run after interrupt",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 		resumed := false
 		sessionID := s.runner.SessionID()
 		if sessionID == "" {
@@ -714,8 +793,9 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{})}
+				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 				newS.isIdle.Store(true)
+				newS.stoppedByUser.Store(true)
 				// Swap only if s is still the registered session. If a concurrent
 				// Close() already claimed it, abandon the new runner so it is not
 				// leaked as an untracked process.
@@ -723,7 +803,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 				if reg.sessions[s.runID] == s {
 					reg.sessions[s.runID] = newS
 					reg.mu.Unlock()
-					go reg.drain(newCtx, newS, cfg)
+					go reg.drain(newCtx, newS, cfg, true)
 					resumed = true
 					reg.logger.Info(bgCtx, "Session restarted after interrupt — now idle",
 						logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -747,12 +827,6 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 				delete(reg.sessions, s.runID)
 			}
 			reg.mu.Unlock()
-		}
-		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
-			reg.logger.Warn(bgCtx, "Failed to idle run after interrupt",
-				logging.Field{Key: "run_id", Value: cfg.RunID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
 		}
 		close(s.done)
 		return
@@ -822,7 +896,28 @@ func (reg *Registry) emitRunError(ctx context.Context, runID, code, message stri
 // replayed transcript. internal/agents/pubsub.go holds the authoritative copy.
 func isDurableEvent(t EventType) bool {
 	switch t {
-	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:
+	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError,
+		EventTypeAPIRetry, EventTypeSandboxStatus, EventTypeTurnStopped:
+		return true
+	}
+	return false
+}
+
+// isBudgetExhausted reports a run_error for a run whose budget ceiling was met.
+func isBudgetExhausted(ev Event) bool {
+	if ev.Type != EventTypeRunError {
+		return false
+	}
+	var p RunErrorPayload
+	return json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted"
+}
+
+// isStatusEvent reports events that describe the run without being turn
+// activity. They leave idle state alone: a background tool's heartbeat
+// arriving after message_stop must not reopen the turn.
+func isStatusEvent(t EventType) bool {
+	switch t {
+	case EventTypeAPIRetry, EventTypeToolProgress:
 		return true
 	}
 	return false

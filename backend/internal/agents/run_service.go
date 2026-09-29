@@ -443,7 +443,8 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "to", Value: string(to)},
 	)
 	payload := []byte(`{"state":"` + string(to) + `"}`)
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	at := eventTime()
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {
 		// Log and continue — publishing as an ephemeral (seqNo=0) event so live
 		// subscribers still see the transition. The DB write failure is durable
@@ -459,7 +460,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		)
 		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 
 	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
 		run, err := s.repo.GetRun(ctx, runID)
@@ -481,8 +482,18 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 // TransitionRunState applies a state transition signaled by the session-manager callback.
 // It delegates to Transition, which is the single state machine authority.
 // The name TransitionRunState is part of the session-manager HTTP callback contract.
+//
+// idle to active is idempotent: SendMessage already makes it for a user
+// message, and the session-manager, which cannot tell a message turn from a
+// turn the agent started itself, reports it again when the turn begins.
 func (s *RunService) TransitionRunState(ctx context.Context, runID string, from, to RunState) error {
-	return s.Transition(ctx, runID, from, to)
+	err := s.Transition(ctx, runID, from, to)
+	if errors.Is(err, ErrConflict) && from == RunStateIdle && to == RunStateActive {
+		if run, getErr := s.repo.GetRun(ctx, runID); getErr == nil && run.State == RunStateActive {
+			return nil
+		}
+	}
+	return err
 }
 
 // deprovisionSandbox deletes the sandbox pod for a run. Best-effort — logs on
@@ -510,8 +521,9 @@ func (s *RunService) deprovisionSandbox(ctx context.Context, run *Run) {
 // event was not recorded.
 func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {
 	var writeErr error
+	ev.At = eventTime()
 	if durableEventType(ev.Type) {
-		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload})
+		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload, CreatedAt: ev.At})
 		if err != nil {
 			// Fan out anyway, unsequenced, and report the failure. Subscribers keep
 			// seeing the run while the database is down, and the pusher learns the
@@ -617,10 +629,12 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string
 	if err != nil {
 		return
 	}
+	at := eventTime()
 	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{
 		RunID:     runID,
 		EventType: "human_message",
 		Payload:   payload,
+		CreatedAt: at,
 	})
 	if err != nil {
 		s.logger.Warn(ctx, "Failed to persist human_message event",
@@ -629,7 +643,7 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string
 		)
 		return
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo, At: at})
 }
 
 // InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
@@ -963,7 +977,8 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
 	payload := []byte(`{"state":"` + string(state) + `"}`)
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	at := eventTime()
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
@@ -972,7 +987,7 @@ func (s *RunService) publishReapedState(ctx context.Context, runID string, state
 		)
 		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 }
 
 // SetRunSummary persists the LLM-generated task summary reported by a

@@ -123,3 +123,90 @@ describe('useRun — manual reconnect', () => {
     expect(result.current.connectionStatus).toBe('open');
   });
 });
+
+describe('useRun — server event envelope', () => {
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    server.use(
+      http.get('/api/agents/runs/:runId', () =>
+        HttpResponse.json({
+          data: { state: 'active' },
+          agent_type: { name: 'Test', model_id: 'm' },
+        }),
+      ),
+      http.get('/api/agents/runs/:runId/usage', () =>
+        HttpResponse.json({ run_id: 'run-1', spend_usd: 0, total_tokens: 0 }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const at = '2026-09-29T01:02:03Z';
+  const local = new Date(at).toTimeString().slice(0, 8);
+  const later = '2026-09-29T01:07:09Z';
+  const laterLocal = new Date(later).toTimeString().slice(0, 8);
+
+  it('stamps replayed turns with the server time, not the reload time', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.open();
+      es.emit('human_message', { at, payload: { content: 'hello' } });
+      es.emit('message_complete', { at: later, payload: { text: 'hi there' } });
+      es.emit('run_error', { at: later, payload: { code: 'agent_error', message: 'boom' } });
+    });
+    expect(result.current.turns.map((t) => t.timestamp)).toEqual([local, laterLocal, laterLocal]);
+  });
+
+  it('stamps a sent message with the time of its echo, and reads a bare payload', async () => {
+    server.use(
+      http.post('/api/agents/runs/:runId/messages', () => new HttpResponse(null, { status: 202 })),
+    );
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      FakeEventSource.instances[0].open();
+      result.current.addHumanMessage('hello');
+    });
+    expect(result.current.turns[0].timestamp).toBe('');
+    act(() => {
+      FakeEventSource.instances[0].emit('human_message', { at, payload: { content: 'hello' } });
+      FakeEventSource.instances[0].emit('message_complete', { text: 'from an older server' });
+    });
+    expect(result.current.turns.map((t) => t.timestamp)).toEqual([local, '']);
+  });
+
+  it('keeps the run state on run_error until a run_state event says otherwise', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.open();
+      es.emit('run_state', { at, payload: { state: 'active' } });
+      es.emit('run_error', { at, payload: { code: 'agent_error', message: 'boom' } });
+    });
+    expect(result.current.runState).toBe('active');
+    expect(result.current.turns.at(-1)).toMatchObject({ type: 'error', message: 'boom' });
+
+    act(() => {
+      FakeEventSource.instances[0].emit('run_state', { at, payload: { state: 'idle' } });
+    });
+    expect(result.current.runState).toBe('idle');
+  });
+});

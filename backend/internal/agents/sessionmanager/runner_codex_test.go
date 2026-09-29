@@ -197,8 +197,8 @@ func TestCodexHandleNotification_Error(t *testing.T) {
 	if evs[0].Type != EventTypeRunError {
 		t.Errorf("event[0] type = %q, want run_error", evs[0].Type)
 	}
-	if r.textBuf.Len() != 0 {
-		t.Error("textBuf should be reset after error")
+	if r.textBuf.String() != "partial text" {
+		t.Error("the partial text should wait for turn/completed to flush it")
 	}
 }
 

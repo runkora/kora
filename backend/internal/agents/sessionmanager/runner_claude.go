@@ -95,6 +95,7 @@ type ClaudeRunner struct {
 	capturedSessionID string          // set once from the system/init event
 	sessionIDMu       sync.Mutex      // protects capturedSessionID
 	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
+	turnEnded         atomic.Bool     // true once message_stop closed the turn; a stop after that has nothing to cut
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -181,6 +182,9 @@ func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []s
 	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
 }
 
+// maxClaudeLineBytes bounds one stream-json line from Claude Code.
+const maxClaudeLineBytes = 32 * 1024 * 1024
+
 // isBudgetExceededMessage recognizes the inference gateway's 429
 // BUDGET_EXCEEDED rejection surfaced through the agent runtime's error result.
 func isBudgetExceededMessage(msg string) bool {
@@ -251,6 +255,7 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 
 // Send writes a user text message to Claude Code's stdin.
 func (r *ClaudeRunner) Send(_ context.Context, text string) error {
+	r.turnEnded.Store(false)
 	return r.writeInput(claudeInputMessage{
 		Type: "user",
 		Message: claudeInputMessageBody{
@@ -358,7 +363,11 @@ func (r *ClaudeRunner) NewResumeRunner() Runner {
 	}
 	cfg := r.cfg
 	cfg.ResumeSessionID = id
-	return NewClaudeRunner(cfg)
+	resumed := NewClaudeRunner(cfg)
+	// A resumed session starts between turns: a stop before its first message
+	// has no turn to record.
+	resumed.turnEnded.Store(true)
+	return resumed
 }
 
 // Close sends EOF to stdin and waits for the subprocess to exit.
@@ -405,8 +414,10 @@ func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
 func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	defer close(r.events)
 
+	// One line carries a whole tool result, and subagent results pass a
+	// megabyte; a line over the limit would end the scan and the session's events.
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 1024*1024), maxClaudeLineBytes)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -430,6 +441,13 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 		r.dispatch(ctx, wrapper)
 	}
 
+	// SIGINT ends the process without a usable result, so the stopped turn is
+	// recorded here, once stdout is exhausted.
+	if r.interrupted.Load() && !r.turnEnded.Load() {
+		r.flushPartial()
+		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
+	}
+
 	if err := scanner.Err(); err != nil {
 		r.cfg.Logger.Error(ctx, "agent stdout scan error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
@@ -448,15 +466,42 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 	switch w.Type {
 	case "stream_event":
+		// A subagent's deltas belong to its Agent call, whose result carries its
+		// answer; merging them would splice subagent text into the parent's turn.
+		if w.ParentToolUseID != "" {
+			return
+		}
 		var ev claudeStreamEvent
 		if err := json.Unmarshal(w.Event, &ev); err == nil {
 			r.handleStreamEvent(ev)
 		}
 	case "assistant":
-		r.handleAssistant(ctx, w.Message)
+		r.handleAssistant(ctx, w.Message, w.ParentToolUseID)
 	case "user":
-		r.handleUser(w.Message)
+		r.handleUser(w.Message, w.ParentToolUseID)
+	case "tool_progress":
+		p := ToolProgressPayload{
+			ToolUseID:       w.ToolUseID,
+			ToolName:        w.ToolName,
+			ParentToolUseID: w.ParentToolUseID,
+			ElapsedSeconds:  w.ElapsedTimeSeconds,
+		}
+		// A heartbeat names itself "<call>-heartbeat-N" and puts the running
+		// call in parent_tool_use_id; report it against the call.
+		if w.Heartbeat && w.ParentToolUseID != "" {
+			p.ToolUseID, p.ParentToolUseID = w.ParentToolUseID, ""
+		}
+		r.emit(EventTypeToolProgress, p)
 	case "system":
+		if w.Subtype == "api_retry" {
+			r.emit(EventTypeAPIRetry, APIRetryPayload{
+				Attempt:      w.Attempt,
+				MaxRetries:   w.MaxRetries,
+				RetryDelayMs: w.RetryDelayMs,
+				ErrorStatus:  w.ErrorStatus,
+				Error:        rawString(w.Error),
+			})
+		}
 		if w.Subtype == "init" && w.SessionID != "" {
 			r.sessionIDMu.Lock()
 			r.capturedSessionID = w.SessionID
@@ -510,13 +555,13 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
-		code := "agent_error"
 		if budgetHit || isBudgetExceededMessage(msg) {
 			// The inference gateway rejected the run's LLM calls with 403
 			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
-			code = "budget_exhausted"
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "budget_exhausted", Message: msg})
+			return
 		}
-		r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
+		r.endTurnWithError("agent_error", msg)
 		return
 	}
 
@@ -558,7 +603,7 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: msg})
+		r.endTurnWithError("empty_response", msg)
 		return
 	}
 	r.emit(EventTypeMessageComplete, MessageCompletePayload{
@@ -569,6 +614,31 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	r.thinkingBuf.Reset()
 	r.textBlockEmitted = false
 	r.emit(EventTypeMessageStop, nil)
+}
+
+// endTurnWithError records a failed turn. The subprocess keeps reading input
+// after an error result, so the turn ends with message_stop and the run idles
+// rather than staying active with nothing running.
+func (r *ClaudeRunner) endTurnWithError(code, msg string) {
+	r.flushPartial()
+	r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
+	r.emit(EventTypeMessageStop, nil)
+}
+
+// flushPartial emits whatever text and thinking a turn cut short has
+// accumulated, marked interrupted, so it keeps what the agent already said.
+func (r *ClaudeRunner) flushPartial() {
+	if r.textBuf.Len() == 0 && r.thinkingBuf.Len() == 0 {
+		return
+	}
+	r.emit(EventTypeMessageComplete, MessageCompletePayload{
+		Text:        r.textBuf.String(),
+		Thinking:    r.thinkingBuf.String(),
+		Interrupted: true,
+	})
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+	r.textBlockEmitted = false
 }
 
 // emitBudgetExhaustedTurn ends a budget-truncated turn: flushes any content the
@@ -583,15 +653,7 @@ func (r *ClaudeRunner) emitBudgetExhaustedTurn(ctx context.Context, w claudeOutp
 		logging.Field{Key: "stop_reason", Value: w.StopReason},
 		logging.Field{Key: "text_len", Value: r.textBuf.Len()},
 	)
-	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
-		r.emit(EventTypeMessageComplete, MessageCompletePayload{
-			Text:     r.textBuf.String(),
-			Thinking: r.thinkingBuf.String(),
-		})
-		r.textBuf.Reset()
-		r.thinkingBuf.Reset()
-		r.textBlockEmitted = false
-	}
+	r.flushPartial()
 	r.emit(EventTypeRunError, RunErrorPayload{
 		Code:    "budget_exhausted",
 		Message: "The run's LLM calls were rejected with BUDGET_EXCEEDED — a budget ceiling was reached and the turn was cut short after retries.",
@@ -623,7 +685,10 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 // Before the first tool_use, any accumulated text in textBuf is flushed as a
 // durable text_block event. This preserves the original interleaved order during
 // replay without re-streaming individual character deltas.
-func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) {
+//
+// parentToolUseID is set for a subagent's messages. Only the main thread's
+// text is flushed: the parent's buffer is not the subagent's to cut.
+func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage, parentToolUseID string) {
 	if msg == nil {
 		return
 	}
@@ -641,7 +706,7 @@ func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) 
 	}
 
 	// Flush the text accumulated before these tool calls as a text_block event.
-	if r.textBuf.Len() > 0 {
+	if parentToolUseID == "" && r.textBuf.Len() > 0 {
 		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
 		r.textBuf.Reset()
 		r.textBlockEmitted = true
@@ -654,31 +719,73 @@ func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) 
 				logging.Field{Key: "tool", Value: block.Name},
 				logging.Field{Key: "tool_use_id", Value: block.ID},
 			)
-			r.emit(EventTypeToolUse, ToolUsePayload{ID: block.ID, Name: block.Name, Input: block.Input})
+			r.emit(EventTypeToolUse, ToolUsePayload{ID: block.ID, Name: block.Name, Input: block.Input, ParentToolUseID: parentToolUseID})
 		}
 	}
 }
 
 // handleUser emits tool_result events from a user message carrying tool results.
-func (r *ClaudeRunner) handleUser(msg *claudeMessage) {
+func (r *ClaudeRunner) handleUser(msg *claudeMessage, parentToolUseID string) {
 	if msg == nil {
 		return
 	}
 	for _, block := range msg.Content {
-		if block.Type == "tool_result" {
-			r.emit(EventTypeToolResult, ToolResultPayload{
-				ToolUseID: block.ToolUseID,
-				Content:   block.Content,
-				IsError:   block.IsError,
-			})
+		if block.Type != "tool_result" {
+			continue
+		}
+		content := toolResultText(block.Content)
+		r.emit(EventTypeToolResult, newToolResult(block.ToolUseID, content, block.IsError, parentToolUseID))
+	}
+}
+
+// toolResultText returns a tool result's content as text. MCP, Agent, and
+// runtime tools return an array of blocks: text blocks are joined, and other
+// blocks (images) are named rather than inlined.
+func toolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return string(raw)
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		} else {
+			parts = append(parts, "["+b.Type+"]")
 		}
 	}
+	return strings.Join(parts, "\n")
+}
+
+// rawString returns a JSON string's value, or empty for any other JSON.
+func rawString(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 func (r *ClaudeRunner) emit(t EventType, payload any) {
 	ev, err := newEvent(t, payload)
 	if err != nil {
 		return
+	}
+	// A turn can start without a message (a background task waking the agent),
+	// so any turn activity reopens it.
+	switch {
+	case t == EventTypeMessageStop:
+		r.turnEnded.Store(true)
+	case !isStatusEvent(t):
+		r.turnEnded.Store(false)
 	}
 	r.events <- ev
 }
@@ -725,13 +832,27 @@ type claudeInputContent struct {
 
 // claudeOutputWrapper is the top-level envelope for every stdout line.
 type claudeOutputWrapper struct {
-	Type       string          `json:"type"`
-	Subtype    string          `json:"subtype"`
-	StopReason string          `json:"stop_reason"`
-	Result     string          `json:"result"`     // error message when Subtype == "error"
-	SessionID  string          `json:"session_id"` // present on system/init
-	Event      json.RawMessage `json:"event"`      // when Type == "stream_event"
-	Message    *claudeMessage  `json:"message"`    // when Type == "assistant" | "user"
+	Type            string          `json:"type"`
+	Subtype         string          `json:"subtype"`
+	StopReason      string          `json:"stop_reason"`
+	Result          string          `json:"result"`             // error message when Subtype == "error"
+	SessionID       string          `json:"session_id"`         // present on system/init
+	Event           json.RawMessage `json:"event"`              // when Type == "stream_event"
+	Message         *claudeMessage  `json:"message"`            // when Type == "assistant" | "user"
+	ParentToolUseID string          `json:"parent_tool_use_id"` // set on a subagent's messages; null decodes as ""
+
+	// system/api_retry
+	Attempt      int             `json:"attempt"`
+	MaxRetries   int             `json:"max_retries"`
+	RetryDelayMs int             `json:"retry_delay_ms"`
+	ErrorStatus  *int            `json:"error_status"`
+	Error        json.RawMessage `json:"error"` // a class name here; raw so another line's shape cannot fail the decode
+
+	// tool_progress
+	ToolUseID          string `json:"tool_use_id"`
+	ToolName           string `json:"tool_name"`
+	ElapsedTimeSeconds int    `json:"elapsed_time_seconds"`
+	Heartbeat          bool   `json:"heartbeat"`
 }
 
 // claudeStreamEvent is the inner event inside a "stream_event" wrapper.
@@ -757,6 +878,6 @@ type claudeContentItem struct {
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
 	ToolUseID string          `json:"tool_use_id"`
-	Content   string          `json:"content"`
+	Content   json.RawMessage `json:"content"` // a string, or an array of blocks from MCP and Agent tools
 	IsError   bool            `json:"is_error"`
 }

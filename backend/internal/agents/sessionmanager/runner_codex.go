@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,9 +95,11 @@ const codexMethodNotFound = -32601
 
 // codexActiveItem tracks an in-flight tool item between item/started and item/completed.
 type codexActiveItem struct {
-	itemType  string
-	inputRaw  json.RawMessage
-	outputBuf strings.Builder
+	name       string
+	parent     string
+	startedAt  time.Time
+	progressAt time.Time
+	outputBuf  strings.Builder
 }
 
 // maxStderrLines bounds the tail of Codex subprocess stderr kept in memory for
@@ -104,16 +108,6 @@ type codexActiveItem struct {
 // stdout), so a short tail is the only way to recover that detail without
 // exec'ing into the pod.
 const maxStderrLines = 20
-
-// isCodexToolType returns true for item types that map to tool_use/tool_result events.
-// The v2 protocol uses camelCase type names.
-func isCodexToolType(t string) bool {
-	switch t {
-	case "commandExecution", "fileChange", "mcpToolCall":
-		return true
-	}
-	return false
-}
 
 // CodexRunner implements Runner for the Codex app-server subprocess.
 //
@@ -138,6 +132,9 @@ type CodexRunner struct {
 	pending      map[int64]chan codexMsg // in-flight requests awaiting response
 	nextID       atomic.Int64
 	activeItems  map[string]*codexActiveItem // tool items between item/started and item/completed
+	childThreads map[string]string           // subagent thread id → the collabAgentToolCall that spawned it
+	retryAttempt int                         // retries seen this turn, when Codex's message carries no count
+	turnErrored  bool                        // a run_error was already recorded for this turn
 	stderrMu     sync.Mutex
 	stderrTail   []string // bounded tail of subprocess stderr lines; see maxStderrLines
 }
@@ -148,10 +145,11 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 		cfg.BinaryPath = "codex"
 	}
 	return &CodexRunner{
-		cfg:         cfg,
-		events:      make(chan Event, 256),
-		pending:     make(map[int64]chan codexMsg),
-		activeItems: make(map[string]*codexActiveItem),
+		cfg:          cfg,
+		events:       make(chan Event, 256),
+		pending:      make(map[int64]chan codexMsg),
+		activeItems:  make(map[string]*codexActiveItem),
+		childThreads: make(map[string]string),
 	}
 }
 
@@ -263,17 +261,28 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	return nil
 }
 
-// Send delivers a user message to the Codex app-server as a turn/start request.
-// Returns immediately — token-level deltas flow through the Events() channel.
-func (r *CodexRunner) Send(_ context.Context, text string) error {
+// Send delivers a user message to the Codex app-server. During a turn it is a
+// turn/steer, which Codex reads at the turn's next step, as Claude Code does with
+// a message sent mid-turn; otherwise a turn/start. Returns once written; deltas
+// flow through the Events() channel.
+func (r *CodexRunner) Send(ctx context.Context, text string) error {
 	threadID, _ := r.threadID.Load().(string)
 	if threadID == "" {
 		return fmt.Errorf("codex: cannot send before thread is initialized")
 	}
+	input := []map[string]string{{"type": "text", "text": text}}
+	if turnID, _ := r.activeTurnID.Load().(string); turnID != "" {
+		// A steer fails when the turn ended meanwhile; the message then starts one.
+		if _, err := r.sendRPCRaw(ctx, "turn/steer", map[string]any{
+			"threadId": threadID, "expectedTurnId": turnID, "input": input,
+		}); err == nil {
+			return nil
+		}
+	}
 	id := r.nextID.Add(1)
 	params := map[string]any{
 		"threadId": threadID,
-		"input":    []map[string]string{{"type": "text", "text": text}},
+		"input":    input,
 	}
 	msg := codexMsg{ID: &id, Method: "turn/start", Params: mustMarshal(params)}
 	r.stdinMu.Lock()
@@ -589,28 +598,56 @@ func (r *CodexRunner) dispatchResponse(resp codexMsg) {
 }
 
 // handleNotification processes an unsolicited notification from the Codex server.
+// A subagent runs on its own thread; only the main thread's turns drive the run.
 func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
-	r.captureActiveTurnID(msg.Params)
+	var scope struct {
+		ThreadID string `json:"threadId"`
+	}
+	_ = json.Unmarshal(msg.Params, &scope)
+	main, _ := r.threadID.Load().(string)
+	onMain := scope.ThreadID == "" || main == "" || scope.ThreadID == main
+	if onMain {
+		r.captureActiveTurnID(msg.Params)
+	}
 	switch msg.Method {
 	case "item/agentMessage/delta":
-		r.handleTextDelta(msg.Params)
+		if onMain {
+			r.handleTextDelta(msg.Params)
+		}
 	case "item/reasoning/textDelta":
-		r.handleReasoningDelta(msg.Params)
+		if onMain {
+			r.handleReasoningDelta(msg.Params)
+		}
 	case "item/started":
-		r.handleItemStarted(msg.Params)
+		r.handleItemStarted(msg.Params, r.parentOf(scope.ThreadID, onMain))
 	case "item/commandExecution/outputDelta":
 		r.handleOutputDelta(msg.Params)
+	case "item/mcpToolCall/progress":
+		r.handleToolProgress(msg.Params)
 	case "item/completed":
 		r.handleItemCompleted(msg.Params)
 	case "turn/completed":
-		r.handleTurnCompleted(ctx, msg.Params)
+		if onMain {
+			r.handleTurnCompleted(ctx, msg.Params)
+		}
 	case "error":
-		r.handleErrorNotification(ctx, msg.Params)
+		if onMain {
+			r.handleErrorNotification(ctx, msg.Params)
+		}
 	case "turn/started":
 		// Informational — no event emitted. turn_id captured by captureActiveTurnID above.
 	default:
 		// Unknown notification — ignore.
 	}
+}
+
+// parentOf names the subagent call a notification's thread belongs to, or ""
+// for the main thread.
+func (r *CodexRunner) parentOf(threadID string, onMain bool) string {
+	if onMain {
+		return ""
+	}
+	return r.childThreads[threadID]
 }
 
 // captureActiveTurnID extracts turn.id from turn/started and turn/completed params
@@ -652,18 +689,82 @@ func (r *CodexRunner) handleReasoningDelta(params json.RawMessage) {
 	r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: p.Delta})
 }
 
-func (r *CodexRunner) handleItemStarted(params json.RawMessage) {
-	var p struct {
-		Item struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		} `json:"item"`
+// codexItem holds the ThreadItem fields the runner records. The protocol's
+// ThreadItem is a union keyed by type; unused fields stay zero.
+type codexItem struct {
+	Type             string          `json:"type"`
+	ID               string          `json:"id"`
+	Status           string          `json:"status"`
+	Command          string          `json:"command"`
+	Cwd              string          `json:"cwd"`
+	AggregatedOutput *string         `json:"aggregatedOutput"`
+	ExitCode         *int            `json:"exitCode"`
+	Changes          json.RawMessage `json:"changes"`
+	Server           string          `json:"server"`
+	Tool             string          `json:"tool"`
+	Arguments        json.RawMessage `json:"arguments"`
+	Result           *struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"result"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Prompt            *string                              `json:"prompt"`
+	ReceiverThreadIDs []string                             `json:"receiverThreadIds"`
+	AgentsStates      map[string]struct{ Message *string } `json:"agentsStates"`
+	Query             string                               `json:"query"`
+}
+
+// codexToolCall names a tool item and gives its own arguments as the recorded
+// input, in the same shape every runner records: what the tool was asked to do.
+// ok is false for items that are not tool calls (messages, reasoning, plans).
+func codexToolCall(it codexItem) (name string, input any, ok bool) {
+	switch it.Type {
+	case "commandExecution":
+		return "commandExecution", map[string]string{"command": it.Command, "cwd": it.Cwd}, true
+	case "fileChange":
+		return "fileChange", map[string]json.RawMessage{"changes": it.Changes}, true
+	case "mcpToolCall":
+		return "mcp__" + it.Server + "__" + it.Tool, it.Arguments, true
+	case "dynamicToolCall":
+		return it.Tool, it.Arguments, true
+	case "collabAgentToolCall":
+		return it.Tool, map[string]any{"prompt": it.Prompt, "receiver_thread_ids": it.ReceiverThreadIDs}, true
+	case "webSearch":
+		return "webSearch", map[string]string{"query": it.Query}, true
 	}
-	if err := json.Unmarshal(params, &p); err != nil || !isCodexToolType(p.Item.Type) {
+	return "", nil, false
+}
+
+func (r *CodexRunner) handleItemStarted(params json.RawMessage, parent string) {
+	var p struct {
+		Item codexItem `json:"item"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
-	r.activeItems[p.Item.ID] = &codexActiveItem{itemType: p.Item.Type, inputRaw: params}
-	r.emit(EventTypeToolUse, ToolUsePayload{ID: p.Item.ID, Name: p.Item.Type, Input: params})
+	name, input, ok := codexToolCall(p.Item)
+	if !ok {
+		return
+	}
+	r.rememberChildThreads(p.Item)
+	now := time.Now()
+	r.activeItems[p.Item.ID] = &codexActiveItem{name: name, parent: parent, startedAt: now, progressAt: now}
+	raw, _ := json.Marshal(input)
+	r.emit(EventTypeToolUse, ToolUsePayload{ID: p.Item.ID, Name: name, Input: raw, ParentToolUseID: parent})
+}
+
+// rememberChildThreads maps the threads a subagent call spawned back to that
+// call, so the subagent's own items can name it as their parent.
+func (r *CodexRunner) rememberChildThreads(it codexItem) {
+	if it.Type != "collabAgentToolCall" {
+		return
+	}
+	for _, id := range it.ReceiverThreadIDs {
+		if _, known := r.childThreads[id]; !known {
+			r.childThreads[id] = it.ID
+		}
+	}
 }
 
 func (r *CodexRunner) handleOutputDelta(params json.RawMessage) {
@@ -676,49 +777,179 @@ func (r *CodexRunner) handleOutputDelta(params json.RawMessage) {
 	}
 	if item, ok := r.activeItems[p.ItemID]; ok {
 		item.outputBuf.WriteString(p.Delta)
+		r.progress(p.ItemID, item)
 	}
+}
+
+func (r *CodexRunner) handleToolProgress(params json.RawMessage) {
+	var p struct {
+		ItemID string `json:"itemId"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return
+	}
+	if item, ok := r.activeItems[p.ItemID]; ok {
+		r.progress(p.ItemID, item)
+	}
+}
+
+// codexProgressEvery spaces tool_progress events: Codex reports output as it
+// streams, and the UI only counts seconds.
+const codexProgressEvery = 5 * time.Second
+
+// progress reports a still-running call. Codex has no heartbeat of its own;
+// streamed output and MCP progress messages stand in for one.
+func (r *CodexRunner) progress(id string, item *codexActiveItem) {
+	if time.Since(item.progressAt) < codexProgressEvery {
+		return
+	}
+	item.progressAt = time.Now()
+	r.emit(EventTypeToolProgress, ToolProgressPayload{
+		ToolUseID:       id,
+		ToolName:        item.name,
+		ParentToolUseID: item.parent,
+		ElapsedSeconds:  int(time.Since(item.startedAt).Seconds()),
+	})
 }
 
 func (r *CodexRunner) handleItemCompleted(params json.RawMessage) {
 	var p struct {
-		Item struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		} `json:"item"`
+		Item codexItem `json:"item"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
 	item, ok := r.activeItems[p.Item.ID]
-	if !ok || !isCodexToolType(p.Item.Type) {
+	if !ok {
 		return
 	}
 	delete(r.activeItems, p.Item.ID)
-	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: p.Item.ID, Content: item.outputBuf.String()})
+	r.rememberChildThreads(p.Item)
+	content, isError := codexItemResult(p.Item, item.outputBuf.String())
+	r.emit(EventTypeToolResult, newToolResult(p.Item.ID, content, isError, item.parent))
 }
 
-func (r *CodexRunner) handleTurnCompleted(ctx context.Context, _ json.RawMessage) {
-	text := r.textBuf.String()
-	thinking := r.thinkingBuf.String()
-	r.textBuf.Reset()
-	r.thinkingBuf.Reset()
+// codexItemResult is a finished tool item's result as text, and whether it
+// failed. A declined call is one Codex refused to run.
+func codexItemResult(it codexItem, streamed string) (string, bool) {
+	failed := it.Status == "failed" || it.Status == "declined"
+	switch it.Type {
+	case "commandExecution":
+		out := streamed
+		if it.AggregatedOutput != nil {
+			out = *it.AggregatedOutput
+		}
+		if it.Status == "declined" {
+			return "Command declined", true
+		}
+		if it.ExitCode != nil && *it.ExitCode != 0 {
+			return fmt.Sprintf("Exit code %d\n%s", *it.ExitCode, out), true
+		}
+		return out, failed
+	case "mcpToolCall":
+		if it.Error != nil {
+			return it.Error.Message, true
+		}
+		if it.Result != nil {
+			return toolResultText(it.Result.Content), failed
+		}
+	case "fileChange":
+		return string(it.Changes), failed
+	case "collabAgentToolCall":
+		var parts []string
+		for _, s := range it.AgentsStates {
+			if s.Message != nil {
+				parts = append(parts, *s.Message)
+			}
+		}
+		return strings.Join(parts, "\n"), failed
+	}
+	return "", failed
+}
+
+// handleTurnCompleted ends a main-thread turn. An interrupted turn keeps its
+// partial text, marked, and records the stop; the process stays alive.
+func (r *CodexRunner) handleTurnCompleted(ctx context.Context, params json.RawMessage) {
+	var p struct {
+		Turn struct {
+			Status string `json:"status"`
+			Error  *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"turn"`
+	}
+	_ = json.Unmarshal(params, &p)
 	r.activeTurnID.Store("")
-	r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: text, Thinking: thinking})
+	r.retryAttempt = 0
+	switch p.Turn.Status {
+	case "interrupted":
+		r.flushPartial()
+		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
+	case "failed":
+		r.flushPartial()
+		if !r.turnErrored {
+			msg := "agent turn failed"
+			if p.Turn.Error != nil && p.Turn.Error.Message != "" {
+				msg = p.Turn.Error.Message
+			}
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: msg})
+		}
+	default:
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: r.textBuf.String(), Thinking: r.thinkingBuf.String()})
+		r.textBuf.Reset()
+		r.thinkingBuf.Reset()
+	}
+	r.turnErrored = false
 	r.emit(EventTypeMessageStop, nil)
 
 	r.cfg.Logger.Info(ctx, "Codex turn completed",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "status", Value: p.Turn.Status},
 	)
 }
 
+// flushPartial emits the text a cut-short turn had produced, marked interrupted.
+func (r *CodexRunner) flushPartial() {
+	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{
+			Text:        r.textBuf.String(),
+			Thinking:    r.thinkingBuf.String(),
+			Interrupted: true,
+		})
+	}
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+}
+
+// codexRetryCount reads "attempt/max" from a retry message such as
+// "Reconnecting... 2/5"; Codex puts the counts only in the text.
+var codexRetryCount = regexp.MustCompile(`(\d+)/(\d+)`)
+
+// handleErrorNotification records a model or stream error. willRetry means
+// Codex is retrying it; otherwise the turn has failed and ends with its
+// turn/completed. An error outside a turn has no turn to end, so the process is
+// closed and the run fails.
 func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.RawMessage) {
 	var p struct {
 		Error struct {
-			Message string `json:"message"`
+			Message        string          `json:"message"`
+			CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
 		} `json:"error"`
+		WillRetry bool `json:"willRetry"`
 	}
 	if params != nil {
 		_ = json.Unmarshal(params, &p)
+	}
+	class, status := codexErrorClass(p.Error.CodexErrorInfo)
+	if p.WillRetry {
+		r.retryAttempt++
+		retry := APIRetryPayload{Attempt: r.retryAttempt, ErrorStatus: status, Error: class}
+		if m := codexRetryCount.FindStringSubmatch(p.Error.Message); m != nil {
+			retry.Attempt, _ = strconv.Atoi(m[1])
+			retry.MaxRetries, _ = strconv.Atoi(m[2])
+		}
+		r.emit(EventTypeAPIRetry, retry)
+		return
 	}
 	stderrTail := r.stderrSnapshot()
 	r.cfg.Logger.Error(ctx, "Codex error notification",
@@ -726,23 +957,35 @@ func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.R
 		logging.Field{Key: "message", Value: p.Error.Message},
 		logging.Field{Key: "stderr_tail", Value: stderrTail},
 	)
-	r.textBuf.Reset()
-	r.thinkingBuf.Reset()
-	r.activeTurnID.Store("")
-	// Emit a run_error so the registry marks the run as failed, then close
-	// stdin to cause the subprocess to exit and the event channel to close.
-	// stderrTail carries the HTTP status/URL/response body that Codex logs to
-	// its subprocess stderr but never includes in the "error" notification
-	// itself, so it's appended here to keep that detail recoverable from the run.
+	// stderrTail carries the HTTP status, URL and response body that Codex logs
+	// to stderr but never includes in the "error" notification itself.
 	message := p.Error.Message
 	if stderrTail != "" {
 		message = message + "\n" + stderrTail
 	}
-	r.emit(EventTypeRunError, RunErrorPayload{
-		Code:    "runner_error",
-		Message: message,
-	})
-	r.stdin.Close() //nolint:errcheck
+	r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
+	r.turnErrored = true
+	if turnID, _ := r.activeTurnID.Load().(string); turnID == "" {
+		_ = r.stdin.Close()
+	}
+}
+
+// codexErrorClass reads Codex's error info: a bare string ("unauthorized") or an
+// object keyed by the class carrying the upstream HTTP status.
+func codexErrorClass(raw json.RawMessage) (string, *int) {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s, nil
+	}
+	var obj map[string]struct {
+		HTTPStatusCode *int `json:"httpStatusCode"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		for k, v := range obj {
+			return k, v.HTTPStatusCode
+		}
+	}
+	return "", nil
 }
 
 // emit sends an Orbit event to the events channel.
