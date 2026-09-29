@@ -100,7 +100,7 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 
 func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
 	list := &OrbitTenantList{}
-	if err := r.client.List(ctx, list); err != nil {
+	if err := r.client.List(ctx, list, tenantListOpts()...); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 

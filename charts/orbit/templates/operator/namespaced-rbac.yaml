@@ -1,0 +1,43 @@
+{{- if eq (.Values.global.tenantScope | default "cluster") "namespaced" }}
+# Namespace-scoped counterpart to the pieces of orbit-operator's ClusterRole
+# that don't need to be cluster-wide once OrbitTenant is namespace-scoped:
+# OrbitTenant itself lives only in this install's own system namespace, and
+# so does its leader-election Lease. Applied by Helm/ArgoCD at install time,
+# not created by the operator itself at runtime — Kubernetes' RBAC escalation
+# check would otherwise block the operator from self-granting a Role whose
+# rules it doesn't already hold at that scope. See
+# docs/adr/2026-09-29-namespace-scoped-tenants.md.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orbit-operator-system
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants/status"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orbit-operator-system
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: orbit-operator-system
+subjects:
+  - kind: ServiceAccount
+    name: orbit-operator
+    namespace: {{ include "orbit.systemNamespace" . }}
+{{- end }}

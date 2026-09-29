@@ -6,7 +6,7 @@
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: orbit-sandbox-headroom
+  name: orbit-sandbox-headroom{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-headroom
@@ -46,7 +46,7 @@ spec:
         {{ $k }}: {{ $v | quote }}
         {{- end }}
     spec:
-      priorityClassName: orbit-sandbox-headroom
+      priorityClassName: orbit-sandbox-headroom{{ include "orbit.clusterSuffix" . }}
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       {{- include "orbit.sandboxWarmingScheduling" (dict "root" $ "spreadApp" "orbit-sandbox-headroom") | nindent 6 }}
       automountServiceAccountToken: false

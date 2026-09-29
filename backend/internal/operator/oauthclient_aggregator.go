@@ -100,7 +100,7 @@ func (a *OAuthClientAggregator) Sync(ctx context.Context) error {
 // mirroring the connection aggregator: suspended tenants' clients are not served.
 func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
 	list := &OrbitTenantList{}
-	if err := a.client.List(ctx, list); err != nil {
+	if err := a.client.List(ctx, list, tenantListOpts()...); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 	out := make([]OrbitTenant, 0, len(list.Items))

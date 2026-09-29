@@ -54,6 +54,8 @@ spec:
               value: {{ include "orbit.collectorCIDRs" . | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
               value: {{ include "orbit.systemNamespace" . | quote }}
+            - name: ORBIT_TENANT_SCOPE
+              value: {{ .Values.global.tenantScope | default "cluster" | quote }}
             - name: ORBIT_ISTIO_NAMESPACE
               value: {{ .Values.istio.namespace | quote }}
             - name: ORBIT_ISTIO_REVISION

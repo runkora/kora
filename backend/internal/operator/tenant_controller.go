@@ -302,8 +302,13 @@ func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, n
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// markReady patches status on every pass; without this predicate that
-		// patch re-enqueues the tenant and the reconciler spins.
-		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// patch re-enqueues the tenant and the reconciler spins. In
+		// namespace-scoped mode, tenantNamespacePredicate additionally drops
+		// events for OrbitTenants belonging to another install sharing this
+		// cluster — the manager cache is still cluster-wide (see
+		// backend/cmd/operator/main.go), so without this filter this install's
+		// operator would reconcile every install's tenants.
+		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, tenantNamespacePredicate())).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -333,7 +338,7 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 	}
 
 	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
+	if err := r.List(ctx, list, tenantListOpts()...); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -362,7 +367,7 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	}
 
 	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
+	if err := r.List(ctx, list, tenantListOpts()...); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for oauth client watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -379,6 +384,20 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 		}
 	}
 	return reqs
+}
+
+// tenantNamespacePredicate restricts reconciliation to this install's own
+// OrbitTenant objects. In cluster-scoped mode it always returns true: every
+// OrbitTenant on the cluster belongs to the single install by definition. In
+// namespace-scoped mode it admits only objects in this install's own system
+// namespace, where its OrbitTenants live.
+func tenantNamespacePredicate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if !namespacedTenants() {
+			return true
+		}
+		return obj.GetNamespace() == systemNamespace
+	})
 }
 
 // -----------------------------------------------------------------------------
@@ -652,6 +671,11 @@ func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string
 		"orbit.io/role":                "tenant",
 		"orbit.io/tenant":              tenant.Name,
 		"app.kubernetes.io/managed-by": "orbit-operator",
+		// Lets the pod admission webhooks scope their namespaceSelector to
+		// this install's own tenant namespaces in namespace-scoped mode
+		// (charts/orbit/templates/operator/webhook.yaml), so two installs
+		// sharing a cluster never admit each other's tenant pods.
+		"orbit.io/system-namespace": systemNamespace,
 	}
 	if r.IstioRevision != "" {
 		labels["istio.io/rev"] = r.IstioRevision

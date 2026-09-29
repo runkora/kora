@@ -121,7 +121,7 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 // namespace is handled separately (global, tenant_id "").
 func (a *MCPServerAggregator) activeTenantNamespaces(ctx context.Context) (map[string]string, error) {
 	list := &OrbitTenantList{}
-	if err := a.client.List(ctx, list); err != nil {
+	if err := a.client.List(ctx, list, tenantListOpts()...); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 	out := make(map[string]string, len(list.Items))

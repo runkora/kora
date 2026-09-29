@@ -55,6 +55,7 @@ func main() {
 		SystemNamespace: oc.Current.Install.SystemNamespace,
 		IstioNamespace:  oc.Current.Install.IstioNamespace,
 		TrustDomain:     oc.Current.Install.TrustDomain,
+		TenantScope:     oc.Current.Install.TenantScope,
 	})
 
 	restCfg, err := buildRestConfig(ctx, logger)
@@ -228,11 +229,31 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 	syncPeriod := oc.Current.SyncPeriod()
 	install := oc.Current.Install
 
+	cacheOpts := cache.Options{
+		SyncPeriod: &syncPeriod,
+	}
+	if install.TenantScope == "namespaced" {
+		// OrbitTenant is namespace-scoped and lives only in this install's own
+		// system namespace (docs/adr/2026-09-29-namespace-scoped-tenants.md).
+		// Scoping its own cache/watch to that one namespace lets the chart
+		// grant it via a namespaced Role instead of the ClusterRole every
+		// other watched kind still needs. Every other kind keeps the
+		// unrestricted default (cache.Options above has no top-level
+		// DefaultNamespaces), since Connection/OAuthClient/MCPServer span a
+		// dynamic, growing set of tenant namespaces this cache option can't
+		// express — see the ADR's Non-Goals.
+		cacheOpts.ByObject = map[client.Object]cache.ByObject{
+			&operator.OrbitTenant{}: {
+				Namespaces: map[string]cache.Config{
+					install.SystemNamespace: {},
+				},
+			},
+		}
+	}
+
 	opts := ctrl.Options{
 		Scheme: operator.NewScheme(),
-		Cache: cache.Options{
-			SyncPeriod: &syncPeriod,
-		},
+		Cache:  cacheOpts,
 		// Bypass the cache to avoid a cluster-wide Secret informer.
 		Client: client.Options{
 			Cache: &client.CacheOptions{

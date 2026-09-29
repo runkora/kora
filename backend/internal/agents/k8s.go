@@ -89,8 +89,15 @@ type K8sProvisionerConfig struct {
 	// DestinationRules are created here so Istio applies them to outbound
 	// traffic from orbit-agents pods targeting agent session-managers.
 	// Also used to derive the egress-gateway service URL for sandbox
-	// HTTPS_PROXY (the gateway always lives in this namespace).
+	// HTTPS_PROXY (the gateway always lives in this namespace). Also where
+	// this install's OrbitTenants live when TenantScope is "namespaced".
 	SystemNamespace string
+	// TenantScope is "cluster" (default) or "namespaced" — must match the
+	// scope orbit-crds installed orbittenants.orbit.io with. See
+	// internal/operator/settings.go's tenantScope for the operator's own copy
+	// of this setting; agents keeps a separate one deliberately (feature
+	// packages must not import each other).
+	TenantScope string
 	// Patches are kustomize `patches:` entries loaded from disk at startup and
 	// applied to each provisioned resource after the default manifest is
 	// built. See docs/adr/2026-09-15-manifest-patches-configmap.md.

@@ -1,13 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: orbit-agents
+  name: orbit-agents{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: orbit-agents
+  name: orbit-agents{{ include "orbit.clusterSuffix" . }}
 subjects:
   - kind: ServiceAccount
     name: orbit-agents

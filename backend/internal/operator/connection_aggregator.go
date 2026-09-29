@@ -133,7 +133,7 @@ func (a *ConnectionAggregator) Sync(ctx context.Context) error {
 // connections — matching the CA aggregator's behavior.
 func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
 	list := &OrbitTenantList{}
-	if err := a.client.List(ctx, list); err != nil {
+	if err := a.client.List(ctx, list, tenantListOpts()...); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 	out := make([]OrbitTenant, 0, len(list.Items))

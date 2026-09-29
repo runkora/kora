@@ -78,7 +78,7 @@ func (a *ClientSecretAggregator) Sync(ctx context.Context) error {
 // i.e. confidential OIDC clients that require a client_secret in token requests.
 func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]OrbitTenant, error) {
 	list := &OrbitTenantList{}
-	if err := a.client.List(ctx, list); err != nil {
+	if err := a.client.List(ctx, list, tenantListOpts()...); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 	out := make([]OrbitTenant, 0, len(list.Items))
