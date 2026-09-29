@@ -609,15 +609,10 @@ func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
 	if onMain {
 		r.captureActiveTurnID(msg.Params)
 	}
+	if onMain {
+		r.handleMainThread(ctx, msg)
+	}
 	switch msg.Method {
-	case "item/agentMessage/delta":
-		if onMain {
-			r.handleTextDelta(msg.Params)
-		}
-	case "item/reasoning/textDelta":
-		if onMain {
-			r.handleReasoningDelta(msg.Params)
-		}
 	case "item/started":
 		r.handleItemStarted(msg.Params, r.parentOf(scope.ThreadID, onMain))
 	case "item/commandExecution/outputDelta":
@@ -626,18 +621,21 @@ func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
 		r.handleToolProgress(msg.Params)
 	case "item/completed":
 		r.handleItemCompleted(msg.Params)
+	}
+}
+
+// handleMainThread handles what only the main thread drives: the turn's text,
+// its end, and its errors. turn/started only carries the turn id, captured above.
+func (r *CodexRunner) handleMainThread(ctx context.Context, msg codexMsg) {
+	switch msg.Method {
+	case "item/agentMessage/delta":
+		r.handleTextDelta(msg.Params)
+	case "item/reasoning/textDelta":
+		r.handleReasoningDelta(msg.Params)
 	case "turn/completed":
-		if onMain {
-			r.handleTurnCompleted(ctx, msg.Params)
-		}
+		r.handleTurnCompleted(ctx, msg.Params)
 	case "error":
-		if onMain {
-			r.handleErrorNotification(ctx, msg.Params)
-		}
-	case "turn/started":
-		// Informational — no event emitted. turn_id captured by captureActiveTurnID above.
-	default:
-		// Unknown notification — ignore.
+		r.handleErrorNotification(ctx, msg.Params)
 	}
 }
 
@@ -832,7 +830,7 @@ func (r *CodexRunner) handleItemCompleted(params json.RawMessage) {
 // codexItemResult is a finished tool item's result as text, and whether it
 // failed. A declined call is one Codex refused to run.
 func codexItemResult(it codexItem, streamed string) (string, bool) {
-	failed := it.Status == "failed" || it.Status == "declined"
+	failed := it.Status == codexFailed || it.Status == "declined"
 	switch it.Type {
 	case "commandExecution":
 		out := streamed
@@ -885,7 +883,7 @@ func (r *CodexRunner) handleTurnCompleted(ctx context.Context, params json.RawMe
 	case "interrupted":
 		r.flushPartial()
 		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
-	case "failed":
+	case codexFailed:
 		r.flushPartial()
 		if !r.turnErrored {
 			msg := "agent turn failed"
@@ -920,6 +918,9 @@ func (r *CodexRunner) flushPartial() {
 	r.textBuf.Reset()
 	r.thinkingBuf.Reset()
 }
+
+// codexFailed is the status Codex gives a failed item or turn.
+const codexFailed = "failed"
 
 // codexRetryCount reads "attempt/max" from a retry message such as
 // "Reconnecting... 2/5"; Codex puts the counts only in the text.

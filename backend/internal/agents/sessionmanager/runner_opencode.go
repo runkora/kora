@@ -300,7 +300,7 @@ func (r *OpenCodeRunner) Events() <-chan Event {
 }
 
 // Interrupt stops the in-progress prompt with ACP's session/cancel: the prompt
-// then answers with stopReason "cancelled" and the process stays alive, as a
+// then answers with its canceled stop reason and the process stays alive, as a
 // Codex turn/interrupt does. With no prompt in flight it falls back to SIGINT,
 // and the session layer resumes with session/load.
 func (r *OpenCodeRunner) Interrupt() error {
@@ -591,7 +591,7 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 }
 
 // endTurn records the end of a prompt. An error fails the turn and a
-// cancelled prompt is a user stop; either way the process keeps its session,
+// canceled prompt is a user stop; either way the process keeps its session,
 // so the turn ends with message_stop and the run idles.
 func (r *OpenCodeRunner) endTurn(resp openCodeMsg) {
 	var result struct {

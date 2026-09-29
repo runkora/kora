@@ -713,16 +713,9 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 				return
 			}
 
+			s.noteStop(ev.Type)
 			switch {
-			case ev.Type == EventTypeTurnStopped:
-				// The next message tells the model the user stopped it.
-				s.stoppedByUser.Store(true)
-				disarmIdle()
 			case ev.Type == EventTypeMessageStop:
-				// A runtime that survives a stop (Codex turn/interrupt, ACP
-				// session/cancel) ends the stopped turn here, so the session goes
-				// on without the restart an exited process needs.
-				s.interruptClose.Store(false)
 				armIdle()
 			case !isStatusEvent(ev.Type):
 				disarmIdle()
@@ -909,6 +902,19 @@ func isDurableEvent(t EventType) bool {
 		return true
 	}
 	return false
+}
+
+// noteStop records a user stop. The next message tells the model the user
+// stopped it. A runtime that survives a stop (Codex turn/interrupt, ACP
+// session/cancel) ends the stopped turn with message_stop, so the session goes
+// on without the restart an exited process needs.
+func (s *session) noteStop(t EventType) {
+	switch t {
+	case EventTypeTurnStopped:
+		s.stoppedByUser.Store(true)
+	case EventTypeMessageStop:
+		s.interruptClose.Store(false)
+	}
 }
 
 // isBudgetExhausted reports a run_error for a run whose budget ceiling was met.
