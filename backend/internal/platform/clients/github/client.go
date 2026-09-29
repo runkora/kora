@@ -12,7 +12,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -49,6 +51,11 @@ var (
 	// a client-facing forbidden rather than a 500. See
 	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
 	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
+
+	// ErrTreeTruncated is returned when GitHub's Trees API response is marked
+	// truncated — the repository has more than 100,000 entries or the tree
+	// exceeds 7 MB. The crawler cannot safely filter a partial tree.
+	ErrTreeTruncated = errors.New("github tree response was truncated")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -67,6 +74,20 @@ type InstallationToken struct {
 	ExpiresAt           time.Time         `json:"expires_at"`
 	Permissions         map[string]string `json:"permissions"`
 	RepositorySelection string            `json:"repository_selection"`
+}
+
+// TreeEntry is one node in a GitHub repository tree as returned by the
+// Git Trees API (?recursive=1). Only Blob entries (Type == "blob") carry
+// file content; Tree entries are directory nodes.
+type TreeEntry struct {
+	Path string `json:"path"`
+	Type string `json:"type"` // "blob" or "tree"
+}
+
+// treeResponse is the wire shape of GET /repos/{org}/{repo}/git/trees/{ref}?recursive=1.
+type treeResponse struct {
+	Tree      []TreeEntry `json:"tree"`
+	Truncated bool        `json:"truncated"`
 }
 
 // Client is a typed GitHub REST API client.
@@ -231,6 +252,7 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 	if err != nil {
 		return nil, fmt.Errorf("get installation call: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
@@ -242,4 +264,66 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 		return nil, err
 	}
 	return body.Permissions, nil
+}
+
+// GetTree returns the flat recursive file tree for the given repository ref
+// (branch, tag, or commit SHA). Path and type are populated for each entry.
+// Returns ErrTreeTruncated when GitHub marks the response truncated
+// (repo too large to enumerate fully)..
+func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]TreeEntry, error) {
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(ref))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get-tree request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, "github.Client.GetTree", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+	var body treeResponse
+	if err := c.DecodeJSON(span, resp, &body); err != nil {
+		return nil, err
+	}
+	if body.Truncated {
+		return nil, c.RecordError(span, ErrTreeTruncated)
+	}
+	return body.Tree, nil
+}
+
+// GetRawContent fetches the raw byte content of a single file at path in
+// the repository, at the given ref (branch, tag, or commit SHA).
+func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error) {
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(path), url.QueryEscape(ref))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get-raw-content request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github.raw+json")
+
+	_, span, resp, err := c.Do(ctx, "github.Client.GetRawContent", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	return data, nil
 }

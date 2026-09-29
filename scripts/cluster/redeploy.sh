@@ -197,6 +197,18 @@ workload=deployment/orbit-triggers
 restart=true
 EOF
       ;;
+    skills-service)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=skills-service
+image=orbit-skills-service
+values_key=skillsService
+namespace=orbit-system
+workload=deployment/orbit-skills-service
+restart=true
+EOF
+      ;;
     tool-gateway)
       # The publisher runs the same orbit-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
@@ -295,6 +307,7 @@ frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
 orbit-triggers      (deployment, orbit-system)
+skills-service      (deployment, orbit-system)
 migrate             (hook Job; re-applies the orbit release so the schema migration runs)
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)

@@ -116,6 +116,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Proposed` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Terra Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+- [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-08-28
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Proposed` · 2026-09-28
@@ -267,6 +268,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed | — |
+| 2026-08-28 | [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) | Proposed | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |

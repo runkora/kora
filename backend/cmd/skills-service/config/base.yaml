@@ -1,0 +1,16 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8085
+  basePath: /v1
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: orbit-skills-service
+
+marketplace:
+  cacheTTL: 12h
+
+github:
+  apiBaseURL: https://api.github.com
