@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 )
 
 // ErrNotSupported is returned by SendToolResult for runners that handle tool
@@ -68,18 +69,18 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 	return wrapperPath, append([]string{workDir, binary}, args...)
 }
 
-// runHomeDirs creates this run's HOME and TMPDIR under its work directory and
-// returns them as environment entries.
+// runHomeDirs creates this run's HOME and TMPDIR and returns them as
+// environment entries.
 //
-// Both must live under workDir, the only directory Landlock makes writable: an
-// agent left on the image's /home/orbit fails on its first write. Per-run also
-// keeps sibling runs out of each other's caches.
+// Both must be directories Landlock makes writable: an agent left on the
+// image's /home/orbit fails on its first write. Per-run also keeps sibling runs
+// out of each other's caches.
 func runHomeDirs(workDir string) ([]string, error) {
-	runHome := filepath.Join(workDir, ".runhome")
+	runHome := runfs.HomeDir(workDir)
 	if err := os.MkdirAll(runHome, 0o700); err != nil {
 		return nil, fmt.Errorf("create run home: %w", err)
 	}
-	tmpDir := filepath.Join(workDir, ".tmp")
+	tmpDir := runfs.TmpDir(workDir)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create run tmpdir: %w", err)
 	}

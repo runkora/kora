@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -330,6 +331,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
 			ExtraEnv:            c.runEnv(req.RunID, runToken),
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
@@ -421,13 +423,19 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 // gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
 // proves the caller is in this pod, which every run here satisfies.
 // orbit-shell is a child of the agent and inherits this environment.
+//
+// The install environment matches the sandbox's, so installs and caches land
+// under the run's home either way. Its PATH carries the sandbox toolchains
+// because Claude Code and Codex replay the agent's PATH in sandbox commands.
 func (c *Controller) runEnv(runID, runToken string) []string {
-	return []string{
-		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
+	workspace := filepath.Join(c.cfg.WorkspacesBasePath, runID)
+	env := []string{
+		"WORKSPACE=" + workspace,
 		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
 		"ORBIT_RUN_ID=" + runID,
 		"ORBIT_RUN_TOKEN=" + runToken,
 	}
+	return append(env, runfs.InstallEnv(runfs.HomeDir(workspace), os.Getenv("PATH"))...)
 }
 
 // requireRunToken binds the caller to the run in the path. Returns false and

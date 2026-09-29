@@ -16,6 +16,7 @@ ARG RUBY_VERSION=3.3
 # kubectl only supports one minor version of skew from the API server, so pin
 # this to the minor of the cluster a `kubernetes` connection points at.
 ARG KUBECTL_VERSION=1.33.13
+ARG KUSTOMIZE_VERSION=5.8.1
 
 # =============================================================================
 # INSTALL FLAGS
@@ -28,6 +29,7 @@ ARG INSTALL_DOTNET=false
 ARG INSTALL_RUBY=false
 ARG INSTALL_BROWSERS=false
 ARG INSTALL_KUBECTL=true
+ARG INSTALL_KUSTOMIZE=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
@@ -62,6 +64,7 @@ ARG JAVA_VERSION
 ARG DOTNET_VERSION
 ARG RUBY_VERSION
 ARG KUBECTL_VERSION
+ARG KUSTOMIZE_VERSION
 ARG INSTALL_BUN
 ARG INSTALL_RUST
 ARG INSTALL_GO
@@ -70,6 +73,7 @@ ARG INSTALL_DOTNET
 ARG INSTALL_RUBY
 ARG INSTALL_BROWSERS
 ARG INSTALL_KUBECTL
+ARG INSTALL_KUSTOMIZE
 
 # Base dependencies + the universal developer CLIs an agent needs for real
 # engineering work (clone, search, build native deps, fetch, slice JSON). Heavier
@@ -105,9 +109,9 @@ RUN set -eux; \
     node --version && \
     npm --version
 
-# Python (always installed)
+# Python (always installed), with PyYAML for the YAML scripting agents reach for.
 RUN apt-get update && apt-get install -y \
-      python3 python3-pip python3-venv && \
+      python3 python3-pip python3-venv python3-yaml && \
     ln -sf /usr/bin/python3 /usr/bin/python && \
     rm -rf /var/lib/apt/lists/* && \
     python --version
@@ -156,6 +160,10 @@ RUN if [ "$INSTALL_GO" = "true" ]; then \
       . /etc/profile.d/go.sh && \
       go version ; \
     fi
+# sandbox-exec runs commands in a non-login shell, which never reads profile.d.
+# Rust's paths are set here too so an INSTALL_RUST build works the same way.
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/go/bin:/usr/local/cargo/bin:$PATH
 
 # Java (Eclipse Temurin) + Maven + Gradle
 RUN if [ "$INSTALL_JAVA" = "true" ]; then \
@@ -268,6 +276,26 @@ RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
       rm -f kubectl && \
       kubectl version --client ; \
+    fi
+
+# kustomize. Digests pinned here for the same reason as kubectl's above; refresh
+# them from the release's checksums.txt when bumping KUSTOMIZE_VERSION.
+ARG KUSTOMIZE_SHA256_AMD64=029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
+ARG KUSTOMIZE_SHA256_ARM64=0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142
+RUN if [ "$INSTALL_KUSTOMIZE" = "true" ]; then \
+      set -eux; \
+      dpkgArch="$(dpkg --print-architecture)"; \
+      case "${dpkgArch##*-}" in \
+        amd64) ARCH='amd64'; SHA="${KUSTOMIZE_SHA256_AMD64}";; \
+        arm64) ARCH='arm64'; SHA="${KUSTOMIZE_SHA256_ARM64}";; \
+        *) echo "unsupported architecture for kustomize: ${dpkgArch}" >&2; exit 1;; \
+      esac; \
+      tarball="kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz"; \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${tarball}" && \
+      echo "${SHA}  ${tarball}" | sha256sum --check && \
+      tar -xzf "${tarball}" -C /usr/local/bin kustomize && \
+      rm -f "${tarball}" && \
+      kustomize version ; \
     fi
 
 # sandbox-exec gRPC server

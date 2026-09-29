@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+const testWorkspaceDir = "/workspaces/run-1"
+
 func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 	access := &EffectiveAccess{
 		Hosts: []string{"*.clearroute.io", "api.github.com", "github.com", "pypi.org", "proxy.golang.org"},
@@ -15,7 +17,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 			{Connection: "github", Adapter: "github_app", Hosts: []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}},
 		},
 	}
-	brief := renderCapabilitiesBrief(access)
+	brief := renderCapabilitiesBrief(access, testWorkspaceDir)
 	t.Logf("rendered brief:\n%s", brief)
 
 	for _, want := range []string{
@@ -33,6 +35,12 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 		"never run `git init` if the clone fails",
 		"Retry the clone (with backoff)",
 		"verify the working copy is a real clone",
+		"## Workspace",
+		"Work only in your workspace `/workspaces/run-1` (also `$WORKSPACE`",
+		"`/workspaces/run-1/.runhome`",
+		"`$TMPDIR` (`/workspaces/.tmp/run-1`)",
+		"`/tmp` is not available",
+		"land under `~` and are on your PATH",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)
@@ -41,7 +49,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 }
 
 func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
-	open := renderCapabilitiesBrief(&EffectiveAccess{Open: true})
+	open := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir)
 	if !strings.Contains(open, "outbound requests to any host") {
 		t.Errorf("open brief should allow any host, got:\n%s", open)
 	}
@@ -49,7 +57,7 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 		t.Errorf("open brief should mention provision_sandbox, got:\n%s", open)
 	}
 
-	none := renderCapabilitiesBrief(&EffectiveAccess{})
+	none := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir)
 	if !strings.Contains(none, "no outbound network access") {
 		t.Errorf("none brief should deny network, got:\n%s", none)
 	}
@@ -65,7 +73,7 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 // A whitelist miss is a reset TLS handshake with no body, so the brief is the
 // only place the agent can learn what that failure means.
 func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
-	brief := renderCapabilitiesBrief(&EffectiveAccess{Hosts: []string{"api.github.com"}})
+	brief := renderCapabilitiesBrief(&EffectiveAccess{Hosts: []string{"api.github.com"}}, testWorkspaceDir)
 	for _, want := range []string{"connection reset or TLS handshake failure", "egress allowlist", "names the host, the action, and the grant"} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)
@@ -75,7 +83,7 @@ func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
 
 // Open egress has no allowlist, so the brief must not describe one.
 func TestRenderCapabilitiesBrief_OpenOmitsAllowlistHint(t *testing.T) {
-	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}); strings.Contains(brief, "egress allowlist") {
+	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir); strings.Contains(brief, "egress allowlist") {
 		t.Error("open-egress brief mentions an allowlist")
 	}
 }

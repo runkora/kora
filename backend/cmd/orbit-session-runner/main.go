@@ -17,6 +17,8 @@
 // When namespace creation fails (CLONE_NEWUSER blocked by seccomp / sysctl),
 // falls back to direct exec with Landlock applied in the parent process.
 //
+// Neither path grants the pod's /tmp, which every run on the pod shares.
+//
 // See docs/adr/2026-06-04-per-session-home-isolation.md for the full isolation policy.
 package main
 
@@ -26,6 +28,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/landlock-lsm/go-landlock/landlock"
 )
 
@@ -64,6 +67,7 @@ func main() {
 
 	// Fallback: apply Landlock in this process then exec claude directly.
 	// Filesystem isolation still holds; proc-table leak remains in this path.
+	fmt.Fprintf(os.Stderr, "orbit-session-runner: namespace unavailable (%v); proc isolation off\n", err)
 	applyLandlock(workDir)
 	if err = syscall.Exec(resolved, argv, os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "orbit-session-runner: exec %q: %v\n", resolved, err)
@@ -82,10 +86,13 @@ func applyLandlock(workDir string) {
 	// fallback — the opposite of the best-effort contract. Filtering keeps
 	// enforcement intact for the paths that do exist.
 	rules := []landlock.Rule{landlock.RWDirs(workDir)}
-	if rw := existingDirs("/dev", "/tmp"); len(rw) > 0 {
+	// /tmp is left out: the pod's /tmp is shared by every run on the pod, so the
+	// agent writes only to the shared volume. Its TMPDIR is runfs.TmpDir.
+	if rw := existingDirs(runfs.TmpDir(workDir), "/dev"); len(rw) > 0 {
 		rules = append(rules, landlock.RWDirs(rw...))
 	}
-	if ro := existingDirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run"); len(ro) > 0 {
+	// The run's config dir holds platform-written files the agent reads but must not change.
+	if ro := existingDirs(runfs.ConfigDir(workDir), "/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run"); len(ro) > 0 {
 		rules = append(rules, landlock.RODirs(ro...))
 	}
 	if err := landlock.V3.BestEffort().RestrictPaths(rules...); err != nil {

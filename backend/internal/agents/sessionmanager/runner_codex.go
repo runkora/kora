@@ -817,6 +817,10 @@ trust_level = "trusted"
 [features]
 shell_tool = true
 unified_exec = false
+# The shell snapshot is taken by a login shell on this pod, whose /etc/profile
+# resets PATH; replayed in the sandbox it would hide the toolchains and user
+# installs. Without it, commands get the sandbox's own environment.
+shell_snapshot = false
 %s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")

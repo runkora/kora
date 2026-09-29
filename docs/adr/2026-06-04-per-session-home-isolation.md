@@ -1,6 +1,6 @@
 # Agent Run Filesystem and Process Isolation
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-09-29)
 **Date:** 2026-06-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Agent self-assessment revealed all runs on the same session-manager pod share `$HOME`, the full pod filesystem, and the host PID namespace — giving every run read/write access to `~/.claude/` (session transcripts, memories) and the ability to read sibling processes' `/proc/<pid>/cmdline`, leaking workspace UUIDs, system prompts, model selections, and tool grants.
@@ -129,7 +129,7 @@ All three mechanisms live in `orbit-session-runner` and are applied best-effort 
 | `/etc` | Read (DNS, TLS certs, timezone) |
 | `/proc` | Read (PID namespace scopes visibility to own processes only) |
 | `/run` | Read (runtime sockets, e.g. DNS resolver) |
-| `/dev`, `/tmp` | Read + Write (I/O primitives, system tmp) |
+| `/dev`, `/tmp` | Read + Write (I/O primitives, system tmp). Amendment 1 removes `/tmp`. |
 | Workspaces root, sibling `{runID}` dirs | **Denied** |
 
 ### Process lifecycle with PID namespace
@@ -187,7 +187,7 @@ In `runner_claude.go` `Start()`:
 `orbit-session-runner` applies Landlock V3 rules before exec'ing claude:
 ```
 landlock.RWDirs(workDir)
-landlock.RWDirs("/dev", "/tmp")
+landlock.RWDirs("/dev", "/tmp")  // Amendment 1 drops /tmp
 landlock.RODirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run")
 ```
 Applied with `BestEffort()` — no-ops on kernels < 5.13 or macOS.
@@ -208,6 +208,103 @@ If `cmd.Start()` returns an error (e.g. `EPERM` — user namespaces blocked), fa
 
 ---
 
+## Amendment 1 (2026-09-29): The agent works only on the shared volume
+
+**Status:** Accepted
+
+This amendment touches **What can it access?**: what one run can reach of the filesystem shared with other runs on the same pod. It also touches **How does it connect?** only in the sandbox egress readiness check, which now probes one of the agent's own allowed hosts. Identity (Who is this agent?) is unchanged.
+
+### Current state: Phase 3 is not in effect
+
+Measured on the local cluster, 2026-09-29:
+
+- The session-manager container runs under the `RuntimeDefault` seccomp profile, which denies `CLONE_NEWUSER`: `unshare -U true` fails with `Operation not permitted`. `orbit-session-runner` therefore always takes its fallback path. There is no PID namespace and no private mount namespace for any run.
+- From inside a run, `/proc` lists the pod's own processes. A process started through `orbit-session-runner` on the agent pod (the same Landlock rules a run gets) read a sibling run's `/proc/<pid>/cmdline`, including its `--model`, `--tools` and `--append-system-prompt` arguments. Goal 3 of this ADR is not met.
+- On the local node kernel (Ubuntu 6.8, `kernel.apparmor_restrict_unprivileged_userns=1`), mounts inside an unprivileged user namespace fail with `EACCES` even with seccomp unconfined.
+- The namespace child runs as a non-root UID, so it loses its namespace capabilities when it execs; the `/proc` remount could not have succeeded without ambient capabilities.
+
+Restoring PID isolation needs a separate decision (a custom seccomp or AppArmor profile for the session-manager, or another mechanism). This amendment does not change it. The runner now logs once per run when it takes the fallback path.
+
+### Context
+
+- Bash runs in the run's sandbox pod, or on the agent pod before a sandbox exists. The file tools (Claude Code's Read, Write, Edit, Glob and Grep, Codex's `apply_patch`, OpenCode's read, write, edit and patch) run in the agent process on the session-manager pod. Codex reads files through its shell tool.
+- Only the workspace volume is mounted on both pods. `/tmp` differed between them: in the sandbox it was the pod's own filesystem, and on the agent pod it was the pod's `/tmp`, which the Landlock rule above made readable and writable by every run on the pod.
+- Agents cloned and wrote into `/tmp`. The file tools then reported the files as missing, and a file written with a file tool was not visible to a later Bash command.
+- In the sandbox, Go was installed but not on `PATH`, `npm install -g` needed root, and `pip install` was refused by Debian's externally managed Python.
+- Claude Code snapshots the agent process's `PATH` and replays it in every Bash command, so the sandbox's own `PATH` is not what its commands see.
+- OpenCode received no system prompt: ACP has no field for it, and the runner sent none.
+
+### Considered Options
+
+1. **Bind-mount the run's tmp directory over `/tmp` in the runner's mount namespace.** Gives every framework the same `/tmp` as the sandbox. Not available: the namespace is never created (see Current state), and it needs `CAP_SYS_ADMIN` inside it. Revisit when user namespaces are available to the session-manager.
+2. **Run the file tools in the sandbox.** Rejected: runs work without a sandbox, and the built-in file tools are the ones the models are trained on. The file tools stay on the agent pod, and parity comes from the shared volume.
+3. **Rewrite `/tmp` paths in file tool input** with a Claude Code `PreToolUse` hook, a Codex managed hook and an OpenCode plugin. Rejected: three framework-specific mechanisms that each break when the framework changes its tool names, input shapes or hook contract.
+4. **The agent works only on the shared volume.** The workspace, `$HOME` and `$TMPDIR` sit on the workspace volume at identical absolute paths on both pods, and `/tmp` is denied to the agent process. Framework-independent.
+
+### Decision
+
+Option 4. The layout is defined once, in `internal/agents/sandbox/runfs`, and used by the session-manager, the runner, sandbox-exec and the sandbox pod spec.
+
+| Path | Agent pod | Sandbox |
+|---|---|---|
+| Workspace (`$WORKSPACE`, working directory) | `/workspaces/{runID}` | Same path, `subPath: {runID}` |
+| `$HOME` | `/workspaces/{runID}/.runhome` | Same path (inside the workspace mount) |
+| `$TMPDIR` | `/workspaces/.tmp/{runID}`, read-write under Landlock | Same path, `subPath: .tmp/{runID}`; also mounted at `/tmp` for tools that ignore `TMPDIR` |
+| `/tmp` | Denied by Landlock in both runner paths | The run's `$TMPDIR` |
+| Run config (`/workspaces/.runconfig/{runID}`) | Read-only under Landlock; holds OpenCode's instructions file | Not mounted |
+| Installs and caches | `NPM_CONFIG_PREFIX` and `PYTHONUSERBASE` at `~/.local`, `NPM_CONFIG_CACHE=~/.npm`, `PIP_CACHE_DIR=~/.cache/pip`, `PIP_BREAK_SYSTEM_PACKAGES=1`, `GOPATH=~/go`, `GOCACHE=~/.cache/go-build`, `CARGO_HOME=~/.cargo` | Same |
+| `PATH` | The pod's `PATH`, then `/usr/local/go/bin`, `/usr/local/cargo/bin`, `~/.local/bin`, `~/go/bin`, `~/.cargo/bin` | The image's `PATH`, then the same directories |
+
+- `$TMPDIR` sits beside the workspace, not in it. The agent can rename anything inside its workspace, and a `subPath` it could replace with a symlink to `..` would mount the whole volume, every sibling run included, into its next sandbox. The run config directory sits beside it for the same reason.
+- The home `bin` directories come last on `PATH`, so nothing the agent installs shadows a binary the agent pod runs (`node`, `claude`, `orbit-runtime-mcp`).
+- Toolchains live only in the sandbox image, which adds Go and Rust to its non-login `PATH`, PyYAML and kustomize. The session-manager image carries none; the agent-side `PATH` names the sandbox directories because Claude Code and Codex replay it in sandbox commands.
+- Codex's shell snapshot is turned off. Codex takes it with a login shell on the agent pod, whose `/etc/profile` resets `PATH`, and replays it in every sandbox command.
+- `PIP_USER` is not set: it makes `pip install` fail inside a virtualenv, and pip already installs to the user site when the system site is not writable.
+- OpenCode's system prompt, which carries the capabilities brief, is written to `instructions.md` in the run config directory and named in `opencode.json`.
+- The capabilities brief tells the agent to work in the workspace, `~` or `$TMPDIR`, that `/tmp` is not available, and that user-level installs persist for the run.
+- The egress readiness check probes a host from the agent's effective access (connector hosts first, then environment and own hosts, skipping wildcards). Any HTTP answer other than 502 to 504 passes. An agent with no concrete host skips the check.
+
+| | Claude Code | Codex | OpenCode |
+|---|---|---|---|
+| File tools run on | Agent pod | Agent pod (`apply_patch`); reads go through the shell | Agent pod |
+| Shell commands run in | Sandbox (orbit-shell), agent-side `PATH` replayed | Sandbox (orbit-shell), sandbox environment | Sandbox (orbit-shell), sandbox environment |
+| System prompt and brief | `--append-system-prompt` | `developerInstructions` | `instructions` file in the run config directory |
+| `/tmp` from a file tool | Denied | Denied | Denied |
+
+### Consequences
+
+**Positive**
+
+- A path the agent writes on the shared volume is the same file for Bash and the file tools in every framework, with or without a sandbox, and no tool input is rewritten.
+- No run can read or write another run's `/tmp` on a session-manager pod.
+- `$TMPDIR`, `$HOME` and user-level installs and caches persist on the workspace volume and survive the loss of the sandbox pod.
+
+**Negative**
+
+- A file tool call on `/tmp` fails in every framework. The capabilities brief steers the agent to `$TMPDIR`.
+- `$TMPDIR` and caches are on the workspace volume: writes are slower on network storage, and they count toward the volume's disk. Nothing deletes `.tmp/{runID}` or `.runconfig/{runID}` today, as with the workspace itself.
+- An agent with open egress and no connector or environment host names no host, so it skips the egress readiness check and its first outbound call may meet a still-warming path.
+- An agent with only connector hosts probes the connector host root, which the egress gateway may answer with a denial; that still counts as a working path.
+- Installs need egress to the package registry. This amendment grants none.
+
+**Verified on the local cluster**
+
+Before, as reported by the survey: a Bash clone into `/tmp` in the sandbox, followed by a file-tool read of the same path, returned "File does not exist", and a file written with a file tool was not visible to a later Bash command.
+
+| Check | Claude Code | OpenCode | Codex |
+|---|---|---|---|
+| Runs | `c650c3ec`, sibling `ba4fbb4c`, no sandbox `d3cdc7d4` | `5907f5b3`, sibling `d91dc286` | `2fb98696`, `e6c4a6d0`, `9cc8a79b`, `310f1ad5`; no sandbox `7484daca`, `c17b7b24` |
+| Clone into `$TMPDIR` in the sandbox, then a file-tool read | Read returned `testme` | read returned `testme` | Codex reads through its shell: `head` in the sandbox returned `testme` |
+| File-tool write, then Bash `cat` | `written by the file tool` | `written by the file tool` | `apply_patch` wrote `fw-write.txt`; Bash in the sandbox printed `written by apply_patch` |
+| File tool on `/tmp` | Write: `EACCES: permission denied` | write: `PermissionDenied: FileSystem.writeFile (/tmp/probe.txt)` | `apply_patch`: "Failed to write file /tmp/probe.txt" |
+| `npm i -g`, `pip install`, `go install` in the sandbox | All three on `PATH` under `~`; caches in `~/.cache/go-build`, `~/.cache/pip`, `~/.npm`, `~/go/pkg/mod` | Same | Same; the sandbox command saw the sandbox `PATH` |
+| Sibling run on the same pod | Sandbox `ls` of the sibling's `$TMPDIR`: no such file; `/workspaces` lists only its own run | read of the sibling's cloned file: `PermissionDenied: FileSystem.open`; sandbox sees only its own run | Not run |
+| System prompt and Workspace brief | Workspace section quoted | `PROMPT-MARKER-7731` and the Workspace section quoted | `developerInstructions` (unchanged; not rechecked) |
+
+Without a sandbox (`d3cdc7d4`, Claude Code; `7484daca`, Codex), Bash ran on the agent pod: a file Bash wrote to the workspace and to `$TMPDIR` was read by the file tool, a file the file tool wrote was printed by Bash, and `ls /tmp` returned `Permission denied`.
+
+---
+
 ## Related Decisions
 
 - [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — Sandbox provisioning; compute isolation for tool execution (separate concern).
@@ -216,4 +313,4 @@ If `cmd.Start()` returns an error (e.g. `EPERM` — user namespaces blocked), fa
 
 ---
 
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-09-29

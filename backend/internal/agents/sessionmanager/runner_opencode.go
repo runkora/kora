@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -36,6 +37,10 @@ type OpenCodeRunnerConfig struct {
 	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
 	// orbit-shell callback variables).
 	ExtraEnv []string
+
+	// SystemPrompt, when non-empty, reaches OpenCode as an instructions file
+	// named in opencode.json. ACP has no field for it.
+	SystemPrompt string
 
 	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
 	// sandbox. Always http://localhost:{port}, since it runs in this pod.
@@ -364,6 +369,17 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 			},
 		},
 		"mcp": r.mcpConfig(),
+	}
+	if r.cfg.SystemPrompt != "" {
+		// In the run's config dir, which the agent can read but not change.
+		path := filepath.Join(runfs.ConfigDir(workDir), "instructions.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(r.cfg.SystemPrompt), 0o600); err != nil {
+			return err
+		}
+		cfg["instructions"] = []string{path}
 	}
 	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
 	// at orbit-shell routes them to the run's sandbox.

@@ -99,7 +99,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
-- [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted` · 2026-06-04
+- [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
@@ -222,7 +222,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |
 | 2026-06-04 | [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) | Accepted | 0061 |
 | 2026-06-04 | [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) | Accepted | 0063 |
-| 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted | 0062 |
+| 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted (Amended 2026-09-29) | 0062 |
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
 | 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted (Amended 2026-09-29) | — |
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted | — |

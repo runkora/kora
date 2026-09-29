@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,9 +36,27 @@ const egressCanaryMaxWait = 90 * time.Second
 // egressCanaryInterval is the retry interval for the egress canary probe.
 const egressCanaryInterval = 5 * time.Second
 
+// egressCanaryResult is how the egress readiness check ended.
+type egressCanaryResult string
+
+const (
+	egressCanaryPassed egressCanaryResult = "passed"
+	// egressCanarySkipped means the check does not apply: the agent has no host to probe.
+	egressCanarySkipped  egressCanaryResult = "skipped"
+	egressCanaryTimedOut egressCanaryResult = "timed_out"
+)
+
+// canaryHostPattern admits a hostname with an optional port, which is all the
+// canary command interpolates into a shell string.
+var canaryHostPattern = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]{1,5})?$`)
+
 // egressCanaryCommand is the shell command run inside the sandbox to check
-// outbound egress. A successful exit (0) means egress is settled.
-const egressCanaryCommand = "curl -sf --max-time 8 -o /dev/null https://api.github.com"
+// outbound egress to host. Any answer but a gateway error (502 to 504) or no
+// answer at all passes: the path works, whatever the upstream says. host must
+// already match canaryHostPattern, since it is interpolated into a shell string.
+func egressCanaryCommand(host string) string {
+	return `code=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' https://` + host + `/); case "$code" in 000|502|503|504) exit 1;; esac`
+}
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
@@ -275,6 +294,9 @@ func (reg *Registry) ActiveCount() int {
 type Sandbox struct {
 	Endpoint  string `json:"endpoint"`
 	ExecToken string `json:"exec_token"`
+	// CanaryHost is a host the agent may reach, probed before the sandbox is
+	// handed over. Empty when the agent has none, which skips the probe.
+	CanaryHost string `json:"canary_host,omitempty"`
 }
 
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
@@ -293,8 +315,8 @@ type Sandbox struct {
 //
 // After a fresh provision, ProvisionSandbox gates on egress readiness: it probes
 // outbound connectivity from inside the sandbox (via its gRPC exec server) and
-// retries until a canary request to api.github.com succeeds or the context
-// deadline is reached. This eliminates the first-minute window where
+// retries until a canary request to one of the agent's own allowed hosts gets an
+// answer or the wait runs out. An agent with no named host skips the probe. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
@@ -339,7 +361,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	// up to ~60s to fully settle. Returning before they are ready causes the
 	// first git/GitHub calls to land "connection reset by peer" — the exact
 	// failure that triggered orphan-branch PRs in issue #161.
-	if canaryErr := reg.awaitEgressReady(ctx, runID, sandbox); canaryErr != nil {
+	if result, canaryErr := reg.awaitEgressReady(ctx, runID, sandbox); result == egressCanaryTimedOut {
 		reg.logger.Warn(ctx, "Egress canary did not pass within timeout — proceeding anyway",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: canaryErr.Error()},
@@ -455,14 +477,22 @@ func readTrimmed(path string) string {
 // non-zero exit or exec error until the command succeeds (exit 0) or
 // egressCanaryMaxWait elapses. The canary is bounded by a sub-context so
 // individual probes don't outlive the overall wait budget.
-func (reg *Registry) awaitEgressReady(ctx context.Context, runID string, sandbox Sandbox) error {
+func (reg *Registry) awaitEgressReady(ctx context.Context, runID string, sandbox Sandbox) (egressCanaryResult, error) {
 	return reg.awaitEgressReadyWithInterval(ctx, runID, sandbox, egressCanaryInterval, egressCanaryMaxWait)
 }
 
 // awaitEgressReadyWithInterval is the testable core of awaitEgressReady.
 // interval controls how long to wait between probe attempts; maxWait caps the
 // total wait. Tests pass short values to avoid slow tests.
-func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID string, sandbox Sandbox, interval, maxWait time.Duration) error {
+func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID string, sandbox Sandbox, interval, maxWait time.Duration) (egressCanaryResult, error) {
+	if !canaryHostPattern.MatchString(sandbox.CanaryHost) {
+		reg.logger.Info(ctx, "Sandbox egress canary skipped: no probeable host for this agent",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "canary_host", Value: sandbox.CanaryHost},
+		)
+		return egressCanarySkipped, nil
+	}
+	command := egressCanaryCommand(sandbox.CanaryHost)
 	deadline := time.Now().Add(maxWait)
 	canaryCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -470,13 +500,14 @@ func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID str
 	attempt := 0
 	for {
 		attempt++
-		ok, execErr := reg.sandboxExec(canaryCtx, sandbox, egressCanaryCommand)
+		ok, execErr := reg.sandboxExec(canaryCtx, sandbox, command)
 		if execErr == nil && ok {
 			reg.logger.Info(ctx, "Sandbox egress canary passed",
 				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "canary_host", Value: sandbox.CanaryHost},
 				logging.Field{Key: "attempt", Value: attempt},
 			)
-			return nil
+			return egressCanaryPassed, nil
 		}
 
 		msg := "non-zero exit"
@@ -491,7 +522,7 @@ func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID str
 
 		select {
 		case <-canaryCtx.Done():
-			return fmt.Errorf("egress canary timed out after %d attempt(s): %w", attempt, canaryCtx.Err())
+			return egressCanaryTimedOut, fmt.Errorf("egress canary timed out after %d attempt(s): %w", attempt, canaryCtx.Err())
 		case <-time.After(interval):
 		}
 	}

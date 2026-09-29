@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -76,7 +77,7 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	if access == nil {
 		return at.SystemPrompt
 	}
-	return at.SystemPrompt + renderCapabilitiesBrief(access)
+	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID))
 }
 
 // NewRunService creates a RunService with the given dependencies.
@@ -788,6 +789,8 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
 	}
 
+	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
+
 	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
@@ -795,6 +798,37 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
 	return sandbox, nil
+}
+
+// egressCanaryHost picks a host this agent may reach, so the egress probe tests
+// the agent's own path. Empty when it has no named host (no egress, or open
+// egress with none named), which skips the probe.
+func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string {
+	if s.resolver == nil {
+		return ""
+	}
+	access, err := s.resolver.EffectiveAccess(ctx, at)
+	if err != nil || access == nil {
+		s.logger.Warn(ctx, "Resolving the egress canary host failed; the sandbox skips the probe",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "error", Value: fmt.Sprint(err)},
+		)
+		return ""
+	}
+	// Connector hosts first: adapters declare HTTPS APIs, while a whitelisted
+	// host may serve something other than HTTPS.
+	var hosts []string
+	for _, ce := range access.ConnectorEgress {
+		hosts = append(hosts, ce.Hosts...)
+	}
+	hosts = append(hosts, access.EnvironmentHosts...)
+	hosts = append(hosts, access.OwnHosts...)
+	for _, h := range hosts {
+		if !strings.Contains(h, "*") {
+			return h
+		}
+	}
+	return ""
 }
 
 // providePod ensures the agent type's k8s resources exist (idempotent, fast
