@@ -234,7 +234,7 @@ This describes what the backend test suite **actually is today**, and (separatel
 
 **What exists today:**
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, currently in five packages:
+- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
 
   | Package | File | Covers |
   |---|---|---|
@@ -242,6 +242,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `agents` | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution |
   | `policyservice/grants` | `postgres_test.go` | scope purging across grants |
   | `policyservice/roles` | `postgres_test.go` | scope purging across roles |
+  | `inferencegw` | `postgres_test.go` | the `agent_slug` backfill and write path, per-agent usage aggregates and their index |
   | `example` | `postgres_test.go` | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):

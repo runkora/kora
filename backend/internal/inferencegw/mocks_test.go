@@ -136,8 +136,8 @@ func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ strin
 	return m.runSpend, m.runTokens, m.runUsageErr
 }
 
-func (m *mockInferenceUsageRepository) GetAgentTypeUsage(_ context.Context, _, agentTypeID string) (AgentTypeUsage, error) {
-	return AgentTypeUsage{AgentTypeID: agentTypeID}, nil
+func (m *mockInferenceUsageRepository) GetAgentTypeUsage(_ context.Context, _, slug string) (AgentTypeUsage, error) {
+	return AgentTypeUsage{AgentSlug: slug}, nil
 }
 
 func (m *mockInferenceUsageRepository) ListAgentTypeUsage(_ context.Context, _ string) ([]AgentTypeUsage, error) {

@@ -7,9 +7,9 @@ import (
 )
 
 // TestInferenceRoutesUsageScopes pins the personal-vs-privileged split across the
-// /v1/usage tree. The tenant-wide agent-type reads aggregate spend for every
-// agent type in the tenant, so they require platform:analytics:read; the rest
-// are derived from the caller's own claims and need authentication only.
+// /v1/usage tree. The agent-type reads report spend per agent, so they require
+// agents:types:read; the rest are derived from the caller's own claims and need
+// authentication only.
 //
 // It resolves through mw.ResolveRequiredScope, the function the enforcement
 // middleware itself calls, rather than a local reimplementation of the matching
@@ -29,7 +29,7 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 		{name: "personal budget", path: "/v1/usage/budget", scope: ""},
 		{name: "run usage meter", path: "/v1/usage/run/run-123", scope: ""},
 		{name: "agent type list is tenant-wide", path: "/v1/usage/agent-types", scope: "agents:types:read"},
-		{name: "agent type detail follows agent visibility", path: "/v1/usage/agent-type/type-abc", scope: "agents:types:read"},
+		{name: "agent type detail follows agent visibility", path: "/v1/usage/agent-type/token-probe", scope: "agents:types:read"},
 		{name: "personal analytics", path: "/v1/analytics/me", scope: ""},
 		{name: "tenant analytics", path: "/v1/analytics", scope: "platform:analytics:read"},
 	}

@@ -71,17 +71,15 @@ type InferenceUsageRepository interface {
 	// for a run with no recorded usage.
 	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
 
-	// GetAgentTypeUsage returns aggregated token breakdown and spend for an
-	// agent type's SPIFFE principal over the last 7 days, tenant-scoped. Powers
-	// the token breakdown and spend cards on the agent overview page. Returns
-	// a zero-value result (not an error) when no usage exists.
-	GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error)
+	// GetAgentTypeUsage returns aggregated token breakdown and spend for the
+	// agent with the given slug over the last 7 days, tenant-scoped. Powers the
+	// token breakdown and spend cards on the agent overview page. Returns a
+	// zero-value result (not an error) when no usage exists.
+	GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error)
 
 	// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
-	// type for the tenant over the last 7 days, derived from the agent SPIFFE
-	// principals (spiffe://orbit/{tenantID}/agent/{agentTypeID}). One entry per
-	// agent type that has usage in the window; types with no usage are absent.
-	// Powers the total + per-agent cost on the agents list page.
+	// slug for the tenant over the last 7 days. Agents with no usage in the
+	// window are absent. Powers the total and per-agent cost on the agents list.
 	ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error)
 
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
@@ -136,7 +134,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			effective_input_cost_per_1m, effective_output_cost_per_1m,
 			effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
 			status, retry_count, error_code, failure_details, latency_ms, created_at,
-			run_id, principal_roles, delegator_id, delegator_principal_type
+			run_id, principal_roles, delegator_id, delegator_principal_type, agent_slug
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
@@ -146,7 +144,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			$18,
 			$19, $20, $21, $22,
 			$23, $24, $25, $26, $27, $28,
-			$29, $30, $31, $32
+			$29, $30, $31, $32, $33
 		)`
 
 	var provider *string
@@ -181,6 +179,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		rec.EffectiveCacheReadCostPer1M, rec.EffectiveCacheWriteCostPer1M,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
 		storage.NullIfZero(rec.RunID), rec.PrincipalRoles, rec.DelegatorID, rec.DelegatorPrincipalType,
+		storage.NullIfZero(rec.AgentSlug),
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -833,13 +832,9 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 	return spend, tokens, nil
 }
 
-// GetAgentTypeUsage returns aggregated token breakdown and spend for an agent
-// type's SPIFFE principal over the last 7 days, tenant-scoped. The principal
-// ID is derived from the standard agent SPIFFE format used by the
-// identity-proxy sidecar: spiffe://orbit/{tenantID}/agent/{agentTypeID}.
-// Returns a zero-value result when no usage records exist.
-func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error) {
-	principalID := "spiffe://orbit/" + tenantID + "/agent/" + agentTypeID
+// GetAgentTypeUsage returns aggregated token breakdown and spend for the agent
+// with the given slug over the last 7 days, tenant-scoped.
+func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error) {
 	const q = `
 		SELECT
 		    COALESCE(SUM(prompt_tokens), 0),
@@ -850,12 +845,11 @@ func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context
 		    COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND principal_id = $2
+		  AND agent_slug = $2
 		  AND created_at >= NOW() - INTERVAL '7 days'`
 
-	var u AgentTypeUsage
-	u.AgentTypeID = agentTypeID
-	if err := r.pool.QueryRow(ctx, q, tenantID, principalID).Scan(
+	u := AgentTypeUsage{AgentSlug: slug}
+	if err := r.pool.QueryRow(ctx, q, tenantID, slug).Scan(
 		&u.PromptTokens,
 		&u.CompletionTokens,
 		&u.CacheReadTokens,
@@ -868,16 +862,13 @@ func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context
 	return u, nil
 }
 
-// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
-// type for the tenant over the last 7 days. It groups inference_usage by the
-// agent SPIFFE principal and recovers the agent type id from the principal
-// path (spiffe://orbit/{tenantID}/agent/{agentTypeID}). Agent types with no
-// usage in the window are absent from the result.
+// ListAgentTypeUsage returns aggregated token breakdown and spend per agent slug
+// for the tenant over the last 7 days. Agents with no usage in the window are
+// absent from the result.
 func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
-	prefix := "spiffe://orbit/" + tenantID + "/agent/"
 	const q = `
 		SELECT
-		    principal_id,
+		    agent_slug,
 		    COALESCE(SUM(prompt_tokens), 0),
 		    COALESCE(SUM(completion_tokens), 0),
 		    COALESCE(SUM(cache_read_input_tokens), 0),
@@ -886,11 +877,12 @@ func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Contex
 		    COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND starts_with(principal_id, $2)
+		  AND agent_slug IS NOT NULL
 		  AND created_at >= NOW() - INTERVAL '7 days'
-		GROUP BY principal_id`
+		GROUP BY agent_slug
+		ORDER BY agent_slug`
 
-	rows, err := r.pool.Query(ctx, q, tenantID, prefix)
+	rows, err := r.pool.Query(ctx, q, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list agent type usage: %w", err)
 	}
@@ -898,10 +890,9 @@ func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Contex
 
 	var out []AgentTypeUsage
 	for rows.Next() {
-		var principalID string
 		var u AgentTypeUsage
 		if err := rows.Scan(
-			&principalID,
+			&u.AgentSlug,
 			&u.PromptTokens,
 			&u.CompletionTokens,
 			&u.CacheReadTokens,
@@ -911,7 +902,6 @@ func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Contex
 		); err != nil {
 			return nil, fmt.Errorf("scan agent type usage: %w", err)
 		}
-		u.AgentTypeID = strings.TrimPrefix(principalID, prefix)
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {

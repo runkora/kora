@@ -114,15 +114,10 @@ export function AgentsPage() {
     return fmtUsd(values.reduce((acc, u) => acc + u.estimated_cost_usd, 0));
   }, [agentUsage]);
 
-  // Tokens Used: prefer the accurate inference_usage total (same source as cost
-  // + per-agent breakdown); fall back to the runs-based estimate when the usage
-  // aggregate has no data yet.
   const totalTokensUsed = useMemo(() => {
     const usageSum = Object.values(agentUsage).reduce((acc, u) => acc + u.total_tokens, 0);
-    if (usageSum > 0) return fmtTokens(usageSum);
-    const runsSum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
-    return runsSum > 0 ? fmtTokens(runsSum) : '—';
-  }, [agentUsage, recentRuns]);
+    return usageSum > 0 ? fmtTokens(usageSum) : '—';
+  }, [agentUsage]);
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
@@ -383,10 +378,10 @@ export function AgentsPage() {
                   </Stack>
 
                   {/* Per-agent 7-day cost + tokens (when usage exists) */}
-                  {agentUsage[agent.id] && (
+                  {agentUsage[agent.slug] && (
                     <Text size="caption" color="muted">
-                      {fmtUsd(agentUsage[agent.id].estimated_cost_usd)} ·{' '}
-                      {fmtTokens(agentUsage[agent.id].total_tokens)} tokens · 7d
+                      {fmtUsd(agentUsage[agent.slug].estimated_cost_usd)} ·{' '}
+                      {fmtTokens(agentUsage[agent.slug].total_tokens)} tokens · 7d
                     </Text>
                   )}
                 </Stack>

@@ -385,8 +385,6 @@ export interface Run {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-  /** Total tokens consumed by this run, if available. */
-  tokens_used?: number;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
@@ -427,7 +425,8 @@ export interface RunsListResponse {
  * Mirrors Go: inferencegw.AgentTypeUsage
  */
 export interface AgentTypeUsage {
-  agent_type_id: string;
+  /** Agent slug: the last segment of the agent SPIFFE principal the gateway attributes usage to. */
+  agent_slug: string;
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
