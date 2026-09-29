@@ -25,18 +25,21 @@
   --terra-raw-100: #e6e3db;
   --terra-raw-white: #ece9e2; /* Chalk */
 
-  /* Steel. The lighter 7D9BB0 is used where Steel is text. */
+  /* Steel. The lighter 8AA7BB is used where Steel is text. */
   --terra-raw-accent-600: #4d6b80;
   --terra-raw-accent-500: #4d6b80;
-  --terra-raw-accent-400: #7d9bb0;
+  --terra-raw-accent-400: #8aa7bb;
   --terra-raw-accent-300: #9ab4c6;
   --terra-raw-accent-fg: #0d0f11;
 
   /* Status colours. They only ever show a policy outcome. */
   --terra-raw-healthy: #6fa98a;
   --terra-raw-degraded: #c9a45c;
-  --terra-raw-error: #d48078; /* kit c95f55 fails 4.5:1 as text on raised dark surfaces */
-  --terra-raw-pending: #7d9bb0;
+  --terra-raw-error: #e48a82; /* kit c95f55 and d48078 fail 4.5:1 as text on the error tint */
+  --terra-raw-pending: #8aa7bb;
+
+  --terra-raw-strategy-weighted: #b45bff; /* a855f7 is 4.2:1 on its own tint */
+  --terra-raw-provider-azure: #2b8ce0; /* 0078d4 is 3.7:1 as text on its own tint */
 
   --terra-raw-subtle: #9aa0a6;
   --terra-raw-border: #7f858b;
@@ -59,18 +62,24 @@
   --terra-raw-100: #1a1d20;
   --terra-raw-white: #0d0f11;
 
-  --terra-raw-accent-600: #4d6b80;
-  --terra-raw-accent-500: #4d6b80;
-  --terra-raw-accent-400: #4d6b80;
+  --terra-raw-accent-600: #445f71;
+  --terra-raw-accent-500: #445f71;
+  --terra-raw-accent-400: #445f71;
   --terra-raw-accent-300: #3b5466;
   --terra-raw-accent-fg: #ece9e2;
 
-  --terra-raw-healthy: #2f6b4f;
-  --terra-raw-degraded: #84641f; /* kit 86661f is 4.40:1 on the Chalk page */
-  --terra-raw-error: #a84a41;
-  --terra-raw-pending: #4d6b80;
+  --terra-raw-healthy: #2c654b;
+  --terra-raw-degraded: #72561a; /* kit 86661f is 4.40:1 on the Chalk page and 3.75:1 on its tint */
+  --terra-raw-error: #873c34;
+  --terra-raw-pending: #445f71;
 
-  --terra-raw-subtle: #62676d;
+  /* Provider and strategy hues darkened as text: the brand values are 1.6 to 3.1:1 on their own tint. */
+  --terra-raw-provider-bedrock: #824e00;
+  --terra-raw-provider-vertexai: #2c58a1;
+  --terra-raw-provider-azure: #005ba1;
+  --terra-raw-strategy-weighted: #763bad;
+
+  --terra-raw-subtle: #575b60;
   --terra-raw-border: #737980;
   --terra-raw-border-subtle: rgb(13 15 17 / 12%);
 

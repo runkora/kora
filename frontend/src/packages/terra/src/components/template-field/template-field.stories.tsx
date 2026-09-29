@@ -65,6 +65,7 @@ function Editor({
         <Label htmlFor={id}>Prompt</Label>
         <TemplateField
           id={id}
+          aria-label="Prompt"
           value={value}
           onChange={setValue}
           catalog={GITHUB_CATALOG}

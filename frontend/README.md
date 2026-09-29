@@ -34,6 +34,8 @@ make frontend-test
 pnpm storybook
 ```
 
+To open Storybook over a VPN, set `STORYBOOK_ALLOWED_HOSTS` in the repository root `.env` (or the shell) to a comma-separated list of hostnames. A leading dot matches the domain and every subdomain, for example `STORYBOOK_ALLOWED_HOSTS=.ts.net`. IP addresses are always accepted.
+
 Run pnpm commands from `frontend/`. The equivalent `make frontend-*` targets run from the repository root.
 
 ## Architecture

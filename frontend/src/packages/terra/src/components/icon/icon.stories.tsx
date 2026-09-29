@@ -23,7 +23,7 @@ type Story = StoryObj<typeof Icon>;
 
 const NAMES = (Object.keys(ICON_REGISTRY) as IconName[]).sort();
 
-export const Gallery: Story = {
+export const Overview: Story = {
   render: () => (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-4 gap-y-6">
       {NAMES.map((name) => (
