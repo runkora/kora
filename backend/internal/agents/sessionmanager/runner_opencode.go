@@ -113,7 +113,6 @@ type OpenCodeRunner struct {
 	pendingPrompts map[int64]bool             // in-flight session/prompt requests; a message sent mid-turn adds a second
 	nextID         atomic.Int64
 	toolCalls      map[string]*openCodeToolCall // tool calls seen this session, by toolCallId
-	turnActive     bool                         // something was emitted since the last message_stop
 	replaying      atomic.Bool                  // true while session/load replay is in progress; suppresses ephemeral events so the channel does not fill before drain() starts
 }
 
@@ -571,7 +570,10 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 	case isHandshake:
 		ch <- resp
 	case isPrompt:
-		r.endTurn(resp)
+		r.pendingMu.Lock()
+		stillRunning := len(r.pendingPrompts) > 0
+		r.pendingMu.Unlock()
+		r.endTurn(resp, stillRunning)
 
 		// Log usage if present.
 		var result struct {
@@ -594,16 +596,21 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 // endTurn records the end of a prompt. An error fails the turn and a
 // canceled prompt is a user stop; either way the process keeps its session,
 // so the turn ends with message_stop and the run idles.
-func (r *OpenCodeRunner) endTurn(resp openCodeMsg) {
+//
+// A message sent mid-turn is a second prompt, and OpenCode answers the two in
+// either order. The turn ends when the last prompt in flight answers; an
+// earlier answer only records its error, if it has one.
+func (r *OpenCodeRunner) endTurn(resp openCodeMsg, stillRunning bool) {
 	var result struct {
 		StopReason string `json:"stopReason"`
 	}
 	if resp.Result != nil {
 		_ = json.Unmarshal(resp.Result, &result)
 	}
-	// A message sent mid-turn is read by the running prompt, and its own prompt
-	// then answers with nothing left to do; that answer ends no turn.
-	if !r.turnActive && r.textBuf.Len() == 0 && r.thinkingBuf.Len() == 0 && resp.Error == nil {
+	if stillRunning {
+		if resp.Error != nil {
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: string(resp.Error)})
+		}
 		return
 	}
 	switch {
@@ -799,7 +806,6 @@ func (r *OpenCodeRunner) emit(t EventType, payload any) {
 	if r.replaying.Load() {
 		return
 	}
-	r.turnActive = t != EventTypeMessageStop
 	if payload == nil {
 		r.events <- Event{Type: t}
 		return

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -715,7 +717,7 @@ type codexItem struct {
 
 // codexShellWrap matches Codex's command line for a shell call: the configured
 // shell run with -lc and the agent's command as one quoted argument.
-var codexShellWrap = regexp.MustCompile(`^\S+ -lc '(.*)'$`)
+var codexShellWrap = regexp.MustCompile(`(?s)^\S+ -lc '(.*)'$`)
 
 // unwrapShell returns the command the agent asked for, without the shell Codex
 // wraps it in; anything else is returned as it is.
@@ -881,10 +883,11 @@ func codexItemResult(it codexItem, streamed string) (string, bool) {
 // collabResult is what a subagent call reported: its agents' messages, or, for
 // a spawn, which answers before the subagent does, the thread it started.
 func collabResult(it codexItem) string {
+	// Sorted by thread, so the recorded result does not depend on map order.
 	var parts []string
-	for _, s := range it.AgentsStates {
-		if s.Message != nil {
-			parts = append(parts, *s.Message)
+	for _, thread := range slices.Sorted(maps.Keys(it.AgentsStates)) {
+		if m := it.AgentsStates[thread].Message; m != nil {
+			parts = append(parts, *m)
 		}
 	}
 	if len(parts) == 0 && len(it.ReceiverThreadIDs) > 0 {

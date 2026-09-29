@@ -374,6 +374,8 @@ func TestCodex_UnwrapShell(t *testing.T) {
 		`/bin/bash -lc 'ls /usr | wc -l'`:                "ls /usr | wc -l",
 		`/bin/bash -lc 'echo '\''quoted'\'''`:            "echo 'quoted'",
 		`git status`:                                     "git status",
+		"/bin/bash -lc 'set -e\ncd /w\nmake test'":       "set -e\ncd /w\nmake test",
+		"/bin/bash -lc 'cat <<EOF > a.txt\nhello\nEOF'":  "cat <<EOF > a.txt\nhello\nEOF",
 		`/bin/bash -c 'not the login form we recognise'`: `/bin/bash -c 'not the login form we recognise'`,
 	}
 	for in, want := range tests {
@@ -415,21 +417,43 @@ func TestRunnerParity_TextBeforeACallIsKeptInOrder(t *testing.T) {
 	}
 }
 
-// OpenCode reads a message sent mid-turn inside the running prompt; the second
-// prompt then answers with nothing done, which must not open and close a turn.
-func TestOpenCode_SecondPromptAnsweringEmptyEndsNoTurn(t *testing.T) {
-	r := newTestOpenCodeRunner()
-	r.handleSessionUpdate(context.Background(), makeSessionUpdateParams(map[string]any{
-		"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "DONE-EARLY"},
-	}))
-	for _, id := range []int64{1, 2} {
-		r.pendingPrompts[id] = true
+// OpenCode answers a mid-turn prompt and the original one in either order;
+// the turn ends once, when the last prompt in flight answers, with all its text.
+func TestOpenCode_TurnEndsWhenTheLastPromptAnswers(t *testing.T) {
+	chunk := func(r *OpenCodeRunner, text string) {
+		r.handleSessionUpdate(context.Background(), makeSessionUpdateParams(map[string]any{
+			"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": text},
+		}))
 	}
-	for _, id := range []int64{1, 2} {
+	answer := func(r *OpenCodeRunner, id int64) {
 		r.dispatchResponse(context.Background(), openCodeMsg{ID: &id, Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
 	}
-	want := []EventType{EventTypeTextDelta, EventTypeMessageComplete, EventTypeMessageStop}
-	if got := eventTypes(drainAvailable(r.events)); !slices.Equal(got, want) {
-		t.Errorf("events = %v, want %v", got, want)
+	for name, order := range map[string][]int64{"steer answers first": {2, 1}, "original answers first": {1, 2}} {
+		t.Run(name, func(t *testing.T) {
+			r := newTestOpenCodeRunner()
+			r.pendingPrompts[1], r.pendingPrompts[2] = true, true
+			chunk(r, "Sleep done. ")
+			answer(r, order[0])
+			chunk(r, "DONE-EARLY")
+			answer(r, order[1])
+			evs := drainAvailable(r.events)
+			want := []EventType{EventTypeTextDelta, EventTypeTextDelta, EventTypeMessageComplete, EventTypeMessageStop}
+			if got := eventTypes(evs); !slices.Equal(got, want) {
+				t.Fatalf("events = %v, want %v", got, want)
+			}
+			if p := decode[MessageCompletePayload](t, evs[2]); p.Text != "Sleep done. DONE-EARLY" {
+				t.Errorf("text = %q", p.Text)
+			}
+		})
+	}
+}
+
+func TestCodex_CollabResultIsDeterministic(t *testing.T) {
+	a, b := "from a", "from b"
+	it := codexItem{Type: "collabAgentToolCall", AgentsStates: map[string]struct{ Message *string }{"thr-b": {&b}, "thr-a": {&a}}}
+	for range 20 {
+		if got := collabResult(it); got != "from a\nfrom b" {
+			t.Fatalf("collabResult = %q, want agents in thread order", got)
+		}
 	}
 }
