@@ -490,13 +490,18 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
+// AppendRunEvent records an event. A caller that also publishes the event sets
+// CreatedAt, so the live stream and a later replay carry the same time.
 func (r *PostgresRepository) AppendRunEvent(ctx context.Context, e RunEvent) (int64, error) {
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = eventTime()
+	}
 	var seqNo int64
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO run_events (run_id, event_type, payload, created_at)
 		VALUES ($1,$2,$3,$4)
 		RETURNING sequence_no`,
-		e.RunID, e.EventType, e.Payload, time.Now().UTC(),
+		e.RunID, e.EventType, e.Payload, e.CreatedAt,
 	).Scan(&seqNo)
 	if err != nil {
 		return 0, fmt.Errorf("insert run_event: %w", err)

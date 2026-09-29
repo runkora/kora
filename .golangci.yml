@@ -51,6 +51,9 @@ linters:
 
     misspell:
       locale: US
+      # The Agent Client Protocol spells its stop reason "cancelled".
+      ignore-rules:
+        - cancelled
 
     revive:
       confidence: 0.8

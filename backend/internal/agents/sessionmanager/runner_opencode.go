@@ -99,21 +99,21 @@ type openCodeMsg struct {
 // Communication is over JSON-RPC 2.0 JSONL on stdin/stdout.
 // Token-level text streaming arrives via session/update notifications.
 type OpenCodeRunner struct {
-	cfg             OpenCodeRunnerConfig
-	cmd             *exec.Cmd
-	stdin           io.WriteCloser
-	stdinMu         sync.Mutex // guards all stdin writes (Send + permission responses)
-	sessionID       string
-	events          chan Event
-	once            sync.Once
-	textBuf         strings.Builder
-	thinkingBuf     strings.Builder
-	pendingMu       sync.Mutex
-	pending         map[int64]chan openCodeMsg // in-flight handshake requests
-	pendingPromptID int64                      // ID of the in-flight session/prompt; 0 if none
-	nextID          atomic.Int64
-	seenToolUse     map[string]bool // deduplicates tool_use events per toolCallId; never cleared — assumes OpenCode generates unique IDs per tool call for the lifetime of a session
-	replaying       atomic.Bool     // true while session/load replay is in progress; suppresses ephemeral events so the channel does not fill before drain() starts
+	cfg            OpenCodeRunnerConfig
+	cmd            *exec.Cmd
+	stdin          io.WriteCloser
+	stdinMu        sync.Mutex // guards all stdin writes (Send + permission responses)
+	sessionID      string
+	events         chan Event
+	once           sync.Once
+	textBuf        strings.Builder
+	thinkingBuf    strings.Builder
+	pendingMu      sync.Mutex
+	pending        map[int64]chan openCodeMsg // in-flight handshake requests
+	pendingPrompts map[int64]bool             // in-flight session/prompt requests; a message sent mid-turn adds a second
+	nextID         atomic.Int64
+	toolCalls      map[string]*openCodeToolCall // tool calls seen this session, by toolCallId
+	replaying      atomic.Bool                  // true while session/load replay is in progress; suppresses ephemeral events so the channel does not fill before drain() starts
 }
 
 // NewOpenCodeRunner creates a runner with the given configuration.
@@ -127,9 +127,10 @@ func NewOpenCodeRunner(cfg OpenCodeRunnerConfig) *OpenCodeRunner {
 		// (see emit), so only durable events (tool_use + tool_result, 2 per tool call)
 		// reach this channel before drain() starts consuming. 256 handles sessions
 		// with up to 128 historical tool calls without blocking readLoop.
-		events:      make(chan Event, 256),
-		pending:     make(map[int64]chan openCodeMsg),
-		seenToolUse: make(map[string]bool),
+		events:         make(chan Event, 256),
+		pending:        make(map[int64]chan openCodeMsg),
+		pendingPrompts: make(map[int64]bool),
+		toolCalls:      make(map[string]*openCodeToolCall),
 	}
 }
 
@@ -271,7 +272,7 @@ func (r *OpenCodeRunner) Send(_ context.Context, text string) error {
 	id := r.nextID.Add(1)
 
 	r.pendingMu.Lock()
-	r.pendingPromptID = id
+	r.pendingPrompts[id] = true
 	r.pendingMu.Unlock()
 
 	msg := openCodeMsg{
@@ -298,15 +299,27 @@ func (r *OpenCodeRunner) Events() <-chan Event {
 	return r.events
 }
 
-// Interrupt sends SIGINT to the OpenCode subprocess to abort the in-progress
-// prompt. ACP also defines a `cancel` notification, but SIGINT matches the
-// cross-runner convention; the session layer then calls NewResumeRunner to
-// restart with session/load.
+// Interrupt stops the in-progress prompt with ACP's session/cancel: the prompt
+// then answers with its canceled stop reason and the process stays alive, as a
+// Codex turn/interrupt does. With no prompt in flight it falls back to SIGINT,
+// and the session layer resumes with session/load.
 func (r *OpenCodeRunner) Interrupt() error {
 	if r.cmd == nil || r.cmd.Process == nil {
 		return nil
 	}
-	return r.cmd.Process.Signal(os.Interrupt)
+	r.pendingMu.Lock()
+	inFlight := len(r.pendingPrompts) > 0
+	r.pendingMu.Unlock()
+	if !inFlight {
+		return r.cmd.Process.Signal(os.Interrupt)
+	}
+	r.stdinMu.Lock()
+	defer r.stdinMu.Unlock()
+	return r.writeJSONL(openCodeMsg{
+		JSONRPC: "2.0",
+		Method:  "session/cancel",
+		Params:  mustMarshal(map[string]string{"sessionId": r.sessionID}),
+	})
 }
 
 // SessionID returns the OpenCode session ID captured from the session/new
@@ -546,10 +559,8 @@ func (r *OpenCodeRunner) handleServerRequest(ctx context.Context, req openCodeMs
 func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg) {
 	r.pendingMu.Lock()
 	ch, isHandshake := r.pending[*resp.ID]
-	isPrompt := (r.pendingPromptID == *resp.ID)
-	if isPrompt {
-		r.pendingPromptID = 0
-	}
+	isPrompt := r.pendingPrompts[*resp.ID]
+	delete(r.pendingPrompts, *resp.ID)
 	if isHandshake {
 		delete(r.pending, *resp.ID)
 	}
@@ -559,27 +570,10 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 	case isHandshake:
 		ch <- resp
 	case isPrompt:
-		// JSON-RPC error response from session/prompt — surface as a run failure
-		// and close the channel so the registry marks the run as failed.
-		if resp.Error != nil {
-			r.textBuf.Reset()
-			r.thinkingBuf.Reset()
-			r.emit(EventTypeRunError, RunErrorPayload{
-				Code:    "runner_error",
-				Message: string(resp.Error),
-			})
-			r.stdin.Close() //nolint:errcheck
-			return
-		}
-
-		// Turn complete — emit accumulated text and stop signal.
-		text := r.textBuf.String()
-		thinking := r.thinkingBuf.String()
-		r.textBuf.Reset()
-		r.thinkingBuf.Reset()
-
-		r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: text, Thinking: thinking})
-		r.emit(EventTypeMessageStop, nil)
+		r.pendingMu.Lock()
+		stillRunning := len(r.pendingPrompts) > 0
+		r.pendingMu.Unlock()
+		r.endTurn(resp, stillRunning)
 
 		// Log usage if present.
 		var result struct {
@@ -596,6 +590,65 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 			logging.Field{Key: "input_tokens", Value: result.Usage.InputTokens},
 			logging.Field{Key: "output_tokens", Value: result.Usage.OutputTokens},
 		)
+	}
+}
+
+// endTurn records the end of a prompt. An error fails the turn and a
+// canceled prompt is a user stop; either way the process keeps its session,
+// so the turn ends with message_stop and the run idles.
+//
+// A message sent mid-turn is a second prompt, and OpenCode answers the two in
+// either order. The turn ends when the last prompt in flight answers; an
+// earlier answer only records its error, if it has one.
+func (r *OpenCodeRunner) endTurn(resp openCodeMsg, stillRunning bool) {
+	var result struct {
+		StopReason string `json:"stopReason"`
+	}
+	if resp.Result != nil {
+		_ = json.Unmarshal(resp.Result, &result)
+	}
+	if stillRunning {
+		if resp.Error != nil {
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: string(resp.Error)})
+		}
+		return
+	}
+	switch {
+	case resp.Error != nil:
+		r.flushPartial()
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: string(resp.Error)})
+	case result.StopReason == "cancelled":
+		r.flushPartial()
+		r.stopRunningCalls()
+		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
+	default:
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: r.textBuf.String(), Thinking: r.thinkingBuf.String()})
+		r.textBuf.Reset()
+		r.thinkingBuf.Reset()
+	}
+	r.emit(EventTypeMessageStop, nil)
+}
+
+// flushPartial emits the text a cut-short turn had produced, marked interrupted.
+func (r *OpenCodeRunner) flushPartial() {
+	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{
+			Text:        r.textBuf.String(),
+			Thinking:    r.thinkingBuf.String(),
+			Interrupted: true,
+		})
+	}
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+}
+
+// stopRunningCalls forgets calls the cancel cut off. OpenCode sends no final
+// update for them, so they would otherwise wait for a result forever.
+func (r *OpenCodeRunner) stopRunningCalls() {
+	for id, c := range r.toolCalls {
+		if c.recorded && !c.done {
+			delete(r.toolCalls, id)
+		}
 	}
 }
 
@@ -648,46 +701,8 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 		r.thinkingBuf.WriteString(content.Text)
 		r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: content.Text})
 
-	case "tool_call":
-		switch u.Status {
-		case "pending", "in_progress":
-			if r.seenToolUse[u.ToolCallID] {
-				return
-			}
-			r.seenToolUse[u.ToolCallID] = true
-			r.emit(EventTypeToolUse, ToolUsePayload{
-				ID:    u.ToolCallID,
-				Name:  u.Title,
-				Input: u.RawInput,
-			})
-		case "completed":
-			if !r.seenToolUse[u.ToolCallID] {
-				r.seenToolUse[u.ToolCallID] = true
-				r.emit(EventTypeToolUse, ToolUsePayload{
-					ID:    u.ToolCallID,
-					Name:  u.Title,
-					Input: u.RawInput,
-				})
-			}
-			r.emit(EventTypeToolResult, ToolResultPayload{
-				ToolUseID: u.ToolCallID,
-				Content:   unquoteRawOutput(u.RawOutput),
-			})
-		case "failed":
-			if !r.seenToolUse[u.ToolCallID] {
-				r.seenToolUse[u.ToolCallID] = true
-				r.emit(EventTypeToolUse, ToolUsePayload{
-					ID:    u.ToolCallID,
-					Name:  u.Title,
-					Input: u.RawInput,
-				})
-			}
-			r.emit(EventTypeToolResult, ToolResultPayload{
-				ToolUseID: u.ToolCallID,
-				Content:   unquoteRawOutput(u.RawOutput),
-				IsError:   true,
-			})
-		}
+	case "tool_call", "tool_call_update":
+		r.handleToolCall(u.ToolCallID, u.Title, u.Status, u.RawInput, u.RawOutput, u.Content)
 
 	case "usage_update":
 		// No Orbit event — usage is captured from the session/prompt response.
@@ -697,13 +712,98 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 	}
 }
 
-// emit sends an Orbit event to the events channel.
-// During session/load replay (r.replaying == true) ephemeral events are
-// dropped: they cannot be consumed until drain() starts, and replay history
-// can be arbitrarily large. Durable events (tool_use, tool_result) are always
-// emitted so the resumed session's event log is complete.
+// openCodeToolCall tracks one ACP tool call across its updates.
+type openCodeToolCall struct {
+	name       string // the pending update's title, which is the tool's name
+	recorded   bool   // tool_use emitted
+	done       bool   // tool_result emitted
+	startedAt  time.Time
+	progressAt time.Time
+}
+
+// openCodeProgressEvery spaces tool_progress events; OpenCode sends an update
+// for every chunk of streamed output.
+const openCodeProgressEvery = 5 * time.Second
+
+// handleToolCall follows a tool call through its ACP updates. The pending
+// update names the tool but carries no arguments yet, so tool_use is recorded
+// at the first later update, whose rawInput is the tool's real input. OpenCode
+// does not forward a subagent's own calls (the task tool runs a child session
+// whose updates never reach this connection), so there is no parent to carry.
+func (r *OpenCodeRunner) handleToolCall(id, title, status string, rawInput, rawOutput, content json.RawMessage) {
+	c, ok := r.toolCalls[id]
+	if !ok {
+		c = &openCodeToolCall{name: title, startedAt: time.Now()}
+		r.toolCalls[id] = c
+	}
+	if status == "pending" || c.done {
+		return
+	}
+	if !c.recorded {
+		c.recorded, c.progressAt = true, time.Now()
+		if r.textBuf.Len() > 0 {
+			// Text written before a call is kept in order, as the Claude runner does.
+			r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+			r.textBuf.Reset()
+		}
+		if len(rawInput) == 0 {
+			rawInput = json.RawMessage(`{}`)
+		}
+		r.emit(EventTypeToolUse, ToolUsePayload{ID: id, Name: c.name, Input: rawInput})
+	}
+	switch status {
+	case "completed", "failed":
+		c.done = true
+		out, isError := openCodeResult(rawOutput, content)
+		r.emit(EventTypeToolResult, newToolResult(id, out, isError || status == "failed", ""))
+	default:
+		if time.Since(c.progressAt) >= openCodeProgressEvery {
+			c.progressAt = time.Now()
+			r.emit(EventTypeToolProgress, ToolProgressPayload{
+				ToolUseID:      id,
+				ToolName:       c.name,
+				ElapsedSeconds: int(time.Since(c.startedAt).Seconds()),
+			})
+		}
+	}
+}
+
+// openCodeResult is a tool's output as text, and whether it failed. OpenCode's
+// rawOutput carries the output and, for shell commands, the exit code; the
+// ACP content blocks are the fallback.
+func openCodeResult(rawOutput, content json.RawMessage) (string, bool) {
+	var out struct {
+		Output   *string `json:"output"`
+		Metadata struct {
+			Exit *int `json:"exit"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal(rawOutput, &out) == nil && out.Output != nil {
+		if out.Metadata.Exit != nil && *out.Metadata.Exit != 0 {
+			return fmt.Sprintf("Exit code %d\n%s", *out.Metadata.Exit, *out.Output), true
+		}
+		return *out.Output, false
+	}
+	var blocks []struct {
+		Content struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(content, &blocks) == nil && len(blocks) > 0 {
+		parts := make([]string, 0, len(blocks))
+		for _, b := range blocks {
+			parts = append(parts, b.Content.Text)
+		}
+		return strings.Join(parts, "\n"), false
+	}
+	return unquoteRawOutput(rawOutput), false
+}
+
+// emit sends an Orbit event to the events channel. Nothing is emitted during
+// session/load replay: the replayed history was recorded when it happened, and
+// re-emitting it would duplicate every call in the run's events.
 func (r *OpenCodeRunner) emit(t EventType, payload any) {
-	if r.replaying.Load() && !isDurableEvent(t) {
+	if r.replaying.Load() {
 		return
 	}
 	if payload == nil {

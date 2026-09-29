@@ -117,7 +117,7 @@ func TestHandleAssistant_ToolUse(t *testing.T) {
 			{Type: "tool_use", ID: "tu_1", Name: "Bash", Input: input},
 			{Type: "text", ID: "", Name: ""},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	if evs[0].Type != EventTypeToolUse {
@@ -134,7 +134,7 @@ func TestHandleAssistant_ToolUse(t *testing.T) {
 
 func TestHandleAssistant_NilMessage(t *testing.T) {
 	r := newTestRunner()
-	r.handleAssistant(context.Background(), nil)
+	r.handleAssistant(context.Background(), nil, "")
 
 	select {
 	case <-r.events:
@@ -150,9 +150,9 @@ func TestHandleUser_ToolResult(t *testing.T) {
 
 	r.handleUser(&claudeMessage{
 		Content: []claudeContentItem{
-			{Type: "tool_result", ToolUseID: "tu_1", Content: "exit 0", IsError: false},
+			{Type: "tool_result", ToolUseID: "tu_1", Content: json.RawMessage(`"exit 0"`), IsError: false},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	if evs[0].Type != EventTypeToolResult {
@@ -172,9 +172,9 @@ func TestHandleUser_ErrorResult(t *testing.T) {
 
 	r.handleUser(&claudeMessage{
 		Content: []claudeContentItem{
-			{Type: "tool_result", ToolUseID: "tu_2", Content: "permission denied", IsError: true},
+			{Type: "tool_result", ToolUseID: "tu_2", Content: json.RawMessage(`"permission denied"`), IsError: true},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	var payload ToolResultPayload
@@ -188,7 +188,7 @@ func TestHandleUser_ErrorResult(t *testing.T) {
 
 func TestHandleUser_NilMessage(t *testing.T) {
 	r := newTestRunner()
-	r.handleUser(nil)
+	r.handleUser(nil, "")
 
 	select {
 	case <-r.events:

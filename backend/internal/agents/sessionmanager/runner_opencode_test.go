@@ -72,30 +72,38 @@ func TestOpenCodeHandleSessionUpdate_ThinkingDelta(t *testing.T) {
 	}
 }
 
-func TestOpenCodeHandleSessionUpdate_ToolCall_PendingEmitsToolUse(t *testing.T) {
+// The pending update names the tool but carries no arguments yet (bash sends
+// only {"cwd":...}), so tool_use waits for the first update with the real input.
+func TestOpenCodeHandleSessionUpdate_ToolCall_ToolUseCarriesTheRealInput(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
 	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
 		"sessionUpdate": "tool_call",
 		"toolCallId":    "tc-1",
-		"title":         "edit",
+		"title":         "bash",
 		"status":        "pending",
-		"rawInput":      map[string]string{"path": "foo.go"},
+		"rawInput":      map[string]string{"cwd": "/workspaces/run-1"},
+	}))
+	select {
+	case ev := <-r.events:
+		t.Fatalf("pending emitted %q, want nothing until the input is known", ev.Type)
+	default:
+	}
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    "tc-1",
+		"title":         "echo a",
+		"status":        "in_progress",
+		"rawInput":      map[string]string{"command": "echo a", "cwd": "/workspaces/run-1"},
 	}))
 
 	evs := drainN(t, r.events, 1)
-	if evs[0].Type != EventTypeToolUse {
-		t.Errorf("event type = %q, want tool_use", evs[0].Type)
-	}
 	var payload ToolUsePayload
 	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal tool_use: %v", err)
 	}
-	if payload.ID != "tc-1" {
-		t.Errorf("ID = %q, want tc-1", payload.ID)
-	}
-	if payload.Name != "edit" {
-		t.Errorf("Name = %q, want edit", payload.Name)
+	if payload.ID != "tc-1" || payload.Name != "bash" || !strings.Contains(string(payload.Input), `"command":"echo a"`) {
+		t.Errorf("tool_use = %+v, want name bash and the command as input", payload)
 	}
 }
 
@@ -241,7 +249,7 @@ func TestOpenCodeDispatchResponse_PromptResponseEmitsMessageComplete(t *testing.
 
 	promptID := int64(7)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{
@@ -307,7 +315,7 @@ func TestOpenCodeReadLoop_SingleTurn(t *testing.T) {
 
 	promptID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -343,7 +351,7 @@ func TestOpenCodeReadLoop_ToolCallSequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -376,7 +384,7 @@ func TestOpenCodeReadLoop_ToolCallReplaySequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -434,13 +442,12 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedMissingTitleAndInput(t *t
 	if usePayload.ID != "tc-no-meta" {
 		t.Errorf("tool_use ID = %q, want tc-no-meta", usePayload.ID)
 	}
-	// Name and Input are empty/null when the update omits title/rawInput — documented behaviour.
+	// Name is empty and Input an empty object when the update omits title/rawInput.
 	if usePayload.Name != "" {
 		t.Errorf("tool_use Name = %q, want empty (title absent in replay update)", usePayload.Name)
 	}
-	// rawInput absent → json.RawMessage zero value (nil) → marshals to JSON null.
-	if s := string(usePayload.Input); s != "" && s != "null" {
-		t.Errorf("tool_use Input = %s, want null/empty (rawInput absent in replay update)", usePayload.Input)
+	if s := string(usePayload.Input); s != "{}" {
+		t.Errorf("tool_use Input = %s, want {} (rawInput absent in replay update)", usePayload.Input)
 	}
 	if evs[1].Type != EventTypeToolResult {
 		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
@@ -454,7 +461,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 
 	turn1ID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn1ID
+	r.pendingPrompts[turn1ID] = true
 	r.pendingMu.Unlock()
 
 	go r.readLoop(t.Context(), pr)
@@ -491,7 +498,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 	// The read loop is now blocked at pr.Read() so setting pendingPromptID is safe.
 	turn2ID := int64(4)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn2ID
+	r.pendingPrompts[turn2ID] = true
 	r.pendingMu.Unlock()
 
 	// Turn 2: delta + prompt response.
@@ -523,7 +530,7 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 
 	promptID := int64(1)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := "not-json\n" +
@@ -685,33 +692,20 @@ func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
 
 // ── Resume tool event ordering (session/load replay) ─────────────────────────
 
-// TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents verifies that setting
-// r.replaying suppresses text_delta and thinking_delta events (which could fill
-// the channel buffer before drain() starts) while allowing durable events
-// (tool_use, tool_result) through.
-func TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents(t *testing.T) {
+// session/load replays history that was recorded when it happened, so nothing
+// is emitted during replay; re-emitting it would duplicate every call.
+func TestOpenCodeEmit_ReplayEmitsNothing(t *testing.T) {
 	r := newTestOpenCodeRunner()
 	r.replaying.Store(true)
 
-	// Ephemeral — should be dropped.
 	r.emit(EventTypeTextDelta, TextDeltaPayload{Delta: "hello"})
-	r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: "thinking"})
 	r.emit(EventTypeMessageStop, nil)
-
-	// Durable — must pass through.
 	r.emit(EventTypeToolUse, ToolUsePayload{ID: "tc-1", Name: "shell"})
 	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: "tc-1", Content: "ok"})
 
-	evs := drainN(t, r.events, 2)
-	if evs[0].Type != EventTypeToolUse {
-		t.Errorf("event[0] = %q, want tool_use", evs[0].Type)
-	}
-	if evs[1].Type != EventTypeToolResult {
-		t.Errorf("event[1] = %q, want tool_result", evs[1].Type)
-	}
 	select {
 	case ev := <-r.events:
-		t.Errorf("unexpected third event %q — ephemeral events should be suppressed during replay", ev.Type)
+		t.Errorf("replay emitted %q, want nothing", ev.Type)
 	default:
 	}
 }
@@ -838,7 +832,7 @@ func TestOpenCodeDispatchResponse_ErrorEmitsRunError(t *testing.T) {
 	r.stdin = nopWriteCloser{} // dispatchResponse calls r.stdin.Close() on error
 	id := int64(42)
 	r.pendingMu.Lock()
-	r.pendingPromptID = id
+	r.pendingPrompts[id] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{
@@ -875,8 +869,6 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 		},
 	})
 	r.handleSessionUpdate(t.Context(), params)
-	// Drain the tool_use so we can inspect the tool_result below.
-	drainN(t, r.events, 1)
 
 	params = mustMarshal(map[string]any{
 		"update": map[string]any{
@@ -890,7 +882,7 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	})
 	r.handleSessionUpdate(t.Context(), params)
 
-	ev := <-r.events
+	ev := drainN(t, r.events, 2)[1]
 	if ev.Type != EventTypeToolResult {
 		t.Fatalf("event type = %q, want tool_result", ev.Type)
 	}

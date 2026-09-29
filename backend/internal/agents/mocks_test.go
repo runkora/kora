@@ -394,7 +394,9 @@ func (m *mockRepository) AppendRunEvent(_ context.Context, e RunEvent) (int64, e
 	defer m.mu.Unlock()
 	m.nextSeqNo++
 	e.SequenceNo = m.nextSeqNo
-	e.CreatedAt = time.Now()
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now()
+	}
 	m.events[e.RunID] = append(m.events[e.RunID], e)
 	return e.SequenceNo, nil
 }
