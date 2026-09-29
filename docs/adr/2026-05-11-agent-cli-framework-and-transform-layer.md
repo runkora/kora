@@ -39,7 +39,7 @@ claude \
   --dangerously-skip-permissions \
   --no-session-persistence \
   --bare \
-  --tools  Bash,Edit,Read,Write,Glob,Grep
+  --disallowedTools WebSearch,WebFetch,AskUserQuestion
 ```
 
 | Flag | Purpose |

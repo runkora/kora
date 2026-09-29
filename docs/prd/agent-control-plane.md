@@ -92,7 +92,7 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 **Acceptance Criteria:**
 - [ ] User can create an agent type with: name, description, framework selection, system prompt
 - [ ] Available frameworks: `claude-code`, `codex`, `opencode`
-- [ ] The agent type's access selections create corresponding grants in the policy service — the agent's platform JWT is governed by those grants
+- [ ] The agent type's access selections create corresponding grants in the policy service: the agent's platform JWT is governed by those grants
 - [ ] On creation, platform provisions a StatefulSet in the tenant namespace with the correct configuration
 - [ ] SPIRE entry is registered automatically for the agent type (pod selector based)
 - [ ] Agent type appears in the agent portal within 60 seconds of creation

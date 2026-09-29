@@ -98,7 +98,7 @@ type CreateSessionRequest struct {
 	Framework   string `json:"framework,omitempty"`
 	Model       string `json:"model,omitempty"`
 	// AllowedTools is read only by session-managers that predate the removal of
-	// agent tool scopes; current ones ignore it. Drop it with the tool_scopes column.
+	// agent tool scopes; current ones ignore it. Drop it once no agent pod runs one that reads it.
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; the

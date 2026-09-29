@@ -69,7 +69,6 @@ New directory `agents/_components/motif/`, Tier 3 (feature-shared, Orbit-domain-
 | `FrameworkCards` | `step-behaviour.tsx` | wizard step 2, config Behaviour |
 | `ModelPicker` (family groups + threshold search) | `step-behaviour.tsx` | wizard step 2, config Behaviour |
 | `McpToolTree` | `step-tools.tsx` | wizard step 3, config Tools & access |
-| `PlatformToolsCard` | `step-tools.tsx` | wizard step 3, config Tools & access |
 | `ConnectionCards` | `step-tools.tsx` | wizard step 3, config Tools & access |
 | `EgressModeCards` (+ hosts textarea) | `step-tools.tsx` | wizard step 3, config Network access |
 | `EnvironmentCard` | `step-tools.tsx` | wizard step 3, config Network access |

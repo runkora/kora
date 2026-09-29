@@ -200,11 +200,11 @@ Touches *What can it access?* The change removes a setting that never reached po
 | Tool | Excluded because |
 |---|---|
 | `WebSearch` | An Anthropic server-side tool, not served through the inference gateway |
-| `WebFetch` | It fetches from the session-manager container, not the sandbox, so its requests bypass the agent's egress policy (verified: it fetched a host outside the agent's allowlist) |
+| `WebFetch` | It fetches from the session-manager container, not the sandbox, so its requests bypass the agent's egress policy |
 | `AskUserQuestion` | Auto-rejected in headless stream-json mode: no one can answer it |
 
 - Codex and OpenCode runs are unchanged: neither runner restricted tools.
-- `api.DecodeJSON` does not reject unknown fields, so a client that still sends `tool_scopes` on create or update has it ignored. Responses no longer carry the field. `GET /api/v1/agent-types/tool-scopes` now matches `GET /api/v1/agent-types/{id}` and returns 404.
+- `api.DecodeJSON` does not reject unknown fields, so a REST client that still sends `tool_scopes` on create or update has it ignored. The Orbit MCP `agents.create` and `agents.update` schemas reject unknown properties, so an MCP caller that still passes `tool_scopes` gets a validation error. Responses no longer carry the field. `GET /api/v1/agent-types/tool-scopes` now matches `GET /api/v1/agent-types/{id}` and returns 404.
 - orbit-agents keeps sending `allowed_tools` to the session-manager with every scope the removed picker offered. Agent pods keep their session-manager image across orbit-agents upgrades, and an older session-manager builds its Claude Code tool list from this field; newer ones ignore it. The field is removed once no agent pod runs a session-manager that reads it.
 
 **Consequences.**
@@ -212,7 +212,7 @@ Touches *What can it access?* The change removes a setting that never reached po
 - The drop ships in the same release as the code removal. This departs from the contract rule in [database-migrations](2026-09-10-database-migrations.md) (Decision 5) for this column: binaries from the previous release name `tool_scopes` in every agent type query, so they fail against the new schema during a rolling upgrade and after a `helm rollback`.
 - Operators can no longer narrow an agent's built-in tools. Network access from the sandbox is narrowed through egress, connectors and MCP tool grants, enforced outside the agent; built-ins that run in the session-manager container are held back only by the exclusion list.
 - A new Claude Code built-in tool reaches every agent on the next session-manager image, with no configuration change. The exclusion list is the control for a future built-in that makes network calls from the session-manager container or cannot work headless: it must be added there.
-- Claude Code's `--bare` mode caps the built-in set at `Bash`, `Read` and `Edit` whatever `--tools` names (verified on 2.1.284). The session-manager runs with `claude.bare: false`; enabling bare mode would cut every run to those three tools.
+- Claude Code's `--bare` mode caps the built-in set at `Bash`, `Read` and `Edit` whatever `--tools` names (Claude Code 2.1.284). The session-manager runs with `claude.bare: false`; enabling bare mode would cut every run to those three tools.
 
 ## Related Decisions
 

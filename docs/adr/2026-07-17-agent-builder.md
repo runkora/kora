@@ -173,7 +173,7 @@ New migration under `backend/cmd/orbit-agents/migrations/` creating `agent_type_
 
 `internal/agents/` gains the draft stack alongside the existing one, per the standard feature structure: a `DraftRepository` interface, its Postgres implementation, service methods, and handlers. It does not become its own feature package, because drafts are part of the agents feature and feature packages must not import each other.
 
-Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The `tool-scopes` precedent holds only for single-segment literals.
+Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The former single-segment `tool-scopes` literal did not collide, because the ambiguity needs two segments.
 
 | Route | Scope |
 |---|---|

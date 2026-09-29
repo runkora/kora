@@ -74,7 +74,8 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       [--resume ID] [--bare] [--model M] [--tools T,...]
+//	       [--resume ID] [--bare] [--model M]
+//	       --disallowedTools WebSearch,WebFetch,AskUserQuestion [--append-system-prompt P]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
