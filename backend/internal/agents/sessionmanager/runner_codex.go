@@ -873,19 +873,24 @@ func codexItemResult(it codexItem, streamed string) (string, bool) {
 	case "fileChange":
 		return string(it.Changes), failed
 	case "collabAgentToolCall":
-		var parts []string
-		for _, s := range it.AgentsStates {
-			if s.Message != nil {
-				parts = append(parts, *s.Message)
-			}
-		}
-		if len(parts) == 0 && len(it.ReceiverThreadIDs) > 0 {
-			// A spawn answers before the subagent does; its result is the thread it started.
-			return "Started subagent thread " + strings.Join(it.ReceiverThreadIDs, ", "), failed
-		}
-		return strings.Join(parts, "\n"), failed
+		return collabResult(it), failed
 	}
 	return "", failed
+}
+
+// collabResult is what a subagent call reported: its agents' messages, or, for
+// a spawn, which answers before the subagent does, the thread it started.
+func collabResult(it codexItem) string {
+	var parts []string
+	for _, s := range it.AgentsStates {
+		if s.Message != nil {
+			parts = append(parts, *s.Message)
+		}
+	}
+	if len(parts) == 0 && len(it.ReceiverThreadIDs) > 0 {
+		return "Started subagent thread " + strings.Join(it.ReceiverThreadIDs, ", ")
+	}
+	return strings.Join(parts, "\n")
 }
 
 // handleTurnCompleted ends a main-thread turn. An interrupted turn keeps its
