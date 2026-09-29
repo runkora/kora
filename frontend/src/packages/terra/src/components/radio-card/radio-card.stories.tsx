@@ -9,7 +9,6 @@ const meta: Meta<typeof RadioCard> = {
   component: RadioCard,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

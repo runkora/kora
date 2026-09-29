@@ -41,10 +41,6 @@ const meta: Meta<typeof DragCard> = {
   component: DragCard,
   parameters: {
     layout: 'padded',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
   argTypes: {

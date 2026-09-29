@@ -4,12 +4,11 @@ import { GAP, PADDING_BLOCK, PADDING_INLINE } from '../layout/spacing';
 import type { SpacingSize } from '../layout/spacing';
 
 /** Box dimensions per size, in px — tuned to the Terra spec. */
-export type CheckboxSize = 'sm' | 'md' | 'lg';
+export type CheckboxSize = 'md' | 'lg';
 
-const SIZES: Record<CheckboxSize, { box: number; radius: number; check: number }> = {
-  sm: { box: 14, radius: 4, check: 10 },
-  md: { box: 20, radius: 5, check: 12 },
-  lg: { box: 22, radius: 6, check: 13 },
+const SIZES: Record<CheckboxSize, { box: number; radius: string; check: number }> = {
+  md: { box: 20, radius: 'var(--radius-sm)', check: 12 },
+  lg: { box: 22, radius: 'var(--radius-sm)', check: 13 },
 };
 
 export interface CheckboxProps {
@@ -23,7 +22,7 @@ export interface CheckboxProps {
   disabled?: boolean;
   /** 'default' — inline checkbox+label. 'row' — full-width interactive row with hover + bottom border. */
   variant?: 'default' | 'row';
-  /** Box size. 'sm' (14px, default) · 'md' (20px) · 'lg' (22px). */
+  /** Box size. 'md' (20px, default) · 'lg' (22px). */
   size?: CheckboxSize;
   gap?: SpacingSize;
   paddingBlock?: SpacingSize;
@@ -37,7 +36,7 @@ export interface CheckboxProps {
  * A custom-drawn checkbox with an optional label. The visible box is fully
  * styled (rounded, accent-filled when checked, with a drawn check) so it renders
  * identically across browsers; a visually-hidden native `<input>` preserves
- * keyboard, form, and a11y semantics. Supports `indeterminate`, three `size`s,
+ * keyboard, form, and a11y semantics. Supports `indeterminate`, two `size`s,
  * and two layout variants:
  *
  * - `'default'` — inline checkbox + label (default).
@@ -63,7 +62,7 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       value,
       disabled = false,
       variant = 'default',
-      size = 'sm',
+      size = 'md',
       gap = 'snug',
       paddingBlock,
       paddingInline,

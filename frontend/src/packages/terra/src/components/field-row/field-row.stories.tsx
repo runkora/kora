@@ -10,10 +10,6 @@ const meta: Meta<typeof FieldRow> = {
   component: FieldRow,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
 };

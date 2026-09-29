@@ -8,10 +8,6 @@ const meta: Meta<typeof SettingRow> = {
   component: SettingRow,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
 };

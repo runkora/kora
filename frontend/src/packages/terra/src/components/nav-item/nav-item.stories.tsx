@@ -11,11 +11,10 @@ import {
 } from 'lucide-react';
 
 const meta: Meta<typeof NavItem> = {
-  title: 'Terra/Molecules/NavItem',
+  title: 'Terra/Atoms/NavItem',
   component: NavItem,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

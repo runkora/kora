@@ -7,7 +7,6 @@ const meta: Meta<typeof Label> = {
   component: Label,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

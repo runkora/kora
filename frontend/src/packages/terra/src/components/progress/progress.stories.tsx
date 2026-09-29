@@ -3,11 +3,10 @@ import { Progress } from './progress';
 import { Text } from '../typography/typography';
 
 const meta: Meta<typeof Progress> = {
-  title: 'Terra/Molecules/Progress',
+  title: 'Terra/Atoms/Progress',
   component: Progress,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

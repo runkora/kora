@@ -11,7 +11,6 @@ const meta: Meta<typeof SaveBar> = {
   parameters: {
     // The bar is position:fixed, so give the canvas room and let it pin itself.
     layout: 'fullscreen',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

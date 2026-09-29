@@ -8,10 +8,6 @@ const meta: Meta<typeof SectionLabel> = {
   component: SectionLabel,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
 };

@@ -23,7 +23,7 @@ const segmentedControlOptionVariants = cva(
     'cursor-pointer',
     'items-center',
     'gap-1.5',
-    'rounded-[6px]',
+    'rounded-sm',
     'border-none',
     'px-[11px]',
     'font-sans',

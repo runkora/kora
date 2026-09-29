@@ -187,7 +187,7 @@ function ToolbarColumnsToggle({
               <button
                 type="button"
                 onClick={() => onToggle(col.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
               >
                 <span
                   className={cn(

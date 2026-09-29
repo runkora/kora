@@ -3,11 +3,10 @@ import { Stack } from '../layout/stack';
 import { CodeBlock } from './code-block';
 
 const meta: Meta<typeof CodeBlock> = {
-  title: 'Terra/Atoms/CodeBlock',
+  title: 'Terra/Molecules/CodeBlock',
   component: CodeBlock,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

@@ -7,7 +7,6 @@ const meta: Meta<typeof Textarea> = {
   component: Textarea,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

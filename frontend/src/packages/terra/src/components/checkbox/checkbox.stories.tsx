@@ -8,10 +8,6 @@ const meta: Meta<typeof Checkbox> = {
   component: Checkbox,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
   argTypes: {
@@ -62,6 +58,25 @@ export const RowVariant: Story = {
         </Checkbox>
       </Stack>
     </div>
+  ),
+};
+
+/** Sizes side by side. `md` is the default and `lg` is used on selectable cards, such as the MCP server list. */
+export const Sizes: Story = {
+  render: () => (
+    <Stack gap="comfortable">
+      {(['md', 'lg'] as const).map((size) => (
+        <Stack key={size} direction="horizontal" gap="relaxed" align="center">
+          <Text size="caption" color="muted" mono>
+            {size}
+          </Text>
+          <Checkbox size={size} checked={false} aria-label={`${size} unchecked`} />
+          <Checkbox size={size} checked={true} aria-label={`${size} checked`} />
+          <Checkbox size={size} checked={false} indeterminate={true} aria-label={`${size} mixed`} />
+          <Checkbox size={size} checked={true} disabled={true} aria-label={`${size} disabled`} />
+        </Stack>
+      ))}
+    </Stack>
   ),
 };
 

@@ -42,7 +42,6 @@ const meta: Meta = {
   title: 'Terra/Molecules/Chart',
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   decorators: [

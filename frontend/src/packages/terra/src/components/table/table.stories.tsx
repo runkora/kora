@@ -32,7 +32,6 @@ const meta: Meta = {
   title: 'Terra/Molecules/Table',
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

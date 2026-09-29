@@ -11,10 +11,6 @@ const meta: Meta<typeof ButtonGroup> = {
   component: ButtonGroup,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
 };

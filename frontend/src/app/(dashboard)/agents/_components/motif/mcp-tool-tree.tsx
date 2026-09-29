@@ -198,7 +198,6 @@ export function McpToolTree({
                         <Separator />
                         <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                           <Checkbox
-                            size="sm"
                             checked={domainAll}
                             indeterminate={domainSome}
                             onChange={(checked) => toggleMany(domainScopes, checked)}
@@ -228,7 +227,6 @@ export function McpToolTree({
                                 paddingInline="relaxed"
                               >
                                 <Checkbox
-                                  size="sm"
                                   checked={toolOn}
                                   onChange={(checked) => toggleMany([tool.scope], checked)}
                                   aria-label={`Grant ${tool.name}`}

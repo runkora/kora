@@ -4,6 +4,7 @@ const config: StorybookConfig = {
   stories: [
     '../src/packages/terra/src/**/*.stories.@(ts|tsx)',
     '../src/components/**/*.stories.@(ts|tsx)',
+    './stories/**/*.stories.@(ts|tsx)',
   ],
   addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
   framework: {

@@ -28,13 +28,9 @@ import { InputSurface, TypingIndicator, StreamingCursor } from './chat';
 // ─── Meta ─────────────────────────────────────────────────────────────────────
 
 const meta: Meta = {
-  title: 'Terra/Atoms/Chat Primitives',
+  title: 'Terra/Atoms/Chat',
   parameters: {
     layout: 'padded',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
 };
 

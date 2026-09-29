@@ -146,7 +146,6 @@ function ScopeGroupCard({
                   paddingInline="relaxed"
                 >
                   <Checkbox
-                    size="sm"
                     checked={selectedSet.has(scope)}
                     onChange={(checked) => onToggle([scope], checked)}
                     aria-label={`Select ${scope}`}

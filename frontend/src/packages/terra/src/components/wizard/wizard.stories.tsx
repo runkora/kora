@@ -8,10 +8,6 @@ const meta: Meta<typeof Wizard> = {
   tags: ['autodocs'],
   parameters: {
     layout: 'fullscreen',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
-    },
   },
 };
 export default meta;

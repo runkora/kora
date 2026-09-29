@@ -56,10 +56,6 @@ const meta: Meta = {
   title: 'Terra/Overview/Component Grid',
   parameters: {
     layout: 'fullscreen',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
 };
 

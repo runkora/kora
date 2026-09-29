@@ -1,0 +1,8 @@
+/* The canvas and docs pages use Terra's background colour, so they change with the brand and theme. */
+body,
+.sb-show-main,
+.docs-story {
+  background: var(--terra-raw-black);
+  color: var(--terra-raw-white);
+  font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
+}

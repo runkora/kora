@@ -33,7 +33,6 @@ const meta: Meta<typeof DataTable> = {
   component: DataTable,
   parameters: {
     layout: 'padded',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

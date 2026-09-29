@@ -9,7 +9,6 @@ const meta: Meta<typeof Field> = {
   component: Field,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

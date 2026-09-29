@@ -6,7 +6,6 @@ const meta: Meta<typeof Skeleton> = {
   component: Skeleton,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

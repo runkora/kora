@@ -25,10 +25,6 @@ const meta: Meta<typeof ChatBubble> = {
   component: ChatBubble,
   parameters: {
     layout: 'padded',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
   argTypes: {

@@ -314,7 +314,6 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked={actionOn}
                             onChange={(checked) =>
                               setConnectorActions(
@@ -349,7 +348,6 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked
                             disabled
                             aria-label={`${conn.name} ${fragment} is added automatically`}

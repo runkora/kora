@@ -9,10 +9,6 @@ const meta: Meta<typeof IconTile> = {
   component: IconTile,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
 };

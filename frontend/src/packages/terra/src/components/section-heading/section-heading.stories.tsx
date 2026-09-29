@@ -7,7 +7,6 @@ const meta: Meta<typeof SectionHeading> = {
   component: SectionHeading,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

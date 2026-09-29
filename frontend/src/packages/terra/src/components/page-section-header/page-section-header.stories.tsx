@@ -3,7 +3,7 @@ import { Button, Icon } from '../..';
 import { PageSectionHeader } from './page-section-header';
 
 const meta: Meta<typeof PageSectionHeader> = {
-  title: 'Terra/Layout/PageSectionHeader',
+  title: 'Terra/Molecules/PageSectionHeader',
   component: PageSectionHeader,
   tags: ['autodocs'],
 };

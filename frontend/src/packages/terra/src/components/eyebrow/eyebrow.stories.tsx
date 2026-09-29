@@ -8,7 +8,6 @@ const meta: Meta<typeof Eyebrow> = {
   component: Eyebrow,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

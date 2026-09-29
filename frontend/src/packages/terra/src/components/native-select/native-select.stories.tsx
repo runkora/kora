@@ -6,10 +6,6 @@ const meta: Meta<typeof NativeSelect> = {
   component: NativeSelect,
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
   },
   tags: ['autodocs'],
   argTypes: {

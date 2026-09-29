@@ -1113,7 +1113,6 @@ const meta: Meta = {
   title: 'App/Runs/AgentRunChat',
   parameters: {
     layout: 'fullscreen',
-    backgrounds: { default: 'orbit' },
   },
 };
 

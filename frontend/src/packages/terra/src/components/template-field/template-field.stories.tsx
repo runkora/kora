@@ -134,7 +134,6 @@ const meta: Meta<typeof TemplateField> = {
   component: TemplateField,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

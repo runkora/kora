@@ -23,6 +23,10 @@
  *                                   13% = charcoal (recommended for most UIs)
  *                                   18% = mid-dark
  *
+ * Corner radii have their own seed, --terra-radius-unit (0.25rem default).
+ * sm, md and lg are 1x, 2x and 3x of it. Changing the unit rescales every
+ * radius and keeps nested radii proportional.
+ *
  * Only the four background steps (background → surface-overlay) shift with
  * --terra-bg-base. Foreground and mid-tone steps stay fixed so text contrast
  * is never compromised regardless of the base value.
@@ -48,6 +52,7 @@
   --terra-accent-hue: 8;
   --terra-accent-chroma: 0.17;
   --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
+  --terra-radius-unit: 0.25rem; /* corner radius step; sm/md/lg are 1x/2x/3x */
 
   /* Elevation offsets from --terra-bg-base; light mode flips their sign */
   --terra-bg-step-1: 5%; /* surface           */
@@ -260,10 +265,13 @@
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--font-geist-mono, ui-monospace, 'Cascadia Code', monospace);
 
-  /* Radii */
-  --radius-sm: 0.25rem; /* 4px  */
-  --radius-md: 0.5rem; /* 8px  */
-  --radius-lg: 0.75rem; /* 12px */
+  /* Radii are multiples of --terra-radius-unit. A theme changes the unit to   */
+  /* rescale all of them. At the default unit xl and 2xl are 12px and 16px.    */
+  --radius-sm: var(--terra-radius-unit); /* 4px by default  */
+  --radius-md: calc(var(--terra-radius-unit) * 2); /* 8px  */
+  --radius-lg: calc(var(--terra-radius-unit) * 3); /* 12px */
+  --radius-xl: calc(var(--terra-radius-unit) * 3); /* 12px */
+  --radius-2xl: calc(var(--terra-radius-unit) * 4); /* 16px */
   --radius-full: 9999px; /* pills, status dots, avatars */
 
   /* Motion */

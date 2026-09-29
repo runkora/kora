@@ -34,6 +34,17 @@ The `title` field in a story's `meta` object sets its position in the Storybook 
 | Tier 1: organisms  | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'` |
 | Tier 2: app shared | `App/Shared/`      | `title: 'App/Shared/StatusBadge'`    |
 
+### Choosing atom, molecule or organism
+
+The Terra sub-tier follows what a component is built from:
+
+| Sub-tier  | Rule                                                                                    | Examples                                                   |
+| --------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Atoms     | A single primitive. Uses no other Terra component beyond `Icon`, layout and typography. | `Button`, `Badge`, `Progress`, `NavItem`                   |
+| Molecules | Composes atoms for one job.                                                             | `CodeBlock`, `Indicator`, `PageSectionHeader`, `FormField` |
+| Organisms | Composes molecules or many atoms and owns its own state or flow.                        | `DataTable`, `Wizard`                                      |
+| Layout    | Arranges other content and has no content of its own.                                   | `Stack`, `Grid`, `PageLayout`                              |
+
 ---
 
 ## Terra Authoring Conventions (Tier 1)

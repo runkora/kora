@@ -9,7 +9,6 @@ const meta: Meta<typeof SectionNav> = {
   component: SectionNav,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
 };

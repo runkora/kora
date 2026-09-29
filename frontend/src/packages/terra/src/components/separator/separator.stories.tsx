@@ -7,7 +7,6 @@ const meta: Meta<typeof Separator> = {
   component: Separator,
   parameters: {
     layout: 'centered',
-    backgrounds: { default: 'orbit' },
   },
   tags: ['autodocs'],
   argTypes: {

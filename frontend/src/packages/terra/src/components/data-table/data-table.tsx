@@ -893,7 +893,7 @@ function ColumnVisibilityToggle({
               <button
                 type="button"
                 onClick={() => onToggle(item.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
               >
                 <span
                   className={cn(
@@ -1044,7 +1044,7 @@ function DataTableHeader<TData>({
                 onClick={() => onSort(col.id)}
                 // Buttons reset text-transform, font and tracking; inherit the header row's
                 // overline treatment so every column title is drawn the same way.
-                className="group/sort inline-flex items-center gap-1 rounded [font:inherit] [letter-spacing:inherit] [text-transform:inherit] hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                className="group/sort inline-flex items-center gap-1 rounded-sm [font:inherit] [letter-spacing:inherit] [text-transform:inherit] hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 aria-label={`Sort by ${col.header}`}
               >
                 {col.header}
@@ -1147,7 +1147,7 @@ function FilterButton({
           type="button"
           aria-label="Filter"
           className={cn(
-            'inline-flex items-center justify-center rounded p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+            'inline-flex items-center justify-center rounded-sm p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
             active
               ? 'text-accent bg-accent/10 hover:bg-accent/20'
               : 'text-subtle hover:text-foreground hover:bg-surface-elevated',
@@ -1189,7 +1189,7 @@ function FilterButton({
                 aria-pressed={isSelected}
                 onClick={() => onToggle(opt.value)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',
                   mono && 'font-mono text-xs',
                 )}
               >
@@ -1212,7 +1212,7 @@ function FilterButton({
             <button
               type="button"
               onClick={onClear}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated"
             >
               Clear filter{selected.size > 1 ? ` (${selected.size})` : ''}
             </button>

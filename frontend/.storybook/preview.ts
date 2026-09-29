@@ -1,16 +1,55 @@
-import type { Preview } from '@storybook/react';
+import type { Decorator, Preview } from '@storybook/react';
 import '../src/packages/terra/src/tokens/tokens.css';
+import './brands/kora.css';
+import './canvas.css';
+import './docs.css';
+
+// Sets the selected brand and theme on <html>, where Terra's token selectors apply.
+const withBrand: Decorator = (Story, context) => {
+  const { brand, theme } = context.globals;
+  const root = document.documentElement;
+  if (brand === 'kora') {
+    root.dataset.brand = 'kora';
+  } else {
+    delete root.dataset.brand;
+  }
+  root.dataset.theme = theme;
+  return Story();
+};
 
 const preview: Preview = {
-  parameters: {
-    backgrounds: {
-      default: 'orbit',
-      values: [
-        { name: 'orbit', value: '#070a0f' },
-        { name: 'surface', value: '#0d1117' },
-        { name: 'light', value: '#ffffff' },
-      ],
+  decorators: [withBrand],
+  globalTypes: {
+    brand: {
+      description: 'Brand candidate',
+      toolbar: {
+        title: 'Brand',
+        icon: 'paintbrush',
+        items: [
+          { value: 'orbit', title: 'Orbit (current)' },
+          { value: 'kora', title: 'Kora (brand kit v3)' },
+        ],
+        dynamicTitle: true,
+      },
     },
+    theme: {
+      description: 'Colour scheme',
+      toolbar: {
+        title: 'Theme',
+        icon: 'circlehalf',
+        items: [
+          { value: 'dark', title: 'Dark' },
+          { value: 'light', title: 'Light' },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
+  initialGlobals: { brand: 'kora', theme: 'dark' },
+  parameters: {
+    // The canvas uses Terra's background colour, so it changes with the brand and theme.
+    backgrounds: { disabled: true },
+    layout: 'padded',
     controls: {
       matchers: {
         color: /(background|color)$/i,
@@ -20,10 +59,21 @@ const preview: Preview = {
     options: {
       storySort: {
         order: [
+          'Kora',
+          ['Brand', '*'],
           'Terra',
-          ['Overview', 'Foundation', ['*', 'Typography'], 'Layout', 'Atoms', 'Molecules'],
+          [
+            'Overview',
+            'Foundation',
+            ['Colour', 'Typography', 'Radius', 'Spacing', 'Elevation', 'Contrast'],
+            'Layout',
+            ['Stack', 'Grid', 'Section', 'SidebarLayout', 'PageLayout', 'Navigation', 'Show'],
+            'Atoms',
+            'Molecules',
+            'Organisms',
+          ],
           'App',
-          ['Shared'],
+          ['Shared', 'Runs'],
         ],
       },
     },
