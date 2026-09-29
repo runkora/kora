@@ -355,6 +355,20 @@ describe('useRun — activity, delivery and stops', () => {
     expect(shape).toEqual([['Working on it. '], 'human', ['Done.']]);
   });
 
+  it('marks a queued message delivered when the run settles with no later output', async () => {
+    const { result, emit } = await start();
+    emit('text_delta', { delta: 'Writing' });
+    await act(async () => {
+      result.current.addHumanMessage('end with a summary');
+    });
+    emit('text_delta', { delta: ' and a summary.' });
+    emit('message_complete', { text: 'Writing and a summary.' });
+    emit('run_state', { state: 'idle' });
+    expect(result.current.turns.filter((t) => t.type === 'human').at(-1)).toMatchObject({
+      delivery: 'delivered',
+    });
+  });
+
   it('surfaces a send the server refused', async () => {
     messagesStatus = 409;
     const { result } = await start();

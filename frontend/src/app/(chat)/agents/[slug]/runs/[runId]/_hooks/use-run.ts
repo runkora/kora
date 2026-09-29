@@ -488,7 +488,10 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       markActivity();
       setIsPending(false);
       setRetry(null);
-      const delivered = [...queued].filter(([, boundary]) => boundary).map(([id]) => id);
+      markDelivered([...queued].filter(([, boundary]) => boundary).map(([id]) => id));
+    }
+
+    function markDelivered(delivered: string[]): void {
       if (delivered.length === 0) return;
       for (const id of delivered) queued.delete(id);
       setCommittedTurns((prev) =>
@@ -716,7 +719,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         payload.state === 'failed' ||
         payload.state === 'budget_exhausted'
       ) {
-        boundaryPassed();
+        // The run settled with the message in hand: a runtime that reads a
+        // message within the turn (Codex, OpenCode) may produce nothing after it.
+        markDelivered([...queued.keys()]);
         flushInProgress(true);
         setIsPending(false);
         setRetry(null);
