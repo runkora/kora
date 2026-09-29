@@ -1002,6 +1002,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
 	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
 	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
+	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0; \
 	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
 		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
 		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
@@ -1017,7 +1018,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@$(PNPM_VERSION); \
+		corepack install -g pnpm@$(PNPM_VERSION); \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
