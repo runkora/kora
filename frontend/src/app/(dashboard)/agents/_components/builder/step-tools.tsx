@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, platform tools, connections, egress, environment. */
+/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environment. */
 
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/terra';
@@ -11,7 +11,6 @@ import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { EgressModeCards } from '../motif/egress-mode-cards';
 import { EnvironmentCard } from '../motif/environment-card';
 import { countGrantedServers, McpToolTree } from '../motif/mcp-tool-tree';
-import { PlatformToolsCard } from '../motif/platform-tools-card';
 
 /** Section heading shared by every block on this step. */
 function SectionLabel({ title, desc }: { title: string; desc: string }) {
@@ -90,24 +89,6 @@ export function StepTools() {
         granted={fields.mcpTools}
         onChange={(scopes) => setField('mcpTools', scopes)}
       />
-
-      <Separator span="full" />
-
-      {/* ── Platform tools ─────────────────────────────────────────────────── */}
-      <Stack gap="cozy">
-        <SectionLabel
-          title="Platform tools"
-          desc="Direct platform capabilities granted to the agent, beyond MCP servers."
-        />
-        {catalogues.status.toolScopes === 'error' && (
-          <Alert variant="error">Tool scopes failed to load: {catalogues.errors.toolScopes}</Alert>
-        )}
-        <PlatformToolsCard
-          scopes={catalogues.toolScopes}
-          granted={fields.toolScopes}
-          onChange={(scopes) => setField('toolScopes', scopes)}
-        />
-      </Stack>
 
       <Separator span="full" />
 

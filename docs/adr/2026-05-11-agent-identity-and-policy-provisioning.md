@@ -26,9 +26,9 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 ### Goals
 
 - Agent pods receive a SPIFFE identity automatically via the existing ClusterSPIFFEID — no manual SPIRE configuration
-- Grants created automatically from the agent type's `tool_scopes`
+- Grants created automatically from the agent type definition
 - Both cleaned up automatically on agent type deletion
-- Least-privilege: agents only access what their `tool_scopes` specify
+- Least-privilege: agents only access what their grant specifies
 - No manual SPIRE or policy configuration required from tenant users
 
 ### Non-Goals
@@ -140,7 +140,7 @@ When an agent type is created, `orbit-agents` calls the policy-service to create
 }
 ```
 
-`tool_scopes` from the agent type definition map directly to grant scopes. The policy-service validates each scope against the scope vocabulary ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)).
+The agent type's grant scopes (`grant_scopes`, plus the scopes compiled from its connectivity, connectors and MCP tools) map directly to grant scopes; `tool_scopes` never fed the grant and is removed ([agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1). The policy-service validates each scope against the scope vocabulary ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)).
 
 `orbit-agents` is a SYSTEM principal — `resolveTenantID` in the policy-service passes the supplied `tenant_id` through directly for SYSTEM callers rather than deriving it from the JWT. orbit-agents must therefore explicitly supply the agent type's tenant identifier.
 

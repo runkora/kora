@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -431,8 +432,8 @@ func TestStartRun_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework:  AgentFrameworkClaudeCode,
-		ToolScopes: []string{"shell"}, SystemPrompt: "be helpful",
+		Framework:               AgentFrameworkClaudeCode,
+		SystemPrompt:            "be helpful",
 		MaxConcurrentRunsPerPod: 5,
 	})
 
@@ -459,6 +460,11 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 	if sm.sessions[0].Framework != string(AgentFrameworkClaudeCode) {
 		t.Errorf("Framework not forwarded: got %q, want %q", sm.sessions[0].Framework, AgentFrameworkClaudeCode)
+	}
+	// An older session-manager builds its Claude Code tools from this list, so it
+	// must carry every scope the removed picker offered.
+	if want := []string{"shell", "filesystem", "agents", "tasks", "mcp"}; !slices.Equal(sm.sessions[0].AllowedTools, want) {
+		t.Errorf("AllowedTools = %v, want %v", sm.sessions[0].AllowedTools, want)
 	}
 }
 

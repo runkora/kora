@@ -52,7 +52,7 @@ claude \
 | `--dangerously-skip-permissions` | Bypass interactive permission dialogs (required in unattended container) |
 | `--no-session-persistence` | Do not write session files to the working directory |
 | `--bare` | Minimal mode: no CLAUDE.md discovery, no OAuth/keychain reads, no auto-memory, no hooks |
-| `--tools` | Restrict to the tool set permitted by the agent type's `tool_scopes` |
+| `--disallowedTools` | Remove the built-in tools that cannot work in a headless Orbit run (see Tool Restriction) |
 
 ### Critical Operational Notes
 
@@ -258,15 +258,7 @@ The container runs as a non-root system user (`orbit`, UID 100). This is require
 
 ## Tool Restriction
 
-The `--tools` flag is set to the allowed tool names derived from the agent type's `tool_scopes`. Scopes map to Claude Code tool names:
-
-| Scope | Claude Code tools |
-|---|---|
-| `tools:bash` | `Bash` |
-| `tools:files` | `Edit`, `Read`, `Write`, `Glob`, `Grep` |
-| `tools:web` | `WebFetch`, `WebSearch` |
-
-The session-manager receives the allowed tool list from orbit-agents at session creation time (`CreateSessionRequest.AllowedTools`). When the list is empty, `--tools ""` is passed, giving Claude Code zero tools.
+Agent types carry no tool configuration ([agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1). Every Claude Code run gets the full built-in tool set, less a fixed platform exclusion list passed as `--disallowedTools`. The list lives in `claudeExcludedTools` in `backend/internal/agents/sessionmanager/runner_claude.go`. Codex and OpenCode runs get every tool their framework provides.
 
 ---
 
@@ -288,8 +280,7 @@ The session-manager exposes an **internal-only** HTTP API (not OPA-enforced, not
   "run_id":       "uuid",
   "agent_type_id": "code",
   "tenant_id":    "example",
-  "model":        "anthropic/claude-sonnet-4-6",
-  "allowed_tools": ["Bash", "Read", "Write", "Edit"]
+  "model":        "anthropic/claude-sonnet-4-6"
 }
 ```
 

@@ -119,7 +119,7 @@ The golden path is an RSC prefetch feeding a hook plus context. A modal mounted 
 
 Catalogues therefore load when the builder first opens:
 
-- `agent-builder-modal.tsx` (`'use client'`) loads models, tool scopes, connectors, MCP tools, and environments on open, through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
+- `agent-builder-modal.tsx` (`'use client'`) loads models, connectors, MCP tools, and environments on open (the tool-scope catalogue is removed: [agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1), through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
 - `_hooks/use-agent-builder.ts` owns the draft, the current step, per-step validity, per-catalogue `LoadStatus`, and submission, satisfying an `AgentBuilderStateShape` in line with the upgrade contract commented at `use-agents.ts:8-9`.
 - `AgentBuilderProvider` exposes it. Step components consume the context and never fetch.
 - Draft writes are debounced and go through the draft update path.

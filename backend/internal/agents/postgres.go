@@ -71,10 +71,10 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17,$18,$19)`,
+			(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18)`,
 		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, string(at.IdentityMode.OrDefault()),
+		at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, string(at.IdentityMode.OrDefault()),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -133,9 +133,9 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	// writes it on update).
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10, connectivity=$11::jsonb, connectors=$12::jsonb, mcp_tools=$13, environment_id=$14
-		WHERE id=$15`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, at.ID,
+		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, environment_id=$13
+		WHERE id=$14`,
+		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, at.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update agent_type: %w", err)
@@ -553,7 +553,7 @@ type scanner interface {
 // columns to scan destinations positionally and errors on a count mismatch, so
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode`
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode`
 
 func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
@@ -561,7 +561,7 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var connectivityJSON, connectorsJSON []byte
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &at.EnvironmentID, &identityMode,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &at.EnvironmentID, &identityMode,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

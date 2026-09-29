@@ -290,7 +290,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
           </Card>
         </Stack>
 
-        {/* Right column: budget + tool scopes + grant scopes + metadata */}
+        {/* Right column: budget + grant scopes + metadata */}
         <Stack gap="comfortable" style={{ flexShrink: 0, flexBasis: '300px' }}>
           {/* Budget usage — the agent's grant ceilings joined with live spend */}
           <AgentBudgetCard budget={budget} tenantCap={tenantCap} />
@@ -316,24 +316,6 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
               </CardContent>
             </Card>
           )}
-
-          {/* Tool scopes */}
-          <Card>
-            <CardHeader compact title="Tool Scopes" divider />
-            <CardContent padded>
-              {agent.toolScopes.length > 0 ? (
-                <Stack direction="horizontal" gap="snug" wrap>
-                  {agent.toolScopes.map((scope) => (
-                    <ScopeChip key={scope} scope={scope} />
-                  ))}
-                </Stack>
-              ) : (
-                <Text size="supporting" color="muted">
-                  No tool scopes configured.
-                </Text>
-              )}
-            </CardContent>
-          </Card>
 
           {/* Grant scopes */}
           <Card>

@@ -169,7 +169,7 @@ All non-streaming BFF-to-orbit-agents calls (POST to start a run, GET to list ag
 
 ```
 User navigates to /agents/new
-  → fills: name, description, framework (select), system prompt (textarea), tool scopes (multi-select)
+  → fills: name, description, framework (select), system prompt (textarea)
   → submits → POST /api/v1/agent-types
   → redirect to /agents/{id} with state: provisioning
   → page polls GET /api/v1/agent-types/{id} until state: active

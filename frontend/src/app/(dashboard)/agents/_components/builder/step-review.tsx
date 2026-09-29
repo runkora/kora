@@ -76,7 +76,6 @@ export function StepReview() {
           rows={[
             { label: 'MCP servers', value: String(grantedServers) },
             { label: 'MCP tools granted', value: String(fields.mcpTools.length), mono: true },
-            { label: 'Platform scopes', value: String(fields.toolScopes.length), mono: true },
             { label: 'Connections', value: connectionsSummary },
             { label: 'Network egress', value: fields.connectivityMode },
             { label: 'Environment', value: environment?.name ?? 'None' },

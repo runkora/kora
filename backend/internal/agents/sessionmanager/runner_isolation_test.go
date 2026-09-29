@@ -28,12 +28,31 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
-		"--tools",
 	}
 	for _, want := range always {
 		if !containsFlag(flags, want) {
 			t.Errorf("buildFlags() missing required flag %q; got %v", want, flags)
 		}
+	}
+}
+
+// Every run gets the full built-in tool set minus the platform exclusions: no
+// --tools allow-list, and the exclusions passed as one --disallowedTools value.
+func TestBuildFlags_ExcludedTools(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	if containsFlag(flags, "--tools") {
+		t.Errorf("buildFlags() must not restrict tools with --tools; got %v", flags)
+	}
+	i := slices.Index(flags, "--disallowedTools")
+	if i < 0 || i+1 >= len(flags) {
+		t.Fatalf("buildFlags() missing --disallowedTools value; got %v", flags)
+	}
+	if got, want := flags[i+1], "WebSearch,WebFetch,AskUserQuestion"; got != want {
+		t.Errorf("--disallowedTools = %q, want %q", got, want)
 	}
 }
 

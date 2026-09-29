@@ -90,9 +90,9 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 **So that** I have a running agent I can start sessions with.
 
 **Acceptance Criteria:**
-- [ ] User can create an agent type with: name, description, framework selection, system prompt, tool scope selection
+- [ ] User can create an agent type with: name, description, framework selection, system prompt
 - [ ] Available frameworks: `claude-code`, `codex`, `opencode`
-- [ ] Tool scopes selection creates corresponding grants in the policy service — the agent's platform JWT is governed by those grants
+- [ ] The agent type's access selections create corresponding grants in the policy service — the agent's platform JWT is governed by those grants
 - [ ] On creation, platform provisions a StatefulSet in the tenant namespace with the correct configuration
 - [ ] SPIRE entry is registered automatically for the agent type (pod selector based)
 - [ ] Agent type appears in the agent portal within 60 seconds of creation
@@ -221,7 +221,6 @@ A managed agent type is defined by:
 | Description | What this agent does |
 | Framework | Which CLI to wrap: `claude-code`, `codex`, `opencode` |
 | System prompt | Instructions passed to the framework at session start |
-| Tool scopes | Scopes granted to this agent — creates grants in policy-service |
 
 The definition is stored in the `orbit-agents` database. It drives the creation of the StatefulSet, SPIRE entry, and policy grants. Users do not configure infrastructure directly.
 
@@ -329,7 +328,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ### In Scope (v1)
 
-- Managed agent type definition and registration (name, description, framework, system prompt, tool scopes)
+- Managed agent type definition and registration (name, description, framework, system prompt)
 - Platform provisioning: StatefulSet, SPIRE entry, grants, headless Service, RBAC
 - Interactive chat sessions with managed agents (real-time streaming output, user message input)
 - Headless run observation (real-time event stream, no user input)
@@ -385,7 +384,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - [ ] BYOC agents surfaced in agent portal with status and LLM usage
 - [ ] Agent portal: list all agent types and runs for the authenticated tenant
 - [ ] All agent LLM usage attributed to the correct principal in inference usage logs
-- [ ] Agent grants created from tool scopes at agent type creation; removed at deletion
+- [ ] Agent grants created from the agent type's access selections at agent type creation; removed at deletion
 
 **P1 — Post-v1:**
 - [ ] Workspace resume: restore snapshot + reconstruct conversation context from `run_events`
@@ -444,7 +443,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | SPIFFE/SPIRE ([spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md)) | Implemented | Workload attestation for agent pods |
 | identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) | Implemented | SVID → JWT exchange; outbound token injection |
 | inference-gateway ([inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md)) | Implemented | LLM access for agent workloads |
-| Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent tool scopes |
+| Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent types |
 | Orbit Operator ([orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md)) | Implemented | Operator manages platform infrastructure; untouched by this feature |
 | PostgreSQL | Implemented | Agent type registry, run/session state, event log |
 | Istio / Envoy | Implemented | mTLS between orbit-agents and session-manager pods |
