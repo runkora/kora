@@ -219,4 +219,5 @@ Option B.
 - Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
 - Delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
 - Rows written by a gateway binary older than the migration carry no slug until they are backfilled; the migration backfills everything present when it runs.
+- The index is built without `CONCURRENTLY`, so on a large `inference_usage` the migration blocks writes for the length of the backfill and index build. That is acceptable at current production volume; a larger install needs a concurrent build in a no-transaction migration.
 - Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.
