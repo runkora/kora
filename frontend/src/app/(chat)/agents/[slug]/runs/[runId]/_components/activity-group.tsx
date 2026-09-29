@@ -47,9 +47,7 @@ function Elapsed({ tool }: { tool: ToolCall }) {
   const now = useNow(tool.status === 'running');
   const ms =
     tool.status === 'running'
-      ? tool.progressSeconds !== undefined
-        ? tool.progressSeconds * 1000
-        : now - (tool.receivedAt ?? now)
+      ? Math.max((tool.progressSeconds ?? 0) * 1000, now - (tool.receivedAt ?? now))
       : callDuration(tool);
   if (ms === null) return null;
   return (

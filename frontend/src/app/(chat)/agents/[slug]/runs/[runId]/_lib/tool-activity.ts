@@ -136,13 +136,13 @@ export function describeTool(name: string, input: Record<string, unknown>): Tool
         target: oneLine(str(input.description) || str(input.prompt), 80),
       };
     case 'wait':
-      return { kind: 'agent', label: 'Waited for', target: subagents(input) || 'subagent' };
+      return { kind: 'other', label: 'Waited for', target: subagents(input) || 'subagent' };
     case 'sendInput':
-      return { kind: 'agent', label: 'Messaged', target: subagents(input) || 'subagent' };
+      return { kind: 'other', label: 'Messaged', target: subagents(input) || 'subagent' };
     case 'resumeAgent':
-      return { kind: 'agent', label: 'Resumed', target: subagents(input) || 'subagent' };
+      return { kind: 'other', label: 'Resumed', target: subagents(input) || 'subagent' };
     case 'closeAgent':
-      return { kind: 'agent', label: 'Closed', target: subagents(input) || 'subagent' };
+      return { kind: 'other', label: 'Closed', target: subagents(input) || 'subagent' };
     case 'TodoWrite':
     case 'todowrite':
       return { kind: 'other', label: 'Updated the plan', target: '' };

@@ -148,7 +148,7 @@ describe('describeTool across runtimes', () => {
       'Subagent',
       'count files',
     ],
-    ['wait', { prompt: null, receiver_thread_ids: ['t1'] }, 'agent', 'Waited for', '1 subagent'],
+    ['wait', { prompt: null, receiver_thread_ids: ['t1'] }, 'other', 'Waited for', '1 subagent'],
     ['webSearch', { query: 'orbit spiffe' }, 'web', 'Searched the web', 'orbit spiffe'],
     ['mcp__runtime__provision_sandbox', {}, 'platform', 'provision sandbox', ''],
     // OpenCode

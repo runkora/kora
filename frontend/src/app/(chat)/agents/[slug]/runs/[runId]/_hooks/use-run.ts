@@ -24,7 +24,23 @@ interface InProgress {
   // already built from deltas. During replay, no text_delta events fire, so
   // this stays false and message_complete.text (trailing text) is used instead.
   hasSeenTextDelta: boolean;
+  // true once the turn's time comes from a recorded event. Streamed deltas are
+  // not replayed, so a turn is stamped by its first recorded event on reload;
+  // live turns take the same time once that event arrives.
+  stamped: boolean;
 }
+
+// Events recorded in run_events: the ones a reload replays.
+const RECORDED = new Set([
+  'text_block',
+  'tool_use',
+  'tool_result',
+  'message_complete',
+  'turn_stopped',
+  'run_error',
+  'api_retry',
+  'sandbox_status',
+]);
 
 // ── Event payload shapes ──────────────────────────────────────────────────────
 
@@ -369,11 +385,18 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // calls take their times from it, so a reload shows when things happened.
     let eventTime = '';
     let eventAt: number | undefined;
+    let eventRecorded = false;
     function read<T>(e: MessageEvent): T | null {
       const parsed = parseEnvelope<T>(e.data);
       if (!parsed) return null;
       eventTime = parsed.time;
       eventAt = parsed.at ?? undefined;
+      eventRecorded = RECORDED.has(e.type);
+      const current = inProgressRef.current;
+      if (current && !current.stamped && eventRecorded && eventTime) {
+        current.stamped = true;
+        current.turn = { ...current.turn, timestamp: eventTime };
+      }
       return parsed.payload;
     }
 
@@ -387,7 +410,12 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           timestamp: eventTime,
           elements: [],
         };
-        inProgressRef.current = { turn, thinkingContent: '', hasSeenTextDelta: false };
+        inProgressRef.current = {
+          turn,
+          thinkingContent: '',
+          hasSeenTextDelta: false,
+          stamped: eventRecorded,
+        };
       }
       return inProgressRef.current.turn;
     }

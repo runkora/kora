@@ -28,6 +28,21 @@ describe('statusText', () => {
       } as const,
       'Ran go test ./... · 40s',
     ],
+    [
+      {
+        kind: 'tool',
+        since: now - 12_000,
+        tool: {
+          id: 't',
+          name: 'commandExecution',
+          input: { command: 'sleep 30' },
+          status: 'running',
+          result: '',
+          progressSeconds: 5,
+        },
+      } as const,
+      'Ran sleep 30 · 12s',
+    ],
   ])('%#', (activity, want) => {
     expect(statusText(activity, now)).toBe(want);
   });

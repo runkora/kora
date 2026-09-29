@@ -38,7 +38,7 @@ class FakeEventSource {
     this.onopen?.();
   }
   emit(type: string, data: unknown) {
-    const ev = { data: JSON.stringify(data) } as MessageEvent;
+    const ev = { data: JSON.stringify(data), type } as MessageEvent;
     (this.listeners[type] ?? []).forEach((cb) => cb(ev));
   }
   fail({ closed }: { closed: boolean }) {
@@ -188,6 +188,21 @@ describe('useRun — server event envelope', () => {
       FakeEventSource.instances[0].emit('message_complete', { text: 'from an older server' });
     });
     expect(result.current.turns.map((t) => t.timestamp)).toEqual([local, '']);
+  });
+
+  it('stamps a streamed turn with its first recorded event, as a reload does', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.open();
+      es.emit('text_delta', { at, payload: { delta: 'Half' } });
+      es.emit('message_complete', { at: later, payload: { text: 'Half', interrupted: true } });
+      es.emit('turn_stopped', { at: later, payload: { reason: 'user' } });
+    });
+    expect(result.current.turns.at(-1)?.timestamp).toBe(laterLocal);
   });
 
   it('keeps the run state on run_error until a run_state event says otherwise', async () => {

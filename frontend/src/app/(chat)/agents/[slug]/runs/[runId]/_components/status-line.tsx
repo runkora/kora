@@ -31,10 +31,8 @@ export function statusText(activity: LiveActivity, now: number): string | null {
       return `Starting sandbox… ${formatDuration(Math.max(0, now - activity.since))}`;
     case 'tool': {
       const d = describeTool(activity.tool.name, activity.tool.input);
-      const elapsed =
-        activity.tool.progressSeconds !== undefined
-          ? activity.tool.progressSeconds * 1000
-          : now - activity.since;
+      // The runtime's own count wins after a reload; between reports the clock ticks on.
+      const elapsed = Math.max((activity.tool.progressSeconds ?? 0) * 1000, now - activity.since);
       return `${d.label}${d.target ? ` ${d.target}` : ''} · ${formatDuration(Math.max(0, elapsed))}`;
     }
     case 'thinking': {
