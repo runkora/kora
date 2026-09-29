@@ -342,6 +342,19 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 
+  it('on replay, places a message sent mid-prose after the text recorded before it', async () => {
+    const { result, emit } = await start();
+    emit('text_block', { content: 'Working on it. ' });
+    emit('human_message', { content: 'also do X' });
+    emit('message_complete', { text: 'Done.' });
+    const shape = result.current.turns.map((t) =>
+      t.type === 'agent'
+        ? t.elements.map((el) => (el.kind === 'text' ? el.content : el.kind))
+        : t.type,
+    );
+    expect(shape).toEqual([['Working on it. '], 'human', ['Done.']]);
+  });
+
   it('surfaces a send the server refused', async () => {
     messagesStatus = 409;
     const { result } = await start();

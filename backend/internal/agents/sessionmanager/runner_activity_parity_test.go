@@ -457,3 +457,55 @@ func TestCodex_CollabResultIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// A mid-turn message takes the text streamed so far; the turn's later
+// message_complete carries only what followed, so nothing is recorded twice.
+func TestRunnerParity_TakeTextSplitsTheTurn(t *testing.T) {
+	claude := newTestRunner()
+	claude.textBuf.WriteString("Before. ")
+	codex := newTestCodexRunner()
+	codex.threadID.Store("thr-main")
+	codex.textBuf.WriteString("Before. ")
+	oc := newTestOpenCodeRunner()
+	oc.textBuf.WriteString("Before. ")
+
+	for name, r := range map[string]Runner{"claude-code": claude, "codex": codex, "opencode": oc} {
+		if got := r.TakeText(); got != "Before. " {
+			t.Errorf("%s TakeText = %q", name, got)
+		}
+		if got := r.TakeText(); got != "" {
+			t.Errorf("%s second TakeText = %q, want nothing left", name, got)
+		}
+	}
+
+	claude.textBuf.WriteString("After.")
+	claude.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "end_turn"})
+	codex.textBuf.WriteString("After.")
+	codex.handleNotification(context.Background(), codexMsg{Method: "turn/completed", Params: mustMarshal(map[string]any{"threadId": "thr-main", "turn": map[string]any{"id": "t", "status": "completed"}})})
+	oc.textBuf.WriteString("After.")
+	id := int64(4)
+	oc.pendingPrompts[id] = true
+	oc.dispatchResponse(context.Background(), openCodeMsg{ID: &id, Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+
+	for name, ch := range map[string]<-chan Event{"claude-code": claude.events, "codex": codex.events, "opencode": oc.events} {
+		evs := drainAvailable(ch)
+		if len(evs) == 0 || evs[0].Type != EventTypeMessageComplete {
+			t.Fatalf("%s events = %v", name, eventTypes(evs))
+		}
+		if got := decode[MessageCompletePayload](t, evs[0]).Text; got != "After." {
+			t.Errorf("%s message_complete = %q, want only the text after the message", name, got)
+		}
+	}
+}
+
+// Claude Code: a turn whose text was all taken by a mid-turn message is not an
+// empty response.
+func TestClaude_TakenTextIsNotAnEmptyResponse(t *testing.T) {
+	r := newTestRunner()
+	r.textBuf.WriteString("Everything so far.")
+	r.TakeText()
+	r.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "stop_sequence"})
+	if got := eventTypes(drainAvailable(r.events)); !slices.Equal(got, []EventType{EventTypeMessageComplete, EventTypeMessageStop}) {
+		t.Errorf("events = %v, want a normal turn end", got)
+	}
+}

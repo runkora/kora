@@ -196,6 +196,13 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
+	// Text the agent wrote before this message is recorded before it: orbit-agents
+	// records the message once this call returns, so replay keeps the live order.
+	if partial := s.runner.TakeText(); partial != "" {
+		if ev, err := newEvent(EventTypeTextBlock, TextBlockPayload{Content: partial}); err == nil {
+			reg.pushEvent(ctx, runID, ev)
+		}
+	}
 	toAgent := text
 	noted := s.stoppedByUser.CompareAndSwap(true, false)
 	if noted {

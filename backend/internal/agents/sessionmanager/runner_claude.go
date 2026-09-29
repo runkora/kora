@@ -88,7 +88,7 @@ type ClaudeRunner struct {
 	stdin             io.WriteCloser
 	events            chan Event
 	once              sync.Once
-	textBuf           strings.Builder // accumulates text_delta chunks; reset per turn
+	textBuf           turnText        // accumulates text_delta chunks; reset per turn
 	thinkingBuf       strings.Builder // accumulates thinking_delta chunks; reset per turn
 	textBlockEmitted  bool            // true if ≥1 text_block was emitted this turn
 	budgetHit         bool            // true if a BUDGET_EXCEEDED rejection was seen this turn; reset per turn
@@ -589,7 +589,7 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	// (e.g. inference gateway returning 5xx after exhausted retries).
 	// textBlockEmitted=true means text was already flushed before tool calls,
 	// so the turn has content even if textBuf is now empty.
-	if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
+	if textLen == 0 && !r.textBlockEmitted && !r.textBuf.wasTaken() && w.StopReason != "end_turn" {
 		if r.interrupted.Load() {
 			return // SIGINT caused the empty turn — runner will restart via --resume
 		}
@@ -881,3 +881,6 @@ type claudeContentItem struct {
 	Content   json.RawMessage `json:"content"` // a string, or an array of blocks from MCP and Agent tools
 	IsError   bool            `json:"is_error"`
 }
+
+// TakeText hands over the text streamed so far; see Runner.
+func (r *ClaudeRunner) TakeText() string { return r.textBuf.take() }

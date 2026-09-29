@@ -29,6 +29,7 @@ func (r *stubRunner) SendToolResult(_ context.Context, _, _ string) error { retu
 func (r *stubRunner) Events() <-chan Event                                { return r.events }
 func (r *stubRunner) Interrupt() error                                    { return nil }
 func (r *stubRunner) SessionID() string                                   { return "" }
+func (r *stubRunner) TakeText() string                                    { return "" }
 func (r *stubRunner) NewResumeRunner() Runner                             { return nil }
 func (r *stubRunner) Close() error {
 	select {

@@ -155,6 +155,10 @@ Each runner emits what its protocol carries. Where a protocol has no signal, the
 - Status events (`api_retry`, `tool_progress`) do not change idle state.
 - The UI takes run state only from `run_state` events. A `run_error` renders as an error row and does not set the run to failed.
 
+### A message sent mid-turn
+
+When a message arrives while a turn is streaming, the session-manager takes the text the turn has written so far from the runner and records it as a `text_block` before forwarding the message. orbit-agents records the `human_message` once the forward returns, so the log holds the text, then the message, then what the agent wrote after it. The turn's `message_complete` carries only the text after the message. Replay then splits the turn where the live view did, for every runtime. Streamed text deltas are not recorded, so without this a replay placed the whole answer below the message.
+
 ### Event times
 
 Every SSE event's `data` is an envelope: `{"at": <RFC 3339>, "payload": <event>}`. `at` is `run_events.created_at` for a durable event, live and replayed alike (orbit-agents takes the time once and uses it for both the row and the live push), and the time orbit-agents received it for a streaming-only event. The stored payload is unchanged. The browser never stamps an event with its own clock. The JSON event list already returns `created_at`.
