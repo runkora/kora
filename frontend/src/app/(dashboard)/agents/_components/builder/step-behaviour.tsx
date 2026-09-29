@@ -2,9 +2,10 @@
 
 /** @tier 3 — agents-scoped. Builder step 2: system instructions, framework, model. */
 
-import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@orbit/terra';
+import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FrameworkCards } from '../motif/framework-cards';
+import { SystemPromptField } from '../system-prompt-field';
 import { ModelPicker } from '@orbit/components';
 
 export function StepBehaviour() {
@@ -17,14 +18,11 @@ export function StepBehaviour() {
         title="Behaviour"
         description="Describe how the agent should behave, then choose the model and framework it runs on."
       >
-        <FormField label="System instructions" required>
-          <Textarea
-            value={fields.systemPrompt}
-            onChange={(e) => setField('systemPrompt', e.target.value)}
-            rows={5}
-            placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
-          />
-        </FormField>
+        <SystemPromptField
+          value={fields.systemPrompt}
+          onChange={(v) => setField('systemPrompt', v)}
+          placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
+        />
 
         <Separator span="full" />
 

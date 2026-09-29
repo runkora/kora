@@ -69,6 +69,7 @@ import {
   Loader2,
   Lock,
   LogOut,
+  Maximize2,
   Menu,
   Minus,
   Monitor,
@@ -176,6 +177,7 @@ export type IconName =
   | 'loader'
   | 'lock'
   | 'log-out'
+  | 'maximize'
   | 'menu'
   | 'minus'
   | 'monitor'
@@ -279,6 +281,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   loader: Loader2,
   lock: Lock,
   'log-out': LogOut,
+  maximize: Maximize2,
   menu: Menu,
   minus: Minus,
   monitor: Monitor,

@@ -29,6 +29,7 @@ import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-c
 import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
 import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
+import { SystemPromptField } from '../../_components/system-prompt-field';
 import { ConnectionCards } from '@orbit/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
 import { EnvironmentCard } from '../../_components/motif/environment-card';
@@ -158,13 +159,7 @@ export function AgentConfigurationTab() {
               title="Behaviour"
               description="How the agent behaves, and the model and framework it runs on."
             />
-            <FormField label="System instructions" required>
-              <Textarea
-                value={cfg.systemPrompt}
-                onChange={(e) => cfg.setSystemPrompt(e.target.value)}
-                rows={5}
-              />
-            </FormField>
+            <SystemPromptField value={cfg.systemPrompt} onChange={cfg.setSystemPrompt} />
             <Separator span="full" />
             <Stack gap="cozy">
               <Text as="span" size="caption" weight="heavy" color="muted">

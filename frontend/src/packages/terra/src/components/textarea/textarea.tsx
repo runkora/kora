@@ -107,11 +107,12 @@ export interface TextareaProps
 
   /**
    * When true the textarea grows vertically as the user types, up to
-   * `maxRows`. The height is controlled via an inline style — do NOT
-   * set a fixed `rows` attribute alongside this prop.
+   * `maxRows`. The height is controlled via an inline style; a `rows`
+   * attribute set alongside this prop acts as the minimum height.
    *
-   * Resize is implemented on the synthetic `onChange` event so it fires
-   * on every keystroke, paste, and autocomplete.
+   * The textarea re-measures on every `onChange` (keystroke, paste,
+   * autocomplete) and whenever a controlled `value` changes, so a
+   * pre-filled value is sized correctly on mount.
    */
   autoResize?: boolean;
 
@@ -122,6 +123,24 @@ export interface TextareaProps
    * @default 8
    */
   maxRows?: number;
+
+  /**
+   * Optional control pinned to the top-right corner of the field (e.g. an
+   * icon-only "expand" button). The textarea reserves right padding so text
+   * never runs underneath it. The forwarded ref still targets the textarea.
+   *
+   * ```tsx
+   * <Textarea
+   *   autoResize
+   *   action={
+   *     <Button variant="ghost" size="icon-sm" aria-label="Expand editor">
+   *       <Icon name="maximize" size="2xs" />
+   *     </Button>
+   *   }
+   * />
+   * ```
+   */
+  action?: React.ReactNode;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -170,6 +189,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       hasError = false,
       autoResize = false,
       maxRows = 8,
+      action,
       style,
       onChange,
       id,
@@ -187,23 +207,36 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     const PADDING_PX = variant === 'bare' ? 20 : 16;
     const maxHeightPx = maxRows * LINE_HEIGHT_PX + PADDING_PX;
 
-    const handleChange = React.useCallback(
-      (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        if (autoResize) {
-          const el = e.currentTarget;
-          // Reset then re-measure so shrinking also works.
-          el.style.height = 'auto';
-          el.style.height = `${Math.min(el.scrollHeight, maxHeightPx)}px`;
-          el.style.overflowY = el.scrollHeight > maxHeightPx ? 'auto' : 'hidden';
-        }
-        onChange?.(e);
+    const innerRef = React.useRef<HTMLTextAreaElement>(null);
+    React.useImperativeHandle(ref, () => innerRef.current as HTMLTextAreaElement);
+
+    const resize = React.useCallback(
+      (el: HTMLTextAreaElement) => {
+        // Reset then re-measure so shrinking also works.
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(el.scrollHeight, maxHeightPx)}px`;
+        el.style.overflowY = el.scrollHeight > maxHeightPx ? 'auto' : 'hidden';
       },
-      [autoResize, maxHeightPx, onChange],
+      [maxHeightPx],
     );
 
-    return (
+    // Size to the current value on mount and whenever it changes from outside
+    // (e.g. a saved prompt loading in), not only on user keystrokes.
+    React.useLayoutEffect(() => {
+      if (autoResize && innerRef.current) resize(innerRef.current);
+    }, [autoResize, resize, props.value]);
+
+    const handleChange = React.useCallback(
+      (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        if (autoResize) resize(e.currentTarget);
+        onChange?.(e);
+      },
+      [autoResize, resize, onChange],
+    );
+
+    const textarea = (
       <textarea
-        ref={ref}
+        ref={innerRef}
         onChange={handleChange}
         id={id ?? field?.id}
         aria-describedby={
@@ -217,9 +250,20 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
         aria-required={ariaRequired ?? field?.required ?? undefined}
         style={autoResize ? { overflowY: 'hidden', ...style } : style}
-        className={cn(textareaVariants({ variant, error: hasError }), className)}
+        className={cn(textareaVariants({ variant, error: hasError }), action && 'pr-12', className)}
         {...props}
       />
+    );
+
+    if (!action) return textarea;
+
+    return (
+      <div data-slot="textarea-wrapper" className="relative w-full">
+        {textarea}
+        <div data-slot="textarea-action" className="absolute right-3 top-1.5">
+          {action}
+        </div>
+      </div>
     );
   },
 );

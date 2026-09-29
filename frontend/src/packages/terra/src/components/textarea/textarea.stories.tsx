@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Textarea } from './textarea';
 import { Text } from '../typography/typography';
+import { Button } from '../button/button';
+import { Icon } from '../icon/icon';
 
 const meta: Meta<typeof Textarea> = {
   title: 'Terra/Atoms/Textarea',
@@ -87,6 +89,20 @@ export const AutoResize: Story = {
     autoResize: true,
     maxRows: 8,
     className: 'w-80',
+  },
+};
+
+export const WithAction: Story = {
+  args: {
+    placeholder: 'Long-form prompt with a corner action…',
+    autoResize: true,
+    rows: 5,
+    className: 'w-96',
+    action: (
+      <Button variant="ghost" size="icon-sm" aria-label="Expand editor">
+        <Icon name="maximize" size="2xs" />
+      </Button>
+    ),
   },
 };
 
