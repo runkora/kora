@@ -33,12 +33,8 @@ func stripMantleUnsupportedInputItems(params responses.ResponseNewParams) respon
 			if emptyReasoning {
 				continue
 			}
-			// Codex omits item ids when store is false. The SDK marks the reasoning id required
-			// and would send "id":"", which Mantle rejects as a duplicate once two items share it.
-			if r.ID == "" {
-				r.SetExtraFields(map[string]any{"id": param.Omit})
-			}
 		}
+		omitEmptyItemID(item)
 		// All type="message" items deserialize as OfMessage (first discriminator).
 		// Mantle rejects messages with no content, so patch empty ones to use an
 		// empty string rather than dropping them — this preserves the assistant
@@ -53,6 +49,52 @@ func stripMantleUnsupportedInputItems(params responses.ResponseNewParams) respon
 	}
 	params.Input.OfInputItemList = filtered
 	return params
+}
+
+// omitEmptyItemID drops "id" from an item whose SDK type requires one the client omitted (Codex
+// omits ids when store is false). Re-encoded as "id":"", Mantle rejects two such items as duplicates.
+func omitEmptyItemID(item responses.ResponseInputItemUnionParam) {
+	if id := item.GetID(); id == nil || *id != "" {
+		return
+	}
+	if v := requiredIDVariant(item); v != nil {
+		v.SetExtraFields(map[string]any{"id": param.Omit})
+	}
+}
+
+// requiredIDVariant returns the item's variant when its SDK param type marks the id required.
+func requiredIDVariant(item responses.ResponseInputItemUnionParam) interface{ SetExtraFields(map[string]any) } {
+	switch {
+	case item.OfFileSearchCall != nil:
+		return item.OfFileSearchCall
+	case item.OfComputerCall != nil:
+		return item.OfComputerCall
+	case item.OfWebSearchCall != nil:
+		return item.OfWebSearchCall
+	case item.OfReasoning != nil:
+		return item.OfReasoning
+	case item.OfImageGenerationCall != nil:
+		return item.OfImageGenerationCall
+	case item.OfCodeInterpreterCall != nil:
+		return item.OfCodeInterpreterCall
+	case item.OfLocalShellCall != nil:
+		return item.OfLocalShellCall
+	case item.OfLocalShellCallOutput != nil:
+		return item.OfLocalShellCallOutput
+	case item.OfMcpListTools != nil:
+		return item.OfMcpListTools
+	case item.OfMcpApprovalRequest != nil:
+		return item.OfMcpApprovalRequest
+	case item.OfMcpCall != nil:
+		return item.OfMcpCall
+	case item.OfItemReference != nil:
+		return item.OfItemReference
+	case item.OfProgram != nil:
+		return item.OfProgram
+	case item.OfProgramOutput != nil:
+		return item.OfProgramOutput
+	}
+	return nil
 }
 
 // Responses calls the Responses API on the appropriate Bedrock endpoint.
