@@ -26,10 +26,19 @@ func TestEgressCanaryHost(t *testing.T) {
 			want:  "",
 		},
 		{
-			name:  "open egress with no named host skips the probe",
+			name:  "open egress with no named host probes the fixed host",
 			at:    AgentType{Connectivity: Connectivity{Mode: ConnectivityOpen}},
 			conns: stubConns{},
-			want:  "",
+			want:  openEgressCanaryHost,
+		},
+		{
+			name: "open egress with a connector probes the connector host",
+			at: AgentType{
+				Connectivity: Connectivity{Mode: ConnectivityOpen},
+				Connectors:   []Connector{{Connection: "github", Actions: []string{"contents:read"}}},
+			},
+			conns: stubConns{entries: github},
+			want:  "github.com",
 		},
 		{
 			name:  "whitelist skips wildcard hosts",

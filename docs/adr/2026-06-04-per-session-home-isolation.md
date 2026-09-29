@@ -262,7 +262,7 @@ Option 4. The layout is defined once, in `internal/agents/sandbox/runfs`, and us
 - `PIP_USER` is not set: it makes `pip install` fail inside a virtualenv, and pip already installs to the user site when the system site is not writable.
 - OpenCode's system prompt, which carries the capabilities brief, is written to `instructions.md` in the run config directory and named in `opencode.json`.
 - The capabilities brief tells the agent to work in the workspace, `~` or `$TMPDIR`, that `/tmp` is not available, and that user-level installs persist for the run.
-- The egress readiness check probes a host from the agent's effective access (connector hosts first, then environment and own hosts, skipping wildcards). Any HTTP answer other than 502 to 504 passes. An agent with no concrete host skips the check.
+- The egress readiness check probes a host from the agent's effective access (connector hosts first, then environment and own hosts, skipping wildcards). Any HTTP answer other than 502 to 504 passes. An agent with open egress and no named host probes `api.github.com`, which any host allowance covers and which reliably answers HTTPS. An agent with no egress skips the check.
 
 | | Claude Code | Codex | OpenCode |
 |---|---|---|---|
@@ -283,7 +283,6 @@ Option 4. The layout is defined once, in `internal/agents/sandbox/runfs`, and us
 
 - A file tool call on `/tmp` fails in every framework. The capabilities brief steers the agent to `$TMPDIR`.
 - `$TMPDIR` and caches are on the workspace volume: writes are slower on network storage, and they count toward the volume's disk. Nothing deletes `.tmp/{runID}` or `.runconfig/{runID}` today, as with the workspace itself.
-- An agent with open egress and no connector or environment host names no host, so it skips the egress readiness check and its first outbound call may meet a still-warming path.
 - An agent with only connector hosts probes the connector host root, which the egress gateway may answer with a denial; that still counts as a working path.
 - Installs need egress to the package registry. This amendment grants none.
 

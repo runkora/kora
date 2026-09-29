@@ -801,8 +801,8 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 }
 
 // egressCanaryHost picks a host this agent may reach, so the egress probe tests
-// the agent's own path. Empty when it has no named host (no egress, or open
-// egress with none named), which skips the probe.
+// the agent's own path. Open egress with no named host probes a fixed host; no
+// egress returns empty, which skips the probe.
 func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string {
 	if s.resolver == nil {
 		return ""
@@ -828,8 +828,15 @@ func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string 
 			return h
 		}
 	}
+	if access.Open {
+		return openEgressCanaryHost
+	}
 	return ""
 }
+
+// openEgressCanaryHost is probed for open-egress agents that name no host: any
+// host is allowed, and this one reliably answers HTTPS.
+const openEgressCanaryHost = "api.github.com"
 
 // providePod ensures the agent type's k8s resources exist (idempotent, fast
 // no-op if already present — guards against cluster resets where the DB
