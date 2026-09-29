@@ -128,17 +128,43 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	}
 	got := string(data)
 
-	// sandbox_mode is a top-level key: TOML puts a key after a table header inside
-	// that table, which silently disabled it and brought the panic back.
+	// sandbox_mode and approval_policy are top-level keys: TOML puts a key after a
+	// table header inside that table, which silently disables it.
 	if idx := strings.Index(got, "["); idx >= 0 {
-		if strings.Index(got, "sandbox_mode") > idx {
-			t.Error("sandbox_mode must appear before the first table header, or it is nested in that table")
+		for _, key := range []string{"sandbox_mode", "approval_policy"} {
+			if strings.Index(got, key) > idx {
+				t.Errorf("%s must appear before the first table header, or it is nested in that table", key)
+			}
+		}
+	}
+
+	// Each server table carries its keys ahead of any subtable such as
+	// [mcp_servers.runtime.env], or they land in the subtable and Codex rejects the file.
+	for server, keys := range map[string][]string{
+		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["ORBIT_RUN_TOKEN"]`},
+		"github":  {`default_tools_approval_mode = "approve"`},
+	} {
+		header := "[mcp_servers." + server + "]\n"
+		start := strings.Index(got, header)
+		if start < 0 {
+			t.Fatalf("config.toml has no %s table:\n%s", header, got)
+		}
+		table := got[start+len(header):]
+		if end := strings.Index(table, "\n["); end >= 0 {
+			table = table[:end]
+		}
+		for _, key := range keys {
+			if !strings.Contains(table, key) {
+				t.Errorf("%s table is missing %q:\n%s", header, key, table)
+			}
 		}
 	}
 
 	for _, want := range []string{
 		// Without this Codex panics on a missing bubblewrap and runs nothing.
 		`sandbox_mode = "danger-full-access"`,
+		// Headless: an approval request would wait forever for a human.
+		`approval_policy = "never"`,
 		// The one-shot shell tool, which is the shape orbit-shell implements.
 		"unified_exec = false",
 		"[mcp_servers.runtime]",

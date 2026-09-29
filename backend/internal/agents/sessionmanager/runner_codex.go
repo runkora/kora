@@ -78,7 +78,18 @@ type codexMsg struct {
 	Method string          `json:"method,omitempty"`
 	Params json.RawMessage `json:"params,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
+	Error  *codexRPCError  `json:"error,omitempty"`
 }
+
+// codexRPCError is the error member of a response the runner sends back to a
+// server request it does not handle.
+type codexRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// codexMethodNotFound is the JSON-RPC "method not found" error code.
+const codexMethodNotFound = -32601
 
 // codexActiveItem tracks an in-flight tool item between item/started and item/completed.
 type codexActiveItem struct {
@@ -116,7 +127,7 @@ type CodexRunner struct {
 	cfg          CodexRunnerConfig
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
-	stdinMu      sync.Mutex   // guards all stdin writes (Send + approval responses)
+	stdinMu      sync.Mutex   // guards all stdin writes (Send + server request replies)
 	threadID     atomic.Value // string; set after thread/start or thread/resume; "" until Start returns
 	activeTurnID atomic.Value // string; captured from turn/started; cleared on turn/completed or error
 	events       chan Event
@@ -365,6 +376,9 @@ func (r *CodexRunner) mcpServersTOML() string {
 [mcp_servers.runtime]
 command = "orbit-runtime-mcp"
 args    = []
+default_tools_approval_mode = "approve"
+# Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
+env_vars = ["ORBIT_RUN_TOKEN"]
 
 [mcp_servers.runtime.env]
 ORBIT_SESSION_MANAGER_URL = %q
@@ -378,6 +392,7 @@ ORBIT_RUN_ID              = %q
 			fmt.Fprintf(&b, `
 [mcp_servers.%s]
 url = %q
+default_tools_approval_mode = "approve"
 `, server, url+"/v1/mcp/"+server)
 		}
 	}
@@ -529,7 +544,7 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 
 		switch {
 		case msg.ID != nil && msg.Method != "":
-			// Server→client request (e.g. approval). Handle inline.
+			// Server→client request. Handle inline.
 			r.handleServerRequest(ctx, msg)
 		case msg.ID != nil && msg.Method == "":
 			// Response to one of our requests.
@@ -541,25 +556,20 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 	}
 }
 
-// handleServerRequest processes a request sent by the Codex server (e.g. approval).
-// Always auto-approves. Caller is the readLoop goroutine.
+// handleServerRequest rejects every Codex server request: the config turns
+// approvals off, and an unanswered request would hang the run.
 func (r *CodexRunner) handleServerRequest(ctx context.Context, req codexMsg) {
-	switch req.Method {
-	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-		// v2 protocol: decision field is an enum string, not a bool.
-		resp := codexMsg{ID: req.ID, Result: mustMarshal(map[string]string{"decision": "accept"})}
-		r.stdinMu.Lock()
-		if err := r.writeJSONL(resp); err != nil {
-			r.cfg.Logger.Warn(ctx, "Codex: failed to write approval response",
-				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-		r.stdinMu.Unlock()
-	default:
-		r.cfg.Logger.Warn(ctx, "Codex: unknown server request",
+	r.cfg.Logger.Warn(ctx, "Codex: unknown server request",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "method", Value: req.Method},
+	)
+	resp := codexMsg{ID: req.ID, Error: &codexRPCError{Code: codexMethodNotFound, Message: "method not supported: " + req.Method}}
+	r.stdinMu.Lock()
+	defer r.stdinMu.Unlock()
+	if err := r.writeJSONL(resp); err != nil {
+		r.cfg.Logger.Warn(ctx, "Codex: failed to write server request error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
 }
@@ -786,6 +796,8 @@ model = %q
 # them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 # Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
+# Headless: no human can answer an approval, and Orbit's gateways enforce policy.
+approval_policy = "never"
 
 [model_providers.orbit]
 name     = "Orbit"
