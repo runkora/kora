@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-17-agent-triggers-and-webhook-ingestion.md -->
 
-**Status:** Proposed
+**Status:** Proposed (Decision item 3 superseded in part by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
 **Date:** 2026-06-17
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Agent Triggers](../prd/agent-webhook-triggers.md) — start agent runs automatically in response to external events (first use case: trigger agents on GitHub pull requests).

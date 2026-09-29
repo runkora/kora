@@ -1,8 +1,8 @@
 # Trigger Payload Templating - Product Requirements Document
 
-**Status:** In Review  
+**Status:** Implemented  
 **Created:** 2026-09-28  
-**Last Updated:** 2026-09-28  
+**Last Updated:** 2026-09-29  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Platform Team, trigger authors across engineering teams
 
