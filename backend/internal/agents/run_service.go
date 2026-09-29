@@ -134,11 +134,6 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	return at, nil
 }
 
-// legacyAllowedTools is every scope the removed tool-scope picker offered. Agent
-// pods keep their session-manager image across upgrades, and an older one reads
-// this list to build its Claude Code tool set; newer ones ignore it.
-var legacyAllowedTools = []string{"shell", "filesystem", "agents", "tasks", "mcp"}
-
 // StartRun creates a new run and assigns it to a pod. Tenant and created_by are
 // derived from the verified platform claims in ctx; request-body values are
 // ignored.
@@ -242,11 +237,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	podURL := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
 	smReq := sessionmanager.CreateSessionRequest{
-		RunID:        run.ID,
-		AgentTypeID:  run.AgentTypeID,
-		TenantID:     run.TenantID,
-		Framework:    string(at.Framework),
-		AllowedTools: legacyAllowedTools,
+		RunID:       run.ID,
+		AgentTypeID: run.AgentTypeID,
+		TenantID:    run.TenantID,
+		Framework:   string(at.Framework),
 		// One governed MCP endpoint per server the agent has tool grants on.
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
