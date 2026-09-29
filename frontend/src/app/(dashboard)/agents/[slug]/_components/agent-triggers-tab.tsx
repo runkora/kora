@@ -303,9 +303,9 @@ export function AgentTriggersTab() {
  */
 function TriggerListSkeleton() {
   return (
-    <Card column>
+    <Card column aria-busy="true">
       <CardContent padded>
-        <Stack gap="snug" aria-busy="true" aria-label="Loading triggers">
+        <Stack gap="snug" role="status" aria-label="Loading triggers">
           {Array.from({ length: 3 }).map((_, i) => (
             <Stack key={i} direction="horizontal" align="center" gap="comfortable">
               <Skeleton shape="line" width="quarter" size="sm" />
