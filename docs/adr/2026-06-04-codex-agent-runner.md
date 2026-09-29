@@ -1,6 +1,6 @@
 # Codex Agent Runner
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-09-29)  
 **Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
 **Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred Codex. This ADR documents the subprocess model, wire protocol, transform layer design, and framework dispatch wiring for the Codex runner.
@@ -302,6 +302,24 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 ---
 
+## Amendment 1 (2026-09-29): Codex never asks for approval
+
+**Status:** Accepted
+
+Touches *What can it access?* Codex approvals were never an Orbit enforcement point: model, remote MCP and egress calls are still checked by Orbit's gateways, and the runtime MCP server's calls are bound to the run by its run token. Identity (*Who is this agent?*) and credential brokering (*How does it connect?*) are unchanged.
+
+**Context.** The runner answered only `item/commandExecution/requestApproval` and `item/fileChange/requestApproval`. Codex 0.142.1 also sends `mcpServer/elicitation/request` before an MCP tool call; the runner logged it and never replied, so the turn waited forever and a Codex run could not use MCP tools, including the runtime server's `provision_sandbox`.
+
+**Decision.**
+
+- The per-run `config.toml` sets `approval_policy = "never"` at the top level and `default_tools_approval_mode = "approve"` on every `[mcp_servers.*]` table. Codex then sends no approval or elicitation request for shell commands, file changes or MCP tool calls. A command that asks for escalated permissions is rejected back to the model instead.
+- The `[mcp_servers.runtime]` table sets `env_vars = ["ORBIT_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
+- The `accept` handlers for the two approval requests are removed. Any server request the runner receives gets an immediate JSON-RPC error (`-32601`, method not supported) and a warning log, so an unexpected request after a Codex upgrade fails that call instead of hanging the run.
+
+**Consequences.** The "Approval requests" section above and the negative consequence about auto-approving in the read loop no longer describe the runner.
+
+---
+
 ## Related Decisions
 
 - [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing
@@ -311,4 +329,4 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 ---
 
-**Last Updated:** 2026-06-25 (rev 3 — updated for v2 protocol: `--listen stdio://`, `thread/start` before first turn, `turn/start` with `input` array + `threadId`, `turn/interrupt` RPC, camelCase tool item types, `decision: "accept"` approval response, version pinned at 0.142.1)
+**Last Updated:** 2026-09-29 (Amendment 1: Codex never asks for approval)

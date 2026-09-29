@@ -83,7 +83,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
-- [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted` · 2026-06-04
+- [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted` · 2026-06-04
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
@@ -224,7 +224,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-04 | [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) | Accepted | 0063 |
 | 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted | 0062 |
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
-| 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted | — |
+| 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted (Amended 2026-09-29) | — |
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted | — |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
