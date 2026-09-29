@@ -2,7 +2,7 @@ app:
   version: "0.1.0"
 
 server:
-  port: 8085
+  port: 8097
   basePath: /v1
   shutdownTimeoutSecs: 10
 

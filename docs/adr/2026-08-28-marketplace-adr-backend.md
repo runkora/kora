@@ -205,21 +205,29 @@ Each key holds a JSON-encoded `[]Skill` array. All skills for a repository expir
 
 ### ConfigMap Structure
 
-The `orbit-operator` renders all valid `SkillMarketplaceSource` CRDs into the `orbit-skill-marketplace-sources` ConfigMap as `marketplace-sources.json`:
+The `orbit-operator` renders all valid `SkillMarketplaceSource` CRDs into the `orbit-skill-marketplace-sources` ConfigMap as `marketplace-sources.json`. Sources are grouped by tenant ID; the tenant ID is derived by the operator from the namespace in which each `SkillMarketplaceSource` CRD is installed — it is never a field on the CRD spec itself:
 
 ```json
 {
-  "sources": [
-    { "name": "Clear Route Skills",    "org": "clear-route", "repo": "skills-marketplace", "branch": "main" },
-    { "name": "ClearRoute Core",       "org": "clearroute",  "repo": "core-skills",        "branch": "main" },
-    { "name": "Partner Reference",     "org": "partner",     "repo": "reference-skills",   "branch": "main" }
-  ]
+  "tenants": {
+    "tenant-a": {
+      "sources": [
+        { "name": "Clear Route Skills", "org": "clear-route", "repo": "skills-marketplace", "branch": "main" },
+        { "name": "ClearRoute Core",    "org": "clearroute",  "repo": "core-skills",        "branch": "main" }
+      ]
+    },
+    "tenant-b": {
+      "sources": [
+        { "name": "Partner Reference",  "org": "partner",     "repo": "reference-skills",   "branch": "main" }
+      ]
+    }
+  }
 }
 ```
 
-`name` is the human-readable label — this is the **only** field the FE ever sees. `org`, `repo`, and `branch` are backend-internal: they never appear in any API response, and `skills-service` looks them up from the ConfigMap by `name` when it needs to crawl GitHub or build a Redis key. `name` is unique within the tenant's ConfigMap and is used verbatim (URL-safe-slugified) as the marketplace identifier in URLs.
+`name` is the human-readable label — this is the **only** field the FE ever sees. `org`, `repo`, and `branch` are backend-internal: they never appear in any API response, and `skills-service` looks them up from the ConfigMap by `name` when it needs to crawl GitHub or build a Redis key. `name` is unique within a tenant's source list and is used verbatim (URL-safe-slugified) as the marketplace identifier in URLs.
 
-The ConfigMap is tenant-scoped — either one ConfigMap per tenant, or one ConfigMap per namespace where each namespace is a tenant. `skills-service` reads the ConfigMap belonging to the caller's tenant; the JSON payload itself does not carry a `tenantId` field.
+One shared ConfigMap holds all tenants. Individual source entries carry no `tenantId` field — isolation is structural: sources are already nested under their tenant's key. `skills-service` scopes every registry lookup to the tenant ID resolved from the authenticated caller's identity context, so a request can never reach another tenant's sources even if the URL is manipulated.
 
 `skills-service` mounts `orbit-skill-marketplace-sources` as a read-only file at `ORBIT_MARKETPLACE_SOURCES_CONFIG`, reads `marketplace-sources.json` on startup, and hot-reloads it via `fsnotify`. The backend never imports the CRD type and never calls the Kubernetes API.
 

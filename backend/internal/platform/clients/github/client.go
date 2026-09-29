@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -266,11 +267,11 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 }
 
 // GetTree returns the flat recursive file tree for the given repository ref
-// (branch, tag, or commit SHA). Only the path, type, and SHA of each entry
-// are populated. Returns ErrTreeTruncated when GitHub marks the response
-// truncated (repo too large to enumerate fully).
+ // (branch, tag, or commit SHA). Path and type are populated for each entry.
+ // Returns ErrTreeTruncated when GitHub marks the response truncated
+ // (repo too large to enumerate fully)..
 func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]TreeEntry, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, org, repo, ref)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(ref))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build get-tree request: %w", err)
@@ -301,7 +302,7 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 // GetRawContent fetches the raw byte content of a single file at path in
 // the repository, at the given ref (branch, tag, or commit SHA).
 func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, org, repo, path, ref)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(path), url.QueryEscape(ref))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build get-raw-content request: %w", err)
