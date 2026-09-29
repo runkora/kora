@@ -267,9 +267,9 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 }
 
 // GetTree returns the flat recursive file tree for the given repository ref
- // (branch, tag, or commit SHA). Path and type are populated for each entry.
- // Returns ErrTreeTruncated when GitHub marks the response truncated
- // (repo too large to enumerate fully)..
+// (branch, tag, or commit SHA). Path and type are populated for each entry.
+// Returns ErrTreeTruncated when GitHub marks the response truncated
+// (repo too large to enumerate fully)..
 func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]TreeEntry, error) {
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(ref))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
