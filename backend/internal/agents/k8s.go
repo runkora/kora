@@ -14,6 +14,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -379,6 +380,9 @@ var errSandboxToken = errors.New("sandbox exec token unavailable")
 type Sandbox struct {
 	Endpoint  string `json:"endpoint"`
 	ExecToken string `json:"exec_token"`
+	// CanaryHost is a host the agent may reach, which the session-manager probes
+	// before handing the sandbox over. Empty skips the probe.
+	CanaryHost string `json:"canary_host,omitempty"`
 }
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
@@ -939,6 +943,15 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 	return vols
 }
 
+// workspacesRoot is where the agent pod mounts its workspace PVC; each run's
+// workspace is the directory named for it.
+const workspacesRoot = "/workspaces"
+
+// runWorkspaceDir is the run's workspace path, the same in the agent pod and its sandbox.
+func runWorkspaceDir(runID string) string {
+	return filepath.Join(workspacesRoot, runID)
+}
+
 // sandboxContainer builds the sandbox-exec container. Mirrors sandboxVolumes:
 // when an egress gateway URL can be derived, a read-only mount of the tenant
 // CA root is added so the env vars in sandboxContainerEnv point at a real
@@ -950,9 +963,13 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/clear-route/orbit/issues/134.
 func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, runID, execToken string) corev1.Container {
-	workspaceDir := filepath.Join("/workspaces", runID)
+	workspaceDir := runWorkspaceDir(runID)
+	tmpSubPath, _ := filepath.Rel(workspacesRoot, runfs.TmpDir(workspaceDir))
 	mounts := []corev1.VolumeMount{
 		{Name: "workspaces", MountPath: workspaceDir, SubPath: runID},
+		// The run's TMPDIR at the agent pod's path, and at /tmp for tools that ignore TMPDIR.
+		{Name: "workspaces", MountPath: runfs.TmpDir(workspaceDir), SubPath: tmpSubPath},
+		{Name: "workspaces", MountPath: "/tmp", SubPath: tmpSubPath},
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -999,6 +1016,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		},
 		Env:          sandboxContainerEnv(cfg, kubeClusters, workspaceDir, execToken),
 		VolumeMounts: mounts,
+		WorkingDir:   workspaceDir,
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				TCPSocket: &corev1.TCPSocketAction{
@@ -1513,7 +1531,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
-								{Name: "workspaces", MountPath: "/workspaces"},
+								{Name: "workspaces", MountPath: workspacesRoot},
 							},
 						},
 					},

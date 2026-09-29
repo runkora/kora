@@ -1,6 +1,10 @@
 package agents
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+)
 
 // renderCapabilitiesBrief renders the "Runtime environment" section appended to
 // an agent's system prompt at run start. Built from the resolved EffectiveAccess,
@@ -9,7 +13,7 @@ import "strings"
 // blocked hosts or hunting for credential tokens that are injected on its behalf.
 // Always returns a non-empty block with a leading blank line so it appends
 // cleanly after the agent's own system prompt.
-func renderCapabilitiesBrief(access *EffectiveAccess) string {
+func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) string {
 	var b strings.Builder
 	b.WriteString("\n\n# Runtime environment (Orbit)\n")
 	b.WriteString("You're running in an isolated, governed Orbit sandbox. The platform mediates your network and credentials — these constraints are enforced, so work within them rather than trying to get around them.\n")
@@ -64,6 +68,13 @@ func renderCapabilitiesBrief(access *EffectiveAccess) string {
 		b.WriteString("This agent has no outbound network access. A sandbox is still useful for local builds, tests, and servers — call mcp__runtime__provision_sandbox before running build commands, compiling code, or starting servers. ")
 		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
 	}
+
+	// Bash runs in the sandbox and the file tools on the agent pod; only the shared
+	// volume is visible to both (docs/adr/2026-06-04-per-session-home-isolation.md).
+	b.WriteString("\n## Workspace\n")
+	b.WriteString("Work only in your workspace `" + workspaceDir + "` (also `$WORKSPACE`, your working directory), your home directory `~` (`" + runfs.HomeDir(workspaceDir) + "`), or `$TMPDIR` (`" + runfs.TmpDir(workspaceDir) + "`). Bash and your file tools see the same files there, with or without a sandbox, and they persist for the whole run, including across a sandbox restart.\n")
+	b.WriteString("`/tmp` is not available: file tools cannot read or write it. Clone repositories, write generated files and request bodies into the workspace or `$TMPDIR` instead.\n")
+	b.WriteString("Install packages at user level: `npm install -g`, `pip install`, `go install` and `cargo install` land under `~` and are on your PATH for the rest of the run. System package managers such as `apt` need root and are not available.\n")
 
 	b.WriteString("\n## Working with git repositories\n")
 	b.WriteString("When cloning a repository, **never run `git init` if the clone fails** — a locally initialized repo shares no history with the remote and will produce an unmergeable orphan branch. Instead:\n")

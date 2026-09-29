@@ -89,10 +89,13 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 // which run is asking.
 func TestRunEnv(t *testing.T) {
 	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090}}
+	t.Setenv("PATH", "/usr/bin:/bin")
 
 	got := c.runEnv("run-42", "tok-42")
 	want := []string{
 		"WORKSPACE=/workspaces/run-42",
+		// Replayed in the sandbox, so it reaches Go and user-level installs, after the system dirs.
+		"PATH=/usr/bin:/bin:/usr/local/go/bin:/usr/local/cargo/bin:/workspaces/run-42/.runhome/.local/bin:/workspaces/run-42/.runhome/go/bin:/workspaces/run-42/.runhome/.cargo/bin",
 		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
 		"ORBIT_RUN_ID=run-42",
 		"ORBIT_RUN_TOKEN=tok-42",
@@ -167,6 +170,8 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		`approval_policy = "never"`,
 		// The one-shot shell tool, which is the shape orbit-shell implements.
 		"unified_exec = false",
+		// A login-shell snapshot from this pod would replace the sandbox's PATH.
+		"shell_snapshot = false",
 		"[mcp_servers.runtime]",
 		`command = "orbit-runtime-mcp"`,
 		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,

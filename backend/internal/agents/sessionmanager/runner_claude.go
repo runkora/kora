@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -204,9 +205,8 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("create run home: %w", err)
 	}
 
-	// Per-run tmp directory lives inside the workspace so it is covered by the
-	// same Landlock rule as the rest of the run's files. See docs/adr/2026-06-04-per-session-home-isolation.md.
-	tmpDir := filepath.Join(workDir, ".tmp")
+	// Per-run tmp directory, shared with the sandbox's /tmp. See docs/adr/2026-06-04-per-session-home-isolation.md.
+	tmpDir := runfs.TmpDir(workDir)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return fmt.Errorf("create run tmpdir: %w", err)
 	}

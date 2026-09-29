@@ -50,9 +50,9 @@ WORKDIR /app
 # bash: the REAL /bin/bash — used for shell-snapshot generation and as orbit-shell's
 #       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
-# go:   required so Claude Code can build/run Go programs in agent workspaces.
 # curl: used to download the Codex musl binary below.
-RUN apk add --no-cache ca-certificates bash git go curl
+# Toolchains (Go and the rest) live only in the sandbox image, where commands run.
+RUN apk add --no-cache ca-certificates bash git curl
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.

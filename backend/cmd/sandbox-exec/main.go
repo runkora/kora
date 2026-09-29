@@ -17,6 +17,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -250,20 +251,26 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 	done <- nil
 }
 
-// setRunHome points HOME at {WORKSPACE}/.runhome, so kubeconfig and anything
-// tools write under $HOME lands inside this run's own SubPath-scoped
-// workspace directory rather than the pod's shared default home. A no-op
-// when WORKSPACE is unset (e.g. local/dev invocation outside a sandbox pod).
+// setRunHome points HOME and TMPDIR at the run's directories on the shared
+// volume, at the same paths the agent pod uses, and sends user-level installs and
+// caches under HOME. A no-op when WORKSPACE is unset (local/dev invocation).
 func setRunHome() error {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {
 		return nil
 	}
-	runHome := filepath.Join(workspace, ".runhome")
-	if err := os.MkdirAll(runHome, 0o700); err != nil {
+	home := runfs.HomeDir(workspace)
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		return fmt.Errorf("create run home: %w", err)
 	}
-	return os.Setenv("HOME", runHome)
+	env := append([]string{"HOME=" + home, "TMPDIR=" + runfs.TmpDir(workspace)}, runfs.InstallEnv(home, os.Getenv("PATH"))...)
+	for _, e := range env {
+		key, value, _ := strings.Cut(e, "=")
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("set %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // kubeconfigPath is where the rendered kubeconfig lands. kubectl reads

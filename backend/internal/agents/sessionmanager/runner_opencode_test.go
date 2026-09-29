@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -569,6 +570,51 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 	openaiOptions, _ := openai["options"].(map[string]any)
 	if openaiOptions["baseURL"] != "http://inference-gateway.test/run/test-run" {
 		t.Errorf("openai baseURL = %v, want http://inference-gateway.test/run/test-run", openaiOptions["baseURL"])
+	}
+}
+
+// OpenCode's ACP has no system prompt field, so the agent's prompt, which
+// carries the capabilities brief, reaches it as an instructions file.
+func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prompt string
+	}{
+		{name: "with a prompt", prompt: "# Runtime environment (Orbit)\n## Workspace"},
+		{name: "without one"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestOpenCodeRunner()
+			r.cfg.SystemPrompt = tc.prompt
+			dir := t.TempDir()
+			if err := r.writeOpenCodeConfig(dir); err != nil {
+				t.Fatalf("writeOpenCodeConfig: %v", err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg struct {
+				Instructions []string `json:"instructions"`
+			}
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if tc.prompt == "" {
+				if len(cfg.Instructions) != 0 {
+					t.Errorf("instructions = %v, want none", cfg.Instructions)
+				}
+				return
+			}
+			// Outside the workspace, in the config dir the agent can read but not change.
+			if len(cfg.Instructions) != 1 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
+				t.Fatalf("instructions = %v, want one file in %s", cfg.Instructions, runfs.ConfigDir(dir))
+			}
+			got, err := os.ReadFile(cfg.Instructions[0])
+			if err != nil || string(got) != tc.prompt {
+				t.Errorf("instructions file = %q, %v; want the system prompt", got, err)
+			}
+		})
 	}
 }
 

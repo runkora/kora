@@ -19,11 +19,17 @@ import (
 	"time"
 )
 
+// provisionTimeout sits above the session-manager's worst case for a provision:
+// the orbit-agents call (300s, sessionmanager.NewHTTPNotifier) plus the egress
+// canary (90s, egressCanaryMaxWait). Timing out first reports a sandbox that the
+// session-manager then goes on to hand over.
+const provisionTimeout = 420 * time.Second
+
 func main() {
 	srv := &mcpServer{
 		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
 		runID:             requireEnv("ORBIT_RUN_ID"),
-		httpClient:        &http.Client{Timeout: 120 * time.Second},
+		httpClient:        &http.Client{Timeout: provisionTimeout},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
 		log.Fatalf("orbit-runtime-mcp: %v", err)
