@@ -84,7 +84,7 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
                     as="span"
                     size="micro"
                     color="subtle"
-                    className={isActive ? 'text-accent-foreground/80' : undefined}
+                    className={isActive ? 'text-accent-foreground' : undefined}
                   >
                     {section.sub}
                   </Text>

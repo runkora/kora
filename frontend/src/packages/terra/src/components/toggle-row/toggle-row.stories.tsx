@@ -1,143 +1,132 @@
-import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import { Stack } from '../layout/stack';
+import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Checkbox } from '../checkbox/checkbox';
+import { Stack } from '../layout/stack';
 import { ToggleRow } from './toggle-row';
 
+/**
+ * ToggleRow
+ *
+ * A setting that is on or off. The whole row is the switch. Pass a control instead to pair a label with your own checkbox.
+ */
 const meta: Meta<typeof ToggleRow> = {
   title: 'Terra/Molecules/ToggleRow',
   component: ToggleRow,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof ToggleRow>;
 
-// ── Switch form ──────────────────────────────────────────────────────────────
-
-/**
- * The default form. The whole row is the switch: click anywhere on it, or Tab
- * to it and press Space or Enter.
- */
-export const Default: Story = {
-  render: function Render() {
-    const [enabled, setEnabled] = useState(false);
-    return (
-      <div className="w-[440px]">
-        <ToggleRow
-          checked={enabled}
-          onChange={setEnabled}
-          label="Streaming responses"
-          description="Emit tokens incrementally rather than buffering the full response."
-        />
-      </div>
-    );
-  },
-};
-
-/** On: the track takes the accent colour and the copy comes to full opacity. */
-export const Checked: Story = {
-  render: () => (
-    <div className="w-[440px]">
+function SettingsList() {
+  const [stream, setStream] = useState(true);
+  const [retry, setRetry] = useState(false);
+  const [context, setContext] = useState(true);
+  return (
+    <Stack gap="snug">
       <ToggleRow
-        checked
-        onChange={() => {}}
-        label="Auto-retry on tool failure"
-        description="Retry failed tool calls up to 3 times before surfacing the error."
+        checked={stream}
+        onChange={setStream}
+        label="Streaming responses"
+        description="Send text as it is written instead of all at once."
       />
+      <ToggleRow
+        checked={retry}
+        onChange={setRetry}
+        label="Retry failed tool calls"
+        description="Try up to 3 times before showing the error."
+      />
+      <ToggleRow
+        checked={context}
+        onChange={setContext}
+        label="Keep context between sessions"
+        description="Remember earlier messages and tool results."
+      />
+    </Stack>
+  );
+}
+
+function CheckboxRow() {
+  const [checked, setChecked] = useState(false);
+  return (
+    <ToggleRow
+      htmlFor="overview-terms"
+      label="Keep conversation history"
+      description="Save tool calls between sessions."
+      control={
+        <Checkbox id="overview-terms" checked={checked} onChange={(value) => setChecked(value)} />
+      }
+    />
+  );
+}
+
+function Switch({
+  start,
+  ...rest
+}: {
+  start: boolean;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+}) {
+  const [on, setOn] = useState(start);
+  return <ToggleRow checked={on} onChange={setOn} {...rest} />;
+}
+
+export const Overview: Story = {
+  render: () => (
+    <div className="max-w-lg space-y-8">
+      <Example title="A settings list">
+        <SettingsList />
+      </Example>
+      <Example title="With your own checkbox">
+        <CheckboxRow />
+      </Example>
     </div>
   ),
 };
 
-/** Without a description the row collapses to a single line. */
-export const LabelOnly: Story = {
-  render: function Render() {
-    const [enabled, setEnabled] = useState(true);
-    return (
-      <div className="w-[440px]">
-        <ToggleRow checked={enabled} onChange={setEnabled} label="Auto-retry on failure" />
-      </div>
-    );
-  },
-};
-
-/** `disabled` dims the row and blocks both pointer and keyboard activation. */
-export const Disabled: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="w-[440px]">
-      <ToggleRow
-        checked={false}
-        onChange={() => {}}
-        disabled
-        label="MCP tool access"
-        description="Requires at least one MCP server configured."
-      />
-    </div>
-  ),
-};
-
-/** A settings pane: what is on is legible without reading a single label. */
-export const SettingsGroup: Story = {
-  render: function Render() {
-    const [stream, setStream] = useState(true);
-    const [retry, setRetry] = useState(false);
-    const [ctx, setCtx] = useState(true);
-
-    return (
-      <div className="w-[440px]">
-        <Stack gap="snug">
-          <ToggleRow
-            checked={stream}
-            onChange={setStream}
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="checked: false" use="Off. The text is dimmed.">
+          <Switch
+            start={false}
             label="Streaming responses"
-            description="Emit tokens incrementally rather than buffering the full response."
+            description="Send text as it is written."
           />
-          <ToggleRow
-            checked={retry}
-            onChange={setRetry}
-            label="Auto-retry on tool failure"
-            description="Retry failed tool calls up to 3 times before surfacing the error."
-          />
-          <ToggleRow
-            checked={ctx}
-            onChange={setCtx}
-            label="Persist context across sessions"
-            description="Retain conversation history and tool results between runs."
-          />
-          <ToggleRow
-            checked={false}
-            onChange={() => {}}
+        </Option>
+        <Option
+          name="checked: true"
+          use="On. The switch is coloured and the text is at full strength."
+        >
+          <Switch start label="Streaming responses" description="Send text as it is written." />
+        </Option>
+        <Option name="no description" use="A single line.">
+          <Switch start label="Retry on failure" />
+        </Option>
+        <Option name="disabled" use="Dimmed. It cannot be changed by mouse or keyboard.">
+          <Switch
+            start={false}
             disabled
-            label="Strict tool schema validation"
-            description="Reject tool calls that do not exactly match the declared schema."
+            label="Tool access"
+            description="Needs at least one tool server."
           />
-        </Stack>
-      </div>
-    );
-  },
-};
-
-// ── Composed form ────────────────────────────────────────────────────────────
-
-/**
- * Pass `control` instead of `checked`/`onChange` when the caller owns the
- * control. The row is then a bare label pairing with no container of its own.
- */
-export const WithCheckbox: Story = {
-  render: function Render() {
-    const [checked, setChecked] = useState(false);
-    return (
-      <div className="w-80">
-        <ToggleRow
-          htmlFor="persist-ctx"
-          label="Persist conversation context"
-          description="Retain tool call history between sessions."
-          control={<Checkbox id="persist-ctx" checked={checked} onChange={(v) => setChecked(v)} />}
-        />
-      </div>
-    );
-  },
+        </Option>
+        <Option
+          name="control"
+          use="Shows your own checkbox or radio beside the label, with no card around it. Use inside forms."
+        >
+          <ToggleRow
+            htmlFor="opt-agree"
+            label="I agree to the terms"
+            control={<Checkbox id="opt-agree" />}
+          />
+        </Option>
+      </OptionTable>
+    </div>
+  ),
 };

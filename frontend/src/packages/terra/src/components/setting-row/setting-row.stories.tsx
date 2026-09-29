@@ -1,73 +1,69 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '../layout/stack';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Badge } from '../badge/badge';
+import { Stack } from '../layout/stack';
 import { SettingRow } from './setting-row';
 
+/**
+ * SettingRow
+ *
+ * Shows one setting as a name, an optional note and its current value. It is read-only.
+ */
 const meta: Meta<typeof SettingRow> = {
   title: 'Terra/Molecules/SettingRow',
   component: SettingRow,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof SettingRow>;
 
-/** Label, description, and the configured value. */
-export const Default: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="w-[440px]">
-      <SettingRow
-        label="Default model"
-        description="Used when a run does not pin one."
-        value="claude-sonnet-4-5"
-      />
+    <div className="max-w-lg">
+      <Example title="A settings list">
+        <Stack gap="snug">
+          <SettingRow
+            label="Default model"
+            description="Used when a run does not pick one."
+            value="claude-sonnet-4-5"
+          />
+          <SettingRow
+            label="Max tokens"
+            description="The most tokens one reply can use."
+            value="8192"
+          />
+          <SettingRow label="Timeout" description="Runs stop after this long." value="15m" />
+          <SettingRow label="Region" value="ap-southeast-2" />
+        </Stack>
+      </Example>
     </div>
   ),
 };
 
-/** Without a description the row collapses to a single line. */
-export const LabelOnly: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="w-[440px]">
-      <SettingRow label="Region" value="ap-southeast-2" />
-    </div>
-  ),
-};
-
-/** `value` is a ReactNode, so a Badge or any other element works in the chip. */
-export const NodeValue: Story = {
-  render: () => (
-    <div className="w-[440px]">
-      <SettingRow
-        label="Egress policy"
-        description="Applied to every outbound call the agent makes."
-        value={<Badge variant="healthy">enforced</Badge>}
-      />
-    </div>
-  ),
-};
-
-/** A settings pane: rows stack with a consistent container and aligned chips. */
-export const Stacked: Story = {
-  render: () => (
-    <div className="w-[440px]">
-      <Stack gap="snug">
-        <SettingRow
-          label="Default model"
-          description="Used when a run does not pin one."
-          value="claude-sonnet-4-5"
-        />
-        <SettingRow label="Max tokens" description="Ceiling per completion request." value="8192" />
-        <SettingRow
-          label="Timeout"
-          description="Runs are terminated past this duration."
-          value="15m"
-        />
-        <SettingRow label="Region" value="ap-southeast-2" />
-      </Stack>
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="default" use="A name and its value.">
+          <SettingRow label="Region" value="ap-southeast-2" />
+        </Option>
+        <Option name="description" use="A short note under the name.">
+          <SettingRow
+            label="Default model"
+            description="Used when a run does not pick one."
+            value="claude-sonnet-4-5"
+          />
+        </Option>
+        <Option name="value as an element" use="The value can be a Badge or other element.">
+          <SettingRow
+            label="Egress policy"
+            description="Applies to every outbound call."
+            value={<Badge variant="healthy">enforced</Badge>}
+          />
+        </Option>
+      </OptionTable>
     </div>
   ),
 };

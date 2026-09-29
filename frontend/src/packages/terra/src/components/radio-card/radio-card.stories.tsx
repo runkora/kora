@@ -1,28 +1,32 @@
 import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Grid } from '../layout/grid';
 import { RadioGroup } from '../radio-group/radio-group';
 import { RadioCard } from './radio-card';
 
+/**
+ * RadioCard
+ *
+ * A card for choosing one option out of a few. It must sit inside a RadioGroup.
+ */
 const meta: Meta<typeof RadioCard> = {
   title: 'Terra/Molecules/RadioCard',
   component: RadioCard,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof RadioCard>;
 
 const FRAMEWORKS = [
-  { id: 'claude-code', name: 'Claude Code', desc: "Anthropic's agentic coding harness." },
-  { id: 'codex', name: 'Codex', desc: "OpenAI's coding agent runtime." },
-  { id: 'opencode', name: 'Open Code', desc: 'Open-source, model-agnostic agent.' },
+  { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic coding agent.' },
+  { id: 'codex', name: 'Codex', desc: 'OpenAI coding agent.' },
+  { id: 'opencode', name: 'Open Code', desc: 'Open source, works with any model.' },
 ];
 
-function FrameworkPickerDemo() {
+function FrameworkPicker() {
   const [value, setValue] = React.useState('claude-code');
   return (
     <RadioGroup value={value} onValueChange={setValue} aria-label="Framework">
@@ -43,69 +47,83 @@ function FrameworkPickerDemo() {
   );
 }
 
-/** Three option cards in a 3-column grid inside a RadioGroup — the framework picker anatomy. */
-export const FrameworkPicker: Story = {
-  render: () => <FrameworkPickerDemo />,
-};
-
-function WithoutIconsDemo() {
-  const [value, setValue] = React.useState('standard');
+/** One card in its own group, so each row in the option table can be tried on its own. */
+function Single({
+  name,
+  start,
+  ...card
+}: {
+  name: string;
+  start: boolean;
+  title: string;
+  description?: string;
+  icon?: React.ComponentProps<typeof RadioCard>['icon'];
+  disabled?: boolean;
+}) {
+  const [value, setValue] = React.useState(start ? 'a' : '');
   return (
-    <RadioGroup value={value} onValueChange={setValue} aria-label="Egress mode">
-      <Grid cols={2} gap="cozy">
-        <RadioCard
-          value="standard"
-          selected={value === 'standard'}
-          onSelect={setValue}
-          title="Standard egress"
-          description="Only the declared connector hosts are reachable."
-        />
-        <RadioCard
-          value="open"
-          selected={value === 'open'}
-          onSelect={setValue}
-          title="Open egress"
-          description="All outbound hosts allowed. Requires approval."
-        />
-      </Grid>
-    </RadioGroup>
+    <div className="max-w-xs">
+      <RadioGroup value={value} onValueChange={setValue} aria-label={name}>
+        <RadioCard value="a" selected={value === 'a'} onSelect={setValue} {...card} />
+      </RadioGroup>
+    </div>
   );
 }
 
-/** Icon-less variant — the radio control alone anchors the top row. */
-export const WithoutIcons: Story = {
-  render: () => <WithoutIconsDemo />,
+export const Overview: Story = {
+  render: () => (
+    <div className="max-w-3xl">
+      <Example title="Pick a framework">
+        <FrameworkPicker />
+      </Example>
+    </div>
+  ),
 };
 
-function DisabledOptionDemo() {
-  const [value, setValue] = React.useState('delegated');
-  return (
-    <RadioGroup value={value} onValueChange={setValue} aria-label="Identity model">
-      <Grid cols={2} gap="cozy">
-        <RadioCard
-          value="delegated"
-          selected={value === 'delegated'}
-          onSelect={setValue}
-          icon="user-check"
-          title="Delegated"
-          description="Acts on behalf of the person who runs it. A much longer description to show that both cards keep the same structural height."
-        />
-        <RadioCard
-          value="autonomous"
-          selected={value === 'autonomous'}
-          onSelect={setValue}
-          icon="bot"
-          title="Autonomous"
-          description="Short description."
-          disabled
-        />
-      </Grid>
-    </RadioGroup>
-  );
-}
-
-/** A disabled option dims, ignores clicks, and keeps equal height with its
- * siblings regardless of description length. */
-export const DisabledOption: Story = {
-  render: () => <DisabledOptionDemo />,
+export const Options: Story = {
+  render: () => (
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="selected: false" use="Not chosen.">
+          <Single
+            name="Not selected"
+            start={false}
+            icon="bot"
+            title="Autonomous"
+            description="Runs on its own."
+          />
+        </Option>
+        <Option name="selected: true" use="Chosen. The card is tinted and the icon is coloured.">
+          <Single
+            name="Selected"
+            start
+            icon="user-check"
+            title="Delegated"
+            description="Acts for the person who runs it."
+          />
+        </Option>
+        <Option name="icon" use="A small icon at the top left. Leave it out for a plainer card.">
+          <Single
+            name="No icon"
+            start={false}
+            title="Standard egress"
+            description="Only listed hosts are reachable."
+          />
+        </Option>
+        <Option name="description" use="One line of help under the title.">
+          <Single name="Title only" start={false} icon="bot" title="Autonomous" />
+        </Option>
+        <Option name="disabled" use="Dimmed. It cannot be chosen.">
+          <Single
+            name="Disabled"
+            start={false}
+            disabled
+            icon="bot"
+            title="Autonomous"
+            description="Not available on this plan."
+          />
+        </Option>
+      </OptionTable>
+    </div>
+  ),
 };

@@ -1,15 +1,22 @@
 import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Icon } from '../icon';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
+import { Icon } from '../icon/icon';
+import { Text } from '../typography/typography';
 import { SegmentedControl } from './segmented-control';
+import type { SegmentedControlOption } from './segmented-control';
 
+/**
+ * SegmentedControl
+ *
+ * A row of filters that split one list, where only one is chosen at a time.
+ * The chosen option is filled with the accent colour.
+ */
 const meta: Meta<typeof SegmentedControl> = {
   title: 'Terra/Molecules/SegmentedControl',
   component: SegmentedControl,
-  parameters: {
-    layout: 'centered',
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
@@ -20,7 +27,7 @@ function Controlled({
   initial,
   label,
 }: {
-  options: React.ComponentProps<typeof SegmentedControl>['options'];
+  options: SegmentedControlOption[];
   initial: string;
   label: string;
 }) {
@@ -30,70 +37,79 @@ function Controlled({
   );
 }
 
-/** Filters partitioning one list, with the counts that make the split legible. */
-export const Default: Story = {
+const RUN_FILTERS: SegmentedControlOption[] = [
+  { value: 'all', label: 'All', icon: <Icon name="layers" size="2xs" />, count: 40 },
+  { value: 'webhook', label: 'Webhook', icon: <Icon name="webhook" size="2xs" />, count: 27 },
+  { value: 'scheduled', label: 'Scheduled', icon: <Icon name="clock" size="2xs" />, count: 11 },
+  { value: 'manual', label: 'Manual', icon: <Icon name="play" size="2xs" />, count: 2 },
+];
+
+export const Overview: Story = {
   render: () => (
-    <Controlled
-      label="Filter by kind"
-      initial="all"
-      options={[
-        { value: 'all', label: 'All', icon: <Icon name="layers" size="2xs" />, count: 40 },
-        { value: 'webhook', label: 'Webhook', icon: <Icon name="webhook" size="2xs" />, count: 27 },
-        {
-          value: 'scheduled',
-          label: 'Scheduled',
-          icon: <Icon name="clock" size="2xs" />,
-          count: 11,
-        },
-        { value: 'manual', label: 'Manual', icon: <Icon name="play" size="2xs" />, count: 2 },
-      ]}
-    />
+    <div className="max-w-xl space-y-8">
+      <Example title="Run filter with counts">
+        <Controlled label="Filter runs by trigger" initial="webhook" options={RUN_FILTERS} />
+        <Text size="supporting" color="muted">
+          The numbers show how many runs each filter would list.
+        </Text>
+      </Example>
+    </div>
   ),
 };
 
-/** Counts are optional. Without them the control is a plain filter switch. */
-export const WithoutCounts: Story = {
+export const Options: Story = {
   render: () => (
-    <Controlled
-      label="Filter by status"
-      initial="active"
-      options={[
-        { value: 'active', label: 'Active' },
-        { value: 'paused', label: 'Paused' },
-        { value: 'archived', label: 'Archived' },
-      ]}
-    />
-  ),
-};
-
-/** Icons alone, for a control narrow enough that the labels would crowd it. */
-export const IconsOnly: Story = {
-  render: () => (
-    <Controlled
-      label="Density"
-      initial="list"
-      options={[
-        { value: 'list', label: '', icon: <Icon name="layout-list" size="2xs" /> },
-        { value: 'grid', label: '', icon: <Icon name="layout-grid" size="2xs" /> },
-      ]}
-    />
-  ),
-};
-
-/**
- * Two options: the smallest useful form. Below this, use a single toggle
- * button; above about six, the track stops being scannable and a select or
- * `Tabs` is the better surface.
- */
-export const TwoOptions: Story = {
-  render: () => (
-    <Controlled
-      label="Schedule mode"
-      initial="simple"
-      options={[
-        { value: 'simple', label: 'Simple' },
-        { value: 'cron', label: 'Cron expression' },
-      ]}
-    />
+    <div className="max-w-5xl">
+      <OptionTable
+        title="Options"
+        note="Every sample is live. The chosen option keeps the same width as the others."
+      >
+        <Option name="label only" use="The plainest form: text options.">
+          <Controlled
+            label="Filter by status"
+            initial="active"
+            options={[
+              { value: 'active', label: 'Active' },
+              { value: 'paused', label: 'Paused' },
+              { value: 'archived', label: 'Archived' },
+            ]}
+          />
+        </Option>
+        <Option name="count" use="Show how many items each option would list.">
+          <Controlled
+            label="Filter by outcome"
+            initial="failed"
+            options={[
+              { value: 'all', label: 'All', count: 120 },
+              { value: 'failed', label: 'Failed', count: 8 },
+              { value: 'passed', label: 'Passed', count: 112 },
+            ]}
+          />
+        </Option>
+        <Option name="icon" use="Put a small icon before the label.">
+          <Controlled
+            label="Filter by source"
+            initial="webhook"
+            options={[
+              { value: 'webhook', label: 'Webhook', icon: <Icon name="webhook" size="2xs" /> },
+              { value: 'scheduled', label: 'Scheduled', icon: <Icon name="clock" size="2xs" /> },
+            ]}
+          />
+        </Option>
+        <Option
+          name="two options"
+          use="The smallest useful set. For one choice, use a toggle button."
+        >
+          <Controlled
+            label="Schedule mode"
+            initial="simple"
+            options={[
+              { value: 'simple', label: 'Simple' },
+              { value: 'cron', label: 'Cron expression' },
+            ]}
+          />
+        </Option>
+      </OptionTable>
+    </div>
   ),
 };
