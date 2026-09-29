@@ -503,9 +503,6 @@ func (c *Controller) handleResponsesStream(
 	ctx := r.Context()
 
 	events, err := c.svc.ResponsesStream(ctx, params)
-	if err == nil {
-		events, err = awaitStreamStart(ctx, events, func(res ResponsesStreamResult) error { return res.Err })
-	}
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return

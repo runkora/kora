@@ -1,18 +1,9 @@
 package inferencegw
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
-
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ── connectorClientErrorResponse ──────────────────────────────────────────────
@@ -140,84 +131,5 @@ func TestInferenceErrorResponse_ConnectorClientErrorTakesPriority(t *testing.T) 
 	resp := inferenceErrorResponse(err)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("StatusCode = %d, want %d (MODEL_NOT_SUPPORTED should win over the generic 503)", resp.StatusCode, http.StatusBadRequest)
-	}
-}
-
-// ── provider auth failures: non-retryable in every dialect ────────────────────
-
-// A provider rejecting Orbit's credentials is final: 403 in every dialect, with
-// the Anthropic permission_error type, and none of the provider's text. Transient
-// failures stay 503 so callers keep retrying them.
-func TestInferenceErrorResponse_ProviderFailurePerDialect(t *testing.T) {
-	t.Parallel()
-	const providerText = "The security token included in the request is invalid."
-	tests := []struct {
-		name          string
-		connErr       *ConnectorError
-		wantStatus    int
-		wantCode      string
-		wantAnthropic string
-	}{
-		{"bedrock 403", &ConnectorError{Provider: ProviderName("bedrock:us"), Code: "AUTH_FAILED", HTTPStatus: 403, ProviderMessage: providerText},
-			http.StatusForbidden, "provider_auth_failed", "permission_error"},
-		{"vertexai 401", &ConnectorError{Provider: ProviderVertexAI, Code: "AUTH_FAILED", HTTPStatus: 401, ProviderMessage: providerText},
-			http.StatusForbidden, "provider_auth_failed", "permission_error"},
-		{"azure 401", &ConnectorError{Provider: ProviderAzure, Code: "AUTH_FAILED", HTTPStatus: 401, ProviderMessage: providerText},
-			http.StatusForbidden, "provider_auth_failed", "permission_error"},
-		{"bedrock throttled", &ConnectorError{Provider: ProviderBedrock, Code: "THROTTLED", HTTPStatus: 429, Retryable: true},
-			http.StatusServiceUnavailable, "provider_error", "api_error"},
-		{"azure unavailable", &ConnectorError{Provider: ProviderAzure, Code: "PROVIDER_UNAVAILABLE", HTTPStatus: 503, Retryable: true},
-			http.StatusServiceUnavailable, "provider_error", "api_error"},
-	}
-	c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			err := fmt.Errorf("%w: %w", ErrProviderError, tc.connErr)
-			apiErr := inferenceErrorResponse(err)
-
-			// OpenAI dialect (chat completions, responses, embeddings).
-			rec := httptest.NewRecorder()
-			api.ErrorResponse(context.Background(), rec, c.logger, apiErr, err)
-			var openaiBody struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			}
-			if decodeErr := json.NewDecoder(rec.Body).Decode(&openaiBody); decodeErr != nil {
-				t.Fatalf("decode openai body: %v", decodeErr)
-			}
-			if rec.Code != tc.wantStatus || openaiBody.Code != tc.wantCode {
-				t.Errorf("openai dialect: status=%d code=%q, want %d %q", rec.Code, openaiBody.Code, tc.wantStatus, tc.wantCode)
-			}
-
-			// Anthropic dialect (messages).
-			rec = httptest.NewRecorder()
-			c.writeAnthropicError(context.Background(), rec, apiErr, err)
-			var anthropicBody struct {
-				Type  string `json:"type"`
-				Error struct {
-					Type    string `json:"type"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if decodeErr := json.NewDecoder(rec.Body).Decode(&anthropicBody); decodeErr != nil {
-				t.Fatalf("decode anthropic body: %v", decodeErr)
-			}
-			if rec.Code != tc.wantStatus || anthropicBody.Error.Type != tc.wantAnthropic {
-				t.Errorf("anthropic dialect: status=%d type=%q, want %d %q", rec.Code, anthropicBody.Error.Type, tc.wantStatus, tc.wantAnthropic)
-			}
-
-			if tc.connErr.Code == "AUTH_FAILED" {
-				for _, msg := range []string{openaiBody.Message, anthropicBody.Error.Message} {
-					if strings.Contains(msg, providerText) {
-						t.Errorf("body leaks the provider's auth error text: %q", msg)
-					}
-					family, alias, _ := strings.Cut(string(tc.connErr.Provider), ":")
-					if !strings.Contains(msg, "the "+family+" provider") || (alias != "" && strings.Contains(msg, alias+" provider")) {
-						t.Errorf("body should name the provider family %q and no account alias: %q", family, msg)
-					}
-				}
-			}
-		})
 	}
 }

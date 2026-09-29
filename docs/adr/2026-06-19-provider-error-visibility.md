@@ -173,21 +173,3 @@ All changes are confined to:
 - `frontend/src/app/(dashboard)/model-gateway/_components/logs-tab.tsx` — status cell + search
 
 No database schema changes, no new endpoints, no migration required.
-
----
-
-## Amendment 1 (2026-09-29): Provider authentication failures are final
-
-**Status:** Proposed
-
-Touches *How does it connect?* The gateway holds the provider credentials; a caller cannot fix them and must not retry against them.
-
-**Context.** A provider rejecting the gateway's credentials (Bedrock 403 "security token included in the request is invalid", or an Anthropic or Azure 401) was returned as `503 provider_error`. Agent runtimes retry 503 with backoff, so a run with broken provider credentials retried for minutes with no visible reason. The streaming handlers also committed `200` before the first upstream event, so a failure at stream start reached the caller as an in-stream error event rather than a status code.
-
-**Decision.**
-
-- A `ConnectorError` with code `AUTH_FAILED` maps to `403 provider_auth_failed` in every dialect, with Anthropic error type `permission_error`. The message names the provider family (never a Bedrock account alias) and says an administrator must fix its credentials. The provider's own message stays out of the response body; it remains in the `provider error` log line and in the usage record's failure details, which `GET /usage` shows to the calling principal as before. 403 rather than 401: Claude Code treats 401 as its own key being invalid and retries it, and does not retry 403. Measured with Claude Code 2.1.283 (`claude -p`, `CLAUDE_CODE_MAX_RETRIES=3`) against a fake gateway returning each status with the Anthropic error body: 403 `permission_error` produced one request and exited in 3 seconds with `API Error: 403 <message>`; 401 `authentication_error` and 503 `api_error` each produced four requests (the first plus three retries).
-- The streaming handlers wait up to 5 seconds for the first upstream event, as the non-streaming handler already does. A failure in that window is returned with its status code; a stream that has not started by then commits `200` as before.
-- Throttling, 5xx, and other retryable provider failures keep `503 provider_error`, so callers keep retrying them.
-
-**Consequences.** An agent run with broken provider credentials fails on its first model call with a named cause. Alt 1 above is adopted for `AUTH_FAILED` only; the other codes keep 503.
