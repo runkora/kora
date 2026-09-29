@@ -989,8 +989,16 @@ export function deriveActivity(
       .filter((tool) => !tool.parentId)
       .at(-1);
   }
-  if (current) return { kind: 'tool', tool: current, since: current.receivedAt ?? lastActivityAt };
+  if (current) return { kind: 'tool', tool: current, since: callStart(current) ?? lastActivityAt };
   return { kind: 'thinking', since: lastActivityAt };
+}
+
+/**
+ * When a running call started, by the server's clock, so a reload does not
+ * restart its count; the browser's arrival time when the server gave none.
+ */
+export function callStart(tool: ToolCall): number | undefined {
+  return tool.startedAt ?? tool.receivedAt;
 }
 
 /** A canvas view for a call's full result: terminal output, a diff, or text. */

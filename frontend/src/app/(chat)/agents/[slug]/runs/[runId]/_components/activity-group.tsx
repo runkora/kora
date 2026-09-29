@@ -27,6 +27,7 @@ import {
   type ToolKind,
 } from '../_lib/tool-activity';
 import { useNow } from '../_hooks/use-now';
+import { callStart } from '../_hooks/use-run';
 import { ToolResultView } from './tool-result-view';
 
 const KIND_ICONS: Record<ToolKind, IconName> = {
@@ -47,7 +48,7 @@ function Elapsed({ tool }: { tool: ToolCall }) {
   const now = useNow(tool.status === 'running');
   const ms =
     tool.status === 'running'
-      ? Math.max((tool.progressSeconds ?? 0) * 1000, now - (tool.receivedAt ?? now))
+      ? Math.max((tool.progressSeconds ?? 0) * 1000, now - (callStart(tool) ?? now))
       : callDuration(tool);
   if (ms === null) return null;
   return (
@@ -198,7 +199,7 @@ export const ToolCallRow = memo(function ToolCallRow({
 /** A platform call shown as a status line rather than a tool call. */
 function SandboxLine({ tool }: { tool: ToolCall }) {
   const now = useNow(tool.status === 'running');
-  const ms = tool.status === 'running' ? now - (tool.receivedAt ?? now) : callDuration(tool);
+  const ms = tool.status === 'running' ? now - (callStart(tool) ?? now) : callDuration(tool);
   const text =
     tool.status === 'running'
       ? 'Starting sandbox…'

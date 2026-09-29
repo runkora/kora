@@ -21,40 +21,61 @@ const RETRY_REASONS: Record<string, string> = {
   server_error: 'server error',
 };
 
-export function statusText(activity: LiveActivity, now: number): string | null {
+/**
+ * The status as what is happening and, apart, how long it has taken. Only the
+ * first is announced to screen readers; the second changes every second.
+ */
+export function statusParts(
+  activity: LiveActivity,
+  now: number,
+): { label: string; elapsed: string } | null {
   switch (activity.kind) {
     case 'retry': {
       const reason = RETRY_REASONS[activity.error];
-      return `Model provider error${reason ? ` (${reason})` : ''}, retrying (${activity.attempt}/${activity.maxRetries})`;
+      return {
+        label: `Model provider error${reason ? ` (${reason})` : ''}, retrying (${activity.attempt}/${activity.maxRetries})`,
+        elapsed: '',
+      };
     }
     case 'sandbox':
-      return `Starting sandbox… ${formatDuration(Math.max(0, now - activity.since))}`;
+      return {
+        label: 'Starting sandbox…',
+        elapsed: formatDuration(Math.max(0, now - activity.since)),
+      };
     case 'tool': {
       const d = describeTool(activity.tool.name, activity.tool.input);
       // The runtime's own count wins after a reload; between reports the clock ticks on.
-      const elapsed = Math.max((activity.tool.progressSeconds ?? 0) * 1000, now - activity.since);
-      return `${d.label}${d.target ? ` ${d.target}` : ''} · ${formatDuration(Math.max(0, elapsed))}`;
+      const ms = Math.max((activity.tool.progressSeconds ?? 0) * 1000, now - activity.since);
+      return {
+        label: `${d.label}${d.target ? ` ${d.target}` : ''} ·`,
+        elapsed: formatDuration(Math.max(0, ms)),
+      };
     }
     case 'thinking': {
-      const elapsed = Math.max(0, now - activity.since);
-      return elapsed < THINKING_AFTER_MS ? null : `Thinking… ${formatDuration(elapsed)}`;
+      const ms = Math.max(0, now - activity.since);
+      return ms < THINKING_AFTER_MS ? null : { label: 'Thinking…', elapsed: formatDuration(ms) };
     }
   }
 }
 
+export function statusText(activity: LiveActivity, now: number): string | null {
+  const parts = statusParts(activity, now);
+  if (!parts) return null;
+  return parts.elapsed ? `${parts.label} ${parts.elapsed}` : parts.label;
+}
+
 export function StatusLine({ activity }: { activity: LiveActivity }) {
   const now = useNow(true);
-  const text = statusText(activity, now);
+  const parts = statusParts(activity, now);
   return (
     <Stack
       direction="horizontal"
       align="center"
-      role="status"
       data-status-line=""
       style={{ gap: 10, padding: '12px 20px' }}
     >
       <OrbitalLoader size="sm" />
-      {text && (
+      {parts && (
         <Text
           as="span"
           style={{
@@ -68,7 +89,15 @@ export function StatusLine({ activity }: { activity: LiveActivity }) {
             minWidth: 0,
           }}
         >
-          {text}
+          <Text as="span" role="status">
+            {parts.label}
+          </Text>
+          {parts.elapsed && (
+            <Text as="span" aria-hidden>
+              {' '}
+              {parts.elapsed}
+            </Text>
+          )}
         </Text>
       )}
     </Stack>

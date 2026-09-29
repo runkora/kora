@@ -36,11 +36,14 @@ export function parseDiff(text: string): DiffLine[] | null {
 }
 
 /** An Edit call's change as diff lines. */
-function editDiff(input: Record<string, unknown>): DiffLine[] | null {
-  if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string') return null;
+/** An edit's change as diff lines; Claude Code spells the fields old_string, OpenCode oldString. */
+export function editDiff(input: Record<string, unknown>): DiffLine[] | null {
+  const before = input.old_string ?? input.oldString;
+  const after = input.new_string ?? input.newString;
+  if (typeof before !== 'string' || typeof after !== 'string') return null;
   return [
-    ...input.old_string.split('\n').map((text) => ({ kind: 'del' as const, text: `-${text}` })),
-    ...input.new_string.split('\n').map((text) => ({ kind: 'add' as const, text: `+${text}` })),
+    ...before.split('\n').map((text) => ({ kind: 'del' as const, text: `-${text}` })),
+    ...after.split('\n').map((text) => ({ kind: 'add' as const, text: `+${text}` })),
   ];
 }
 

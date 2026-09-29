@@ -441,6 +441,13 @@ describe('useRun — activity, delivery and stops', () => {
     ).toEqual(['a1', 'c1']);
   });
 
+  it('counts a replayed running call from its server start, not the reload', async () => {
+    const { result, emit } = await start();
+    emit('tool_use', { id: 't1', name: 'bash', input: { command: 'make' } });
+    const activity = result.current.liveActivity;
+    expect(activity).toMatchObject({ kind: 'tool', since: Date.parse(at) });
+  });
+
   it('attaches a subagent call to its Agent call and records durations from server time', async () => {
     const { result, emit } = await start();
     emit('tool_use', { id: 'a1', name: 'Agent', input: {} });

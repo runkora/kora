@@ -76,12 +76,19 @@ describe('StatusLine', () => {
   it('counts up while the phase lasts', () => {
     vi.useFakeTimers();
     try {
-      render(<StatusLine activity={{ kind: 'sandbox', since: Date.now() - 3000 }} />);
-      expect(screen.getByText('Starting sandbox… 3s')).toBeInTheDocument();
+      const { container } = render(
+        <StatusLine activity={{ kind: 'sandbox', since: Date.now() - 3000 }} />,
+      );
+      const line = () => container.querySelector('[data-status-line]')?.textContent;
+      expect(line()).toBe('Starting sandbox… 3s');
       act(() => {
         vi.advanceTimersByTime(5000);
       });
-      expect(screen.getByText('Starting sandbox… 8s')).toBeInTheDocument();
+      expect(line()).toBe('Starting sandbox… 8s');
+      // Only the phase is announced; the ticking count is hidden from screen readers.
+      const announced = screen.getAllByRole('status').map((el) => el.textContent);
+      expect(announced).toContain('Starting sandbox…');
+      expect(announced.some((t) => t?.includes('8s'))).toBe(false);
     } finally {
       vi.useRealTimers();
     }
