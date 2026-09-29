@@ -134,7 +134,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			effective_input_cost_per_1m, effective_output_cost_per_1m,
 			effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
 			status, retry_count, error_code, failure_details, latency_ms, created_at,
-			run_id, principal_roles, delegator_id, delegator_principal_type
+			run_id, principal_roles, delegator_id, delegator_principal_type, agent_slug
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
@@ -144,7 +144,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			$18,
 			$19, $20, $21, $22,
 			$23, $24, $25, $26, $27, $28,
-			$29, $30, $31, $32
+			$29, $30, $31, $32, $33
 		)`
 
 	var provider *string
@@ -179,6 +179,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		rec.EffectiveCacheReadCostPer1M, rec.EffectiveCacheWriteCostPer1M,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
 		storage.NullIfZero(rec.RunID), rec.PrincipalRoles, rec.DelegatorID, rec.DelegatorPrincipalType,
+		storage.NullIfZero(rec.AgentSlug),
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -831,10 +832,8 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 	return spend, tokens, nil
 }
 
-// GetAgentTypeUsage returns aggregated token breakdown and spend for an agent
-// over the last 7 days, tenant-scoped. Agent principals are the attested
-// SPIFFE ID spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}, so rows
-// match on the /agent/{slug} suffix without rebuilding install-specific parts.
+// GetAgentTypeUsage returns aggregated token breakdown and spend for the agent
+// with the given slug over the last 7 days, tenant-scoped.
 func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error) {
 	const q = `
 		SELECT
@@ -846,12 +845,11 @@ func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context
 		    COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND principal_type = 'AGENT'
-		  AND right(principal_id, length($2)) = $2
+		  AND agent_slug = $2
 		  AND created_at >= NOW() - INTERVAL '7 days'`
 
 	u := AgentTypeUsage{AgentSlug: slug}
-	if err := r.pool.QueryRow(ctx, q, tenantID, "/agent/"+slug).Scan(
+	if err := r.pool.QueryRow(ctx, q, tenantID, slug).Scan(
 		&u.PromptTokens,
 		&u.CompletionTokens,
 		&u.CacheReadTokens,
@@ -864,29 +862,25 @@ func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context
 	return u, nil
 }
 
-// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
-// for the tenant over the last 7 days, keyed by the slug in the agent's SPIFFE
-// principal. Agents with no usage in the window are absent from the result.
+// ListAgentTypeUsage returns aggregated token breakdown and spend per agent slug
+// for the tenant over the last 7 days. Agents with no usage in the window are
+// absent from the result.
 func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
 	const q = `
 		SELECT
-		    slug,
+		    agent_slug,
 		    COALESCE(SUM(prompt_tokens), 0),
 		    COALESCE(SUM(completion_tokens), 0),
 		    COALESCE(SUM(cache_read_input_tokens), 0),
 		    COALESCE(SUM(cache_creation_input_tokens), 0),
 		    COALESCE(SUM(total_tokens), 0),
 		    COALESCE(SUM(estimated_cost_usd), 0)
-		FROM (
-		    SELECT *, substring(principal_id FROM '/agent/([^/]+)$') AS slug
-		    FROM inference_usage
-		    WHERE tenant_id = $1
-		      AND principal_type = 'AGENT'
-		      AND created_at >= NOW() - INTERVAL '7 days'
-		) agent_usage
-		WHERE slug IS NOT NULL
-		GROUP BY slug
-		ORDER BY slug`
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND agent_slug IS NOT NULL
+		  AND created_at >= NOW() - INTERVAL '7 days'
+		GROUP BY agent_slug
+		ORDER BY agent_slug`
 
 	rows, err := r.pool.Query(ctx, q, tenantID)
 	if err != nil {

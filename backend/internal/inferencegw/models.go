@@ -157,6 +157,9 @@ type InferenceUsageRecord struct {
 	CreatedAt                    time.Time        `json:"created_at"`
 	// RunID is the agent run this request belonged to ("" for non-run traffic).
 	RunID string `json:"run_id,omitempty"`
+	// AgentSlug is the agent segment of an AGENT principal's SPIFFE path ("" for
+	// other principals); per-agent usage aggregates key on it.
+	AgentSlug string `json:"agent_slug,omitempty"`
 	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
 	// the durable record behind role-pool counter rehydration.
 	PrincipalRoles []string `json:"principal_roles,omitempty"`

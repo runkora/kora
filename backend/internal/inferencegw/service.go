@@ -724,6 +724,7 @@ const spanStatusBudgetExceeded = "budget exceeded"
 // slated for removal in a follow-up migration.
 func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
 	rec.RunID = runIDFromContext(ctx)
+	rec.AgentSlug = agentSlugFromPrincipal(rec.PrincipalType, rec.PrincipalID)
 	// Stamp the delegator from the VERIFIED delegation context — set by the
 	// DelegationMiddleware after signature/blocklist checks, never from
 	// anything the caller asserts. Spend then rolls up to the person as well

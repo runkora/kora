@@ -1,7 +1,7 @@
 # Agent Token Breakdown and Spend Card
 
 **Date:** 2026-06-23  
-**Status:** Accepted; Amendment 1 Proposed  
+**Status:** Accepted (Amended 2026-09-29)  
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
@@ -183,9 +183,9 @@ Data is fetched on component mount via a `useEffect`/`useState` inside `AgentOve
 
 ---
 
-## Amendment 1 (2026-09-29): Aggregates key on the agent slug in the attested SPIFFE path
+## Amendment 1 (2026-09-29): Aggregates key on an agent slug stored at write time
 
-Touches **Who is this agent?**: the aggregates now read the agent identity exactly as SPIRE attests it. Access is unchanged: both endpoints keep the `agents:types:read` route scope and the tenant filter from the verified token.
+Touches **Who is this agent?**: the aggregates key on the agent identity SPIRE attests, recorded once when usage is written. Access is unchanged: both endpoints keep the `agents:types:read` route scope and the tenant filter from the verified token.
 
 ### Context
 
@@ -196,22 +196,27 @@ The run list's `tokens_used` field has no source: orbit-agents never had such a 
 ### Options
 
 - **A. Rebuild the full principal in the gateway** from a configured trust domain and the `orbit-tenant-` namespace convention. Exact match on the existing index, but duplicates two facts the gateway does not own and breaks silently if either changes.
-- **B. Key by slug, matching the `/agent/{slug}` suffix of agent principals within the tenant.** The trust domain and namespace are not reconstructed. Within one tenant, a slug is unique (`agent_types (tenant_id, slug)`) and is the identity SPIRE attests.
-- **C. Attribute by run**: ask orbit-agents for the agent's run IDs and sum `inference_usage` by `run_id`. Correct, but adds a cross-service call and an unbounded `IN` list.
+- **B. Store the slug at write time.** The gateway records usage with the verified principal, so it takes the agent segment of the SPIFFE path once and stores it in a new `inference_usage.agent_slug` column. Aggregates filter on that column through an index. Within one tenant, a slug is unique (`agent_types (tenant_id, slug)`) and is the identity SPIRE attests.
+- **C. Match the `/agent/{slug}` suffix of `principal_id` at query time.** No schema change, but the suffix comparison cannot use an index, and every read parses identity downstream of where it was verified.
+- **D. Attribute by run**: ask orbit-agents for the agent's run IDs and sum `inference_usage` by `run_id`. Correct, but adds a cross-service call and an unbounded `IN` list.
 
 ### Decision
 
 Option B.
 
-- `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant, `principal_type = 'AGENT'`, and the last `len('/agent/{slug}')` characters of `principal_id` equal `/agent/{slug}`. The comparison is exact, so no input character acts as a wildcard, and `probe` never counts `token-probe` rows. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
-- `GET /v1/usage/agent-types` groups the same rows by the slug taken from the last `/agent/{slug}` path segment.
+- `inference_usage` gains a nullable `agent_slug` column and the index `idx_inference_usage_agent_slug (tenant_id, agent_slug, created_at DESC) WHERE agent_slug IS NOT NULL`. The migration is additive.
+- When the gateway writes a usage row for an `AGENT` principal whose ID has the form `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}[/sandbox/{run-id}]`, it stores `{slug}`. Every other principal stores NULL.
+- The same migration backfills existing `AGENT` rows from the exact `/agent/{slug}` path segment. SERVICE, HUMAN and PAT rows stay NULL.
+- `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
+- `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
 - Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug.
 - The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
 
 ### Consequences
 
-- The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace.
+- The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace, and both queries are served by the new index.
+- Identity is parsed once, at write time, from the verified principal; reads never interpret `principal_id`.
 - Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
-- The suffix match cannot use the `principal_id` index; the query scans the tenant's rows for the last 7 days through `(tenant_id, created_at)`.
 - Delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
+- Rows written by a gateway binary older than the migration carry no slug until they are backfilled; the migration backfills everything present when it runs.
 - Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.
