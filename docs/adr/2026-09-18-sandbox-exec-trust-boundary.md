@@ -19,7 +19,7 @@ A run executes across two pods in the tenant namespace. The agent pod is a State
 
 The sandbox pod is SPIFFE-attested per run as `spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>`. Port 50051 carries `traffic.sidecar.istio.io/excludeInboundPorts`, so inbound traffic on it does not pass through the mesh and no `AuthorizationPolicy` applies to it. The only sandbox-scoped `NetworkPolicy`, `sandbox-egress-to-gateway`, governs egress.
 
-Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.md)) confines each run to its own workspace subdirectory using Landlock and a PID namespace, applied by the `orbit-session-runner` wrapper. `session-manager` invokes that wrapper for the Claude runner only. The Codex and OpenCode runners call their binaries directly with the pod's full environment.
+Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.md)) confines each run to its own workspace subdirectory using Landlock, applied by the `orbit-session-runner` wrapper. `session-manager` invokes that wrapper for the Claude runner only. The Codex and OpenCode runners call their binaries directly with the pod's full environment.
 
 ### Problem Statement
 
@@ -153,7 +153,7 @@ A1 and P1 are one decision, not two, because each is incomplete alone. The token
 
 The token is not a defence against the agent that owns it. The agent can read it, and using it grants only what it already has. It separates one run from another, which is the boundary that is missing.
 
-Confidentiality of both the token and the endpoint rests on Landlock and the PID namespace, the same mechanisms per-session HOME isolation already depends on. That is a property of several runs sharing a container under one UID, and is resolved by one run per pod rather than by a different secret channel.
+Confidentiality of both the token and the endpoint rests on Landlock, the same mechanism per-session HOME isolation already depends on. That is a property of several runs sharing a container under one UID, and is resolved by one run per pod rather than by a different secret channel.
 
 `landlock.V3.BestEffort()` downgrades on a kernel without Landlock support, so on such a kernel the wrapper reduces to an ordinary exec and runs do not confine each other. The `NetworkPolicy` and the token remain, so a pod outside the namespace is still refused.
 
@@ -178,7 +178,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 ### Neutral
 
 - Port 50051 stays outside the inbound mesh.
-- Concurrent runs on one agent pod remain isolated by Landlock and the PID namespace, not by the kernel's user boundary.
+- Concurrent runs on one agent pod remain isolated by Landlock, not by the kernel's user boundary.
 
 ---
 
@@ -219,7 +219,7 @@ A Codex run executes its commands in its own sandbox, reported back as the sandb
 ## Related Decisions
 
 - [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) - Establishes `orbit-shell`, the endpoint file and the re-provision retry this decision authenticates
-- [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock and PID namespace confinement extended here to every runner
+- [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock confinement extended here to every runner
 - [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) - Rejoins the sandbox to the mesh for outbound enforcement and excludes port 50051 inbound
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `orbit-agents` and `session-manager`
 

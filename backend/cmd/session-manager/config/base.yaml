@@ -17,7 +17,7 @@ orbitAgents:
 
 # Settings shared by every agent framework.
 runner:
-  # Applies Landlock and a PID namespace before the agent execs, for every
+  # Applies Landlock before the agent execs, for every
   # framework. See docs/adr/2026-06-04-per-session-home-isolation.md.
   wrapperPath: orbit-session-runner
   # The orbit-shell proxy. Exposed under a "bash" basename by

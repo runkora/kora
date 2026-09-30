@@ -45,7 +45,7 @@ type Config struct {
 	Runner struct {
 		// WrapperPath is the path to orbit-session-runner, used by every framework.
 		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
-		// so Landlock and a PID namespace are applied first. Empty disables it,
+		// so Landlock is applied first. Empty disables it,
 		// which is local dev on macOS.
 		WrapperPath string `yaml:"wrapperPath"`
 
