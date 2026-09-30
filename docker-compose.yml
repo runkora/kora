@@ -1,3 +1,6 @@
+# A fixed project name keeps container and volume names the same in any checkout.
+name: orbit
+
 services:
   postgres:
     image: postgres:18-alpine
