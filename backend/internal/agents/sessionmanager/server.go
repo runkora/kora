@@ -25,8 +25,7 @@ type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
 	// WrapperPath is the path to orbit-session-runner. When set, every agent
-	// subprocess runs through it, applying Landlock and a PID namespace
-	// (docs/adr/2026-06-04-per-session-home-isolation.md).
+	// subprocess runs through it, applying Landlock (docs/adr/2026-06-04-per-session-home-isolation.md).
 	WrapperPath string
 	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
 	// Codex resolve it from the image.
@@ -47,7 +46,7 @@ type ControllerConfig struct {
 	OpenCodeBinaryPath string
 
 	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
-	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+	// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 	InferenceGatewayURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written

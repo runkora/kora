@@ -52,6 +52,14 @@ type Install struct {
 	SPIREClassName   string
 	ImagePullSecrets []string
 
+	// CollectorNamespace is the in-cluster namespace of the OTLP collector
+	// agent pods may export to.
+	CollectorNamespace string
+
+	// CollectorCIDRs are the networkPolicy.externalServices ranges serving an
+	// out-of-cluster collector's port. Used when CollectorNamespace is empty.
+	CollectorCIDRs []string
+
 	// WebhookCertManager is true when cert-manager issues the webhook certificate
 	// and the operator must not manage it.
 	WebhookCertManager bool
@@ -117,6 +125,8 @@ func loadInstall() Install {
 		IstioRevision:      os.Getenv("ORBIT_ISTIO_REVISION"),
 		SPIREClassName:     envOr("ORBIT_SPIRE_CLASS_NAME", "spire-system-spire"),
 		ImagePullSecrets:   splitList(os.Getenv("ORBIT_IMAGE_PULL_SECRETS")),
+		CollectorNamespace: os.Getenv("ORBIT_COLLECTOR_NAMESPACE"),
+		CollectorCIDRs:     splitList(os.Getenv("ORBIT_COLLECTOR_CIDRS")),
 		WebhookCertManager: os.Getenv("ORBIT_WEBHOOK_CERT_MANAGER") == "true",
 		Injection: Injection{
 			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),

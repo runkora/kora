@@ -46,6 +46,12 @@ spec:
               value: {{ .Values.global.observability.otlpEndpoint | quote }}
             - name: ORBIT_SAMPLING_RATE
               value: {{ .Values.global.observability.samplingRate | quote }}
+            # The collector agent pods may export to: its in-cluster namespace, or
+            # the networkPolicy.externalServices ranges serving its port.
+            - name: ORBIT_COLLECTOR_NAMESPACE
+              value: {{ .Values.global.observability.collectorNamespace | quote }}
+            - name: ORBIT_COLLECTOR_CIDRS
+              value: {{ include "orbit.collectorCIDRs" . | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
               value: {{ include "orbit.systemNamespace" . | quote }}
             - name: ORBIT_ISTIO_NAMESPACE

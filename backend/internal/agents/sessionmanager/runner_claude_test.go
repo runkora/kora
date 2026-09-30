@@ -689,3 +689,28 @@ func TestLogStderr_ScanError_IsLogged(t *testing.T) {
 		t.Errorf("expected error text in log; got: %s", log)
 	}
 }
+
+// Claude Code's background calls are off, OTLP export is left alone, and a
+// run's HOME still comes last.
+func TestClaudeBuildRunEnv_Offline(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{ExtraEnv: []string{"CLAUDE_CODE_ENABLE_TELEMETRY=1"}})
+	env := r.buildRunEnv([]string{"DISABLE_TELEMETRY=0", "HOME=/root"}, "/run/home", "/run/tmp")
+
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = v
+	}
+	for _, e := range claudeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if _, ok := got["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; ok {
+		t.Error("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set; it would stop OTLP export")
+	}
+	if got["CLAUDE_CODE_ENABLE_TELEMETRY"] != "1" || got["HOME"] != "/run/home" {
+		t.Errorf("telemetry, HOME = %q, %q", got["CLAUDE_CODE_ENABLE_TELEMETRY"], got["HOME"])
+	}
+}

@@ -1464,8 +1464,10 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
 		// wiring; Istio itself injects only the sidecar.
-		"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
-		"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
+		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
+		// Only the sandbox exec port skips Envoy; the agent-egress NetworkPolicy
+		// limits it to the tenant's sandboxes.
+		"traffic.sidecar.istio.io/excludeOutboundPorts": "50051",
 	}
 	// Rolls the pods when the ServiceAccount's cloud identity changes, which
 	// they would otherwise pick up only on an unrelated restart.

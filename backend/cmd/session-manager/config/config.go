@@ -47,14 +47,13 @@ type Config struct {
 	Runner struct {
 		// WrapperPath is the path to orbit-session-runner, used by every framework.
 		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
-		// so Landlock and a PID namespace are applied first. Empty disables it,
-		// which is local dev on macOS.
+		// so Landlock is applied first. Empty disables it, which is local dev on macOS.
 		WrapperPath string `yaml:"wrapperPath"`
 
 		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
 		// tool commands run in the run's sandbox. Claude Code reads it from
 		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
-		// OpenCode from the "shell" key written into opencode.json. Empty leaves
+		// OpenCode from the "shell" key in its config. Empty leaves
 		// OpenCode on the container's shell.
 		ShellPath string `yaml:"shellPath"`
 
@@ -88,7 +87,7 @@ type Config struct {
 
 	InferenceGateway struct {
 		// URL is the base URL of the Orbit inference gateway.
-		// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+		// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 		URL string `yaml:"url"`
 	} `yaml:"inferenceGateway"`
 
