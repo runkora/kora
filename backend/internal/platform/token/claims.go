@@ -67,7 +67,7 @@ type PlatformClaims struct {
 	Orbit OrbitClaims `json:"orbit"`
 }
 
-// OrbitClaims are the Orbit-specific claims embedded in the platform token's
+// OrbitClaims are the kora-specific claims embedded in the platform token's
 // "orbit" namespace so they do not conflict with registered claim names.
 type OrbitClaims struct {
 	SessionID      string            `json:"session_id"`

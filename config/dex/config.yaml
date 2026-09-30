@@ -67,7 +67,7 @@ logger:
 
 staticClients:
   - id: orbit-local
-    name: "Orbit (local dev)"
+    name: "kora (local dev)"
     # public: true — no client secret required. Correct for Device Grant + CLI tooling.
     public: true
     redirectURIs:

@@ -1,4 +1,4 @@
-Orbit {{ .Chart.AppVersion }} installed in namespace {{ include "orbit.systemNamespace" . }}.
+kora {{ .Chart.AppVersion }} installed in namespace {{ include "orbit.systemNamespace" . }}.
 
 Hosts:
   dashboard  https://{{ include "orbit.frontendHost" . }}

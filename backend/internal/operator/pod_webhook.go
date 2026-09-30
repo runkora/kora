@@ -368,7 +368,7 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 	return string(out), err
 }
 
-// ensureVolume sets an Orbit-owned volume by name, overwriting any pod-supplied
+// ensureVolume sets an kora-owned volume by name, overwriting any pod-supplied
 // definition of the same name. Every caller here is one of kora's own fixed
 // volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
 // that pre-declares one of these itself must not get its definition kept, or the

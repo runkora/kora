@@ -81,7 +81,7 @@ COMMON_TARGETS := setup up down reset auth redeploy test check
 
 .PHONY: help
 help: ## Display this help screen
-	@echo "$(COLOR_BOLD)Orbit Control Plane$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)kora Control Plane$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Start here$(COLOR_RESET)"
 	@for t in $(COMMON_TARGETS); do \
@@ -437,9 +437,9 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # The schema is applied by the orbit chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + Orbit (schema applied by the chart's migrate hook), tenants. Idempotent.
+up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
-	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo ""
@@ -665,7 +665,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-platform
-cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
 	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
@@ -677,14 +677,14 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@bash scripts/cluster/create-secrets.sh orbit-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
-	@echo "$(COLOR_YELLOW)Creating TLS secret for the Orbit ingress gateway...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Creating TLS secret for the kora ingress gateway...$(COLOR_RESET)"
 	@$(MAKE) cluster-tls-secret
 	@echo "$(COLOR_YELLOW)Resolving Docker container IPs...$(COLOR_RESET)"
 	@bash scripts/cluster/resolve-docker-ips.sh
-	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, kora)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply
 	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
-	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and kora services are running$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
@@ -736,7 +736,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Re-applying the kora releases (picks up CRD + template changes)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
 	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build

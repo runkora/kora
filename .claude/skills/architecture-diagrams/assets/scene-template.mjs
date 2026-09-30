@@ -2,7 +2,7 @@
 // build the diagram by calling the helpers. Emits a .excalidraw source that the
 // pipeline renders:  node <this> <out.excalidraw>
 //
-// Conventions baked in (keep them, they are what makes Orbit diagrams look right):
+// Conventions baked in (keep them, they are what makes kora diagrams look right):
 //   - roughness 0 + fontFamily 2  -> clean (non-sketchy) look
 //   - shared palette below         -> consistent with existing diagrams
 //   - title + labels only          -> no subtitles, taglines, or commentary

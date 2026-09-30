@@ -1,6 +1,6 @@
-Orbit CRDs installed: orbittenants, connections, oauthclients, mcpservers, inferenceproviders (orbit.io).
+kora CRDs installed: orbittenants, connections, oauthclients, mcpservers, inferenceproviders (orbit.io).
 
-Install the orbit chart next, into the namespace Orbit will run in:
+Install the orbit chart next, into the namespace kora will run in:
 
   helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
     --version {{ .Chart.Version }} --namespace {{ .Release.Namespace }}

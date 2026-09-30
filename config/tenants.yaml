@@ -28,7 +28,7 @@ version: "v1"
 
 tenants:
   - id: "example"
-    displayName: "Orbit Example"
+    displayName: "kora Example"
     state: "active"
     oidc:
       # Local Dex OIDC provider — started by: make dev-up

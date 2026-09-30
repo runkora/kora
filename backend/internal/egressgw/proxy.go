@@ -79,7 +79,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.forward(w, r, upstream, decision)
 }
 
-// forward swaps the platform token for the minted credential, drops Orbit-only
+// forward swaps the platform token for the minted credential, drops kora-only
 // request headers, and proxies the request to the upstream URL via the
 // configured transport. The response (including streaming bodies) is piped
 // straight back to the caller.

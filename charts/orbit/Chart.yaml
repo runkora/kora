@@ -1,7 +1,7 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit's control plane runs the operator, the cluster-scoped identity and
+  kora's control plane runs the operator, the cluster-scoped identity and
   gateway resources, and the platform services. Install orbit-crds first, and
   have Istio and SPIRE already running on the cluster.
 type: application
@@ -19,7 +19,7 @@ keywords:
 
 home: https://github.com/clear-route/orbit
 maintainers:
-  - name: Orbit Team
+  - name: kora Team
 
 dependencies:
   # kora's ingress gateway pods. Off when an existing Istio Gateway fronts kora.

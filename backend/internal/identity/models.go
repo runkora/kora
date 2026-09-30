@@ -45,7 +45,7 @@ type Principal = token.Principal
 // Aliased from internal/platform/token.
 type PlatformClaims = token.PlatformClaims
 
-// OrbitClaims are the Orbit-specific claims embedded in the platform token's
+// OrbitClaims are the kora-specific claims embedded in the platform token's
 // "orbit" namespace. Aliased from internal/platform/token.
 type OrbitClaims = token.OrbitClaims
 

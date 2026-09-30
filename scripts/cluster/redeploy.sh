@@ -34,7 +34,7 @@ info() { printf "%s\n" "${C_BLUE}ℹ $*${C_RESET}"; }
 
 usage() {
   cat <<EOF
-${C_BOLD}redeploy.sh${C_RESET}: build, push, and restart an Orbit service.
+${C_BOLD}redeploy.sh${C_RESET}: build, push, and restart a kora service.
 
 Usage:
   $0 <service> [--tenant <slug>] [--build-only] [--no-build]
