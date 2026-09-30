@@ -19,9 +19,9 @@ There are four SPIFFE ID path formats in use:
 
 | Scheme | Format | Issued via |
 |---|---|---|
-| Orbit system component | `spiffe://orbit.test/system/<component>` | `orbit-system-component` ClusterSPIFFEID |
-| Orbit tenant agent | `spiffe://orbit.test/tenant/<namespace>/agent/<name>` | `orbit-tenant-agent` ClusterSPIFFEID |
-| Orbit tenant service | `spiffe://orbit.test/tenant/<namespace>/service/<name>` | `orbit-tenant-service` ClusterSPIFFEID |
+| kora system component | `spiffe://orbit.test/system/<component>` | `orbit-system-component` ClusterSPIFFEID |
+| kora tenant agent | `spiffe://orbit.test/tenant/<namespace>/agent/<name>` | `orbit-tenant-agent` ClusterSPIFFEID |
+| kora tenant service | `spiffe://orbit.test/tenant/<namespace>/service/<name>` | `orbit-tenant-service` ClusterSPIFFEID |
 | Istio standard (`ns/sa`) | `spiffe://orbit.test/ns/<namespace>/sa/<service-account>` | `istio-gateway` / `istio-sidecar` / SPIRE infra ClusterSPIFFEIDs |
 
 ---
@@ -30,7 +30,7 @@ There are four SPIFFE ID path formats in use:
 
 8 entries registered, bound by pod UID.
 
-### Orbit System Components (`/system/` path)
+### kora System Components (`/system/` path)
 
 | SPIFFE ID | Namespace | Workload |
 |---|---|---|
@@ -41,7 +41,7 @@ There are four SPIFFE ID path formats in use:
 | `spiffe://orbit.test/system/policy-gateway` | orbit-system | orbit-policy-gateway |
 | `spiffe://orbit.test/system/policy-service` | orbit-system | orbit-policy-service |
 
-### Orbit Tenant Workloads (`/tenant/` path)
+### kora Tenant Workloads (`/tenant/` path)
 
 | SPIFFE ID | Namespace | Workload |
 |---|---|---|
@@ -60,7 +60,7 @@ There are four SPIFFE ID path formats in use:
 
 The SPIRE controller manager manages registration via these `ClusterSPIFFEID` resources:
 
-### Orbit-managed (from `orbit-platform` Helm release)
+### kora-managed (from `orbit-platform` Helm release)
 
 | Name | Namespace selector | Pod selector | SPIFFE ID template |
 |---|---|---|---|
@@ -85,7 +85,7 @@ The SPIRE controller manager manages registration via these `ClusterSPIFFEID` re
 
 ## How Istio/Envoy Uses These Identities
 
-Orbit uses **`ISTIO_MUTUAL`** mode with SPIRE as the certificate authority. Envoy sidecars obtain their X.509-SVID from SPIRE (via the SPIFFE CSI driver) and Istio uses the SAN from that cert for peer verification.
+kora uses **`ISTIO_MUTUAL`** mode with SPIRE as the certificate authority. Envoy sidecars obtain their X.509-SVID from SPIRE (via the SPIFFE CSI driver) and Istio uses the SAN from that cert for peer verification.
 
 `DestinationRule` resources in `orbit-system` pin the expected server SAN, so Envoy (as client) will reject any connection where the server cert's SPIFFE ID doesn't match:
 

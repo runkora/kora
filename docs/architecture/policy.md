@@ -1,6 +1,6 @@
 # Policy
 
-Orbit checks every action against policy before it runs. `policy-service` compiles per-tenant OPA bundles from grants, roles, and a route-scope vocabulary. The edge OPA on the ingress gateway and the in-process middleware in each service both evaluate those bundles.
+kora checks every action against policy before it runs. `policy-service` compiles per-tenant OPA bundles from grants, roles, and a route-scope vocabulary. The edge OPA on the ingress gateway and the in-process middleware in each service both evaluate those bundles.
 
 ```mermaid
 sequenceDiagram

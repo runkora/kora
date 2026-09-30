@@ -1,14 +1,14 @@
 # MCP servers
 
-An MCP server exposes tools an agent can call. Registering it as an `MCPServer` places it behind the tool-gateway, the single entry point Orbit governs for MCP calls. The gateway introspects the server's tools into policy scopes that agents can be granted. The tool-gateway then checks every call against policy before it reaches the server.
+An MCP server exposes tools an agent can call. Registering it as an `MCPServer` places it behind the tool-gateway, the single entry point kora governs for MCP calls. The gateway introspects the server's tools into policy scopes that agents can be granted. The tool-gateway then checks every call against policy before it reaches the server.
 
-An `MCPServer` in `orbit-system` is registered as platform-global, its tools become available to every tenant, like the Orbit MCP. When registered in a tenant namespace, it belongs to that tenant alone.
+An `MCPServer` in `orbit-system` is registered as platform-global, its tools become available to every tenant, like the kora MCP. When registered in a tenant namespace, it belongs to that tenant alone.
 
-The following guide assumes Orbit is already installed. See [Deploying Orbit](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
 
 ## Registering an MCP server
 
-Orbit runs on a BYO MCP server model. You can register that MCP using the `MCPServer` CR. The operator adds it to the tool-gateway's registry, and the tool-gateway introspects the server's tools into `mcp:<server>:<tool>:use` scopes automatically.
+kora runs on a BYO MCP server model. You can register that MCP using the `MCPServer` CR. The operator adds it to the tool-gateway's registry, and the tool-gateway introspects the server's tools into `mcp:<server>:<tool>:use` scopes automatically.
 
 ```yaml
 apiVersion: orbit.io/v1alpha1
@@ -29,8 +29,8 @@ spec:
 - `displayName` and `description`: shown in the tool catalog.
 - `transport`: `streamable-http`, the default and only supported transport.
 - `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.
-- `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party Orbit APIs. `forward` is allowed only on a global (`orbit-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
-- `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets Orbit skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
+- `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party kora APIs. `forward` is allowed only on a global (`orbit-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
+- `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets kora skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
 
 An `MCPServer` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. Check its status:
 
@@ -42,7 +42,7 @@ The `Phase` column reports `Pending`, `Aggregated`, or `Invalid`.
 
 ## Running the MCP server
 
-The `MCPServer` CR is only the registration into Orbit's tool-gateway. You deploy the MCP server as a workload in the same namespace as its `MCPServer`. The tool-gateway should be the only service configured to reach it. A tenant server looks roughly like this:
+The `MCPServer` CR is only the registration into kora's tool-gateway. You deploy the MCP server as a workload in the same namespace as its `MCPServer`. The tool-gateway should be the only service configured to reach it. A tenant server looks roughly like this:
 
 ```yaml
 apiVersion: apps/v1
@@ -85,7 +85,7 @@ spec:
 
 Name the Service port `http` and set `appProtocol: http`. Istio derives a port's protocol from that name, and treats an unnamed or unrecognised one as plain TCP.
 
-Point `spec.workload.selector` at those pod labels and Orbit handles the rest. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity.
+Point `spec.workload.selector` at those pod labels and kora handles the rest. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity.
 
 The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. The generated policies and scope vocabulary are what control access to the server via the tool-gateway.
 

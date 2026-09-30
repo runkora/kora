@@ -1,6 +1,6 @@
 # Code Organization
 
-The canonical code organization and package layout for the Orbit backend.
+The canonical code organization and package layout for the kora backend.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -19,7 +19,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
 | `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
 | `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
+| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
@@ -228,7 +228,7 @@ Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.
 
 ### 5. Service-to-service calls via platform clients
 
-All outbound HTTP to other Orbit services goes through a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`, which automatically opens an OTel `SpanKindClient` span, injects W3C `traceparent`/`tracestate`, sets HTTP semantic-convention attributes, captures upstream error bodies, and emits a structured log line per request.
+All outbound HTTP to other kora services goes through a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`, which automatically opens an OTel `SpanKindClient` span, injects W3C `traceparent`/`tracestate`, sets HTTP semantic-convention attributes, captures upstream error bodies, and emits a structured log line per request.
 
 **Never construct `http.Client{}` directly** in feature or service code (`noRawHttpClientLiteral` enforces this). Typed clients must **not** import `otel/codes` or `otel/trace` directly: `httpclient.Base` owns the span lifecycle.
 

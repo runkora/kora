@@ -1,12 +1,12 @@
 # Observability
 
-OpenTelemetry-based observability for Orbit, providing distributed tracing, structured logging, and automatic log-trace correlation.
+OpenTelemetry-based observability for kora, providing distributed tracing, structured logging, and automatic log-trace correlation.
 
 ## Overview
 
-Orbit implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
+kora implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
 
-Orbit is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
+kora is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
 
 ## Documentation Structure
 
@@ -134,7 +134,7 @@ See [tracing.md](tracing.md) for detailed usage patterns.
 
 ## Trace Propagation
 
-Orbit uses **W3C TraceContext** standard for trace propagation:
+kora uses **W3C TraceContext** standard for trace propagation:
 
 1. **Incoming requests**: `TracingMiddleware` extracts trace context from the `traceparent` header and starts a `SpanKindServer` span
 2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span. Never do this manually
@@ -172,7 +172,7 @@ Recommended stack:
 
 All three systems integrate seamlessly with trace_id correlation.
 
-## Benefits for Orbit
+## Benefits for kora
 
 As a control plane for autonomous agents, observability is critical:
 

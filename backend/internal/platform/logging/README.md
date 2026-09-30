@@ -1,6 +1,6 @@
 # Logging Package
 
-OpenTelemetry-compatible structured logging for Orbit.
+OpenTelemetry-compatible structured logging for kora.
 
 ## Overview
 

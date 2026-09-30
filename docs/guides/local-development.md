@@ -1,6 +1,6 @@
 # Local development
 
-Local development runs Orbit in a k3d cluster on your machine ([kubernetes-only-local-development](../adr/2026-07-10-kubernetes-only-local-development.md)).
+Local development runs kora in a k3d cluster on your machine ([kubernetes-only-local-development](../adr/2026-07-10-kubernetes-only-local-development.md)).
 
 ## Prerequisites
 
@@ -29,7 +29,7 @@ make setup
 - `setup-dns`: Verifies `*.orbit.local.clearroute.io` resolves. It is a public wildcard record. Nothing to configure.
 - `setup-tls`: Generates mkcert TLS certificates for the local domain.
 
-## Start Orbit
+## Start kora
 
 ```bash
 make up
@@ -39,7 +39,7 @@ make up
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
-- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two Orbit charts in dependency order, the same sequence on any cluster. The `orbit` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
+- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `orbit` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `OrbitTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
@@ -129,7 +129,7 @@ ORBIT_PARALLEL_BUILDS=1
 
 With the flag set, `make redeploy-platform` runs one `docker buildx bake` graph over every platform image. BuildKit builds them concurrently and deduplicates the shared Go module and source layers. Single-service redeploys are unaffected.
 
-A healthy VM size for Orbit is 12 CPUs and 24 GiB. To set this in Colima:
+A healthy VM size for kora is 12 CPUs and 24 GiB. To set this in Colima:
 
 ```bash
 colima stop && colima start --cpu 12 --memory 24   # persists in ~/.colima
@@ -189,7 +189,7 @@ Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an 
 cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_HOST=localhost DB_NAME=orbit DB_USER=orbit DB_PASSWORD=orbit go run ./cmd/migrate down
 ```
 
-There are no migration `Down` triggers in Orbit, a rollback via `helm rollback` will leave the database schema in place.
+There are no migration `Down` triggers in kora, a rollback via `helm rollback` will leave the database schema in place.
 
 ## Environment configuration
 
@@ -254,9 +254,9 @@ The backend discovers the provider's endpoints from its `/.well-known/openid-con
 
 > **Entra application requirements**: the registered dev application must have the `urn:ietf:params:oauth:grant-type:device_code` grant type enabled under Authentication, Advanced settings, Allow public client flows for local development. Only `make auth` requires this.
 
-## Driving the Orbit MCP locally
+## Driving the kora MCP locally
 
-The cluster runs `orbit-mcp` behind the tool gateway. With Orbit running, point an MCP client at the gateway's OAuth endpoint:
+The cluster runs `orbit-mcp` behind the tool gateway. With kora running, point an MCP client at the gateway's OAuth endpoint:
 
 ```json
 {
@@ -283,7 +283,7 @@ The client runs the MCP OAuth flow and opens the consent screen in your browser.
      --clusterrole=view --serviceaccount=default:orbit-agent --context <target-cluster-context>
    kubectl create token orbit-agent --duration=8760h --context <target-cluster-context>
    ```
-   Store it in your local k3d cluster, where Orbit runs, under the name `spec.secretRef` points at:
+   Store it in your local k3d cluster, where kora runs, under the name `spec.secretRef` points at:
    ```bash
    kubectl create secret generic ${cluster}-token -n orbit-tenant-example \
      --from-literal=token=<ServiceAccount token> --dry-run=client -o yaml | kubectl apply -f -

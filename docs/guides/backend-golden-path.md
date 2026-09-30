@@ -201,4 +201,4 @@ ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' 
 make check
 ```
 
-`gofmt`, `go vet`, `golangci-lint` (the Orbit AST + import-ban rules in [AGENTS.md](../../AGENTS.md)), `gitleaks`, `docs-check`, and tests. Do not add `//nolint`; exceptions are managed centrally in `.golangci.yml`.
+`gofmt`, `go vet`, `golangci-lint` (the kora AST + import-ban rules in [AGENTS.md](../../AGENTS.md)), `gitleaks`, `docs-check`, and tests. Do not add `//nolint`; exceptions are managed centrally in `.golangci.yml`.

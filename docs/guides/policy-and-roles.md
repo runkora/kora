@@ -1,12 +1,12 @@
 # Policy, Roles, and Access Control
 
-This guide explains how Orbit's authorisation model works and how to configure access for principals on your tenant. It covers the scope vocabulary, grants, roles, and the relationship between them.
+This guide explains how kora's authorisation model works and how to configure access for principals on your tenant. It covers the scope vocabulary, grants, roles, and the relationship between them.
 
 ---
 
 ## Overview
 
-Orbit uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
+kora uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
 
 There are two complementary ways to give a principal access to something:
 

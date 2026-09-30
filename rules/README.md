@@ -1,6 +1,6 @@
-# Orbit Lint Rules
+# kora Lint Rules
 
-Custom static-analysis rules that enforce Orbit's architectural decisions at CI time. All rules are wired into `make check` via `golangci-lint` and run against every pull request.
+Custom static-analysis rules that enforce kora's architectural decisions at CI time. All rules are wired into `make check` via `golangci-lint` and run against every pull request.
 
 There are two tiers depending on what the rule needs to inspect:
 

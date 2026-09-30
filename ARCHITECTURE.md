@@ -1,6 +1,6 @@
-# Orbit Architecture
+# kora Architecture
 
-Orbit is the control plane for AI agents. It gives every agent a verifiable
+kora is the control plane for AI agents. It gives every agent a verifiable
 identity, checks every action against policy before it runs, and brokers every
 credential so agents never hold secrets.
 
@@ -20,7 +20,7 @@ Inbound work reaches an agent through the Backend API, and its outbound calls ar
 captured by in-platform egress brokers that perform token exchange and credential
 injection. Identity and Policy govern both humans and agents.
 
-![Orbit system context](docs/diagrams/system-context.svg)
+![kora system context](docs/diagrams/system-context.svg)
 
 ## Deep dives
 

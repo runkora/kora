@@ -1,6 +1,6 @@
 # Configuration
 
-Orbit uses YAML files for non-secret configuration, one file per environment. The active environment is selected by the `APP_ENV` environment variable (default: `local`).
+kora uses YAML files for non-secret configuration, one file per environment. The active environment is selected by the `APP_ENV` environment variable (default: `local`).
 
 ```
 APP_ENV=production  →  loads {module}/config/production.yaml

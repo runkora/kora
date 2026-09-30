@@ -14,7 +14,7 @@ kubectl get pods -n orbit-system                  # control-plane services
 kubectl get pods -n orbit-tenant-example          # example tenant workloads
 ```
 
-The operator's preflight reports whether SPIRE and Istio meet Orbit's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
+The operator's preflight reports whether SPIRE and Istio meet kora's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
 
 ```bash
 kubectl describe orbittenant <name>
@@ -61,7 +61,7 @@ kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity \
   | grep -E 'OIDC provider initialized|hot-reload disabled|no tenants in registry'
 ```
 
-If the logs contain `too many open files`, the Docker VM has exhausted its inotify instances. Orbit uses file watchers to reload operator-managed configuration, including the tenant registry. `make up` raises the VM limit to 1024, but the setting is lost when the Docker VM restarts.
+If the logs contain `too many open files`, the Docker VM has exhausted its inotify instances. kora uses file watchers to reload operator-managed configuration, including the tenant registry. `make up` raises the VM limit to 1024, but the setting is lost when the Docker VM restarts.
 
 Check the value seen by the k3d node:
 

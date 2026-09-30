@@ -1,8 +1,8 @@
-# Orbit Development Guide for AI Agents
+# kora Development Guide for AI Agents
 
 ## Project Overview
 
-Orbit is **the control plane for AI agents**, the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is _not_ an agent framework, a model router, or an LLM wrapper.
+kora is **the control plane for AI agents**, the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is _not_ an agent framework, a model router, or an LLM wrapper.
 
 The platform answers three questions for every agent that goes into production, and the architecture is organised around them:
 
@@ -10,7 +10,7 @@ The platform answers three questions for every agent that goes into production, 
 - **What can it access?** Every action is checked against policy _before_ it executes. Admins define what each agent can do down to the individual tool; everything outside that list is rejected and logged. Enforcement happens at the edge inside each pod. The agent is never trusted to behave.
 - **How does it connect?** Agents never handle credentials. The platform intercepts outbound calls and injects credentials just-in-time, deferring to the upstream system as the authority on what a user can access. A Claude Code or Codex instance drops in without modifying its auth handling.
 
-Underneath, Orbit is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native and standards-based. Every agent action traces back to the human who initiated it and the policy that authorised it.
+Underneath, kora is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native and standards-based. Every agent action traces back to the human who initiated it and the policy that authorised it.
 
 **These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
 
@@ -18,7 +18,7 @@ The architecture overview is in [ARCHITECTURE.md](ARCHITECTURE.md), the binary a
 
 ## Development Workflow
 
-Orbit follows a **PRD → ADR → implementation** process for new features and significant changes: write a PRD (`docs/prd/`, from `docs/prd/template.md`) defining the problem and solution; then, once it's agreed, an ADR (`docs/adr/`, Context → Options → Decision → Consequences) capturing the technical approach and the "why"; then implement against the agreed docs, referencing them in commits and the PR. Bug fixes and minor changes skip the PRD/ADR. **An ADR before significant implementation is a hard rule**: architectural decisions are captured in an ADR the PR references, never inline in a PR.
+kora follows a **PRD → ADR → implementation** process for new features and significant changes: write a PRD (`docs/prd/`, from `docs/prd/template.md`) defining the problem and solution; then, once it's agreed, an ADR (`docs/adr/`, Context → Options → Decision → Consequences) capturing the technical approach and the "why"; then implement against the agreed docs, referencing them in commits and the PR. Bug fixes and minor changes skip the PRD/ADR. **An ADR before significant implementation is a hard rule**: architectural decisions are captured in an ADR the PR references, never inline in a PR.
 
 Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-development-workflow).
 
@@ -40,7 +40,7 @@ make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / pa
 
 `make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service).
 
-**Calling authenticated Orbit APIs (curl):**
+**Calling authenticated kora APIs (curl):**
 
 Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
 
@@ -160,7 +160,7 @@ See `rules/README.md` for full rationale and exception policy.
 
 ## Code Organization
 
-Orbit follows a **feature-based architecture** with the repository pattern for data access and a multi-binary deployment model. See the following documents for complete details:
+kora follows a **feature-based architecture** with the repository pattern for data access and a multi-binary deployment model. See the following documents for complete details:
 
 - **[docs/code-organization.md](docs/code-organization.md)** - Complete directory structure and package organization
 - **[docs/adr/2026-02-17-repository-pattern-and-code-organization.md](docs/adr/2026-02-17-repository-pattern-and-code-organization.md)** - Repository pattern and feature structure
@@ -226,7 +226,7 @@ When contributing code or architecture:
 
 ## Security Guidelines
 
-Orbit is infrastructure for autonomous agents. Security is not optional.
+kora is infrastructure for autonomous agents. Security is not optional.
 
 - **No secrets in code**: Use environment variables or secret management
 - **Validate all inputs**: Especially from external agents or tools
@@ -270,7 +270,7 @@ Write tests alongside new code; unit tests are the default and must pass in `mak
 
 ## Implementation Principles
 
-When implementing Orbit components:
+When implementing kora components:
 
 - **Policy Evaluation**: Always evaluate policies before executing actions, not after
 - **Event Emission**: Emit structured events for all significant actions and decisions
@@ -344,8 +344,8 @@ Apply this decision tree in order, stop at the first match, never pre-generalise
 
 1. Used by exactly one file → keep inline. Extract only if the host file exceeds ~300 lines of JSX.
 2. All consumers are within the same feature area → **Tier 3**: `src/app/(dashboard)/[feature]/_components/`, relative import.
-3. Consumers span two or more feature areas **and** no Orbit domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**. Requires human approval before any Terra modification.
-4. Consumers span two or more feature areas **and** Orbit-domain-aware → **Tier 2**: `src/components/`, export from `src/components/index.ts`.
+3. Consumers span two or more feature areas **and** no kora domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**. Requires human approval before any Terra modification.
+4. Consumers span two or more feature areas **and** kora-domain-aware → **Tier 2**: `src/components/`, export from `src/components/index.ts`.
 
 Every extracted component file must open with a `@tier` JSDoc comment:
 
@@ -371,8 +371,8 @@ All `src/` filenames must be kebab-case. Files in `src/app/**` that import React
 
 ## License
 
-Orbit is licensed under Apache License 2.0. All contributions must be compatible with this license.
+kora is licensed under Apache License 2.0. All contributions must be compatible with this license.
 
 ---
 
-**Remember**: Orbit is the control plane underneath production agentic systems. Every change should answer one or more of: _Who is this agent? What can it access? How does it connect?_, and never weaken the others.
+**Remember**: kora is the control plane underneath production agentic systems. Every change should answer one or more of: _Who is this agent? What can it access? How does it connect?_, and never weaken the others.

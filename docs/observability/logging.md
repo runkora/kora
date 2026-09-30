@@ -2,7 +2,7 @@
 
 ## Overview
 
-Orbit uses structured logging with automatic trace correlation, enabling developers to seamlessly navigate from logs to traces and vice versa.
+kora uses structured logging with automatic trace correlation, enabling developers to seamlessly navigate from logs to traces and vice versa.
 
 ## Architecture
 
