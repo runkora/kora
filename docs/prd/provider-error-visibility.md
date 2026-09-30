@@ -3,13 +3,13 @@
 **Status:** Implemented
 **Created:** 2026-06-19
 **Owner:** Platform Engineering
-**Stakeholders:** Engineers using Orbit as an API gateway
+**Stakeholders:** Engineers using kora as an API gateway
 
 ---
 
 ## Executive Summary
 
-When an engineer's code or agent hits a provider API error through the Orbit inference gateway, they receive a generic `503 provider_error` response with no actionable detail. Debugging requires either reading raw server logs (hard to correlate) or navigating to the Orbit UI logs tab and clicking into a detail modal. This feature makes provider errors self-explanatory at the API level, prominently visible in the logs table, and properly instrumented in server logs.
+When an engineer's code or agent hits a provider API error through the kora inference gateway, they receive a generic `503 provider_error` response with no actionable detail. Debugging requires either reading raw server logs (hard to correlate) or navigating to the kora UI logs tab and clicking into a detail modal. This feature makes provider errors self-explanatory at the API level, prominently visible in the logs table, and properly instrumented in server logs.
 
 ---
 
@@ -17,7 +17,7 @@ When an engineer's code or agent hits a provider API error through the Orbit inf
 
 ### Current State
 
-The Orbit inference gateway wraps every upstream provider error into a uniform `ErrProviderError` before returning it to callers. The `ConnectorError` struct carries full detail — HTTP status, provider error code (e.g. `THROTTLED`, `CONTEXT_WINDOW_EXCEEDED`), and the provider's own error message — but this information is:
+The kora inference gateway wraps every upstream provider error into a uniform `ErrProviderError` before returning it to callers. The `ConnectorError` struct carries full detail — HTTP status, provider error code (e.g. `THROTTLED`, `CONTEXT_WINDOW_EXCEEDED`), and the provider's own error message — but this information is:
 
 1. **Dropped at the API boundary.** Callers receive `{"code":"provider_error","message":"upstream provider returned an error"}` regardless of whether the failure was a rate limit, an invalid request, a model not found, or a transient service outage.
 2. **Silent in server logs for streaming paths.** Non-streaming paths log the error string via `ErrorResponse`, but all streaming paths (`ChatCompletionStream`, `AnthropicMessagesStream`, `ResponsesStream`) record only an OTel span error — no `logger.Error` call runs when mid-stream provider errors occur.
@@ -25,7 +25,7 @@ The Orbit inference gateway wraps every upstream provider error into a uniform `
 
 ### User Pain Points
 
-- An engineer's agent gets a `503` — they don't know if it's a rate limit, an auth problem, a model not found, or an internal error. They have to either parse server logs or navigate to the Orbit UI.
+- An engineer's agent gets a `503` — they don't know if it's a rate limit, an auth problem, a model not found, or an internal error. They have to either parse server logs or navigate to the kora UI.
 - Operators grepping server logs for provider errors see only the Go error string (`"provider bedrock error [THROTTLED]: ..."`) with no structured fields — cannot alert on `error_code = THROTTLED` or filter by provider.
 - Engineers scanning the Logs tab to understand a spike in failures see all rows as `provider_error` with no differentiation between throttled vs. auth-failed vs. model-not-found.
 - Streaming errors (the majority of production traffic) are completely absent from server logs — an error that occurs mid-stream after 10 seconds of content produces no log line.
@@ -34,7 +34,7 @@ The Orbit inference gateway wraps every upstream provider error into a uniform `
 
 - Longer debugging cycles when provider-side incidents occur — engineers cannot tell the root cause without raw log access.
 - Missed alerting opportunities: because streaming errors don't produce log lines, SLO dashboards based on log-derived metrics miss a large class of errors.
-- Support burden: engineers open tickets for errors that are self-explanatory (e.g. "I got a 503, is Orbit down?") when the answer is "Bedrock throttled you".
+- Support burden: engineers open tickets for errors that are self-explanatory (e.g. "I got a 503, is kora down?") when the answer is "Bedrock throttled you".
 
 ---
 
@@ -121,7 +121,7 @@ The table search function is also extended to match against `error_code`.
 
 **Security:**
 - `ConnectorError.ProviderMessage` is already documented as safe to surface. No provider-internal infrastructure details (connection strings, internal hostnames, etc.) are present in this field — the SDK extracts it from the provider's own API error response body.
-- `error_code` values are controlled by Orbit (a fixed enum like `THROTTLED`, `CONTEXT_WINDOW_EXCEEDED`) — no raw provider error codes are forwarded.
+- `error_code` values are controlled by kora (a fixed enum like `THROTTLED`, `CONTEXT_WINDOW_EXCEEDED`) — no raw provider error codes are forwarded.
 
 **Performance:**
 - No new database queries or API calls. Changes are all in the logging and response-shaping layer.

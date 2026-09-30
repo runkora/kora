@@ -10,7 +10,7 @@
 
 ## Context
 
-[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Terra design system (`@orbit/terra`) as the mandatory UI primitive layer for the Orbit frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Terra's component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
+[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Terra design system (`@orbit/terra`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Terra's component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
 
 However, a clean lint report is not the same as a fully hardened design system. The following structural gaps remain after Phase 1:
 

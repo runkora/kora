@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-03-05
 **Deciders:** Platform Architecture Team
-**Technical Story:** Defines how MCP servers deployed in the Orbit platform dynamically filter their advertised tool surface based on an agent's delegation context, how the delegation chain is extended through MCP hops, and how MCP servers route outbound external calls through the Credential-Aware Outbound Gateway.
+**Technical Story:** Defines how MCP servers deployed in the kora platform dynamically filter their advertised tool surface based on an agent's delegation context, how the delegation chain is extended through MCP hops, and how MCP servers route outbound external calls through the Credential-Aware Outbound Gateway.
 
 ---
 
 ## Context
 
-[mcp-server-registration-deployment-and-governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) established MCP servers as first-class `SERVICE` principals in the Orbit platform — registered, identity-bearing components deployed with Envoy sidecars that participate in the agent delegation chain. This ADR defines the behavioural model: what happens at connection time, how tools are filtered, how an agent invokes a tool, and how the outbound credential flow works.
+[mcp-server-registration-deployment-and-governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) established MCP servers as first-class `SERVICE` principals in the kora platform — registered, identity-bearing components deployed with Envoy sidecars that participate in the agent delegation chain. This ADR defines the behavioural model: what happens at connection time, how tools are filtered, how an agent invokes a tool, and how the outbound credential flow works.
 
 The core challenge is that LLM-driven agents reason over their available tool surface to plan and execute tasks. If an agent can see tools it is not permitted to invoke, two problems arise:
 
@@ -26,7 +26,7 @@ The outbound calls an MCP server makes to external APIs (e.g. Microsoft Graph) m
 
 ### Problem Statement
 
-Orbit needs to define:
+kora needs to define:
 - How MCP servers filter their tool surface based on agent delegation scope at connection time
 - What happens when a delegation token is expired or revoked during an active SSE session
 - How the delegation chain is extended when an MCP server acts on behalf of an agent
@@ -43,9 +43,9 @@ Orbit needs to define:
 
 ### Non-Goals
 
-- Orbit does not validate that the MCP server's scope declarations are accurate ([mcp-server-registration-deployment-and-governance](2026-03-05-mcp-server-registration-deployment-and-governance.md))
-- Orbit does not restrict which tools an agent may request beyond what the delegation scope permits
-- This ADR does not define the MCP protocol itself — it defines how Orbit governs its use
+- kora does not validate that the MCP server's scope declarations are accurate ([mcp-server-registration-deployment-and-governance](2026-03-05-mcp-server-registration-deployment-and-governance.md))
+- kora does not restrict which tools an agent may request beyond what the delegation scope permits
+- This ADR does not define the MCP protocol itself — it defines how kora governs its use
 - Tool-level HTTP path enforcement is handled by the Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md)), not the MCP server
 
 ---
@@ -56,7 +56,7 @@ Orbit needs to define:
 * **Security posture**: denial at advertisement time is stronger than denial at call time — it removes the tool from the possibility space
 * **Multi-tenancy**: the same MCP server instance serves multiple agents with different delegation grants simultaneously
 * **Audit completeness**: every tool invocation must produce a traceable audit record through the full delegation chain
-* **Third-party compatibility**: open-source MCP servers whose code Orbit does not own must be able to participate via sidecar-mediated token injection
+* **Third-party compatibility**: open-source MCP servers whose code kora does not own must be able to participate via sidecar-mediated token injection
 * **Developer simplicity**: MCP server authors should not need to implement OBO flows, token rotation, or audit emission
 
 ---
@@ -93,7 +93,7 @@ Orbit needs to define:
 
 ### Option 3: Per-Agent MCP Server Instances
 
-**Description:** Rather than a shared MCP server instance, Orbit spawns a dedicated MCP server instance per agent session, pre-configured with only the tools the agent is permitted to invoke.
+**Description:** Rather than a shared MCP server instance, kora spawns a dedicated MCP server instance per agent session, pre-configured with only the tools the agent is permitted to invoke.
 
 **Pros:**
 - Complete isolation — no shared state between agents
@@ -139,7 +139,7 @@ Per-agent instances (Option 3) are operationally infeasible at scale and incompa
 
 - MCP servers must implement delegation token parsing to compute the filtered tool surface at connection time
 - If an agent's delegation scope changes mid-session (e.g. scope revoked), the agent must reconnect to receive the updated tool surface — there is no live push of tool surface changes over an existing SSE connection
-- MCP servers that do not implement scope-gated filtering will advertise their full tool surface regardless of delegation scope — Orbit cannot enforce this at the platform layer without owning the MCP server code (mitigated by the Outbound Gateway's scope intersection enforcement on outbound calls)
+- MCP servers that do not implement scope-gated filtering will advertise their full tool surface regardless of delegation scope — kora cannot enforce this at the platform layer without owning the MCP server code (mitigated by the Outbound Gateway's scope intersection enforcement on outbound calls)
 
 ### Neutral
 
@@ -264,7 +264,7 @@ The gateway:
 ### Worked Example: Agent Reading Emails via MCP
 
 **Setup:**
-- Sarah has authenticated with Orbit; her Entra access token is retained in the session store
+- Sarah has authenticated with kora; her Entra access token is retained in the session store
 - A delegation grant has been created: `[msgraph:mail:read]`, 15-minute expiry
 - An email agent has been instantiated with the delegation token (push model)
 - The MSGraph MCP server is registered at platform scope

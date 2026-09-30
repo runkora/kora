@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's control plane dashboard is currently desktop-only. Engineers and operators who need to monitor agent runs, check policy status, or respond to incidents from a phone or tablet have no viable path. This PRD scopes the work required to make every screen in the Orbit dashboard fully usable on mobile (≥ 375 px) and tablet (≥ 768 px) viewports without breaking the existing desktop experience.
+kora's control plane dashboard is currently desktop-only. Engineers and operators who need to monitor agent runs, check policy status, or respond to incidents from a phone or tablet have no viable path. This PRD scopes the work required to make every screen in the kora dashboard fully usable on mobile (≥ 375 px) and tablet (≥ 768 px) viewports without breaking the existing desktop experience.
 
 ---
 
@@ -31,7 +31,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 
 - Operators cannot respond to incidents from mobile, increasing MTTR.
 - Reduces perceived quality and enterprise readiness of the platform.
-- Blocks Orbit from being used by teams where phones/tablets are common during on-call rotations.
+- Blocks kora from being used by teams where phones/tablets are common during on-call rotations.
 
 ---
 
@@ -66,7 +66,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 ### Primary User Stories
 
 **As an** on-call platform engineer,  
-**I want to** open the Orbit dashboard on my phone and see active agent runs and any policy violations,  
+**I want to** open the kora dashboard on my phone and see active agent runs and any policy violations,  
 **So that** I can assess severity and take action without needing a laptop.
 
 **Acceptance Criteria:**
@@ -261,7 +261,7 @@ Build a completely separate `(mobile-dashboard)` layout route group rendered onl
 Adopt a library such as shadcn-sidebar or cmdk for the mobile drawer.
 
 **Why not chosen:**
-- Orbit forbids raw HTML imports and has strict Terra-only JSX rules. Bringing in a third-party sidebar would require numerous eslint-disable exemptions or rewriting the library into Terra-compatible primitives — more work than the in-house solution.
+- kora forbids raw HTML imports and has strict Terra-only JSX rules. Bringing in a third-party sidebar would require numerous eslint-disable exemptions or rewriting the library into Terra-compatible primitives — more work than the in-house solution.
 
 ---
 
@@ -311,7 +311,7 @@ Adopt a library such as shadcn-sidebar or cmdk for the mobile drawer.
 
 ### Glossary
 
-- **Responsive breakpoint**: A viewport width at which the layout changes. Orbit uses Tailwind's `sm` (640 px), `md` (768 px), `lg` (1 024 px), `xl` (1 280 px).
+- **Responsive breakpoint**: A viewport width at which the layout changes. kora uses Tailwind's `sm` (640 px), `md` (768 px), `lg` (1 024 px), `xl` (1 280 px).
 - **Sidebar drawer**: A slide-in overlay that covers page content on small viewports, dismissed by tapping outside or pressing Escape.
 - **Icon-rail**: A narrow sidebar variant showing only icons (no text labels).
 - **Sticky column**: A table column with `position: sticky` so it remains visible when the table body scrolls horizontally.

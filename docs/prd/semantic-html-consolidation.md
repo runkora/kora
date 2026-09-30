@@ -11,7 +11,7 @@
 
 ## Executive Summary
 
-The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` elements in product code (`src/app/**` and `src/components/**`). The existing ESLint rule (`no-raw-layout-elements`) only bans these elements conditionally — when they carry Tailwind layout-mode classes — leaving a significant gap in design-system enforcement. This PRD defines the work to eliminate all 53 instances and upgrade the lint rule to enforce an unconditional ban, consistent with the treatment already applied to `<div>` and `<section>`.
+The kora dashboard frontend currently contains 53 raw `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` elements in product code (`src/app/**` and `src/components/**`). The existing ESLint rule (`no-raw-layout-elements`) only bans these elements conditionally — when they carry Tailwind layout-mode classes — leaving a significant gap in design-system enforcement. This PRD defines the work to eliminate all 53 instances and upgrade the lint rule to enforce an unconditional ban, consistent with the treatment already applied to `<div>` and `<section>`.
 
 ---
 

@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-03-21
 **Deciders:** Engineering Team
-**Technical Story:** Establishing consistent, safe, and high-signal distributed tracing across all Orbit services
+**Technical Story:** Establishing consistent, safe, and high-signal distributed tracing across all kora services
 
 ---
 
 ## Context
 
-Orbit runs as a multi-service control plane with distributed tracing provided by OpenTelemetry (OTel). Every service-to-service call, request handler, and background worker emits spans. Those spans are indexed by observability backends (Jaeger, Tempo, Datadog, Grafana Cloud) and surfaced in dashboards, alerts, and SLO calculations.
+kora runs as a multi-service control plane with distributed tracing provided by OpenTelemetry (OTel). Every service-to-service call, request handler, and background worker emits spans. Those spans are indexed by observability backends (Jaeger, Tempo, Datadog, Grafana Cloud) and surfaced in dashboards, alerts, and SLO calculations.
 
 ### Background
 

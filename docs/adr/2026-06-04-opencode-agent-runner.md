@@ -25,7 +25,7 @@ OpenCode exposes two programmatic modes: `opencode serve` (HTTP server with REST
 
 ## Decision
 
-**OpenCode runs as a persistent `opencode acp --cwd <workDir>` subprocess**, one process per session. The runner communicates with it over bidirectional JSON-RPC 2.0 JSONL on stdin/stdout, receives `session/update` notifications for token-level text streaming, and routes all outbound LLM calls through the Orbit inference gateway via a written `opencode.json` config file.
+**OpenCode runs as a persistent `opencode acp --cwd <workDir>` subprocess**, one process per session. The runner communicates with it over bidirectional JSON-RPC 2.0 JSONL on stdin/stdout, receives `session/update` notifications for token-level text streaming, and routes all outbound LLM calls through the kora inference gateway via a written `opencode.json` config file.
 
 ---
 
@@ -121,7 +121,7 @@ The runner acts as the **client** (it sends requests; OpenCode is the server). T
 }
 ```
 
-`Send` writes the request and returns immediately. The read loop goroutine receives `session/update` notifications as the turn progresses, and emits Orbit events from them. When the `session/prompt` response finally arrives, the read loop emits `message_complete` + `message_stop`.
+`Send` writes the request and returns immediately. The read loop goroutine receives `session/update` notifications as the turn progresses, and emits kora events from them. When the `session/prompt` response finally arrives, the read loop emits `message_complete` + `message_stop`.
 
 **Turn complete response:**
 
@@ -174,18 +174,18 @@ OpenCode performs all filesystem reads/writes and shell executions **internally*
 
 ---
 
-## `session/update` → Orbit Event Mapping
+## `session/update` → kora Event Mapping
 
 All `session/update` notifications carry a `params.update` object. The `update.sessionUpdate` field is the discriminant:
 
-| `sessionUpdate` value | Orbit action |
+| `sessionUpdate` value | kora action |
 |---|---|
 | `agent_message_chunk` | Emit `text_delta` (`update.content.text`); accumulate into buffer |
 | `agent_thought_chunk` | Emit `thinking_delta`; accumulate into buffer |
 | `tool_call` (status `pending` or `in_progress`) | Emit `tool_use` (`toolCallId`, `title`, `rawInput`) |
 | `tool_call` (status `completed`) | Emit `tool_result` (`toolCallId`, `rawOutput`) |
 | `tool_call` (status `failed`) | Emit `tool_result` with `is_error: true` |
-| `usage_update` | Record token usage; no Orbit event |
+| `usage_update` | Record token usage; no kora event |
 | All other variants | Ignore (`user_message_chunk`, `plan`, `config_option_update`, etc.) |
 
 Turn end is signalled by the **`session/prompt` response** (not a notification). On receiving it, the read loop emits `message_complete` (flushed text buffer) then `message_stop`.
@@ -288,7 +288,7 @@ No base image change is required.
 - `framework: "opencode"` agent types now run OpenCode, not Claude Code — the silent fallthrough is eliminated.
 - Token-level text streaming via `session/update` / `agent_message_chunk` notifications matches Claude Code's streaming UX.
 - No TCP port allocation — `opencode acp` uses stdin/stdout, consistent with all other runners.
-- No changes to `run_events` schema, SSE relay, or frontend — Orbit standard event format is framework-agnostic.
+- No changes to `run_events` schema, SSE relay, or frontend — kora standard event format is framework-agnostic.
 - No base image change required — OpenCode installed via npm on the existing `node:22-alpine` base.
 - Proper JSON-RPC 2.0 protocol — a standard library can be used for the read loop if desired.
 
@@ -340,7 +340,7 @@ Touches *How does it connect?* and *What can it access?* Every OpenCode model ca
 
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; OpenCode was explicitly deferred here
 - [codex-agent-runner](2026-06-04-codex-agent-runner.md) — Codex runner; documents the shared framework dispatch wiring changes; must be implemented first
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format consumed by this runner
 - [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace directory; `opencode.json` is written here before process start
 
 ---

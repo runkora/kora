@@ -18,7 +18,7 @@ Agents that do real operational work — deploy a change, debug a failing pod, s
 
 ### Current State
 
-Orbit's credential broker has one connection type fully built end-to-end: **GitHub**, using a `github_app` adapter that mints short-lived installation tokens and injects them on the gateway's outbound leg. The Connections tab (`frontend/src/app/(dashboard)/connections/`) is a read-only table sourced from `GET /api/v1/connections`, showing each connection's adapter, grantable actions, and which agents use it — with copy that explicitly states connections are GitOps `Connection` CRs reconciled by the operator, not something created in the UI.
+kora's credential broker has one connection type fully built end-to-end: **GitHub**, using a `github_app` adapter that mints short-lived installation tokens and injects them on the gateway's outbound leg. The Connections tab (`frontend/src/app/(dashboard)/connections/`) is a read-only table sourced from `GET /api/v1/connections`, showing each connection's adapter, grantable actions, and which agents use it — with copy that explicitly states connections are GitOps `Connection` CRs reconciled by the operator, not something created in the UI.
 
 Kubernetes is already anticipated but not built:
 - `AdapterKubernetesBearer = "kubernetes"` is declared as a constant with no adapter implementation behind it.
@@ -62,7 +62,7 @@ Kubernetes is already anticipated but not built:
 
 - **Client-certificate authentication.** V1 is bearer-token only (`kubernetes`); client-cert auth is deferred.
 - **JIT-minted, per-call tokens.** V1 resolves a static, admin-supplied bearer token (Pattern B-style resolution), not a per-call `TokenRequest` mint against the target cluster. See Open Questions and Alternatives Considered — true per-call minting (parity with GitHub's installation-token exchange) is a deferred fast-follow, not a launch requirement.
-- **Fine-grained (namespace/resource/verb) policy modeling inside Orbit.** Orbit authorizes only a coarse verb-class; the target cluster's own RBAC on the injected identity is the fine-grained enforcement point.
+- **Fine-grained (namespace/resource/verb) policy modeling inside kora.** kora authorizes only a coarse verb-class; the target cluster's own RBAC on the injected identity is the fine-grained enforcement point.
 - **Auto-provisioning ServiceAccounts or RBAC bindings on the target cluster.** The admin brings their own token, exactly as they bring their own GitHub App install.
 - **A connection creation/edit UI.** Registration stays GitOps-only (`kubectl apply`), per the existing ADR decision that the management UI is read-only.
 - **Delegated ("act as the human") Kubernetes identity.** Out of scope, consistent with the broader credential-broker PRD's non-goals.
@@ -144,7 +144,7 @@ The experience mirrors the GitHub connection's three-moment separation (register
 
 #### User Flow
 
-1. **Register (Admin, once per cluster).** The admin provisions a bearer token for Orbit against the target cluster (a `ServiceAccount` token, following their own cluster's normal RBAC provisioning — Orbit does not create it), creates a `Secret` in the tenant namespace holding that token and the cluster's CA certificate, and applies a `Connection` CR: `adapter: kubernetes`, `baseHost: <cluster-api-host:port>`, `secretRef`/`secretKey` pointing at the `Secret`, `config: {cluster_name, ca_cert}`.
+1. **Register (Admin, once per cluster).** The admin provisions a bearer token for kora against the target cluster (a `ServiceAccount` token, following their own cluster's normal RBAC provisioning — kora does not create it), creates a `Secret` in the tenant namespace holding that token and the cluster's CA certificate, and applies a `Connection` CR: `adapter: kubernetes`, `baseHost: <cluster-api-host:port>`, `secretRef`/`secretKey` pointing at the `Secret`, `config: {cluster_name, ca_cert}`.
 2. **Reconcile.** The operator's existing `ConnectionAggregator` picks up the CR and its referenced `Secret` and renders them into the same `orbit-tenant-connections` / `orbit-tenant-connection-secrets` objects the gateway already mounts — no new operator code path.
 3. **Appear.** The connection shows up in the Connections tab: adapter "Kubernetes", actions `cluster:read` / `cluster:write`, no agents yet listed under "used by".
 4. **Grant.** The admin/agent author grants an agent a connector on this connection at `cluster:read` and/or `cluster:write`, exactly as for GitHub.
@@ -176,15 +176,15 @@ The experience mirrors the GitHub connection's three-moment separation (register
 ### Out of Scope
 
 - Client-certificate authentication (may be added as a second Kubernetes adapter variant later).
-- Orbit-side `TokenRequest`-based minting of short-lived tokens against the target cluster (true Pattern-A parity with GitHub).
-- Fine-grained (namespace/resource/verb) authorization inside Orbit's own policy — delegated to the target cluster's RBAC.
+- kora-side `TokenRequest`-based minting of short-lived tokens against the target cluster (true Pattern-A parity with GitHub).
+- Fine-grained (namespace/resource/verb) authorization inside kora's own policy — delegated to the target cluster's RBAC.
 - Auto-provisioning of ServiceAccounts, RBAC bindings, or tokens on the target cluster.
 - `kubectl exec` / `port-forward` (SPDY/WebSocket-upgraded, not plain REST) — see Open Questions.
 - Solving network reachability for clusters not already reachable from the gateway (VPN/PrivateLink/tunneling).
 
 ### Future Considerations
 
-- `TokenRequest`-based JIT minting, once a safe design exists for Orbit to hold the privilege needed to mint bounded-TTL tokens against arbitrary customer clusters.
+- `TokenRequest`-based JIT minting, once a safe design exists for kora to hold the privilege needed to mint bounded-TTL tokens against arbitrary customer clusters.
 - Client-certificate auth as an alternate `kubernetes`-sibling adapter.
 - A "Test connection" dry-run action against the cluster, as already floated (but not built) in the credential-broker ADR's read-only-management-UI section.
 - `kubectl exec`/`port-forward` support if ops-agent usage demands it.
@@ -208,7 +208,7 @@ The experience mirrors the GitHub connection's three-moment separation (register
 
 **Should Have (P1):**
 - [ ] A connection-status signal (e.g. surfaced in the catalog) indicating whether the registered token currently authenticates successfully against the cluster.
-- [ ] Admin-facing documentation for provisioning a bearer token for Orbit on a target cluster.
+- [ ] Admin-facing documentation for provisioning a bearer token for kora on a target cluster.
 
 **Nice to Have (P2):**
 - [ ] A "Test connection" dry-run action, consistent with the future consideration noted in the credential-broker ADR.
@@ -249,7 +249,7 @@ The experience mirrors the GitHub connection's three-moment separation (register
 ### External Dependencies
 
 - The target Kubernetes cluster's API server must be network-reachable from the egress gateway (a private-VPC or on-prem cluster may require the admin to expose it, or reachability work that is out of scope here).
-- The admin's own cluster RBAC/ServiceAccount provisioning process — Orbit consumes a token but does not create ServiceAccounts or role bindings.
+- The admin's own cluster RBAC/ServiceAccount provisioning process — kora consumes a token but does not create ServiceAccounts or role bindings.
 
 ---
 
@@ -267,12 +267,12 @@ The experience mirrors the GitHub connection's three-moment separation (register
 
 ## Alternatives Considered
 
-### Alternative 1: Orbit mints short-lived tokens via the Kubernetes `TokenRequest` API (true Pattern A, like GitHub)
+### Alternative 1: kora mints short-lived tokens via the Kubernetes `TokenRequest` API (true Pattern A, like GitHub)
 
 **Description:** The gateway calls `TokenRequest` against the target cluster to mint a bounded-TTL token per call, mirroring GitHub's App-JWT-to-installation-token exchange.
 
 **Why not chosen:**
-- Requires Orbit to hold a credential against every customer's cluster capable of issuing tokens for arbitrary ServiceAccounts — a materially larger trust ask than "the admin hands us one bounded token."
+- Requires kora to hold a credential against every customer's cluster capable of issuing tokens for arbitrary ServiceAccounts — a materially larger trust ask than "the admin hands us one bounded token."
 - No existing mechanism for provisioning that elevated access safely; deferred until a design exists, tracked as a v1.x fast-follow.
 
 ### Alternative 2: Client-certificate authentication instead of bearer tokens
@@ -294,7 +294,7 @@ The experience mirrors the GitHub connection's three-moment separation (register
 
 ## Open Questions
 
-1. **Should Orbit ever mint bounded-TTL tokens itself (`TokenRequest`) instead of always relying on an admin-supplied static token?**
+1. **Should kora ever mint bounded-TTL tokens itself (`TokenRequest`) instead of always relying on an admin-supplied static token?**
    - **Status:** Open
    - **Owner:** Platform Engineering (ADR)
 
@@ -352,14 +352,14 @@ The experience mirrors the GitHub connection's three-moment separation (register
 
 - [Credential Broker & Outbound Connections PRD](credential-broker-and-outbound-connections.md) — the umbrella PRD; Kubernetes is its named fast-follow connection.
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway ADR](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) — the technical design this PRD builds on, including the Kubernetes flow (§"Per-Tool Flows" → Kubernetes) and the GitOps `Connection` CR model (Amendment 3).
-- [Orbit Kubernetes Operator ADR](../adr/2026-03-31-orbit-kubernetes-operator.md) — background on CR reconciliation used by the `Connection` CRD.
+- [kora Kubernetes Operator ADR](../adr/2026-03-31-orbit-kubernetes-operator.md) — background on CR reconciliation used by the `Connection` CRD.
 
 ### Glossary
 
 - **Connection:** A tenant-scoped registration of one external service, sourced from a GitOps `Connection` custom resource, not created via a CRUD API.
 - **Adapter:** The credential mechanism a connection uses (`github_app`, `kubernetes`, `passthrough`, …); one adapter implementation serves every connection of that type.
 - **Verb-class:** The coarse action category (`cluster:read` / `cluster:write`) the gateway classifies a Kubernetes API request into for policy purposes, distinct from the cluster's own fine-grained RBAC verbs.
-- **ServiceAccount token:** A Kubernetes-issued bearer credential identifying a ServiceAccount to the API server; the credential Orbit resolves and injects for a Kubernetes connection.
+- **ServiceAccount token:** A Kubernetes-issued bearer credential identifying a ServiceAccount to the API server; the credential kora resolves and injects for a Kubernetes connection.
 
 ---
 

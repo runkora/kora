@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, budget assignment via OIDC roles and individual grants, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
+kora's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, budget assignment via OIDC roles and individual grants, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
 
 ---
 
@@ -22,7 +22,7 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 
 - The wired `PricingCache` implementation is `NewNopPricingCache()` — a no-op that always returns `$0.00`.
 - The `virtual_model_routes` pricing columns are populated manually, making them stale by default and absent for most models. Pricing is coupled to the routing table rather than maintained as a first-class catalog.
-- Providers such as AWS Bedrock, Google Vertex AI, and Azure OpenAI do not surface per-request dollar cost in their API responses — Orbit must resolve prices independently.
+- Providers such as AWS Bedrock, Google Vertex AI, and Azure OpenAI do not surface per-request dollar cost in their API responses — kora must resolve prices independently.
 - The analytics API (`GET /v1/analytics`, `GET /v1/analytics/me`) already aggregates `SUM(estimated_cost_usd)` correctly, but the underlying values are almost always zero, making the data meaningless.
 - ADR-0039 explicitly deferred budget controls. No budget enforcement exists. There is no mechanism to constrain or alert on agent or human spending.
 
@@ -35,7 +35,7 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 
 ### Business Impact
 
-- Without accurate cost attribution, Orbit cannot support tenant chargeback or usage-based pricing tiers.
+- Without accurate cost attribution, kora cannot support tenant chargeback or usage-based pricing tiers.
 - The inability to set budget limits is a blocker for production use of autonomous agents — operators will not deploy agents they cannot financially constrain.
 - Inaccurate `$0.00` costs undermine trust in the analytics feature that has already been built.
 
@@ -173,7 +173,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 #### Platform Operator Flow
 
-1. Operator navigates to **Model Gateway → Platform Usage** (`/model-gateway/platform-usage`) in the Orbit UI.
+1. Operator navigates to **Model Gateway → Platform Usage** (`/model-gateway/platform-usage`) in the kora UI.
 2. Selects a time range (default: last 30 days) and sees: total spend across all tenants (KPI card), spend by model (bar chart), spend by provider, spend over time (line chart).
 3. Can view spend broken down per tenant as well as aggregate totals.
 4. Can drill into a specific model to see aggregate spend per principal ID within that model's usage. Principal spend shown at this level is an aggregate cost figure, not personal cost data belonging to another tenant's principals.
@@ -192,7 +192,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 #### Tenant Admin Flow
 
-1. Admin navigates to **Model Gateway → Analytics** (`/model-gateway/analytics`) in the Orbit UI.
+1. Admin navigates to **Model Gateway → Analytics** (`/model-gateway/analytics`) in the kora UI.
 2. Views tenant-level KPIs (total spend, top model, top agent).
 3. Navigates to **Principals** tab to see per-principal spend leaderboard.
 
@@ -344,7 +344,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### External Dependencies
 
-- **Pricing data source**: LiteLLM `model_prices_and_context_window.json` (open-source, community-maintained, updated approximately daily, covers Bedrock/Vertex/Azure/OpenAI/Anthropic). The sync worker must be designed against an abstracted `PricingSource` interface so the source can be swapped in future. **Note:** LiteLLM keys Bedrock models by their bare base ID (e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0`). Orbit's Bedrock connector uses the routable cross-region inference profile ID (e.g. `us.anthropic.claude-3-5-sonnet-20241022-v2:0`) as the canonical model ID. The `PricingCache` normalises these by stripping the region prefix before lookup; the `model_pricing` table and sync worker are unaffected.
+- **Pricing data source**: LiteLLM `model_prices_and_context_window.json` (open-source, community-maintained, updated approximately daily, covers Bedrock/Vertex/Azure/OpenAI/Anthropic). The sync worker must be designed against an abstracted `PricingSource` interface so the source can be swapped in future. **Note:** LiteLLM keys Bedrock models by their bare base ID (e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0`). kora's Bedrock connector uses the routable cross-region inference profile ID (e.g. `us.anthropic.claude-3-5-sonnet-20241022-v2:0`) as the canonical model ID. The `PricingCache` normalises these by stripping the region prefix before lookup; the `model_pricing` table and sync worker are unaffected.
 
 ---
 
@@ -410,7 +410,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 **Description:** Allow each tenant to maintain their own pricing catalog, enabling BU-level internal chargeback rates that differ from the platform-wide LiteLLM prices.
 
 **Why not chosen for this release:**
-- Orbit is an operator-deployed platform; pricing is a platform operator concern, not a per-tenant configuration. The operator (e.g. My First Bank's platform team) sets prices for all BUs.
+- kora is an operator-deployed platform; pricing is a platform operator concern, not a per-tenant configuration. The operator (e.g. My First Bank's platform team) sets prices for all BUs.
 - Per-tenant pricing adds a third lookup layer and a `tenant_model_pricing` table, significantly increasing the complexity of price resolution, cache design, and admin UX.
 - Deferred to future considerations — the `model_pricing` table design does not preclude adding a tenant override layer later.
 

@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-02-17
 **Deciders:** Engineering Team
-**Technical Story:** API platform architecture for Orbit control plane
+**Technical Story:** API platform architecture for kora control plane
 
 ---
 
 ## Context
 
-Orbit's control plane requires a robust HTTP routing architecture that can serve multiple feature domains (identity, agents, policies, credentials) while maintaining clean separation of concerns, testability, and long-term maintainability.
+kora's control plane requires a robust HTTP routing architecture that can serve multiple feature domains (identity, agents, policies, credentials) while maintaining clean separation of concerns, testability, and long-term maintainability.
 
 ### Background
 

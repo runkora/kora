@@ -1,4 +1,4 @@
-# Orbit Terra Design System — Product Requirements Document
+# kora Terra Design System — Product Requirements Document
 
 **Status:** Implemented
 **Created:** 2025-07-11
@@ -12,7 +12,7 @@
 
 ## Executive Summary
 
-Orbit needs a cohesive design system to build a production-quality control plane UI. Today, the frontend has no visual foundation — styles are ad-hoc inline Tailwind utilities with no token system, no reusable components, and no defined visual identity. This PRD defines the work required to establish a design foundation as an **isolated monorepo workspace package** with its own Storybook environment, enabling fast, consistent, and on-brand UI development for the Orbit control plane — and for any future Orbit surface that needs it.
+kora needs a cohesive design system to build a production-quality control plane UI. Today, the frontend has no visual foundation — styles are ad-hoc inline Tailwind utilities with no token system, no reusable components, and no defined visual identity. This PRD defines the work required to establish a design foundation as an **isolated monorepo workspace package** with its own Storybook environment, enabling fast, consistent, and on-brand UI development for the kora control plane — and for any future kora surface that needs it.
 
 ---
 
@@ -20,19 +20,19 @@ Orbit needs a cohesive design system to build a production-quality control plane
 
 ### Current State
 
-The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css` is two hardcoded color variables (`--background`, `--foreground`) and a system font fallback. The single page in the app (`page.tsx`) uses arbitrary Tailwind utility classes directly (`bg-gray-950`, `border-gray-800`, `text-green-400`) with no token abstraction. There are no reusable components, no layout primitives, and no visual identity system.
+The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` is two hardcoded color variables (`--background`, `--foreground`) and a system font fallback. The single page in the app (`page.tsx`) uses arbitrary Tailwind utility classes directly (`bg-gray-950`, `border-gray-800`, `text-green-400`) with no token abstraction. There are no reusable components, no layout primitives, and no visual identity system.
 
 ### User Pain Points
 
 - **Developers building features** have no component library to reach for — every new UI element requires designing from scratch, leading to inconsistency and wasted time.
 - **Developers styling UI** must use arbitrary gray/color shades without a semantic token system, making global visual changes (e.g., changing the brand accent color) require a full codebase search-and-replace.
-- **End users of Orbit** (platform engineers, AI ops teams) will experience an incoherent visual product if each feature is built without a shared visual language.
+- **End users of kora** (platform engineers, AI ops teams) will experience an incoherent visual product if each feature is built without a shared visual language.
 - **AI-assisted development** (v0.dev, Forge) is hampered without a defined token vocabulary and component library that AI tools can reliably reason about.
 
 ### Business Impact
 
 - Feature development velocity is reduced — every UI feature requires building primitives from scratch.
-- Inconsistent UI reduces trust in Orbit as a production-grade control plane.
+- Inconsistent UI reduces trust in kora as a production-grade control plane.
 - Without a design system, AI-assisted UI generation produces output that doesn't integrate cleanly into the codebase.
 
 ---
@@ -41,8 +41,8 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 ### Primary Goals
 
-1. Establish a semantic design token system that encodes Orbit's visual identity and can be applied consistently across all UI.
-2. Integrate a battle-tested, AI-friendly component library (shadcn/ui) as the foundation for all Orbit UI components.
+1. Establish a semantic design token system that encodes kora's visual identity and can be applied consistently across all UI.
+2. Integrate a battle-tested, AI-friendly component library (shadcn/ui) as the foundation for all kora UI components.
 3. Deliver the design system as an isolated monorepo workspace package (`frontend/src/packages/terra/`) with its own Storybook environment, so components can be built, tested, and documented entirely independently of the application.
 
 ### Success Metrics
@@ -55,7 +55,7 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 ### Non-Goals
 
-- This PRD does **not** define the full Orbit dashboard or any specific product feature UI.
+- This PRD does **not** define the full kora dashboard or any specific product feature UI.
 - This is **not** a full Figma/design-file-first process — tokens and components will be defined in code.
 - This does **not** include custom data visualization components (charts, graphs, timelines) — those are a future concern once the foundation is in place.
 - This does **not** address mobile-responsive layouts — the initial target is desktop/tablet (control plane users).
@@ -66,7 +66,7 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 ### Primary User Stories
 
-**As a** frontend developer building an Orbit feature,  
+**As a** frontend developer building a kora feature,  
 **I want to** reach for pre-built, on-brand components (buttons, cards, badges, inputs),  
 **So that** I can focus on feature logic rather than styling primitives from scratch.
 
@@ -86,7 +86,7 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 **Acceptance Criteria:**
 - [ ] Design tokens are defined as named CSS custom properties exported from the package
 - [ ] Tailwind v4 `@theme` maps semantic names (e.g., `--color-surface`, `--color-accent`) to token values
-- [ ] An AI prompt referencing Orbit's token names produces on-brand output
+- [ ] An AI prompt referencing kora's token names produces on-brand output
 
 ---
 
@@ -101,9 +101,9 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 ---
 
-**As an** Orbit platform operator,  
+**As an** kora platform operator,  
 **I want to** use a UI that feels professional, technical, and consistent,  
-**So that** I trust Orbit as a serious production control plane rather than a prototype.
+**So that** I trust kora as a serious production control plane rather than a prototype.
 
 **Acceptance Criteria:**
 - [ ] The UI has a cohesive dark-mode-first visual identity
@@ -132,7 +132,7 @@ Build the design system in four layers:
 
 1. **Isolated Workspace Package** — The design system lives at `frontend/src/packages/terra/`, inside the frontend directory. It has its own `package.json`, TypeScript config, and Storybook instance. The frontend consumes it via the pnpm workspace protocol (`"@orbit/terra": "workspace:*"`), meaning changes are reflected immediately with no publish step. This isolation means the design system can be developed, tested, and documented with no dependency on application code.
 
-2. **Design Tokens** — Orbit's visual vocabulary is defined as semantic CSS custom properties in the package's `src/tokens.css` file, exported and imported by the frontend's `globals.css`. Tokens are mapped into Tailwind v4 via `@theme inline` and cover: color (brand, surface, text, status, border), typography (font families, size scale), spacing extensions, and border radius. **The design system is intentionally flat — no shadow tokens are defined.** Depth and hierarchy are communicated through background lightness, borders, and spacing, not drop shadows. The frontend's Tailwind config uses the `@source` directive to scan the package's component files so token-based utility classes are generated correctly across both codebases.
+2. **Design Tokens** — kora's visual vocabulary is defined as semantic CSS custom properties in the package's `src/tokens.css` file, exported and imported by the frontend's `globals.css`. Tokens are mapped into Tailwind v4 via `@theme inline` and cover: color (brand, surface, text, status, border), typography (font families, size scale), spacing extensions, and border radius. **The design system is intentionally flat — no shadow tokens are defined.** Depth and hierarchy are communicated through background lightness, borders, and spacing, not drop shadows. The frontend's Tailwind config uses the `@source` directive to scan the package's component files so token-based utility classes are generated correctly across both codebases.
 
 3. **Component Library** — Components are built on **Radix UI** accessibility primitives, styled with Tailwind v4 and Terra tokens. All component code is owned by the Terra package — there are no runtime design-system dependencies beyond Radix UI, `class-variance-authority`, `clsx`, and `tailwind-merge`. Each component lives in its own named folder under `src/components/` (e.g. `src/components/card/`) containing: the component file (`card.tsx`), a Storybook story (`card.stories.tsx`), and an `index.ts` that re-exports the public API. This keeps everything related to a component co-located and discoverable. **Atomic design** (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity and reuse, but it is not enforced as a directory structure. All components are exported from the package's public API (`frontend/src/packages/terra/src/index.ts`). Shadcn/ui is used purely as a **scaffolding tool** to generate initial Radix-based component code; after generation, all shadcn references are stripped and the components become fully Terra-native.
 
@@ -140,7 +140,7 @@ Build the design system in four layers:
 
 ### User Experience
 
-Orbit's visual identity should feel like infrastructure — not a consumer app. The aesthetic should be:
+kora's visual identity should feel like infrastructure — not a consumer app. The aesthetic should be:
 
 - **Dark-mode first**: Deep, near-black backgrounds with carefully layered surface elevations
 - **Technical but clean**: Monospace accents for identifiers (agent IDs, policy names), clear typographic hierarchy
@@ -158,7 +158,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 1. Developer needs a new UI element (e.g., an agent status card)
 2. Imports primitives from the design system package: `import { Card, Badge } from "@orbit/terra"`
-3. Composes them using Orbit token classes (e.g., `text-foreground`, `bg-surface`, `text-status-healthy`)
+3. Composes them using kora token classes (e.g., `text-foreground`, `bg-surface`, `text-status-healthy`)
 4. Result integrates visually without any bespoke CSS
 
 #### User Flow — Design system development (isolated)
@@ -210,12 +210,12 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 - Animation/motion system (Framer Motion integration)
 - Mobile-responsive layout system
 - Dark/light mode toggle (dark-mode first, system preference respected via media query)
-- Orbit-specific complex components (agent cards, policy editors, event feeds) — those follow once the foundation exists
+- kora-specific complex components (agent cards, policy editors, event feeds) — those follow once the foundation exists
 
 ### Future Considerations
 
 - Motion design system (Framer Motion tokens for transitions)
-- Complex Orbit-domain components (AgentStatusCard, PolicyBadge, EventFeed)
+- Complex kora-domain components (AgentStatusCard, PolicyBadge, EventFeed)
 - Theme switching (light mode variant)
 - Icon system (Lucide React, already a shadcn dependency)
 - Form system with validation (React Hook Form + Zod, common shadcn pairing)
@@ -237,7 +237,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 - [ ] `cn()` utility exported from the package's public API
 - [ ] Button component with variants: default, secondary, ghost, destructive, outline — with Storybook story
 - [ ] Card component with sub-components: CardHeader, CardTitle, CardDescription, CardContent, CardFooter — with Storybook story
-- [ ] Badge component with variants: default, secondary, destructive, outline + Orbit status variants (healthy, degraded, error) — with Storybook story
+- [ ] Badge component with variants: default, secondary, destructive, outline + kora status variants (healthy, degraded, error) — with Storybook story
 - [ ] Frontend `package.json` references `"@orbit/terra": "workspace:*"`; `globals.css` imports `tokens.css` from the package
 - [ ] Root `layout.tsx` applies global background and text color from tokens
 - [ ] Landing `page.tsx` refactored to import and use components from `@orbit/terra` (no inline arbitrary color classes)
@@ -325,7 +325,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 **Why not chosen:**
 - No isolation: design system development requires running the Next.js app, mixing concerns.
 - No Storybook without significant extra configuration plumbing into the app.
-- Harder to share with other future Orbit surfaces (e.g., an admin panel, a CLI dashboard) that need the same components.
+- Harder to share with other future kora surfaces (e.g., an admin panel, a CLI dashboard) that need the same components.
 - Design system changes are coupled to the application's development cycle.
 
 ### Alternative 2: Build components from scratch (no shadcn)
@@ -363,7 +363,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 1. **Design system name:** *(Decided)* — **Terra** (`@orbit/terra`, `frontend/src/packages/terra/`). The destination of every orbital descent; terra firma means solid ground. The design system is the solid, stable visual foundation that everything else lands on.
    - **Status:** Resolved
 
-2. **Token naming convention:** *(Resolved)* Semantic naming — `--color-status-healthy`, `--color-status-degraded`, etc. This is more expressive for an agent control plane where "healthy", "degraded", and "idle" are domain concepts, not generic success/warning/error states. Generic role names like `--color-success` are interchangeable with any product; semantic names encode Orbit's specific operating model.
+2. **Token naming convention:** *(Resolved)* Semantic naming — `--color-status-healthy`, `--color-status-degraded`, etc. This is more expressive for an agent control plane where "healthy", "degraded", and "idle" are domain concepts, not generic success/warning/error states. Generic role names like `--color-success` are interchangeable with any product; semantic names encode kora's specific operating model.
    - **Status:** Resolved
 
 3. **Component output path:** *(Resolved)* Each component lives in its own named folder under `frontend/src/packages/terra/src/components/` — e.g. `src/components/card/card.tsx`, with a co-located `card.stories.tsx` and `index.ts` that re-exports the component's public API. There is no enforced subdirectory hierarchy beyond this folder-per-component convention; atomic design is a mental model, not a folder structure. The `src/app/` architecture in the frontend is unaffected — components are imported as a package, not co-located with app code.
@@ -412,7 +412,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 - [ ] Atomic component structure scaffolded; Radix UI installed; shadcn references stripped
 - [ ] P0 component suite complete with stories
 - [ ] Landing page refactored to import from `@orbit/terra`
-- [ ] First real Orbit feature built on design system
+- [ ] First real kora feature built on design system
 
 ---
 

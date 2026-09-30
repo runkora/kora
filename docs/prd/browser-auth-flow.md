@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit currently has no authentication mechanism for human operators accessing the web UI. This PRD defines the requirements for a browser-native login flow using a frontend OIDC client, a server-side BFF session layer, and route-protection middleware so that the Orbit web UI can be accessed only by authenticated operators.
+kora currently has no authentication mechanism for human operators accessing the web UI. This PRD defines the requirements for a browser-native login flow using a frontend OIDC client, a server-side BFF session layer, and route-protection middleware so that the kora web UI can be accessed only by authenticated operators.
 
 ---
 
@@ -18,14 +18,14 @@ Orbit currently has no authentication mechanism for human operators accessing th
 
 ### Current State
 
-The Orbit frontend is an unauthenticated application. Any user who can reach the URL gets full access to every page. There is no login page, no session management, no middleware protecting routes, and no mechanism for the frontend to prove operator identity to the Go backend.
+The kora frontend is an unauthenticated application. Any user who can reach the URL gets full access to every page. There is no login page, no session management, no middleware protecting routes, and no mechanism for the frontend to prove operator identity to the Go backend.
 
 The Go identity service (`[oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md)`) implements the OAuth 2.0 Device Authorization Grant (RFC 8628) as its only human authentication flow. This was designed for headless CLI use and is unsuitable for a browser session model. [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) explicitly lists "supporting OAuth 2.0 Authorization Code Flow" as a deferred non-goal.
 
 The current gaps, by layer:
 
 **Backend (`backend/internal/identity/handlers.go`):**
-- No endpoint to accept a verified OIDC `id_token` and exchange it for an Orbit platform JWT
+- No endpoint to accept a verified OIDC `id_token` and exchange it for a kora platform JWT
 - No mechanism to validate an externally-presented identity assertion from a browser client
 
 **Frontend (`frontend/src/`):**
@@ -44,7 +44,7 @@ The current gaps, by layer:
 
 ### Business Impact
 
-- The Orbit control plane cannot be safely opened to real users while the frontend is unauthenticated
+- The kora control plane cannot be safely opened to real users while the frontend is unauthenticated
 - Every protected feature built on top of the frontend (agent management, policy review, credential audit) will be unreachable without this foundation
 - External OIDC provider integrations cannot be demonstrated in the browser until a browser flow exists
 
@@ -54,8 +54,8 @@ The current gaps, by layer:
 
 ### Primary Goals
 
-1. Enable human operators to log in to the Orbit web UI via their configured OIDC provider using the browser-native Authorization Code Flow with PKCE
-2. Establish an encrypted, server-side BFF session so that Orbit platform tokens are not exposed to browser JavaScript
+1. Enable human operators to log in to the kora web UI via their configured OIDC provider using the browser-native Authorization Code Flow with PKCE
+2. Establish an encrypted, server-side BFF session so that kora platform tokens are not exposed to browser JavaScript
 3. Protect all non-public routes via Next.js middleware — unauthenticated users are redirected to `/login`
 4. Enable logout — revoke the session and redirect to the login page
 5. Work against the existing local OIDC provider with zero additional infrastructure changes
@@ -64,7 +64,7 @@ The current gaps, by layer:
 
 - A user visiting any protected route without a session is redirected to `/login`
 - A user completing the OIDC login flow is redirected back to their original destination
-- The browser receives no Orbit `access_token` or `refresh_token` values at any point — they are held in an encrypted cookie after the session handoff
+- The browser receives no kora `access_token` or `refresh_token` values at any point — they are held in an encrypted cookie after the session handoff
 - `POST /api/auth/logout` revokes the backend token via `POST /identity/revoke` and clears the session cookie
 - The full flow works against the local OIDC provider (`dev@orbit.local.clearroute.io` / `password`) with `make dev-up` and no additional setup
 - An expired or revoked session redirects the user back to `/login` on the next request
@@ -86,18 +86,18 @@ The current gaps, by layer:
 ### US-01: Operator Login
 
 **As a** platform operator,  
-**I want to** click "Sign in" on the Orbit login page and authenticate via my organisation's identity provider,  
-**So that** I can access the Orbit control plane without managing a separate credential.
+**I want to** click "Sign in" on the kora login page and authenticate via my organisation's identity provider,  
+**So that** I can access the kora control plane without managing a separate credential.
 
 **Acceptance Criteria:**
 - [ ] Visiting `/login` presents a login page with a sign-in call-to-action
 - [ ] Initiating sign-in redirects the browser to the configured OIDC provider's authorisation endpoint with `response_type=code`, `code_challenge`, `code_challenge_method=S256`, and a `state` parameter
-- [ ] After successful authentication at the provider, the browser is redirected back to the Orbit callback URL
+- [ ] After successful authentication at the provider, the browser is redirected back to the kora callback URL
 - [ ] The browser exchanges the authorisation code for an OIDC `id_token` directly with the provider, then hands the `id_token` to the BFF
-- [ ] The BFF forwards the `id_token` to the Go identity service, which validates it and issues an Orbit platform JWT
+- [ ] The BFF forwards the `id_token` to the Go identity service, which validates it and issues a kora platform JWT
 - [ ] A signed, encrypted session cookie is set on the browser — the cookie is `HttpOnly`, `Secure`, and `SameSite=Lax`
 - [ ] The user is redirected to their original destination (or `/` if no destination was recorded)
-- [ ] The Orbit `access_token` and `refresh_token` are not readable by browser JavaScript at any point
+- [ ] The kora `access_token` and `refresh_token` are not readable by browser JavaScript at any point
 
 ---
 
@@ -105,7 +105,7 @@ The current gaps, by layer:
 
 **As a** platform operator,  
 **I want** unauthenticated users to be redirected to the login page when they visit any protected route,  
-**So that** Orbit pages are not publicly accessible.
+**So that** kora pages are not publicly accessible.
 
 **Acceptance Criteria:**
 - [ ] A request to any protected route without a valid session cookie is redirected to `/login?next=<original_path>`
@@ -122,7 +122,7 @@ The current gaps, by layer:
 
 **Acceptance Criteria:**
 - [ ] A valid session cookie grants access to protected routes without re-authentication
-- [ ] When the Orbit access token is close to expiry, the BFF silently refreshes it using the stored refresh token before serving the request
+- [ ] When the kora access token is close to expiry, the BFF silently refreshes it using the stored refresh token before serving the request
 - [ ] A BFF API route (`GET /api/auth/session`) returns the current user identity (name, email) for use by client components — it does not expose tokens
 
 ---
@@ -130,7 +130,7 @@ The current gaps, by layer:
 ### US-04: Logout
 
 **As a** platform operator,  
-**I want** to be able to sign out of Orbit,  
+**I want** to be able to sign out of kora,  
 **So that** I can end my session on a shared machine or after completing my work.
 
 **Acceptance Criteria:**
@@ -159,7 +159,7 @@ The current gaps, by layer:
 
 ### High-Level Architecture
 
-The browser-based authentication flow spans four layers. The frontend OIDC client handles the Authorization Code Flow with PKCE entirely in the browser, including the token exchange with the OIDC provider. Once the browser has the OIDC `id_token`, it is handed off to the BFF, which validates it with the Go identity service and seals the resulting Orbit platform JWT into an encrypted HttpOnly cookie.
+The browser-based authentication flow spans four layers. The frontend OIDC client handles the Authorization Code Flow with PKCE entirely in the browser, including the token exchange with the OIDC provider. Once the browser has the OIDC `id_token`, it is handed off to the BFF, which validates it with the Go identity service and seals the resulting kora platform JWT into an encrypted HttpOnly cookie.
 
 ```mermaid
 graph LR
@@ -178,15 +178,15 @@ graph LR
     BFF -.->|"8. HttpOnly encrypted cookie\n(Orbit JWT — opaque to browser JS)"| Browser
 ```
 
-**Trust boundary:** The OIDC `id_token` is held in the browser only transiently — it exists in JavaScript memory during the callback flow and is discarded once the BFF completes the session handoff. The Orbit platform tokens (`access_token`, `refresh_token`) never appear in the browser; they are sealed into an encrypted HttpOnly cookie immediately upon receipt. Browser JavaScript cannot read the contents of that cookie.
+**Trust boundary:** The OIDC `id_token` is held in the browser only transiently — it exists in JavaScript memory during the callback flow and is discarded once the BFF completes the session handoff. The kora platform tokens (`access_token`, `refresh_token`) never appear in the browser; they are sealed into an encrypted HttpOnly cookie immediately upon receipt. Browser JavaScript cannot read the contents of that cookie.
 
 ### High-Level Approach
 
 A frontend OIDC client library runs in the browser and owns the full Authorization Code Flow with PKCE: it generates the code verifier, constructs the authorization URL, handles the callback, and exchanges the code with the OIDC provider. On receiving the `id_token`, the browser immediately forwards it to the Next.js BFF.
 
-The BFF presents the `id_token` to the Go identity service via a new `oidc_id_token` grant type in `POST /identity/session`. The identity service validates the `id_token` signature against the OIDC provider's JWKS, extracts the claims, and issues an Orbit platform JWT. The BFF seals the platform JWT and refresh token into an encrypted, HttpOnly session cookie. The browser discards the OIDC tokens after the handoff.
+The BFF presents the `id_token` to the Go identity service via a new `oidc_id_token` grant type in `POST /identity/session`. The identity service validates the `id_token` signature against the OIDC provider's JWKS, extracts the claims, and issues a kora platform JWT. The BFF seals the platform JWT and refresh token into an encrypted, HttpOnly session cookie. The browser discards the OIDC tokens after the handoff.
 
-From this point forward, the browser's auth state is represented entirely by the encrypted session cookie — the browser never holds an Orbit token in readable form.
+From this point forward, the browser's auth state is represented entirely by the encrypted session cookie — the browser never holds a kora token in readable form.
 
 ```mermaid
 sequenceDiagram
@@ -257,8 +257,8 @@ sequenceDiagram
 7. The `/auth/callback` page loads; the OIDC client retrieves the verifier from sessionStorage and exchanges the code with the provider's token endpoint
 8. The OIDC client receives the `id_token` and immediately POSTs it to `/api/auth/session`
 9. The BFF forwards the `id_token` to `POST /identity/session` with `grant_type: oidc_id_token`
-10. The identity service validates the `id_token`, extracts claims, and issues an Orbit platform JWT
-11. The BFF seals the Orbit tokens into an encrypted session cookie and redirects to the original destination (from state carried through the OIDC flow), or `/` if absent
+10. The identity service validates the `id_token`, extracts claims, and issues a kora platform JWT
+11. The BFF seals the kora tokens into an encrypted session cookie and redirects to the original destination (from state carried through the OIDC flow), or `/` if absent
 
 #### Authenticated State
 
@@ -288,11 +288,11 @@ sequenceDiagram
     expiresAt: number; // Unix seconds
   }
   ```
-- **`POST /api/auth/session`** — BFF route that receives the `id_token` from the OIDC client, forwards it to `POST /identity/session` with `grant_type: oidc_id_token`, seals the returned Orbit tokens into the session cookie, and redirects to the post-login destination.
+- **`POST /api/auth/session`** — BFF route that receives the `id_token` from the OIDC client, forwards it to `POST /identity/session` with `grant_type: oidc_id_token`, seals the returned kora tokens into the session cookie, and redirects to the post-login destination.
 - **`GET /api/auth/session`** — BFF route that returns non-sensitive user info (name, email, expiry) from the decrypted session. Returns `401` if no session.
 - **`POST /api/auth/logout`** — BFF route that revokes the token and clears the session cookie.
 - **`src/app/login/page.tsx`** — Login page component with a single "Sign in" button that triggers the OIDC client's authorization redirect.
-- **`oidc_id_token` grant type in `POST /identity/session`** — New grant type in the Go identity service. Accepts a raw OIDC `id_token`, validates it against the configured OIDC provider's JWKS, extracts claims (`sub`, `email`, `name`), and issues an Orbit platform JWT.
+- **`oidc_id_token` grant type in `POST /identity/session`** — New grant type in the Go identity service. Accepts a raw OIDC `id_token`, validates it against the configured OIDC provider's JWKS, extracts claims (`sub`, `email`, `name`), and issues a kora platform JWT.
 - **`BFF_SESSION_SECRET`** — Already wired in `src/server/config.ts`; used to seal and unseal the session cookie.
 - **OIDC provider public config** — The OIDC issuer URL, client ID, and callback redirect URI must be exposed as `NEXT_PUBLIC_*` environment variables so the browser-side OIDC client can use them.
 
@@ -304,7 +304,7 @@ sequenceDiagram
 
 - Browser-based operator login via OIDC Authorization Code Flow with PKCE, owned by a frontend OIDC client library
 - OIDC `id_token` handoff to Go identity service via `oidc_id_token` grant type in `POST /identity/session`
-- Server-side BFF session layer — encrypted, HttpOnly session cookie; Orbit platform tokens sealed server-side
+- Server-side BFF session layer — encrypted, HttpOnly session cookie; kora platform tokens sealed server-side
 - Next.js route-protection middleware — unauthenticated requests redirected to `/login`
 - Silent inline token refresh in middleware when the access token nears expiry
 - Logout with backend token revocation (`POST /identity/revoke`)
@@ -338,22 +338,22 @@ sequenceDiagram
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `oidc_id_token` grant type in `POST /identity/session`: validates the presented `id_token` against the OIDC provider's JWKS, extracts claims, and issues an Orbit platform JWT
+- [ ] `oidc_id_token` grant type in `POST /identity/session`: validates the presented `id_token` against the OIDC provider's JWKS, extracts claims, and issues a kora platform JWT
 - [ ] Frontend OIDC client library configured with OIDC issuer URL, client ID, and redirect URI from `NEXT_PUBLIC_*` environment variables
 - [ ] OIDC client generates a PKCE code verifier and `state` parameter in the browser; the verifier is stored in sessionStorage and never sent to the BFF or backend
 - [ ] `/auth/callback` client-side page: invokes the OIDC client callback handler; on success POSTs `id_token` to `POST /api/auth/session`
-- [ ] `POST /api/auth/session` BFF route: accepts `id_token`, calls Go identity service with `oidc_id_token` grant, seals returned Orbit tokens into encrypted session cookie
+- [ ] `POST /api/auth/session` BFF route: accepts `id_token`, calls Go identity service with `oidc_id_token` grant, seals returned kora tokens into encrypted session cookie
 - [ ] `GET /api/auth/session` BFF route: returns non-sensitive user identity (name, email) from the decrypted session; returns `401` if no session
 - [ ] `POST /api/auth/logout` BFF route: calls `POST /identity/revoke`, clears session cookie, redirects to `/login`
 - [ ] `middleware.ts`: protects all non-public routes; redirects unauthenticated requests to `/login?next=<path>`; redirects authenticated requests away from `/login`
 - [ ] `src/app/login/page.tsx`: login page with a single sign-in call-to-action
-- [ ] Session cookie must be `HttpOnly`, `Secure`, and `SameSite=Lax`; Orbit tokens must not be readable by browser JavaScript
+- [ ] Session cookie must be `HttpOnly`, `Secure`, and `SameSite=Lax`; kora tokens must not be readable by browser JavaScript
 - [ ] `state` parameter validated on every callback; mismatches rejected
 - [ ] Post-login `next` destination encoded in the OIDC `state` parameter and validated as a relative `APP_ROUTES` path before use; invalid values silently fall back to `/`
 - [ ] `config/dex/config.yaml` updated with the callback redirect URI for local development
 
 **Should Have (P1):**
-- [ ] Inline token refresh in middleware — when the Orbit access token is within a configurable threshold of expiry, the BFF silently refreshes it before forwarding the request
+- [ ] Inline token refresh in middleware — when the kora access token is within a configurable threshold of expiry, the BFF silently refreshes it before forwarding the request
 - [ ] Structured log entries emitted for session handoff, token refresh, and logout — no token values in any log output
 
 **Nice to Have (P2):**
@@ -362,7 +362,7 @@ sequenceDiagram
 ### Non-Functional Requirements
 
 **Security:**
-- Orbit `access_token` and `refresh_token` must not appear in browser JavaScript-accessible storage at any point after the session handoff
+- kora `access_token` and `refresh_token` must not appear in browser JavaScript-accessible storage at any point after the session handoff
 - The OIDC `id_token` is held in browser memory only transiently during the callback flow; it is discarded immediately after the BFF session handoff completes
 - All session cookies must be `HttpOnly`, `Secure`, and `SameSite=Lax` — no exceptions
 - CSRF protection enforced via the OIDC `state` parameter — a callback with a mismatched or missing `state` must be rejected
@@ -408,7 +408,7 @@ sequenceDiagram
 | CSRF via forged callback state | High | Medium | OIDC client validates `state` on every callback; mismatch causes auth to abort |
 | Open redirect via `next` parameter in state | High | Medium | Validate `next` is a relative path belonging to `APP_ROUTES` before redirecting |
 | sessionStorage PKCE verifier readable by same-origin JS (XSS) | High | Low | An XSS attacker can read the verifier but would also need to intercept the code — both are short-lived; defend via CSP and standard XSS hygiene |
-| Orbit session cookie readable by client JS | High | Low | Enforce `HttpOnly` on all session cookies; no exceptions |
+| kora session cookie readable by client JS | High | Low | Enforce `HttpOnly` on all session cookies; no exceptions |
 | CSRF on `POST /api/auth/logout` | Low | Low | `SameSite=Lax` does not block cross-site POST but forcing a sign-out has no data exfiltration consequence. Risk accepted for this phase. |
 | `redirect_uri` mismatch breaking local dev | Medium | Medium | Document exact callback URL; add to `config/dex/config.yaml` as part of implementation |
 | OIDC provider JWKS unavailable during id_token validation | Medium | Low | Go backend returns a clear error; callback page redirects to `/login?error=provider_unavailable` |
@@ -441,7 +441,7 @@ Use the existing Device Code flow in the browser — show the `user_code` and `v
 Use Auth.js as the integrated Next.js authentication framework. It supports OIDC providers natively and manages sessions.
 
 **Why not chosen:**
-- Auth.js is opinionated about owning the OIDC flow and issuing its own session tokens — it conflicts with the requirement that the Go identity service is the authoritative issuer of Orbit platform JWTs
+- Auth.js is opinionated about owning the OIDC flow and issuing its own session tokens — it conflicts with the requirement that the Go identity service is the authoritative issuer of kora platform JWTs
 - Introduces significant framework concepts (providers, adapters, callbacks) that are unnecessary when the BFF is a thin handoff layer between the OIDC client and the Go identity service
 - Risk of coupling between Auth.js OIDC assumptions and Go backend behaviour
 
@@ -501,7 +501,7 @@ Use Auth.js as the integrated Next.js authentication framework. It supports OIDC
 - **Authorization Code Flow** — The OAuth 2.0 grant type in which the provider issues a short-lived `code` to the browser, which the OIDC client then exchanges for tokens at the token endpoint.
 - **PKCE** (Proof Key for Code Exchange) — An extension to the Authorization Code Flow that prevents code interception attacks. The client generates a random `code_verifier`, sends a hash of it (`code_challenge`) in the authorization request, and must present the raw verifier at token exchange.
 - **Frontend OIDC client** — A browser-side library that implements the Authorization Code Flow with PKCE. It manages the code verifier in sessionStorage, handles the provider redirect, and exchanges the code at the token endpoint.
-- **BFF** (Backend-for-Frontend) — The Next.js server process acting as a security-aware proxy between the browser and the Go identity service. After the OIDC client completes the token exchange, the BFF converts the resulting `id_token` into an encrypted Orbit session cookie.
-- **`id_token`** — A JWT issued by the OIDC provider that contains identity claims (`sub`, `email`, `name`). Used by the BFF to prove the operator's identity to the Go identity service, which validates it and issues an Orbit platform JWT in exchange.
+- **BFF** (Backend-for-Frontend) — The Next.js server process acting as a security-aware proxy between the browser and the Go identity service. After the OIDC client completes the token exchange, the BFF converts the resulting `id_token` into an encrypted kora session cookie.
+- **`id_token`** — A JWT issued by the OIDC provider that contains identity claims (`sub`, `email`, `name`). Used by the BFF to prove the operator's identity to the Go identity service, which validates it and issues a kora platform JWT in exchange.
 - **`state` parameter** — A random, single-use value included in the authorization request and returned verbatim in the callback. Used by the OIDC client to prevent CSRF attacks and to carry custom data (e.g., the post-login destination) through the flow.
 - **JTI blocklist** — The Redis-backed list of revoked JWT identifiers maintained by the Go identity service. Used by `POST /identity/revoke`.

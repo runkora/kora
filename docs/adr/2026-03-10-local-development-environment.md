@@ -3,13 +3,13 @@
 **Status:** Superseded by [kubernetes-only-local-development](2026-07-10-kubernetes-only-local-development.md)
 **Date:** 2026-03-10
 **Deciders:** Engineering Team
-**Technical Story:** Defining the local development environment strategy for Orbit — how engineers run the platform locally for day-to-day Go development and for full-stack integration testing against the SPIFFE/SPIRE, Istio, and Envoy infrastructure established in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), and 0015.
+**Technical Story:** Defining the local development environment strategy for kora — how engineers run the platform locally for day-to-day Go development and for full-stack integration testing against the SPIFFE/SPIRE, Istio, and Envoy infrastructure established in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), and 0015.
 
 ---
 
 ## Context
 
-Orbit's architecture ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), 0015) requires several infrastructure components that do not exist in a typical Go development setup:
+kora's architecture ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), 0015) requires several infrastructure components that do not exist in a typical Go development setup:
 
 - **SPIRE Server + Agent** — workload attestation and SVID issuance ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md))
 - **Envoy sidecars** — mTLS enforcement and platform token injection ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md))
@@ -76,7 +76,7 @@ We need to define:
 - Active project, widely used in local dev workflows
 
 **Cons:**
-- k3s is not vanilla Kubernetes — minor API compatibility differences exist (though none relevant to Orbit's usage)
+- k3s is not vanilla Kubernetes — minor API compatibility differences exist (though none relevant to kora's usage)
 - Cilium is not supported in k3d with full eBPF capability on macOS (this is a Cilium limitation, not a k3d limitation)
 
 #### Option B: kind (Kubernetes IN Docker)
@@ -132,7 +132,7 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 
 **Tooling:** k3d
 
-**Decision rationale:** k3d is chosen over kind and minikube. The combination of fast cluster creation, Docker-native operation, and clean LoadBalancer support makes it the most productive choice for the local full-stack tier. The k3s API compatibility delta is not relevant to any Orbit platform usage.
+**Decision rationale:** k3d is chosen over kind and minikube. The combination of fast cluster creation, Docker-native operation, and clean LoadBalancer support makes it the most productive choice for the local full-stack tier. The k3s API compatibility delta is not relevant to any kora platform usage.
 
 `make dev-cluster` provisions:
 - A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`). k3d nodes can reach `orbit-postgres` at the IP level via this shared network, but pods inside the cluster use **CoreDNS** for name resolution — Docker's embedded DNS is invisible to CoreDNS. `dev-cluster-up.sh` registers `orbit-postgres` in CoreDNS by creating a headless `Service` + manual `Endpoints` object pointing at the container's Docker IP. See [CoreDNS DNS Injection](#coredns-dns-injection) below.
@@ -172,7 +172,7 @@ Cilium is not included in the local development environment. This is an explicit
 
 ### SVID Exchange Endpoint — Unit Test Strategy
 
-The `POST /identity/exchange` endpoint accepts a SPIFFE SVID (an X.509 certificate issued by SPIRE) and exchanges it for an Orbit platform session token.
+The `POST /identity/exchange` endpoint accepts a SPIFFE SVID (an X.509 certificate issued by SPIRE) and exchanges it for a kora platform session token.
 
 Testing this endpoint requires a real SVID, which requires a running SPIRE Agent. The unit/integration test boundary is handled as follows:
 
@@ -233,7 +233,7 @@ Installed by `make setup`:
 | `make migrate-up` | Run pending Goose database migrations |
 | `make migrate-down` | Roll back the last Goose migration |
 | `make migrate-create name=X` | Generate a new Goose migration file |
-| `make dev` | Start the Orbit backend with hot-reload (air) |
+| `make dev` | Start the kora backend with hot-reload (air) |
 | `make auth-device` | Authenticate via Device Authorization Grant against the local Dex instance |
 | `make dev-cluster` | Provision Tier 2: k3d cluster + SPIRE + Istio (implicitly runs `db-up` first) |
 | `make dev-cluster-down` | Tear down the k3d cluster |

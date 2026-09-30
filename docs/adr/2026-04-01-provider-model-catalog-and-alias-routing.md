@@ -2,7 +2,7 @@
 
 **Status:** Accepted (Amended 2025-07-22)
 **Date:** 2026-04-01
-**Deciders:** Orbit platform team
+**Deciders:** kora platform team
 **Technical Story:** Bedrock `ListModels` returns ~400+ raw AWS model IDs — many are inactive, duplicated under two IDs, or carry internal region-routing prefixes (e.g. `us.`, `eu.`) that clients must not need to understand. This ADR defines a richer `ProviderModel` type, per-provider filtering rules, and alias resolution in the routing engine.
 
 ---
@@ -257,7 +257,7 @@ The static `DefaultPricing()` function and its hardcoded model entries have been
 
 ### 8. Anthropic zero-translation path
 
-A parallel inference path was added alongside the catalog work: `POST /v1/messages` now decodes directly into `anthropic.MessageNewParams` (native Anthropic SDK type) and encodes the response as `*anthropic.Message`, with no conversion through Orbit domain types. This eliminates all lossy translation on the Anthropic dialect path. See **[anthropic-zero-translation-path](2026-04-01-anthropic-zero-translation-path.md)** for the full design and rationale.
+A parallel inference path was added alongside the catalog work: `POST /v1/messages` now decodes directly into `anthropic.MessageNewParams` (native Anthropic SDK type) and encodes the response as `*anthropic.Message`, with no conversion through kora domain types. This eliminates all lossy translation on the Anthropic dialect path. See **[anthropic-zero-translation-path](2026-04-01-anthropic-zero-translation-path.md)** for the full design and rationale.
 
 ### Migration Path
 

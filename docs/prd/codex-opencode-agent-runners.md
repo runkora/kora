@@ -4,13 +4,13 @@
 **Created:** 2026-05-19  
 **Last Updated:** 2026-05-22 (rev 2 — all review findings addressed)  
 **Owner:** Platform Engineering  
-**Stakeholders:** Orbit Core Team, Agent Developers, Tenant Users
+**Stakeholders:** kora Core Team, Agent Developers, Tenant Users
 
 ---
 
 ## Executive Summary
 
-The agent control plane currently supports only Claude Code as a managed agent framework. This PRD covers the implementation of the two remaining framework runners — Codex (OpenAI's CLI) and OpenCode (sst/opencode) — completing the multi-framework agent promise first described in the Agent Control Plane PRD. Both frameworks target the same streaming user experience as Claude Code: text deltas appear in the UI as they are generated, not as a batch at turn-end. Codex achieves this via its persistent `codex app-server` JSON-RPC 2.0 server, which streams `item/agentMessage/delta` notifications and routes LLM calls through the Orbit inference gateway's Responses API endpoint. OpenCode achieves it via its persistent `opencode acp` subprocess, which communicates over stdin/stdout JSON-RPC 2.0 and streams `session/update` / `agent_message_chunk` notifications for token-level text.
+The agent control plane currently supports only Claude Code as a managed agent framework. This PRD covers the implementation of the two remaining framework runners — Codex (OpenAI's CLI) and OpenCode (sst/opencode) — completing the multi-framework agent promise first described in the Agent Control Plane PRD. Both frameworks target the same streaming user experience as Claude Code: text deltas appear in the UI as they are generated, not as a batch at turn-end. Codex achieves this via its persistent `codex app-server` JSON-RPC 2.0 server, which streams `item/agentMessage/delta` notifications and routes LLM calls through the kora inference gateway's Responses API endpoint. OpenCode achieves it via its persistent `opencode acp` subprocess, which communicates over stdin/stdout JSON-RPC 2.0 and streams `session/update` / `agent_message_chunk` notifications for token-level text.
 
 ---
 
@@ -44,7 +44,7 @@ Additionally, `CreateSessionRequest` does not carry the framework value at all. 
 2. Implement `runner_opencode.go` — a functional transform layer for the OpenCode ACP subprocess.
 3. Wire framework dispatch so the correct runner is instantiated based on the agent type's framework field.
 4. Deliver real-time token-level text streaming for both Codex and OpenCode, matching the streaming UX of the Claude Code integration.
-5. Maintain the same Orbit standard event format so no changes are required downstream (SSE relay, run_events, frontend).
+5. Maintain the same kora standard event format so no changes are required downstream (SSE relay, run_events, frontend).
 
 ### Success Metrics
 
@@ -137,7 +137,7 @@ This model is structurally identical to Claude Code's: one long-lived process pe
 
 #### LLM Routing via the Responses API
 
-Codex routes all outbound LLM calls through the OpenAI Responses API (`POST /v1/responses`). The Orbit inference gateway already supports the Responses API via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Routing Codex through the gateway requires a single environment variable:
+Codex routes all outbound LLM calls through the OpenAI Responses API (`POST /v1/responses`). The kora inference gateway already supports the Responses API via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Routing Codex through the gateway requires a single environment variable:
 
 ```
 OPENAI_BASE_URL=http://inference-gateway.orbit-system.svc.cluster.local
@@ -189,11 +189,11 @@ The protocol resembles JSON-RPC 2.0 but deliberately omits the `"jsonrpc": "2.0"
 
 #### Notification Event Mapping
 
-All inbound server notifications (no `id` field) map to Orbit events as follows:
+All inbound server notifications (no `id` field) map to kora events as follows:
 
-| Notification method | Condition | Orbit action |
+| Notification method | Condition | kora action |
 |---|---|---|
-| `turn/started` | Turn begins | No Orbit event (informational) |
+| `turn/started` | Turn begins | No kora event (informational) |
 | `item/started` | New item begins (command, tool call) | Emit `tool_use` for tool items |
 | `item/agentMessage/delta` | Text token arrives | Emit `text_delta`; accumulate into buffer |
 | `item/reasoning/textDelta` | Reasoning token arrives | Emit `thinking_delta`; accumulate into buffer |
@@ -310,7 +310,7 @@ OpenCode does not honour `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` environment v
 }
 ```
 
-`Send` returns immediately. The server holds the `session/prompt` response until the entire turn completes. While in flight, it emits `session/update` notifications (text deltas, tool events, permission requests). The read loop goroutine translates these to Orbit events. Turn end is signalled by the `session/prompt` response arriving — the read loop then emits `message_complete` + `message_stop`.
+`Send` returns immediately. The server holds the `session/prompt` response until the entire turn completes. While in flight, it emits `session/update` notifications (text deltas, tool events, permission requests). The read loop goroutine translates these to kora events. Turn end is signalled by the `session/prompt` response arriving — the read loop then emits `message_complete` + `message_stop`.
 
 #### Permission Requests (Auto-Approve)
 
@@ -331,14 +331,14 @@ Filesystem and terminal operations (file reads, writes, shell commands) are perf
 
 The read loop goroutine handles `session/update` notifications. The `params.update.sessionUpdate` field is the discriminant:
 
-| `sessionUpdate` value | Condition | Orbit action |
+| `sessionUpdate` value | Condition | kora action |
 |---|---|---|
 | `agent_message_chunk` | Text token arrives (`update.content.text`) | Emit `text_delta`; accumulate into buffer |
 | `agent_thought_chunk` | Reasoning token arrives | Emit `thinking_delta`; accumulate into buffer |
 | `tool_call` (status `pending`/`in_progress`) | Tool call begins | Emit `tool_use` |
 | `tool_call` (status `completed`) | Tool result available | Emit `tool_result` |
 | `tool_call` (status `failed`) | Tool errored | Emit `tool_result` with `is_error: true` |
-| `usage_update` | Token usage available | Record; no Orbit event |
+| `usage_update` | Token usage available | Record; no kora event |
 | All other variants | — | Ignore |
 
 Turn complete: `session/prompt` response received → emit `message_complete` (flushed buffer) then `message_stop`.
@@ -654,7 +654,7 @@ All questions have been resolved. No open questions remain.
 - [Agent Control Plane PRD](./agent-control-plane.md) — parent PRD; this work delivers Phase 4 of that document
 - [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing via `OPENAI_BASE_URL`
 - [agent-cli-framework-and-transform-layer](../adr/2026-05-11-agent-cli-framework-and-transform-layer.md) — transform layer interface and Claude Code subprocess model
-- [agent-event-streaming-protocol](../adr/2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by the frontend
+- [agent-event-streaming-protocol](../adr/2026-05-11-agent-event-streaming-protocol.md) — kora standard event format consumed by the frontend
 
 ### Codex App-Server Wire Protocol Reference
 
@@ -691,7 +691,7 @@ item/fileChange/requestApproval          { ... }
 
 ### Codex LLM Routing via Responses API
 
-Codex uses the OpenAI Responses API (`POST /v1/responses`) for all outbound LLM calls. The Orbit inference gateway supports this endpoint via `DialectResponses`. Setting `OPENAI_BASE_URL` in the Codex container environment routes these calls through the gateway transparently:
+Codex uses the OpenAI Responses API (`POST /v1/responses`) for all outbound LLM calls. The kora inference gateway supports this endpoint via `DialectResponses`. Setting `OPENAI_BASE_URL` in the Codex container environment routes these calls through the gateway transparently:
 
 ```
 OPENAI_BASE_URL=http://inference-gateway.orbit-system.svc.cluster.local
@@ -736,12 +736,12 @@ Runner always responds: `{ "result": { "outcome": { "outcome": "selected", "opti
 
 | Term | Definition |
 |---|---|
-| Transform layer | Per-framework adapter within the session-manager that wraps a CLI subprocess and normalises its output to the Orbit event format |
+| Transform layer | Per-framework adapter within the session-manager that wraps a CLI subprocess and normalises its output to the kora event format |
 | Runner | The Go implementation of the `Runner` interface for a specific CLI framework |
 | Codex app-server | The `codex app-server` subcommand that exposes Codex's internal turn-processing engine over a JSONL bidirectional channel (stdio or Unix socket) |
-| Responses API | OpenAI's `POST /v1/responses` streaming API; used by Codex for all outbound LLM calls; supported by the Orbit inference gateway via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)) |
+| Responses API | OpenAI's `POST /v1/responses` streaming API; used by Codex for all outbound LLM calls; supported by the kora inference gateway via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)) |
 | ACP | Agent Client Protocol — OpenCode's JSON-RPC 2.0 stdio mode (`opencode acp`), used for programmatic integration with editors and runners |
-| ACP read loop | Background goroutine in the OpenCode runner that reads JSON-RPC notifications from the subprocess's stdout and translates them to Orbit events |
+| ACP read loop | Background goroutine in the OpenCode runner that reads JSON-RPC notifications from the subprocess's stdout and translates them to kora events |
 | Auto-approve | Pattern used by both Codex and OpenCode runners — always approves tool permission requests from the subprocess, equivalent to `--dangerously-skip-permissions` in Claude Code |
 
 ---

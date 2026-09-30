@@ -9,7 +9,7 @@
 
 ## Context
 
-Orbit agents do not always act under their own authority alone. An agent may be acting under explicit authority granted by a human, it may be operating fully autonomously under its own registered permissions, or it may need to pause and escalate a decision to a human when it encounters something outside its authorised scope.
+kora agents do not always act under their own authority alone. An agent may be acting under explicit authority granted by a human, it may be operating fully autonomously under its own registered permissions, or it may need to pause and escalate a decision to a human when it encounters something outside its authorised scope.
 
 These are structurally distinct patterns with different identity implications. The platform must be able to express which pattern is in effect on any given request, because policy evaluation, audit records, and credential brokering all depend on this context.
 
@@ -17,7 +17,7 @@ These are structurally distinct patterns with different identity implications. T
 
 [unified-identity-model](2026-03-05-unified-identity-model.md) established the unified `Principal` model and the platform session token. Every actor in the platform — human or agent — is represented as a Principal and authenticated via a platform session token. What [unified-identity-model](2026-03-05-unified-identity-model.md) does not cover is what happens when one principal acts on behalf of another, or when an agent needs to bring a human into its decision loop.
 
-The three execution flow patterns Orbit must support are:
+The three execution flow patterns kora must support are:
 
 1. **On Behalf Of (Delegated)** — A human grants an agent authority to act within a scope derived from the human's own permissions. The agent carries a delegation chain that makes the human's authorisation explicit and auditable.
 2. **Unassisted** — The agent acts entirely under its own registered principal, with no human delegation context. Policy applies the constraints appropriate for autonomous operation.
@@ -66,12 +66,12 @@ We need to define:
 **Description:** Design a custom JWT structure for delegation chains — e.g. a `delegation_chain` claim containing an array of `{principal_id, scope, expiry}` objects.
 
 **Pros:**
-- Fully tailored to Orbit's data model
+- Fully tailored to kora's data model
 - No dependency on external standards or libraries
 
 **Cons:**
 - Reinvents a solved problem — delegation token semantics are well-specified in RFC 8693
-- Interoperability risk if Orbit ever needs to accept delegations from external systems
+- Interoperability risk if kora ever needs to accept delegations from external systems
 - Increases the implementation and security review burden
 
 ### Option 2: OAuth 2.0 Token Exchange — RFC 8693
@@ -96,11 +96,11 @@ The `act` claim is a nested JSON object identifying the actor performing the exc
 - Established standard with well-defined semantics for actor, subject, and scope
 - The `act` claim natively supports chained delegation (agent acting on behalf of human who was delegated to by another human)
 - Widely understood in the industry — reduces onboarding friction for engineers familiar with OAuth
-- Orbit's token exchange endpoint becomes a standard-compliant implementation
+- kora's token exchange endpoint becomes a standard-compliant implementation
 
 **Cons:**
-- RFC 8693 is designed with OAuth 2.0 authorization servers in mind — Orbit is not a full OAuth AS, so the implementation is a subset
-- Some RFC 8693 fields are not applicable to Orbit's model (e.g. `resource` indicator, `audience` restrictions beyond the platform)
+- RFC 8693 is designed with OAuth 2.0 authorization servers in mind — kora is not a full OAuth AS, so the implementation is a subset
+- Some RFC 8693 fields are not applicable to kora's model (e.g. `resource` indicator, `audience` restrictions beyond the platform)
 
 ### Option 3: SPIFFE federation for delegation
 
@@ -122,7 +122,7 @@ The `act` claim is a nested JSON object identifying the actor performing the exc
 
 ### Rationale
 
-RFC 8693 is designed precisely for the delegation and impersonation patterns Orbit needs. The `act` claim solves the chained delegation representation problem correctly. Adopting an established standard avoids reinventing token semantics and reduces the security review surface. The subset of RFC 8693 required for Orbit's use case is small and well-understood.
+RFC 8693 is designed precisely for the delegation and impersonation patterns kora needs. The `act` claim solves the chained delegation representation problem correctly. Adopting an established standard avoids reinventing token semantics and reduces the security review surface. The subset of RFC 8693 required for kora's use case is small and well-understood.
 
 ---
 
@@ -135,12 +135,12 @@ A human principal explicitly grants an agent authority to act within a bounded s
 **How it works:**
 
 1. The human authenticates and holds a valid platform session token ([unified-identity-model](2026-03-05-unified-identity-model.md))
-2. The human initiates a delegation grant via Orbit's delegation API, specifying:
+2. The human initiates a delegation grant via kora's delegation API, specifying:
    - The agent principal ID being delegated to
    - The scope of authority being granted (a subset of the human's own permissions)
    - The expiry of the delegation grant
-3. Orbit validates that the requested scope does not exceed the human's own permissions (no escalation)
-4. Orbit issues a **delegation token** — an RFC 8693-structured JWT with:
+3. kora validates that the requested scope does not exceed the human's own permissions (no escalation)
+4. kora issues a **delegation token** — an RFC 8693-structured JWT with:
    - `sub`: the human principal ID (whose authority is being delegated)
    - `act.sub`: the agent principal ID (who is acting under that authority)
    - `scope`: the explicitly granted scope
@@ -220,20 +220,20 @@ The agent encounters a decision or operation that falls outside its authorised s
 **How it works:**
 
 1. The agent, operating in either delegated or unassisted mode, encounters an operation it is not permitted to perform unilaterally
-2. The agent raises an escalation event via Orbit's escalation API, specifying:
+2. The agent raises an escalation event via kora's escalation API, specifying:
    - The operation it wants to perform
    - The context it has (why it believes the operation is necessary)
    - The escalation target (a human principal or group — configuration of this target is deferred, but it must be pre-configured)
-3. Orbit records the escalation event and notifies the escalation target
+3. kora records the escalation event and notifies the escalation target
 4. The agent's execution is suspended pending a human response
 5. The human reviews the escalation, authenticates, and responds with either approval (and optionally a scope) or rejection
-6. If approved, Orbit creates a **bounded delegation grant** — structurally identical to a Pattern 1 delegation token — scoped specifically to the requested operation, with a tight expiry
+6. If approved, kora creates a **bounded delegation grant** — structurally identical to a Pattern 1 delegation token — scoped specifically to the requested operation, with a tight expiry
 7. The agent's execution resumes with the bounded delegation token in context
 8. The human's approval is recorded as a principal action — the human is accountable for what the agent does under that grant
 
 **Identity implications:**
 
-The escalation itself is an authenticated action — the human responding must present a valid platform session token, and their principal must match the expected escalation target. Orbit validates this before accepting the response.
+The escalation itself is an authenticated action — the human responding must present a valid platform session token, and their principal must match the expected escalation target. kora validates this before accepting the response.
 
 The bounded delegation token issued after approval is indistinguishable in format from a Pattern 1 delegation token. The policy engine does not need to know whether a delegation was pre-granted or escalation-derived — it sees the same structure. The distinction is only relevant to audit and provenance.
 
@@ -270,7 +270,7 @@ The `escalation_ref` is included for audit correlation only, MUST be ignored by 
 Delegation tokens follow the same JTI blocklist approach established in [unified-identity-model](2026-03-05-unified-identity-model.md):
 
 - Every delegation token carries a unique `jti`
-- Orbit maintains the JTI blocklist in Redis with TTL equal to the token's remaining lifetime
+- kora maintains the JTI blocklist in Redis with TTL equal to the token's remaining lifetime
 - A human may revoke a delegation grant they issued at any time via the delegation API — this adds the token's `jti` to the blocklist immediately
 - The Layer 1 enforcement boundary (gateway/sidecar `ext_authz`) validates delegation token JTIs against the blocklist — not individual service endpoints
 - Revocation propagation latency is bounded by Redis read latency — effectively immediate in practice
@@ -279,7 +279,7 @@ Delegation tokens follow the same JTI blocklist approach established in [unified
 
 ## Policy Engine Contract
 
-The **execution context document** is assembled by Orbit's `ext_authz` service at the enforcement boundary — the Orbit Gateway for north-south requests and the Envoy sidecar for east-west requests (see [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)). The `ext_authz` service constructs this document from the validated platform session token and, if present, the validated delegation token, then passes it to OPA for policy evaluation. Neither the destination service nor OPA itself is responsible for parsing raw tokens.
+The **execution context document** is assembled by kora's `ext_authz` service at the enforcement boundary — the kora Gateway for north-south requests and the Envoy sidecar for east-west requests (see [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)). The `ext_authz` service constructs this document from the validated platform session token and, if present, the validated delegation token, then passes it to OPA for policy evaluation. Neither the destination service nor OPA itself is responsible for parsing raw tokens.
 
 The policy engine (OPA) receives a consistent **execution context** document for every request, regardless of which flow pattern is in effect. The structure is:
 
@@ -337,13 +337,13 @@ allow {
 
 ### Neutral
 
-- Orbit implements a subset of RFC 8693, not the full specification — future implementers should be aware that not all RFC 8693 fields and flows are supported
+- kora implements a subset of RFC 8693, not the full specification — future implementers should be aware that not all RFC 8693 fields and flows are supported
 
 ---
 
 ## Implementation Notes
 
-Orbit should expose:
+kora should expose:
 
 - `POST /identity/delegation` — create a delegation grant (human-initiated; validates scope does not exceed grantor's permissions; issues RFC 8693 delegation token)
 - `DELETE /identity/delegation/{jti}` — revoke a delegation grant

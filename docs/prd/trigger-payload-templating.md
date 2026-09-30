@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-A webhook trigger can only read the few fields Orbit extracts for each provider, on three GitHub event types and two Alertmanager ones. Anything else a provider sends, such as a comment body on a GitHub pull request or a label on a Prometheus alert, is out of reach until Orbit ships a release that adds it. Trigger authors will be able to pick any event type and any field the provider documents, from the provider's own published schema, in both the prompt and the filter that decides whether the trigger fires. Two safety measures come with it. Delivery content reaches the agent marked as untrusted data, apart from the author's instructions. An author can restrict a trigger to events caused by people they trust.
+A webhook trigger can only read the few fields kora extracts for each provider, on three GitHub event types and two Alertmanager ones. Anything else a provider sends, such as a comment body on a GitHub pull request or a label on a Prometheus alert, is out of reach until kora ships a release that adds it. Trigger authors will be able to pick any event type and any field the provider documents, from the provider's own published schema, in both the prompt and the filter that decides whether the trigger fires. Two safety measures come with it. Delivery content reaches the agent marked as untrusted data, apart from the author's instructions. An author can restrict a trigger to events caused by people they trust.
 
 ---
 
@@ -24,7 +24,7 @@ A trigger on any other event, such as a GitHub `issue_comment` or `pull_request_
 
 When a trigger fires, field values are pasted into the prompt as if the trigger author had written them. Several of those values come from whoever caused the event: a PR title, an issue body, a commit message. The original triggers PRD rated prompt injection through these fields as high likelihood and high impact, and deferred it.
 
-A delivery is only accepted if it carries the provider's signature or shared secret, which proves the provider sent it. That does not tell Orbit who caused the event. On a public repository, anyone who can open an issue or leave a comment can fire a trigger that listens for it.
+A delivery is only accepted if it carries the provider's signature or shared secret, which proves the provider sent it. That does not tell kora who caused the event. On a public repository, anyone who can open an issue or leave a comment can fire a trigger that listens for it.
 
 ### User Pain Points
 
@@ -35,7 +35,7 @@ A delivery is only accepted if it carries the provider's signature or shared sec
 
 ### Business Impact
 
-- Teams build workarounds outside Orbit, or do not automate the workflow at all, because the field they need is missing.
+- Teams build workarounds outside kora, or do not automate the workflow at all, because the field they need is missing.
 - The platform team carries a steady queue of small provider extensions that each need a release.
 - Opening triggers to broader use without the safety measures would widen an injection risk that is already rated high.
 
@@ -46,7 +46,7 @@ A delivery is only accepted if it carries the provider's signature or shared sec
 ### Primary Goals
 
 1. A trigger author can pick any event type and any field the provider documents, in the prompt and in the trigger's filter, without a platform release.
-2. The list of event types and fields comes from the provider's published schema, not from a list Orbit maintains by hand.
+2. The list of event types and fields comes from the provider's published schema, not from a list kora maintains by hand.
 3. Delivery content reaches the agent marked as untrusted data, separate from the trigger author's instructions.
 4. A trigger author can restrict a trigger to events caused by people they choose.
 5. The same model applies to every webhook provider, current and future.
@@ -93,7 +93,7 @@ A delivery is only accepted if it carries the provider's signature or shared sec
 - [ ] A placeholder can reference any field in the delivery whose name uses letters, digits and underscores, including fields nested inside objects and entries in lists.
 - [ ] The prompt builder lists the fields of the chosen event type from the provider's schema, with the provider's descriptions.
 - [ ] Fields are grouped by the part of the delivery they belong to, and can be searched.
-- [ ] The prompt builder also offers the event type, the delivery ID and the source name, which Orbit supplies for every provider.
+- [ ] The prompt builder also offers the event type, the delivery ID and the source name, which kora supplies for every provider.
 - [ ] A placeholder for a field that the delivery does not contain resolves to an empty value.
 
 ---
@@ -141,9 +141,9 @@ A delivery is only accepted if it carries the provider's signature or shared sec
 
 Each webhook provider comes with a schema describing its event types and the fields in each one. For GitHub this is the webhook schema GitHub publishes with its API description. For Alertmanager it is a short schema describing its fixed format. A trigger references delivery fields by their path in that schema, for example `{{ comment.body }}` on a GitHub `issue_comment`. The same names work in the prompt and in the filter. The hand-maintained field lists are removed.
 
-### Fields Orbit supplies
+### Fields kora supplies
 
-Some useful values are not in the delivery body. Orbit adds them under `meta`, the same for every provider: the event type, the delivery ID and the source name, for example `{{ meta.event_type }}`. `meta` is reserved; no provider field can use that name at the top level.
+Some useful values are not in the delivery body. kora adds them under `meta`, the same for every provider: the event type, the delivery ID and the source name, for example `{{ meta.event_type }}`. `meta` is reserved; no provider field can use that name at the top level.
 
 ### Untrusted data section
 
@@ -173,7 +173,7 @@ The event type picker, the prompt builder and the filter picker all read from th
 
 ## Product Decisions
 
-**PD1: The provider's schema is the only vocabulary.** No field names are maintained by Orbit, apart from the few under `meta`. **Accepted cost:** fields follow the provider's format. A field the provider renames renders empty until the trigger is edited, and a field the provider adds is missing from the pickers until Orbit updates the schema. It can still be typed into a prompt.
+**PD1: The provider's schema is the only vocabulary.** No field names are maintained by kora, apart from the few under `meta`. **Accepted cost:** fields follow the provider's format. A field the provider renames renders empty until the trigger is edited, and a field the provider adds is missing from the pickers until kora updates the schema. It can still be typed into a prompt.
 
 **PD2: Delivery content is always untrusted data.** Every value a placeholder names goes in the untrusted data section, including `meta` values.
 

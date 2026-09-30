@@ -19,7 +19,7 @@ This ADR records the architectural decisions made for Layers 1 and 2 of the infe
 
 ### Background
 
-The Orbit Model Gateway (`cmd/inference-gateway`) processes requests across three API dialects (OpenAI, Anthropic, Responses) and translates them to a unified internal representation before dispatching to a provider connector. The unified request struct is fully materialised in `service.go` before any provider call is made, making it a natural capture point for request metadata.
+The kora Model Gateway (`cmd/inference-gateway`) processes requests across three API dialects (OpenAI, Anthropic, Responses) and translates them to a unified internal representation before dispatching to a provider connector. The unified request struct is fully materialised in `service.go` before any provider call is made, making it a natural capture point for request metadata.
 
 The existing `inference_usage` write path has five branches in `service.go`: success, policy denied, routing failed, provider error, and client canceled. Each branch constructs an `InferenceUsageRecord` and calls `repository.Create`. Both new fields can be populated at each branch without restructuring the write path.
 
@@ -41,7 +41,7 @@ The frontend table is a `DataTable` component from `@orbit/terra`. The Models ta
 
 ## Decision Drivers
 
-* **Pattern consistency**: Orbit already uses row-click modals for detail views; diverging requires introducing a new component and a second interaction paradigm.
+* **Pattern consistency**: kora already uses row-click modals for detail views; diverging requires introducing a new component and a second interaction paradigm.
 * **No unnecessary joins**: the detail view accesses one row; the data model should not require a join to render it.
 * **Schema evolution**: provider-specific error shapes and new model parameters will expand over time; the schema must accommodate this without migrations per addition.
 * **Privacy by design**: request metadata must capture only non-PII scalars; no user-generated text may be stored under either new column.
@@ -132,7 +132,7 @@ Populated only for `provider_error` and `auth_error` statuses. NULL for `success
 
 ### Positive
 
-- Developers can diagnose failed requests without leaving the Orbit UI or consulting distributed traces.
+- Developers can diagnose failed requests without leaving the kora UI or consulting distributed traces.
 - All 22 existing `InferenceUsageRecord` fields become accessible via one click; no data is wasted.
 - `failure_details` is captured in the existing write path with minimal structural change.
 - The JSONB column can evolve (new fields added to the JSON object) without a migration.

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Orbit records every significant technical decision as an ADR. This index is the catalogue.
+kora records every significant technical decision as an ADR. This index is the catalogue.
 
 **Naming.** ADR files are named `YYYY-MM-DD-kebab-slug.md` — the decision date plus a short slug. There is **no sequential number**; the slug is the citation handle (e.g. *inference-gateway-architecture*). Files sort chronologically. The original sequential numbers are preserved in the *Former #* column below for traceability with older commits and discussions. To add one, copy [`template.md`](template.md) and follow the [contributing workflow](../../CONTRIBUTING.md).
 
@@ -131,14 +131,14 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
-- [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
+- [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 - [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) — `Proposed` · 2026-09-17
 
 ### Service Mesh, Operator & Deployment
 
 - [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) — `Accepted` · 2026-03-05
 - [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — `Accepted` · 2026-03-31
-- [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Superseded` · 2026-03-31
+- [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Superseded` · 2026-03-31
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
 - [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed` · 2026-09-04
@@ -187,7 +187,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-03-25 | [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
 | 2026-03-31 | [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | Accepted | 0027 |
 | 2026-03-31 | [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) | Accepted | 0029 |
-| 2026-03-31 | [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) | Superseded | 0028 |
+| 2026-03-31 | [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) | Superseded | 0028 |
 | 2026-03-31 | [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) | Accepted | 0026 |
 | 2026-04-01 | [Anthropic Zero-Translation Path](2026-04-01-anthropic-zero-translation-path.md) | Accepted | 0025 |
 | 2026-04-01 | [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) | Accepted | 0030 |
@@ -264,7 +264,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
-| 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
+| 2026-06-30 | [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
 | 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md) | — |

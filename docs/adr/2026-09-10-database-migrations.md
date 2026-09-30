@@ -11,7 +11,7 @@
 
 ### Background
 
-Orbit stores all control-plane state in one PostgreSQL database, one `public` schema and one `goose_db_version` table. Six binaries own tables and carry their schema under `backend/cmd/<service>/migrations/` as goose SQL files, 60 in total, plus one under `cmd/example`. Tenancy is row-scoped by `tenant_id`.
+kora stores all control-plane state in one PostgreSQL database, one `public` schema and one `goose_db_version` table. Six binaries own tables and carry their schema under `backend/cmd/<service>/migrations/` as goose SQL files, 60 in total, plus one under `cmd/example`. Tenancy is row-scoped by `tenant_id`.
 
 The only runner is the developer workstation. `make migrate-up` copies every service's files into a temp directory and runs the goose CLI against Postgres on localhost. goose is not a Go module dependency. No runtime image contains migration files or a migration runner. The chart has no migration Job or hook.
 
@@ -25,7 +25,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Goals
 
-- A consumer installs or upgrades Orbit with Helm or Argo CD and the schema is applied before any workload rolls, with no imperative step.
+- A consumer installs or upgrades kora with Helm or Argo CD and the schema is applied before any workload rolls, with no imperative step.
 - A compatibility contract between schema and binaries under which `helm rollback` needs no schema step.
 - A mechanically checked rule on migration content.
 - A 0.1.0 baseline that discards development history.
@@ -142,7 +142,7 @@ goose applies every pending file in ascending version order; a skipped minor mig
 
 The compatibility rule is checked in review, by reading contract steps against the previous release's code. CI does not exercise upgrade chains.
 
-The compatibility statement each release publishes gains a supported PostgreSQL major range, 14 through 18. The database role Orbit connects with needs `CREATE` on schema `public` and owns every object the migrations create.
+The compatibility statement each release publishes gains a supported PostgreSQL major range, 14 through 18. The database role kora connects with needs `CREATE` on schema `public` and owns every object the migrations create.
 
 ### Decision 6: Rollback never runs Down
 

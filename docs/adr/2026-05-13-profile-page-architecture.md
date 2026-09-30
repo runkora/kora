@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-05-13
 **Deciders:** Frontend Team, Platform Engineering
-**Technical Story:** [Profile Page PRD](../prd/profile-page.md) — Orbit has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
+**Technical Story:** [Profile Page PRD](../prd/profile-page.md) — kora has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-The Orbit control plane frontend follows the BFF (Backend for Frontend) architecture with iron-session sealed cookies (ADR-0030). Permissions are projected from OPA into the session as a cached scope set (ADR-0037). User profiles are persisted on login via the identity service's `user_profiles` table (ADR-0042). Personal access tokens (PATs) are listed via the identity service's `GET /identity/tokens` endpoint (ADR-0033).
+The kora control plane frontend follows the BFF (Backend for Frontend) architecture with iron-session sealed cookies (ADR-0030). Permissions are projected from OPA into the session as a cached scope set (ADR-0037). User profiles are persisted on login via the identity service's `user_profiles` table (ADR-0042). Personal access tokens (PATs) are listed via the identity service's `GET /identity/tokens` endpoint (ADR-0033).
 
 The frontend golden path pattern (`frontend/docs/golden-paths/frontend-state-pattern.md`) defines a 10-step structure for data-driven dashboard pages: types → server service → BFF route → API route registry → client service → hook → context → tab shell → RSC page → feature components. This pattern is designed for pages with client-side state management, mutations, and reactive updates.
 

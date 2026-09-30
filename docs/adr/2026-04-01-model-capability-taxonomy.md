@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-04-01
-**Deciders:** Orbit platform team
+**Deciders:** kora platform team
 **Technical Story:** `GET /v1/models` currently returns embedding models, image-generation models, and video-generation models alongside chat models. Clients (e.g. Claude Code) see these IDs and attempt to send chat completion requests to them, receiving confusing provider errors. The `dialects` field on `ProviderModel` was being used as an implicit proxy for "the gateway has a handler for this model", but that is an accidental coupling that breaks down as soon as a second non-chat capability (e.g. embeddings) is added.
 
 ---

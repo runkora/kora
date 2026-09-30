@@ -9,7 +9,7 @@
 
 ## Context
 
-[spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) defined Orbit's workload identity model and established three SPIFFE path shapes:
+[spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) defined kora's workload identity model and established three SPIFFE path shapes:
 
 ```text
 spiffe://orbit.{instance-id}/system/{component-name}
@@ -34,15 +34,15 @@ This is the correct direction for operational scale, but it turns the workload m
 
 ### Background
 
-Orbit treats workload identity as part of the platform nervous system. Identity grants are not a convenience feature; they are the substrate used by policy enforcement, credential exchange, and auditability. A change in how SPIFFE IDs are minted is therefore architectural, not just implementation detail.
+kora treats workload identity as part of the platform nervous system. Identity grants are not a convenience feature; they are the substrate used by policy enforcement, credential exchange, and auditability. A change in how SPIFFE IDs are minted is therefore architectural, not just implementation detail.
 
 Kubernetes labels are easy to apply and are a good fit for component and workload naming. They are not, by themselves, a strong multi-tenant isolation boundary in a shared cluster. Namespace placement, by contrast, is infrastructure-controlled and already participates in scheduling, RBAC, network policy, and admission control. That makes namespace the safer primitive for tenant identity.
 
-This label model also aligns well with Cilium's identity and policy model from [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md). Cilium identifies workloads from Kubernetes metadata and applies network policy using label selectors. Reusing the same reserved Orbit labels for SPIFFE minting and for Cilium policy matching lets the platform describe workload identity, authorisation intent, and network reachability with one coherent metadata vocabulary instead of parallel schemes.
+This label model also aligns well with Cilium's identity and policy model from [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md). Cilium identifies workloads from Kubernetes metadata and applies network policy using label selectors. Reusing the same reserved kora labels for SPIFFE minting and for Cilium policy matching lets the platform describe workload identity, authorisation intent, and network reachability with one coherent metadata vocabulary instead of parallel schemes.
 
 ### Problem Statement
 
-Orbit needs a dynamic SPIFFE grant model that preserves the naming structure from [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) while making an explicit decision about tenant isolation and the enforcement controls required around metadata-derived identities.
+kora needs a dynamic SPIFFE grant model that preserves the naming structure from [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) while making an explicit decision about tenant isolation and the enforcement controls required around metadata-derived identities.
 
 ### Goals
 
@@ -117,13 +117,13 @@ Orbit needs a dynamic SPIFFE grant model that preserves the naming structure fro
 
 ## Decision
 
-Orbit will adopt **dynamic `ClusterSPIFFEID` grants** as the default workload identity model, but **tenant identity must be derived from namespace, not from a pod label**, for any environment that supports shared-cluster multi-tenancy.
+kora will adopt **dynamic `ClusterSPIFFEID` grants** as the default workload identity model, but **tenant identity must be derived from namespace, not from a pod label**, for any environment that supports shared-cluster multi-tenancy.
 
 **Chosen Option:** Option 3 - Dynamic `ClusterSPIFFEID` grants with namespace-derived tenant isolation
 
 ### Rationale
 
-The per-service manifest model is too static for Orbit's target shape. Services, agents, and future tool-facing workloads must be able to receive identities through reusable templates rather than one manifest per principal class.
+The per-service manifest model is too static for kora's target shape. Services, agents, and future tool-facing workloads must be able to receive identities through reusable templates rather than one manifest per principal class.
 
 However, the fully label-driven model is too weak at the tenant boundary. Labels are appropriate for naming a component, service, or agent within an already-authorised scope. They are not sufficient to establish tenancy on a shared cluster. Namespace is the correct boundary because it is created and governed by platform infrastructure, can be bound to RBAC and policy, and is substantially harder for an arbitrary workload author to spoof.
 
@@ -170,10 +170,10 @@ The same metadata schema is also the canonical policy vocabulary for Cilium-back
 This creates a consistent control model across layers:
 
 - SPIRE uses the reserved labels and namespace context to mint the correct SPIFFE ID
-- Orbit authn/authz maps the resulting SPIFFE ID back to the same component, service, or agent identity used by the platform policy model
+- kora authn/authz maps the resulting SPIFFE ID back to the same component, service, or agent identity used by the platform policy model
 - Cilium policy selects workloads using the same namespace and reserved labels, so network policy is attached to the same principal shape used by identity and application-layer authorisation
 
-The practical outcome is that Orbit does not need one naming scheme for SPIFFE, a second scheme for service policy, and a third scheme for network policy. A single, reserved label contract becomes the shared identity vocabulary for workload attestation, authorisation, and network isolation.
+The practical outcome is that kora does not need one naming scheme for SPIFFE, a second scheme for service policy, and a third scheme for network policy. A single, reserved label contract becomes the shared identity vocabulary for workload attestation, authorisation, and network isolation.
 
 ### Threat Model
 
@@ -194,7 +194,7 @@ The decision is to trust labels only after the workload has already been admitte
 - New system services, tenant services, and tenant agents can be granted identities through reusable templates rather than one-off manifests
 - Tenant identity is anchored to a stronger infrastructure boundary than a mutable workload label
 - The model stays aligned with [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) while remaining operable at scale
-- The same reserved labels can be consumed by SPIRE, Orbit policy, and Cilium, reducing drift between identity and network enforcement
+- The same reserved labels can be consumed by SPIRE, kora policy, and Cilium, reducing drift between identity and network enforcement
 
 ### Negative
 
@@ -237,7 +237,7 @@ The implementation model is:
 
 ## Validation
 
-The decision is correct if Orbit can grant identities dynamically without allowing workloads to mint identities outside their authorised scope.
+The decision is correct if kora can grant identities dynamically without allowing workloads to mint identities outside their authorised scope.
 
 ### Success Metrics
 
@@ -278,6 +278,6 @@ This ADR intentionally separates two questions that are easy to conflate:
 - Dynamic grants versus per-service manifests
 - Label-derived naming versus infrastructure-derived tenant isolation
 
-Orbit accepts dynamic grants. Orbit does not accept label-derived tenant scope as the long-term isolation boundary for shared clusters.
+kora accepts dynamic grants. kora does not accept label-derived tenant scope as the long-term isolation boundary for shared clusters.
 
 **Last Updated:** 2026-03-17

@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-04-17
-**Deciders:** Orbit platform team  
+**Deciders:** kora platform team  
 **Technical Story:** The inference gateway currently surfaces models by querying providers directly — every call to `GET /v1/models` returns whatever Bedrock, Vertex AI, and Azure enumerate at that moment. There is no platform-level control over what models are available, how requests are routed across providers, or what policy scopes are generated. This ADR introduces the Virtual Model as a first-class platform primitive: a named, admin-curated model backed by one or more provider routes, with explicit routing strategy, that becomes the authoritative source for the `/v1/models` API and the policy vocabulary.
 
 ---

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's inference gateway currently supports a single AWS Bedrock environment, configured via a fixed set of environment variables (`BEDROCK_REGION`, `AWS_ACCESS_KEY_ID`, etc.). This prevents organisations that operate multiple AWS accounts — for environment isolation, cost centre separation, regional compliance, or cross-account model access — from routing inference traffic across more than one Bedrock account. This PRD defines the requirements for supporting multiple, simultaneously-active Bedrock environments that are each registered as distinct provider entries in the Orbit model catalog.
+kora's inference gateway currently supports a single AWS Bedrock environment, configured via a fixed set of environment variables (`BEDROCK_REGION`, `AWS_ACCESS_KEY_ID`, etc.). This prevents organisations that operate multiple AWS accounts — for environment isolation, cost centre separation, regional compliance, or cross-account model access — from routing inference traffic across more than one Bedrock account. This PRD defines the requirements for supporting multiple, simultaneously-active Bedrock environments that are each registered as distinct provider entries in the kora model catalog.
 
 ---
 
@@ -22,7 +22,7 @@ The Bedrock connector is constructed from a single Config struct populated by a 
 
 ### User Pain Points
 
-- **Multi-account AWS organisations** cannot use Orbit across more than one AWS account. A platform team managing a `prod` account (us-east-1) and a `dev` account (eu-west-1) must pick one or run two separate Orbit clusters.
+- **Multi-account AWS organisations** cannot use kora across more than one AWS account. A platform team managing a `prod` account (us-east-1) and a `dev` account (eu-west-1) must pick one or run two separate kora clusters.
 - **Regional compliance** requirements may mandate that certain tenants' traffic stays within a specific AWS region. A single Bedrock connector cannot enforce this — the region is fixed at deploy time.
 - **Cost centre / chargeback isolation** is not possible when all traffic flows through one account. Different business units that pay separate AWS invoices need separate Bedrock accounts reflected in the catalog.
 - **Model availability differences** between accounts (e.g. different inference profile quota approvals, Claude model access) cannot be expressed in the catalog today.
@@ -30,7 +30,7 @@ The Bedrock connector is constructed from a single Config struct populated by a 
 ### Business Impact
 
 - Blocks expansion into enterprise customers with strict AWS account-per-environment policies.
-- Forces costly architectural workarounds (separate Orbit clusters per account, manual catalog management).
+- Forces costly architectural workarounds (separate kora clusters per account, manual catalog management).
 - Prevents the platform team from expressing realistic multi-account routing strategies (lowest-cost across accounts, failover between regions) through the existing virtual model catalog.
 
 ---
@@ -64,9 +64,9 @@ The Bedrock connector is constructed from a single Config struct populated by a 
 
 ### Primary User Stories
 
-**As a** platform engineer deploying Orbit in a multi-account AWS organisation,  
+**As a** platform engineer deploying kora in a multi-account AWS organisation,  
 **I want to** configure multiple Bedrock environments with independent credentials and regions,  
-**So that** I can expose models from each account in the Orbit catalog and route traffic appropriately.
+**So that** I can expose models from each account in the kora catalog and route traffic appropriately.
 
 **Acceptance Criteria:**
 - [ ] Setting `BEDROCK_ACCOUNTS=prod,staging` with per-account env vars causes two distinct providers to be registered in the catalog.
@@ -76,7 +76,7 @@ The Bedrock connector is constructed from a single Config struct populated by a 
 ---
 
 **As a** platform engineer with an existing single-account Bedrock deployment,  
-**I want to** upgrade Orbit without any configuration changes,  
+**I want to** upgrade kora without any configuration changes,  
 **So that** the new multi-account feature does not break my existing setup.
 
 **Acceptance Criteria:**
@@ -194,7 +194,7 @@ Have one `bedrock` connector that accepts an account name in the model ID or req
 
 **Why not chosen:** Requires invasive changes to the `ProviderConnector` interface and service layer. Cannot reuse the existing model catalog or routing engine without significant rework. Couples account selection to request routing in a non-obvious way.
 
-### Alternative 2: Multiple Orbit inference-gateway deployments (one per account)
+### Alternative 2: Multiple kora inference-gateway deployments (one per account)
 
 Deploy a separate gateway instance per AWS account and configure the agent to target the right one.
 

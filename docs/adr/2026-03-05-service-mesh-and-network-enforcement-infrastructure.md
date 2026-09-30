@@ -15,7 +15,7 @@
 >
 > Two paths were identified:
 > - **Path 1:** Adopt a service mesh (e.g. Istio) — istiod manages sidecar injection and Envoy config distribution
-> - **Path 2:** Orbit as xDS control plane — Orbit implements the Envoy xDS APIs directly
+> - **Path 2:** kora as xDS control plane — kora implements the Envoy xDS APIs directly
 
 This ADR resolves that question and additionally defines the CNI-level network enforcement layer that underpins the sidecar enforcement model.
 
@@ -48,7 +48,7 @@ The control plane decision must preserve the property that **agent workloads are
 
 ### Goals
 
-- Select and document the sidecar control plane for Orbit's Kubernetes deployment
+- Select and document the sidecar control plane for kora's Kubernetes deployment
 - Define how Envoy sidecar injection is managed for all service pods
 - Define how Envoy configuration is distributed to sidecars and the edge gateway
 - Define the network-level enforcement layer that enforces the sidecar-or-nothing constraint from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)
@@ -59,7 +59,7 @@ The control plane decision must preserve the property that **agent workloads are
 - Re-litigating the Envoy unified data plane decision (resolved in [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md))
 - Re-litigating the per-pod two-sidecar model (resolved in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md))
 - Defining the edge Envoy gateway deployment (that is a separate operational concern from the sidecar control plane)
-- Defining Istio-level traffic management features beyond what Orbit's enforcement model requires
+- Defining Istio-level traffic management features beyond what kora's enforcement model requires
 
 ---
 
@@ -67,7 +67,7 @@ The control plane decision must preserve the property that **agent workloads are
 
 * **Agent transparency**: the control plane must support per-pod sidecar injection so that the Envoy sidecar can perform per-pod SVID-to-platform-token exchange invisibly to the agent workload
 * **SPIFFE/SPIRE integration**: the control plane must support native SPIRE/SPIFFE integration with the Istio-injected Envoy sidecar — specifically, the ability to read SVIDs directly from the SPIRE CSI driver's mounted Workload API socket via `SPIFFE_ENDPOINT_SOCKET`, without requiring an intermediary SPIFFE Helper sidecar container
-* **Operational maturity**: the control plane must be production-proven at scale; Orbit cannot afford to invest in a custom xDS implementation before the core platform is built
+* **Operational maturity**: the control plane must be production-proven at scale; kora cannot afford to invest in a custom xDS implementation before the core platform is built
 * **ext_authz + OPA support**: the control plane must support Envoy's `ext_authz` filter with OPA as the authorisation service — this is the foundation of [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)'s policy enforcement model
 * **Sidecar injection automation**: sidecar injection must be automatic and enforced via admission webhook — manual sidecar configuration is not acceptable at scale
 * **Network policy enforcement strength**: the architectural constraint in [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) that "no service is reachable without passing through a Layer 1 enforcement point" must be enforced at the network layer, not just by convention
@@ -82,7 +82,7 @@ The control plane decision must preserve the property that **agent workloads are
 
 **Pros:**
 - istiod handles sidecar injection automatically — no manual Envoy config per pod
-- xDS config distribution to all sidecar instances is built-in — Orbit does not need to implement this
+- xDS config distribution to all sidecar instances is built-in — kora does not need to implement this
 - Mature, production-proven SPIFFE/SPIRE integration — Istio can consume SVIDs from SPIRE via the SPIRE Controller Manager and distribute them to Envoy sidecars for mTLS
 - `ext_authz` + OPA on Envoy is a standard, well-documented production pattern on Istio
 - Strong community, extensive operational documentation, broad Kubernetes ecosystem support
@@ -91,16 +91,16 @@ The control plane decision must preserve the property that **agent workloads are
 **Cons:**
 - Significant operational commitment — Istio has a learning curve and adds cluster complexity
 - istiod is a new critical dependency — must be highly available
-- Some Istio defaults (mutual TLS modes, traffic management) require careful configuration to align with Orbit's model
+- Some Istio defaults (mutual TLS modes, traffic management) require careful configuration to align with kora's model
 
-### Option B: Orbit as xDS control plane
+### Option B: kora as xDS control plane
 
-**Description:** Orbit's own control plane implements the Envoy xDS APIs. When a service is registered with Orbit, Orbit generates and pushes Envoy configuration to the affected sidecar instances. Sidecar injection is handled by a custom Kubernetes admission webhook.
+**Description:** kora's own control plane implements the Envoy xDS APIs. When a service is registered with kora, kora generates and pushes Envoy configuration to the affected sidecar instances. Sidecar injection is handled by a custom Kubernetes admission webhook.
 
 **Pros:**
-- Tight integration between service registration in Orbit and Envoy configuration — no translation layer
-- Orbit controls every aspect of Envoy config — no Istio defaults to work around
-- Long-term, enables Orbit to drive enforcement config directly from its own service registry
+- Tight integration between service registration in kora and Envoy configuration — no translation layer
+- kora controls every aspect of Envoy config — no Istio defaults to work around
+- Long-term, enables kora to drive enforcement config directly from its own service registry
 
 **Cons:**
 - Requires building and operating a production-grade xDS server before the core platform is complete — significant engineering investment at the wrong time
@@ -122,9 +122,9 @@ The control plane decision must preserve the property that **agent workloads are
 
 ### Rationale
 
-**Istio** is selected as the sidecar control plane. The two-sidecar per-pod model in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) is Istio's native deployment pattern. istiod handles sidecar injection and xDS config distribution, which are the exact two problems the open question in [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) was asking Orbit to solve. Istio's SPIFFE/SPIRE integration is production-proven (the SPIRE Controller Manager project exists specifically for this), and `ext_authz` + OPA on Envoy under Istio is a standard production deployment. The operational investment is real but it is a known quantity — the alternative of building Orbit's own xDS control plane before the core platform exists is the wrong sequencing. That investment can be made later if Orbit's service registration model demands tighter Envoy config coupling.
+**Istio** is selected as the sidecar control plane. The two-sidecar per-pod model in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) is Istio's native deployment pattern. istiod handles sidecar injection and xDS config distribution, which are the exact two problems the open question in [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) was asking kora to solve. Istio's SPIFFE/SPIRE integration is production-proven (the SPIRE Controller Manager project exists specifically for this), and `ext_authz` + OPA on Envoy under Istio is a standard production deployment. The operational investment is real but it is a known quantity — the alternative of building kora's own xDS control plane before the core platform exists is the wrong sequencing. That investment can be made later if kora's service registration model demands tighter Envoy config coupling.
 
-Option B is explicitly deferred, not rejected. If Orbit's service registry model eventually requires driving Envoy config from first-party sources rather than Istio's config model, the migration path is available. Today is not that time.
+Option B is explicitly deferred, not rejected. If kora's service registry model eventually requires driving Envoy config from first-party sources rather than Istio's config model, the migration path is available. Today is not that time.
 
 **Cilium** is adopted as the CNI plugin. It operates at a completely different layer from Istio — eBPF-level kernel networking rather than sidecar-level L7 proxy management. Cilium and Istio are complementary and are a well-established production combination. Cilium's role is specifically to harden the network-level enforcement of the "no direct pod-to-pod traffic that bypasses the sidecar" constraint from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md). Standard Kubernetes NetworkPolicy is iptables-based with known bypass vectors; Cilium's eBPF enforcement operates at the kernel level and is significantly harder to circumvent.
 
@@ -182,7 +182,7 @@ Cilium enforces three constraints that harden the [universal-gateway-policy-enfo
 ### Positive
 
 - Agent workloads remain fully identity-unaware: sidecar injection is automatic via Istio's admission webhook, Envoy config is distributed by istiod, and the SPIRE CSI driver delivers the Workload API socket to each pod with zero agent workload configuration
-- The operational complexity of xDS config distribution is handled by a mature, production-proven system rather than Orbit building it from scratch
+- The operational complexity of xDS config distribution is handled by a mature, production-proven system rather tha kora building it from scratch
 - Cilium adds a kernel-level enforcement backstop that makes the "no bypass" constraint from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) genuinely hard rather than conventionally enforced
 - DNS egress control in Cilium structurally prevents agents from calling external services directly, reinforcing the Credential-Aware Outbound Gateway model in [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md)
 - SPIFFE/SPIRE + Istio + Cilium is a well-documented, production-proven combination — operational knowledge and community support exist
@@ -191,13 +191,13 @@ Cilium enforces three constraints that harden the [universal-gateway-policy-enfo
 
 - Istio adds cluster complexity and a new critical infrastructure dependency (istiod must be highly available)
 - The platform team must develop Istio operational expertise — this is a non-trivial learning investment
-- Some Istio defaults conflict with Orbit's model and require explicit configuration (e.g. Istio's own mTLS mode must be configured to not conflict with the SPIRE-issued SVID mTLS model)
+- Some Istio defaults conflict with kora's model and require explicit configuration (e.g. Istio's own mTLS mode must be configured to not conflict with the SPIRE-issued SVID mTLS model)
 - Cilium as CNI must be provisioned at cluster creation time — it cannot be added to an existing cluster with a different CNI without re-provisioning
 
 ### Neutral
 
-- The Orbit-native xDS control plane option (Path 2 from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) is deferred, not closed — if Orbit's service registration model later requires driving Envoy config from first-party sources, the migration is possible. This should be revisited as a day-two decision
-- The SPIRE Controller Manager (`github.com/spiffe/spire-controller-manager`) is the recommended integration point between SPIRE Server and Istio — it automates the creation of SPIRE registration entries when Kubernetes workloads are created, maintaining the tight coupling between Orbit's agent registry and SPIRE defined in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)
+- The kora-native xDS control plane option (Path 2 from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) is deferred, not closed — if kora's service registration model later requires driving Envoy config from first-party sources, the migration is possible. This should be revisited as a day-two decision
+- The SPIRE Controller Manager (`github.com/spiffe/spire-controller-manager`) is the recommended integration point between SPIRE Server and Istio — it automates the creation of SPIRE registration entries when Kubernetes workloads are created, maintaining the tight coupling between kora's agent registry and SPIRE defined in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)
 
 ---
 
@@ -205,23 +205,23 @@ Cilium enforces three constraints that harden the [universal-gateway-policy-enfo
 
 ### Istio Configuration Alignment
 
-When configuring Istio for the Orbit platform, the following must be set explicitly:
+When configuring Istio for the kora platform, the following must be set explicitly:
 
 - **mTLS mode**: configured to use SPIRE-issued SVIDs rather than Istio's own CA (Citadel). Istio supports pluggable CA backends; SPIRE is integrated via the SPIRE Controller Manager which provisions SVIDs to Istio workloads
-- **Sidecar injection**: enabled via namespace labels for all Orbit service namespaces; enforced at cluster level via admission webhook
+- **Sidecar injection**: enabled via namespace labels for all kora service namespaces; enforced at cluster level via admission webhook
 - **ext_authz filter**: configured globally for all sidecars, pointing at the co-located OPA instance for policy evaluation
 - **Egress control**: Istio's egress gateway is not used — outbound routing to external services is handled by the Credential-Aware Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md)), enforced at the Cilium level
 
 ### Cilium Configuration Alignment
 
 - Deployed as the cluster CNI at provisioning time
-- `CiliumNetworkPolicy` resources are generated by Orbit's control plane alongside SPIRE registration entries and gateway routing rules when a service is registered
+- `CiliumNetworkPolicy` resources are generated by kora's control plane alongside SPIRE registration entries and gateway routing rules when a service is registered
 - DNS-aware egress policy configured to allow outbound traffic only to the Credential-Aware Outbound Gateway cluster IP, blocking direct external calls from agent pods
 - SPIFFE-identity-aware policy configured per tenant namespace
 
 ### SPIRE Controller Manager
 
-The SPIRE Controller Manager automates the synchronisation between Kubernetes workloads and SPIRE registration entries. When Orbit registers a new agent and the corresponding Kubernetes workload is created, the Controller Manager creates the SPIRE registration entry automatically. This removes the manual two-phase write described in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and keeps the registries in sync without Orbit needing to call the SPIRE Server API directly for every registration event. Orbit's agent registration flow should be updated to leverage this.
+The SPIRE Controller Manager automates the synchronisation between Kubernetes workloads and SPIRE registration entries. When kora registers a new agent and the corresponding Kubernetes workload is created, the Controller Manager creates the SPIRE registration entry automatically. This removes the manual two-phase write described in [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) and keeps the registries in sync without kora needing to call the SPIRE Server API directly for every registration event. kora's agent registration flow should be updated to leverage this.
 
 ---
 
@@ -265,6 +265,6 @@ The SPIRE Controller Manager automates the synchronisation between Kubernetes wo
 
 ## Notes
 
-The combination of Istio (sidecar control plane) and Cilium (CNI/network enforcement) gives Orbit a defence-in-depth posture at the infrastructure layer: Istio enforces policy at the L7 proxy level, Cilium enforces it at the eBPF kernel level. A misconfigured or missing sidecar cannot yield a bypass route because Cilium blocks the underlying network path. This is the correct security model for a platform where enforcement must be universal and unconditional.
+The combination of Istio (sidecar control plane) and Cilium (CNI/network enforcement) gives kora a defence-in-depth posture at the infrastructure layer: Istio enforces policy at the L7 proxy level, Cilium enforces it at the eBPF kernel level. A misconfigured or missing sidecar cannot yield a bypass route because Cilium blocks the underlying network path. This is the correct security model for a platform where enforcement must be universal and unconditional.
 
 **Last Updated:** 2026-03-03

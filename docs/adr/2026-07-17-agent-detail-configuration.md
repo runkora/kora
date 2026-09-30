@@ -62,7 +62,7 @@ Configuration absorbs Settings and Connectivity. Runs keeps its own tab: it is a
 
 ### 3. The motif extracts to feature-shared components
 
-New directory `agents/_components/motif/`, Tier 3 (feature-shared, Orbit-domain-aware, single feature):
+New directory `agents/_components/motif/`, Tier 3 (feature-shared, kora-domain-aware, single feature):
 
 | Component | Extracted from | Consumed by |
 |---|---|---|

@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The Orbit Model Gateway records one row per inference request with solid attribution and metrics, but provides no way to drill into a specific request. The logs table surfaces 9 of the 22 available fields, hides all routing and error details, and stores nothing about structured provider failure context. This PRD defines two layered improvements: a **detail modal** that surfaces all existing data for a selected row (Layer 1, frontend-only), and **failure details capture** that stores structured provider error information alongside every non-success usage record (Layer 2, one migration + minor service change).
+The kora Model Gateway records one row per inference request with solid attribution and metrics, but provides no way to drill into a specific request. The logs table surfaces 9 of the 22 available fields, hides all routing and error details, and stores nothing about structured provider failure context. This PRD defines two layered improvements: a **detail modal** that surfaces all existing data for a selected row (Layer 1, frontend-only), and **failure details capture** that stores structured provider error information alongside every non-success usage record (Layer 2, one migration + minor service change).
 
 ---
 
@@ -47,7 +47,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 
 - All 22 existing fields on `InferenceUsageRecord` are accessible via the detail modal within one click from the logs table.
 - `failure_details` is populated on 100% of `provider_error` requests from feature launch.
-- A developer can identify the likely cause of a `provider_error` without leaving the Orbit UI.
+- A developer can identify the likely cause of a `provider_error` without leaving the kora UI.
 
 ### Non-Goals
 
@@ -272,7 +272,7 @@ None. Both layers use existing infrastructure.
 
 ### Drawer vs. Modal for the detail view
 
-A slide-over drawer would offer more vertical space and keep the table visible alongside the detail. However, the existing pattern in Orbit uses modals for row detail views (see `ModelDetailModal` in the Models tab). Introducing a drawer would require a new Terra component and establish a second interaction paradigm for the same pattern. For the field volume in Layers 1 and 2, a `size="lg"` modal with a constrained scrollable body is sufficient. This decision should be revisited if Layer 3 (content logging) ships — rendering full message threads in a 512px modal would be cramped.
+A slide-over drawer would offer more vertical space and keep the table visible alongside the detail. However, the existing pattern in kora uses modals for row detail views (see `ModelDetailModal` in the Models tab). Introducing a drawer would require a new Terra component and establish a second interaction paradigm for the same pattern. For the field volume in Layers 1 and 2, a `size="lg"` modal with a constrained scrollable body is sufficient. This decision should be revisited if Layer 3 (content logging) ships — rendering full message threads in a 512px modal would be cramped.
 
 ### Capturing `failure_details` in a separate table
 

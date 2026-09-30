@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit has cost attribution for every inference request and a pricing catalog for provider models, but the effective per-token pricing is invisible to users on the two places they browse available models: the `/model-gateway/models` page (what every user sees) and the virtual models list on `/model-gateway/catalog` (what platform admins configure). This feature surfaces effective pricing in both locations, making costs discoverable at the point of model selection.
+kora has cost attribution for every inference request and a pricing catalog for provider models, but the effective per-token pricing is invisible to users on the two places they browse available models: the `/model-gateway/models` page (what every user sees) and the virtual models list on `/model-gateway/catalog` (what platform admins configure). This feature surfaces effective pricing in both locations, making costs discoverable at the point of model selection.
 
 ---
 

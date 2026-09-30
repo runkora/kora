@@ -10,9 +10,9 @@
 
 ## Executive Summary
 
-Orbit agents can think, but they cannot yet *act on the outside world* in a governed way. This feature lets a tenant connect agents to third-party services — GitHub, cloud providers, Kubernetes, OAuth/OIDC apps, and arbitrary SaaS — so an agent running in an Orbit sandbox can do real work (pull and push a repo, read an object from S3, call an API) **without the agent ever holding the credential**. An admin registers a *connection* once for the tenant; agents are then *granted access* to it through policy. The secret lives in the platform, every outbound call is authorized before it happens, and every call is attributed to the agent and the run that made it.
+kora agents can think, but they cannot yet *act on the outside world* in a governed way. This feature lets a tenant connect agents to third-party services — GitHub, cloud providers, Kubernetes, OAuth/OIDC apps, and arbitrary SaaS — so an agent running in a kora sandbox can do real work (pull and push a repo, read an object from S3, call an API) **without the agent ever holding the credential**. An admin registers a *connection* once for the tenant; agents are then *granted access* to it through policy. The secret lives in the platform, every outbound call is authorized before it happens, and every call is attributed to the agent and the run that made it.
 
-This is the "How does it connect?" pillar of Orbit, and it is the largest single unlock for agent usefulness: an agent that can only talk to a model is a chatbot; an agent that can connect out — under identity, policy, and audit — is a coworker.
+This is the "How does it connect?" pillar of kora, and it is the largest single unlock for agent usefulness: an agent that can only talk to a model is a chatbot; an agent that can connect out — under identity, policy, and audit — is a coworker.
 
 ---
 
@@ -20,7 +20,7 @@ This is the "How does it connect?" pillar of Orbit, and it is the largest single
 
 ### Current State
 
-Agents run in isolated Orbit sandboxes and can reach Orbit's own services (the inference gateway, the control plane). They **cannot** reach external services in any governed way. There is no mechanism to give an agent access to GitHub, a cloud account, a Kubernetes cluster, or a SaaS API. The only options available to operators today are bad ones:
+Agents run in isolated kora sandboxes and can reach kora's own services (the inference gateway, the control plane). They **cannot** reach external services in any governed way. There is no mechanism to give an agent access to GitHub, a cloud account, a Kubernetes cluster, or a SaaS API. The only options available to operators today are bad ones:
 
 - **Bake a credential into the agent's environment** — the agent process can read, log, or exfiltrate it; a single prompt-injection or a compromised tool leaks a long-lived secret.
 - **Don't let the agent connect out at all** — which is the current reality, and it caps agents at advisory work.
@@ -38,7 +38,7 @@ There is no way to say "this agent may push to *these* repos" or "this agent may
 
 - Agents are stuck at "suggest" and cannot reach "do," which is where the value is.
 - Every customer evaluation hits the same wall: "this is neat, but I can't let it touch our GitHub / AWS / cluster."
-- Without a governed credential story, Orbit cannot be sold into security-conscious enterprises — the exact buyer the platform targets.
+- Without a governed credential story, kora cannot be sold into security-conscious enterprises — the exact buyer the platform targets.
 
 ---
 
@@ -72,7 +72,7 @@ There is no way to say "this agent may push to *these* repos" or "this agent may
 
 ## Personas
 
-- **Tenant Admin** — registers connections for the tenant, supplies the third-party credential or installs the Orbit app, sets the ceiling of what the connection may ever do, and grants agents access.
+- **Tenant Admin** — registers connections for the tenant, supplies the third-party credential or installs the kora app, sets the ceiling of what the connection may ever do, and grants agents access.
 - **Agent Author** — builds an agent type and requests which connections it needs; does not handle secrets.
 - **Developer / Operator** — runs an agent to get work done; never configures or sees credentials.
 - **Security / Compliance** — reviews which agents have which connections and audits what was done with them.
@@ -87,9 +87,9 @@ A **connection** is a governed link from the tenant to one external service. The
 
 | Connection | What the agent can do | What the admin provides |
 |---|---|---|
-| **GitHub** | `git` clone / pull / push / commit over HTTPS, `gh` CLI, and the GitHub REST/GraphQL API, scoped to chosen repositories | Installs the **Orbit GitHub App** on the org and selects repositories + permission ceiling (e.g. contents, pull requests) |
+| **GitHub** | `git` clone / pull / push / commit over HTTPS, `gh` CLI, and the GitHub REST/GraphQL API, scoped to chosen repositories | Installs the **kora GitHub App** on the org and selects repositories + permission ceiling (e.g. contents, pull requests) |
 
-GitHub is the flagship and proves the end-to-end pattern. The agent acts as the GitHub App (a bot identity); commits and actions are attributed to the app, and through Orbit, to the run.
+GitHub is the flagship and proves the end-to-end pattern. The agent acts as the GitHub App (a bot identity); commits and actions are attributed to the app, and through kora, to the run.
 
 ### Fast-follow (v1.x — same architecture, additional connection styles)
 
@@ -97,7 +97,7 @@ GitHub is the flagship and proves the end-to-end pattern. The agent acts as the 
 |---|---|---|
 | **Generic API-key SaaS** | Call any HTTPS API that authenticates with a static API key (e.g. Stripe, SendGrid, internal APIs) | Base URL, the API key, and where the key goes (header or query) |
 | **Generic OAuth2 service (client credentials)** | Call any service that issues tokens via the OAuth2 client-credentials grant — the user's "register a third-party OIDC/OAuth app" case | Token endpoint, client ID + secret, allowed scopes |
-| **Amazon Web Services** | `aws` CLI and AWS SDK calls (e.g. S3, etc.) under a role the tenant authorizes | An IAM role Orbit may assume (cross-account trust) and a permissions ceiling |
+| **Amazon Web Services** | `aws` CLI and AWS SDK calls (e.g. S3, etc.) under a role the tenant authorizes | An IAM role kora may assume (cross-account trust) and a permissions ceiling |
 | **Kubernetes** | `kubectl` and Kubernetes SDK calls against an authorized cluster | Cluster API endpoint + CA, and a credential/role the tenant authorizes |
 | **Custom HTTP connection** | Call any HTTPS endpoint with a configurable authentication style | Base URL + chosen auth style and its inputs |
 
@@ -120,10 +120,10 @@ The experience has three distinct moments, deliberately separated so that *holdi
 1. Admin opens **Tenant → Connections → Add connection**.
 2. Chooses a connection type (GitHub, AWS, Kubernetes, OAuth2 service, API key, Custom HTTP).
 3. Completes the type-specific setup:
-   - **GitHub:** clicks "Install Orbit GitHub App," is taken through GitHub's install flow, selects the org and the specific repositories, and chooses the permission ceiling. No token is ever copy-pasted.
-   - **AWS:** provides the role ARN Orbit may assume and confirms the cross-account trust; sets a permissions boundary.
-   - **Kubernetes:** provides the cluster endpoint and CA and the credential Orbit should use.
-   - **OAuth2 service:** enters the token endpoint, client ID and secret, and the scopes Orbit may request.
+   - **GitHub:** clicks "Install kora GitHub App," is taken through GitHub's install flow, selects the org and the specific repositories, and chooses the permission ceiling. No token is ever copy-pasted.
+   - **AWS:** provides the role ARN kora may assume and confirms the cross-account trust; sets a permissions boundary.
+   - **Kubernetes:** provides the cluster endpoint and CA and the credential kora should use.
+   - **OAuth2 service:** enters the token endpoint, client ID and secret, and the scopes kora may request.
    - **API key:** enters the base URL and the key, and where it should be sent.
 4. Sets the connection's **ceiling** — the maximum it may ever do (e.g. which repos, which scopes). Nothing granted to an agent can exceed this.
 5. Saves. The connection now appears as a governed resource in the tenant, showing its type, ceiling, and which agents (if any) can use it.
@@ -155,7 +155,7 @@ The developer just uses the agent. When the agent runs `git push`, calls the Git
 **So that** I can let agents work on our code without handing any agent a GitHub token.
 
 **Acceptance Criteria:**
-- [ ] I can install the Orbit GitHub App and pick specific repositories and a permission ceiling.
+- [ ] I can install the kora GitHub App and pick specific repositories and a permission ceiling.
 - [ ] No GitHub token is ever displayed to me or stored anywhere an agent can read it.
 - [ ] After registration, the connection is visible as a governed resource with its ceiling.
 
@@ -213,7 +213,7 @@ The developer just uses the agent. When the agent runs `git push`, calls the Git
 
 ## Open Questions
 
-- For GitHub, do we require the Orbit GitHub App install flow only, or also allow an admin to bring an existing App's credentials directly?
+- For GitHub, do we require the kora GitHub App install flow only, or also allow an admin to bring an existing App's credentials directly?
 - What is the right default token lifetime / caching window per connection type, balancing freshness against rate limits?
 - How should connection registration and grants surface in the existing policy administration dashboard versus a dedicated Connections area?
 - What is the minimum audit record we ship in v1 given the event spine is out of scope?

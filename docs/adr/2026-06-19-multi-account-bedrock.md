@@ -2,7 +2,7 @@
 
 **Status:** Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md)  
 **Date:** 2026-06-19  
-**Deciders:** Orbit Platform Team  
+**Deciders:** kora Platform Team  
 **Technical Story:** [Multi-Account Bedrock PRD](../prd/multi-account-bedrock.md) — defines the requirement for supporting multiple simultaneous AWS Bedrock environments in the inference gateway.
 
 ---
@@ -17,10 +17,10 @@ The `ProviderName` type is already a plain `string` alias. The routing engine, c
 
 ### Problem Statement
 
-Organisations operating multiple AWS accounts cannot use a single Orbit deployment to route inference traffic across more than one account. The Bedrock connector's single-instance design requires either:
+Organisations operating multiple AWS accounts cannot use a single kora deployment to route inference traffic across more than one account. The Bedrock connector's single-instance design requires either:
 
 - Choosing one account at deploy time and ignoring others, or
-- Running multiple Orbit deployments (one per account), which defeats the purpose of a unified control plane.
+- Running multiple kora deployments (one per account), which defeats the purpose of a unified control plane.
 
 ### Goals
 

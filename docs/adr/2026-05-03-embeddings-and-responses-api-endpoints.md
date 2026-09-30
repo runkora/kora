@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-05-03
-**Deciders:** Orbit Core Team  
+**Deciders:** kora Core Team  
 **Technical Story:** Add `POST /v1/embeddings` and `POST /v1/responses` to the inference gateway to enable embedding model usage and OpenAI Codex CLI compatibility.
 
 ---
@@ -11,7 +11,7 @@
 
 ### Background
 
-The Orbit inference gateway exposes two inference endpoints today:
+The kora inference gateway exposes two inference endpoints today:
 
 | Endpoint | Wire format | Status |
 |----------|-------------|--------|
@@ -26,9 +26,9 @@ The Responses API (`POST /v1/responses`) is OpenAI's newer, stateless inference 
 
 ### Problem Statement
 
-Two classes of workloads cannot be routed through Orbit today:
+Two classes of workloads cannot be routed through kora today:
 
-1. **Embedding workloads** (RAG pipelines, semantic search, vector stores) — users must call providers directly, bypassing all Orbit policy, usage tracking, and cost attribution.
+1. **Embedding workloads** (RAG pipelines, semantic search, vector stores) — users must call providers directly, bypassing all kora policy, usage tracking, and cost attribution.
 2. **Codex and Responses API clients** — `OPENAI_BASE_URL` can be set to point Codex at any OpenAI-compatible endpoint, but Codex issues `POST /v1/responses`, which the gateway does not handle.
 
 A secondary product concern: AWS Bedrock is the largest provider catalogue in the platform, but only **Bedrock Mantle** (a separate AWS endpoint hosting OpenAI models) exposes the Responses API natively. Without a compatibility layer, Codex users on Bedrock would be limited to Mantle models — Claude (the most-used family on the platform) and the rest of the Bedrock catalogue (Nova, Llama, Mistral, Titan, …) would be unreachable from a Codex client.
@@ -37,7 +37,7 @@ A secondary product concern: AWS Bedrock is the largest provider catalogue in th
 
 - `POST /v1/embeddings`: accept OpenAI-compatible embedding requests, route via the virtual model catalog, return `CreateEmbeddingResponse`.
 - `POST /v1/responses`: accept OpenAI Responses API requests (streaming and non-streaming), route via the virtual model catalog.
-- Full Orbit integration for both: auth, policy, usage attribution, retry/failover — identical to existing chat endpoints.
+- Full kora integration for both: auth, policy, usage attribution, retry/failover — identical to existing chat endpoints.
 - No new routing primitives, no new middleware, no catalog schema changes.
 - Bedrock Mantle support within the existing Bedrock connector — no new provider registration required.
 - **Codex reach across the Bedrock catalogue** — Claude and other Bedrock models are usable from Codex clients without operator intervention, even though they do not natively speak the Responses API.
@@ -296,8 +296,8 @@ No new scope declarations are needed: both endpoints are governed by the existin
 
 ### Positive
 
-- Codex CLI can be pointed at Orbit with `OPENAI_BASE_URL` + `OPENAI_API_KEY` and reach the entire Bedrock model catalogue (Mantle, Claude, Nova, Llama, Mistral) plus any virtual models routed to Vertex / Azure.
-- Embedding workloads gain all Orbit benefits: policy enforcement, usage attribution, cost tracking, provider failover.
+- Codex CLI can be pointed at kora with `OPENAI_BASE_URL` + `OPENAI_API_KEY` and reach the entire Bedrock model catalogue (Mantle, Claude, Nova, Llama, Mistral) plus any virtual models routed to Vertex / Azure.
+- Embedding workloads gain all kora benefits: policy enforcement, usage attribution, cost tracking, provider failover.
 - Native paths (Mantle, Vertex, Azure) preserve all Responses-specific fields with zero translation loss.
 - Bedrock Mantle support extends Bedrock's model catalogue to OpenAI models at zero additional credential cost — same AWS account, same SigV4 signing.
 - `DialectResponses` in usage records gives operators clean analytics visibility into Codex/Responses API traffic separately from chat completions.

@@ -55,7 +55,7 @@ GraphQL requests are authorised against an action that granular grants never hol
 
 **Pros:**
 - Least privilege: an issues-only agent cannot read pull requests or code through GraphQL, and the token it gets carries only `issues`.
-- Denials happen at Orbit with the exact action in the log, consistent with REST.
+- Denials happen at kora with the exact action in the log, consistent with REST.
 
 **Cons:**
 - A field map to maintain as agents use more of the GraphQL surface.
@@ -69,7 +69,7 @@ GraphQL requests are authorised against an action that granular grants never hol
 - Small change, no parser.
 
 **Cons:**
-- Over-grants at the gate: an issues-only agent is authorised for a query that reads code, and Orbit's audit log records it as allowed. Enforcement moves entirely to GitHub.
+- Over-grants at the gate: an issues-only agent is authorised for a query that reads code, and kora's audit log records it as allowed. Enforcement moves entirely to GitHub.
 - The minted permissions depend on the grant rather than the request, unlike every other GitHub classification.
 
 ### Option 3: Keep GraphQL denied
@@ -101,7 +101,7 @@ GraphQL requests are authorised against an action that granular grants never hol
 
 ### Parser
 
-The classifier parses the query with `github.com/vektah/gqlparser/v2` (`parser.ParseQueryWithTokenLimit`), without a schema. The module is already in Orbit's build: OPA's GraphQL built-ins depend on it, so every binary that links the policy package already compiles it. Making it a direct dependency adds no new module to `go.sum`. A hand-written scanner is what the previous classifier used; it could not see aliases, fragments, nested repository calls or variable defaults, which is how a second `repository(owner: "evil")` went unchecked.
+The classifier parses the query with `github.com/vektah/gqlparser/v2` (`parser.ParseQueryWithTokenLimit`), without a schema. The module is already in kora's build: OPA's GraphQL built-ins depend on it, so every binary that links the policy package already compiles it. Making it a direct dependency adds no new module to `go.sum`. A hand-written scanner is what the previous classifier used; it could not see aliases, fragments, nested repository calls or variable defaults, which is how a second `repository(owner: "evil")` went unchecked.
 
 ### Requirements per field
 

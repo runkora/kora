@@ -10,7 +10,7 @@
 
 ## Context
 
-The Orbit control plane frontend is structured around a Terra design system (`@orbit/terra`) that provides low-level primitives — `Button`, `Card`, `Badge`, `Stack`, `Heading`, `Text`, `Separator`, `Progress` — and a set of product pages and feature tabs that compose those primitives into full UI. What is missing is the intermediate layer: the collection of higher-order, application-aware components that every feature page assembles from the same primitives in the same way.
+The kora control plane frontend is structured around a Terra design system (`@orbit/terra`) that provides low-level primitives — `Button`, `Card`, `Badge`, `Stack`, `Heading`, `Text`, `Separator`, `Progress` — and a set of product pages and feature tabs that compose those primitives into full UI. What is missing is the intermediate layer: the collection of higher-order, application-aware components that every feature page assembles from the same primitives in the same way.
 
 A systematic audit of the five densest page and component files revealed 22 recurring patterns implemented independently, without sharing. The most significant examples:
 
@@ -60,7 +60,7 @@ We need a set of architectural decisions that establish:
 * **Duplication elimination**: The same `useEffect` pair, the same `className` string, and the same variant mapping table should not exist in N files. A single canonical source makes bugs easier to find and fixes automatic.
 * **Developer ergonomics**: A developer building a new feature tab should be able to assemble it from named, importable building blocks rather than copying inline patterns from an adjacent file.
 * **AI-assisted development**: Forge and v0.dev generate better output when there is a documented vocabulary of intermediate-level components. Without `<MetricCard>`, `<Modal>`, and `<EmptyState>` in scope, AI tools invent new inline implementations.
-* **Terra boundary preservation**: Terra is a domain-free, portable design system. Components with Orbit domain knowledge (status tokens, principal types, destructive-action semantics) must not live in Terra — they belong one tier up.
+* **Terra boundary preservation**: Terra is a domain-free, portable design system. Components with kora domain knowledge (status tokens, principal types, destructive-action semantics) must not live in Terra — they belong one tier up.
 * **ESLint compliance**: The custom rules `no-raw-layout-elements` and `no-raw-inline-elements` constrain how components can be written. Extracted components must be authored within these constraints from the start, not patched afterwards.
 * **ShadCN convention for Terra additions**: Per [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md), new Terra components must be created from a ShadCN/Radix UI base component, not from scratch. This constrains the implementation path for `Modal` and `FormField`.
 * **Lint rule purity**: Every suppressed raw HTML block is a potential vector for inconsistency and drift. Terra must supply a compliant replacement for every common pattern — including icon containers, chat bubbles, and responsive visibility wrappers.
@@ -75,8 +75,8 @@ We need a set of architectural decisions that establish:
 
 **Description:** Apply a strict placement hierarchy. Components are assigned to exactly one of three tiers based on their domain specificity and the breadth of their consumer set:
 
-- **Tier 1 (Terra)**: Radix/ShadCN-based, zero Orbit domain knowledge, could be extracted to a standalone library. Required: `data-slot`, `React.forwardRef`, `cva`/`cn`, ShadCN sub-component composition, Storybook story.
-- **Tier 2 (`frontend/src/components/`)**: Orbit domain-aware, but needed by two or more distinct dashboard features. Lightweight Storybook requirement: a single `Default` story under `App/Shared/<Name>` (not the full Terra authoring suite — no Component Grid entry, no `data-slot` conventions required); lint-clean and TypeScript-typed.
+- **Tier 1 (Terra)**: Radix/ShadCN-based, zero kora domain knowledge, could be extracted to a standalone library. Required: `data-slot`, `React.forwardRef`, `cva`/`cn`, ShadCN sub-component composition, Storybook story.
+- **Tier 2 (`frontend/src/components/`)**: kora domain-aware, but needed by two or more distinct dashboard features. Lightweight Storybook requirement: a single `Default` story under `App/Shared/<Name>` (not the full Terra authoring suite — no Component Grid entry, no `data-slot` conventions required); lint-clean and TypeScript-typed.
 - **Tier 3 (`frontend/src/app/(dashboard)/[feature]/_components/`)**: Used within a single feature area by two or more files. Not needed elsewhere. Promotion to Tier 2 is triggered when a second feature area requires the same component.
 
 **Pros:**
@@ -112,9 +112,9 @@ We need a set of architectural decisions that establish:
 - Design system documents all reusable components in one place
 
 **Cons:**
-- Terra is domain-free by design. `MetricCard` uses Orbit heading variants and delta colour semantics. `StatusBadge` maps Orbit status token names. `ConfirmDialog` encodes the Orbit destructive-action pattern. None of these belong in a portable library.
+- Terra is domain-free by design. `MetricCard` uses kora heading variants and delta colour semantics. `StatusBadge` maps kora status token names. `ConfirmDialog` encodes the kora destructive-action pattern. None of these belong in a portable library.
 - Terra components require Storybook stories and full ShadCN authoring conventions — imposing that overhead on every intermediate component is a significant friction cost that will slow extraction work.
-- It makes Terra meaningfully harder for external consumers (or future open-source distribution) because it becomes tangled with Orbit-specific UX conventions.
+- It makes Terra meaningfully harder for external consumers (or future open-source distribution) because it becomes tangled with kora-specific UX conventions.
 
 ### Option 4: Do nothing — add a catalogue document describing the canonical inline pattern
 
@@ -140,8 +140,8 @@ We need a set of architectural decisions that establish:
 
 Option 1 is the only approach that correctly handles the full spectrum of candidates. The 22 patterns fall into three distinct groups by nature:
 
-1. `Modal` and `FormField` are genuinely domain-free (any Orbit surface could use a modal or a labelled form field). They belong in Terra, built from Radix UI with ShadCN conventions, with Storybook stories.
-2. `MetricCard`, `StatusBadge`, `ConfirmDialog`, `EmptyState`, `PageSectionHeader`, `ErrorBanner`, and `EventFeedItem` are Orbit-specific in their semantics but are needed by two or more distinct feature areas of the dashboard (model-gateway + policy + dashboard home). They belong in `frontend/src/components/`.
+1. `Modal` and `FormField` are genuinely domain-free (any kora surface could use a modal or a labelled form field). They belong in Terra, built from Radix UI with ShadCN conventions, with Storybook stories.
+2. `MetricCard`, `StatusBadge`, `ConfirmDialog`, `EmptyState`, `PageSectionHeader`, `ErrorBanner`, and `EventFeedItem` are kora-specific in their semantics but are needed by two or more distinct feature areas of the dashboard (model-gateway + policy + dashboard home). They belong in `frontend/src/components/`.
 3. `ChartLegend`, `ViewToggle`, `FilterChip`, `MessageContent`, `ChatInputBar`, and the other remaining candidates are used within a single feature area today. They belong in that feature's `_components/` directory, with an explicit promotion trigger when a second consumer appears.
 
 Options 2, 3, and 4 all collapse important distinctions that the three-tier model preserves. The "do nothing" option (4) fails the primary goal. The "promote everything to Terra" option (3) violates the Terra boundary established by [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md).
@@ -154,7 +154,7 @@ Options 2, 3, and 4 all collapse important distinctions that the three-tier mode
 
 #### Phase 0 — complete (2026-04-21)
 
-The following primitives were added to Terra to eliminate lint-suppressed raw HTML patterns in `chat/page.tsx` and enforce icon governance across the codebase. All are domain-free and reusable by any Orbit surface.
+The following primitives were added to Terra to eliminate lint-suppressed raw HTML patterns in `chat/page.tsx` and enforce icon governance across the codebase. All are domain-free and reusable by any kora surface.
 
 | Component | Status | Storybook |
 |-----------|--------|-----------|
@@ -372,7 +372,7 @@ interface ErrorBannerProps {
 
 #### `StatusBadge`
 
-Maps an Orbit status value to the correct `Badge` variant and display label. The mapping is Orbit-specific (status token names match `--color-status-*` CSS variables from Terra).
+Maps a kora status value to the correct `Badge` variant and display label. The mapping is kora-specific (status token names match `--color-status-*` CSS variables from Terra).
 
 **Props**:
 ```ts
@@ -413,7 +413,7 @@ interface MetricCardProps {
 
 #### `PageSectionHeader`
 
-> **Promoted to Tier 1 (2026-04-28).** `PageSectionHeader` carries zero Orbit domain knowledge — it is a generic layout primitive. It now lives at `frontend/src/packages/terra/src/components/page-section-header/` and is exported from `@orbit/terra`. All callers import from `@orbit/terra`. Storybook story at `Terra/Layout/PageSectionHeader`.
+> **Promoted to Tier 1 (2026-04-28).** `PageSectionHeader` carries zero kora domain knowledge — it is a generic layout primitive. It now lives at `frontend/src/packages/terra/src/components/page-section-header/` and is exported from `@orbit/terra`. All callers import from `@orbit/terra`. Storybook story at `Terra/Layout/PageSectionHeader`.
 
 **Props**:
 ```ts
@@ -479,7 +479,7 @@ The following mechanisms are first-class deliverables alongside the component ex
 |-----------|-------|-------------|
 | Barrel export + JSDoc | Phase 2 | `frontend/src/components/index.ts` exports every Tier 2 component with a one-line JSDoc. Autocompletes in IDE. Rule: added in the same PR as the component. |
 | Golden path: `app-components.md` | Phase 2 | `frontend/docs/golden-paths/app-components.md` — import path, when to use, TypeScript interface, minimal example. Linked from `terra-design-system.md`. |
-| `App/Shared/` Storybook | Phase 2 | One story per Tier 2 component. The story's `title` field must be `"App/Shared/<ComponentName>"` — this is a **Storybook sidebar path**, not a filesystem directory. The component file itself lives at `frontend/src/components/`. At minimum a `Default` story with Orbit-flavoured content. |
+| `App/Shared/` Storybook | Phase 2 | One story per Tier 2 component. The story's `title` field must be `"App/Shared/<ComponentName>"` — this is a **Storybook sidebar path**, not a filesystem directory. The component file itself lives at `frontend/src/components/`. At minimum a `Default` story with kora-flavoured content. |
 | `@tier` JSDoc annotations | Phase 1+ | Each extracted component opens with `@tier N` + promotion trigger comment. Searchable via `grep -r "@tier"`. Surfaces in IDE hover. |
 | `frontend/docs/golden-paths/ui-components.md` | Phase 0 ✅ | Golden path doc covering: (1) the three-tier placement model with decision tree, (2) all Tier 1 Terra components with import path and one-line description, (3) all Tier 2 shared components with import path and one-line description, (4) the placement algorithm for new components, (5) `@tier` annotation format and where it goes. Also surfaced via the root `AGENTS.md` Frontend Development section. Primary reference for Forge and other agents when generating or reviewing any frontend component code. |
 | `reusable-components.md` status column | Phase 1+ | `inline` / `extracted` / `superseded` column tracks migration state. Used by reviewers to catch inline re-implementations. |
@@ -634,13 +634,13 @@ This tree has no ambiguous branches. If a placement feels unclear, the tiebreake
 | `fmtCost(usd: number): string` | `"$42.17"` | `fmt` in stat-cards.tsx |
 | `fmtTokens(n: number): string` | `"1.2M"` | `fmtTokens` in stat-cards.tsx — or fold into existing `fmtNumCompact` |
 
-All four follow the naming convention established in the Orbit coding preferences: domain-qualified, unambiguous names. They are exported from the `@orbit/utils` barrel and imported as `import { fmtDate } from '@orbit/utils'`.
+All four follow the naming convention established in the kora coding preferences: domain-qualified, unambiguous names. They are exported from the `@orbit/utils` barrel and imported as `import { fmtDate } from '@orbit/utils'`.
 
 ---
 
 ### Promotion Triggers
 
-A Tier 3 component should be promoted to Tier 2 when a second feature area outside its current feature needs to import it. A Tier 2 component should be considered for promotion to Tier 1 (Terra) when: (a) it carries no Orbit domain knowledge, and (b) it is or could be needed by a non-dashboard Orbit surface. Promotion decisions should be documented as a comment in the component file at the time of extraction:
+A Tier 3 component should be promoted to Tier 2 when a second feature area outside its current feature needs to import it. A Tier 2 component should be considered for promotion to Tier 1 (Terra) when: (a) it carries no kora domain knowledge, and (b) it is or could be needed by a non-dashboard kora surface. Promotion decisions should be documented as a comment in the component file at the time of extraction:
 
 ```tsx
 // Tier 3 — model-gateway scoped. Promote to src/components/ if a second feature needs a chart legend.

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit can run agents on demand, but only when a human starts them — every run today is created by an interactive principal through `POST /api/v1/runs`. This PRD introduces **Triggers**: a framework that starts agent runs automatically in response to external events. "Trigger" is the umbrella concept (scheduled and event-spine kinds can follow); the **webhook trigger** is the first and only kind in v1 — a source-agnostic inbound-event pipeline. A platform admin registers a webhook source (e.g. a GitHub repository), binds events to an agent, and matching deliveries start a run with a templated prompt populated from the event payload.
+kora can run agents on demand, but only when a human starts them — every run today is created by an interactive principal through `POST /api/v1/runs`. This PRD introduces **Triggers**: a framework that starts agent runs automatically in response to external events. "Trigger" is the umbrella concept (scheduled and event-spine kinds can follow); the **webhook trigger** is the first and only kind in v1 — a source-agnostic inbound-event pipeline. A platform admin registers a webhook source (e.g. a GitHub repository), binds events to an agent, and matching deliveries start a run with a templated prompt populated from the event payload.
 
 The first and motivating use case is **triggering agents on pull requests** to accelerate the team's own development flow (e.g. auto-review, auto-triage, CI follow-up). The framework is deliberately generic — GitHub is the first *source adapter*, not the design center. **Each registered webhook source is mapped to its own platform identity at registration**; triggers on that source create runs under that identity, and a run can read/write the target agent's session if that identity has access to the agent. Configuration and governance are platform-admin-level.
 
@@ -33,9 +33,9 @@ The first and motivating use case is **triggering agents on pull requests** to a
 
 ### Business Impact
 
-- Slows Orbit's own engineering velocity — the dogfood case (agents on PRs) is blocked.
+- Slows kora's own engineering velocity — the dogfood case (agents on PRs) is blocked.
 - Limits the product's reach: "agents that respond to events" is table stakes for an agent control plane and a frequent prospect ask.
-- Every day without it pushes teams toward ungoverned, out-of-band automation that Orbit is meant to replace.
+- Every day without it pushes teams toward ungoverned, out-of-band automation that kora is meant to replace.
 
 ---
 
@@ -61,7 +61,7 @@ The first and motivating use case is **triggering agents on pull requests** to a
 - **Scheduled / cron-based triggers.** Time-based triggers are a future *trigger kind*; v1 ships the webhook trigger kind only.
 - **Coupling webhooks into the egress credential broker.** Inbound governance and outbound credential injection stay separate planes (see Alternatives).
 - **Self-service trigger creation by individual engineers.** v1 is platform-admin-governed only.
-- **Outbound webhooks / Orbit-emitted events** (notifying external systems) — that belongs to the event-spine work.
+- **Outbound webhooks / kora-emitted events** (notifying external systems) — that belongs to the event-spine work.
 - **A full third-party source catalog.** GitHub is the only shipped adapter in v1; the framework is built so GitLab, generic HMAC sources, etc. can follow.
 - **Multi-agent orchestration / fan-out workflows** triggered by a single event.
 - **Prompt-templating injection safety** — deferred to a later iteration (payload treated as data; hardening comes later).
@@ -74,7 +74,7 @@ The first and motivating use case is **triggering agents on pull requests** to a
 
 **As a** platform admin,
 **I want to** register a GitHub repository as a webhook source and get back an endpoint URL and signing secret,
-**So that** I can configure GitHub to deliver events to Orbit securely.
+**So that** I can configure GitHub to deliver events to kora securely.
 
 **Acceptance Criteria:**
 - [ ] Creating a source returns a stable inbound URL and a generated signing secret (shown once).
@@ -157,10 +157,10 @@ Outbound calls the resulting run makes (e.g. commenting on the PR) flow through 
 
 ### User Experience / Flow
 
-1. Platform admin creates a **source** (`github`, repo `org/repo`) → Orbit returns the inbound URL + signing secret.
-2. Admin pastes URL + secret into the repo's GitHub webhook settings (or, later, Orbit configures it via the GitHub App).
+1. Platform admin creates a **source** (`github`, repo `org/repo`) → kora returns the inbound URL + signing secret.
+2. Admin pastes URL + secret into the repo's GitHub webhook settings (or, later, kora configures it via the GitHub App).
 3. Admin creates a **trigger**: source = that repo, event = `pull_request` action `opened`/`synchronize`, condition = base branch `main`, target = agent type `pr-reviewer`, prompt template = e.g. `Review PR #{{ pr.number }} "{{ pr.title }}" on branch {{ pr.head_ref }}.`
-4. A PR is opened → GitHub delivers the event → Orbit verifies, matches, renders the prompt, and starts the run.
+4. A PR is opened → GitHub delivers the event → kora verifies, matches, renders the prompt, and starts the run.
 5. The run executes; if it comments on the PR, the egress broker injects the GitHub App token.
 6. Admin can inspect the delivery and the spawned run in the UI.
 
@@ -168,7 +168,7 @@ Outbound calls the resulting run makes (e.g. commenting on the PR) flow through 
 
 The UI has two surfaces that mirror the governance model. A **source** is shared trust infrastructure (one GitHub repo source can feed many agents' triggers) and owns the security-sensitive endpoint URL + signing secret, so it lives at the platform level. A **trigger** is "this event runs this agent," so it is authored at the agent. Both are platform-admin-gated in v1; the per-agent location is about *where the work is done*, not a lower permission bar.
 
-> **Inbound, not outbound.** This is not an outbound-webhook/subscription UI. The user never enters a destination URL to call. Orbit *issues* an inbound endpoint URL + signing secret (per source) for the external system to post to; the UI manages the inbound triggers those deliveries fire.
+> **Inbound, not outbound.** This is not an outbound-webhook/subscription UI. The user never enters a destination URL to call. kora *issues* an inbound endpoint URL + signing secret (per source) for the external system to post to; the UI manages the inbound triggers those deliveries fire.
 
 **Part 1 — Per-agent "Triggers" tab** (agent detail page, alongside Overview / Runs / Connectivity / Settings):
 - Lists triggers that target this agent: source, event + condition, prompt template, enabled state.
@@ -288,7 +288,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 |------|--------|-------------|------------|
 | Triggered-run identity weakens the human-accountability chain | High | Low | Resolved: each webhook source maps to a dedicated platform identity at registration; every run traces to that identity and its source, and is bounded by that identity's access to the target agent |
 | Prompt-injection via attacker-controlled payload fields (PR title, body) | High | High | **Deferred** — payload fields are attacker-controllable, but templating-injection safety is explicitly out of scope for v1 and will be addressed in a later iteration |
-| Trigger loops (agent acts on PR → fires webhook → new run → …) | High | Medium | Loop-prevention guardrails: ignore events from Orbit's own bot identity, per-trigger concurrency/debounce, delivery dedup |
+| Trigger loops (agent acts on PR → fires webhook → new run → …) | High | Medium | Loop-prevention guardrails: ignore events from kora's own bot identity, per-trigger concurrency/debounce, delivery dedup |
 | Public inbound endpoint becomes an attack/DoS surface | Medium | Medium | Mandatory signature verification before side effects; rate limiting; async run initiation; isolate ingestion from control-plane internals |
 | Coupling inbound webhooks to the egress GitHub App by accident | Medium | Low | Explicit architectural separation (this PRD); separate secrets and code paths |
 | Secret sprawl across many sources | Medium | Low | Standardize on Kubernetes secret references; rotate-able signing secrets |
@@ -340,7 +340,7 @@ Reasonable defaults so the ADR/implementation can proceed; revisit only if they 
 - **Async initiation.** The inbound endpoint verifies and returns a fast 2xx, then initiates the run asynchronously. Delivery states: `received → verified → matched → dispatched` (or `skipped` / `failed`).
 - **Dedup.** Redeliveries are de-duplicated on the provider's delivery ID (idempotency).
 - **Concurrency.** One run per matched trigger per delivery; concurrent runs allowed. No debounce / one-run-per-PR coalescing in v1.
-- **Loop-prevention.** Best-effort only in v1 (e.g. ignoring deliveries attributable to Orbit's own bot identity); fuller guarding revisited if loops appear.
+- **Loop-prevention.** Best-effort only in v1 (e.g. ignoring deliveries attributable to kora's own bot identity); fuller guarding revisited if loops appear.
 - **Binary / ingress placement.** The Triggers package is hosted so its inbound endpoint is publicly reachable while the rest of the control plane stays internal; exact binary/ingress wiring confirmed in implementation.
 
 ## Open Questions

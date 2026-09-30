@@ -203,7 +203,7 @@ Offset pagination is implemented with a `COUNT(*) OVER()` window function so tot
 
 ### Negative / Trade-offs
 
-- A user who changes their email in the IdP will see the old email in Orbit until they next log in. This is acceptable given the use-case (attribution, not authentication).
+- A user who changes their email in the IdP will see the old email in kora until they next log in. This is acceptable given the use-case (attribution, not authentication).
 - Adds one upsert to the login hot path. The upsert targets a single row by primary key and is negligible in practice.
 - The `user_profiles` table is owned by the identity service but queried by the policy service (for grants attribution). This cross-service data access is mediated via HTTP, preserving service boundary ownership.
 

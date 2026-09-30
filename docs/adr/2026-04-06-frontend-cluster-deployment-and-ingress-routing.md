@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-04-06
 **Deciders:** Engineering Team
-**Technical Story:** The Orbit frontend ([frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md), [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md), [home-realm-discovery-and-email-based-tenant-routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md)) runs in Tier 1 local development via `pnpm dev` on the host, talking to the Go identity service over localhost. The Tier 2 k3d cluster ([local-development-environment](2026-03-10-local-development-environment.md)) runs the identity service inside Kubernetes under SPIRE/Istio ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)) but has no frontend deployment. Developers cannot exercise the full end-to-end platform — browser login, dashboard, and agent CLI inference — without spinning up the cluster and the dev server separately, pointing at different origins. This ADR closes that gap.
+**Technical Story:** The kora frontend ([frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md), [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md), [home-realm-discovery-and-email-based-tenant-routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md)) runs in Tier 1 local development via `pnpm dev` on the host, talking to the Go identity service over localhost. The Tier 2 k3d cluster ([local-development-environment](2026-03-10-local-development-environment.md)) runs the identity service inside Kubernetes under SPIRE/Istio ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)) but has no frontend deployment. Developers cannot exercise the full end-to-end platform — browser login, dashboard, and agent CLI inference — without spinning up the cluster and the dev server separately, pointing at different origins. This ADR closes that gap.
 
 ---
 
@@ -14,7 +14,7 @@
 [local-development-environment](2026-03-10-local-development-environment.md) established two local development tiers:
 
 - **Tier 1 (host binaries):** `make dev` — Go services running directly on the host with hot-reload. Frontend runs via `pnpm dev` on `localhost:3000`. All services talk over localhost.
-- **Tier 2 (k3d cluster):** `make dev-cluster && make cluster-operator` — SPIRE, Istio, and all Orbit services running in Kubernetes. The identity service has a SPIFFE SVID and participates in the mTLS mesh.
+- **Tier 2 (k3d cluster):** `make dev-cluster && make cluster-operator` — SPIRE, Istio, and all kora services running in Kubernetes. The identity service has a SPIFFE SVID and participates in the mTLS mesh.
 
 Until now the frontend has had no Tier 2 representation. An engineer running the full cluster still has to start the dev server manually on the host, which:
 
@@ -130,7 +130,7 @@ The DNS overhead is trivial — both hostnames are added to the existing `orbit.
 
 ### Rationale
 
-The Istio VirtualService merge behaviour with shared wildcard hosts is a well-documented source of production incidents. Given that Orbit's architecture is explicitly designed to avoid implicit, hard-to-debug behaviour (see [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) on explicit NetworkPolicy over implicit CNI trust), accepting a routing model with non-deterministic merge semantics is inconsistent. Host-based routing eliminates the problem entirely and mirrors how external ingress works in every production Kubernetes environment.
+The Istio VirtualService merge behaviour with shared wildcard hosts is a well-documented source of production incidents. Given that kora's architecture is explicitly designed to avoid implicit, hard-to-debug behaviour (see [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) on explicit NetworkPolicy over implicit CNI trust), accepting a routing model with non-deterministic merge semantics is inconsistent. Host-based routing eliminates the problem entirely and mirrors how external ingress works in every production Kubernetes environment.
 
 The single shared piece — the Istio `Gateway` resource — is a platform concern and belongs in `charts/orbit-platform/`, not in any individual service's template directory. The `orbit-platform` chart already owns namespace creation, ClusterSPIFFEIDs, and NetworkPolicies. The Gateway resource is the same category of cluster-scoped infrastructure.
 
@@ -188,7 +188,7 @@ The frontend pod gets the `spiffe.io/component: frontend` label, which causes th
 
 The frontend uses a multi-stage Dockerfile with `frontend/` as the build context (self-contained pnpm workspace). The `NEXT_OUTPUT=standalone` environment variable activates Next.js's standalone output mode, which traces all runtime dependencies and produces a minimal `server.js` entry point. The runtime stage copies only `.next/standalone`, `.next/static`, and `public/` — no `node_modules` from the build stage are carried over.
 
-The container runs as uid/gid 65532 (`orbit`/`orbit`), consistent with all other Orbit service containers.
+The container runs as uid/gid 65532 (`orbit`/`orbit`), consistent with all other kora service containers.
 
 ### BFF Session Secret
 

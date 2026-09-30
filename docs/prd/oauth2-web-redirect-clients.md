@@ -10,20 +10,20 @@
 
 ## Problem
 
-Orbit's identity service is an OAuth 2.1 authorization server for public (PKCE) clients. Registration only admits **loopback** redirect URIs — correct for native/desktop MCP apps (RFC 8252), but it structurally excludes **hosted web applications**. A server-rendered app a user reaches in the browser has a fixed public HTTPS callback such as `https://app.example.com/api/auth/callback/orbit`, which the loopback-only rule refuses.
+kora's identity service is an OAuth 2.1 authorization server for public (PKCE) clients. Registration only admits **loopback** redirect URIs — correct for native/desktop MCP apps (RFC 8252), but it structurally excludes **hosted web applications**. A server-rendered app a user reaches in the browser has a fixed public HTTPS callback such as `https://app.example.com/api/auth/callback/orbit`, which the loopback-only rule refuses.
 
-We need hosted apps to log their users in through Orbit, without opening a self-service endpoint that would accept arbitrary remote redirect URIs (an open-redirect / code-theft risk).
+We need hosted apps to log their users in through kora, without opening a self-service endpoint that would accept arbitrary remote redirect URIs (an open-redirect / code-theft risk).
 
 ## Goals
 
-- Let an **admin-reviewed** hosted web app authenticate users through Orbit with a fixed non-loopback HTTPS redirect URI.
+- Let an **admin-reviewed** hosted web app authenticate users through kora with a fixed non-loopback HTTPS redirect URI.
 - Register these clients **declaratively via GitOps**, the same way connectors and MCP servers are registered — a platform operator brings their own clients.
-- Add/update/remove a client without an Orbit code change or image rebuild, and without a pod restart.
+- Add/update/remove a client without a kora code change or image rebuild, and without a pod restart.
 - Keep the security posture intact: exact-match redirect validation, mandatory PKCE, and no relaxation of the open self-service (DCR) endpoint.
 
 ## Non-goals
 
-- Confidential clients / client secrets. All Orbit OAuth clients remain public.
+- Confidential clients / client secrets. All kora OAuth clients remain public.
 - Wildcard or prefix redirect matching.
 - Per-tenant scoping of `client_id` (it is globally unique on the authorization server).
 

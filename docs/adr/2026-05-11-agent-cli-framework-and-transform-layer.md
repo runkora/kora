@@ -3,19 +3,19 @@
 **Status:** Accepted  
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
-**Technical Story:** The agent control plane wraps real CLI frameworks (Claude Code, Codex, OpenCode) as subprocesses. This ADR defines the subprocess model, the transform layer interface, the Orbit standard event format, and the operational findings from the Claude Code spike.
+**Technical Story:** The agent control plane wraps real CLI frameworks (Claude Code, Codex, OpenCode) as subprocesses. This ADR defines the subprocess model, the transform layer interface, the kora standard event format, and the operational findings from the Claude Code spike.
 
 ---
 
 ## Context
 
-The Orbit agent control plane runs agentic CLI frameworks as subprocesses inside agent pods. A session-manager process (Orbit-built) spawns the framework CLI, routes user messages to it, and reads its output. Each framework emits output in its own format; the session-manager normalises this to the Orbit standard event format before writing to `run_events` for SSE relay to the browser ([agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)).
+The kora agent control plane runs agentic CLI frameworks as subprocesses inside agent pods. A session-manager process (kora-built) spawns the framework CLI, routes user messages to it, and reads its output. Each framework emits output in its own format; the session-manager normalises this to the kora standard event format before writing to `run_events` for SSE relay to the browser ([agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)).
 
-The transform layer is the per-framework adapter between the CLI subprocess and the session-manager. It handles: starting the CLI, sending messages, reading output, and translating to the Orbit event format.
+The transform layer is the per-framework adapter between the CLI subprocess and the session-manager. It handles: starting the CLI, sending messages, reading output, and translating to the kora event format.
 
 ### Spike
 
-A full spike was executed against Claude Code (v2.1.133) running against the Orbit inference gateway (`anthropic/claude-sonnet-4-6`). All open questions from the original proposal are now answered empirically, including multi-turn, tool use, container auth, and graceful shutdown.
+A full spike was executed against Claude Code (v2.1.133) running against the kora inference gateway (`anthropic/claude-sonnet-4-6`). All open questions from the original proposal are now answered empirically, including multi-turn, tool use, container auth, and graceful shutdown.
 
 ---
 
@@ -51,7 +51,7 @@ claude \
 | `--dangerously-skip-permissions` | Bypass interactive permission dialogs (required in unattended container) |
 | `--no-session-persistence` | Do not write session files to the working directory |
 | `--bare` | Minimal mode: no CLAUDE.md discovery, no OAuth/keychain reads, no auto-memory, no hooks. Off in containers (`claude.bare: false`) because it also caps the built-in tools at `Bash`, `Read` and `Edit` |
-| `--disallowedTools` | Remove the built-in tools that cannot work in a headless Orbit run (see Tool Restriction) |
+| `--disallowedTools` | Remove the built-in tools that cannot work in a headless kora run (see Tool Restriction) |
 
 ### Critical Operational Notes
 
@@ -98,7 +98,7 @@ Newline-delimited JSON. Key event types and their transform-layer handling:
 
 ---
 
-## Orbit Standard Event Format
+## kora Standard Event Format
 
 Events fall into two categories: **persistence events** (written to `run_events`) and **streaming events** (future: emitted on the live SSE path only).
 
@@ -245,7 +245,7 @@ Additional apk packages required at runtime:
 |---|---|---|
 | `SHELL` | Set in Dockerfile (`ENV SHELL=/bin/bash`) | Alpine does not set `$SHELL` for system users; Claude Code's Bash tool checks this variable and fails if unset |
 | `ANTHROPIC_API_KEY` | Kubernetes Secret / Envoy injection | API key for Claude Code's `--bare` auth mode |
-| `ANTHROPIC_BASE_URL` | Pod env | Routes Claude Code's API calls through the Orbit inference gateway |
+| `ANTHROPIC_BASE_URL` | Pod env | Routes Claude Code's API calls through the kora inference gateway |
 | `NODE_EXTRA_CA_CERTS` | Pod env | Trusts the cluster's mkcert CA for local TLS; set to the CA PEM path |
 | `ORBIT_AGENTS_URL` | Pod env | Where events are pushed; orbit-agents records them, so the pod reaches no database |
 

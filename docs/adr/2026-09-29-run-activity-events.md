@@ -11,7 +11,7 @@
 
 ## Context
 
-The Claude Code runner (`runner_claude.go`) turns the agent's stream-json stdout into Orbit events. It keeps text deltas, tool calls, tool results, and the turn result, and drops everything else. What it drops is most of what a person watching a run needs:
+The Claude Code runner (`runner_claude.go`) turns the agent's stream-json stdout into kora events. It keeps text deltas, tool calls, tool results, and the turn result, and drops everything else. What it drops is most of what a person watching a run needs:
 
 - A `tool_result` whose `content` is an array of blocks fails to unmarshal and is skipped. MCP tools, the `Agent` (subagent) tool, and the runtime MCP's `provision_sandbox` all return arrays, so none of their results reach `run_events`.
 - Subagent calls carry `parent_tool_use_id` in the stream. The runner ignores it, so subagent calls appear as siblings of the parent's calls.
@@ -45,7 +45,7 @@ This touches *How does it connect?* through auditability: every call the agent m
 
 * The transform layer is the only component that sees Claude Code's stream; anything it drops is lost.
 * Durable events cost a Postgres row each. High-frequency heartbeats must stay streaming-only.
-* Existing consumers (the run chat, the Orbit MCP `runs.events` tool) read `tool_result.content` as a string. New fields must be additive.
+* Existing consumers (the run chat, the kora MCP `runs.events` tool) read `tool_result.content` as a string. New fields must be additive.
 * Least code: no new tables, no schema migration, no new service calls.
 * One clock: event times come from orbit-agents, never from the browser.
 
@@ -139,12 +139,12 @@ Each runner emits what its protocol carries. Where a protocol has no signal, the
 
 ### Interrupt
 
-- When the user stops a turn, the runner emits the turn's partial text and thinking as a `message_complete` with `interrupted: true` (only if there is any), then `turn_stopped`. A turn that ends in an error result also marks its partial text `interrupted: true`. Consumers such as the Orbit MCP `runs.events` tool and summaries can tell a partial from a finished answer.
+- When the user stops a turn, the runner emits the turn's partial text and thinking as a `message_complete` with `interrupted: true` (only if there is any), then `turn_stopped`. A turn that ends in an error result also marks its partial text `interrupted: true`. Consumers such as the kora MCP `runs.events` tool and summaries can tell a partial from a finished answer.
 - A stop that arrives after the turn already finished records nothing.
 - A runtime that exits on a stop (Claude Code) is resumed with its idle timer armed, so an interrupted run completes on the normal idle timeout. A runtime that survives the stop (Codex, OpenCode) ends the turn with `message_stop` and idles like any finished turn.
 - The first message after a stop is prefixed with this note, followed by a blank line and the user's text:
 
-  > [Orbit: the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]
+  > [kora: the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]
 
   The note goes only to the agent; the recorded `human_message` is the user's text.
 
@@ -193,7 +193,7 @@ The run chat (`frontend/src/app/(chat)/agents/[slug]/runs/[runId]/`) uses these 
 ### Neutral
 
 - Runtimes differ in what they can report (no subagent calls or retries from OpenCode). The UI treats every new type as optional.
-- The Orbit MCP `runs.events` tool returns the new types unchanged.
+- The kora MCP `runs.events` tool returns the new types unchanged.
 
 ---
 

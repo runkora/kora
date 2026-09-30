@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The first Terra enforcement pass brought the Orbit frontend to zero lint violations and established nine custom ESLint rules blocking the most common design-system escape hatches. This PRD defines the second phase: closing the remaining gaps in the Terra component API surface, extending ESLint coverage to block all surviving raw HTML workarounds, replacing fragile blacklist-based prop interfaces with explicit whitelisting, and completing accessibility auto-wiring inside Terra form components.
+The first Terra enforcement pass brought the kora frontend to zero lint violations and established nine custom ESLint rules blocking the most common design-system escape hatches. This PRD defines the second phase: closing the remaining gaps in the Terra component API surface, extending ESLint coverage to block all surviving raw HTML workarounds, replacing fragile blacklist-based prop interfaces with explicit whitelisting, and completing accessibility auto-wiring inside Terra form components.
 
 ---
 
