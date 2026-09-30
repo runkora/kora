@@ -106,7 +106,7 @@ type OpenCodeRunner struct {
 	sessionID      string
 	events         chan Event
 	once           sync.Once
-	textBuf        strings.Builder
+	textBuf        turnText
 	thinkingBuf    strings.Builder
 	pendingMu      sync.Mutex
 	pending        map[int64]chan openCodeMsg // in-flight handshake requests
@@ -830,3 +830,6 @@ func unquoteRawOutput(raw json.RawMessage) string {
 	}
 	return string(raw)
 }
+
+// TakeText hands over the text streamed so far; see Runner.
+func (r *OpenCodeRunner) TakeText() string { return r.textBuf.take() }

@@ -22,6 +22,7 @@ type scriptRunner struct {
 	mu      sync.Mutex
 	sendErr error
 	sent    []string
+	partial string // text the turn has streamed, for TakeText
 	// survives makes Interrupt leave the process running, as Codex and OpenCode do.
 	survives bool
 	resume   *scriptRunner
@@ -33,7 +34,14 @@ func newScriptRunner() *scriptRunner { return &scriptRunner{events: make(chan Ev
 func (r *scriptRunner) Start(context.Context, string) error                  { return nil }
 func (r *scriptRunner) SendToolResult(context.Context, string, string) error { return nil }
 func (r *scriptRunner) Events() <-chan Event                                 { return r.events }
-func (r *scriptRunner) SessionID() string                                    { return "sess-1" }
+func (r *scriptRunner) TakeText() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t := r.partial
+	r.partial = ""
+	return t
+}
+func (r *scriptRunner) SessionID() string { return "sess-1" }
 func (r *scriptRunner) Send(_ context.Context, text string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -381,5 +389,27 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 	reg.mu.RUnlock()
 	if s == nil || s.runner != Runner(r) || s.interruptClose.Load() {
 		t.Error("the session should carry on with the same runner and no pending restart")
+	}
+}
+
+// Text the agent wrote before a mid-turn message is recorded before the
+// message, which orbit-agents records once Send returns.
+func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
+	reg, r, n := startScripted(t, time.Minute)
+	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+	r.partial = "Working on it. "
+
+	if err := reg.Send(context.Background(), "run-1", "also do X"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	_, evs := n.snapshot()
+	if len(evs) != 1 || evs[0].Type != EventTypeTextBlock {
+		t.Fatalf("pushed %v, want one text_block before Send returned", eventTypes(evs))
+	}
+	if got := decode[TextBlockPayload](t, evs[0]).Content; got != "Working on it. " {
+		t.Errorf("text_block = %q", got)
+	}
+	if got := r.sentTexts(); !slices.Equal(got, []string{"also do X"}) {
+		t.Errorf("sent = %q", got)
 	}
 }

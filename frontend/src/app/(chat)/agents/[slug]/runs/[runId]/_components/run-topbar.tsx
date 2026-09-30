@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { Stack, Text, Button, Badge, StatusDot } from '@orbit/terra';
+import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@orbit/terra';
 import { fmtUsd, fmtTokens } from '@orbit/utils';
 import { useRunContext } from '../_context/run-context';
 
@@ -60,6 +60,8 @@ export function RunTopbar() {
     spentUsd,
     perRunLimitUsd,
     tokensUsed,
+    showAllCalls,
+    setShowAllCalls,
   } = useRunContext();
 
   const canvasIsOpen = canvasState.isOpen;
@@ -267,6 +269,14 @@ export function RunTopbar() {
           title="Tokens used this run"
         >
           {tokensUsed > 0 ? `${fmtTokens(tokensUsed)} tok` : '—'}
+        </Text>
+      </Stack>
+
+      {/* Full transparency on demand: every tool call, ungrouped */}
+      <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
+        <Toggle checked={showAllCalls} onChange={setShowAllCalls} aria-label="Show every call" />
+        <Text as="span" size="supporting" color="muted">
+          Show every call
         </Text>
       </Stack>
 

@@ -9,6 +9,7 @@
 import { Stack, Text, Button } from '@orbit/terra';
 import { useRunContext } from '../_context/run-context';
 import type { CanvasView, CanvasTab, DiffLine, TerminalLine, Turn } from '../_types';
+import { describeTool } from '../_lib/tool-activity';
 
 // ── Canvas tab ────────────────────────────────────────────────────────────────
 
@@ -480,7 +481,7 @@ function ActivityLog({ turns, isLive }: { turns: Turn[]; isLive: boolean }) {
               whiteSpace: 'nowrap',
             }}
           >
-            {tool.arg}
+            {describeTool(tool.name, tool.input).target}
           </Text>
           {/* Result icon */}
           {tool.status === 'running' && <Text as="span" data-spin="" aria-label="Running" />}
@@ -489,7 +490,7 @@ function ActivityLog({ turns, isLive }: { turns: Turn[]; isLive: boolean }) {
               ✓
             </Text>
           )}
-          {tool.status === 'error' && (
+          {(tool.status === 'error' || tool.status === 'stopped') && (
             <Text as="span" style={{ color: 'var(--chat-error)' }}>
               ✗
             </Text>

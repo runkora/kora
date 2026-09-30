@@ -128,7 +128,7 @@ type CodexRunner struct {
 	activeTurnID atomic.Value // string; captured from turn/started; cleared on turn/completed or error
 	events       chan Event
 	once         sync.Once
-	textBuf      strings.Builder
+	textBuf      turnText
 	thinkingBuf  strings.Builder
 	pendingMu    sync.Mutex
 	pending      map[int64]chan codexMsg // in-flight requests awaiting response
@@ -1113,3 +1113,6 @@ func mustMarshal(v any) json.RawMessage {
 	}
 	return b
 }
+
+// TakeText hands over the text streamed so far; see Runner.
+func (r *CodexRunner) TakeText() string { return r.textBuf.take() }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 )
@@ -50,6 +51,11 @@ type Runner interface {
 	// SessionID returns the Claude session ID captured from the system/init event.
 	// Returns empty string if the process has not yet emitted the init event.
 	SessionID() string
+
+	// TakeText returns the text the current turn has streamed but not yet
+	// recorded, and clears it. Called when a message arrives mid-turn, so the
+	// text written before the message is recorded before it.
+	TakeText() string
 
 	// NewResumeRunner creates a new Runner configured to resume this session via
 	// --resume. The returned runner has not yet been started. Returns nil if no
@@ -104,4 +110,58 @@ func withRunEnv(base, extra []string) []string {
 		out = append(out, e)
 	}
 	return append(out, extra...)
+}
+
+// turnText is the text a turn has streamed but not yet recorded. The runner's
+// read loop writes it; a message sent mid-turn takes it from another goroutine
+// (Registry.Send), so it is guarded.
+type turnText struct {
+	mu    sync.Mutex
+	b     strings.Builder
+	taken bool // some of this turn's text was already recorded by take
+}
+
+func (t *turnText) WriteString(s string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.b.WriteString(s)
+}
+
+func (t *turnText) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.b.String()
+}
+
+func (t *turnText) Len() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.b.Len()
+}
+
+// Reset starts a new turn.
+func (t *turnText) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.b.Reset()
+	t.taken = false
+}
+
+// take returns the text streamed so far and clears it, so it is recorded once.
+func (t *turnText) take() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := t.b.String()
+	if s != "" {
+		t.b.Reset()
+		t.taken = true
+	}
+	return s
+}
+
+// wasTaken reports whether take recorded part of this turn's text.
+func (t *turnText) wasTaken() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.taken
 }
