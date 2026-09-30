@@ -122,7 +122,7 @@ This touches *What can it access?*, because it removes every destination the pla
 3. **No bypass ports.** `5432` is removed from the agent pod's `traffic.sidecar.istio.io/excludeOutboundPorts`: the session-manager holds no database credential and reaches Postgres through orbit-agents. `50051` stays excluded, as decided in [2026-09-18: Authenticated Sandbox Exec](2026-09-18-sandbox-exec-trust-boundary.md), and the NetworkPolicy limits it to the namespace's sandbox pods.
 
 4. **Runtime switches.** Each runtime is configured not to make background calls the lockdown blocks:
-   - Claude Code: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (autoupdater, error reporting, feedback and Statsig telemetry). OTLP export, which goes to the platform collector, is unaffected.
+   - Claude Code: `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY` and `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is not used: it also turns off `CLAUDE_CODE_ENABLE_TELEMETRY`, which carries run traces to the platform collector.
    - Codex: `check_for_update_on_startup = false`, `[analytics] enabled = false`, `[feedback] enabled = false`, `[features] plugins = false` (the curated plugin sync clones `github.com/openai/plugins` at start), and `web_search = "disabled"`.
    - OpenCode: already configured by its runner (Amendment 1).
 
