@@ -31,7 +31,7 @@ export function AlreadySignedIn() {
     <Card>
       <CardHeader>
         <Heading variant="title" color="muted">
-          Orbit
+          kora
         </Heading>
       </CardHeader>
 

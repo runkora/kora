@@ -17,7 +17,7 @@ interface Token {
   tone: string;
 }
 
-/** Tokenises the (Orbit-generated, well-formed) config JSON for colouring. */
+/** Tokenises the (kora-generated, well-formed) config JSON for colouring. */
 function tokenizeJson(json: string): Token[] {
   const re =
     /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?|true|false|null)|([{}[\],:])|(\s+)|([^\s{}[\],:"]+)/g;

@@ -2,7 +2,7 @@
   "name": "@orbit/terra",
   "version": "0.1.0",
   "private": true,
-  "description": "Terra — the solid, stable visual foundation of the Orbit design system.",
+  "description": "Terra — the solid, stable visual foundation of the kora design system.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

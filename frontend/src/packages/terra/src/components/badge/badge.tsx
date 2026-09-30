@@ -6,7 +6,7 @@ import { cn } from '../../utils';
  * Badge variants — structural, status signals, and provider/strategy identity.
  *
  * Status variants map 1-to-1 to the `--color-status-*` design tokens so that
- * a badge's colour is always semantically meaningful in the context of Orbit's
+ * a badge's colour is always semantically meaningful in the context of kora's
  * agent-state model (healthy / degraded / error / idle / pending).
  *
  * Provider variants use `--color-provider-*` brand identity tokens.
@@ -243,7 +243,7 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
  * Badge
  *
  * A compact label for conveying status, category, or metadata. The five status
- * variants (healthy, degraded, error, idle, pending) map directly to Orbit's
+ * variants (healthy, degraded, error, idle, pending) map directly to kora's
  * agent operational state model.
  *
  * Provider variants (provider-bedrock, provider-vertexai, provider-azure) and

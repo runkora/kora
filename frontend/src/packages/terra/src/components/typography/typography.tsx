@@ -30,7 +30,7 @@ const headingVariants = cva('font-sans tracking-tight', {
        * Renders as h1.
        *
        * ```tsx
-       * <Heading variant="display">Orbit</Heading>
+       * <Heading variant="display">kora</Heading>
        * ```
        */
       display: 'text-5xl font-bold leading-none tracking-[-0.03em]',
@@ -120,7 +120,7 @@ export interface HeadingProps extends VariantProps<typeof headingVariants> {
  * Use `variant="metric"` for large KPI/stat numbers — renders as a div.
  *
  * ```tsx
- * <Heading variant="display">Orbit</Heading>
+ * <Heading variant="display">kora</Heading>
  * <Heading variant="title">Agents</Heading>
  * <Heading variant="metric">4,821</Heading>
  * <Heading variant="subsection" color="muted">Configuration</Heading>
@@ -355,7 +355,7 @@ export interface TextProps extends VariantProps<typeof textVariants> {
  * <Text>Agent is running.</Text>
  * <Text size="supporting" color="muted">Last seen 2 minutes ago</Text>
  * <Text size="caption" color="subtle" weight="strong" transform="uppercase">Today</Text>
- * <Text size="caption" align="center" color="subtle">Orbit AI can make mistakes.</Text>
+ * <Text size="caption" align="center" color="subtle">kora AI can make mistakes.</Text>
  * <Text size="micro" color="subtle">Shift + Enter for new line</Text>
  * <Text size="caption" weight="emphasis" truncate>Very long agent ID</Text>
  * <Text size="supporting" mono>apollo-retriever</Text>

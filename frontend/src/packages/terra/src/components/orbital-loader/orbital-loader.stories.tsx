@@ -6,7 +6,7 @@ import { OrbitalLoader } from './index';
 /**
  * OrbitalLoader
  *
- * The Orbit loading animation. Use it while a page or panel waits for data.
+ * The kora loading animation. Use it while a page or panel waits for data.
  * It announces "Loading" to screen readers.
  */
 const meta: Meta<typeof OrbitalLoader> = {

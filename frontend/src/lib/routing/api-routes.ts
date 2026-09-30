@@ -2,7 +2,7 @@
  * api-routes.ts
  *
  * Single source of truth for every BFF (Backend-for-Frontend) API route in
- * the Orbit app.
+ * the kora app.
  *
  * Each entry is keyed by route name, then by HTTP method. Methods are
  * functions so that routes with optional query parameters can be built
@@ -64,7 +64,7 @@ export const ApiRoute = {
   /**
    * `/api/auth/logout`
    *
-   * Revokes the Orbit tokens server-side (best-effort) and destroys the
+   * Revokes the kora tokens server-side (best-effort) and destroys the
    * iron-session cookie, then redirects to `/login`.
    */
   logout: {
@@ -75,7 +75,7 @@ export const ApiRoute = {
    * `/api/auth/session`
    *
    * POST — called by the OIDC callback page with `{ id_token }` to exchange
-   *        the provider id_token for an Orbit session cookie.
+   *        the provider id_token for a kora session cookie.
    *
    * GET  — returns the public (non-sensitive) portion of the current session
    *        for client components that need to know who is logged in.

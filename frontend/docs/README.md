@@ -1,6 +1,6 @@
-# Orbit Frontend Docs
+# kora Frontend Docs
 
-Reference material for working in the Orbit frontend. Start with the
+Reference material for working in the kora frontend. Start with the
 [frontend README](../README.md) for setup and the dev workflow, and
 [`AGENTS.md` → **Frontend Development**](../../AGENTS.md) for the Terra rules and
 the component placement decision tree.

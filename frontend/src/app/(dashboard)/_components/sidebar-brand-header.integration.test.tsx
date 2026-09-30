@@ -9,9 +9,9 @@ describe('SidebarBrandHeader', () => {
     vi.unstubAllEnvs();
   });
 
-  it('renders the Orbit logo text', () => {
+  it('renders the kora logo text', () => {
     renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText('Orbit')).toBeInTheDocument();
+    expect(screen.getByText('kora')).toBeInTheDocument();
   });
 
   it('shows the version the image was built for', () => {

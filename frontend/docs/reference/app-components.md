@@ -1,6 +1,6 @@
 # App-level shared components
 
-This document is the authoritative index of Tier 2 app-shared components: components that are Orbit-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
+This document is the authoritative index of Tier 2 app-shared components: components that are kora-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
 
 Before writing any UI boilerplate, check this list. If a component already covers the need, use it. If it almost covers the need, extend it via props rather than creating a new file.
 

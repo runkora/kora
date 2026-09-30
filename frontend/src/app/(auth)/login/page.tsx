@@ -75,7 +75,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <CardHeader>
           {/* Eyebrow — product name, not a heading landmark */}
           <Heading variant="title" color="muted">
-            Orbit
+            kora
           </Heading>
           <CardDescription>
             Enter your work email to be directed to your organisation&apos;s identity provider.

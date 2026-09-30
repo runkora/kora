@@ -30,7 +30,7 @@ export interface PageSectionHeaderProps extends React.HTMLAttributes<HTMLDivElem
  * optional description below it, and an optional action (e.g. "Create"
  * button) aligned to the right.
  *
- * Domain-free — carries no Orbit-specific semantics. The caller supplies the
+ * Domain-free — carries no kora-specific semantics. The caller supplies the
  * title, description copy, and action button.
  *
  * ```tsx

@@ -1,6 +1,6 @@
 # Reference: Component Placement, Three-Tier Model
 
-**Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the Orbit frontend.
+**Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the kora frontend.
 **Last updated:** 2026-04-28
 **Authoritative ADR:** [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md)
 

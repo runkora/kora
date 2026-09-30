@@ -431,7 +431,7 @@ function TrustCard({ server }: { server: McpServer }) {
             </Text>
             <Text as="span" size="caption" color="muted" style={{ lineHeight: 1.5, marginTop: 3 }}>
               {delegated
-                ? 'Acts as you: it inherits your Orbit identity and is bound by exactly your grants. It can never exceed what you can do.'
+                ? 'Acts as you: it inherits your kora identity and is bound by exactly your grants. It can never exceed what you can do.'
                 : 'Acts as itself: the gateway injects a dedicated service credential just-in-time. It never sees your identity or tokens.'}
             </Text>
           </Stack>

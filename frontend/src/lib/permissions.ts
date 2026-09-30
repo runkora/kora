@@ -27,7 +27,7 @@ export function hasAllScopes(scopes: string[], required: string[]): boolean {
 
 /**
  * Returns `true` if the `granted` scope covers the `required` scope under the
- * Orbit scope hierarchy: same resource type (first segment), same action
+ * kora scope hierarchy: same resource type (first segment), same action
  * (last segment), and the granted path (the middle segments) is a prefix of
  * the required path. Mirrors the backend `scope_covers` rego rule exactly —
  * keep the two in sync.

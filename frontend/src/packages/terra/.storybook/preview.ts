@@ -40,7 +40,7 @@ const preview: Preview = {
      * be verified on the actual backgrounds they will appear on in production:
      *
      *   base    — `--color-background` (#0d0f11)  — the root page background,
-     *             the darkest surface. Default because most Orbit UI renders here.
+     *             the darkest surface. Default because most kora UI renders here.
      *
      *   surface — `--color-surface`    (#1a1d20)  — card and panel backgrounds,
      *             one step lighter than base. Use for components that live

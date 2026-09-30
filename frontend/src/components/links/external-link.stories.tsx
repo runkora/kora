@@ -6,7 +6,7 @@ import { ExternalLink } from './external-link';
 /**
  * ExternalLink
  *
- * A link to a site outside Orbit. It opens in a new tab and only accepts URLs from the approved
+ * A link to a site outside kora. It opens in a new tab and only accepts URLs from the approved
  * list.
  */
 const meta: Meta<typeof ExternalLink> = {
@@ -37,16 +37,16 @@ export const Options: Story = {
     <Stack maxWidth="wide">
       <OptionTable title="size">
         <Option name="inherit" use="Takes the size of the surrounding text. The default.">
-          <ExternalLink url={URL}>Orbit on GitHub</ExternalLink>
+          <ExternalLink url={URL}>kora on GitHub</ExternalLink>
         </Option>
         <Option name="sm" use="Small text, for references beside other content.">
           <ExternalLink size="sm" url={URL}>
-            Orbit on GitHub
+            kora on GitHub
           </ExternalLink>
         </Option>
         <Option name="md" use="Regular body text size.">
           <ExternalLink size="md" url={URL}>
-            Orbit on GitHub
+            kora on GitHub
           </ExternalLink>
         </Option>
       </OptionTable>

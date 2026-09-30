@@ -4,7 +4,7 @@
  * message + timestamp. Used by dashboard home event spine, model-gateway
  * RecentLogsCard, and any future event feed.
  * @promote-to-tier-1 if: OrbitStatus dependency is removed and a second
- * non-dashboard Orbit surface needs a generic feed row.
+ * non-dashboard kora surface needs a generic feed row.
  */
 import { ListItem, Stack, StatusDot, Text } from '@orbit/terra';
 import type { OrbitStatus } from './status-badge';

@@ -66,7 +66,7 @@ describe('MobileSidebarDrawer', () => {
     // Nav groups from the reused DashboardSidebar
     expect(screen.getByText('Control Plane')).toBeInTheDocument();
     // Reused SidebarBrandHeader (single source of brand + version)
-    expect(screen.getByText('Orbit')).toBeInTheDocument();
+    expect(screen.getByText('kora')).toBeInTheDocument();
     expect(screen.getByText('dev')).toBeInTheDocument();
     // Reused SidebarUserFooter
     expect(screen.getByText('Dev User')).toBeInTheDocument();

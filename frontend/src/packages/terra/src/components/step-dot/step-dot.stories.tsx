@@ -46,7 +46,7 @@ export const Overview: Story = {
                 Point your agent at the gateway
               </Text>
               <Text size="caption" color="muted">
-                Set the base URL to your Orbit endpoint.
+                Set the base URL to your kora endpoint.
               </Text>
             </Stack>
             <Stack gap="tight">

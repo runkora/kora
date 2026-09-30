@@ -11,7 +11,7 @@ export type { StatusBadgeProps, OrbitStatus } from './status-badge';
 export { EventFeedItem } from './event-feed-item';
 export type { EventFeedItemProps } from './event-feed-item';
 
-/** Syntax-highlighted Orbit scope chip (resource:path:action). */
+/** Syntax-highlighted kora scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';
 export type { ScopeChipProps } from './scope-chip';
 export { ScopeChipList } from './scope-chip-list';

@@ -30,7 +30,7 @@ const PAYLOAD = `{
 }`;
 
 const PROMPT =
-  'You are a support agent for Orbit customers. Answer in plain language, keep replies under 150 words, and hand the conversation to a person when you are unsure.';
+  'You are a support agent for kora customers. Answer in plain language, keep replies under 150 words, and hand the conversation to a person when you are unsure.';
 
 export const Overview: Story = {
   render: () => (

@@ -61,7 +61,7 @@ export function buildUserManager(cfg: TenantOidcConfig): UserManager {
     // Store PKCE verifier and state in sessionStorage so they survive the
     // provider redirect but are cleared when the tab is closed.
     userStore: undefined, // default: sessionStorage via WebStorageStateStore
-    // Token refresh is handled by the BFF using the Orbit opaque refresh token.
+    // Token refresh is handled by the BFF using the kora opaque refresh token.
     automaticSilentRenew: false,
     // We only consume the id_token (handed to the BFF); the access token
     // issued by the IdP is intentionally discarded.

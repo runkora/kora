@@ -976,7 +976,7 @@ export function TriggerDrawer({
                   )}
                   <SettingRow
                     label="Start timeout"
-                    description="How long dispatch may take to start the run. Orbit gives up after this window."
+                    description="How long dispatch may take to start the run. kora gives up after this window."
                     value={
                       <StepperControl
                         value={trigger.timeoutSeconds}

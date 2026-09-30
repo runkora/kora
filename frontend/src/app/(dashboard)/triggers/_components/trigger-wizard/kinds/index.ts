@@ -32,7 +32,7 @@ export const PLANNED_KINDS: PlannedKind[] = [
   {
     icon: 'activity',
     title: 'Control-plane event',
-    description: 'When something happens inside Orbit: a run finishes, a budget is crossed.',
+    description: 'When something happens inside kora: a run finishes, a budget is crossed.',
   },
   {
     icon: 'route',

@@ -14,7 +14,7 @@ import type { SessionOptions } from 'iron-session';
 
 /** User identity stored inside the sealed session cookie. */
 export interface SessionUser {
-  /** Orbit principal ID (JWT `sub` claim). */
+  /** kora principal ID (JWT `sub` claim). */
   sub: string;
   email: string;
   name: string;
@@ -26,7 +26,7 @@ export interface SessionUser {
  */
 export interface SessionPayload {
   user: SessionUser;
-  /** Orbit platform access token (JWT). */
+  /** kora platform access token (JWT). */
   accessToken: string;
   /** Opaque refresh token used to renew the access token. */
   refreshToken: string;

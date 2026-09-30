@@ -21,7 +21,7 @@ export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
       <Stack direction="horizontal" align="center" gap="snug">
         <KoraMark size={18} />
         <Text size="supporting" weight="strong">
-          Orbit
+          kora
         </Text>
       </Stack>
       <Stack direction="horizontal" align="center" gap="snug">

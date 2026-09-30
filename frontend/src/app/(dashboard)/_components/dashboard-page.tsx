@@ -162,7 +162,7 @@ export function DashboardPage({
       <main className="px-6 py-6 max-w-screen-xl mx-auto">
         <Stack gap="tight">
           <Heading variant="title">Dashboard</Heading>
-          <Text color="muted">Real-time overview of the Orbit control plane.</Text>
+          <Text color="muted">Real-time overview of the kora control plane.</Text>
         </Stack>
 
         {/* ── Inventory stat cards ── */}

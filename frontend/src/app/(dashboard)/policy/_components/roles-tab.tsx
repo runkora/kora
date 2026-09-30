@@ -122,7 +122,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Info box */}
       <Callout>
         <Text size="caption" color="muted">
-          Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
+          Roles map OIDC role claims to platform scopes. When a human authenticates, kora resolves
           the union of scopes from all matching roles.
         </Text>
       </Callout>

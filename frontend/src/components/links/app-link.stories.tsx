@@ -6,7 +6,7 @@ import { AppLink } from './app-link';
 /**
  * AppLink
  *
- * A link to another page inside Orbit. It only accepts routes from the route list, so a
+ * A link to another page inside kora. It only accepts routes from the route list, so a
  * mistyped path fails at build time.
  */
 const meta: Meta<typeof AppLink> = {

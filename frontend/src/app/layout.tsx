@@ -20,7 +20,7 @@ const dmMono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Orbit',
+  title: 'kora',
   description: 'Control plane for autonomous AI agents.',
 };
 

@@ -157,7 +157,7 @@ export interface TextareaProps
  *     variant="bare"
  *     autoResize
  *     maxRows={6}
- *     placeholder="Message Orbit…"
+ *     placeholder="Message kora…"
  *   />
  * </div>
  * ```

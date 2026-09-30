@@ -1,6 +1,6 @@
 # Frontend
 
-The Orbit dashboard is a Next.js App Router application with a backend-for-frontend (BFF) layer. Product UI is built with the Terra design system.
+The kora dashboard is a Next.js App Router application with a backend-for-frontend (BFF) layer. Product UI is built with the Terra design system.
 
 ## Set up
 
@@ -16,7 +16,7 @@ Kubernetes injects the deployed application's backend URLs and session secret. P
 
 ## Develop
 
-The product frontend runs in the local cluster. Bring Orbit up, then rebuild and roll the frontend after a change:
+The product frontend runs in the local cluster. Bring kora up, then rebuild and roll the frontend after a change:
 
 ```bash
 make up
@@ -64,6 +64,6 @@ make frontend-check
 - [Frontend documentation](docs/README.md): the index for frontend reference material and golden paths.
 - [Terra design system](docs/reference/terra-design-system.md): component APIs, usage, and verification.
 - [Component placement](docs/reference/component-placement.md): the three-tier component model and `@tier` rules.
-- [App-level components](docs/reference/app-components.md): shared Orbit-aware components exported by `@orbit/components`.
+- [App-level components](docs/reference/app-components.md): shared kora-aware components exported by `@orbit/components`.
 - [Frontend testing](../docs/guides/frontend-testing.md): the test suites and where each kind of test belongs.
 - [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Terra rules.

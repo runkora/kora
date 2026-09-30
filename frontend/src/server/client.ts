@@ -1,5 +1,5 @@
 /**
- * Orbit API client — server-side only.
+ * kora API client — server-side only.
  *
  * Wraps fetch with base URL resolution, default headers, and a unified
  * error type. Import this only from Server Components or server actions.

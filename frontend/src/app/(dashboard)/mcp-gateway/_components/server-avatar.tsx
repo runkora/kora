@@ -8,7 +8,7 @@ const FONT = { xs: 10, sm: 13, md: 15, lg: 22 } as const;
 
 interface ServerAvatarProps {
   name: string;
-  /** The first-party Orbit server gets the accent tile; everything else neutral. */
+  /** The first-party kora server gets the accent tile; everything else neutral. */
   accent?: boolean;
   size?: keyof typeof SIZES;
 }
