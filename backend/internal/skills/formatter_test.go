@@ -6,7 +6,7 @@ import (
 	"github.com/clear-route/orbit/internal/skills"
 )
 
-func TestParseSkillFrontmatter(t *testing.T){
+func TestParseSkillFrontmatter(t *testing.T) {
 	context := `---
 	name: test skill
 	description: test description

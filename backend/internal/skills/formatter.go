@@ -6,17 +6,17 @@ import (
 )
 
 var (
-	ErrNoFrontmatter = errors.New("SKILL.md missing frontmatter block")
-	ErrMissingName = errors.New("SKILL.md frontmatter missing required field: name")
+	ErrNoFrontmatter      = errors.New("SKILL.md missing frontmatter block")
+	ErrMissingName        = errors.New("SKILL.md frontmatter missing required field: name")
 	ErrMissingDescription = errors.New("SKILL.md frontmatter missing required field: description")
 )
 
 type skillFrontmatter struct {
-	Name string
+	Name        string
 	Description string
 }
 
-func ParseSkillFrontmatter(context string) (skillFrontmatter,error) {
+func ParseSkillFrontmatter(context string) (skillFrontmatter, error) {
 	if !strings.HasPrefix(context, "---") {
 		return skillFrontmatter{}, ErrNoFrontmatter
 	}
@@ -30,7 +30,7 @@ func ParseSkillFrontmatter(context string) (skillFrontmatter,error) {
 
 	block := rest[:end]
 	lines := make(map[string]string)
-	for _, line := range strings.Split(block, "\n")  {
+	for _, line := range strings.Split(block, "\n") {
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -42,7 +42,7 @@ func ParseSkillFrontmatter(context string) (skillFrontmatter,error) {
 	description := lines["description"]
 
 	if name == "" {
-		return skillFrontmatter{}, ErrMissingName 
+		return skillFrontmatter{}, ErrMissingName
 	}
 
 	if description == "" {
@@ -51,5 +51,4 @@ func ParseSkillFrontmatter(context string) (skillFrontmatter,error) {
 
 	return skillFrontmatter{Name: name, Description: description}, nil
 
-	
 }
