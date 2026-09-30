@@ -364,13 +364,7 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 	call := normaliseCall(p)
 	wait := waitTools[call.name] || (call.shell && isSleepCommand(call.command))
 	g.countRepeat(p.ID, call, wait)
-	if g.kinds == nil {
-		g.kinds = make(map[string]bool)
-	}
-	g.kinds[p.ID] = !wait && !observeTools[call.name] && (!call.shell || !isLookOnlyCommand(call.command))
-	if wait {
-		g.waits++
-	}
+	g.trackCall(p.ID, call, wait)
 
 	repeated := loopFinding{kind: loopKindRepeatedCall, count: g.repeats, tool: p.Name}
 	waiting := loopFinding{kind: loopKindWaitRearm, count: g.waits, tool: p.Name}
@@ -393,6 +387,18 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 		return loopWarn, waiting
 	}
 	return loopOK, loopFinding{}
+}
+
+// trackCall records whether the call's result can count as progress and
+// counts it when it re-arms a wait.
+func (g *loopGuard) trackCall(id string, call toolCall, wait bool) {
+	if g.kinds == nil {
+		g.kinds = make(map[string]bool)
+	}
+	g.kinds[id] = !wait && !observeTools[call.name] && (!call.shell || !isLookOnlyCommand(call.command))
+	if wait {
+		g.waits++
+	}
 }
 
 // countRepeat extends the repeated-call streak when call matches the last one.
