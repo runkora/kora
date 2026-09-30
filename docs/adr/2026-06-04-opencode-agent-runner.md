@@ -309,6 +309,30 @@ No base image change is required.
 
 ---
 
+## Amendment 1 (2026-09-30): OpenCode uses only the agent's model, through the gateway
+
+**Status:** Accepted
+
+Touches *How does it connect?* and *What can it access?* Every OpenCode model call carries the run's Orbit identity through the inference gateway, so gateway policy and budgets apply. Identity (*Who is this agent?*) is unchanged.
+
+**Context.** The per-run `opencode.json` set a `baseURL` on the `anthropic` and `openai` providers but named no model. With no model configured, OpenCode's ACP server picks the top model of its own hosted `opencode` provider, which loads without a key and offers free models (`opencode/big-pickle`). Turns went to opencode.ai directly, outside the gateway. The `baseURL` also lacked the `/v1` segment, and the gateway's `/messages` endpoint serves only Anthropic models.
+
+**Decision.**
+
+- `opencode.json` declares one provider, `orbit`, using `@ai-sdk/openai-compatible` (bundled with OpenCode) at `{gateway}/run/{run_id}/v1`. Chat completions serves every gateway model. The agent type's model is the provider's only model.
+- `enabled_providers` is `["orbit"]`, and `model` and `small_model` are `orbit/{agent model}`. OpenCode loads no other provider, including its hosted one.
+- `Start` fails when the model is empty, as it does for an empty gateway URL.
+- `share` is `disabled` and `autoupdate` is `false`. The `webfetch` and `websearch` tools are denied, since both fetch from the session-manager container outside the sandbox's egress policy.
+- The subprocess runs with `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_SHARE`, `OPENCODE_DISABLE_DEFAULT_PLUGINS` and `OPENCODE_DISABLE_LSP_DOWNLOAD` set.
+
+**Consequences.**
+
+- The LLM Routing section above no longer describes the config file. The `Model` field in `OpenCodeRunnerConfig` is used, not stored for later.
+- Claude models reach the gateway as chat completions rather than Anthropic Messages. OpenCode still marks cache breakpoints with `cache_control` on the request.
+- OpenCode still installs `@opencode-ai/plugin` from the npm registry into its global config directory in the background at start. No setting turns this off; the turn does not wait for it, and a failure is only logged.
+
+---
+
 ## Related Decisions
 
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; OpenCode was explicitly deferred here

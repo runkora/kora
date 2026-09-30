@@ -15,6 +15,7 @@ import (
 func newTestOpenCodeRunner() *OpenCodeRunner {
 	return NewOpenCodeRunner(OpenCodeRunnerConfig{
 		InferenceGatewayURL: "http://inference-gateway.test",
+		Model:               "anthropic/claude-sonnet-5",
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "test-run",
 	})
@@ -548,6 +549,8 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 
 // ── writeOpenCodeConfig ───────────────────────────────────────────────────────
 
+// The agent type's model, through the gateway, must be the only model OpenCode
+// can pick: with none configured it chose its own hosted free model.
 func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
@@ -561,22 +564,50 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 		t.Fatalf("read opencode.json: %v", err)
 	}
 
-	var cfg map[string]any
+	var cfg struct {
+		EnabledProviders []string          `json:"enabled_providers"`
+		Model            string            `json:"model"`
+		SmallModel       string            `json:"small_model"`
+		Share            string            `json:"share"`
+		Autoupdate       *bool             `json:"autoupdate"`
+		Permission       map[string]string `json:"permission"`
+		Provider         map[string]struct {
+			NPM     string            `json:"npm"`
+			Options map[string]string `json:"options"`
+			Models  map[string]any    `json:"models"`
+		} `json:"provider"`
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("unmarshal opencode.json: %v", err)
 	}
 
-	provider, _ := cfg["provider"].(map[string]any)
-	anthropic, _ := provider["anthropic"].(map[string]any)
-	options, _ := anthropic["options"].(map[string]any)
-	if options["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("anthropic baseURL = %v, want http://inference-gateway.test/run/test-run", options["baseURL"])
+	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "orbit" {
+		t.Errorf("enabled_providers = %v, want [orbit]", cfg.EnabledProviders)
 	}
-
-	openai, _ := provider["openai"].(map[string]any)
-	openaiOptions, _ := openai["options"].(map[string]any)
-	if openaiOptions["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("openai baseURL = %v, want http://inference-gateway.test/run/test-run", openaiOptions["baseURL"])
+	const want = "orbit/anthropic/claude-sonnet-5"
+	if cfg.Model != want || cfg.SmallModel != want {
+		t.Errorf("model, small_model = %q, %q; want %q for both", cfg.Model, cfg.SmallModel, want)
+	}
+	if len(cfg.Provider) != 1 {
+		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
+	}
+	orbit := cfg.Provider["orbit"]
+	if orbit.NPM != "@ai-sdk/openai-compatible" {
+		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", orbit.NPM)
+	}
+	if got := orbit.Options["baseURL"]; got != "http://inference-gateway.test/run/test-run/v1" {
+		t.Errorf("baseURL = %q, want http://inference-gateway.test/run/test-run/v1", got)
+	}
+	if _, ok := orbit.Models["anthropic/claude-sonnet-5"]; !ok || len(orbit.Models) != 1 {
+		t.Errorf("models = %v, want only anthropic/claude-sonnet-5", orbit.Models)
+	}
+	if cfg.Share != "disabled" || cfg.Autoupdate == nil || *cfg.Autoupdate {
+		t.Errorf("share, autoupdate = %q, %v; want disabled, false", cfg.Share, cfg.Autoupdate)
+	}
+	for _, tool := range []string{"webfetch", "websearch"} {
+		if cfg.Permission[tool] != "deny" {
+			t.Errorf("permission[%s] = %q, want deny", tool, cfg.Permission[tool])
+		}
 	}
 }
 
@@ -640,6 +671,16 @@ func TestOpenCodeStartValidatesGatewayURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "InferenceGatewayURL") {
 		t.Errorf("error = %q, want mention of InferenceGatewayURL", err.Error())
+	}
+}
+
+func TestOpenCodeStartRequiresModel(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.Model = ""
+
+	err := r.Start(t.Context(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "Model") {
+		t.Fatalf("Start error = %v, want one naming Model", err)
 	}
 }
 
