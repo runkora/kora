@@ -1,9 +1,9 @@
 # Skills Marketplace: GitOps Source Registration via Namespaced SkillMarketplaceSource CRDs
 
-
 **Status:** Proposed
 **Date:** 2026-09-29
 **Deciders:** Platform Engineering, Operator Engineering, Product Owner
+**Technical Story:** [Agent Marketplace PRD](../prd/agent-marketplace.md) · operator side of the Skills Marketplace, paired with [PR #351](https://github.com/clear-route/orbit/pull/351) (`skills-service`)
 
 ---
 
@@ -36,7 +36,6 @@ The shape of one tenant's source list is fixed — an array of plain objects, wi
 no `tenant_id` field inside any of them:
 
 ```json
-marketplace-sources.json=
 [
   { "name": "Clear Route Skills", "org": "clear-route", "repo": "skills-marketplace", "branch": "main" },
   { "name": "ClearRoute Core",    "org": "clearroute",  "repo": "core-skills",        "branch": "main" },
@@ -44,8 +43,36 @@ marketplace-sources.json=
 ]
 ```
 
-What is *not* settled is how that array gets produced, or how a single mounted
-file carries more than one tenant's array when no entry names its tenant.
+One file must carry that array for every tenant, and no entry names its tenant,
+so the array is nested under a tenant key and a `sources` key.
+`registry.go` unmarshals into `sourcesFile{Tenants map[string]tenantSources}`
+and `tenantSources{Sources []MarketplaceSource}`, which makes the whole of
+`marketplace-sources.json`:
+
+```json
+{
+  "tenants": {
+    "acme": {
+      "sources": [
+        { "name": "Clear Route Skills", "org": "clear-route", "repo": "skills-marketplace", "branch": "main" }
+      ]
+    },
+    "globex": {
+      "sources": [
+        { "name": "Partner Reference", "org": "partner", "repo": "reference-skills", "branch": "main" }
+      ]
+    }
+  }
+}
+```
+
+Both levels are load-bearing. `encoding/json` does not error on a wrong
+top-level shape — it populates nothing — so a file that keyed tenants directly,
+`{"acme": [...]}`, would parse successfully and yield **zero sources for every
+tenant**, with no error anywhere in the stack. That failure is silent in the
+operator, silent in `skills-service`, and visible only as an empty marketplace.
+
+What is *not* settled is how that file gets produced.
 
 ### Background
 
@@ -101,9 +128,11 @@ without inventing a fourth, differently-shaped aggregation mechanism.
 - **REQ-3** — Only approved people can add or change a tenant's sources. One
   tenant cannot register or change sources for another.
 - **REQ-4** — The output is one ConfigMap, `orbit-skill-marketplace-sources`, in
-  `orbit-system`, with key `marketplace-sources.json`, keyed by tenant, each
-  value an array of `{ name, org, repo, branch }`. No `tenant_id` inside the
-  entries.
+  `orbit-system`, with key `marketplace-sources.json` holding
+  `{"tenants": {"<tenant>": {"sources": [ { name, org, repo, branch }, … ]}}}` —
+  the shape `registry.go` unmarshals, both wrapper levels included. No
+  `tenant_id` inside the entries. A tenant with no accepted sources is rendered
+  with an empty `sources` array rather than omitted.
 - **REQ-5** — `skills-service` reads a mounted file only. It does not call the
   Kubernetes API or import a CRD type, and it hot-reloads the file.
 - **REQ-6** — No credentials appear in the declaration or in the ConfigMap.
@@ -151,8 +180,11 @@ without inventing a fourth, differently-shaped aggregation mechanism.
   scoped to "which GitHub repositories are Marketplace sources for **my
   tenant**."
 - Validating that the declared repository, branch, or
-  `.claude-plugin/marketplace.json` actually exist — the operator has no GitHub
-  credential; that check belongs to `skills-service`, at crawl time.
+  `.claude-plugin/marketplace.json` actually **exist** — the operator has no
+  GitHub credential; that check belongs to `skills-service`, at crawl time.
+  This is a non-goal about existence only. Whether a tenant is *entitled* to a
+  repository is a separate question, it is not answered by crawl-time existence,
+  and it is unresolved — see Open Items.
 - Dashboard-driven source management — GitOps only.
 - A `crds/` directory or a second Helm chart — `SkillMarketplaceSource` is a
   templated CRD in the existing operator chart, same as `Connection` and
@@ -168,10 +200,12 @@ without inventing a fourth, differently-shaped aggregation mechanism.
 * **No self-declared tenant scope on the CRD.** A field a tenant admin fills in
   themselves is not an isolation boundary; the namespace a CR is applied into,
   gated by RBAC, is.
-* **Reuse aggregation mechanics where they still fit**
-  (`Connection`/`MCPServer`/`OAuthClient`'s `activeTenantNamespaces` + collect +
-  render loop), without forcing their flat-array-with-`tenant_id` output shape
-  onto a contract that has already been fixed differently.
+* **Reuse aggregation mechanics where they still fit** — the
+  `activeTenantNamespaces` + collect + render loop all three share — without
+  forcing their flat-array-with-`tenant_id` output shape onto a contract that
+  has already been fixed differently, and without assuming their collect steps
+  are interchangeable: only `MCPServer`'s lists cluster-wide, which is the one
+  this design needs.
 * **Operator stays config-only** — it validates and aggregates; it never calls
   GitHub and never sees a credential.
 * **Practicality of the resulting ConfigMap** — it must stay within Kubernetes'
@@ -204,9 +238,10 @@ rejected with its own distinct reason rather than silently dropped.
   existing `TenantReconciler` re-sync hook, with no separate cleanup step.
 - REQ-9 and REQ-10 both fall out of the one pass that already has to see every
   source in a tenant at once.
-- Closely mirrors `OAuthClient`, which is the same shape of problem: many
-  tenant-namespaced, credential-free, GitOps-declared CRs collected into one
-  `orbit-system` ConfigMap that a feature service mounts.
+- Closely mirrors `OAuthClient` in shape of problem — many tenant-namespaced,
+  credential-free, GitOps-declared CRs collected into one `orbit-system`
+  ConfigMap that a feature service mounts — while taking its collect step from
+  `MCPServer`, the only one of the three that lists cluster-wide.
 
 **Cons:**
 - A fifth CRD, controller and aggregator to maintain alongside `OrbitTenant`,
@@ -221,7 +256,7 @@ rejected with its own distinct reason rather than silently dropped.
   because the slug-collision check is inherently cross-CR. That is a departure
   from how `MCPServerReconciler` is structured and needs documenting.
 
-### Option 2: `SkillMarketplace` modelled on `MCPServer`, adjusted to the backend's shape
+### Option 2: `SkillMarketplaceSource` modelled literally on `MCPServer`, adjusted to the backend's shape
 
 **Description:** Follow `MCPServer`'s registration path closely — types,
 reconciler, tenant re-sync hook, RBAC, optimistic-lock patch — and change three
@@ -394,29 +429,22 @@ new render function rather than a new mechanism.
   is not closed on delivery.
 - The shape of that key is not yet agreed, and reasonable designs differ on it.
   The operator's proposed entry shape, and what it must carry, is Open Item 1.
-- Two findings about the surrounding contract, neither caused by this choice but
-  both affecting whether the feature can be observed working:
-  - The wire shape described in prose and the shape
-    `backend/internal/skills/registry.go` actually parses are different. The
-    prose describes an object keyed directly by tenant, `{"<tenant>": [...]}`;
-    the code on [PR #351](https://github.com/clear-route/orbit/pull/351) expects
-    one level deeper, `{"tenants": {"<tenant>": {"sources": [...]}}}`, via a
-    `sourcesFile{Tenants map[string]tenantSources}` / `tenantSources{Sources
-    []MarketplaceSource}` pair. These are not cosmetically different:
-    `encoding/json` does not error on the wrong top-level shape, it simply
-    populates nothing, so rendering the prose shape would produce a file that
-    parses successfully and yields **zero sources for every tenant**, with no
-    error anywhere in the stack. The aggregator must render the shape the code
-    parses, and the prose should be corrected to match.
-  - There is no Helm chart Deployment for `skills-service` — no Deployment, no
-    ConfigMap volume mount, no Service — on `main`, on this ADR's base branch,
-    or on #351. Even once #351 merges and `backend/cmd/skills-service/` compiles
-    here, nothing in the cluster mounts the ConfigMap this feature renders. Out
-    of scope here, but the feature cannot be observed end-to-end until that
-    exists.
+- There is no Helm chart Deployment for `skills-service` — no Deployment, no
+  ConfigMap volume mount, no Service — on `main`, on this ADR's base branch, or
+  on [PR #351](https://github.com/clear-route/orbit/pull/351). Even once #351
+  merges and `backend/cmd/skills-service/` compiles here, nothing in the cluster
+  mounts the ConfigMap this feature renders. Not caused by this choice and out
+  of scope here, but the feature cannot be observed end-to-end until it exists.
 
 ### Neutral
 
+- The envelope's two wrapper levels (`tenants`, then `sources`) look like
+  ceremony around a plain array and will read as removable to anyone editing
+  the render step later. They are not: dropping either produces a file that
+  unmarshals without error into an empty registry, so the failure appears as an
+  empty marketplace rather than as a parse error. The renderer's own doc comment
+  should say so, and the round-trip check in Success Metrics exists to catch a
+  regression here.
 - Global (platform-wide) marketplace sources stay out of scope for V1. Option 1
   does not preclude adding them later; doing so would need a second scope and a
   fresh decision about whether a global source is expanded per-tenant or exposed
@@ -519,6 +547,16 @@ it, and adding a `skills-service` chart Deployment that mounts the ConfigMap.
   taken against the `SkillMarketplaceSource` CRs themselves.
 - One tenant's invalid source never removes or blocks another tenant's valid
   sources in the rendered ConfigMap (REQ-7).
+- A `SkillMarketplaceSource` applied in one tenant's namespace appears only
+  under that tenant's key, and never under another's, whatever its
+  `displayName`, `org` or `repo` say (REQ-3). This is the isolation claim the
+  design rests on, so it is asserted directly rather than inferred from the
+  namespace-to-tenant mapping.
+- The rendered `marketplace-sources.json` round-trips: unmarshalling it with
+  `registry.go`'s `sourcesFile`/`tenantSources` pair returns every accepted
+  source under its own tenant (REQ-4). A unit test on the renderer asserting
+  against those types, rather than against a hand-written JSON string, is what
+  makes a silently-empty envelope fail loudly.
 
 ### Monitoring
 
@@ -531,9 +569,56 @@ it, and adding a `skills-service` chart Deployment that mounts the ConfigMap.
 
 ---
 
+## Related Decisions
+
+- [oauth2-web-redirect-clients](2026-07-28-oauth2-web-redirect-clients.md) — the
+  closest precedent: tenant-namespaced, credential-free, GitOps-declared CRs
+  aggregated into one `orbit-system` ConfigMap a feature service mounts. This
+  decision follows its shape and borrows `MCPServer`'s status handling.
+- [mcp-server-registration-and-introspection](2026-06-29-mcp-server-registration-and-introspection.md)
+  — the source of the cluster-wide collect step and the
+  Pending/Aggregated/Invalid status model adopted here.
+- [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)
+  — defines `OrbitTenant`, whose active set and namespace mapping this
+  aggregator depends on, and whose re-sync hook drops a suspended tenant's
+  sources.
+- [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md)
+  — why the CRD is a template in the existing operator chart rather than a
+  `crds/` directory or a second chart.
+- [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
+  — the tenant-only operator model this CRD is installed under.
+
+An earlier proposal, `2026-08-19-marketplace-gitops.md` on
+[PR #226](https://github.com/clear-route/orbit/pull/226), described a different
+design for the same problem: a platform-wide singleton `SkillMarketplaceSource`
+in `orbit-system` carrying a `connectionRef`, with GitHub reached through the
+Egress Gateway, and with multiple sources and per-tenant sources as explicit
+non-goals. It was not merged and is abandoned, so there is no `Supersedes`
+relationship to record — it never entered the index. It is noted here because it
+reserved the same CRD name and the same ConfigMap name, and because its
+`connectionRef` is the per-source authorization binding Open Item 4 is about.
+
+---
+
+## References
+
+- [`registry.go` on PR #351](https://github.com/clear-route/orbit/pull/351) —
+  `sourcesFile` / `tenantSources` / `MarketplaceSource`, the types
+  `marketplace-sources.json` must satisfy, and the `fsnotify` watch that gives
+  REQ-5's hot reload.
+- [Kubernetes: mounted ConfigMaps are updated automatically](https://kubernetes.io/docs/concepts/configuration/configmap/#mounted-configmaps-are-updated-automatically)
+  — the kubelet sync-period delay behind REQ-8's timing, and the `subPath`
+  exclusion.
+- [Kubernetes: ConfigMap size limit](https://kubernetes.io/docs/concepts/configuration/configmap/)
+  — the 1 MiB ceiling on the single shared ConfigMap.
+- [GitHub: authenticating as an App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation)
+  — installation-scoped access tokens, the mechanism behind Open Item 4.
+
+---
+
 ## Open Items
 
-Five items are not closed by this decision. Each names where the resolution
+Four items are not closed by this decision. Each names where the resolution
 lands, so an implementer knows what to watch.
 
 | # | Item | Blocks | Resolved by |
@@ -541,7 +626,19 @@ lands, so an implementer knows what to watch.
 | 1 | The registration-state key's exact name and entry shape need the backend's agreement. The operator proposes one entry per declared source carrying `name`, `org`, `repo`, `branch`, `status` (`accepted`/`rejected`), `reason` when rejected, and the CR's own `namespace`/`name` — without that last pair the Sources view can name a rejected source but not the resource an admin must go and correct. | REQ-9 | Agreement with the `skills-service` owners, then a follow-up PR wiring the read. Not gated on this ADR. |
 | 2 | The slug algorithm must be adopted by `skills-service`, or written down and confirmed identically on both sides. The rule is: lowercase, collapse each run of non-`[a-z0-9]` characters to a single hyphen, trim leading and trailing hyphens. | REQ-10 beyond the operator | `skills-service` importing `internal/platform/slug`, or an agreed written spec. |
 | 3 | `skills-service` does not yet exist on `main` or on this ADR's base branch, and has no Helm chart Deployment or ConfigMap mount anywhere. | End-to-end observability, not the operator work | [PR #351](https://github.com/clear-route/orbit/pull/351) for the binary; the chart Deployment is unowned and unscheduled. |
-| 4 | [PR #226](https://github.com/clear-route/orbit/pull/226) proposes `2026-08-19-marketplace-gitops.md`, a different ADR that defines a CRD of the **same name** (`SkillMarketplaceSource`) writing the **same ConfigMap** (`orbit-skill-marketplace-sources`) with an incompatible design: a platform-wide singleton in `orbit-system`, a `connectionRef` routing GitHub access through the Egress Gateway, key `sources.json`, and additional sources rejected as `AdditionalSourceNotSupported`. It targets `main` and has been untouched since 2026-08-31. Its relationship to this ADR is unresolved. | Nothing technically; it is a conflict risk | A decision by the two authors: if this ADR replaces #226, #226's status flips to `Superseded by` this slug (per `2026-03-05-credential-aware-outbound-gateway.md`'s precedent) and this ADR gains a `Supersedes:` field. Both must not merge as `Proposed`. |
-| 5 | **A source declaration is not an entitlement check.** `TokenProvider` mints `contents: read` for one fixed installation ID, and `Crawler.FetchTree` requests that token without reference to the source before fetching `source.Org`/`source.Repo`. So a tenant admin who can apply a `SkillMarketplaceSource` can surface any repository the shared installation can read into their tenant's marketplace, and a repository outside that installation cannot load at all. This ADR names the gap but does not close it. | Nothing in the operator or the rendered ConfigMap; it bounds what a source may reach | Undecided. Candidates: a platform-controlled allow-list keyed on the owning tenant (entry granularity not settled), a per-tenant GitHub App installation so the token itself is scoped, or reinstating a per-source `Connection` binding as in #226. The first is a comparison against platform config and would sit in the operator; the others change how the backend authenticates. Needs the backend owners. |
+| 4 | **A source declaration is not an entitlement check.** `TokenProvider` mints `contents: read` for one fixed installation ID, and `Crawler.FetchTree` requests that token without reference to the source before fetching `source.Org`/`source.Repo`. So a tenant admin who can apply a `SkillMarketplaceSource` can surface any repository the shared installation can read into their tenant's marketplace, and a repository outside that installation cannot load at all. This ADR names the gap; it does not close it, and nothing in the design depends on it being closed a particular way. | Nothing in the operator or the rendered ConfigMap; it bounds what a source may *reach*, which no current requirement covers | Undecided. Candidates: a platform-controlled allow-list keyed on the owning tenant (entry granularity not settled), a per-tenant GitHub App installation so the token itself is scoped, or a per-source `Connection` binding as #226 proposed. The first is a comparison against platform config and would sit in the operator; the others change how the backend authenticates. Needs the backend owners. |
+
+---
+
+## Notes
+
+The wire shape in this document was corrected during review. An earlier draft
+specified `{"<tenant>": [...]}`, keying tenants directly; `registry.go` parses
+`{"tenants": {"<tenant>": {"sources": [...]}}}`. Because `encoding/json`
+populates nothing rather than erroring on a wrong top-level shape, the earlier
+shape would have produced a valid file yielding zero sources for every tenant.
+REQ-4 and the Context example now state the shape the code parses, and a
+round-trip assertion is listed under Success Metrics so the two cannot drift
+apart silently.
 
 **Last Updated:** 2026-09-30
