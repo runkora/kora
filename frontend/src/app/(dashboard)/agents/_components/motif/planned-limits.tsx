@@ -22,11 +22,6 @@ const PLANNED: { icon: IconName; title: string; desc: string }[] = [
     desc: 'Runaway-loop protection.',
   },
   {
-    icon: 'triangle-alert',
-    title: 'Halt on repeated failures',
-    desc: 'Stop the run after consecutive tool errors.',
-  },
-  {
     icon: 'eye-off',
     title: 'Redact PII in prompts & logs',
     desc: 'Detected personal data is masked before it reaches the model or the audit trail.',

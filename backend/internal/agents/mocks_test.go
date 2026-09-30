@@ -626,6 +626,7 @@ func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s
 		RunServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
 		},
 		logger,
 	)

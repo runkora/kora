@@ -73,6 +73,14 @@ type Config struct {
 		ImagePullSecrets []string `yaml:"imagePullSecrets"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
+		// Guardrails are the install's sandbox provisioning settings, sent with
+		// every run (docs/adr/2026-09-29-agent-run-guardrails.md). Overridden by
+		// ORBIT_GUARDRAILS_SANDBOX_PROVISION_{ATTEMPTS,BACKOFF_SECS,BUDGET_SECS}.
+		Guardrails struct {
+			SandboxProvisionAttempts    int `yaml:"sandboxProvisionAttempts"`
+			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
+			SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
+		} `yaml:"guardrails"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
@@ -204,6 +212,19 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 	}
 	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
 		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
+	}
+	intOverrides := []struct {
+		env string
+		dst *int
+	}{
+		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_ATTEMPTS", &cfg.Agents.Guardrails.SandboxProvisionAttempts},
+		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BACKOFF_SECS", &cfg.Agents.Guardrails.SandboxProvisionBackoffSecs},
+		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BUDGET_SECS", &cfg.Agents.Guardrails.SandboxProvisionBudgetSecs},
+	}
+	for _, o := range intOverrides {
+		if n, err := strconv.Atoi(getenv(o.env)); err == nil {
+			*o.dst = n
+		}
 	}
 	if v := getenv("ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		// An unparseable value becomes -1, which Validate rejects at startup.

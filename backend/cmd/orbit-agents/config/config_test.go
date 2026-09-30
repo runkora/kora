@@ -56,12 +56,18 @@ func TestApplyEnvOverrides(t *testing.T) {
 		"ORBIT_AGENTS_IMAGE_PULL_SECRETS":                    "ghcr-pull, private-pull,,",
 		"ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED": "false",
 		"ORBIT_MANIFEST_PATCH_DIR":                           "/etc/custom/patches",
+		"ORBIT_GUARDRAILS_SANDBOX_PROVISION_ATTEMPTS":        "4",
+		"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BACKOFF_SECS":    "2",
+		"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BUDGET_SECS":     "120",
 	}
 	cfg := &Config{}
 	cfg.Kubernetes.SystemNamespace = "orbit-system"
 	cfg.Agents.SessionManager.AuthorizationPolicyEnabled = true
 	applyEnvOverrides(cfg, func(k string) string { return env[k] })
 
+	if g := cfg.Agents.Guardrails; g.SandboxProvisionAttempts != 4 || g.SandboxProvisionBackoffSecs != 2 || g.SandboxProvisionBudgetSecs != 120 {
+		t.Errorf("sandbox guardrails = %+v", g)
+	}
 	if cfg.Kubernetes.SystemNamespace != "orbit-prod" {
 		t.Errorf("SystemNamespace = %q", cfg.Kubernetes.SystemNamespace)
 	}

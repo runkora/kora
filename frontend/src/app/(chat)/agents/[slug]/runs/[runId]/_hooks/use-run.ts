@@ -676,7 +676,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('turn_stopped', (e: MessageEvent) => {
-      if (!read<{ reason: string }>(e)) return;
+      const stop = read<{ reason: string }>(e);
+      if (!stop) return;
       ensureInProgress();
       updateInProgress(
         (turn) => ({
@@ -687,7 +688,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
                 ? { ...el, tool: { ...el.tool, status: 'stopped' as const } }
                 : el,
             ),
-            { kind: 'stopped' as const },
+            stop.reason === 'guardrail'
+              ? { kind: 'stopped' as const, byGuardrail: true }
+              : { kind: 'stopped' as const },
           ],
         }),
         true,

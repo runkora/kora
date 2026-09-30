@@ -103,6 +103,20 @@ export function StepReview() {
               value: fields.capacityOn ? `${fields.capacity} runs / pod` : 'Service default',
               mono: fields.capacityOn,
             },
+            {
+              label: 'Repeated calls',
+              value: fields.repeatedCallOn
+                ? `Warn after ${fields.repeatedCallWarn}, pause after ${fields.repeatedCallPause}`
+                : 'Platform default',
+              mono: fields.repeatedCallOn,
+            },
+            {
+              label: 'Wait loops',
+              value: fields.waitRearmOn
+                ? `Warn after ${fields.waitRearmWarn}, pause after ${fields.waitRearmPause}`
+                : 'Platform default',
+              mono: fields.waitRearmOn,
+            },
           ]}
         />
       </Wizard.ReviewStep>

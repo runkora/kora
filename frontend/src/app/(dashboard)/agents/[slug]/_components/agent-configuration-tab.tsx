@@ -69,6 +69,7 @@ export function AgentConfigurationTab() {
     runBudgetUsd: cfg.budgetPerRunUSD || '5.00',
     capacityOn,
     capacity: cfg.maxConcurrentRuns,
+    ...cfg.loopGuardrails,
   };
 
   const onGuardrailChange = <K extends keyof GuardrailValues>(
@@ -96,6 +97,16 @@ export function AgentConfigurationTab() {
         break;
       case 'capacity':
         cfg.setMaxConcurrentRuns(String(value));
+        break;
+      case 'repeatedCallOn':
+      case 'waitRearmOn':
+        cfg.setLoopGuardrail(key, Boolean(value));
+        break;
+      case 'repeatedCallWarn':
+      case 'repeatedCallPause':
+      case 'waitRearmWarn':
+      case 'waitRearmPause':
+        cfg.setLoopGuardrail(key, String(value));
         break;
     }
   };
@@ -276,7 +287,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="shield"
               title="Guardrails"
-              description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+              description="Set the ceilings Orbit enforces at runtime: spend, capacity and loop limits."
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>

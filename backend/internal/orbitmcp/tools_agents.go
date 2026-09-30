@@ -111,6 +111,16 @@ type createAgentArgs struct {
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
 	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments.list tool to list"`
 	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
+	Guardrails              *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"loop-guard thresholds for this agent's runs; omitted fields take the platform defaults"`
+}
+
+// guardrailsArg is an agent type's loop-guard thresholds. Each warn is at least
+// 1 and each pause is greater than its warn; there is no off switch.
+type guardrailsArg struct {
+	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before Orbit warns the agent (default 4)"`
+	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before Orbit pauses the run; greater than repeated_call_warn (default 8)"`
+	WaitRearmWarn     *int `json:"wait_rearm_warn,omitempty" jsonschema:"waits re-armed with no progress before Orbit warns the agent (default 6)"`
+	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before Orbit pauses the run; greater than wait_rearm_warn (default 12)"`
 }
 
 // connectorArg is one credential connection the agent may use and the actions
@@ -139,6 +149,7 @@ type updateAgentArgs struct {
 	Framework               *string          `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
 	ModelID                 *string          `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
 	MaxConcurrentRunsPerPod *int             `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
+	Guardrails              *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`

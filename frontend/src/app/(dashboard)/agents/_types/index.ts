@@ -6,6 +6,7 @@
 import type {
   AgentType,
   AgentBudget,
+  AgentTypeGuardrails,
   AgentIdentityMode,
   RunWithAttribution,
   AgentTypeState,
@@ -36,6 +37,8 @@ export interface AgentTypeRow {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcpTools: string[];
   maxConcurrentRunsPerPod: number;
+  /** Loop-guard thresholds as stored; absent fields take the platform defaults. */
+  guardrails: AgentTypeGuardrails;
   systemPrompt: string;
   createdAt: string;
   updatedAt: string;
@@ -98,6 +101,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     connectors: a.connectors ?? [],
     mcpTools: a.mcp_tools ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
+    guardrails: a.guardrails ?? {},
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
@@ -168,4 +172,75 @@ export function formatRelativeTime(iso: string): string {
   if (diffH < 24) return `${diffH} hour${diffH !== 1 ? 's' : ''} ago`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD} day${diffD !== 1 ? 's' : ''} ago`;
+}
+
+// ── Loop guardrails ───────────────────────────────────────────────────────────
+
+/** Platform defaults for the loop-guard thresholds; they match the agents API. */
+export const LOOP_GUARDRAIL_DEFAULTS = {
+  repeatedCallWarn: 4,
+  repeatedCallPause: 8,
+  waitRearmWarn: 6,
+  waitRearmPause: 12,
+} as const;
+
+/**
+ * The loop thresholds as form values. Each pair has a switch: off sends no
+ * override, so the agent type takes the platform defaults.
+ */
+export interface LoopGuardrailValues {
+  repeatedCallOn: boolean;
+  repeatedCallWarn: string;
+  repeatedCallPause: string;
+  waitRearmOn: boolean;
+  waitRearmWarn: string;
+  waitRearmPause: string;
+}
+
+/** Form values for stored thresholds: a pair is on when either of its fields is set. */
+export function loopGuardrailValues(g: AgentTypeGuardrails | undefined): LoopGuardrailValues {
+  const d = LOOP_GUARDRAIL_DEFAULTS;
+  return {
+    repeatedCallOn: g?.repeated_call_warn != null || g?.repeated_call_pause != null,
+    repeatedCallWarn: String(g?.repeated_call_warn ?? d.repeatedCallWarn),
+    repeatedCallPause: String(g?.repeated_call_pause ?? d.repeatedCallPause),
+    waitRearmOn: g?.wait_rearm_warn != null || g?.wait_rearm_pause != null,
+    waitRearmWarn: String(g?.wait_rearm_warn ?? d.waitRearmWarn),
+    waitRearmPause: String(g?.wait_rearm_pause ?? d.waitRearmPause),
+  };
+}
+
+/** The same rules the API applies to a pair that is on: warn is a whole number of at least 1, pause is greater than warn. */
+export function loopGuardrailErrors(
+  v: LoopGuardrailValues,
+): Partial<Record<'repeatedCall' | 'waitRearm', string>> {
+  const errors: Partial<Record<'repeatedCall' | 'waitRearm', string>> = {};
+  const check = (warnText: string, pauseText: string): string | undefined => {
+    const warn = Number(warnText);
+    const pause = Number(pauseText);
+    if (!Number.isInteger(warn) || warn < 1)
+      return 'Warn after must be a whole number of at least 1.';
+    if (!Number.isInteger(pause) || pause <= warn)
+      return 'Pause after must be greater than warn after.';
+    return undefined;
+  };
+  const repeated = v.repeatedCallOn && check(v.repeatedCallWarn, v.repeatedCallPause);
+  if (repeated) errors.repeatedCall = repeated;
+  const waits = v.waitRearmOn && check(v.waitRearmWarn, v.waitRearmPause);
+  if (waits) errors.waitRearm = waits;
+  return errors;
+}
+
+/** The API payload: the pairs that are switched on. */
+export function loopGuardrailsPayload(v: LoopGuardrailValues): AgentTypeGuardrails {
+  const out: AgentTypeGuardrails = {};
+  if (v.repeatedCallOn) {
+    out.repeated_call_warn = Number(v.repeatedCallWarn);
+    out.repeated_call_pause = Number(v.repeatedCallPause);
+  }
+  if (v.waitRearmOn) {
+    out.wait_rearm_warn = Number(v.waitRearmWarn);
+    out.wait_rearm_pause = Number(v.waitRearmPause);
+  }
+  return out;
 }

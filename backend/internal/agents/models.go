@@ -204,12 +204,14 @@ type AgentType struct {
 	// EnvironmentID references a tenant Environment whose egress hosts and
 	// connectors are merged into this agent's effective grant. nil = no
 	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
-	EnvironmentID           *string        `json:"environment_id,omitempty"`
-	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
-	State                   AgentTypeState `json:"state"`
-	CreatedAt               time.Time      `json:"created_at"`
-	UpdatedAt               time.Time      `json:"updated_at"`
-	ModelID                 *string        `json:"model_id,omitempty"`
+	EnvironmentID           *string `json:"environment_id,omitempty"`
+	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
+	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
+	Guardrails Guardrails     `json:"guardrails"`
+	State      AgentTypeState `json:"state"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	ModelID    *string        `json:"model_id,omitempty"`
 	// Budget mirrors the budget on the agent's policy grant. Transient: never
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.

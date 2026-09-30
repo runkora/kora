@@ -28,7 +28,13 @@ import {
 } from '../../_services/agents-api';
 import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import type { AgentTypeRow } from '../../_types';
+import {
+  loopGuardrailErrors,
+  loopGuardrailsPayload,
+  loopGuardrailValues,
+  type AgentTypeRow,
+  type LoopGuardrailValues,
+} from '../../_types';
 
 // Debounce window for the live effective-access preview as the user edits.
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -62,6 +68,7 @@ interface ConfigurationBaseline {
   connectivityHosts: string;
   environmentId: string;
   maxConcurrentRuns: string;
+  loopGuardrails: LoopGuardrailValues;
   budgetLimitUSD: string;
   budgetCadence: string;
   budgetPerRunUSD: string;
@@ -80,6 +87,7 @@ function baselineFrom(agent: AgentTypeRow | null): ConfigurationBaseline {
     connectivityHosts: (agent?.connectivity?.hosts ?? []).join('\n'),
     environmentId: agent?.environmentId ?? '',
     maxConcurrentRuns: String(agent?.maxConcurrentRunsPerPod ?? 10),
+    loopGuardrails: loopGuardrailValues(agent?.guardrails),
     budgetLimitUSD: agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
     budgetCadence: agent?.budget?.reset_cadence ?? 'monthly',
     budgetPerRunUSD: agent?.budget?.per_run_limit_usd ? String(agent.budget.per_run_limit_usd) : '',
@@ -106,6 +114,12 @@ export function useAgentConfiguration() {
   const [connectivityHosts, setConnectivityHosts] = useState(initial.connectivityHosts);
   const [environmentId, setEnvironmentId] = useState(initial.environmentId);
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(initial.maxConcurrentRuns);
+  const [loopGuardrails, setLoopGuardrails] = useState<LoopGuardrailValues>(initial.loopGuardrails);
+  const setLoopGuardrail = useCallback(
+    <K extends keyof LoopGuardrailValues>(key: K, value: LoopGuardrailValues[K]) =>
+      setLoopGuardrails((prev) => ({ ...prev, [key]: value })),
+    [],
+  );
   const [budgetLimitUSD, setBudgetLimitUSD] = useState(initial.budgetLimitUSD);
   const [budgetCadence, setBudgetCadence] = useState(initial.budgetCadence);
   const [budgetPerRunUSD, setBudgetPerRunUSD] = useState(initial.budgetPerRunUSD);
@@ -172,6 +186,7 @@ export function useAgentConfiguration() {
     connectivityHosts !== savedBaseline.connectivityHosts ||
     environmentId !== savedBaseline.environmentId ||
     maxConcurrentRuns !== savedBaseline.maxConcurrentRuns ||
+    JSON.stringify(loopGuardrails) !== JSON.stringify(savedBaseline.loopGuardrails) ||
     budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
     budgetCadence !== savedBaseline.budgetCadence ||
     budgetPerRunUSD !== savedBaseline.budgetPerRunUSD;
@@ -188,6 +203,12 @@ export function useAgentConfiguration() {
     if (isNaN(maxRuns) || maxRuns < 1 || maxRuns > 50) {
       setSaveSuccess(false);
       setSaveError('Max concurrent runs must be between 1 and 50.');
+      return;
+    }
+    const loopErrors = loopGuardrailErrors(loopGuardrails);
+    if (Object.keys(loopErrors).length > 0) {
+      setSaveSuccess(false);
+      setSaveError(loopErrors.repeatedCall ?? loopErrors.waitRearm ?? null);
       return;
     }
     setSaving(true);
@@ -211,6 +232,7 @@ export function useAgentConfiguration() {
       framework,
       system_prompt: trimmedSystemPrompt,
       max_concurrent_runs_per_pod: maxRuns,
+      guardrails: loopGuardrailsPayload(loopGuardrails),
       model_id: modelId,
       mcp_tools: mcpTools,
       connectors,
@@ -243,6 +265,7 @@ export function useAgentConfiguration() {
       connectivityHosts,
       environmentId,
       maxConcurrentRuns,
+      loopGuardrails,
       budgetLimitUSD,
       budgetCadence,
       budgetPerRunUSD,
@@ -263,6 +286,7 @@ export function useAgentConfiguration() {
     connectivityHosts,
     environmentId,
     maxConcurrentRuns,
+    loopGuardrails,
     budgetLimitUSD,
     budgetCadence,
     budgetPerRunUSD,
@@ -281,6 +305,7 @@ export function useAgentConfiguration() {
     setConnectivityHosts(savedBaseline.connectivityHosts);
     setEnvironmentId(savedBaseline.environmentId);
     setMaxConcurrentRuns(savedBaseline.maxConcurrentRuns);
+    setLoopGuardrails(savedBaseline.loopGuardrails);
     setBudgetLimitUSD(savedBaseline.budgetLimitUSD);
     setBudgetCadence(savedBaseline.budgetCadence);
     setBudgetPerRunUSD(savedBaseline.budgetPerRunUSD);
@@ -330,6 +355,8 @@ export function useAgentConfiguration() {
     setEnvironmentId,
     maxConcurrentRuns,
     setMaxConcurrentRuns,
+    loopGuardrails,
+    setLoopGuardrail,
     budgetLimitUSD,
     setBudgetLimitUSD,
     budgetCadence,

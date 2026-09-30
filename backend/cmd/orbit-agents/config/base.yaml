@@ -44,6 +44,13 @@ agents:
   # ORBIT_AGENTS_IMAGE_PULL_SECRETS (comma-separated).
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10
+  # Sandbox provisioning guardrails, sent with every run: attempts per request,
+  # the first backoff (doubling), and the budget across attempts. See
+  # docs/adr/2026-09-29-agent-run-guardrails.md.
+  guardrails:
+    sandboxProvisionAttempts: 3
+    sandboxProvisionBackoffSecs: 5
+    sandboxProvisionBudgetSecs: 300
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap. Overridden by
   # ORBIT_MANIFEST_PATCH_DIR.

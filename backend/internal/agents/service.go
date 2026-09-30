@@ -70,6 +70,8 @@ type CreateAgentTypeRequest struct {
 	EnvironmentID           *string `json:"environment_id"`
 	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string `json:"model_id"`
+	// Guardrails sets loop-guard thresholds; omitted fields take the defaults.
+	Guardrails *Guardrails `json:"guardrails"`
 	// Budget is applied to the agent's policy grant (nil = no budget).
 	Budget *AgentBudget `json:"budget"`
 }
@@ -82,7 +84,10 @@ type UpdateAgentTypeRequest struct {
 	Framework               *AgentFramework `json:"framework"`
 	MaxConcurrentRunsPerPod *int            `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string         `json:"model_id"`
-	GrantScopes             []string        `json:"grant_scopes"`
+	// Guardrails replaces the loop-guard thresholds. nil = unchanged; an empty
+	// object restores every default.
+	Guardrails  *Guardrails `json:"guardrails"`
+	GrantScopes []string    `json:"grant_scopes"`
 	// Budget updates the agent's grant budget. nil = unchanged; both limits
 	// zero = remove the budget.
 	Budget       *AgentBudget  `json:"budget"`

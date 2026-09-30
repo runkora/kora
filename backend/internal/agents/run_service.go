@@ -23,7 +23,10 @@ import (
 // RunServiceConfig holds runtime parameters for RunService.
 type RunServiceConfig struct {
 	MaxConcurrentRunsPerPod int
-	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
+	// SandboxGuardrails are the install's sandbox provisioning settings, sent
+	// with every run (docs/adr/2026-09-29-agent-run-guardrails.md).
+	SandboxGuardrails SandboxGuardrails
+	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
 	// StaleRunTimeout is how long a run may stay in active/starting without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
 	StaleRunTimeout time.Duration
@@ -249,6 +252,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// The session-manager pre-provisions, because it is the only component that
 		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
 		ProvisionSandbox: req.ProvisionSandbox,
+		Guardrails:       runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID

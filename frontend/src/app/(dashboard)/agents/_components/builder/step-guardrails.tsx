@@ -15,7 +15,7 @@ export function StepGuardrails() {
       <SectionHeading
         icon="shield"
         title="Guardrails"
-        description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+        description="Set the ceilings Orbit enforces at runtime: spend, capacity and loop limits."
       />
 
       <Stack direction="horizontal" align="baseline" gap="snug">

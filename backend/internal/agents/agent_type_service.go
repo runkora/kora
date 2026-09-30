@@ -151,6 +151,11 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 			return fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
 		}
 	}
+	if req.Guardrails != nil {
+		if vErr := req.Guardrails.Validate(); vErr != nil {
+			return vErr
+		}
+	}
 	if req.EnvironmentID != nil {
 		var envID *string
 		if strings.TrimSpace(*req.EnvironmentID) != "" {
@@ -217,6 +222,11 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 	// actions. Compiles to connection:<name>:<action> grants alongside egress.
 	if err := ValidateConnectors(req.Connectors); err != nil {
 		return out, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	}
+	if req.Guardrails != nil {
+		if err := req.Guardrails.Validate(); err != nil {
+			return out, err
+		}
 	}
 
 	// Environment reference: blank = none. Validate it exists in this tenant —
@@ -302,6 +312,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Connectors:              req.Connectors,
 		MCPTools:                mcpTools,
 		EnvironmentID:           validated.environmentID,
+		Guardrails:              guardrailsOrDefault(req.Guardrails),
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -578,6 +589,9 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 
 // applyAgentTypeUpdates copies non-nil fields from req onto at.
 func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
+	if req.Guardrails != nil {
+		at.Guardrails = *req.Guardrails
+	}
 	if req.Name != nil {
 		at.Name = *req.Name
 	}

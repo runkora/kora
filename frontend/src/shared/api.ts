@@ -346,6 +346,8 @@ export interface AgentType {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   state: AgentTypeState;
   created_at: string;
   updated_at: string;
@@ -450,6 +452,8 @@ export interface CreateAgentTypeRequest {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod?: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
@@ -532,6 +536,8 @@ export interface UpdateAgentTypeRequest {
   framework?: AgentFramework;
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   model_id?: string;
   grant_scopes?: string[];
   /** Budget update: omit = unchanged; both limits zero = remove. */
@@ -883,4 +889,15 @@ export interface TriggerDeliveryRun {
   status: string;
   error?: string;
   created_at: string;
+}
+
+/**
+ * An agent type's loop-guard thresholds (docs/adr/2026-09-29-agent-run-guardrails.md).
+ * Each warn is at least 1 and each pause is greater than its warn.
+ */
+export interface AgentTypeGuardrails {
+  repeated_call_warn?: number;
+  repeated_call_pause?: number;
+  wait_rearm_warn?: number;
+  wait_rearm_pause?: number;
 }
