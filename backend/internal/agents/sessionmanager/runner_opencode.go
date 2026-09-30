@@ -25,9 +25,9 @@ type OpenCodeRunnerConfig struct {
 	BinaryPath string
 
 	// WrapperPath is the path to orbit-session-runner. When set, opencode is
-	// invoked as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a
-	// PID namespace are applied first. Empty invokes opencode directly, with no
-	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+	// invoked as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock is
+	// applied first. Empty invokes opencode directly, with no filesystem
+	// restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
 	// ShellPath is written into the OpenCode config as the "shell" key, so tool
