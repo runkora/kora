@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -310,6 +312,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			Audit:   install.PodSecurity.Audit,
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
+		Collector:        agentCollector(install.CollectorNamespace),
 		Preflight:        preflightSource{checks},
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
@@ -340,4 +343,21 @@ func (p preflightSource) Latest() (operator.PreflightResult, bool) {
 		return operator.PreflightResult{}, false
 	}
 	return operator.PreflightResult{OK: res.OK(), Failures: res.Failures()}, true
+}
+
+// agentCollector is the in-cluster collector agent pods may export to: the
+// configured namespace and the port of the tenant collector endpoint. The
+// port defaults to 4317, as the chart's own collector rule assumes.
+func agentCollector(namespace string) operator.AgentCollector {
+	authority := observability.CollectorAuthority()
+	if namespace == "" || authority == "" {
+		return operator.AgentCollector{}
+	}
+	port := 4317
+	if _, p, err := net.SplitHostPort(authority); err == nil {
+		if n, err := strconv.Atoi(p); err == nil {
+			port = n
+		}
+	}
+	return operator.AgentCollector{Namespace: namespace, Port: port}
 }

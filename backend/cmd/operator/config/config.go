@@ -52,6 +52,10 @@ type Install struct {
 	SPIREClassName   string
 	ImagePullSecrets []string
 
+	// CollectorNamespace is the in-cluster namespace of the OTLP collector
+	// agent pods may export to. Empty opens no collector egress.
+	CollectorNamespace string
+
 	// WebhookCertManager is true when cert-manager issues the webhook certificate
 	// and the operator must not manage it.
 	WebhookCertManager bool
@@ -117,6 +121,7 @@ func loadInstall() Install {
 		IstioRevision:      os.Getenv("ORBIT_ISTIO_REVISION"),
 		SPIREClassName:     envOr("ORBIT_SPIRE_CLASS_NAME", "spire-system-spire"),
 		ImagePullSecrets:   splitList(os.Getenv("ORBIT_IMAGE_PULL_SECRETS")),
+		CollectorNamespace: os.Getenv("ORBIT_COLLECTOR_NAMESPACE"),
 		WebhookCertManager: os.Getenv("ORBIT_WEBHOOK_CERT_MANAGER") == "true",
 		Injection: Injection{
 			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),

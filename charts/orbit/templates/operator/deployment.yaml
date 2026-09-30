@@ -46,6 +46,9 @@ spec:
               value: {{ .Values.global.observability.otlpEndpoint | quote }}
             - name: ORBIT_SAMPLING_RATE
               value: {{ .Values.global.observability.samplingRate | quote }}
+            # Agent pods may export telemetry to this in-cluster namespace only.
+            - name: ORBIT_COLLECTOR_NAMESPACE
+              value: {{ .Values.global.observability.collectorNamespace | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
               value: {{ include "orbit.systemNamespace" . | quote }}
             - name: ORBIT_ISTIO_NAMESPACE

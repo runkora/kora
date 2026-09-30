@@ -241,7 +241,7 @@ global:
     samplingRate: "1.0"
 ```
 
-`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty and add the collector's CIDR and port to `networkPolicy.externalServices`. Agent pods export to the same endpoint, providing telemetry for their run. 
+`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty and add the collector's CIDR and port to `networkPolicy.externalServices`. Agent pods export to the same endpoint, providing telemetry for their run, and only when `collectorNamespace` names the in-cluster collector: their egress policy admits no other collector ([agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md)).
 
 Point your service mesh's own telemetry at the same collector to get the mesh hop and the application span in one trace.
 

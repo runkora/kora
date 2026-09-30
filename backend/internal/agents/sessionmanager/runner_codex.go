@@ -1073,6 +1073,17 @@ model = %q
 sandbox_mode = "danger-full-access"
 # Headless: no human can answer an approval, and Orbit's gateways enforce policy.
 approval_policy = "never"
+# The agent pod reaches only platform services
+# (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
+# hosted web search tool, as for Claude Code.
+check_for_update_on_startup = false
+web_search = "disabled"
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
 
 [model_providers.orbit]
 name     = "Orbit"
@@ -1096,6 +1107,8 @@ unified_exec = false
 # resets PATH; replayed in the sandbox it would hide the toolchains and user
 # installs. Without it, commands get the sandbox's own environment.
 shell_snapshot = false
+# The curated plugin sync clones github.com/openai/plugins at start.
+plugins = false
 %s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
