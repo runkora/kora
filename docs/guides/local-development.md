@@ -57,6 +57,20 @@ make reset           # deletes the cluster and builds it again preserving data
 make dev-down-clean  # DESTRUCTIVE: stops Postgres and Redis and deletes their volumes
 ```
 
+### Moving local data to Postgres 18
+
+The compose Postgres runs 18 on a new volume, `postgres_18_data`. The Postgres 17 volume `postgres_data` is left in place. Carry your data across with a dump taken before you pull the change:
+
+```bash
+docker exec orbit-postgres pg_dump -U orbit -d orbit -Fc > /tmp/orbit.dump   # still on Postgres 17
+make down
+make dev-up                                                                  # Postgres 18, empty
+docker exec -i orbit-postgres pg_restore -U orbit -d orbit --no-owner < /tmp/orbit.dump
+make up
+```
+
+Once Orbit works on 18, remove the old volume with `docker volume rm orbit_postgres_data`.
+
 ## Sign in
 
 ```bash
