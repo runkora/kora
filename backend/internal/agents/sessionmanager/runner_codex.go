@@ -53,7 +53,7 @@ type CodexRunnerConfig struct {
 
 	// InferenceGatewayURL is written into a per-run config.toml (via writeCodexConfig)
 	// as the custom provider base_url so Codex routes all Responses API calls
-	// through the Orbit inference gateway.
+	// through the kora inference gateway.
 	InferenceGatewayURL string
 
 	// SystemPrompt, when non-empty, is sent as developerInstructions in thread/start.
@@ -297,7 +297,7 @@ func (r *CodexRunner) SendToolResult(_ context.Context, _, _ string) error {
 	return ErrNotSupported
 }
 
-// Events returns the channel of Orbit standard events.
+// Events returns the channel of kora standard events.
 func (r *CodexRunner) Events() <-chan Event {
 	return r.events
 }
@@ -1020,7 +1020,7 @@ func codexErrorClass(raw json.RawMessage) (string, *int) {
 	return "", nil
 }
 
-// emit sends an Orbit event to the events channel.
+// emit sends a kora event to the events channel.
 func (r *CodexRunner) emit(t EventType, payload any) {
 	if payload == nil {
 		r.events <- Event{Type: t}
@@ -1034,7 +1034,7 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 }
 
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
-// writes a config.toml that points Codex at the Orbit inference gateway.
+// writes a config.toml that points Codex at the kora inference gateway.
 //
 // The bearer token is read from the ORBIT_INFERENCE_KEY environment variable
 // (env_key = "ORBIT_INFERENCE_KEY" in config.toml). This keeps the credential
@@ -1066,12 +1066,12 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 model = %q
 # Codex refuses to run a command unless it can sandbox it with bubblewrap, which
 # this image does not carry: without this it panics with "bubblewrap is
-# unavailable" and no command runs at all. Orbit's boundary is the sandbox pod
+# unavailable" and no command runs at all. kora's boundary is the sandbox pod
 # and the Landlock wrapper around this process, so a second sandbox nested inside
 # them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 # Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
-# Headless: no human can answer an approval, and Orbit's gateways enforce policy.
+# Headless: no human can answer an approval, and kora's gateways enforce policy.
 approval_policy = "never"
 # The agent pod reaches only platform services
 # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
@@ -1086,7 +1086,7 @@ enabled = false
 enabled = false
 
 [model_providers.orbit]
-name     = "Orbit"
+name     = "kora"
 base_url = %q
 env_key  = "ORBIT_INFERENCE_KEY"
 wire_api = "responses"

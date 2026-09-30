@@ -606,7 +606,7 @@ type runEventDTO struct {
 
 // handleRunEvents serves a run's events as Server-Sent Events (the default, for the
 // live UI stream) or, when the caller asks for application/json, as a single
-// paginated JSON page. The JSON form backs non-streaming readers such as the Orbit
+// paginated JSON page. The JSON form backs non-streaming readers such as the kora
 // MCP runs.events tool; the SSE behavior is unchanged.
 func (c *Controller) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {

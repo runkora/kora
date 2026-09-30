@@ -32,7 +32,7 @@ type PrincipalExtractor interface {
 // (XFCC) header and parses the SPIFFE URI out of it. This is the only
 // implementation — it is used in production, local development, and tests alike.
 //
-// Example header written by Envoy for an Orbit agent workload (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md):
+// Example header written by Envoy for a kora agent workload (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md):
 //
 //	x-forwarded-client-cert: By=spiffe://orbit.test/system/envoy-proxy;Hash=…;URI=spiffe://orbit.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
 //

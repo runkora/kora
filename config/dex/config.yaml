@@ -1,5 +1,5 @@
 # =============================================================================
-# Dex — local OIDC provider for Orbit development
+# Dex — local OIDC provider for kora development
 # =============================================================================
 #
 # Dex runs as a real, standards-compliant OIDC provider so that the full

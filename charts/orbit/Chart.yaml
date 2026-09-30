@@ -22,7 +22,7 @@ maintainers:
   - name: Orbit Team
 
 dependencies:
-  # Orbit's ingress gateway pods. Off when an existing Istio Gateway fronts Orbit.
+  # kora's ingress gateway pods. Off when an existing Istio Gateway fronts kora.
   - name: gateway
     alias: ingressGateway
     version: "1.31.1"

@@ -1,11 +1,11 @@
-// Package orbitmcp is the Orbit MCP server: the first platform-global MCP server.
-// It exposes Orbit's own management surface (agents, policy, models, …) as MCP
+// Package orbitmcp is the kora MCP server: the first platform-global MCP server.
+// It exposes kora's own management surface (agents, policy, models, …) as MCP
 // tools so an agent can operate the control plane. This package holds the TOOLS
 // ONLY — the protocol/transport/passthrough live in the reusable internal/
 // platform/mcp kit, and the HTTP forwarding in internal/platform/clients/orbitjson.
 //
 // Identity model: passthrough. Each tool forwards the CALLER's token to the
-// relevant Orbit API (via orbitjson + the kit's CallerToken); the downstream
+// relevant kora API (via orbitjson + the kit's CallerToken); the downstream
 // service enforces the real platform scope. This server holds no authority.
 //
 // Tools are organized one file per domain (tools_agents.go, tools_models.go,
@@ -25,7 +25,7 @@ import (
 
 const serverName = "orbit"
 
-// Backends holds the in-cluster base URLs of the Orbit services the tools call.
+// Backends holds the in-cluster base URLs of the kora services the tools call.
 type Backends struct {
 	Agents      string
 	Policy      string
@@ -35,7 +35,7 @@ type Backends struct {
 	ToolGateway string
 }
 
-// NewServer builds the Orbit MCP server and registers its tools onto a kit server.
+// NewServer builds the kora MCP server and registers its tools onto a kit server.
 func NewServer(b Backends, jc *orbitjson.Client) *sdk.Server {
 	srv := mcpkit.NewServer(serverName, "0.1.0")
 	registerTools(srv, b, jc)

@@ -145,7 +145,7 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 	case errors.Is(err, ErrMissingHost):
 		apiErr = platformapi.BadRequestError(platformapi.ErrCodeValidationFailed, "missing destination host", nil)
 	// The operator's own faults are matched before the caller's. A connection
-	// Orbit cannot read denies the call, but it is not a policy decision, and
+	// kora cannot read denies the call, but it is not a policy decision, and
 	// wrapping one in ErrForbidden anywhere upstream would otherwise report it
 	// as a denial and send an operator hunting a grant.
 	case errors.Is(err, credentials.ErrInvalidConfig):

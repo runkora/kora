@@ -16,7 +16,7 @@ import (
 // a tool call recorded with its own arguments and its result, a capped large
 // result, a user stop that keeps the partial text, and a failed turn that ends
 // with message_stop so the run idles. Each scenario drives a runner through its
-// own wire format and returns the Orbit events it emitted.
+// own wire format and returns the kora events it emitted.
 type paritySubject struct {
 	name string
 	// toolCall runs one shell command "echo hi" that prints "hi".

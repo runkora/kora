@@ -2,16 +2,16 @@
 # Requires externally managed Istio, SPIRE, PostgreSQL, and Redis.
 
 global:
-  # Shared by SPIRE, Istio and Orbit. Required.
+  # Shared by SPIRE, Istio and kora. Required.
   trustDomain: ""
 
-  # Namespace Orbit runs in. Empty means the release namespace.
+  # Namespace kora runs in. Empty means the release namespace.
   systemNamespace: ""
 
-  # Registry prefix for every Orbit image. Overridable per component.
+  # Registry prefix for every kora image. Overridable per component.
   imageRegistry: ghcr.io/clear-route
 
-  # Image tag for every Orbit image. Empty uses the chart appVersion. Local
+  # Image tag for every kora image. Empty uses the chart appVersion. Local
   # development sets this to pin a pushed tag; a release stamps digests instead.
   imageTag: ""
 
@@ -37,14 +37,14 @@ global:
     # networkPolicy.externalServices instead.
     collectorNamespace: ""
 
-  # Pull secrets applied to Orbit and tenant workloads. Kubernetes convention:
+  # Pull secrets applied to kora and tenant workloads. Kubernetes convention:
   # a list of {name: <secret-name>} objects.
   imagePullSecrets: []
 
   # IfNotPresent for released, digest-pinned images. Always for local development.
   imagePullPolicy: IfNotPresent
 
-  # Defaults for every Orbit workload. Overridable per component.
+  # Defaults for every kora workload. Overridable per component.
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -83,9 +83,9 @@ istio:
   # chart renders for the external hosts it knows about (Postgres, Redis).
   outboundTrafficPolicy: ALLOW_ANY
 
-# The SPIRE deployment Orbit registers into.
+# The SPIRE deployment kora registers into.
 spire:
-  # Class the spire-controller-manager serves. A mismatch means Orbit's
+  # Class the spire-controller-manager serves. A mismatch means kora's
   # ClusterSPIFFEIDs are ignored.
   className: spire-system-spire
 
@@ -603,7 +603,7 @@ agents:
       limits:
         cpu: "1"
         memory: 4Gi
-    # -- Applied to whichever workload the mode runs. Orbit's own selector labels
+    # -- Applied to whichever workload the mode runs. kora's own selector labels
     # win on a collision.
     podLabels: {}
     # -- Applied to whichever workload the mode runs. `capacity` already carries
@@ -709,7 +709,7 @@ triggers:
       - frontend
       - orbit-mcp
       - ingress-gateway
-    # Mesh identities without an Orbit registration. Orbit's own gateway is
+    # Mesh identities without a kora registration. kora's own gateway is
     # registered as a system component; an existing gateway goes here as
     # ns/<namespace>/sa/<serviceaccount>.
     meshPrincipals: []

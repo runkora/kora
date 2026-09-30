@@ -18,7 +18,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	catalog := base + "/catalog"
 
 	addTool(srv, "models.list",
-		"List the inference models available through Orbit at runtime, with provider and capability metadata.",
+		"List the inference models available through kora at runtime, with provider and capability metadata.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/models", nil))
 		})

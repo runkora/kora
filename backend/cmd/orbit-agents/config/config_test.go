@@ -51,7 +51,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 		"ORBIT_TRUST_DOMAIN":                                 "orbit.example.com",
 		"ORBIT_SESSION_MANAGER_IMAGE":                        "registry.example.com/orbit-session-manager:1.2.3",
 		"ORBIT_SANDBOX_IMAGE":                                "registry.example.com/orbit-sandbox-exec:1.2.3",
-		"ORBIT_SANDBOX_GIT_AUTHOR_NAME":                      "Orbit Agent",
+		"ORBIT_SANDBOX_GIT_AUTHOR_NAME":                      "kora Agent",
 		"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL":                     "agent@example.com",
 		"ORBIT_AGENTS_IMAGE_PULL_SECRETS":                    "ghcr-pull, private-pull,,",
 		"ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED": "false",
@@ -80,7 +80,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 	if cfg.Agents.SandboxImage != env["ORBIT_SANDBOX_IMAGE"] {
 		t.Errorf("SandboxImage = %q", cfg.Agents.SandboxImage)
 	}
-	if cfg.Agents.SandboxGitAuthorName != "Orbit Agent" || cfg.Agents.SandboxGitAuthorEmail != "agent@example.com" {
+	if cfg.Agents.SandboxGitAuthorName != "kora Agent" || cfg.Agents.SandboxGitAuthorEmail != "agent@example.com" {
 		t.Errorf("git author = %q <%q>", cfg.Agents.SandboxGitAuthorName, cfg.Agents.SandboxGitAuthorEmail)
 	}
 	if want := []string{"ghcr-pull", "private-pull"}; !reflect.DeepEqual(cfg.Agents.ImagePullSecrets, want) {

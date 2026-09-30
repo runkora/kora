@@ -21,7 +21,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 	t.Logf("rendered brief:\n%s", brief)
 
 	for _, want := range []string{
-		"# Runtime environment (Orbit)",
+		"# Runtime environment (kora)",
 		"You can reach only these hosts",
 		"  - pypi.org",
 		"## Credentials — injected for you",

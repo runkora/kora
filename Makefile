@@ -1,4 +1,4 @@
-# Orbit Control Plane - Development Makefile
+# kora Control Plane - Development Makefile
 # ===========================================
 
 # Load environment variables from .env if it exists

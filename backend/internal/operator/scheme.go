@@ -9,7 +9,7 @@ import (
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 )
 
-// AddToScheme registers the Orbit CRD types into a runtime.Scheme.
+// AddToScheme registers the kora CRD types into a runtime.Scheme.
 // Call this on the controller-runtime manager's scheme before starting.
 func AddToScheme(s *runtime.Scheme) error {
 	// Register the concrete CRD types for orbit.io/v1alpha1.
@@ -32,7 +32,7 @@ func AddToScheme(s *runtime.Scheme) error {
 	return nil
 }
 
-// NewScheme returns a runtime.Scheme with the Orbit types and core Kubernetes
+// NewScheme returns a runtime.Scheme with the kora types and core Kubernetes
 // types registered. Use this in the controller-runtime manager constructor.
 func NewScheme() *runtime.Scheme {
 	s := runtime.NewScheme()

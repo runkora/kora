@@ -179,7 +179,7 @@ func TestDeny_NotGrantedQualified(t *testing.T) {
 	if d.RequiredScope != "connection:github:pulls:orbit:read" {
 		t.Errorf("RequiredScope = %q, want connection:github:pulls:orbit:read", d.RequiredScope)
 	}
-	want := "Orbit egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
+	want := "kora egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
 	if d.Message() != want {
 		t.Errorf("Message() = %q, want %q", d.Message(), want)
 	}

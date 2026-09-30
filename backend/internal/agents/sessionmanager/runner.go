@@ -33,7 +33,7 @@ type Runner interface {
 	// event. The subprocess will resume processing once the result is written.
 	SendToolResult(ctx context.Context, toolUseID, content string) error
 
-	// Events returns a read-only channel of Orbit standard events produced
+	// Events returns a read-only channel of kora standard events produced
 	// by the transform layer. The channel is closed when the subprocess exits
 	// or Close is called.
 	Events() <-chan Event

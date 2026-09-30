@@ -1,5 +1,5 @@
 // Package config provides a typed, environment-aware configuration loader
-// for the Orbit control plane.
+// for the kora control plane.
 //
 // # Loading modes
 //

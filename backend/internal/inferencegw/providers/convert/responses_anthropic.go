@@ -326,7 +326,7 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			// Output is a string|[]content union in v3. Orbit only produces string
+			// Output is a string|[]content union in v3. kora only produces string
 			// outputs; reject the content-array variant explicitly to avoid silently
 			// forwarding an empty string to the model.
 			// TODO: handle array variant (images/files) if a future client sends content-array outputs.

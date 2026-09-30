@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Orbit Device Authorization Grant — CLI Authentication Script
+# kora Device Authorization Grant — CLI Authentication Script
 # =============================================================================
 #
 # Usage: ./scripts/auth-device.sh [OPTIONS]
 #
-# Authenticates against the Orbit identity service using the OAuth 2.0 Device
+# Authenticates against the kora identity service using the OAuth 2.0 Device
 # Authorization Grant (RFC 8628). No browser on this machine is required — you
 # just need to visit a URL and enter a short code on any device.
 #
@@ -50,8 +50,8 @@
 #
 # ─── Environment variables ────────────────────────────────────────────────────
 #
-#   ORBIT_API_BASE    — Orbit API base URL  (default: http://localhost:8080/api/v1)
-#   ORBIT_TENANT_ID   — Orbit tenant ID     (overridden by --tenant-id flag)
+#   ORBIT_API_BASE    — kora API base URL  (default: http://localhost:8080/api/v1)
+#   ORBIT_TENANT_ID   — kora tenant ID     (overridden by --tenant-id flag)
 #
 # Prerequisites: curl, jq
 # =============================================================================

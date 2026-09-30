@@ -1,5 +1,5 @@
 // Package github provides a typed HTTP client for the GitHub REST API, limited
-// to the operations the Orbit credential broker needs — currently minting
+// to the operations the kora credential broker needs — currently minting
 // GitHub App installation access tokens.
 //
 // It embeds httpclient.Base so every call gets a named OTel client span, W3C

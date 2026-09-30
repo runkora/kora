@@ -15,8 +15,8 @@ import (
 // cleanly after the agent's own system prompt.
 func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) string {
 	var b strings.Builder
-	b.WriteString("\n\n# Runtime environment (Orbit)\n")
-	b.WriteString("You're running in an isolated, governed Orbit sandbox. The platform mediates your network and credentials — these constraints are enforced, so work within them rather than trying to get around them.\n")
+	b.WriteString("\n\n# Runtime environment (kora)\n")
+	b.WriteString("You're running in an isolated, governed kora sandbox. The platform mediates your network and credentials — these constraints are enforced, so work within them rather than trying to get around them.\n")
 
 	b.WriteString("\n## Network access\n")
 	switch {
@@ -85,7 +85,7 @@ func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) strin
 	b.WriteString("2. Before branching, committing, or pushing, verify the working copy is a real clone: `git remote get-url origin` must succeed and `git fetch origin` must be able to reach the base branch.\n")
 	b.WriteString("3. If `git clone` keeps failing after retries, surface the error — do not fall back to `git init`.\n")
 	if !access.Open {
-		b.WriteString("\nA connection reset or TLS handshake failure to a host not listed under Network access means egress policy blocked it: retrying will not help, and an admin must add the host to this agent's egress allowlist. A 403 from Orbit's egress gateway names the host, the action, and the grant that would allow it.\n")
+		b.WriteString("\nA connection reset or TLS handshake failure to a host not listed under Network access means egress policy blocked it: retrying will not help, and an admin must add the host to this agent's egress allowlist. A 403 from kora's egress gateway names the host, the action, and the grant that would allow it.\n")
 	}
 
 	return b.String()

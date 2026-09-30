@@ -54,19 +54,19 @@ func (d *Denial) Unwrap() []error {
 func (d *Denial) Message() string {
 	switch d.Reason {
 	case DenialNotGranted:
-		return fmt.Sprintf("Orbit egress policy denied %s: this agent is not granted %s on connection %s. To allow it, grant %s.",
+		return fmt.Sprintf("kora egress policy denied %s: this agent is not granted %s on connection %s. To allow it, grant %s.",
 			d.Host, d.actionPhrase(), d.Connection, d.RequiredScope)
 	case DenialGrantNotApplied:
-		return fmt.Sprintf("Orbit egress policy denied %s: this agent's grant for %s on connection %s does not apply to this call (%s).",
+		return fmt.Sprintf("kora egress policy denied %s: this agent's grant for %s on connection %s does not apply to this call (%s).",
 			d.Host, d.actionPhrase(), d.Connection, d.PolicyReason)
 	case DenialUnclassified:
-		return fmt.Sprintf("Orbit egress policy denied %s: connection %s does not map this request to a grantable action (an unsupported API shape, or a resource outside the connection), so no grant can allow it.",
+		return fmt.Sprintf("kora egress policy denied %s: connection %s does not map this request to a grantable action (an unsupported API shape, or a resource outside the connection), so no grant can allow it.",
 			d.Host, d.Connection)
 	case DenialCredentialRefused:
-		return fmt.Sprintf("Orbit egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
+		return fmt.Sprintf("kora egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
 			d.actionPhrase(), d.Connection)
 	case DenialPolicyUnavailable:
-		return fmt.Sprintf("Orbit egress policy could not be evaluated for %s, so the call was denied. Retry shortly; report it to an admin if it persists.",
+		return fmt.Sprintf("kora egress policy could not be evaluated for %s, so the call was denied. Retry shortly; report it to an admin if it persists.",
 			d.Host)
 	default:
 		return "egress denied"

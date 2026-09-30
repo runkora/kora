@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# redeploy.sh: build, push, and restart a single Orbit service in the k3d
+# redeploy.sh: build, push, and restart a single kora service in the k3d
 # cluster. Driven by the per-service registry below so every service uses the
 # same entry point, and edge cases (identity's mkcert CA layer, session-manager
 # living in a tenant namespace as a StatefulSet, sandbox-exec being build-only)

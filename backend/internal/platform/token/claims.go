@@ -1,4 +1,4 @@
-// Package token provides shared JWT claim types for Orbit platform tokens.
+// Package token provides shared JWT claim types for kora platform tokens.
 // These types are defined here — rather than in internal/identity — so that
 // any service binary can import and parse platform tokens without creating a
 // cross-feature dependency that violates docs/adr/2026-02-17-repository-pattern-and-code-organization.md.
@@ -33,14 +33,14 @@ const (
 	IdentitySourcePlatform IdentitySource = "PLATFORM"
 )
 
-// Principal is the unified identity abstraction for all actors in Orbit.
+// Principal is the unified identity abstraction for all actors in kora.
 // It is the subject of every policy decision, audit event, and delegation chain.
 // Downstream components only ever see the Principal carried inside a platform
 // session token — they never receive raw OIDC tokens or SVIDs.
 type Principal struct {
 	// ID is a globally unique, stable identifier.
 	// For HUMAN principals this is derived from the upstream IdP subject claim.
-	// For AGENT principals this is Orbit's own agent registry ID.
+	// For AGENT principals this is kora's own agent registry ID.
 	ID string `json:"id"`
 
 	// Type discriminates the category of actor.

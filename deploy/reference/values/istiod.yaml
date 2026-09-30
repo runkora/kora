@@ -1,4 +1,4 @@
-# What Orbit requires of istiod: CNI mode and a discovery address. The trust
+# What kora requires of istiod: CNI mode and a discovery address. The trust
 # domain is injected by the Helmfile from the shared environment fact.
 meshConfig:
   defaultConfig:

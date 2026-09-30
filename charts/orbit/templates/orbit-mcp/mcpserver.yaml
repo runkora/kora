@@ -1,9 +1,9 @@
 {{- if .Values.orbitMcp.register }}
-# Registers the platform Orbit MCP as a GLOBAL MCPServer (orbit-system). The
+# Registers the platform kora MCP as a GLOBAL MCPServer (orbit-system). The
 # operator's MCPServerAggregator renders it into the orbit-mcp-servers registry
 # and the tool-gateway introspects its tools into mcp:orbit:<tool>:use scopes.
-# callerIdentity: forward — the Orbit MCP acts AS the caller against first-party
-# Orbit APIs (valid only for orbit-system/global servers).
+# callerIdentity: forward — the kora MCP acts AS the caller against first-party
+# kora APIs (valid only for orbit-system/global servers).
 apiVersion: orbit.io/v1alpha1
 kind: MCPServer
 metadata:

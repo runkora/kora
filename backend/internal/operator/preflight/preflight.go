@@ -224,7 +224,7 @@ func (r *Runner) meshTrustDomain(ctx context.Context) Check {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("parse meshConfig: %v", err)}
 	}
 	if mesh.TrustDomain != r.Config.TrustDomain {
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.trustDomain is %q, Orbit is configured for %q", mesh.TrustDomain, r.Config.TrustDomain)}
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.trustDomain is %q, kora is configured for %q", mesh.TrustDomain, r.Config.TrustDomain)}
 	}
 	return Check{Name: name, OK: true, Message: "meshConfig.trustDomain matches"}
 }
@@ -236,7 +236,7 @@ func (r *Runner) systemNamespaceInjection(ctx context.Context) Check {
 		return Check{Name: name, OK: false, Message: err.Error()}
 	}
 	if ns.Labels["istio.io/dataplane-mode"] == "ambient" {
-		return Check{Name: name, OK: false, Message: "system namespace is in ambient mode; Orbit requires sidecar injection"}
+		return Check{Name: name, OK: false, Message: "system namespace is in ambient mode; kora requires sidecar injection"}
 	}
 	if r.Config.IstioRevision != "" {
 		if ns.Labels["istio.io/rev"] != r.Config.IstioRevision {
@@ -278,14 +278,14 @@ func (r *Runner) spireWorkloadAPI(ctx context.Context) Check {
 		}
 	}
 	if svid.ID.TrustDomain().Name() != r.Config.TrustDomain {
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("SVID trust domain is %q, Orbit is configured for %q", svid.ID.TrustDomain().Name(), r.Config.TrustDomain)}
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("SVID trust domain is %q, kora is configured for %q", svid.ID.TrustDomain().Name(), r.Config.TrustDomain)}
 	}
 	return Check{Name: name, OK: true, Message: "SVID issued in " + r.Config.TrustDomain}
 }
 
 var clusterSPIFFEIDGVK = schema.GroupVersionKind{Group: "spire.spiffe.io", Version: "v1alpha1", Kind: "ClusterSPIFFEIDList"}
 
-// clusterSPIFFEIDs verifies Orbit registrations and rejects conflicting catch-all registrations.
+// clusterSPIFFEIDs verifies kora registrations and rejects conflicting catch-all registrations.
 func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 	const name = "spire-controller-manager"
 	list := &unstructured.UnstructuredList{}
@@ -302,10 +302,10 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		className, _ := spec["className"].(string)
 		if item.GetLabels()["app.kubernetes.io/part-of"] == "orbit" {
 			if className != r.Config.SPIREClassName {
-				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
+				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
 			}
 			if failures := statFailures(item.Object); failures != "" {
-				return Check{Name: name, OK: false, Message: fmt.Sprintf("Orbit registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
+				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
 			}
 			orbitOwned++
 			continue
@@ -315,9 +315,9 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		}
 	}
 	if orbitOwned == 0 {
-		return Check{Name: name, OK: false, Message: "no Orbit ClusterSPIFFEIDs found; is the orbit chart installed"}
+		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the orbit chart installed"}
 	}
-	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d Orbit registrations for class %s", orbitOwned, r.Config.SPIREClassName)}
+	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", orbitOwned, r.Config.SPIREClassName)}
 }
 
 // statFailures reads status.stats.entryFailures and podEntryRenderFailures

@@ -366,18 +366,18 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 	// the other still fires on the next.
 	switch {
 	case g.repeats >= limits.RepeatedCallPause:
-		repeated.text = fmt.Sprintf("Orbit paused this run: the agent made the same %s call %d times in a row, including after a warning. Send a message to continue.", p.Name, g.repeats)
+		repeated.text = fmt.Sprintf("kora paused this run: the agent made the same %s call %d times in a row, including after a warning. Send a message to continue.", p.Name, g.repeats)
 		return loopPause, repeated
 	case wait && g.waits >= limits.WaitRearmPause:
-		waiting.text = fmt.Sprintf("Orbit paused this run: the agent re-armed a wait (Monitor, Cron or sleep) %d times with no progress, including after a warning. Send a message to continue.", g.waits)
+		waiting.text = fmt.Sprintf("kora paused this run: the agent re-armed a wait (Monitor, Cron or sleep) %d times with no progress, including after a warning. Send a message to continue.", g.waits)
 		return loopPause, waiting
 	case g.repeats >= limits.RepeatedCallWarn && !g.warnedRepeat:
 		g.warnedRepeat = true
-		repeated.text = fmt.Sprintf("Orbit guardrail: your last %d tool calls were the same %s call with the same input. Repeating it will not change the result. Try a different approach, or stop and tell the user what is blocking you. If the repetition continues, Orbit will pause this run for the user.", g.repeats, p.Name)
+		repeated.text = fmt.Sprintf("kora guardrail: your last %d tool calls were the same %s call with the same input. Repeating it will not change the result. Try a different approach, or stop and tell the user what is blocking you. If the repetition continues, kora will pause this run for the user.", g.repeats, p.Name)
 		return loopWarn, repeated
 	case wait && g.waits >= limits.WaitRearmWarn && !g.warnedWait:
 		g.warnedWait = true
-		waiting.text = fmt.Sprintf("Orbit guardrail: you have re-armed a wait (Monitor, Cron or sleep) %d times with no progress in between. More waiting will not unblock this. Stop waiting: tell the user what you are waiting for and why, then end your turn. If the waiting continues, Orbit will pause this run for the user.", g.waits)
+		waiting.text = fmt.Sprintf("kora guardrail: you have re-armed a wait (Monitor, Cron or sleep) %d times with no progress in between. More waiting will not unblock this. Stop waiting: tell the user what you are waiting for and why, then end your turn. If the waiting continues, kora will pause this run for the user.", g.waits)
 		return loopWarn, waiting
 	}
 	return loopOK, loopFinding{}

@@ -234,7 +234,7 @@ func fixResponseOutputItems(m map[string]json.RawMessage, output []responses.Res
 }
 
 // marshalResponsesResponse produces wire-compatible JSON for a *responses.Response
-// synthesized by one of the Orbit bridges. responses.Response has no MarshalJSON,
+// synthesized by one of the kora bridges. responses.Response has no MarshalJSON,
 // so encoding/json dumps all zero-value fields producing massively bloated output.
 // This function emits only the fields Codex CLI actually reads.
 func marshalResponsesResponse(resp *responses.Response) ([]byte, error) {

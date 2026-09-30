@@ -1,5 +1,5 @@
 # =============================================================================
-# Orbit Tenant Registry — Tier 1 local dev ONLY (make dev / air hot-reload)
+# kora Tenant Registry — Tier 1 local dev ONLY (make dev / air hot-reload)
 # =============================================================================
 #
 # THIS FILE IS NOT USED IN CLUSTER DEPLOYMENTS.

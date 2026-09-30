@@ -21,7 +21,7 @@ type Config struct {
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
 
-	// Backends are the in-cluster base URLs of the Orbit services the tools call.
+	// Backends are the in-cluster base URLs of the kora services the tools call.
 	Backends struct {
 		Agents      string `yaml:"agents"`
 		Policy      string `yaml:"policy"`

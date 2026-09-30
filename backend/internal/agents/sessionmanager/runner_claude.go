@@ -332,7 +332,7 @@ func (r *ClaudeRunner) writeInput(msg claudeInputMessage) error {
 	return err
 }
 
-// Events returns the channel of Orbit standard events.
+// Events returns the channel of kora standard events.
 func (r *ClaudeRunner) Events() <-chan Event {
 	return r.events
 }
@@ -410,7 +410,7 @@ func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
 	}
 }
 
-// transform reads Claude Code's stream-json stdout and emits Orbit events.
+// transform reads Claude Code's stream-json stdout and emits kora events.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
 func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	defer close(r.events)

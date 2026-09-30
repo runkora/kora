@@ -82,7 +82,7 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 }
 
 // uncoveredScopes returns the scopes in `requested` that are not covered by any
-// scope in `held` (per the Orbit scope hierarchy). Empty result means every
+// scope in `held` (per the kora scope hierarchy). Empty result means every
 // requested scope is within the holder's authority.
 func uncoveredScopes(held, requested []string) []string {
 	var out []string

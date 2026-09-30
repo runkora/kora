@@ -11,7 +11,7 @@ server:
   adminHTTPPort: 8086
   # Admin-API base path. Controller routes are registered RELATIVE to this
   # (e.g. "/connections"), so the absolute path is "/api/v1/connections",
-  # matching ReadRoutes() and the Orbit admin-API convention (cf. identity).
+  # matching ReadRoutes() and the kora admin-API convention (cf. identity).
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 

@@ -158,7 +158,7 @@ check_targets() {
                  # In markdown, a real invocation starts its line (optionally
                  # after a `$` prompt). This skips prose that merely contains
                  # the word: a Go comment "// make the request", UI copy
-                 # "Orbit AI can make mistakes."
+                 # "kora AI can make mistakes."
                  *.md) code_only "$file" | grep -E '^[[:space:]]*\$?[[:space:]]*make +[a-z]' ;;
                  # Shell: code only. A comment is prose, and this file's own
                  # comments would otherwise match themselves.

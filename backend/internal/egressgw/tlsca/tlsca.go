@@ -201,7 +201,7 @@ func (c *IssuingCA) mintLeaf(host string) (*tls.Certificate, error) {
 		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:   host,
-			Organization: []string{"Orbit Egress Gateway"},
+			Organization: []string{"kora Egress Gateway"},
 			// Tenant is recorded on the leaf for audit/log correlation.
 			OrganizationalUnit: []string{"tenant=" + c.tenant},
 		},

@@ -1,4 +1,4 @@
-# Orbit chart values, the same set `helm show values oci://ghcr.io/clear-route/charts/orbit`
+# kora chart values, the same set `helm show values oci://ghcr.io/clear-route/charts/orbit`
 # prints. Copy this file into your GitOps repository and edit it. A cluster
 # already running SPIRE and Istio installs the chart with this file, no Helmfile.
 #

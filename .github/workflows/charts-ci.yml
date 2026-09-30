@@ -47,7 +47,7 @@ jobs:
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:
-          #   - Orbit CRs: extracted from charts/orbit-crds into crd-schemas/.
+          #   - kora CRs: extracted from charts/orbit-crds into crd-schemas/.
           #   - Istio CRs (Gateway, VirtualService, DestinationRule, EnvoyFilter,
           #     AuthorizationPolicy): pulled from the datreeio CRDs-catalog.
           #   - CustomResourceDefinition: pulled from yannh/kubernetes-json-schema's

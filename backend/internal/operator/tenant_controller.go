@@ -635,7 +635,7 @@ func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *Orbit
 }
 
 // tenantNamespaceLabels returns the labels every tenant namespace must carry:
-// Orbit's markers, the Istio injection label for the configured revision, and
+// kora's markers, the Istio injection label for the configured revision, and
 // the Pod Security Admission levels. Re-applied on every reconcile.
 // staleInjectionLabel is the Istio injection label the configured mode does
 // not use: istio-injection under a named revision, istio.io/rev otherwise.

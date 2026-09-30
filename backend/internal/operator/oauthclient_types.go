@@ -3,7 +3,7 @@
 //
 // An OAuthClient is a tenant-namespaced custom resource that pre-registers one
 // public OAuth client (a hosted web application, e.g. a CRM that logs users in
-// through Orbit) with the identity service. It carries the client_id, an
+// through kora) with the identity service. It carries the client_id, an
 // optional display name, and the exact set of permitted redirect URIs. Unlike
 // dynamically-registered clients (RFC 7591 DCR, which are restricted to
 // loopback redirect URIs per RFC 8252), an OAuthClient is admin-reviewed and

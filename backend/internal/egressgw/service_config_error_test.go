@@ -26,7 +26,7 @@ func (badConfigAdapter) Open(credentials.Connection) (credentials.Connector, err
 	return nil, credentials.ErrInvalidConfig
 }
 
-// TestAuthorize_UnreadableConnectionDenies locks that a connection Orbit cannot
+// TestAuthorize_UnreadableConnectionDenies locks that a connection kora cannot
 // read denies the call, and reports it as a configuration fault rather than a
 // policy one. Calling it forbidden sends whoever reads the audit log hunting a
 // grant that was never the problem.

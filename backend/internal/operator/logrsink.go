@@ -27,7 +27,7 @@ func NewLogSink(logger logging.Logger) logr.LogSink {
 func (s *logSink) Init(logr.RuntimeInfo) {}
 
 // Enabled admits V(0) and V(1); controller-runtime's deeper verbosity is noise
-// at Orbit's log volume.
+// at kora's log volume.
 func (s *logSink) Enabled(level int) bool { return level <= 1 }
 
 func (s *logSink) Info(level int, msg string, kv ...any) {

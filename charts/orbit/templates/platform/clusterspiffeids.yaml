@@ -1,5 +1,5 @@
 {{- if .Values.platform.spiffe.enabled }}
-# Orbit's SPIFFE registrations, scoped to the system namespace and namespaces
+# kora's SPIFFE registrations, scoped to the system namespace and namespaces
 # labelled orbit.io/role=tenant.
 #
 #   System component:  spiffe://<trust-domain>/system/<spiffe.io/component>
@@ -9,7 +9,7 @@
 {{- $trustDomain := include "orbit.trustDomain" . }}
 {{- $ns := include "orbit.systemNamespace" . }}
 ---
-# Every Orbit pod in the system namespace, operator and ingress gateway included.
+# Every kora pod in the system namespace, operator and ingress gateway included.
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:

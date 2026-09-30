@@ -28,7 +28,7 @@ metadata:
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
-  # Orbit's own gateway pods, or the customer-owned gateway selected by gateway.byo.
+  # kora's own gateway pods, or the customer-owned gateway selected by gateway.byo.
   workloadSelector:
     labels:
       {{- include "orbit.gatewayWorkloadSelector" . | nindent 6 }}
