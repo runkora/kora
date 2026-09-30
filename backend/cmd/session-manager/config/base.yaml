@@ -44,7 +44,7 @@ opencode:
 # Codex and OpenCode cannot follow the same pattern: Codex requires a custom
 # provider declaration in config.toml to set wire_api = "responses" (an
 # env-var-only approach has no equivalent field), and OpenCode requires a
-# provider block in opencode.json. Both files are written at session start
+# provider block in its config. Both are written at session start
 # by the respective runners, which need this URL to do so. Extending the
 # operator to inject per-framework env vars for every future runner type
 # would couple it to runner implementation details; centralising the value

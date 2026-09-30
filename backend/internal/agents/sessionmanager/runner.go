@@ -102,7 +102,7 @@ func withRunEnv(base, extra []string) []string {
 			overridden[k] = true
 		}
 	}
-	out := make([]string, 0, len(base)+len(extra))
+	out := make([]string, 0, len(base))
 	for _, e := range base {
 		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
 			continue
