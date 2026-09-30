@@ -90,14 +90,16 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
               />
             </Stack>
           )}
-          <NativeSelect
-            aria-label={`Filter ${i + 1} operator`}
-            value={row.operator ?? 'is'}
-            onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
-          >
-            <option value="is">is</option>
-            <option value="contains">contains</option>
-          </NativeSelect>
+          <Stack maxWidth="form-field-sm">
+            <NativeSelect
+              aria-label={`Filter ${i + 1} operator`}
+              value={row.operator ?? 'is'}
+              onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
+            >
+              <option value="is">is</option>
+              <option value="contains">contains</option>
+            </NativeSelect>
+          </Stack>
           <Stack grow minWidth="none">
             <Input
               mono
