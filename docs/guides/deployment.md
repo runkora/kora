@@ -118,15 +118,42 @@ Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
 ### Agent pod memory
 
-Each agent's session-manager container requests 512Mi and is limited to 4Gi. Every run on that pod shares the limit, up to the agent type's concurrent runs per pod, so one run that exhausts it gets the container OOM-killed and ends all of them. Change the requests and limits with a `StatefulSet` manifest patch in `agents.manifestPatches`.
+All runs of an agent share one session-manager pod. They share its memory limit. A run that exhausts the limit gets the pod OOM-killed. Every run on the pod ends.
 
-Agents are told to run builds, tests and memory-heavy work in their sandbox, which has its own pod and limit. As a backstop, Node processes a run starts on the agent pod get a V8 heap cap, so a runaway Node tool fails on its own with a heap out-of-memory error. The agent harnesses and sandbox commands are not capped. The run's `NODE_OPTIONS` replaces any the pod itself sets. Set the cap in MB with `agents.config.nodeMaxOldSpaceMB`, default `512`, and raise it with the container limit; `0` disables it:
+The session-manager requests 512Mi. Its limit is 4Gi. Change both with a manifest patch:
+
+```yaml
+agents:
+  manifestPatches:
+    50-session-manager-memory:
+      target:
+        kind: StatefulSet
+      patch: |
+        apiVersion: apps/v1
+        kind: StatefulSet
+        metadata:
+          name: any
+        spec:
+          template:
+            spec:
+              containers:
+                - name: session-manager
+                  resources:
+                    requests: { memory: 1Gi }
+                    limits: { memory: 8Gi }
+```
+
+Heavy work belongs in the sandbox. The sandbox has its own pod and memory limit. Orbit tells agents to run builds and tests there.
+
+Orbit also caps the heap of Node processes a run starts on the agent pod. A runaway Node script fails on its own. The pod stays up:
 
 ```yaml
 agents:
   config:
-    nodeMaxOldSpaceMB: 1024
+    nodeMaxOldSpaceMB: 512
 ```
+
+`nodeMaxOldSpaceMB` is the cap in MB. Raise it when you raise the pod's limit. Set `0` to remove it. The cap does not apply to the agent harness. It does not apply in the sandbox.
 
 ### Pod metadata and cloud identity for agents
 
