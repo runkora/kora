@@ -116,45 +116,6 @@ Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
 `mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
 
-### Agent pod memory
-
-All runs of an agent share one session-manager pod. They share its memory limit. A run that exhausts the limit gets the pod OOM-killed. Every run on the pod ends.
-
-The session-manager requests 512Mi. Its limit is 4Gi. Change both with a manifest patch:
-
-```yaml
-agents:
-  manifestPatches:
-    50-session-manager-memory:
-      target:
-        kind: StatefulSet
-      patch: |
-        apiVersion: apps/v1
-        kind: StatefulSet
-        metadata:
-          name: any
-        spec:
-          template:
-            spec:
-              containers:
-                - name: session-manager
-                  resources:
-                    requests: { memory: 1Gi }
-                    limits: { memory: 8Gi }
-```
-
-Heavy work belongs in the sandbox. The sandbox has its own pod and memory limit. Orbit tells agents to run builds and tests there.
-
-Orbit also caps the heap of Node processes a run starts on the agent pod. A runaway Node script fails on its own. The pod stays up:
-
-```yaml
-agents:
-  config:
-    nodeMaxOldSpaceMB: 512
-```
-
-`nodeMaxOldSpaceMB` is the cap in MB. Raise it when you raise the pod's limit. Set `0` to remove it. The cap does not apply to the agent harness. It does not apply in the sandbox.
-
 ### Pod metadata and cloud identity for agents
 
 `agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.
