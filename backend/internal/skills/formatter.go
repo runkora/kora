@@ -22,15 +22,15 @@ func ParseSkillFrontmatter(context string) (skillFrontmatter, error) {
 	}
 
 	rest := context[len("---"):]
-	end := strings.Index(rest, "---")
+	before, _, ok := strings.Cut(rest, "---")
 
-	if end < 0 {
+	if !ok {
 		return skillFrontmatter{}, ErrNoFrontmatter
 	}
 
-	block := rest[:end]
+	block := before
 	lines := make(map[string]string)
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -50,5 +50,4 @@ func ParseSkillFrontmatter(context string) (skillFrontmatter, error) {
 	}
 
 	return skillFrontmatter{Name: name, Description: description}, nil
-
 }
