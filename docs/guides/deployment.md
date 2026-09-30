@@ -116,6 +116,18 @@ Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
 `mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
 
+### Agent pod memory
+
+Each agent's session-manager container requests 512Mi and is limited to 4Gi. Every run on that pod shares the limit, up to the agent type's concurrent runs per pod, so one run that exhausts it gets the container OOM-killed and ends all of them. Change the requests and limits with a `StatefulSet` manifest patch in `agents.manifestPatches`.
+
+Agents are told to run builds, tests and memory-heavy work in their sandbox, which has its own pod and limit. As a backstop, Node processes a run starts on the agent pod get a V8 heap cap, so a runaway Node tool fails on its own with a heap out-of-memory error. The agent harnesses and sandbox commands are not capped. The run's `NODE_OPTIONS` replaces any the pod itself sets. Set the cap in MB with `agents.config.nodeMaxOldSpaceMB`, default `512`, and raise it with the container limit; `0` disables it:
+
+```yaml
+agents:
+  config:
+    nodeMaxOldSpaceMB: 1024
+```
+
 ### Pod metadata and cloud identity for agents
 
 `agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.

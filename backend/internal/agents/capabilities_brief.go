@@ -60,14 +60,17 @@ func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) strin
 		// compilers, etc.). Instruct the agent to provision before it needs any of these,
 		// but not before — sandboxes consume real resources.
 		b.WriteString("Outbound network calls (git, curl, npm install, pip install, etc.) and the platform CA trust that makes them work require a sandbox. ")
-		b.WriteString("Call mcp__runtime__provision_sandbox before making any outbound connection or running build commands, compiling code, or starting servers. ")
+		b.WriteString("Call mcp__runtime__provision_sandbox before making any outbound connection, running builds or tests, compiling code, starting servers, or doing anything memory-heavy. ")
 		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
 	} else {
 		// No outbound access configured. A sandbox is still the right place to
 		// run builds, tests, and local servers — it provides the full toolchain.
-		b.WriteString("This agent has no outbound network access. A sandbox is still useful for local builds, tests, and servers — call mcp__runtime__provision_sandbox before running build commands, compiling code, or starting servers. ")
+		b.WriteString("This agent has no outbound network access. A sandbox is still useful for local builds, tests, and servers: call mcp__runtime__provision_sandbox before running builds or tests, compiling code, starting servers, or doing anything memory-heavy. ")
 		b.WriteString("Only provision when you actually need those capabilities — do not create a sandbox proactively.\n")
 	}
+	// The agent pod's memory is shared by every run on it, so one run's heavy
+	// work can OOM-kill the others; the sandbox has its own pod and limit.
+	b.WriteString("Your container's memory is shared with other runs, so heavy work there fails or disrupts them: do it in the sandbox.\n")
 
 	// Bash runs in the sandbox and the file tools on the agent pod; only the shared
 	// volume is visible to both (docs/adr/2026-06-04-per-session-home-isolation.md).

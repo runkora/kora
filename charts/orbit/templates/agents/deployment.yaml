@@ -90,6 +90,8 @@ spec:
               value: {{ .Values.agents.config.sandboxGitAuthorName | quote }}
             - name: ORBIT_SANDBOX_GIT_AUTHOR_EMAIL
               value: {{ .Values.agents.config.sandboxGitAuthorEmail | quote }}
+            - name: ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB
+              value: {{ .Values.agents.config.nodeMaxOldSpaceMB | quote }}
             - name: ORBIT_AGENTS_IMAGE_PULL_SECRETS
               value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "agents") | nindent 12 }}

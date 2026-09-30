@@ -65,6 +65,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
 		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		NodeMaxOldSpaceMB:          cfg.Agents.SessionManager.NodeMaxOldSpaceMB,
 		Patches:                    patches,
 	}
 }

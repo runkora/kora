@@ -249,6 +249,15 @@ func TestStart_OtherExtraEnvPreserved(t *testing.T) {
 	assertEnvContains(t, r.cmd.Env, "CUSTOM_VAR=hello")
 }
 
+func TestBuildRunEnv_RunNodeOptionsReplacesInherited(t *testing.T) {
+	// The per-run heap cap must win over a NODE_OPTIONS the pod carries, or
+	// Node would read whichever came first.
+	r := &ClaudeRunner{cfg: ClaudeRunnerConfig{ExtraEnv: []string{"NODE_OPTIONS=--max-old-space-size=512"}}}
+	env := r.buildRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, "/home", "/tmp")
+	assertEnvExact(t, env, "NODE_OPTIONS", "--max-old-space-size=512")
+	assertEnvNoDuplicates(t, env, "NODE_OPTIONS")
+}
+
 // ── cross-run isolation ───────────────────────────────────────────────────────
 
 func TestStart_SiblingRunsGetDistinctHOME(t *testing.T) {
