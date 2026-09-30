@@ -192,7 +192,7 @@ landlock.RODirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run")
 ```
 Applied with `BestEffort()` — no-ops on kernels < 5.13 or macOS.
 
-### Phase 3 — PID namespace isolation (never in effect; removed by Amendment 2)
+### Phase 3: PID namespace isolation (never in effect; removed by Amendment 2)
 
 After Landlock, `orbit-session-runner` attempts to fork claude into a new `CLONE_NEWUSER | CLONE_NEWPID` namespace:
 
@@ -367,7 +367,7 @@ Option 5, with Landlock's IPC scopes, and the unused namespace path removed from
 
 **Positive**
 
-- A run can no longer list the pod's processes or read any sibling's `cmdline`, `status`, `stat` or `environ`, for every runtime and on every node type, with no node, pod-spec or privilege change.
+- Wherever Landlock is enabled, a run can no longer list `/proc` or read any sibling's `cmdline`, `status`, `stat` or `environ`, for every runtime, with no node, pod-spec or privilege change.
 - The agent's instructions, model, resume ID and the commands its children run are hidden from sibling runs.
 - On kernels with Landlock ABI 6, a run cannot signal a sibling run or the session-manager.
 - `orbit-session-runner` loses its namespace path, which never took effect in any deployed environment.
@@ -375,10 +375,23 @@ Option 5, with Landlock's IPC scopes, and the unused namespace path removed from
 **Negative**
 
 - Commands that run on the agent pod, which happens only when a run has no sandbox, cannot read `/proc/self` or list processes: `ps`, `top`, `pgrep`, Node's `process.memoryUsage()` and similar tools fail there. Commands in the sandbox are unaffected.
-- Runtimes on the agent pod cannot read `/proc/self/cgroup`, so they size themselves from the node rather than the container's limits. Not measured under memory pressure.
-- Below kernel 6.12 a run can still signal sibling processes, and find live PIDs by probing them with signals.
+- Node on the agent pod sizes its heap from the node's memory, not the container's limit, as it did before this amendment: the cgroup files under `/sys/fs/cgroup` were already outside the Landlock rules. On the local cluster (4Gi container limit, 16Gi node) Node's heap limit is 4288 MB under both the old and the new runner, against 2240 MB outside it, and a Node process that grows its heap gets the whole `session-manager` container OOMKilled, taking every run on the pod with it. Bun (Claude Code, OpenCode) and Codex have no default heap cap to size.
+- A run can still find live PIDs and their owners by `stat` on `/proc/<pid>`, which Landlock does not mediate, on every kernel. Below kernel 6.12 it can also signal sibling processes.
 - Every guarantee here depends on Landlock being enabled. `BestEffort` degrades silently where it is not; Landlock's status on the EKS node images must be checked when a node image changes.
 - Nothing kills a run's leftover background processes when the agent exits, as before this amendment.
+
+**Verified on the local cluster**
+
+Session-manager image `c71a5a7` on `ux-probe` (Claude Code), `codex-probe` and `opencode-probe`, k3d on kernel 6.8 (Landlock ABI 4), 2026-09-30.
+
+| Check | Claude Code | Codex | OpenCode |
+|---|---|---|---|
+| Sibling probe from a run's shell on the agent pod: `ls /proc`, `ps`, sibling `cmdline`, `status`, `stat`, `environ`, the session-manager's `environ`, own `/proc/self/status` | All `Permission denied` (`c0935583`) | All `Permission denied` (`27e6b9d1`) | All `Permission denied` (`19cc5e1f`) |
+| Same probe: `/proc/cpuinfo`, `kill -0 <sibling>`, `test -e /proc/<sibling>` | Allowed | Allowed | Allowed |
+| Write, read, edit, shell (`git`, Node `os.cpus()` returns 8), subagent, without a sandbox | Works (`994e383f`) | Works through the edit; the run then died on `grep -R` over its own growing Codex log, identically on the main image (`8e8668e2`, `c300c5fe`) | Works (`e8c03363`) |
+| The same with a sandbox, through `orbit-shell` | Works (`4cbbe89e`) | Works (`75fa1a97`) | Works (`7addd5a0`) |
+| Stop during a shell command, then a new message | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox (`6f12ce1a`, `75fa1a97`) | Stopped and answered, with and without a sandbox |
+| Glob and grep tools | Not available in this Claude Code build ("No such tool available"), with the current rules too | Reads go through the shell | `ripgrep execution failed`, with and without a sandbox, as on the main image |
 
 ---
 

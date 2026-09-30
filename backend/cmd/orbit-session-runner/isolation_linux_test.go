@@ -20,21 +20,14 @@ import (
 // Integration tests: they run the orbit-session-runner binary with a /bin/sh
 // payload and skip in short mode or where Landlock is not enabled.
 
-// buildRunnerBinary returns the path to the orbit-session-runner binary.
-// Prefers the already-installed binary in PATH (production pods), then falls
-// back to building from source (dev machines). Skips the calling test if
-// neither is available.
+// buildRunnerBinary builds orbit-session-runner from this package's source, so
+// the tests exercise the code under test rather than an installed binary.
 func buildRunnerBinary(t *testing.T) string {
 	t.Helper()
-	if p, err := exec.LookPath("orbit-session-runner"); err == nil {
-		return p
-	}
-	// Fall back to building from source.
 	bin := filepath.Join(t.TempDir(), "orbit-session-runner")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
-	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("orbit-session-runner not in PATH and could not build from source: %v\n%s", err, out)
+		t.Skipf("could not build orbit-session-runner: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -98,7 +91,7 @@ func startSibling(t *testing.T, bin string) int {
 	})
 	// The runner execs in place, so the sibling keeps this PID; wait until it has.
 	for range 50 {
-		if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", cmd.Process.Pid)); err == nil && bytes.Contains(b, []byte("SIBLING-SECRET")) {
+		if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", cmd.Process.Pid)); err == nil && bytes.HasPrefix(b, []byte("/bin/sh\x00")) {
 			return cmd.Process.Pid
 		}
 		time.Sleep(20 * time.Millisecond)
