@@ -40,6 +40,11 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # Limits agent pods' Envoy to the platform services
+  # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md).
+  - apiGroups: ["networking.istio.io"]
+    resources: ["sidecars"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
