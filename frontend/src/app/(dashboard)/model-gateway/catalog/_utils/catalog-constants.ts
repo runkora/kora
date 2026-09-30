@@ -10,6 +10,8 @@ const BASE_PROVIDER_LABELS: Record<string, string> = {
   bedrock: 'AWS Bedrock',
   vertexai: 'Vertex AI',
   azure: 'Azure OpenAI',
+  openai: 'OpenAI-compatible',
+  anthropic: 'Anthropic',
 };
 
 const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {
@@ -18,23 +20,24 @@ const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {
   azure: 'provider-azure',
 };
 
+// providerType returns the part of a provider name before ':'.
+export function providerType(provider: string): string {
+  return provider.split(':', 1)[0];
+}
+
 // providerLabel returns a human-readable label for any provider string.
-// Bedrock aliases ('bedrock:us', 'bedrock:aus') get a label of
-// 'AWS Bedrock (us)' / 'AWS Bedrock (aus)' and share the bedrock badge style.
+// Named providers ('bedrock:aus', 'openai:openrouter') get the type label with
+// the name in brackets and share the type's badge style.
 export function providerLabel(provider: string): string {
-  if (BASE_PROVIDER_LABELS[provider]) return BASE_PROVIDER_LABELS[provider];
-  if (provider.startsWith('bedrock:')) {
-    const alias = provider.slice('bedrock:'.length);
-    return `AWS Bedrock (${alias})`;
-  }
-  return provider;
+  const type = providerType(provider);
+  const base = BASE_PROVIDER_LABELS[type];
+  if (!base) return provider;
+  const name = provider.slice(type.length + 1);
+  return name ? `${base} (${name})` : base;
 }
 
 export function providerBadgeVariant(provider: string): BadgeVariant {
-  return (
-    BASE_PROVIDER_VARIANTS[provider] ??
-    (provider.startsWith('bedrock:') ? 'provider-bedrock' : 'outline')
-  );
+  return BASE_PROVIDER_VARIANTS[providerType(provider)] ?? 'outline';
 }
 
 // Keep legacy record exports for the few callers that use PROVIDER_LABELS[p] ?? p.

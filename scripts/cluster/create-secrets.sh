@@ -131,11 +131,14 @@ if should_run "orbit-system"; then
     warn "ORBIT_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
   fi
 
-  # AWS Bedrock — multi-account. Reads BEDROCK_ACCOUNTS from .env (comma-separated
-  # alias list, e.g. "us,aus"). For each alias, writes BEDROCK_<ALIAS>_REGION and
-  # the credential triple into orbit-secrets. The inference gateway reads these
-  # directly via envFrom; no per-alias env vars are needed in the Helm chart.
-  # Bedrock is skipped entirely when BEDROCK_ACCOUNTS is unset or empty.
+  # AWS Bedrock. BEDROCK_ACCOUNTS in .env is a comma-separated alias list with
+  # BEDROCK_<ALIAS>_REGION per alias. The SSO session goes into Secret
+  # orbit-bedrock-credentials. Each alias becomes an InferenceProvider through
+  # the chart's inferenceGateway.bedrock.accounts, written to
+  # local.generated.yaml. Only the inference gateway receives the credentials.
+  GENERATED="${REPO_ROOT}/deploy/reference/environments/local.generated.yaml"
+  [[ -f "${GENERATED}" ]] || echo "{}" > "${GENERATED}"
+  yq -i '.inferenceGateway.bedrock.accounts = []' "${GENERATED}"
   if [[ -n "${BEDROCK_ACCOUNTS:-}" ]]; then
     if [[ -n "${AWS_PROFILE:-}" ]]; then
       ok "Exporting Bedrock credentials from AWS profile '${AWS_PROFILE}'"
@@ -151,22 +154,26 @@ if should_run "orbit-system"; then
     fi
 
     if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-      IDENTITY_SECRET_ARGS+=(--from-literal=BEDROCK_ACCOUNTS="${BEDROCK_ACCOUNTS}")
+      BEDROCK_SECRET_ARGS=(
+        --from-literal=accessKeyID="${AWS_ACCESS_KEY_ID}"
+        --from-literal=secretAccessKey="${AWS_SECRET_ACCESS_KEY}"
+      )
+      [[ -n "${AWS_SESSION_TOKEN:-}" ]] && BEDROCK_SECRET_ARGS+=(--from-literal=sessionToken="${AWS_SESSION_TOKEN}")
+      kubectl create secret generic orbit-bedrock-credentials --namespace orbit-system \
+        "${BEDROCK_SECRET_ARGS[@]}" --dry-run=client -o yaml | kubectl apply -f -
+
       IFS=',' read -ra _ALIASES <<< "${BEDROCK_ACCOUNTS}"
       for _RAW in "${_ALIASES[@]}"; do
-        _ALIAS="${_RAW^^}"
-        _ALIAS="${_ALIAS// /}"
+        _ALIAS="${_RAW// /}"
         [[ -z "${_ALIAS}" ]] && continue
-        _REGION_VAR="BEDROCK_${_ALIAS}_REGION"
+        _REGION_VAR="BEDROCK_${_ALIAS^^}_REGION"
         _REGION="${!_REGION_VAR:-}"
-        [[ -z "${_REGION}" ]] && fail "BEDROCK_${_ALIAS}_REGION is not set in .env"
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_REGION=${_REGION}")
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
-        [[ -n "${AWS_SESSION_TOKEN:-}" ]] && \
-          IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_SESSION_TOKEN=${AWS_SESSION_TOKEN}")
+        [[ -z "${_REGION}" ]] && fail "${_REGION_VAR} is not set in .env"
+        ALIAS="${_ALIAS}" REGION="${_REGION}" yq -i \
+          '.inferenceGateway.bedrock.accounts += [{"alias": strenv(ALIAS), "region": strenv(REGION), "credentialsSecret": "orbit-bedrock-credentials"}]' \
+          "${GENERATED}"
       done
-      ok "Bedrock credentials included in orbit-secrets for: ${BEDROCK_ACCOUNTS}"
+      ok "Bedrock providers for ${BEDROCK_ACCOUNTS} use Secret orbit-bedrock-credentials"
     else
       warn "BEDROCK_ACCOUNTS is set but no credentials found — set AWS_PROFILE or AWS_ACCESS_KEY_ID in .env"
     fi

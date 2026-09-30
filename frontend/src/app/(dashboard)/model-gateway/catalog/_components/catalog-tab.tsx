@@ -18,11 +18,13 @@ import {
 import type {
   VirtualModel as ApiVirtualModel,
   ProviderModel as ApiProviderModel,
+  ProviderStatusWire,
 } from '../../_services/catalog-server';
 import type { VirtualModel } from '../_types/catalog';
 import { toVirtualModel, toProviderModel } from '../_utils/catalog-api';
 import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
+import { ProvidersSection } from './providers-section';
 import { EditorPanel } from './editor-panel';
 import { SyncStatusBanner } from './sync-status-banner';
 import type { SyncSummary } from './sync-status-banner';
@@ -30,6 +32,7 @@ import type { SyncSummary } from './sync-status-banner';
 interface CatalogTabProps {
   initialVirtualModels: ApiVirtualModel[];
   initialProviderModels: ApiProviderModel[];
+  initialProviders: ProviderStatusWire[];
   initialError?: string | null;
   syncSummary: SyncSummary;
 }
@@ -37,6 +40,7 @@ interface CatalogTabProps {
 export function CatalogTab({
   initialVirtualModels,
   initialProviderModels,
+  initialProviders,
   initialError,
   syncSummary,
 }: CatalogTabProps) {
@@ -67,7 +71,7 @@ export function CatalogTab({
 
   const enabledVMs = virtualModels.filter((m) => m.enabled).length;
   const enabledPMs = providerModels.filter((m) => m.enabled).length;
-  const connectedProviders = new Set(providerModels.map((m) => m.provider)).size;
+  const readyProviders = initialProviders.filter((p) => p.status === 'ready').length;
 
   return (
     <Stack gap="comfortable">
@@ -108,9 +112,9 @@ export function CatalogTab({
         />
         <StatCard
           icon={<Icon name="network" size="xs" />}
-          label="Connected Providers"
-          value={connectedProviders > 0 ? String(connectedProviders) : '—'}
-          detail={connectedProviders > 0 ? 'discovered' : 'none yet'}
+          label="Providers"
+          value={initialProviders.length > 0 ? String(initialProviders.length) : '—'}
+          detail={initialProviders.length > 0 ? `${readyProviders} ready` : 'none registered'}
         />
         <StatCard
           icon={<Icon name="shield-check" size="xs" />}
@@ -134,12 +138,21 @@ export function CatalogTab({
               {providerModels.length}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger value="providers">
+            Providers
+            <Badge variant="secondary" size="sm">
+              {initialProviders.length}
+            </Badge>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="virtual">
           <VirtualModelsSection models={virtualModels} onSelect={setSelectedModel} />
         </TabsContent>
         <TabsContent value="provider">
           <ProviderCatalogSection models={providerModels} />
+        </TabsContent>
+        <TabsContent value="providers">
+          <ProvidersSection providers={initialProviders} />
         </TabsContent>
       </Tabs>
 

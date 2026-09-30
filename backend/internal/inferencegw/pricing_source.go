@@ -98,6 +98,8 @@ var liteLLMProviderToOrbit = map[string]ProviderName{
 	"vertex_ai-language-models":  ProviderVertexAI,
 	"azure":                      ProviderAzure,
 	"azure_ai":                   ProviderAzure,
+	"openai":                     ProviderOpenAI,
+	"anthropic":                  ProviderAnthropic,
 }
 
 // resolveProvider maps a LiteLLM provider field value to an Orbit ProviderName.
@@ -137,17 +139,12 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
 
-// normalisePricingProvider collapses a multi-account Bedrock alias
-// ("bedrock:aus", "bedrock:us", …) to the base "bedrock" provider.
-//
-// Bedrock pricing is account- and region-agnostic: the catalog is keyed on the
-// base provider, while virtual-model routes and usage records carry per-account
-// aliases. Without collapsing the alias, a lookup for "bedrock:aus/…" can never
-// match a catalog entry stored under "bedrock/…". Non-Bedrock providers are
-// returned unchanged.
+// normalisePricingProvider collapses a named provider ("bedrock:aus",
+// "openai:openrouter") to its type. The pricing catalog is keyed on the type.
+// Routes and usage records carry the named provider.
 func normalisePricingProvider(provider ProviderName) ProviderName {
-	if provider.IsBedrockFamily() {
-		return ProviderBedrock
+	if provider.Valid() {
+		return provider.Type()
 	}
 	return provider
 }

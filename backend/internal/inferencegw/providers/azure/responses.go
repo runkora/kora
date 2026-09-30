@@ -21,7 +21,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 		c.logger.Error(ctx, "azure: responses error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
+		return nil, convert.MapOpenAIError(c.name, err)
 	}
 
 	return &inferencegw.ResponsesResult{Response: resp}, nil
@@ -47,7 +47,7 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 			c.logger.Error(ctx, "azure: responsesStream error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			ch <- inferencegw.ResponsesStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderAzure, err)}
+			ch <- inferencegw.ResponsesStreamResult{Err: convert.MapOpenAIError(c.name, err)}
 		}
 	}()
 

@@ -180,8 +180,8 @@ func TestValidateVirtualModelRequest_RouteValidation(t *testing.T) {
 	}{
 		{
 			name:    "invalid provider",
-			route:   routeInput{Provider: "openai", ModelID: "gpt-4", Priority: 1},
-			wantMsg: `route[0].provider "openai" is not valid`,
+			route:   routeInput{Provider: "mistral", ModelID: "gpt-4", Priority: 1},
+			wantMsg: `route[0].provider "mistral" is not valid`,
 		},
 		{
 			name:    "missing model_id",
@@ -311,13 +311,14 @@ func TestValidateVirtualModelRequest_AllStrategiesAccepted(t *testing.T) {
 
 func TestIsValidProvider(t *testing.T) {
 	t.Parallel()
-	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod_east"}
+	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod_east",
+		"openai:openrouter", "anthropic:claude", "vertexai:gcp-prod", "azure:eastus"}
 	for _, p := range valid {
 		if !isValidProvider(p) {
 			t.Errorf("isValidProvider(%q) = false, want true", p)
 		}
 	}
-	invalid := []ProviderName{"openai", "gcp", "", "BEDROCK"}
+	invalid := []ProviderName{"mistral", "gcp:x", "", "BEDROCK", "openai:", "openai:My-Router", "openai:a/b"}
 	for _, p := range invalid {
 		if isValidProvider(p) {
 			t.Errorf("isValidProvider(%q) = true, want false", p)

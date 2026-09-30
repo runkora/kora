@@ -116,7 +116,7 @@ func TestHandleSetPricingOverride_InvalidProvider(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "openai", "gpt-4o", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "mistral", "gpt-4o", body)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
@@ -206,7 +206,7 @@ func TestHandleClearPricingOverride_InvalidProvider(t *testing.T) {
 	mock := &mockPricingCatalogRepository{}
 	c := newPricingOverrideController(t, mock)
 
-	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "openai", "gpt-4o", nil)
+	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "mistral", "gpt-4o", nil)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)

@@ -465,7 +465,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(vms))
 	for _, vm := range vms {
-		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectors)
+		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectorMap())
 
 		var inputMods []Modality
 		var outputMods []Modality
@@ -489,7 +489,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
-			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectors),
+			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectorMap()),
 		})
 	}
 

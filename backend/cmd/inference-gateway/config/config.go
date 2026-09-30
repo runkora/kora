@@ -17,13 +17,21 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing  PricingConfig `yaml:"pricing"`
-	Policy   PolicyConfig  `yaml:"policy"`
-	Identity struct {
+	Pricing   PricingConfig   `yaml:"pricing"`
+	Policy    PolicyConfig    `yaml:"policy"`
+	Providers ProvidersConfig `yaml:"providers"`
+	Identity  struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
+}
+
+// ProvidersConfig locates the mounted InferenceProvider aggregate. Empty
+// directories disable resource providers.
+type ProvidersConfig struct {
+	ConfigDir string `yaml:"configDir"`
+	SecretDir string `yaml:"secretDir"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.

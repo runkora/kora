@@ -72,22 +72,6 @@ func LoadConfig() (*Config, error) {
 	}, nil
 }
 
-// Factory implements inferencegw.ConnectorFactory for Azure AI.
-type Factory struct{}
-
-// Name returns the provider identifier.
-func (Factory) Name() inferencegw.ProviderName { return inferencegw.ProviderAzure }
-
-// Build loads config from env vars and constructs the connector.
-// Returns (nil, nil) when AZURE_ENABLED is not "true".
-func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, error) {
-	cfg, err := LoadConfig()
-	if err != nil || cfg == nil {
-		return nil, err
-	}
-	return New(cfg, logger)
-}
-
 // Connector implements inferencegw.ProviderConnector for Azure AI Inference.
 // It wraps the Azure OpenAI endpoint (via openai-go/azure) for the OpenAI
 // dialect and the Anthropic-compatible Azure endpoint for the Anthropic dialect.
@@ -95,13 +79,14 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 // Dialect selection is the caller's responsibility. The connector never
 // inspects the model name to choose a path.
 type Connector struct {
+	name            inferencegw.ProviderName
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
 	logger          logging.Logger
 }
 
 // New constructs an Azure Connector from a validated Config.
-func New(cfg *Config, logger logging.Logger) (*Connector, error) {
+func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Connector, error) {
 	// No client-level timeout — context deadline governs streaming lifetime.
 	// http.Client.Timeout covers the full body read; for SSE streams that
 	// means the generation is killed after 30 s regardless of progress.
@@ -122,6 +107,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	)
 
 	return &Connector{
+		name:            name,
 		openaiClient:    &openaiClient,
 		anthropicClient: &anthropicClient,
 		logger:          logger,
@@ -130,7 +116,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 
 // Name returns the provider identifier.
 func (c *Connector) Name() inferencegw.ProviderName {
-	return inferencegw.ProviderAzure
+	return c.name
 }
 
 // ListModels returns the live list of models from the Azure OpenAI endpoint.
@@ -144,7 +130,7 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		id := iter.Current().ID
 		inputMods, outputMods := inferAzureModalities(id)
 		models = append(models, inferencegw.ProviderModel{
-			Provider:         inferencegw.ProviderAzure,
+			Provider:         c.name,
 			ModelID:          id,
 			Family:           inferAzureFamily(id),
 			DisplayName:      displayNameFromID(id),

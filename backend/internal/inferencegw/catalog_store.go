@@ -108,10 +108,9 @@ func (s *CatalogStore) RefreshProviderModels(ctx context.Context) error {
 	return err
 }
 
-// WarmupProviderModels triggers an async provider discovery sweep. Intended
-// for startup warm-up; errors are non-fatal and returned for logging.
-func (s *CatalogStore) WarmupProviderModels(ctx context.Context) error {
-	return s.RefreshProviderModels(ctx)
+// ProviderStatuses returns every configured provider with its health.
+func (s *CatalogStore) ProviderStatuses() []ProviderStatus {
+	return s.router.ProviderStatuses()
 }
 
 // ── internal ─────────────────────────────────────────────────────────────────

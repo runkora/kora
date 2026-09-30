@@ -16,6 +16,7 @@ spec:
   hosts:
     - bedrock-runtime.{{ .region }}.amazonaws.com
     - bedrock.{{ .region }}.amazonaws.com
+    - bedrock-mantle.{{ .region }}.api.aws
   location: MESH_EXTERNAL
   resolution: DNS
   ports:

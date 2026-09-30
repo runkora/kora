@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -130,32 +129,6 @@ func TestLoadMultiConfig_trailingWhitespace(t *testing.T) {
 	}
 	if len(cfgs) != 2 {
 		t.Fatalf("expected 2 configs after trimming whitespace, got %d", len(cfgs))
-	}
-}
-
-// ─── provider name computation ───────────────────────────────────────────────
-
-// TestMultiFactory_ProviderNameComputation verifies that the alias → provider
-// name mapping in MultiFactory.Build is correct by inspecting LoadMultiConfig
-// output and applying the same logic. No AWS credentials or network needed.
-func TestMultiFactory_ProviderNameComputation(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		alias    string
-		wantName inferencegw.ProviderName
-	}{
-		{"aus", "bedrock:aus"},
-		{"us", "bedrock:us"},
-		{"prod_east", "bedrock:prod_east"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.alias, func(t *testing.T) {
-			t.Parallel()
-			providerName := inferencegw.ProviderName("bedrock:" + tc.alias)
-			if providerName != tc.wantName {
-				t.Errorf("providerName = %q, want %q", providerName, tc.wantName)
-			}
-		})
 	}
 }
 

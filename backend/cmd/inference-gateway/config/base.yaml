@@ -33,3 +33,8 @@ policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
+
+providers:
+  # The operator's InferenceProvider aggregate, mounted by the chart.
+  configDir: /etc/orbit/inference-providers
+  secretDir: /etc/orbit/inference-provider-secrets

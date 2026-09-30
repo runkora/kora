@@ -29,7 +29,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 
 	if !isClaudeModel(params.Model) {
 		return nil, &inferencegw.ConnectorError{
-			Provider:  inferencegw.ProviderVertexAI,
+			Provider:  c.name,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,
 			Underlying: fmt.Errorf(
@@ -56,7 +56,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "event_type", Value: event.Type},
 			)
-			return nil, convert.MapAnthropicError(inferencegw.ProviderVertexAI, err)
+			return nil, convert.MapAnthropicError(c.name, err)
 		}
 	}
 	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
@@ -64,7 +64,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 		)
-		return nil, convert.MapAnthropicError(inferencegw.ProviderVertexAI, err)
+		return nil, convert.MapAnthropicError(c.name, err)
 	}
 
 	c.logger.Debug(ctx, "vertexai: AnthropicMessages done",
@@ -87,7 +87,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 
 	if !isClaudeModel(params.Model) {
 		return nil, &inferencegw.ConnectorError{
-			Provider:  inferencegw.ProviderVertexAI,
+			Provider:  c.name,
 			Code:      "MODEL_NOT_SUPPORTED",
 			Retryable: false,
 			Underlying: fmt.Errorf(
@@ -115,7 +115,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 			)
-			ch <- inferencegw.AnthropicStreamEvent{Err: convert.MapAnthropicError(inferencegw.ProviderVertexAI, err)}
+			ch <- inferencegw.AnthropicStreamEvent{Err: convert.MapAnthropicError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "vertexai: AnthropicMessagesStream done",

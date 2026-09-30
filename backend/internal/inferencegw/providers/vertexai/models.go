@@ -91,7 +91,7 @@ func (c *Connector) listModelsForPublisher(ctx context.Context, publisher string
 		}
 
 		for _, pm := range page.PublisherModels {
-			model := publisherModelToProviderModel(publisher, pm.Name)
+			model := publisherModelToProviderModel(c.name, publisher, pm.Name)
 			if model != nil {
 				models = append(models, *model)
 			}
@@ -110,7 +110,7 @@ func (c *Connector) listModelsForPublisher(ctx context.Context, publisher string
 // ProviderModel suitable for the inference gateway catalog.
 //
 // Resource name format: publishers/{publisher}/models/{modelId}
-func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.ProviderModel {
+func publisherModelToProviderModel(provider inferencegw.ProviderName, publisher, resourceName string) *inferencegw.ProviderModel {
 	const sep = "/models/"
 	_, after, ok := strings.Cut(resourceName, sep)
 	if !ok {
@@ -148,7 +148,7 @@ func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.
 	caps := inferVertexCapabilities(modelID, outputMods)
 
 	return &inferencegw.ProviderModel{
-		Provider:         inferencegw.ProviderVertexAI,
+		Provider:         provider,
 		ModelID:          modelID,
 		Family:           publisher,
 		DisplayName:      modelIDToDisplayName(rawModelID),

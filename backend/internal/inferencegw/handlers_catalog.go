@@ -26,6 +26,7 @@ import (
 //	GET    /virtual-models/{id}         get a single virtual model by UUID
 //	PUT    /virtual-models/{id}         replace a virtual model by UUID
 //	DELETE /virtual-models/{id}         delete a virtual model by UUID
+//	GET    /providers                   list configured providers with their health
 //	GET    /provider-models             list discovered provider models with override status
 //	POST   /provider-models/refresh     trigger a live provider model discovery sweep
 //	PUT    /provider-models/{provider}/{modelId}  enable or disable a provider model
@@ -69,6 +70,7 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("GET /virtual-models/{id}", c.handleGetVirtualModel)
 	mux.Handle("PUT /virtual-models/{id}", c.handleUpdateVirtualModel)
 	mux.Handle("DELETE /virtual-models/{id}", c.handleDeleteVirtualModel)
+	mux.Handle("GET /providers", c.handleListProviders)
 	mux.Handle("GET /provider-models", c.handleListProviderModels)
 	mux.Handle("POST /provider-models/refresh", c.handleRefreshProviderModels)
 	mux.Handle("PUT /provider-models/{provider}/{modelId}", c.handleSetProviderModelEnabled)
@@ -372,9 +374,9 @@ func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderNam
 	if p, ok := pricingMap[key]; ok {
 		return p
 	}
-	// For multi-account aliases, fall back to the canonical "bedrock" pricing row.
-	if provider.IsBedrockFamily() && provider != ProviderBedrock {
-		key = string(ProviderBedrock) + "/" + normID
+	// A named provider falls back to the pricing row of its type.
+	if t := normalisePricingProvider(provider); t != provider {
+		key = string(t) + "/" + normID
 		if p, ok := pricingMap[key]; ok {
 			return p
 		}
@@ -436,7 +438,7 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 	}
 
 	// Merge with live discovery cache. The cache is warmed at startup via
-	// CatalogStore.WarmupProviderModels and can be refreshed via
+	// every provider reload and can be refreshed via
 	// POST /provider-models/refresh — no side effects in GET.
 	discovered := c.store.ListProviderModels()
 	items := make([]providerModelJSON, 0, len(discovered))
@@ -473,6 +475,12 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
+}
+
+// handleListProviders returns every configured provider with its source,
+// credential mode and health. It never returns a credential.
+func (c *CatalogController) handleListProviders(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]any{"data": c.store.ProviderStatuses()})
 }
 
 // handleRefreshProviderModels triggers a live discovery sweep across all
@@ -633,24 +641,16 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// canonicalPricingProvider maps a Bedrock alias (e.g. "bedrock:us") to the
-// canonical "bedrock" key used in the model_pricing table. Pricing rows are
-// synced once under the base provider name and shared across all accounts.
+// canonicalPricingProvider maps a named provider (e.g. "bedrock:us") to its
+// type, the key used in the model_pricing table. Pricing rows are synced once
+// per type and shared across its instances.
 func canonicalPricingProvider(p ProviderName) ProviderName {
-	if p.IsBedrockFamily() {
-		return ProviderBedrock
-	}
-	return p
+	return normalisePricingProvider(p)
 }
 
-// isValidProvider reports whether p is one of the known provider constants or
-// a multi-account Bedrock variant of the form "bedrock:<alias>".
+// isValidProvider reports whether p is a well-formed provider name of a known type.
 func isValidProvider(p ProviderName) bool {
-	switch p {
-	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
-		return true
-	}
-	return p.IsBedrockFamily()
+	return p.Valid()
 }
 
 // validateVirtualModelRequest validates the fields common to create and update

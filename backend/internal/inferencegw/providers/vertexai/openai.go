@@ -56,7 +56,7 @@ func (c *Connector) openaiChatCompletion(ctx context.Context, params openai.Chat
 		c.logger.Error(ctx, "vertexai: openaiChatCompletion error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapOpenAIError(inferencegw.ProviderVertexAI, err)
+		return nil, convert.MapOpenAIError(c.name, err)
 	}
 
 	if len(resp.Choices) > 0 {
@@ -92,7 +92,7 @@ func (c *Connector) openaiChatCompletionStream(ctx context.Context, params opena
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "chunks_before_error", Value: fmt.Sprintf("%d", chunkCount)},
 			)
-			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderVertexAI, err)}
+			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "vertexai: openaiChatCompletionStream done",
@@ -121,7 +121,7 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 		c.logger.Error(ctx, "vertexai: claudeChatCompletion error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapAnthropicError(inferencegw.ProviderVertexAI, err)
+		return nil, convert.MapAnthropicError(c.name, err)
 	}
 
 	c.logger.Debug(ctx, "vertexai: claudeChatCompletion done",
@@ -167,7 +167,7 @@ func (c *Connector) claudeChatCompletionStream(ctx context.Context, params opena
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 			)
-			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapAnthropicError(inferencegw.ProviderVertexAI, err)}
+			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapAnthropicError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "vertexai: claudeChatCompletionStream done",

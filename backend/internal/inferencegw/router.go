@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"sort"
 	"sync/atomic"
+	"time"
 )
 
 // ResolvedModelInfo is the policy-relevant identity of a model request —
@@ -51,7 +52,9 @@ type RouteTarget struct {
 // targets. The service layer tries targets in order, retrying within each target
 // up to MaxAttemptsPerTarget times, bounded by MaxTotalAttempts overall.
 type RoutingEngine struct {
-	connectors           map[ProviderName]ProviderConnector
+	// connectors is swapped whole when providers reload. A request keeps the
+	// connector it resolved; a reload never interrupts it.
+	connectors           atomic.Pointer[map[ProviderName]ProviderConnector]
 	maxAttemptsPerTarget int
 	maxTotalAttempts     int
 
@@ -64,6 +67,12 @@ type RoutingEngine struct {
 	// modelCatalog holds the most recent provider-discovered models, used only
 	// for the admin Provider Catalog view. Not consulted during request routing.
 	modelCatalog atomic.Pointer[[]ProviderModel]
+
+	// providers describes the loaded and failed providers for the admin view.
+	providers atomic.Pointer[[]ProviderInfo]
+
+	// discovery holds the last ListModels outcome per provider.
+	discovery atomic.Pointer[map[ProviderName]discoveryResult]
 
 	// onCatalogUpdate is called after every successful LoadVirtualCatalog.
 	// Wired in main.go to re-register scope vocabulary with the policy service.
@@ -83,11 +92,35 @@ func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 
 // NewRoutingEngine constructs a RoutingEngine.
 func NewRoutingEngine(connectors map[ProviderName]ProviderConnector) *RoutingEngine {
-	return &RoutingEngine{
-		connectors:           connectors,
+	r := &RoutingEngine{
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
 		maxTotalAttempts:     defaultMaxTotalAttempts,
 	}
+	r.SetProviders(connectors, nil)
+	return r
+}
+
+// SetProviders replaces the connector set and the provider descriptions.
+// Discovered models of providers that are gone are dropped.
+func (r *RoutingEngine) SetProviders(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo) {
+	if connectors == nil {
+		connectors = map[ProviderName]ProviderConnector{}
+	}
+	r.connectors.Store(&connectors)
+	r.providers.Store(&infos)
+	if catalog := r.modelCatalog.Load(); catalog != nil {
+		kept := make([]ProviderModel, 0, len(*catalog))
+		for _, m := range *catalog {
+			if _, ok := connectors[m.Provider]; ok {
+				kept = append(kept, m)
+			}
+		}
+		r.modelCatalog.Store(&kept)
+	}
+}
+
+func (r *RoutingEngine) connectorMap() map[ProviderName]ProviderConnector {
+	return *r.connectors.Load()
 }
 
 // MaxAttemptsPerTarget returns the maximum retry count within a single target.
@@ -98,7 +131,7 @@ func (r *RoutingEngine) MaxTotalAttempts() int { return r.maxTotalAttempts }
 
 // Connector returns the ProviderConnector for the given provider, if enabled.
 func (r *RoutingEngine) Connector(p ProviderName) (ProviderConnector, bool) {
-	c, ok := r.connectors[p]
+	c, ok := r.connectorMap()[p]
 	return c, ok
 }
 
@@ -188,6 +221,7 @@ func (r *RoutingEngine) targetsForVirtualModel(
 // whose underlying provider model has not been disabled by a platform admin.
 // Routes are returned in ascending Priority order.
 func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnapshot) []VirtualModelRoute {
+	connectors := r.connectorMap()
 	out := make([]VirtualModelRoute, 0, len(vm.Routes))
 	for _, route := range vm.Routes {
 		if !route.Enabled {
@@ -196,7 +230,7 @@ func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnap
 		if snap.isRouteDisabled(route.Provider, route.ModelID) {
 			continue
 		}
-		if _, ok := r.connectors[route.Provider]; !ok {
+		if _, ok := connectors[route.Provider]; !ok {
 			continue // provider not configured in this deployment
 		}
 		out = append(out, route)
@@ -342,35 +376,45 @@ func (r *RoutingEngine) CatalogScopes() []CatalogScope {
 // aggregated provider model list. Used exclusively for the admin Provider
 // Catalog view — it does NOT drive routing or the consumer /v1/models endpoint.
 func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error) {
-	if len(r.connectors) == 0 {
+	connectors := r.connectorMap()
+	if len(connectors) == 0 {
+		r.modelCatalog.Store(&[]ProviderModel{})
 		return nil, ErrNoProvidersEnabled
 	}
 
 	type result struct {
-		models []ProviderModel
-		err    error
+		provider ProviderName
+		models   []ProviderModel
+		err      error
 	}
 
-	ch := make(chan result, len(r.connectors))
-	for _, c := range r.connectors {
+	ch := make(chan result, len(connectors))
+	for name, c := range connectors {
 		go func() {
 			ms, err := c.ListModels(ctx)
-			ch <- result{models: ms, err: err}
+			ch <- result{provider: name, models: ms, err: err}
 		}()
 	}
 
 	var models []ProviderModel
 	var firstErr error
-	for range r.connectors {
+	discovered := make(map[ProviderName]discoveryResult, len(connectors))
+	now := time.Now().UTC()
+	for range connectors {
 		res := <-ch
+		d := discoveryResult{at: now, models: len(res.models)}
 		if res.err != nil {
+			d.err = res.err.Error()
 			if firstErr == nil {
 				firstErr = res.err
 			}
-			continue
 		}
-		models = append(models, res.models...)
+		discovered[res.provider] = d
+		if res.err == nil {
+			models = append(models, res.models...)
+		}
 	}
+	r.discovery.Store(&discovered)
 
 	if len(models) > 0 {
 		r.modelCatalog.Store(&models)

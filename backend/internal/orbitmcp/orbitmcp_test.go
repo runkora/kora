@@ -566,7 +566,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"models.list":         "inference:list",
 		"models.virtual.list": "platform:catalog:read", "models.virtual.get": "platform:catalog:read",
 		"models.virtual.create": "platform:catalog:write", "models.virtual.update": "platform:catalog:write",
-		"models.virtual.delete": "platform:catalog:write", "models.providers.list": "platform:catalog:read",
+		"models.virtual.delete": "platform:catalog:write", "models.providers.list": "platform:catalog:read", "models.providers.status": "platform:catalog:read",
 		"models.providers.refresh": "platform:catalog:write", "models.providers.set_enabled": "platform:catalog:write",
 		"models.pricing.list": "platform:catalog:read", "models.pricing.set_override": "platform:catalog:write",
 		"models.pricing.clear_override": "platform:catalog:write",

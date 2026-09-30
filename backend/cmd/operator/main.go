@@ -331,7 +331,17 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Aggregator: mcpAggregator,
 		Logger:     logger,
 	}
-	return mcpServerReconciler.SetupWithManager(mgr)
+	if err := mcpServerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	providerReconciler := &operator.InferenceProviderReconciler{
+		Client:     mgr.GetClient(),
+		Aggregator: operator.NewInferenceProviderAggregator(mgr.GetClient(), logger),
+		Resync:     oc.Current.SyncPeriod(),
+		Logger:     logger,
+	}
+	return providerReconciler.SetupWithManager(mgr)
 }
 
 // preflightSource adapts the runner to the reconciler's narrow interface.

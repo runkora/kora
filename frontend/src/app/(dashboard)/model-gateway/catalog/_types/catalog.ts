@@ -1,9 +1,9 @@
 // ── Domain types ──────────────────────────────────────────────────────────────
 //
-// Provider is the string name of a backend provider.
-// The canonical values are 'bedrock', 'vertexai', and 'azure'.
-// Multi-account Bedrock aliases take the form 'bedrock:<alias>' (e.g. 'bedrock:us').
-export type Provider = 'bedrock' | 'vertexai' | 'azure' | `bedrock:${string}`;
+// Provider is the name of a backend provider: a type, or a type and an
+// instance name ('bedrock:aus', 'openai:openrouter').
+export type ProviderType = 'bedrock' | 'vertexai' | 'azure' | 'openai' | 'anthropic';
+export type Provider = ProviderType | `${ProviderType}:${string}`;
 
 export type RoutingStrategy = 'priority' | 'weighted' | 'lowest_cost';
 

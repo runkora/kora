@@ -25,7 +25,7 @@ func (c *Connector) openaiChatCompletion(ctx context.Context, params openai.Chat
 		c.logger.Error(ctx, "azure: openaiChatCompletion error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
+		return nil, convert.MapOpenAIError(c.name, err)
 	}
 
 	if len(resp.Choices) > 0 {
@@ -61,7 +61,7 @@ func (c *Connector) openaiChatCompletionStream(ctx context.Context, params opena
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "chunks_before_error", Value: fmt.Sprintf("%d", chunkCount)},
 			)
-			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderAzure, err)}
+			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "azure: openaiChatCompletionStream done",

@@ -1,0 +1,267 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: inferenceproviders.orbit.io
+  labels:
+    {{- include "orbit-crds.labels" . | nindent 4 }}
+  annotations:
+    # Never deleted by helm uninstall: provider definitions outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: orbit.io
+  names:
+    kind: InferenceProvider
+    listKind: InferenceProviderList
+    plural: inferenceproviders
+    singular: inferenceprovider
+    shortNames:
+      - oip
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Provider
+          type: string
+          jsonPath: .status.providerName
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            InferenceProvider registers one model provider with the inference
+            gateway. Apply it in the Orbit system namespace. The provider
+            registers as <type>:<metadata.name>. Credentials are named by
+            Secret reference in the same namespace, never by value.
+          type: object
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
+              message: metadata.name must be a DNS label; it becomes the provider name suffix.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - type
+              x-kubernetes-validations:
+                - rule: "(self.type == 'bedrock') == has(self.bedrock)"
+                  message: set the bedrock block if and only if type is bedrock.
+                - rule: "(self.type == 'vertexai') == has(self.vertexai)"
+                  message: set the vertexai block if and only if type is vertexai.
+                - rule: "(self.type == 'azure') == has(self.azure)"
+                  message: set the azure block if and only if type is azure.
+                - rule: "(self.type == 'openai') == has(self.openai)"
+                  message: set the openai block if and only if type is openai.
+                - rule: "(self.type == 'anthropic') == has(self.anthropic)"
+                  message: set the anthropic block if and only if type is anthropic.
+              properties:
+                type:
+                  description: The provider type. It selects the one config block that must be set.
+                  type: string
+                  enum:
+                    - bedrock
+                    - vertexai
+                    - azure
+                    - openai
+                    - anthropic
+                displayName:
+                  description: Human-readable name shown in the dashboard.
+                  type: string
+                  maxLength: 128
+                models:
+                  description: >
+                    Upstream model ids to offer. Empty offers every discovered
+                    model. When the upstream has no model list, this is the list.
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                bedrock:
+                  description: AWS Bedrock. Without credentials the gateway's workload identity applies (IRSA, EKS Pod Identity).
+                  type: object
+                  required:
+                    - region
+                  properties:
+                    region:
+                      type: string
+                      minLength: 1
+                    credentials:
+                      description: A Secret with keys accessKeyID, secretAccessKey and optionally sessionToken.
+                      type: object
+                      required:
+                        - secretRef
+                      properties:
+                        secretRef:
+                          type: object
+                          required:
+                            - name
+                          properties:
+                            name:
+                              type: string
+                              minLength: 1
+                    assumeRoleARN:
+                      description: A role the gateway assumes on top of its base credentials.
+                      type: string
+                      pattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$'
+                    externalID:
+                      type: string
+                vertexai:
+                  description: Google Vertex AI. Without credentialsSecretRef, Application Default Credentials apply (GKE Workload Identity).
+                  type: object
+                  required:
+                    - projectID
+                    - location
+                  properties:
+                    projectID:
+                      type: string
+                      minLength: 1
+                    location:
+                      type: string
+                      minLength: 1
+                    anthropicLocation:
+                      description: Region for Claude models when it differs from location.
+                      type: string
+                    credentialsSecretRef:
+                      description: A Secret key holding a service account JSON key.
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                azure:
+                  description: Azure AI.
+                  type: object
+                  required:
+                    - endpoint
+                    - apiVersion
+                    - apiKeySecretRef
+                  properties:
+                    endpoint:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiVersion:
+                      type: string
+                      minLength: 1
+                    anthropicEndpoint:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiKeySecretRef:
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                openai:
+                  description: >
+                    Any OpenAI-compatible endpoint: OpenAI, OpenRouter, vLLM,
+                    KServe. baseURL defaults to https://api.openai.com/v1.
+                  type: object
+                  properties:
+                    baseURL:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiKeySecretRef:
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                anthropic:
+                  description: >
+                    Any Anthropic Messages endpoint. baseURL defaults to
+                    https://api.anthropic.com.
+                  type: object
+                  required:
+                    - apiKeySecretRef
+                  properties:
+                    baseURL:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiKeySecretRef:
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Ready
+                    - Invalid
+                providerName:
+                  type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+                lastReconciledAt:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

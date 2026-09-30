@@ -30,27 +30,43 @@ const (
 // ProviderName identifies a cloud AI provider.
 type ProviderName string
 
+// Provider types. A provider name is a type, or a type and an instance name
+// joined by ":" ("bedrock:aus", "openai:openrouter").
 const (
-	ProviderBedrock  ProviderName = "bedrock"
-	ProviderVertexAI ProviderName = "vertexai"
-	ProviderAzure    ProviderName = "azure"
+	ProviderBedrock   ProviderName = "bedrock"
+	ProviderVertexAI  ProviderName = "vertexai"
+	ProviderAzure     ProviderName = "azure"
+	ProviderOpenAI    ProviderName = "openai"
+	ProviderAnthropic ProviderName = "anthropic"
 )
 
-// bedrockAliasRe mirrors the alias validation in the bedrock connector package.
-// Hyphens are excluded: the env var prefix BEDROCK_<UPPER_ALIAS>_ must be a
-// valid POSIX identifier, and we want IsBedrockFamily to reject any alias that
-// LoadMultiConfig would also reject.
-var bedrockAliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+// providerNameRe is the provider name syntax the database CHECK constraints
+// enforce. Instance names cover env aliases ([a-z0-9_]) and resource names
+// ([-a-z0-9]).
+var providerNameRe = regexp.MustCompile(`^([a-z]+)(:[a-z0-9][-a-z0-9_]*)?$`)
 
-// IsBedrockFamily reports whether p is the base "bedrock" provider or a
-// named multi-account variant of the form "bedrock:<alias>".
-// The alias must satisfy bedrockAliasRe; bare "bedrock:" is not valid.
-func (p ProviderName) IsBedrockFamily() bool {
-	if p == ProviderBedrock {
+// Type returns the provider type: the part before ":".
+func (p ProviderName) Type() ProviderName {
+	t, _, _ := strings.Cut(string(p), ":")
+	return ProviderName(t)
+}
+
+// Valid reports whether p is well formed and of a known type.
+func (p ProviderName) Valid() bool {
+	if !providerNameRe.MatchString(string(p)) {
+		return false
+	}
+	switch p.Type() {
+	case ProviderBedrock, ProviderVertexAI, ProviderAzure, ProviderOpenAI, ProviderAnthropic:
 		return true
 	}
-	after, ok := strings.CutPrefix(string(p), "bedrock:")
-	return ok && bedrockAliasRe.MatchString(after)
+	return false
+}
+
+// IsBedrockFamily reports whether p is "bedrock" or a named Bedrock provider
+// such as "bedrock:aus".
+func (p ProviderName) IsBedrockFamily() bool {
+	return p.Valid() && p.Type() == ProviderBedrock
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
