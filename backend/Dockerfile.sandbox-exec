@@ -15,7 +15,7 @@ ARG DOTNET_VERSION=8.0
 ARG RUBY_VERSION=3.3
 # kubectl only supports one minor version of skew from the API server, so pin
 # this to the minor of the cluster a `kubernetes` connection points at.
-ARG KUBECTL_VERSION=1.33.13
+ARG KUBECTL_VERSION=1.36.5
 ARG KUSTOMIZE_VERSION=5.8.1
 
 # =============================================================================
@@ -259,9 +259,9 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
 # (one minor of API-server skew is all kubectl supports), then refresh both
 # digests from
 #   https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/{amd64,arm64}/kubectl.sha256
-# Pinned 2026-07-09 for v1.33.13 against a v1.33 cluster.
-ARG KUBECTL_SHA256_AMD64=316d712726d857c20744c57cb36aa47cfc79bc0af7e82cebf3780244b654c073
-ARG KUBECTL_SHA256_ARM64=9fe8aadd5aab9421978c7ac95de6fad304a3c4c0ce9dbf4127579779e0699080
+# Pinned 2026-09-30 for v1.36.5 against a v1.36 cluster.
+ARG KUBECTL_SHA256_AMD64=33bc88a24c3b09cf55bfd59e6ca977881b61fc3f25ab65bc80c65b430248648e
+ARG KUBECTL_SHA256_ARM64=88fc1aca8fd0c1b44fe379f67c39bd6858bdfc50241dc55775f84d0f5b31da3a
 RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       set -eux; \
       dpkgArch="$(dpkg --print-architecture)"; \
