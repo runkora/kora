@@ -154,6 +154,13 @@ without inventing a fourth, differently-shaped aggregation mechanism.
   the operator and `orbit-agents`. Whether a tenant admin can apply resources in
   their own namespace is decided by the customer's own cluster RBAC, so
   self-service by tenant admins is never automatic, and REQ-3 is bounded by it.
+- **The shared installation token is not a tenant boundary.** `TokenProvider`
+  mints `contents: read` for one fixed App installation, and the crawler
+  requests that token without reference to the source it is about to fetch. Any
+  repository the installation can read is therefore reachable by any accepted
+  source, whichever tenant declared it. Nothing in this design changes that, and
+  nothing here bounds it: the boundary belongs to the backend's credential
+  model, which this decision treats as a non-goal. See Open Items.
 - **A second ConfigMap key needs the backend's agreement.** Registration state
   cannot go inside `marketplace-sources.json` without breaking its fixed shape,
   so it must travel separately — and `skills-service` reading a second key is
