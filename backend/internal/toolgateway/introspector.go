@@ -100,7 +100,8 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 }
 
 // due reports whether a server is due for re-introspection on the periodic
-// timer. A server never introspected this lifetime is always due. Otherwise a
+// timer. A server never introspected this lifetime is always due, and so is one
+// that has failed every attempt and holds no tools. Otherwise a
 // server with ReintrospectIntervalSeconds <= 0 is reload-only — never due on
 // the timer — and one with a positive interval is due once that many seconds
 // have passed since it was last introspected.
@@ -108,12 +109,14 @@ func (i *Introspector) due(key string, srv Server) bool {
 	i.mu.RLock()
 	snap, seen := i.snapshots[key]
 	var last time.Time
+	neverReached := false
 	if seen {
 		last = snap.LastIntrospectedAt
+		neverReached = snap.State == StateDegraded && len(snap.Tools) == 0
 	}
 	i.mu.RUnlock()
 
-	if !seen {
+	if !seen || neverReached {
 		return true
 	}
 	if srv.ReintrospectIntervalSeconds <= 0 {

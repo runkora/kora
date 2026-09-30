@@ -3,6 +3,7 @@ package toolgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -133,6 +134,15 @@ func TestIntrospectorDue(t *testing.T) {
 	i.mu.Unlock()
 	if !i.due(key, stale) {
 		t.Error("a server whose interval has elapsed should be due")
+	}
+
+	// A reload-only server that was unreachable at startup must be retried on
+	// the timer, or it serves no tools until the next registry change.
+	unreached := Server{TenantID: "", Name: "unreached", ReintrospectIntervalSeconds: 0}
+	uKey := serverKey(unreached.TenantID, unreached.Name)
+	i.recordResult(context.Background(), unreached, uKey, nil, errors.New("connect: service unavailable"))
+	if !i.due(uKey, unreached) {
+		t.Error("a server that has never been reached should be due")
 	}
 
 	fresh := Server{TenantID: "", Name: "fresh", ReintrospectIntervalSeconds: 3600}
