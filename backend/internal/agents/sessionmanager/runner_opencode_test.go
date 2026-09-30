@@ -547,21 +547,16 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 	}
 }
 
-// ── writeOpenCodeConfig ───────────────────────────────────────────────────────
+// ── openCodeConfig ───────────────────────────────────────────────────────
 
 // The agent type's model, through the gateway, must be the only model OpenCode
 // can pick: with none configured it chose its own hosted free model.
 func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
-	dir := t.TempDir()
-	if err := r.writeOpenCodeConfig(dir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+	data, err := r.openCodeConfig(t.TempDir())
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 
 	var cfg struct {
@@ -578,7 +573,7 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 		} `json:"provider"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
 	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "orbit" {
@@ -625,12 +620,9 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 			r := newTestOpenCodeRunner()
 			r.cfg.SystemPrompt = tc.prompt
 			dir := t.TempDir()
-			if err := r.writeOpenCodeConfig(dir); err != nil {
-				t.Fatalf("writeOpenCodeConfig: %v", err)
-			}
-			data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+			data, err := r.openCodeConfig(dir)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("openCodeConfig: %v", err)
 			}
 			var cfg struct {
 				Instructions []string `json:"instructions"`
@@ -671,6 +663,46 @@ func TestOpenCodeStartValidatesGatewayURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "InferenceGatewayURL") {
 		t.Errorf("error = %q, want mention of InferenceGatewayURL", err.Error())
+	}
+}
+
+// The config and offline switches travel in the environment, after anything
+// ExtraEnv sets, so a workspace file or a caller's value cannot override them.
+func TestOpenCodePrepareEnv(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.ExtraEnv = []string{"OPENCODE_DISABLE_MODELS_FETCH=0", "WORKSPACE=/w"}
+	workDir := t.TempDir()
+
+	env, err := r.prepare(workDir)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = v
+	}
+	for _, e := range openCodeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if got["WORKSPACE"] != "/w" {
+		t.Errorf("WORKSPACE = %q, want the ExtraEnv value", got["WORKSPACE"])
+	}
+	want, err := r.openCodeConfig(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["OPENCODE_CONFIG_CONTENT"] != string(want) {
+		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the run config", got["OPENCODE_CONFIG_CONTENT"])
+	}
+	if got["HOME"] != runfs.HomeDir(workDir) {
+		t.Errorf("HOME = %q, want %q", got["HOME"], runfs.HomeDir(workDir))
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Errorf("opencode.json in the workspace: %v; want none", err)
 	}
 }
 

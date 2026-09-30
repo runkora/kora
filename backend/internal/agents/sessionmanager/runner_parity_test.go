@@ -44,8 +44,8 @@ func TestWrapExec(t *testing.T) {
 	})
 }
 
-// OpenCode takes the shell its tool commands run through from opencode.json.
-func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
+// OpenCode takes the shell its tool commands run through from its config.
+func TestOpenCodeConfig_ShellPath(t *testing.T) {
 	const shellPath = "/opt/orbit/shell/bash"
 
 	read := func(t *testing.T, cfg OpenCodeRunnerConfig) map[string]any {
@@ -55,16 +55,13 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 		cfg.RunID = "run-1"
 		cfg.InferenceGatewayURL = "http://orbit-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
-		if err := r.writeOpenCodeConfig(workDir); err != nil {
-			t.Fatalf("writeOpenCodeConfig: %v", err)
-		}
-		data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+		data, err := r.openCodeConfig(workDir)
 		if err != nil {
-			t.Fatalf("read opencode.json: %v", err)
+			t.Fatalf("openCodeConfig: %v", err)
 		}
 		var out map[string]any
 		if err := json.Unmarshal(data, &out); err != nil {
-			t.Fatalf("unmarshal opencode.json: %v", err)
+			t.Fatalf("unmarshal config: %v", err)
 		}
 		return out
 	}
@@ -195,12 +192,9 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
-	if err := r.writeOpenCodeConfig(workDir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+	data, err := r.openCodeConfig(workDir)
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 	var cfg struct {
 		MCP map[string]struct {
@@ -212,7 +206,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		} `json:"mcp"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
 	rt, ok := cfg.MCP["runtime"]

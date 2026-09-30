@@ -319,8 +319,9 @@ Touches *How does it connect?* and *What can it access?* Every OpenCode model ca
 
 **Decision.**
 
-- `opencode.json` declares one provider, `orbit`, using `@ai-sdk/openai-compatible` (bundled with OpenCode) at `{gateway}/run/{run_id}/v1`. Chat completions serves every gateway model. The agent type's model is the provider's only model.
+- The run's OpenCode config declares one provider, `orbit`, using `@ai-sdk/openai-compatible` (bundled with OpenCode) at `{gateway}/run/{run_id}/v1`. Chat completions serves every gateway model. The agent type's model is the provider's only model.
 - `enabled_providers` is `["orbit"]`, and `model` and `small_model` are `orbit/{agent model}`. OpenCode loads no other provider, including its hosted one.
+- The config reaches OpenCode as `OPENCODE_CONFIG_CONTENT` rather than a file in the workspace. OpenCode merges that variable after every config file, so an `opencode.json` or `.opencode/` directory the agent writes, or a cloned repository carries, cannot re-enable a provider or change the model.
 - `Start` fails when the model is empty, as it does for an empty gateway URL.
 - `share` is `disabled` and `autoupdate` is `false`. The `webfetch` and `websearch` tools are denied, since both fetch from the session-manager container outside the sandbox's egress policy.
 - The run's global OpenCode config directory (`$HOME/.config/opencode`) is created read-only. OpenCode installs `@opencode-ai/plugin` from npm into every config directory it can write at start, and skips one it cannot.
@@ -328,9 +329,10 @@ Touches *How does it connect?* and *What can it access?* Every OpenCode model ca
 
 **Consequences.**
 
-- The LLM Routing section above no longer describes the config file. The `Model` field in `OpenCodeRunnerConfig` is used, not stored for later.
+- The LLM Routing section and the other mentions of a written `opencode.json` above no longer describe the runner. The `Model` field in `OpenCodeRunnerConfig` is used, not stored for later.
+- The declared model carries no context or output limit. OpenCode then caps output at 32,000 tokens and does not compact a long session on its own; a session that outgrows the model's context fails at the gateway.
 - Claude models reach the gateway as chat completions rather than Anthropic Messages. OpenCode still marks cache breakpoints with `cache_control` on the request.
-- A workspace that carries its own `.opencode/` directory still makes OpenCode install `@opencode-ai/plugin` from the npm registry into it in the background. No setting turns this off; the turn does not wait for it, and a failure is only logged.
+- A workspace that carries its own `.opencode/` directory still makes OpenCode install `@opencode-ai/plugin` from the npm registry into it in the background. Only `OPENCODE_DISABLE_PROJECT_CONFIG` stops it, and that also drops the repository's own `AGENTS.md` instructions, so it is not set. The turn does not wait for the install, and a failure is only logged.
 
 ---
 

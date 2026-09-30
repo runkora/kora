@@ -47,7 +47,7 @@ type ControllerConfig struct {
 	OpenCodeBinaryPath string
 
 	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
-	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+	// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 	InferenceGatewayURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
