@@ -98,6 +98,10 @@ export function AgentConfigurationTab() {
       case 'capacity':
         cfg.setMaxConcurrentRuns(String(value));
         break;
+      case 'repeatedCallOn':
+      case 'waitRearmOn':
+        cfg.setLoopGuardrail(key, Boolean(value));
+        break;
       case 'repeatedCallWarn':
       case 'repeatedCallPause':
       case 'waitRearmWarn':
@@ -288,7 +292,7 @@ export function AgentConfigurationTab() {
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
-                Switch on the limits you want Orbit to enforce. Loop limits are always on.
+                Every limit is optional. Switch on the ones you want Orbit to enforce.
               </Text>
             </Stack>
             <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />

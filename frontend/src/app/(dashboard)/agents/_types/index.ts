@@ -184,26 +184,33 @@ export const LOOP_GUARDRAIL_DEFAULTS = {
   waitRearmPause: 12,
 } as const;
 
-/** The four thresholds as form strings. */
+/**
+ * The loop thresholds as form values. Each pair has a switch: off sends no
+ * override, so the agent type takes the platform defaults.
+ */
 export interface LoopGuardrailValues {
+  repeatedCallOn: boolean;
   repeatedCallWarn: string;
   repeatedCallPause: string;
+  waitRearmOn: boolean;
   waitRearmWarn: string;
   waitRearmPause: string;
 }
 
-/** Form values for stored thresholds, filled with the defaults where unset. */
+/** Form values for stored thresholds: a pair is on when either of its fields is set. */
 export function loopGuardrailValues(g: AgentTypeGuardrails | undefined): LoopGuardrailValues {
   const d = LOOP_GUARDRAIL_DEFAULTS;
   return {
+    repeatedCallOn: g?.repeated_call_warn != null || g?.repeated_call_pause != null,
     repeatedCallWarn: String(g?.repeated_call_warn ?? d.repeatedCallWarn),
     repeatedCallPause: String(g?.repeated_call_pause ?? d.repeatedCallPause),
+    waitRearmOn: g?.wait_rearm_warn != null || g?.wait_rearm_pause != null,
     waitRearmWarn: String(g?.wait_rearm_warn ?? d.waitRearmWarn),
     waitRearmPause: String(g?.wait_rearm_pause ?? d.waitRearmPause),
   };
 }
 
-/** The same rules the API applies: each warn is a whole number of at least 1, each pause is greater than its warn. */
+/** The same rules the API applies to a pair that is on: warn is a whole number of at least 1, pause is greater than warn. */
 export function loopGuardrailErrors(
   v: LoopGuardrailValues,
 ): Partial<Record<'repeatedCall' | 'waitRearm', string>> {
@@ -217,23 +224,23 @@ export function loopGuardrailErrors(
       return 'Pause after must be greater than warn after.';
     return undefined;
   };
-  const repeated = check(v.repeatedCallWarn, v.repeatedCallPause);
+  const repeated = v.repeatedCallOn && check(v.repeatedCallWarn, v.repeatedCallPause);
   if (repeated) errors.repeatedCall = repeated;
-  const waits = check(v.waitRearmWarn, v.waitRearmPause);
+  const waits = v.waitRearmOn && check(v.waitRearmWarn, v.waitRearmPause);
   if (waits) errors.waitRearm = waits;
   return errors;
 }
 
-/** The API payload: only thresholds that differ from the platform default. */
+/** The API payload: the pairs that are switched on. */
 export function loopGuardrailsPayload(v: LoopGuardrailValues): AgentTypeGuardrails {
-  const d = LOOP_GUARDRAIL_DEFAULTS;
   const out: AgentTypeGuardrails = {};
-  if (Number(v.repeatedCallWarn) !== d.repeatedCallWarn)
+  if (v.repeatedCallOn) {
     out.repeated_call_warn = Number(v.repeatedCallWarn);
-  if (Number(v.repeatedCallPause) !== d.repeatedCallPause)
     out.repeated_call_pause = Number(v.repeatedCallPause);
-  if (Number(v.waitRearmWarn) !== d.waitRearmWarn) out.wait_rearm_warn = Number(v.waitRearmWarn);
-  if (Number(v.waitRearmPause) !== d.waitRearmPause)
+  }
+  if (v.waitRearmOn) {
+    out.wait_rearm_warn = Number(v.waitRearmWarn);
     out.wait_rearm_pause = Number(v.waitRearmPause);
+  }
   return out;
 }

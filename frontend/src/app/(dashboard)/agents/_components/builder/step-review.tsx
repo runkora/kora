@@ -105,13 +105,17 @@ export function StepReview() {
             },
             {
               label: 'Repeated calls',
-              value: `Warn after ${fields.repeatedCallWarn}, pause after ${fields.repeatedCallPause}`,
-              mono: true,
+              value: fields.repeatedCallOn
+                ? `Warn after ${fields.repeatedCallWarn}, pause after ${fields.repeatedCallPause}`
+                : 'Platform default',
+              mono: fields.repeatedCallOn,
             },
             {
               label: 'Wait loops',
-              value: `Warn after ${fields.waitRearmWarn}, pause after ${fields.waitRearmPause}`,
-              mono: true,
+              value: fields.waitRearmOn
+                ? `Warn after ${fields.waitRearmWarn}, pause after ${fields.waitRearmPause}`
+                : 'Platform default',
+              mono: fields.waitRearmOn,
             },
           ]}
         />

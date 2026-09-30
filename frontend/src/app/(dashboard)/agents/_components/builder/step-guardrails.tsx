@@ -21,7 +21,7 @@ export function StepGuardrails() {
       <Stack direction="horizontal" align="baseline" gap="snug">
         <Eyebrow>Limits</Eyebrow>
         <Text as="span" size="micro" color="subtle">
-          Switch on the limits you want Orbit to enforce. Loop limits are always on.
+          Every limit is optional. Switch on the ones you want Orbit to enforce.
         </Text>
       </Stack>
 

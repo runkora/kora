@@ -116,7 +116,7 @@ export function useAgentConfiguration() {
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(initial.maxConcurrentRuns);
   const [loopGuardrails, setLoopGuardrails] = useState<LoopGuardrailValues>(initial.loopGuardrails);
   const setLoopGuardrail = useCallback(
-    (key: keyof LoopGuardrailValues, value: string) =>
+    <K extends keyof LoopGuardrailValues>(key: K, value: LoopGuardrailValues[K]) =>
       setLoopGuardrails((prev) => ({ ...prev, [key]: value })),
     [],
   );

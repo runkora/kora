@@ -15,7 +15,11 @@ import {
   Toggle,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { loopGuardrailErrors, type LoopGuardrailValues } from '../../_types';
+import {
+  LOOP_GUARDRAIL_DEFAULTS,
+  loopGuardrailErrors,
+  type LoopGuardrailValues,
+} from '../../_types';
 
 export interface GuardrailValues extends LoopGuardrailValues {
   agentBudgetOn: boolean;
@@ -27,9 +31,8 @@ export interface GuardrailValues extends LoopGuardrailValues {
   capacity: string;
 }
 
-/** A limit row. Without onToggle the limit is always enforced and shows no switch. */
 export function GuardrailRow({
-  on = true,
+  on,
   onToggle,
   icon,
   title,
@@ -37,8 +40,8 @@ export function GuardrailRow({
   error,
   children,
 }: {
-  on?: boolean;
-  onToggle?: (on: boolean) => void;
+  on: boolean;
+  onToggle: (on: boolean) => void;
   icon: IconName;
   title: string;
   desc: string;
@@ -49,22 +52,15 @@ export function GuardrailRow({
     <Card>
       <CardContent padded compact>
         <Stack direction="horizontal" align="center" gap="cozy">
-          {onToggle ? (
-            <Toggle checked={on} onChange={onToggle} aria-label={title} />
-          ) : (
-            // Reserves the switch's width so the icon and text line up with the toggle rows.
-            <Stack style={{ visibility: 'hidden' }}>
-              <Toggle checked onChange={() => {}} disabled />
-            </Stack>
-          )}
+          <Toggle checked={on} onChange={onToggle} aria-label={title} />
           <Stack grow gap="snug" disabled={!on}>
             <Stack direction="horizontal" align="center" gap="cozy">
               <Icon
                 name={icon}
                 size="sm"
-                color={onToggle && on ? 'accent' : 'muted'}
+                color={on ? 'accent' : 'subtle'}
                 container
-                containerVariant={onToggle && on ? 'accent' : 'surface-subtle'}
+                containerVariant={on ? 'accent' : 'surface-subtle'}
                 label=""
               />
               <Stack grow gap="tight">
@@ -189,7 +185,8 @@ export function GuardrailsFields({
       <LoopThresholdRow
         icon="refresh-cw"
         title="Repeated calls"
-        desc="Same tool call, same input and result, in a row"
+        desc="Same tool call, same input and result, in a row (platform default when off)"
+        toggle="repeatedCallOn"
         warn="repeatedCallWarn"
         pause="repeatedCallPause"
         error={loopErrors.repeatedCall}
@@ -199,7 +196,8 @@ export function GuardrailsFields({
       <LoopThresholdRow
         icon="clock"
         title="Wait loops"
-        desc="Waits re-armed with no progress in between"
+        desc="Waits re-armed with no progress in between (platform default when off)"
+        toggle="waitRearmOn"
         warn="waitRearmWarn"
         pause="waitRearmPause"
         error={loopErrors.waitRearm}
@@ -211,13 +209,15 @@ export function GuardrailsFields({
 }
 
 /**
- * One loop-guard threshold pair. Orbit warns the agent at the first number and
- * pauses the run for the user at the second; both are always enforced.
+ * One loop-guard threshold pair: Orbit warns the agent at the first number and
+ * pauses the run at the second. The guard always runs; switched off, the agent
+ * type takes the platform defaults, which the disabled inputs show.
  */
 function LoopThresholdRow({
   icon,
   title,
   desc,
+  toggle,
   warn,
   pause,
   error,
@@ -227,13 +227,21 @@ function LoopThresholdRow({
   icon: IconName;
   title: string;
   desc: string;
-  warn: keyof LoopGuardrailValues;
-  pause: keyof LoopGuardrailValues;
+  toggle: 'repeatedCallOn' | 'waitRearmOn';
+  warn: 'repeatedCallWarn' | 'waitRearmWarn';
+  pause: 'repeatedCallPause' | 'waitRearmPause';
   error?: string;
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
 }) {
-  const input = (key: keyof LoopGuardrailValues, label: string) => (
+  const setOn = (on: boolean) => {
+    onChange(toggle, on);
+    if (!on) {
+      onChange(warn, String(LOOP_GUARDRAIL_DEFAULTS[warn]));
+      onChange(pause, String(LOOP_GUARDRAIL_DEFAULTS[pause]));
+    }
+  };
+  const input = (key: typeof warn | typeof pause, label: string) => (
     <Stack direction="horizontal" align="center" justify="end" gap="snug">
       <Text as="span" size="micro" color="subtle">
         {label}
@@ -252,10 +260,20 @@ function LoopThresholdRow({
     </Stack>
   );
   return (
-    <GuardrailRow icon={icon} title={title} desc={desc} error={error}>
-      <Stack gap="snug" shrink={false}>
-        {input(warn, 'Warn after')}
-        {input(pause, 'Pause after')}
+    <GuardrailRow
+      on={values[toggle]}
+      onToggle={setOn}
+      icon={icon}
+      title={title}
+      desc={desc}
+      error={error}
+    >
+      {/* Sized to its content, so the inputs start where the other rows' do when they wrap below. */}
+      <Stack direction="horizontal" shrink={false}>
+        <Stack gap="snug">
+          {input(warn, 'Warn after')}
+          {input(pause, 'Pause after')}
+        </Stack>
       </Stack>
     </GuardrailRow>
   );
