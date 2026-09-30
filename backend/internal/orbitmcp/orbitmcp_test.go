@@ -137,6 +137,44 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}
 }
 
+// TestGuardrailsForwarded proves agents.create and agents.update pass the
+// loop-guard thresholds through, and agents.get returns them as the API does.
+func TestGuardrailsForwarded(t *testing.T) {
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"at-1","guardrails":{"repeated_call_warn":3,"repeated_call_pause":5}}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	thresholds := map[string]any{"repeated_call_warn": 3, "repeated_call_pause": 5}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"agents.create", map[string]any{"name": "Reviewer", "slug": "reviewer", "model_id": "m", "guardrails": thresholds}},
+		{"agents.update", map[string]any{"agent_type_id": "at-1", "guardrails": thresholds}},
+	} {
+		call("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args})
+		g, _ := gotBody["guardrails"].(map[string]any)
+		if g["repeated_call_warn"] != float64(3) || g["repeated_call_pause"] != float64(5) || len(g) != 2 {
+			t.Errorf("%s forwarded guardrails %v", tc.tool, gotBody["guardrails"])
+		}
+	}
+	got := call("tools/call", map[string]any{"name": "agents.get", "arguments": map[string]any{"agent_type_id": "at-1"}})
+	if raw, _ := json.Marshal(got); !strings.Contains(string(raw), "repeated_call_pause") {
+		t.Errorf("agents.get did not return the guardrails: %v", got)
+	}
+}
+
 // TestTriggerToolsUseTriggersBackend guards the fix for the trigger tools
 // 404ing in dev: they must call the orbit-triggers backend, not identity. The
 // trigger-sources/triggers/deliveries endpoints moved out of the identity binary

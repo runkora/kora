@@ -65,18 +65,3 @@ toolGateway:
 # callers are in-pod child processes that hold no token.
 session:
   idleTimeoutSecs: 1200 # 20 minutes
-
-# guardrails stop a run that keeps failing the same way. See
-# docs/adr/2026-09-29-agent-run-guardrails.md.
-guardrails:
-  # A provision request tries this many times, backing off from 5s and doubling,
-  # within the budget. After that the sandbox is lost until the user replies.
-  sandboxProvisionAttempts: 3
-  sandboxProvisionBackoffSecs: 5
-  sandboxProvisionBudgetSecs: 300
-  # Identical consecutive tool calls: warn the agent, then pause the run.
-  repeatedCallWarn: 4
-  repeatedCallPause: 8
-  # Monitor, Cron and sleep calls with no progress in between: warn, then pause.
-  waitRearmWarn: 6
-  waitRearmPause: 12

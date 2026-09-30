@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -242,6 +243,33 @@ type CreateSessionRequest struct {
 	// ProvisionSandbox provisions this run's sandbox immediately instead of
 	// waiting for the agent to ask for one.
 	ProvisionSandbox bool `json:"provision_sandbox"`
+	// Guardrails are the run's thresholds from orbit-agents; zero fields take
+	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
+	Guardrails RunGuardrails `json:"guardrails"`
+}
+
+// RunGuardrails is the wire form of a run's guardrails.
+type RunGuardrails struct {
+	SandboxProvisionAttempts    int `json:"sandbox_provision_attempts"`
+	SandboxProvisionBackoffSecs int `json:"sandbox_provision_backoff_secs"`
+	SandboxProvisionBudgetSecs  int `json:"sandbox_provision_budget_secs"`
+	RepeatedCallWarn            int `json:"repeated_call_warn"`
+	RepeatedCallPause           int `json:"repeated_call_pause"`
+	WaitRearmWarn               int `json:"wait_rearm_warn"`
+	WaitRearmPause              int `json:"wait_rearm_pause"`
+}
+
+// guardrails converts the wire form; zero stays zero, for the registry's fallback.
+func (g RunGuardrails) guardrails() Guardrails {
+	return Guardrails{
+		SandboxProvisionAttempts: g.SandboxProvisionAttempts,
+		SandboxProvisionBackoff:  time.Duration(g.SandboxProvisionBackoffSecs) * time.Second,
+		SandboxProvisionBudget:   time.Duration(g.SandboxProvisionBudgetSecs) * time.Second,
+		RepeatedCallWarn:         g.RepeatedCallWarn,
+		RepeatedCallPause:        g.RepeatedCallPause,
+		WaitRearmWarn:            g.WaitRearmWarn,
+		WaitRearmPause:           g.WaitRearmPause,
+	}
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -350,6 +378,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Runner:       runner,
 		Model:        req.Model,
 		InferenceURL: inferenceURL,
+		Guardrails:   req.Guardrails.guardrails(),
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {

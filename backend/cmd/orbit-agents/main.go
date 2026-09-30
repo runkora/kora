@@ -227,6 +227,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, agents.RunServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
+		SandboxGuardrails: agents.SandboxGuardrails{
+			ProvisionAttempts:    cfg.Agents.Guardrails.SandboxProvisionAttempts,
+			ProvisionBackoffSecs: cfg.Agents.Guardrails.SandboxProvisionBackoffSecs,
+			ProvisionBudgetSecs:  cfg.Agents.Guardrails.SandboxProvisionBudgetSecs,
+		},
 	}, logger)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, agents.EnvironmentServiceConfig{

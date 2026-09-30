@@ -84,6 +84,8 @@ type SessionConfig struct {
 	// uses. The summary call reuses it so it inherits the agent's identity-proxy
 	// token, OPA grant, and per-run budget. Empty disables summarization.
 	InferenceURL string
+	// Guardrails are this run's thresholds; unset fields take the registry's.
+	Guardrails Guardrails
 }
 
 // session represents one active run backed by a CLI subprocess.
@@ -111,6 +113,7 @@ type session struct {
 	// be replaced, until the user's next message. lostAttempts is how many
 	// attempts that took; sandboxEpoch counts user messages, so a retry that
 	// fails after the user replied does not re-block them.
+	guardrails   Guardrails // this run's thresholds, before the registry's fallback
 	sandboxLost  atomic.Bool
 	lostAttempts atomic.Int64
 	sandboxEpoch atomic.Int64
@@ -173,6 +176,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		wake:         make(chan struct{}, 1),
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
+		guardrails:   cfg.Guardrails,
 	}
 	// Registered before the runner starts. Start spawns the agent, which calls
 	// back to /internal/runs/{id}/provision-sandbox, and that route answers only
@@ -491,7 +495,7 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (San
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
-	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s.runID)
+	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s)
 	if err == nil {
 		return sandbox, nil
 	}

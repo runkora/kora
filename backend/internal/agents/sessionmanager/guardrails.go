@@ -76,10 +76,41 @@ func (g Guardrails) withDefaults() Guardrails {
 	return g
 }
 
-// SetGuardrails replaces the registry's guardrail thresholds. Sessions created
-// afterwards use the new values.
+// SetGuardrails replaces the registry's fallback thresholds, used for any a
+// run's configuration leaves unset.
 func (reg *Registry) SetGuardrails(g Guardrails) {
 	reg.guardrails = g.withDefaults()
+}
+
+// over fills every unset threshold in g from base.
+func (g Guardrails) over(base Guardrails) Guardrails {
+	pick := func(v, def int) int {
+		if v > 0 {
+			return v
+		}
+		return def
+	}
+	pickDuration := func(v, def time.Duration) time.Duration {
+		if v > 0 {
+			return v
+		}
+		return def
+	}
+	return Guardrails{
+		SandboxProvisionAttempts: pick(g.SandboxProvisionAttempts, base.SandboxProvisionAttempts),
+		SandboxProvisionBackoff:  pickDuration(g.SandboxProvisionBackoff, base.SandboxProvisionBackoff),
+		SandboxProvisionBudget:   pickDuration(g.SandboxProvisionBudget, base.SandboxProvisionBudget),
+		RepeatedCallWarn:         pick(g.RepeatedCallWarn, base.RepeatedCallWarn),
+		RepeatedCallPause:        pick(g.RepeatedCallPause, base.RepeatedCallPause),
+		WaitRearmWarn:            pick(g.WaitRearmWarn, base.WaitRearmWarn),
+		WaitRearmPause:           pick(g.WaitRearmPause, base.WaitRearmPause),
+	}.withDefaults()
+}
+
+// limits are the thresholds a run applies: its own configuration, then the
+// registry's fallback for anything unset.
+func (reg *Registry) limits(s *session) Guardrails {
+	return s.guardrails.over(reg.guardrails)
 }
 
 // Run error codes the guardrails record. They are durable run events, so the
@@ -97,8 +128,9 @@ var ErrSandboxLost = errors.New("sandbox lost")
 // backoff within the attempt count and the overall budget. Each attempt gets an
 // equal share of the budget, so one hung call cannot use up every retry. It
 // returns how many attempts it made.
-func (reg *Registry) provisionWithRetry(ctx context.Context, runID string) (Sandbox, int, error) {
-	g := reg.guardrails
+func (reg *Registry) provisionWithRetry(ctx context.Context, s *session) (Sandbox, int, error) {
+	runID := s.runID
+	g := reg.limits(s)
 	ctx, cancel := context.WithTimeout(ctx, g.SandboxProvisionBudget)
 	defer cancel()
 	perAttempt := g.SandboxProvisionBudget / time.Duration(g.SandboxProvisionAttempts)
@@ -142,6 +174,7 @@ func carrySandboxState(from, to *session) {
 		to.sandbox.Store(sb)
 	}
 	to.sandboxLost.Store(from.sandboxLost.Load())
+	to.guardrails = from.guardrails
 	to.lostAttempts.Store(from.lostAttempts.Load())
 }
 
@@ -179,8 +212,11 @@ func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts i
 func (reg *Registry) sandboxLostMessage(runID string) string {
 	attempts := reg.guardrails.SandboxProvisionAttempts
 	reg.mu.RLock()
-	if s, ok := reg.sessions[runID]; ok && s.lostAttempts.Load() > 0 {
-		attempts = int(s.lostAttempts.Load())
+	if s, ok := reg.sessions[runID]; ok {
+		attempts = reg.limits(s).SandboxProvisionAttempts
+		if n := s.lostAttempts.Load(); n > 0 {
+			attempts = int(n)
+		}
 	}
 	reg.mu.RUnlock()
 	workspace := filepath.Join(reg.workspaces, runID)
@@ -364,7 +400,7 @@ func (g *loopGuard) countRepeat(id string, call toolCall) {
 // message; a pause records a run error and interrupts the turn, which leaves
 // the run idle for the user.
 func (reg *Registry) applyLoopGuard(ctx context.Context, s *session, ev Event) {
-	verdict, finding := s.guard.observe(ev, reg.guardrails)
+	verdict, finding := s.guard.observe(ev, reg.limits(s))
 	switch verdict {
 	case loopWarn:
 		reg.logger.Warn(ctx, "Loop guard warning sent to the agent",

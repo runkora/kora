@@ -96,18 +96,6 @@ type Config struct {
 		// followed by a new message) before it is automatically closed.
 		IdleTimeoutSecs int `yaml:"idleTimeoutSecs"`
 	} `yaml:"session"`
-
-	// Guardrails bound how long a run may keep failing the same way; see
-	// docs/adr/2026-09-29-agent-run-guardrails.md. Unset values take the defaults.
-	Guardrails struct {
-		SandboxProvisionAttempts    int `yaml:"sandboxProvisionAttempts"`
-		SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
-		SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
-		RepeatedCallWarn            int `yaml:"repeatedCallWarn"`
-		RepeatedCallPause           int `yaml:"repeatedCallPause"`
-		WaitRearmWarn               int `yaml:"waitRearmWarn"`
-		WaitRearmPause              int `yaml:"waitRearmPause"`
-	} `yaml:"guardrails"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

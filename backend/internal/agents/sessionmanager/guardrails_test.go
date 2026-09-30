@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	smclient "github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 )
 
 func TestIsSleepCommand(t *testing.T) {
@@ -549,5 +551,62 @@ func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
 		if e.Code == runErrorSandboxLost {
 			t.Errorf("recorded %v after the runner exited", e)
 		}
+	}
+}
+
+// A run's own thresholds apply to that run; anything it leaves unset falls back
+// to the registry's.
+func TestDrain_RunGuardrailsOverrideTheRegistry(t *testing.T) {
+	n := &failingNotifier{}
+	reg, _ := newTestRegistry(t, n)
+	runner := &guardRunner{stubRunner: newStubRunner(nil)}
+	custom := RunGuardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3}.guardrails()
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: runner, Guardrails: custom}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	in := map[string]string{"command": "gh pr view 7"}
+	for _, id := range []string{"a", "b", "c"} {
+		runner.events <- toolUse(t, id, "Bash", in)
+	}
+	runner.events <- toolUse(t, "d", "Read", map[string]string{"file_path": "/x"})
+	_ = reg.Close(context.Background(), "run-1")
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.warnings) != 1 || n.warnings[0].Count != 2 || len(n.runErrors) != 1 || n.runErrors[0].Code != runErrorLoopDetected {
+		t.Errorf("warnings %v, run errors %v; want a warning at 2 and a pause at 3", n.warnings, n.runErrors)
+	}
+	s := &session{guardrails: custom}
+	if got := reg.limits(s); got.WaitRearmWarn != DefaultGuardrails().WaitRearmWarn || got.SandboxProvisionAttempts != DefaultGuardrails().SandboxProvisionAttempts {
+		t.Errorf("unset thresholds did not fall back: %+v", got)
+	}
+}
+
+func TestRunGuardrails_Conversion(t *testing.T) {
+	got := RunGuardrails{SandboxProvisionAttempts: 4, SandboxProvisionBackoffSecs: 2, SandboxProvisionBudgetSecs: 90, WaitRearmPause: 20}.guardrails()
+	want := Guardrails{SandboxProvisionAttempts: 4, SandboxProvisionBackoff: 2 * time.Second, SandboxProvisionBudget: 90 * time.Second, WaitRearmPause: 20}
+	if got != want {
+		t.Errorf("guardrails() = %+v, want %+v", got, want)
+	}
+}
+
+// The orbit-agents client and this server keep separate request structs; the
+// guardrails must survive the trip between them.
+func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
+	sent := smclient.CreateSessionRequest{RunID: "r", Guardrails: smclient.RunGuardrails{
+		SandboxProvisionAttempts: 1, SandboxProvisionBackoffSecs: 2, SandboxProvisionBudgetSecs: 3,
+		RepeatedCallWarn: 4, RepeatedCallPause: 5, WaitRearmWarn: 6, WaitRearmPause: 7,
+	}}
+	raw, err := json.Marshal(sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got CreateSessionRequest
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := RunGuardrails{1, 2, 3, 4, 5, 6, 7}
+	if got.Guardrails != want {
+		t.Errorf("server read %+v from %s", got.Guardrails, raw)
 	}
 }
