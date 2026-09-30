@@ -41,14 +41,21 @@ var agentPlatformServices = []agentPlatformService{
 	{app: "orbit-policy-service", port: 8083},    // OPA bundles
 }
 
-// AgentCollector is the in-cluster OTLP collector agent pods export to. It is
-// allowed only when both fields are set.
+// AgentCollector is the OTLP collector agent pods export to: in the cluster
+// (Namespace), or outside it at CIDRs, reached by Host through a ServiceEntry.
+// Neither set opens nothing.
 type AgentCollector struct {
 	Namespace string
+	Host      string
 	Port      int
+	CIDRs     []string
 }
 
-func (c AgentCollector) set() bool { return c.Namespace != "" && c.Port != 0 }
+func (c AgentCollector) inCluster() bool { return c.Namespace != "" && c.Port != 0 }
+
+func (c AgentCollector) external() bool {
+	return !c.inCluster() && c.Host != "" && c.Port != 0 && len(c.CIDRs) > 0
+}
 
 // ensureAgentEgressPolicy reconciles the NetworkPolicy that limits agent pod
 // egress to the platform services, the tenant's sandboxes and the collector.
@@ -78,11 +85,18 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"orbit.io/role": "sandbox"}}}},
 		Ports: tcpPort(ports.SandboxExecGRPC),
 	})
-	if collector.set() {
+	switch {
+	case collector.inCluster():
 		egress = append(egress, networkingv1.NetworkPolicyEgressRule{
 			To:    namespacePeer(collector.Namespace, nil),
 			Ports: tcpPort(collector.Port),
 		})
+	case collector.external():
+		peers := make([]networkingv1.NetworkPolicyPeer, 0, len(collector.CIDRs))
+		for _, cidr := range collector.CIDRs {
+			peers = append(peers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: cidr}})
+		}
+		egress = append(egress, networkingv1.NetworkPolicyEgressRule{To: peers, Ports: tcpPort(collector.Port)})
 	}
 
 	return &networkingv1.NetworkPolicy{
@@ -115,8 +129,12 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 	for _, svc := range agentPlatformServices {
 		hosts = append(hosts, fmt.Sprintf("%s/%s.%s.svc.cluster.local", systemNamespace, svc.app, systemNamespace))
 	}
-	if collector.set() {
+	switch {
+	case collector.inCluster():
 		hosts = append(hosts, collector.Namespace+"/*")
+	case collector.external():
+		// The install's ServiceEntry for the collector, in whichever namespace it lives.
+		hosts = append(hosts, "*/"+collector.Host)
 	}
 	sidecar := &unstructured.Unstructured{Object: map[string]any{
 		"metadata": map[string]any{"name": agentEgressName, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},

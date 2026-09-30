@@ -510,3 +510,25 @@ app: {{ .Values.ingressGateway.name }}
 {{ toYaml .Values.gateway.byo.selector }}
 {{- end -}}
 {{- end }}
+
+{{/*
+The networkPolicy.externalServices CIDRs serving an out-of-cluster collector's
+port, comma-separated. Empty when the collector runs in the cluster or no
+endpoint is set. The port parse matches the collector rule in netpols.yaml.
+*/}}
+{{- define "orbit.collectorCIDRs" -}}
+{{- $obs := .Values.global.observability -}}
+{{- if and $obs.otlpEndpoint (not $obs.collectorNamespace) -}}
+{{- $port := trimPrefix ":" (regexFind ":[0-9]+$" (trimSuffix "/" $obs.otlpEndpoint)) | default "4317" -}}
+{{- $cidrs := list -}}
+{{- range .Values.networkPolicy.externalServices -}}
+{{- $svc := . -}}
+{{- range .ports -}}
+{{- if eq (toString .) $port -}}
+{{- $cidrs = append $cidrs $svc.cidr -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $cidrs | uniq | join "," -}}
+{{- end -}}
+{{- end -}}

@@ -112,13 +112,13 @@ This touches *What can it access?*, because it removes every destination the pla
    | `orbit-system` `app=orbit-tool-gateway` | 8096 TCP | governed MCP servers |
    | `orbit-system` `app=orbit-policy-service` | 8083 TCP | OPA bundle polling |
    | this namespace, `orbit.io/role=sandbox` pods | 50051 TCP | orbit-shell, the session registry and the egress canary to `sandbox-exec` |
-   | the in-cluster collector namespace, when set | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
+   | the collector: its namespace when in the cluster, otherwise the `networkPolicy.externalServices` ranges serving its port | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
 
-   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector namespace is `global.observability.collectorNamespace`, passed to the operator as it already is to the chart's own collector rule, and the port comes from the tenant collector endpoint. The collector rule names only that in-cluster namespace; agent pods export to no other collector.
+   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector is the tenant collector endpoint of [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md). When `global.observability.collectorNamespace` is set, the rule names that namespace. Otherwise the rule names the `networkPolicy.externalServices` CIDRs whose ports include the collector's port, the same entries that already open the collector for the platform services. No new value is added.
 
    The pod's only stdio MCP server is `orbit-runtime-mcp`, the same for all three runtimes. It calls the session-manager on loopback, which no policy covers. `orbit-shell` calls the session-manager on loopback and `sandbox-exec` on the sandbox pod. Governed MCP servers are remote entries through the tool gateway.
 
-2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, orbit-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the services of the in-cluster collector namespace when one is set.
+2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, orbit-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the collector: every service in its namespace when it runs in the cluster, or its host when it does not. An external host resolves only through a ServiceEntry, which [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md) already requires the install to provide for an out-of-cluster collector.
 
 3. **No bypass ports.** `5432` is removed from the agent pod's `traffic.sidecar.istio.io/excludeOutboundPorts`: the session-manager holds no database credential and reaches Postgres through orbit-agents. `50051` stays excluded, as decided in [2026-09-18: Authenticated Sandbox Exec](2026-09-18-sandbox-exec-trust-boundary.md), and the NetworkPolicy limits it to the namespace's sandbox pods.
 
@@ -148,6 +148,7 @@ The NetworkPolicy alone meets the security goal but makes every blocked call han
 ### Negative
 
 - A new platform dependency of the agent pod needs a rule in both resources, or it is blocked. Both live in one operator file, and the operator reconciles changes onto existing tenants.
+- The collector address is the one external destination the agent process itself can reach. When it is a shared SaaS endpoint, a prompt-injected agent can export data under an attacker's own key to the attacker's account on the same service. Installs that care should run an in-cluster collector that forwards to the external one, so agent pods reach only the in-cluster address.
 - The sidecars share the allow-list: the agent process can open a connection to the identity or policy service, as those sidecars must. Both services authenticate the caller, so reachability grants nothing on its own.
 
 ### Neutral
@@ -160,7 +161,7 @@ The NetworkPolicy alone meets the security goal but makes every blocked call han
 ## Implementation
 
 - `backend/internal/operator/tenant_netpol.go`: `ensureAgentEgressPolicy` and `ensureAgentEgressSidecar`, reconciled with the sandbox policies; the Sidecar is written as unstructured, like the MCP server policies.
-- `charts/orbit/templates/operator/`: RBAC for `networking.istio.io` `sidecars`; `ORBIT_COLLECTOR_NAMESPACE` from `global.observability.collectorNamespace`.
+- `charts/orbit/templates/operator/`: RBAC for `networking.istio.io` `sidecars`; `ORBIT_COLLECTOR_NAMESPACE` from `global.observability.collectorNamespace`, and `ORBIT_COLLECTOR_CIDRS` from the `networkPolicy.externalServices` entries serving the collector's port.
 - `backend/internal/agents/k8s.go`: drop `5432` from the excluded outbound ports.
 - `backend/internal/agents/sessionmanager/`: the Claude Code environment variable and the Codex `config.toml` keys.
 

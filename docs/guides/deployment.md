@@ -241,7 +241,9 @@ global:
     samplingRate: "1.0"
 ```
 
-`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty and add the collector's CIDR and port to `networkPolicy.externalServices`. Agent pods export to the same endpoint, providing telemetry for their run, and only when `collectorNamespace` names the in-cluster collector: their egress policy admits no other collector ([agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md)).
+`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty, add the collector's CIDR and port to `networkPolicy.externalServices`, and create a `ServiceEntry` for the collector host so the mesh routes to it. Agent pods export to the same endpoint, providing telemetry for their run; their egress policy admits the collector and no other external host ([agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md)).
+
+An external collector is the one external address an agent can reach. On a shared SaaS endpoint, a prompt-injected agent could export data under an attacker's own key to the attacker's account on the same service. If that matters for your install, run an in-cluster collector that forwards to the external one and point `otlpEndpoint` at it.
 
 Point your service mesh's own telemetry at the same collector to get the mesh hop and the application span in one trace.
 

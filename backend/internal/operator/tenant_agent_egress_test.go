@@ -20,6 +20,9 @@ func allowedPorts(p *networkingv1.NetworkPolicy) []string {
 			if peer.NamespaceSelector != nil {
 				ns = peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]
 			}
+			if peer.IPBlock != nil {
+				ns = peer.IPBlock.CIDR
+			}
 			if peer.PodSelector != nil {
 				for k, v := range peer.PodSelector.MatchLabels {
 					app = k + "=" + v
@@ -42,6 +45,17 @@ func TestAgentEgressPolicy(t *testing.T) {
 	}{
 		{name: "no collector"},
 		{name: "namespace without a port", collector: AgentCollector{Namespace: "observability"}},
+		{name: "external collector without CIDRs", collector: AgentCollector{Host: "otel.example.com", Port: 4317}},
+		{
+			name:      "external collector",
+			collector: AgentCollector{Host: "otel.example.com", Port: 4317, CIDRs: []string{"203.0.113.0/24", "198.51.100.7/32"}},
+			extra:     []string{"203.0.113.0/24/:4317/TCP", "198.51.100.7/32/:4317/TCP"},
+		},
+		{
+			name:      "in-cluster wins over CIDRs",
+			collector: AgentCollector{Namespace: "observability", Host: "otel.observability.svc", Port: 4317, CIDRs: []string{"203.0.113.0/24"}},
+			extra:     []string{"observability/:4317/TCP"},
+		},
 		{
 			name:      "in-cluster collector",
 			collector: AgentCollector{Namespace: "observability", Port: 4317},
@@ -100,6 +114,12 @@ func TestAgentEgressSidecar(t *testing.T) {
 	}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("hosts = %v, want %v", hosts, want)
+	}
+
+	external := agentEgressSidecar("orbit-tenant-acme", "acme", AgentCollector{Host: "otel.example.com", Port: 4317, CIDRs: []string{"203.0.113.0/24"}})
+	extHosts := external.Object["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["hosts"].([]any)
+	if last := extHosts[len(extHosts)-1]; last != "*/otel.example.com" {
+		t.Errorf("external collector host = %v, want */otel.example.com", last)
 	}
 
 	noCollector := agentEgressSidecar("orbit-tenant-acme", "acme", AgentCollector{})

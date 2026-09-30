@@ -30,8 +30,9 @@ global:
     samplingRate: ""
     # The namespace running that collector, when it runs in this cluster.
     # Setting it opens the egress the export needs, on the endpoint's port, and
-    # only takes effect while networkPolicy.enabled is true. Agent pods export
-    # only to this namespace, whatever networkPolicy.enabled is. For a collector
+    # only takes effect while networkPolicy.enabled is true. Agent pods may
+    # export to this namespace, or to the externalServices entry serving the
+    # endpoint's port, whatever networkPolicy.enabled is. For a collector
     # outside the cluster, leave this empty and add its CIDR and port to
     # networkPolicy.externalServices instead.
     collectorNamespace: ""
