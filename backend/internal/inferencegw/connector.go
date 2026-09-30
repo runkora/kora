@@ -7,7 +7,6 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
-
 )
 
 // ============================================================================
@@ -346,4 +345,3 @@ func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens, cacheRead
 		(float64(cacheReadTokens)/1_000_000)*cacheReadPrice +
 		(float64(cacheCreationTokens)/1_000_000)*cacheCreationPrice
 }
-
