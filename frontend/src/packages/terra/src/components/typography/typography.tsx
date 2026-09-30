@@ -272,13 +272,17 @@ export interface TextProps extends VariantProps<typeof textVariants> {
    * is intrinsic to the content itself (e.g. a filename, a conversation
    * title, a long agent ID).
    *
+   * Pass `"start"` to clip the beginning instead, so the end stays visible.
+   * Use it for dotted paths and identifiers where the last part is the one
+   * that matters, for example `repository.template_repository.permissions.push`.
+   *
    * ```tsx
    * <Text size="caption" weight="emphasis" truncate>
    *   A very long conversation title that will be clipped
    * </Text>
    * ```
    */
-  truncate?: boolean;
+  truncate?: boolean | 'start';
 
   /**
    * When true, renders the text in a monospace font (font-mono). Use for
@@ -378,6 +382,7 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
       preserveWhitespace = false,
       asChild = false,
       as,
+      children,
       ...props
     },
     ref,
@@ -391,13 +396,16 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
         className={cn(
           textVariants({ size, color, weight, transform, align }),
           truncate && 'truncate',
+          truncate === 'start' && '[direction:rtl]',
           mono && 'font-mono',
           tabular && 'tabular-nums',
           preserveWhitespace && 'whitespace-pre-wrap',
           className,
         )}
         {...props}
-      />
+      >
+        {truncate === 'start' && !asChild ? <bdi>{children}</bdi> : children}
+      </Comp>
     );
   },
 );

@@ -232,6 +232,16 @@ export const TextStyles: Story = {
             <Text truncate>agent-run-2026-09-29-very-long-identifier</Text>
           </div>
         </Row>
+        <Row
+          name='truncate="start"'
+          use="Cuts the beginning instead, so the end of a dotted path stays visible."
+        >
+          <div className="w-48">
+            <Text mono truncate="start">
+              repository.template_repository.permissions.push
+            </Text>
+          </div>
+        </Row>
       </Table>
     </div>
   ),

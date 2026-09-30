@@ -9,7 +9,7 @@
  * delivery to fire.
  */
 
-import { Button, Icon, Input, NativeSelect, Stack } from '@orbit/terra';
+import { Button, Icon, Input, NativeSelect, Separator, Stack } from '@orbit/terra';
 import { CatalogPicker } from './catalog-picker';
 import { completePattern } from './trigger-wizard/field-catalog';
 import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
@@ -59,64 +59,67 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
   return (
     <>
       {rows.map((row, i) => (
-        <Stack key={i} direction="horizontal" gap="snug" align="center">
-          <Stack minWidth="form-field-sm">
-            <CatalogPicker
-              aria-label={`Filter ${i + 1} field`}
-              value={row.pattern ?? row.field}
-              placeholder="Choose a field"
-              catalog={fields}
-              selectablePatterns
-              onSelect={(token, entry) =>
-                entry.pattern
-                  ? setRow(i, { pattern: token, patternName: '', field: '' })
-                  : setRow(i, { field: token, pattern: undefined, patternName: undefined })
-              }
-            />
-          </Stack>
-          {row.pattern !== undefined && (
-            <Stack minWidth="form-field-sm">
-              <Input
-                mono
-                aria-label={`Filter ${i + 1} name`}
-                value={row.patternName ?? ''}
-                onChange={(e) =>
-                  setRow(i, {
-                    patternName: e.target.value,
-                    field: completePattern(row.pattern ?? '', e.target.value),
-                  })
+        <Stack key={i} gap="snug">
+          {i > 0 && <Separator />}
+          <Stack direction="horizontal" gap="snug" align="center">
+            <Stack grow minWidth="none">
+              <CatalogPicker
+                aria-label={`Filter ${i + 1} field`}
+                value={row.pattern ?? row.field}
+                placeholder="Choose a field"
+                catalog={fields}
+                selectablePatterns
+                onSelect={(token, entry) =>
+                  entry.pattern
+                    ? setRow(i, { pattern: token, patternName: '', field: '' })
+                    : setRow(i, { field: token, pattern: undefined, patternName: undefined })
                 }
-                placeholder="name"
               />
             </Stack>
-          )}
-          <Stack maxWidth="form-field-sm">
-            <NativeSelect
-              aria-label={`Filter ${i + 1} operator`}
-              value={row.operator ?? 'is'}
-              onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove filter ${i + 1}`}
+              onClick={() => onChange(rows.filter((_, x) => x !== i))}
             >
-              <option value="is">is</option>
-              <option value="contains">contains</option>
-            </NativeSelect>
+              <Icon name="close" size="2xs" />
+            </Button>
           </Stack>
-          <Stack grow minWidth="none">
+          {row.pattern !== undefined && (
             <Input
               mono
-              aria-label={`Filter ${i + 1} values`}
-              value={row.values}
-              onChange={(e) => setRow(i, { values: e.target.value })}
-              placeholder={valuesHint(row)}
+              aria-label={`Filter ${i + 1} name`}
+              value={row.patternName ?? ''}
+              onChange={(e) =>
+                setRow(i, {
+                  patternName: e.target.value,
+                  field: completePattern(row.pattern ?? '', e.target.value),
+                })
+              }
+              placeholder="name"
             />
+          )}
+          <Stack direction="horizontal" gap="snug" align="center">
+            <Stack maxWidth="form-field-sm">
+              <NativeSelect
+                aria-label={`Filter ${i + 1} operator`}
+                value={row.operator ?? 'is'}
+                onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
+              >
+                <option value="is">is</option>
+                <option value="contains">contains</option>
+              </NativeSelect>
+            </Stack>
+            <Stack grow minWidth="none">
+              <Input
+                mono
+                aria-label={`Filter ${i + 1} values`}
+                value={row.values}
+                onChange={(e) => setRow(i, { values: e.target.value })}
+                placeholder={valuesHint(row)}
+              />
+            </Stack>
           </Stack>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remove filter ${i + 1}`}
-            onClick={() => onChange(rows.filter((_, x) => x !== i))}
-          >
-            <Icon name="close" size="2xs" />
-          </Button>
         </Stack>
       ))}
 

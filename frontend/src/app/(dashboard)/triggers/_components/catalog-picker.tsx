@@ -51,8 +51,15 @@ export function CatalogPicker({
           fullWidth
           disabled={disabled}
           aria-label={ariaLabel}
+          title={value || undefined}
         >
-          <Text as="span" mono size="caption" truncate color={value ? 'foreground' : 'subtle'}>
+          <Text
+            as="span"
+            mono
+            size="caption"
+            truncate="start"
+            color={value ? 'foreground' : 'subtle'}
+          >
             {value || placeholder}
           </Text>
           <Icon name="chevron-down" size="2xs" />
