@@ -481,6 +481,7 @@ agents:
     # global.imageTag, falling back to the chart appVersion when it is empty.
     sessionManagerImage: ""
     sandboxImage: ""
+    # Git author name inside the sandbox. Empty means kora-agent.
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
     # -- Heap cap in MB for Node processes an agent run starts on its agent pod.
