@@ -22,10 +22,11 @@ import (
 )
 
 // Config holds one OpenAI-compatible endpoint. An empty APIKey sends no
-// Authorization header.
+// Authorization header. CACert trusts a private CA.
 type Config struct {
 	BaseURL string
 	APIKey  string
+	CACert  string
 }
 
 // Connector implements inferencegw.ProviderConnector for an OpenAI-compatible
@@ -43,10 +44,14 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("openaicompat: base URL is required")
 	}
+	base, err := httpclient.NewTransportWithCA(cfg.CACert)
+	if err != nil {
+		return nil, fmt.Errorf("openaicompat: %w", err)
+	}
 	opts := []openaiopt.RequestOption{
 		openaiopt.WithBaseURL(cfg.BaseURL),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.openai-compatible", nil),
+			httpclient.NewTracingTransport("orbit.openai-compatible", base),
 		)),
 	}
 	if cfg.APIKey != "" {

@@ -33,7 +33,18 @@ spec:
       key: apiKey
 ```
 
-`baseURL` defaults to `https://api.openai.com/v1`, which registers OpenAI itself. Point it at a vLLM, KServe or llm-d service to register a self-hosted model. `apiKeySecretRef` is optional for an unauthenticated in-cluster server. `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a `/models` list needs `models`.
+`baseURL` defaults to `https://api.openai.com/v1`, which registers OpenAI itself. Point it at a vLLM, KServe or llm-d service to register a self-hosted model. `apiKeySecretRef` is optional for an unauthenticated server.
+
+`baseURL` must be `https://`. The gateway's sidecar replaces the `Authorization` header of any plain HTTP call with the gateway's own platform token, so a plain HTTP upstream would receive that token instead of its key. Serve an in-cluster model over TLS and set `caCert` to the PEM of its private CA:
+
+```yaml
+  openai:
+    baseURL: https://vllm.models.svc.cluster.local/v1
+    caCert: |
+      -----BEGIN CERTIFICATE-----
+      ...
+      -----END CERTIFICATE-----
+``` `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a `/models` list needs `models`.
 
 An `openai` provider serves `/v1/chat/completions`, `/v1/embeddings` and `/v1/responses`. It does not serve `/v1/messages`. Claude Code needs a model on a `bedrock`, `vertexai`, `azure` or `anthropic` provider. Codex and OpenCode run on any type.
 
@@ -53,7 +64,7 @@ spec:
       key: apiKey
 ```
 
-`baseURL` defaults to `https://api.anthropic.com`. Set it to register another Anthropic Messages endpoint.
+`baseURL` defaults to `https://api.anthropic.com`. Set it to register another Anthropic Messages endpoint. It must be `https://`, and `caCert` works as for `openai`.
 
 ## Register AWS Bedrock
 

@@ -161,13 +161,13 @@ spec:
                   properties:
                     endpoint:
                       type: string
-                      pattern: '^https?://.+'
+                      pattern: '^https://.+'
                     apiVersion:
                       type: string
                       minLength: 1
                     anthropicEndpoint:
                       type: string
-                      pattern: '^https?://.+'
+                      pattern: '^https://.+'
                     apiKeySecretRef:
                       type: object
                       required:
@@ -183,12 +183,19 @@ spec:
                 openai:
                   description: >
                     Any OpenAI-compatible endpoint: OpenAI, OpenRouter, vLLM,
-                    KServe. baseURL defaults to https://api.openai.com/v1.
+                    KServe. baseURL defaults to https://api.openai.com/v1. It
+                    must be https: the gateway's sidecar replaces the
+                    Authorization header on plain HTTP calls.
                   type: object
                   properties:
                     baseURL:
                       type: string
-                      pattern: '^https?://.+'
+                      pattern: '^https://.+'
+                    caCert:
+                      description: >
+                        PEM certificate authority for an upstream signed by a
+                        private CA, such as an in-cluster model server.
+                      type: string
                     apiKeySecretRef:
                       type: object
                       required:
@@ -204,14 +211,19 @@ spec:
                 anthropic:
                   description: >
                     Any Anthropic Messages endpoint. baseURL defaults to
-                    https://api.anthropic.com.
+                    https://api.anthropic.com. It must be https.
                   type: object
                   required:
                     - apiKeySecretRef
                   properties:
                     baseURL:
                       type: string
-                      pattern: '^https?://.+'
+                      pattern: '^https://.+'
+                    caCert:
+                      description: >
+                        PEM certificate authority for an upstream signed by a
+                        private CA, such as an in-cluster model server.
+                      type: string
                     apiKeySecretRef:
                       type: object
                       required:

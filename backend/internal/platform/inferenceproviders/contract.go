@@ -127,12 +127,14 @@ type Azure struct {
 type OpenAI struct {
 	BaseURL   string `json:"base_url"`
 	APIKeyKey string `json:"api_key_key,omitempty"`
+	CACert    string `json:"ca_cert,omitempty"`
 }
 
 // Anthropic configures an Anthropic Messages provider.
 type Anthropic struct {
 	BaseURL   string `json:"base_url"`
 	APIKeyKey string `json:"api_key_key"`
+	CACert    string `json:"ca_cert,omitempty"`
 }
 
 // Validate checks that the entry names a known type and carries exactly the

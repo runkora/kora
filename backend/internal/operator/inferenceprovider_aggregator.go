@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -201,9 +202,26 @@ func renderVertexAI(s *VertexAIProviderSpec, copyKey copyKeyFunc) (*inferencepro
 	return out, err
 }
 
+// requireHTTPS rejects a plain HTTP upstream. The gateway pod's identity-proxy
+// replaces the Authorization header of every plain HTTP call with the
+// gateway's platform token: the upstream would lose its key and receive that
+// token.
+func requireHTTPS(field, url string) error {
+	if url != "" && !strings.HasPrefix(url, "https://") {
+		return rejected(reasonInvalidSpec, "%s must be an https:// URL", field)
+	}
+	return nil
+}
+
 func renderAzure(s *AzureProviderSpec, copyKey copyKeyFunc) (*inferenceproviders.Azure, error) {
 	if s.Endpoint == "" || s.APIVersion == "" {
 		return nil, rejected(reasonInvalidSpec, "azure.endpoint and azure.apiVersion are required")
+	}
+	if err := requireHTTPS("azure.endpoint", s.Endpoint); err != nil {
+		return nil, err
+	}
+	if err := requireHTTPS("azure.anthropicEndpoint", s.AnthropicEndpoint); err != nil {
+		return nil, err
 	}
 	out := &inferenceproviders.Azure{Endpoint: s.Endpoint, APIVersion: s.APIVersion, AnthropicEndpoint: s.AnthropicEndpoint}
 	var err error
@@ -212,7 +230,10 @@ func renderAzure(s *AzureProviderSpec, copyKey copyKeyFunc) (*inferenceproviders
 }
 
 func renderOpenAI(s *OpenAIProviderSpec, copyKey copyKeyFunc) (*inferenceproviders.OpenAI, error) {
-	out := &inferenceproviders.OpenAI{BaseURL: s.BaseURL}
+	if err := requireHTTPS("openai.baseURL", s.BaseURL); err != nil {
+		return nil, err
+	}
+	out := &inferenceproviders.OpenAI{BaseURL: s.BaseURL, CACert: s.CACert}
 	if out.BaseURL == "" {
 		out.BaseURL = inferenceproviders.DefaultOpenAIBaseURL
 	}
@@ -225,7 +246,10 @@ func renderOpenAI(s *OpenAIProviderSpec, copyKey copyKeyFunc) (*inferenceprovide
 }
 
 func renderAnthropic(s *AnthropicProviderSpec, copyKey copyKeyFunc) (*inferenceproviders.Anthropic, error) {
-	out := &inferenceproviders.Anthropic{BaseURL: s.BaseURL}
+	if err := requireHTTPS("anthropic.baseURL", s.BaseURL); err != nil {
+		return nil, err
+	}
+	out := &inferenceproviders.Anthropic{BaseURL: s.BaseURL, CACert: s.CACert}
 	if out.BaseURL == "" {
 		out.BaseURL = inferenceproviders.DefaultAnthropicBaseURL
 	}

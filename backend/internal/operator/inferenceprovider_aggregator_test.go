@@ -130,6 +130,9 @@ func TestInferenceProviderAggregator_RejectsAndReports(t *testing.T) {
 		}}), reasonSecretKeyNotFound},
 		{"block mismatch", provider(systemNamespace, "p", InferenceProviderSpec{Type: "bedrock", OpenAI: &OpenAIProviderSpec{}}), reasonInvalidSpec},
 		{"missing region", provider(systemNamespace, "p", InferenceProviderSpec{Type: "bedrock", Bedrock: &BedrockProviderSpec{}}), reasonInvalidSpec},
+		{"plain http upstream", provider(systemNamespace, "p", InferenceProviderSpec{Type: "openai", OpenAI: &OpenAIProviderSpec{
+			BaseURL: "http://vllm.models.svc:8000/v1",
+		}}), reasonInvalidSpec},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

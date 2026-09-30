@@ -118,7 +118,7 @@ func build(p ip.Provider, name inferencegw.ProviderName, info *inferencegw.Provi
 		if err != nil {
 			return nil, err
 		}
-		return openaicompat.New(openaicompat.Config{BaseURL: o.BaseURL, APIKey: key}, name, logger)
+		return openaicompat.New(openaicompat.Config{BaseURL: o.BaseURL, APIKey: key, CACert: o.CACert}, name, logger)
 
 	case ip.TypeAnthropic:
 		a := p.Anthropic
@@ -128,7 +128,7 @@ func build(p ip.Provider, name inferencegw.ProviderName, info *inferencegw.Provi
 		if err != nil {
 			return nil, err
 		}
-		return anthropicapi.New(anthropicapi.Config{BaseURL: a.BaseURL, APIKey: key}, name, logger)
+		return anthropicapi.New(anthropicapi.Config{BaseURL: a.BaseURL, APIKey: key, CACert: a.CACert}, name, logger)
 	}
 	return nil, fmt.Errorf("unknown provider type %q", p.Type)
 }

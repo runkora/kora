@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -156,5 +157,31 @@ func TestFamilyFromID(t *testing.T) {
 		if got := familyFromID(id); got != want {
 			t.Errorf("familyFromID(%q) = %q, want %q", id, got, want)
 		}
+	}
+}
+
+func TestPrivateCATrust(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, completion)
+	}))
+	defer srv.Close()
+	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
+
+	untrusted := newConnector(t, srv.URL+"/v1", "k")
+	if _, err := untrusted.ChatCompletion(context.Background(), chatParams()); err == nil {
+		t.Error("an upstream signed by an unknown CA was trusted")
+	}
+
+	trusted, err := New(Config{BaseURL: srv.URL + "/v1", APIKey: "k", CACert: caPEM}, "openai:vllm", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := trusted.ChatCompletion(context.Background(), chatParams()); err != nil {
+		t.Errorf("caCert not trusted: %v", err)
+	}
+
+	if _, err := New(Config{BaseURL: srv.URL, CACert: "not pem"}, "openai:x", logging.NewLoggerWithOutput(io.Discard)); err == nil {
+		t.Error("invalid caCert accepted")
 	}
 }

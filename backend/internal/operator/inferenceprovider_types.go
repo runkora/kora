@@ -88,16 +88,19 @@ type AzureProviderSpec struct {
 	APIKeySecretRef   SecretKeyRef `json:"apiKeySecretRef"`
 }
 
-// OpenAIProviderSpec configures any OpenAI-compatible endpoint.
+// OpenAIProviderSpec configures any OpenAI-compatible endpoint. CACert is a
+// PEM authority for an upstream signed by a private CA.
 type OpenAIProviderSpec struct {
 	BaseURL         string        `json:"baseURL,omitempty"`
 	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef,omitempty"`
+	CACert          string        `json:"caCert,omitempty"`
 }
 
 // AnthropicProviderSpec configures any Anthropic Messages endpoint.
 type AnthropicProviderSpec struct {
 	BaseURL         string       `json:"baseURL,omitempty"`
 	APIKeySecretRef SecretKeyRef `json:"apiKeySecretRef"`
+	CACert          string       `json:"caCert,omitempty"`
 }
 
 // InferenceProviderStatus is reconciliation state only. Runtime health belongs

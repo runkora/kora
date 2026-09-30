@@ -22,10 +22,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Config holds one Anthropic Messages endpoint.
+// Config holds one Anthropic Messages endpoint. CACert trusts a private CA.
 type Config struct {
 	BaseURL string
 	APIKey  string
+	CACert  string
 }
 
 // Connector implements inferencegw.ProviderConnector for the Anthropic API.
@@ -42,11 +43,15 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" || cfg.APIKey == "" {
 		return nil, fmt.Errorf("anthropicapi: base URL and API key are required")
 	}
+	base, err := httpclient.NewTransportWithCA(cfg.CACert)
+	if err != nil {
+		return nil, fmt.Errorf("anthropicapi: %w", err)
+	}
 	client := anthropic.NewClient(
 		anthropicopt.WithBaseURL(cfg.BaseURL),
 		anthropicopt.WithAPIKey(cfg.APIKey),
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.anthropic", nil),
+			httpclient.NewTracingTransport("orbit.anthropic", base),
 		)),
 	)
 	return &Connector{

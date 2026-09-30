@@ -127,10 +127,12 @@ Per-type blocks:
 | `bedrock` | `region` (required), `assumeRoleARN`, `externalID` | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
 | `vertexai` | `projectID`, `location` (required), `anthropicLocation` | `credentialsSecretRef {name, key}`: service account JSON. Absent: Application Default Credentials (GKE Workload Identity). |
 | `azure` | `endpoint`, `apiVersion` (required), `anthropicEndpoint` | `apiKeySecretRef {name, key}`, required. |
-| `openai` | `baseURL` (default `https://api.openai.com/v1`) | `apiKeySecretRef {name, key}`, optional. |
-| `anthropic` | `baseURL` (default `https://api.anthropic.com`) | `apiKeySecretRef {name, key}`, required. |
+| `openai` | `baseURL` (default `https://api.openai.com/v1`), `caCert` | `apiKeySecretRef {name, key}`, optional. |
+| `anthropic` | `baseURL` (default `https://api.anthropic.com`), `caCert` | `apiKeySecretRef {name, key}`, required. |
 
-- CEL rules: the block named by `spec.type` is set and no other block is. `metadata.name` is a DNS label. `baseURL` and `endpoint` are `https://` or `http://` URLs.
+- CEL rules: the block named by `spec.type` is set and no other block is. `metadata.name` is a DNS label.
+- `baseURL`, `endpoint` and `anthropicEndpoint` must be `https://`. The gateway pod's identity-proxy replaces the `Authorization` header of every plain HTTP call with the gateway's platform token. A plain HTTP upstream would lose its key and receive that token. The operator rejects a plain HTTP URL with reason `InvalidSpec` as well.
+- `caCert` is an inline PEM authority for an upstream signed by a private CA, such as an in-cluster vLLM. It is public material and sits in the resource, as `Connection.spec.caCert` does.
 - `openai` covers OpenAI, OpenRouter, vLLM, KServe and any other OpenAI-compatible endpoint. It serves chat completions and embeddings natively and the Responses API through the existing chat-completions bridge. It does not serve Anthropic Messages.
 - `anthropic` covers the Anthropic API and any Anthropic-compatible endpoint. It serves Anthropic Messages natively, chat completions through the existing OpenAI-to-Anthropic conversion, and Responses through the existing Anthropic bridge.
 - The provider name is `<type>:<metadata.name>`. A resource `aus` of type `bedrock` registers `bedrock:aus`, the name `BEDROCK_ACCOUNTS=aus` registers today.
