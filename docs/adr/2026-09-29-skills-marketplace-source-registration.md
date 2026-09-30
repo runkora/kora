@@ -16,8 +16,24 @@ reach `skills-service` in the shape the backend has already fixed.
 How `skills-service` *reads* those sources is settled: it mounts a ConfigMap,
 `orbit-skill-marketplace-sources`, as a read-only file
 (`marketplace-sources.json`), never imports the CRD type, and never calls the
-Kubernetes API. The shape of one tenant's source list is also fixed — an array
-of plain objects, with no `tenant_id` field inside any of them:
+Kubernetes API.
+
+**Where that is confirmed.** Not by code on `main`: neither
+`backend/cmd/skills-service/` nor `backend/internal/skills/` exists there, or on
+this ADR's own base branch. It is confirmed by
+[PR #351](https://github.com/clear-route/orbit/pull/351)
+(`feat(skills): skills-service — binary skeleton, models, registry, github
+client`), which targets the same base branch as this ADR and adds both, together
+with `backend/internal/skills/registry.go` and a backend ADR
+(`2026-08-28-marketplace-adr-backend.md`, which likewise lands with #351 and is
+not linkable from here until it does). Every claim below about
+what `skills-service` reads or parses refers to that branch, and holds in this
+repository only once #351 merges. This ADR does not depend on #351 landing
+first — the operator side can be built against the shape — but the feature
+cannot be observed end-to-end until it does.
+
+The shape of one tenant's source list is fixed — an array of plain objects, with
+no `tenant_id` field inside any of them:
 
 ```json
 marketplace-sources.json=
@@ -37,8 +53,19 @@ Orbit already has three CRDs that solve "many tenant-namespaced CRs → one
 `orbit-system` ConfigMap": `Connection`, `MCPServer` and `OAuthClient`. Each has
 an aggregator (`connection_aggregator.go`, `mcpserver_aggregator.go`,
 `oauthclient_aggregator.go`) that lists every active `OrbitTenant`, maps
-`namespace -> tenant_id`, collects every CR cluster-wide, and renders one
-ConfigMap in `orbit-system`.
+`namespace -> tenant_id`, collects the CRs, and renders one ConfigMap in
+`orbit-system`.
+
+They differ in how they collect, and the difference matters here.
+`connection_aggregator.go` and `oauthclient_aggregator.go` list
+**per active tenant namespace** (`client.List(ctx, list, client.InNamespace(ns))`),
+so a CR sitting in a namespace no active tenant owns is never observed at all.
+Only `mcpserver_aggregator.go` lists **cluster-wide** — an unfiltered
+`client.List` — because `MCPServer` alone supports a global (`orbit-system`)
+scope that per-namespace listing would miss. This design needs the cluster-wide
+form for a different reason (REQ-7: a misplaced CR must be rejected *with a
+reason* rather than silently never seen), so `mcpserver_aggregator.go` is the
+collection pattern to mirror, not `Connection`'s or `OAuthClient`'s.
 
 All three render a **flat array with `tenant_id` on every entry** — the shape
 the backend's confirmed JSON explicitly does not use. Reconciling "reuse the
@@ -356,28 +383,28 @@ new render function rather than a new mechanism.
 - The registration-state key is a second file contract with `skills-service`
   that this design writes but that `skills-service` does not yet read, so REQ-9
   is not closed on delivery.
-- The shape of that key is undefined, and reasonable designs differ on it: at
-  minimum it needs the source's display name, its state, and a reason when
-  rejected. It should also carry the `namespace/name` of the CR itself —
-  without that, the Sources view can name a rejected source but not the resource
-  an admin has to go and correct.
+- The shape of that key is not yet agreed, and reasonable designs differ on it.
+  The operator's proposed entry shape, and what it must carry, is Open Item 1.
 - Two findings about the surrounding contract, neither caused by this choice but
   both affecting whether the feature can be observed working:
   - The wire shape described in prose and the shape
     `backend/internal/skills/registry.go` actually parses are different. The
     prose describes an object keyed directly by tenant, `{"<tenant>": [...]}`;
-    the code expects one level deeper,
-    `{"tenants": {"<tenant>": {"sources": [...]}}}`. These are not cosmetically
-    different: `encoding/json` does not error on the wrong top-level shape, it
-    simply populates nothing, so rendering the prose shape would produce a file
-    that parses successfully and yields **zero sources for every tenant**, with
-    no error anywhere in the stack. The aggregator must render the shape the
-    code parses, and the prose should be corrected to match.
-  - There is no Helm chart Deployment for `skills-service` yet — no Deployment,
-    no ConfigMap volume mount, no Service. `backend/cmd/skills-service/` exists
-    and compiles, but nothing in the cluster mounts the ConfigMap this feature
-    renders. Out of scope here, but the feature cannot be observed end-to-end
-    until that exists.
+    the code on [PR #351](https://github.com/clear-route/orbit/pull/351) expects
+    one level deeper, `{"tenants": {"<tenant>": {"sources": [...]}}}`, via a
+    `sourcesFile{Tenants map[string]tenantSources}` / `tenantSources{Sources
+    []MarketplaceSource}` pair. These are not cosmetically different:
+    `encoding/json` does not error on the wrong top-level shape, it simply
+    populates nothing, so rendering the prose shape would produce a file that
+    parses successfully and yields **zero sources for every tenant**, with no
+    error anywhere in the stack. The aggregator must render the shape the code
+    parses, and the prose should be corrected to match.
+  - There is no Helm chart Deployment for `skills-service` — no Deployment, no
+    ConfigMap volume mount, no Service — on `main`, on this ADR's base branch,
+    or on #351. Even once #351 merges and `backend/cmd/skills-service/` compiles
+    here, nothing in the cluster mounts the ConfigMap this feature renders. Out
+    of scope here, but the feature cannot be observed end-to-end until that
+    exists.
 
 ### Neutral
 
@@ -420,8 +447,11 @@ in `orbit-system`, or in a namespace with no active owning `OrbitTenant`, is
 rejected with its own distinct reason rather than silently dropped.
 
 **Aggregation.** `SkillMarketplaceSourceAggregator.Sync` mirrors
-`activeTenantNamespaces` + collect + render from `oauthclient_aggregator.go` and
-`mcpserver_aggregator.go`. It lists every active tenant, lists every
+`activeTenantNamespaces` + collect + render from `mcpserver_aggregator.go` —
+specifically its unfiltered `client.List`, not `oauthclient_aggregator.go`'s
+per-namespace `client.InNamespace(ns)` collection, which would never observe a
+CR in a namespace no active tenant owns and so could not reject one with a
+reason. It lists every active tenant, lists every
 `SkillMarketplaceSource` cluster-wide, resolves each one's outcome, and then does
 two things from that single pass: renders the ConfigMap with two data keys —
 `marketplace-sources.json` (the fixed backend contract) and the
@@ -492,14 +522,16 @@ it, and adding a `skills-service` chart Deployment that mounts the ConfigMap.
 
 ---
 
-## Notes
+## Open Items
 
-Two items remain open and are tracked outside this decision:
+Four items are not closed by this decision. Each names where the resolution
+lands, so an implementer knows what to watch.
 
-- The registration-state key's exact name and entry shape need the backend's
-  agreement before REQ-9 can be considered closed.
-- The slug algorithm needs to be adopted by `skills-service`, or written down
-  and confirmed identically on both sides, before REQ-10's uniqueness guarantee
-  extends beyond the operator.
+| # | Item | Blocks | Resolved by |
+|---|------|--------|-------------|
+| 1 | The registration-state key's exact name and entry shape need the backend's agreement. The operator proposes one entry per declared source carrying `name`, `org`, `repo`, `branch`, `status` (`accepted`/`rejected`), `reason` when rejected, and the CR's own `namespace`/`name` — without that last pair the Sources view can name a rejected source but not the resource an admin must go and correct. | REQ-9 | Agreement with the `skills-service` owners, then a follow-up PR wiring the read. Not gated on this ADR. |
+| 2 | The slug algorithm must be adopted by `skills-service`, or written down and confirmed identically on both sides. The rule is: lowercase, collapse each run of non-`[a-z0-9]` characters to a single hyphen, trim leading and trailing hyphens. | REQ-10 beyond the operator | `skills-service` importing `internal/platform/slug`, or an agreed written spec. |
+| 3 | `skills-service` does not yet exist on `main` or on this ADR's base branch, and has no Helm chart Deployment or ConfigMap mount anywhere. | End-to-end observability, not the operator work | [PR #351](https://github.com/clear-route/orbit/pull/351) for the binary; the chart Deployment is unowned and unscheduled. |
+| 4 | [PR #226](https://github.com/clear-route/orbit/pull/226) proposes `2026-08-19-marketplace-gitops.md`, a different ADR that defines a CRD of the **same name** (`SkillMarketplaceSource`) writing the **same ConfigMap** (`orbit-skill-marketplace-sources`) with an incompatible design: a platform-wide singleton in `orbit-system`, a `connectionRef` routing GitHub access through the Egress Gateway, key `sources.json`, and additional sources rejected as `AdditionalSourceNotSupported`. It targets `main` and has been untouched since 2026-08-31. Its relationship to this ADR is unresolved. | Nothing technically; it is a conflict risk | A decision by the two authors: if this ADR replaces #226, #226's status flips to `Superseded by` this slug (per `2026-03-05-credential-aware-outbound-gateway.md`'s precedent) and this ADR gains a `Supersedes:` field. Both must not merge as `Proposed`. |
 
-**Last Updated:** 2026-09-29
+**Last Updated:** 2026-09-30
