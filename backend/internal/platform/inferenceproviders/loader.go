@@ -63,8 +63,8 @@ func Load(configDir, secretDir string) ([]Provider, error) {
 }
 
 // Watch calls onChange after any change in dirs, debounced by 200ms. Kubernetes
-// swaps a mounted volume's ..data symlink atomically, so one update arrives as
-// a burst of events. It returns when ctx ends.
+// swaps a mounted volume's ..data symlink atomically. One update arrives as a
+// burst of events. It returns when ctx ends.
 func Watch(ctx context.Context, logger logging.Logger, dirs []string, onChange func(context.Context)) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

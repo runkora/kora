@@ -12,8 +12,8 @@ import (
 var ErrInvalidCACert = errors.New("CA certificate is not valid PEM")
 
 // NewTransportWithCA returns a transport that trusts caPEM on top of the
-// system roots, for an upstream signed by a private CA. An empty caPEM
-// returns nil, which callers pass on to mean the default transport.
+// system roots, for an upstream signed by a private CA. An empty caPEM returns
+// nil. NewTracingTransport treats nil as the default transport.
 func NewTransportWithCA(caPEM string) (http.RoundTripper, error) {
 	if caPEM == "" {
 		return nil, nil

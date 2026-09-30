@@ -36,8 +36,8 @@ type Config struct {
 	AccessKeyID     string // optional — falls back to default AWS credential chain
 	SecretAccessKey string // optional — falls back to default AWS credential chain
 	SessionToken    string // optional — for temporary credentials
-	// AssumeRoleARN is a role assumed on top of the base credentials, so one
-	// gateway identity can reach another account.
+	// AssumeRoleARN is a role assumed on top of the base credentials. One
+	// gateway identity reaches another account through it.
 	AssumeRoleARN string
 	ExternalID    string
 }

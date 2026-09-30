@@ -1,6 +1,6 @@
-// Package inferenceproviders is the file contract between the operator, which
-// renders InferenceProvider resources, and the inference gateway, which loads
-// them. It lives under platform because the two binaries must agree on it
+// Package inferenceproviders is the file contract between the operator and the
+// inference gateway. The operator renders InferenceProvider resources into it.
+// The gateway loads it. It lives under platform: the two binaries share it
 // without importing each other.
 //
 // See docs/adr/2026-10-01-crd-inference-providers.md.
