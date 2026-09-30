@@ -49,15 +49,22 @@ export function GuardrailRow({
     <Card>
       <CardContent padded compact>
         <Stack direction="horizontal" align="center" gap="cozy">
-          {onToggle && <Toggle checked={on} onChange={onToggle} aria-label={title} />}
+          {onToggle ? (
+            <Toggle checked={on} onChange={onToggle} aria-label={title} />
+          ) : (
+            // Reserves the switch's width so the icon and text line up with the toggle rows.
+            <Stack style={{ visibility: 'hidden' }}>
+              <Toggle checked onChange={() => {}} disabled />
+            </Stack>
+          )}
           <Stack grow gap="snug" disabled={!on}>
             <Stack direction="horizontal" align="center" gap="cozy">
               <Icon
                 name={icon}
                 size="sm"
-                color={on ? 'accent' : 'subtle'}
+                color={onToggle && on ? 'accent' : 'muted'}
                 container
-                containerVariant={on ? 'accent' : 'surface-subtle'}
+                containerVariant={onToggle && on ? 'accent' : 'surface-subtle'}
                 label=""
               />
               <Stack grow gap="tight">
@@ -182,7 +189,7 @@ export function GuardrailsFields({
       <LoopThresholdRow
         icon="refresh-cw"
         title="Repeated calls"
-        desc="The same tool call with the same input and the same result, in a row"
+        desc="Same tool call, same input and result, in a row"
         warn="repeatedCallWarn"
         pause="repeatedCallPause"
         error={loopErrors.repeatedCall}
@@ -192,7 +199,7 @@ export function GuardrailsFields({
       <LoopThresholdRow
         icon="clock"
         title="Wait loops"
-        desc="Waits re-armed (monitors, scheduled wake-ups, sleeps) with no progress in between"
+        desc="Waits re-armed with no progress in between"
         warn="waitRearmWarn"
         pause="waitRearmPause"
         error={loopErrors.waitRearm}
@@ -227,7 +234,7 @@ function LoopThresholdRow({
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
 }) {
   const input = (key: keyof LoopGuardrailValues, label: string) => (
-    <Stack direction="horizontal" align="center" gap="snug">
+    <Stack direction="horizontal" align="center" justify="end" gap="snug">
       <Text as="span" size="micro" color="subtle">
         {label}
       </Text>
@@ -246,7 +253,7 @@ function LoopThresholdRow({
   );
   return (
     <GuardrailRow icon={icon} title={title} desc={desc} error={error}>
-      <Stack direction="horizontal" align="center" gap="cozy" shrink={false}>
+      <Stack gap="snug" shrink={false}>
         {input(warn, 'Warn after')}
         {input(pause, 'Pause after')}
       </Stack>

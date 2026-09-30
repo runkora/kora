@@ -288,7 +288,7 @@ export function AgentConfigurationTab() {
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
-                Every limit is optional. Switch on the ones you want Orbit to enforce.
+                Switch on the limits you want Orbit to enforce. Loop limits are always on.
               </Text>
             </Stack>
             <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />
