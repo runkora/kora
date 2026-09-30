@@ -111,3 +111,47 @@ func TestRunnerParity_GuardSeesEachRunnersShellCall(t *testing.T) {
 		})
 	}
 }
+
+// A Monitor's result names a new task every time. Re-arming the same Monitor
+// is still one streak: warned once at each threshold, then paused, and a wait
+// warning due on the same call as a repeat warning is not lost.
+func TestLoopGuard_MonitorRearmsWithChangingResults(t *testing.T) {
+	limits := Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3, WaitRearmWarn: 2, WaitRearmPause: 6}.withDefaults()
+	g := &loopGuard{}
+	var kinds []string
+	var got []loopVerdict
+	for n := range 3 {
+		id := fmt.Sprintf("m%d", n)
+		for _, ev := range []Event{
+			toolUse(t, id, "Monitor", map[string]any{"command": "sleep 3; test -f ready.flag", "timeout_ms": 10000}),
+			func() Event {
+				ev, _ := newEvent(EventTypeToolResult, ToolResultPayload{ToolUseID: id, Content: "Monitor started (task b" + id + ")"})
+				return ev
+			}(),
+		} {
+			if v, f := g.observe(ev, limits); v != loopOK {
+				got = append(got, v)
+				kinds = append(kinds, f.kind)
+			}
+		}
+	}
+	if fmt.Sprint(got) != fmt.Sprint([]loopVerdict{loopWarn, loopPause}) {
+		t.Errorf("verdicts = %v (%v), want one warning then a pause", got, kinds)
+	}
+}
+
+// When the repeat warning takes a call, the wait warning due on it follows on
+// the next call instead of being skipped.
+func TestLoopGuard_SimultaneousThresholdsBothFire(t *testing.T) {
+	limits := Guardrails{RepeatedCallWarn: 3, RepeatedCallPause: 20, WaitRearmWarn: 3, WaitRearmPause: 20}.withDefaults()
+	g := &loopGuard{}
+	var kinds []string
+	for n := range 5 {
+		if v, f := g.observe(toolUse(t, fmt.Sprint(n), "Bash", map[string]any{"command": "sleep 5"}), limits); v == loopWarn {
+			kinds = append(kinds, f.kind)
+		}
+	}
+	if fmt.Sprint(kinds) != fmt.Sprint([]string{loopKindRepeatedCall, loopKindWaitRearm}) {
+		t.Errorf("warnings = %v, want a repeat warning then a wait warning", kinds)
+	}
+}

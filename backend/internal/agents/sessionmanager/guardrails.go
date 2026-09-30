@@ -307,8 +307,13 @@ type loopGuard struct {
 	// the count.
 	lastID     string
 	lastResult string
-	repeats    int
-	waits      int
+	// lastWait marks the latest call as a wait, whose result (a new monitor's
+	// id) changes every time without meaning progress.
+	lastWait bool
+	repeats  int
+	waits    int
+	// warnedRepeat and warnedWait hold each warning to once per streak.
+	warnedRepeat, warnedWait bool
 	// kinds maps an open tool_use id to whether its result can count as progress.
 	kinds map[string]bool
 }
@@ -318,7 +323,8 @@ type loopGuard struct {
 func (g *loopGuard) reset() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.lastCall, g.lastID, g.lastResult, g.repeats, g.waits, g.kinds = "", "", "", 0, 0, nil
+	g.lastCall, g.lastID, g.lastResult, g.lastWait = "", "", "", false
+	g.repeats, g.waits, g.warnedRepeat, g.warnedWait, g.kinds = 0, 0, false, false, nil
 }
 
 // observe folds one event into the counts and returns the verdict. Each
@@ -340,15 +346,15 @@ func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFindi
 		}
 		if p.ToolUseID == g.lastID {
 			result := fmt.Sprint(p.IsError, "\x00", p.Content)
-			if g.repeats > 1 && result != g.lastResult {
-				g.repeats = 1
+			if g.repeats > 1 && result != g.lastResult && !g.lastWait {
+				g.repeats, g.warnedRepeat = 1, false
 			}
 			g.lastResult = result
 		}
 		progress, known := g.kinds[p.ToolUseID]
 		delete(g.kinds, p.ToolUseID)
 		if known && progress && !p.IsError {
-			g.waits = 0
+			g.waits, g.warnedWait = 0, false
 		}
 	}
 	return loopOK, loopFinding{}
@@ -356,8 +362,8 @@ func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFindi
 
 func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdict, loopFinding) {
 	call := normaliseCall(p)
-	g.countRepeat(p.ID, call)
 	wait := waitTools[call.name] || (call.shell && isSleepCommand(call.command))
+	g.countRepeat(p.ID, call, wait)
 	if g.kinds == nil {
 		g.kinds = make(map[string]bool)
 	}
@@ -368,17 +374,21 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 
 	repeated := loopFinding{kind: loopKindRepeatedCall, count: g.repeats, tool: p.Name}
 	waiting := loopFinding{kind: loopKindWaitRearm, count: g.waits, tool: p.Name}
+	// At or above, not equal: when both counts cross a threshold on one call,
+	// the other still fires on the next.
 	switch {
-	case g.repeats == limits.RepeatedCallPause:
+	case g.repeats >= limits.RepeatedCallPause:
 		repeated.text = fmt.Sprintf("Orbit paused this run: the agent made the same %s call %d times in a row, including after a warning. Send a message to continue.", p.Name, g.repeats)
 		return loopPause, repeated
-	case wait && g.waits == limits.WaitRearmPause:
+	case wait && g.waits >= limits.WaitRearmPause:
 		waiting.text = fmt.Sprintf("Orbit paused this run: the agent re-armed a wait (Monitor, Cron or sleep) %d times with no progress, including after a warning. Send a message to continue.", g.waits)
 		return loopPause, waiting
-	case g.repeats == limits.RepeatedCallWarn:
+	case g.repeats >= limits.RepeatedCallWarn && !g.warnedRepeat:
+		g.warnedRepeat = true
 		repeated.text = fmt.Sprintf("Orbit guardrail: your last %d tool calls were the same %s call with the same input. Repeating it will not change the result. Try a different approach, or stop and tell the user what is blocking you. If the repetition continues, Orbit will pause this run for the user.", g.repeats, p.Name)
 		return loopWarn, repeated
-	case wait && g.waits == limits.WaitRearmWarn:
+	case wait && g.waits >= limits.WaitRearmWarn && !g.warnedWait:
+		g.warnedWait = true
 		waiting.text = fmt.Sprintf("Orbit guardrail: you have re-armed a wait (Monitor, Cron or sleep) %d times with no progress in between. More waiting will not unblock this. Stop waiting: tell the user what you are waiting for and why, then end your turn. If the waiting continues, Orbit will pause this run for the user.", g.waits)
 		return loopWarn, waiting
 	}
@@ -386,13 +396,13 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 }
 
 // countRepeat extends the repeated-call streak when call matches the last one.
-func (g *loopGuard) countRepeat(id string, call toolCall) {
+func (g *loopGuard) countRepeat(id string, call toolCall, wait bool) {
 	if call.key == g.lastCall {
 		g.repeats++
 	} else {
-		g.lastCall, g.lastResult, g.repeats = call.key, "", 1
+		g.lastCall, g.lastResult, g.repeats, g.warnedRepeat = call.key, "", 1, false
 	}
-	g.lastID = id
+	g.lastID, g.lastWait = id, wait
 }
 
 // applyLoopGuard acts on the guard's verdict for one event. A warning is

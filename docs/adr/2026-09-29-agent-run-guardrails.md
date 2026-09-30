@@ -76,10 +76,11 @@ Nothing stops a run that has stopped making progress.
 ### G2 loop breaker
 
 - The drain loop keeps two counts per run.
-  - **Repeated calls**: consecutive `tool_use` events with the same name and input, ignoring the free-text `description` Claude Code and OpenCode rewrite on each call, whose results are also unchanged. A call whose result differs from the last one restarts the count, so polling that sees progress is not a loop.
+  - **Repeated calls**: consecutive `tool_use` events with the same name and input, ignoring the free-text `description` Claude Code and OpenCode rewrite on each call, whose results are also unchanged. A call whose result differs from the last one restarts the count, so polling that sees progress is not a loop. A wait tool's result (a new monitor's id) is not treated as a changed result.
   - **Wait re-arms**: wait tools, and shell calls that sleep and otherwise only look (a poll such as `sleep 3; test -f ready.flag`), reset by any successful result from a call that does more than look. Looking means the read-only tools and shell commands made only of `echo`, `cat`, `tail`, `head`, `ls`, `date`, `pwd`, `wc`, `test`, `grep`, `stat` and `sleep`.
 - At the warning threshold (`repeatedCallWarn` 4, `waitRearmWarn` 6) the run records a durable `guardrail_warning` event carrying `kind` (`repeated_call` or `wait_rearm`), `count` and `tool`, and the model receives one message through the runtime's message path, naming the loop and asking it to change approach or stop and tell the user. The model-facing text is not recorded as a `human_message`.
 - At the pause threshold (`repeatedCallPause` 8, `waitRearmPause` 12) the run records `run_error` with code `loop_detected` and the turn is stopped through the runtime's stop path. That ends the turn and leaves the run idle for the user. The runtime's `turn_stopped` for that stop is recorded with reason `guardrail`, not `user`, and the chat shows it as stopped by Orbit.
+- A threshold fires when a count reaches or passes it, and each warning fires once per streak, so a warning due on the same call as the other count's warning still arrives.
 - Counts survive turn boundaries, because wake-ups from a Monitor start new turns. A user message resets them.
 - All thresholds are `session-manager` configuration under `guardrails`.
 
