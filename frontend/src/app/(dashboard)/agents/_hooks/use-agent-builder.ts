@@ -36,7 +36,13 @@ import {
   fetchModels,
   updateDraft,
 } from '../_services/agents-api';
-import type { AgentTypeRow } from '../_types';
+import {
+  loopGuardrailErrors,
+  loopGuardrailsPayload,
+  loopGuardrailValues,
+  type AgentTypeRow,
+  type LoopGuardrailValues,
+} from '../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,7 +69,7 @@ export const BUILDER_STEPS = [
   },
 ] as const;
 
-export interface BuilderFields {
+export interface BuilderFields extends LoopGuardrailValues {
   name: string;
   slug: string;
   slugEdited: boolean;
@@ -157,6 +163,7 @@ const EMPTY_FIELDS: BuilderFields = {
   runBudgetUsd: '5.00',
   capacityOn: false,
   capacity: '10',
+  ...loopGuardrailValues(undefined),
 };
 
 /** The draft payload: a partial create request plus builder-only resume state. */
@@ -204,6 +211,8 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
   if (fields.capacityOn && Number(fields.capacity) > 0) {
     payload.max_concurrent_runs_per_pod = Number(fields.capacity);
   }
+  const guardrails = loopGuardrailsPayload(fields);
+  if (Object.keys(guardrails).length > 0) payload.guardrails = guardrails;
   return payload;
 }
 
@@ -234,6 +243,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     capacity: payload.max_concurrent_runs_per_pod
       ? String(payload.max_concurrent_runs_per_pod)
       : '10',
+    ...loopGuardrailValues(payload.guardrails),
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
   return { fields, step };
@@ -525,8 +535,10 @@ export function useAgentBuilder(params: {
     if (!SLUG_RE.test(fields.slug)) blockers.push('Identity needs a valid slug.');
     if (!fields.modelId) blockers.push('Behaviour needs a model.');
     if (!fields.systemPrompt.trim()) blockers.push('Behaviour needs system instructions.');
+    if (Object.keys(loopGuardrailErrors(fields)).length > 0)
+      blockers.push('Guardrails need valid loop thresholds.');
     return blockers;
-  }, [fields.name, fields.slug, fields.modelId, fields.systemPrompt]);
+  }, [fields]);
 
   const goTo = useCallback(
     (target: number) => {

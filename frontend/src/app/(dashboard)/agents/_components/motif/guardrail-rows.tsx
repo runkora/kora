@@ -15,8 +15,9 @@ import {
   Toggle,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
+import { loopGuardrailErrors, type LoopGuardrailValues } from '../../_types';
 
-export interface GuardrailValues {
+export interface GuardrailValues extends LoopGuardrailValues {
   agentBudgetOn: boolean;
   agentBudgetUsd: string;
   agentBudgetCadence: 'weekly' | 'monthly';
@@ -26,26 +27,29 @@ export interface GuardrailValues {
   capacity: string;
 }
 
+/** A limit row. Without onToggle the limit is always enforced and shows no switch. */
 export function GuardrailRow({
-  on,
+  on = true,
   onToggle,
   icon,
   title,
   desc,
+  error,
   children,
 }: {
-  on: boolean;
-  onToggle: (on: boolean) => void;
+  on?: boolean;
+  onToggle?: (on: boolean) => void;
   icon: IconName;
   title: string;
   desc: string;
+  error?: string;
   children?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardContent padded compact>
         <Stack direction="horizontal" align="center" gap="cozy">
-          <Toggle checked={on} onChange={onToggle} aria-label={title} />
+          {onToggle && <Toggle checked={on} onChange={onToggle} aria-label={title} />}
           <Stack grow gap="snug" disabled={!on}>
             <Stack direction="horizontal" align="center" gap="cozy">
               <Icon
@@ -67,6 +71,11 @@ export function GuardrailRow({
               <Show above="lg">{children}</Show>
             </Stack>
             {children && <Show below="lg">{children}</Show>}
+            {error && (
+              <Text size="caption" color="status-error" role="alert">
+                {error}
+              </Text>
+            )}
           </Stack>
         </Stack>
       </CardContent>
@@ -81,6 +90,7 @@ export function GuardrailsFields({
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
 }) {
+  const loopErrors = loopGuardrailErrors(values);
   return (
     <Stack gap="cozy">
       <GuardrailRow
@@ -168,6 +178,78 @@ export function GuardrailsFields({
           </Text>
         </Stack>
       </GuardrailRow>
+
+      <LoopThresholdRow
+        icon="refresh-cw"
+        title="Repeated calls"
+        desc="The same tool call with the same input and the same result, in a row"
+        warn="repeatedCallWarn"
+        pause="repeatedCallPause"
+        error={loopErrors.repeatedCall}
+        values={values}
+        onChange={onChange}
+      />
+      <LoopThresholdRow
+        icon="clock"
+        title="Wait loops"
+        desc="Waits re-armed (monitors, scheduled wake-ups, sleeps) with no progress in between"
+        warn="waitRearmWarn"
+        pause="waitRearmPause"
+        error={loopErrors.waitRearm}
+        values={values}
+        onChange={onChange}
+      />
     </Stack>
+  );
+}
+
+/**
+ * One loop-guard threshold pair. Orbit warns the agent at the first number and
+ * pauses the run for the user at the second; both are always enforced.
+ */
+function LoopThresholdRow({
+  icon,
+  title,
+  desc,
+  warn,
+  pause,
+  error,
+  values,
+  onChange,
+}: {
+  icon: IconName;
+  title: string;
+  desc: string;
+  warn: keyof LoopGuardrailValues;
+  pause: keyof LoopGuardrailValues;
+  error?: string;
+  values: GuardrailValues;
+  onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
+}) {
+  const input = (key: keyof LoopGuardrailValues, label: string) => (
+    <Stack direction="horizontal" align="center" gap="snug">
+      <Text as="span" size="micro" color="subtle">
+        {label}
+      </Text>
+      <Stack maxWidth="form-field-sm">
+        <Input
+          mono
+          compact
+          inputMode="numeric"
+          hasError={Boolean(error)}
+          value={values[key]}
+          onChange={(e) => onChange(key, e.target.value)}
+          aria-label={`${title}: ${label.toLowerCase()}`}
+        />
+      </Stack>
+    </Stack>
+  );
+  return (
+    <GuardrailRow icon={icon} title={title} desc={desc} error={error}>
+      <Stack direction="horizontal" align="center" gap="cozy" shrink={false}>
+        {input(warn, 'Warn after')}
+        {input(pause, 'Pause after')}
+      </Stack>
+    </GuardrailRow>
   );
 }
