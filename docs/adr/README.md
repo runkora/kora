@@ -141,7 +141,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed` · 2026-09-04
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Proposed` · 2026-09-04
 - [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
-- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Proposed` · 2026-09-30
+- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
 
 ### Frontend & Design System
 
@@ -279,5 +279,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Accepted | — |
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted | — |
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
-| 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Proposed | — |
+| 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

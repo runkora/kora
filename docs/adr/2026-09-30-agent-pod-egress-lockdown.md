@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-30-agent-pod-egress-lockdown.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-30
 **Deciders:** Justin Wilkin
 **Technical Story:** The agent pod (session-manager, the agent CLI it spawns, and the injected identity-proxy and OPA sidecars) can reach any host. Implements, for agent pods, the "external egress via gateway only" constraint of [2026-03-05: Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md), which was never built for them.
@@ -34,7 +34,6 @@ This touches *What can it access?*, because it removes every destination the pla
 
 - Per-container egress rules inside the agent pod. The sidecars and the agent share the pod's network namespace.
 - Changing the sandbox pod's egress, or the egress gateway.
-- Agent pods reaching a telemetry collector outside the cluster. Only an in-cluster collector is allowed (see Consequences).
 
 ---
 
@@ -113,11 +112,13 @@ This touches *What can it access?*, because it removes every destination the pla
    | `orbit-system` `app=orbit-tool-gateway` | 8096 TCP | governed MCP servers |
    | `orbit-system` `app=orbit-policy-service` | 8083 TCP | OPA bundle polling |
    | this namespace, `orbit.io/role=sandbox` pods | 50051 TCP | orbit-shell, the session registry and the egress canary to `sandbox-exec` |
-   | the collector namespace, when set | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
+   | the in-cluster collector namespace, when set | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
 
-   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector namespace is `global.observability.collectorNamespace`, passed to the operator as it already is to the chart's own collector rule, and the port comes from the tenant collector endpoint.
+   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector namespace is `global.observability.collectorNamespace`, passed to the operator as it already is to the chart's own collector rule, and the port comes from the tenant collector endpoint. The collector rule names only that in-cluster namespace; agent pods export to no other collector.
 
-2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, orbit-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the collector's host when one is set.
+   The pod's only stdio MCP server is `orbit-runtime-mcp`, the same for all three runtimes. It calls the session-manager on loopback, which no policy covers. `orbit-shell` calls the session-manager on loopback and `sandbox-exec` on the sandbox pod. Governed MCP servers are remote entries through the tool gateway.
+
+2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, orbit-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the services of the in-cluster collector namespace when one is set.
 
 3. **No bypass ports.** `5432` is removed from the agent pod's `traffic.sidecar.istio.io/excludeOutboundPorts`: the session-manager holds no database credential and reaches Postgres through orbit-agents. `50051` stays excluded, as decided in [2026-09-18: Authenticated Sandbox Exec](2026-09-18-sandbox-exec-trust-boundary.md), and the NetworkPolicy limits it to the namespace's sandbox pods.
 
@@ -128,7 +129,7 @@ This touches *What can it access?*, because it removes every destination the pla
 
 5. **Enforcement is unconditional.** Like the sandbox policies, the agent policies do not depend on `networkPolicy.enabled`, which governs the chart's own `orbit-system` policies. A cluster whose CNI does not enforce NetworkPolicy keeps the Sidecar's host restriction.
 
-A run without a sandbox therefore has no external egress. A run with one reaches external hosts only through the sandbox shell, and so only through the egress gateway and its policy.
+A run without a sandbox therefore has no external egress except through governed MCP servers via the tool gateway. A run with a sandbox also reaches external hosts through the sandbox shell, and so through the egress gateway and its policy.
 
 ### Rationale
 
@@ -146,7 +147,6 @@ The NetworkPolicy alone meets the security goal but makes every blocked call han
 
 ### Negative
 
-- Agent pods cannot export telemetry to a collector outside the cluster. An external collector needs a follow-up that names its CIDR for tenant namespaces.
 - A new platform dependency of the agent pod needs a rule in both resources, or it is blocked. Both live in one operator file, and the operator reconciles changes onto existing tenants.
 - The sidecars share the allow-list: the agent process can open a connection to the identity or policy service, as those sidecars must. Both services authenticate the caller, so reachability grants nothing on its own.
 
