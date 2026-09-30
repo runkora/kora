@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -98,9 +99,7 @@ func (a *InferenceProviderAggregator) Sync(ctx context.Context) (map[types.Names
 			continue
 		}
 		entries = append(entries, entry)
-		for k, v := range data {
-			secretData[k] = v
-		}
+		maps.Copy(secretData, data)
 		results[key] = providerResult{
 			providerName: entry.Name,
 			reason:       reasonProviderAggregated,

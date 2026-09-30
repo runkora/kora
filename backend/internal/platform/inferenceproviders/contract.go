@@ -9,6 +9,7 @@ package inferenceproviders
 import (
 	"fmt"
 	"regexp"
+	"slices"
 )
 
 const (
@@ -37,12 +38,7 @@ var Types = []Type{TypeBedrock, TypeVertexAI, TypeAzure, TypeOpenAI, TypeAnthrop
 
 // Valid reports whether t is a known provider type.
 func (t Type) Valid() bool {
-	for _, known := range Types {
-		if t == known {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(Types, t)
 }
 
 // Default upstream addresses for the generic types.

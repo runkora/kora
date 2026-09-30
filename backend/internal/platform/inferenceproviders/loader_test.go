@@ -73,8 +73,7 @@ func TestEntryValidate(t *testing.T) {
 
 func TestWatchCallsOnChange(t *testing.T) {
 	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var calls atomic.Int32
 	go Watch(ctx, logging.NewLoggerWithOutput(io.Discard), []string{dir, ""}, func(context.Context) { calls.Add(1) })
