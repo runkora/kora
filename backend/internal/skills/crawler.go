@@ -2,8 +2,13 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
+	"sort"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -24,9 +29,10 @@ type Crawler struct {
 	logger logging.Logger
 }
 
-// githubTreeClient is the one GitHub client method the crawler uses.
+// githubTreeClient has the GitHub client methods the crawler uses.
 type githubTreeClient interface {
 	GetTree(ctx context.Context, token, org, repo, ref string) ([]ghclient.TreeEntry, error)
+	GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error)
 }
 
 // githubTokenProvider gives the crawler a GitHub token. *TokenProvider satisfies it.
@@ -129,4 +135,116 @@ func nearestSkill(filePath string, skillFolders map[string]string) (string, bool
 		}
 	}
 	return "", false
+}
+
+// Crawl finds the skills in the marketplace repository and downloads their
+// files. It is the entry point the service layer calls on a cache miss.
+//
+// Skills are fetched in parallel. Crawl returns an error if the tree walk or
+// the token fails, if ctx ends, or if GitHub is unavailable or rate-limits a
+// download (ghclient.ErrUnavailable). For these errors the backend ADR
+// (docs/adr/2026-08-28-marketplace-adr-backend.md) expects a 503 and no cache
+// write, so a GitHub outage never leaves a partial list in the cache. Any
+// other failure of one skill — bad frontmatter, or a file that fails to
+// download — skips only that skill, with a warning.
+//
+// The result is sorted by Slug.
+func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill, error) {
+	skillPaths, err := c.FetchTree(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := c.tokens.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get github token: %w", err)
+	}
+
+	var mu sync.Mutex
+	skills := make([]Skill, 0, len(skillPaths))
+
+	g, gctx := errgroup.WithContext(ctx)
+	for skillName, paths := range skillPaths {
+		g.Go(func() error {
+			skill, err := c.fetchSkill(gctx, token, source, skillName, paths)
+			if err == nil {
+				mu.Lock()
+				skills = append(skills, skill)
+				mu.Unlock()
+				return nil
+			}
+			if errors.Is(err, ghclient.ErrUnavailable) {
+				// A GitHub outage or rate limit: stop the whole crawl.
+				return err
+			}
+			if gctx.Err() != nil {
+				// The crawl stopped: ctx ended, or another skill hit an outage.
+				return gctx.Err()
+			}
+			// A problem with this skill only.
+			c.logger.Warn(gctx, "skipping skill that failed to load — the other skills are kept",
+				logging.Field{Key: "marketplace", Value: source.Name},
+				logging.Field{Key: "skillName", Value: skillName},
+				logging.Field{Key: "skillPath", Value: paths.SkillPath},
+				logging.Field{Key: "error", Value: err.Error()})
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	sort.Slice(skills, func(i, j int) bool { return skills[i].Slug < skills[j].Slug })
+	return skills, nil
+}
+
+// fetchSkill downloads the SKILL.md of one skill, parses its frontmatter,
+// and then downloads the documents in parallel. SKILL.md comes first, so a
+// skill with bad frontmatter costs one download, not one per document.
+func (c *Crawler) fetchSkill(ctx context.Context, token string, source MarketplaceSource, skillName string, paths SkillFilePaths) (Skill, error) {
+	skillFile, err := c.fetchFile(ctx, token, source, paths.SkillPath)
+	if err != nil {
+		return Skill{}, err
+	}
+
+	frontmatter, err := ParseSkillFrontmatter(skillFile.Content)
+	if err != nil {
+		return Skill{}, fmt.Errorf("parse frontmatter of %s: %w", paths.SkillPath, err)
+	}
+
+	// documents has a fixed length, so it keeps the tree order and is never
+	// nil: a skill without documents marshals as "documents": [].
+	documents := make([]SkillFile, len(paths.DocumentPaths))
+	g, gctx := errgroup.WithContext(ctx)
+	for i, documentPath := range paths.DocumentPaths {
+		g.Go(func() error {
+			document, err := c.fetchFile(gctx, token, source, documentPath)
+			if err != nil {
+				return err
+			}
+			documents[i] = document
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return Skill{}, err
+	}
+
+	return Skill{
+		Slug:        source.Name + "/" + skillName, // ADR "Slug Format": {marketplace-name}/{skill-name}
+		Name:        frontmatter.Name,
+		Description: frontmatter.Description,
+		Skill:       skillFile,
+		Documents:   documents,
+	}, nil
+}
+
+// fetchFile downloads one file of the repository. Every download goes
+// through here, so the concurrency caps can wrap this one call.
+func (c *Crawler) fetchFile(ctx context.Context, token string, source MarketplaceSource, filePath string) (SkillFile, error) {
+	content, err := c.github.GetRawContent(ctx, token, source.Org, source.Repo, source.Branch, filePath)
+	if err != nil {
+		return SkillFile{}, fmt.Errorf("download %s: %w", filePath, err)
+	}
+	return SkillFile{Path: filePath, Name: path.Base(filePath), Content: string(content)}, nil
 }
