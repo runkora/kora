@@ -87,8 +87,8 @@ spec:
             - name: ORBIT_SANDBOX_IMAGE
               value: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
             {{- $guardrails := .Values.agents.guardrails }}
-            {{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 330) }}
-              {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 330" }}
+            {{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
+              {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}
             {{- end }}
             - name: ORBIT_GUARDRAILS_SANDBOX_PROVISION_ATTEMPTS
               value: {{ $guardrails.sandboxProvisionAttempts | quote }}

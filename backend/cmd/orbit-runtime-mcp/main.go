@@ -21,7 +21,7 @@ import (
 
 // provisionTimeout sits above the session-manager's worst case for a provision:
 // its retry budget (the chart caps agents.guardrails.sandboxProvisionBudgetSecs
-// at 330) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
+// at 320) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
 // reports a sandbox that the session-manager then goes on to hand over.
 const provisionTimeout = 420 * time.Second
 

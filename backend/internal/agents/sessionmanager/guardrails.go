@@ -327,8 +327,8 @@ func (g *loopGuard) reset() {
 	g.repeats, g.waits, g.warnedRepeat, g.warnedWait, g.kinds = 0, 0, false, false, nil
 }
 
-// observe folds one event into the counts and returns the verdict. Each
-// threshold fires once, when the count reaches it.
+// observe folds one event into the counts and returns the verdict. A warning
+// fires once per streak; a pause resets the counts.
 func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFinding) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

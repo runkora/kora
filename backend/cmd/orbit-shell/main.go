@@ -90,7 +90,7 @@ func readSandbox() sandbox {
 const runTokenHeader = "X-Orbit-Run-Token"
 
 // provisionTimeout sits above the session-manager's worst case for a provision
-// (its retry budget, at most 330s, plus the 90s egress canary), so its verdict
+// (its retry budget, at most 320s, plus the 90s egress canary), so its verdict
 // arrives. orbit-runtime-mcp uses the same bound.
 const provisionTimeout = 420 * time.Second
 

@@ -495,7 +495,7 @@ agents:
     sandboxProvisionAttempts: 3
     # -- Seconds before the second attempt; doubles for each attempt after.
     sandboxProvisionBackoffSecs: 5
-    # -- Seconds across all attempts. At most 330, so the agent's tools still hear the outcome.
+    # -- Seconds across all attempts. At most 320, so the agent's tools still hear the outcome.
     sandboxProvisionBudgetSecs: 300
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
