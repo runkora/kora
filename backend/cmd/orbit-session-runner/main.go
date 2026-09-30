@@ -6,8 +6,9 @@
 // The agent can write only its workspace, its TMPDIR and /dev, and read system
 // paths, its config dir and a fixed set of system-wide /proc files. No per-process
 // /proc entry is readable, its own included, so a run cannot list /proc or read a
-// sibling's command line, status or environment. It can still stat /proc/<pid>. Landlock's IPC scopes stop it from
-// signaling processes outside its domain where the kernel supports them (6.12+).
+// sibling's command line, status or environment. It can still stat /proc/<pid>.
+// Where the kernel supports them (6.12+), Landlock's IPC scopes stop it from
+// signaling processes or connecting to abstract Unix sockets outside its domain.
 // All of it is best-effort: kernels without Landlock run the agent unrestricted.
 //
 // See docs/adr/2026-06-04-per-session-home-isolation.md.

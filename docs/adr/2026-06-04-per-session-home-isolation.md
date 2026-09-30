@@ -382,16 +382,16 @@ Option 5, with Landlock's IPC scopes, and the unused namespace path removed from
 
 **Verified on the local cluster**
 
-Session-manager image `c71a5a7` on `ux-probe` (Claude Code), `codex-probe` and `opencode-probe`, k3d on kernel 6.8 (Landlock ABI 4), 2026-09-30.
+One agent pod per runtime, on kernel 6.8 (Landlock ABI 4), 2026-09-30.
 
 | Check | Claude Code | Codex | OpenCode |
 |---|---|---|---|
-| Sibling probe from a run's shell on the agent pod: `ls /proc`, `ps`, sibling `cmdline`, `status`, `stat`, `environ`, the session-manager's `environ`, own `/proc/self/status` | All `Permission denied` (`c0935583`) | All `Permission denied` (`27e6b9d1`) | All `Permission denied` (`19cc5e1f`) |
+| Sibling probe from a run's shell on the agent pod: `ls /proc`, `ps`, sibling `cmdline`, `status`, `stat`, `environ`, the session-manager's `environ`, own `/proc/self/status` | All `Permission denied` | All `Permission denied` | All `Permission denied` |
 | Same probe: `/proc/cpuinfo`, `kill -0 <sibling>`, `test -e /proc/<sibling>` | Allowed | Allowed | Allowed |
-| Write, read, edit, shell (`git`, Node `os.cpus()` returns 8), subagent, without a sandbox | Works (`994e383f`) | Works through the edit; the run then died on `grep -R` over its own growing Codex log, identically on the main image (`8e8668e2`, `c300c5fe`) | Works (`e8c03363`) |
-| The same with a sandbox, through `orbit-shell` | Works (`4cbbe89e`) | Works (`75fa1a97`) | Works (`7addd5a0`) |
-| Stop during a shell command, then a new message | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox (`6f12ce1a`, `75fa1a97`) | Stopped and answered, with and without a sandbox |
-| Glob and grep tools | Not available in this Claude Code build ("No such tool available"), with the current rules too | Reads go through the shell | `ripgrep execution failed`, with and without a sandbox, as on the main image |
+| Write, read, edit, shell (`git`, Node `os.cpus()` returns 8), subagent, without a sandbox | Works | Works through the edit; the run then died on `grep -R` over its own growing Codex log, which happens identically without this change | Works |
+| The same with a sandbox, through `orbit-shell` | Works | Works | Works |
+| Stop during a shell command, then a new message | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox |
+| Glob and grep tools | Not available in this Claude Code build ("No such tool available"), with the current rules too | Reads go through the shell | `ripgrep execution failed`, with and without a sandbox, as without this change |
 
 ---
 
