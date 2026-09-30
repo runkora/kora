@@ -76,3 +76,21 @@ func TestReprovisionSandbox_Non2xx(t *testing.T) {
 		t.Fatal("expected error on non-2xx provision response")
 	}
 }
+
+// The session-manager's explanation of a lost sandbox reaches the agent intact.
+func TestReprovisionSandbox_RelaysLostSandboxMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"sandbox_lost","message":"The sandbox for this run is gone."}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("WORKSPACE", t.TempDir())
+	t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
+	t.Setenv("ORBIT_RUN_ID", "run-1")
+
+	_, err := reprovisionSandbox()
+	if err == nil || err.Error() != "The sandbox for this run is gone." {
+		t.Fatalf("err = %v, want the session-manager's message", err)
+	}
+}

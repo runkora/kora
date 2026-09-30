@@ -20,7 +20,7 @@ import (
 )
 
 // provisionTimeout sits above the session-manager's worst case for a provision:
-// the orbit-agents call (300s, sessionmanager.NewHTTPNotifier) plus the egress
+// its retry budget (300s, guardrails.sandboxProvisionBudgetSecs) plus the egress
 // canary (90s, egressCanaryMaxWait). Timing out first reports a sandbox that the
 // session-manager then goes on to hand over.
 const provisionTimeout = 420 * time.Second
@@ -171,7 +171,16 @@ func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
 	switch params.Name {
 	case "provision_sandbox":
 		if err := s.provisionSandbox(); err != nil {
-			return errResponse(req.ID, -32000, fmt.Sprintf("provision_sandbox failed: %v", err))
+			// A tool result with isError, not a JSON-RPC error: the model reads the
+			// text, which tells it what survived and what to do next.
+			return jsonRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]any{
+					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("provision_sandbox failed: %v", err)}},
+					"isError": true,
+				},
+			}
 		}
 		return jsonRPCResponse{
 			JSONRPC: "2.0",
@@ -202,6 +211,12 @@ func (s *mcpServer) provisionSandbox() error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+			return errors.New(apiErr.Message)
+		}
 		return fmt.Errorf("session-manager returned %d: %s", resp.StatusCode, string(body))
 	}
 	return nil

@@ -162,7 +162,7 @@ export const AgentTurnItem = memo(function AgentTurnItem({
                     >
                       <Icon name="circle-x" size="xs" />
                       <Text size="supporting" color="muted">
-                        Stopped by you
+                        {el.byGuardrail ? 'Stopped by Orbit' : 'Stopped by you'}
                       </Text>
                     </Stack>
                   );

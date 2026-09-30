@@ -18,6 +18,9 @@ const (
 	EventTypeAPIRetry        EventType = "api_retry"
 	EventTypeSandboxStatus   EventType = "sandbox_status"
 	EventTypeTurnStopped     EventType = "turn_stopped"
+	// EventTypeGuardrailWarning records that the loop guard warned the agent
+	// (docs/adr/2026-09-29-agent-run-guardrails.md).
+	EventTypeGuardrailWarning EventType = "guardrail_warning"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
 	// Not written to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md); consumed by orbit-agents SSE subscribers.
@@ -131,8 +134,8 @@ type SandboxStatusPayload struct {
 	Message   string `json:"message,omitempty"`
 }
 
-// TurnStoppedPayload marks a turn the user stopped. Any partial text precedes
-// it as a message_complete.
+// TurnStoppedPayload marks a stopped turn: Reason is "user", or "guardrail" for a
+// loop-guard pause. Any partial text precedes it as a message_complete.
 type TurnStoppedPayload struct {
 	Reason string `json:"reason"`
 }
@@ -142,6 +145,14 @@ type TurnStoppedPayload struct {
 type RunErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// GuardrailWarningPayload records a loop guard warning: which loop, how many
+// calls it had run to, and the tool involved.
+type GuardrailWarningPayload struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
+	Tool  string `json:"tool"`
 }
 
 // TextDeltaPayload carries one chunk of streamed assistant text.

@@ -594,6 +594,12 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		// Written for the model: orbit-runtime-mcp and orbit-shell relay it as the tool error.
+		if errors.Is(err, ErrSandboxLost) {
+			apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

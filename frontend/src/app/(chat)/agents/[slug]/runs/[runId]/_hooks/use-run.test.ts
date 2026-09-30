@@ -395,6 +395,16 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 
+  it('marks a turn the loop guard stopped as stopped by Orbit', async () => {
+    const { result, emit } = await start();
+    emit('text_delta', { delta: 'Trying again' });
+    emit('message_complete', { text: 'Trying again', interrupted: true });
+    emit('turn_stopped', { reason: 'guardrail' });
+    expect(result.current.turns.at(-1)).toMatchObject({
+      elements: [{ kind: 'text' }, { kind: 'stopped', byGuardrail: true }],
+    });
+  });
+
   it('reports what the agent is doing on the status line', async () => {
     const { result, emit } = await start();
     emit('sandbox_status', { phase: 'provisioning', elapsed_ms: 0 });

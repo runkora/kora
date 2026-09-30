@@ -90,6 +90,7 @@ type SessionConfig struct {
 type session struct {
 	runID            string
 	runner           Runner
+	runCtx           context.Context // canceled when the session closes
 	cancel           context.CancelFunc
 	done             chan struct{}
 	model            string
@@ -106,6 +107,19 @@ type session struct {
 	// sandbox is this run's descriptor, once provisioned. Kept in memory because
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
+	// sandboxLost makes provision requests fail fast once the sandbox could not
+	// be replaced, until the user's next message. lostAttempts is how many
+	// attempts that took; sandboxEpoch counts user messages, so a retry that
+	// fails after the user replied does not re-block them.
+	sandboxLost  atomic.Bool
+	lostAttempts atomic.Int64
+	sandboxEpoch atomic.Int64
+	lostMu       sync.Mutex // orders userReplied against markSandboxLost
+	provisionMu  sync.Mutex
+	// guardStopped is set while a loop-guard pause is in flight, so the runner's
+	// turn_stopped is recorded as the guardrail's stop, not the user's.
+	guardStopped atomic.Bool
+	guard        loopGuard
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -115,6 +129,7 @@ type Registry struct {
 	notifier    Notifier
 	summarizer  *summarizer
 	idleTimeout time.Duration
+	guardrails  Guardrails
 	mu          sync.RWMutex
 	sessions    map[string]*session
 }
@@ -127,6 +142,7 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		notifier:    notifier,
 		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
+		guardrails:  DefaultGuardrails(),
 		sessions:    make(map[string]*session),
 	}
 }
@@ -151,6 +167,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	s := &session{
 		runID:        cfg.RunID,
 		runner:       cfg.Runner,
+		runCtx:       runCtx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
 		wake:         make(chan struct{}, 1),
@@ -177,15 +194,6 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		logging.Field{Key: "tenant_id", Value: cfg.TenantID},
 	)
 	return nil
-}
-
-// hosts reports whether this pod is running the given run. Loopback tells the
-// /internal routes that the caller is in this pod, not which run it belongs to.
-func (reg *Registry) hosts(runID string) bool {
-	reg.mu.RLock()
-	defer reg.mu.RUnlock()
-	_, ok := reg.sessions[runID]
-	return ok
 }
 
 // Send delivers a user text message to an existing session.
@@ -218,6 +226,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	case s.wake <- struct{}{}:
 	default:
 	}
+	reg.userReplied(s)
 	// The first user message is the run's task. Generate its summary once, in the
 	// background, over the agent's own authorized inference path.
 	s.summarizeOnce.Do(func() {
@@ -260,7 +269,11 @@ func (reg *Registry) SendToolResult(ctx context.Context, runID, toolUseID, conte
 	if !ok {
 		return ErrSessionNotFound
 	}
-	return s.runner.SendToolResult(ctx, toolUseID, content)
+	if err := s.runner.SendToolResult(ctx, toolUseID, content); err != nil {
+		return err
+	}
+	reg.userReplied(s)
+	return nil
 }
 
 // Interrupt signals the CLI subprocess to stop its current in-progress turn
@@ -349,9 +362,18 @@ type Sandbox struct {
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
-	if !reg.hosts(runID) {
+	// Only runs this pod hosts: loopback tells the /internal routes that the
+	// caller is in this pod, not which run it belongs to.
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
 		return "", ErrSessionNotFound
 	}
+	// One provision per run at a time: parallel Bash calls that all find the
+	// sandbox dead then share one replacement instead of racing for several.
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
 
 	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
 	if !pathsOK {
@@ -375,12 +397,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.notifier.ProvisionSandbox(ctx, runID, ahead)
-	if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
-		// Checked here too, not only in the notifier: half a descriptor would be
-		// written as empty files, which orbit-shell cannot use.
-		err = ErrSandboxIncomplete
-	}
+	sandbox, err := reg.provision(ctx, s, ahead)
 	if err != nil {
 		// The error names in-cluster addresses; the event is readable by anyone
 		// who can read the run, so it carries a fixed message and the log the rest.
@@ -450,6 +467,42 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 		return
 	}
 	reg.pushEvent(context.WithoutCancel(ctx), runID, ev)
+}
+
+// provision gets a sandbox from orbit-agents. A pre-provision tries once, since
+// the agent can still ask later. An agent's request retries within the
+// guardrail, and a final failure marks the sandbox lost.
+//
+// The retries outlive the caller: Claude Code kills a Bash call after its own
+// timeout, and the outcome must still be recorded.
+func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (Sandbox, error) {
+	if ahead {
+		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true)
+		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
+			err = ErrSandboxIncomplete
+		}
+		return sandbox, err
+	}
+	if s.sandboxLost.Load() {
+		return Sandbox{}, ErrSandboxLost
+	}
+	epoch := s.sandboxEpoch.Load()
+	runCtx := s.runCtx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s.runID)
+	if err == nil {
+		return sandbox, nil
+	}
+	// A closed or replaced session is not evidence the sandbox is gone.
+	if runCtx.Err() != nil {
+		return Sandbox{}, err
+	}
+	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, epoch) {
+		return Sandbox{}, err
+	}
+	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)
 }
 
 // rememberSandbox records the run's descriptor on its session.
@@ -745,7 +798,8 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 				return
 			}
 
-			reg.pushEvent(ctx, cfg.RunID, ev)
+			reg.pushEvent(ctx, cfg.RunID, s.labelGuardStop(ev))
+			reg.applyLoopGuard(ctx, s, ev)
 
 		case <-s.wake:
 			disarmIdle()
@@ -767,6 +821,9 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	bgCtx := context.Background()
+	// The process is gone: stop work still bound to this session, such as a
+	// sandbox retry, before a resumed session takes over or the run ends.
+	s.cancel()
 
 	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
 	// so the next message can be delivered to a warm process. Run transitions to idle.
@@ -801,9 +858,10 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 				newS.isIdle.Store(true)
 				newS.stoppedByUser.Store(true)
+				carrySandboxState(s, newS)
 				// Swap only if s is still the registered session. If a concurrent
 				// Close() already claimed it, abandon the new runner so it is not
 				// leaked as an untracked process.
@@ -905,7 +963,7 @@ func (reg *Registry) emitRunError(ctx context.Context, runID, code, message stri
 func isDurableEvent(t EventType) bool {
 	switch t {
 	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError,
-		EventTypeAPIRetry, EventTypeSandboxStatus, EventTypeTurnStopped:
+		EventTypeAPIRetry, EventTypeSandboxStatus, EventTypeTurnStopped, EventTypeGuardrailWarning:
 		return true
 	}
 	return false
