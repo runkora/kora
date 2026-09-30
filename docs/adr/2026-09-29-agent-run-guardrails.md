@@ -121,6 +121,43 @@ None of the three questions changes. The guardrails alter what the platform reco
 
 ---
 
+## Amendment 1 (2026-09-30): Configurable thresholds
+
+Each threshold is set at the level that owns it.
+
+### Classification
+
+| Setting | Level | Default | Set in |
+|---|---|---|---|
+| `sandboxProvisionAttempts` | install | 3 | chart values, `agents.guardrails` |
+| `sandboxProvisionBackoffSecs` | install | 5 | chart values, `agents.guardrails` |
+| `sandboxProvisionBudgetSecs` | install | 300 | chart values, `agents.guardrails` |
+| `repeated_call_warn`, `repeated_call_pause` | agent type | 4, 8 | agent type `guardrails` |
+| `wait_rearm_warn`, `wait_rearm_pause` | agent type | 6, 12 | agent type `guardrails` |
+
+The sandbox settings bound how the platform treats its own infrastructure, so an operator sets them once per install. The loop thresholds describe how an agent is expected to work: a CI-watching agent may re-arm a wait more often than a reviewer. An admin sets them per agent type.
+
+### Decision
+
+- The agent type gains an optional `guardrails` object with `repeated_call_warn`, `repeated_call_pause`, `wait_rearm_warn` and `wait_rearm_pause`. An unset field takes the platform default. It is stored as one nullable JSONB column on `agent_types`, like `connectivity`, and carried by the agents API, the Orbit MCP `agents.create`, `agents.update` and `agents.get` tools, and the dashboard agent builder and configuration view. An update replaces the whole object.
+- Each threshold is a free integer, not a choice from presets. The dashboard shows four numeric inputs (warn and pause for repeated calls, warn and pause for wait loops), filled with the platform defaults, each with a one-line description of what it counts.
+- Validation, on the value each field resolves to after defaults: every warn is at least 1, and every pause is greater than its warn. A request that breaks either is rejected with a validation error. The dashboard applies the same rules inline before saving.
+- There is no off switch: a pause of 0, or an unset pause below its warn, is invalid. A loop that never pauses is the failure this ADR exists to prevent, and a high pause threshold covers an agent that legitimately waits for long.
+- The chart's `agents.guardrails` values reach orbit-agents as configuration. orbit-agents sends the install's sandbox settings and the agent type's resolved loop thresholds with every session it creates, the same path the rest of the run's configuration takes. `session-manager` applies them to that run and falls back to its built-in defaults for any it does not receive. Changing a threshold therefore applies to the next run without restarting agent pods.
+- The `guardrails` block leaves the session-manager's own configuration file.
+
+### Three questions
+
+None changes: the thresholds decide when the platform warns and pauses a run, not what the agent is or what it may access.
+
+### Consequences
+
+- An admin can loosen or tighten loop detection for one agent type without affecting others.
+- A run started before a threshold change keeps the thresholds it started with.
+- Whether an off switch should exist is left open; adding one later is an additive change to the validation.
+
+---
+
 ## Related Decisions
 
 - [run-activity-events](2026-09-29-run-activity-events.md): the event shape the loop guard reads, and the message and stop paths it uses.
