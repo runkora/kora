@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,7 +30,7 @@ type OpenCodeRunnerConfig struct {
 	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
-	// ShellPath is written into opencode.json as the "shell" key, so tool
+	// ShellPath is written into the OpenCode config as the "shell" key, so tool
 	// commands run through orbit-shell in the run's sandbox rather than in this
 	// container. Empty leaves OpenCode on the container's own shell.
 	ShellPath string
@@ -39,7 +40,7 @@ type OpenCodeRunnerConfig struct {
 	ExtraEnv []string
 
 	// SystemPrompt, when non-empty, reaches OpenCode as an instructions file
-	// named in opencode.json. ACP has no field for it.
+	// named in the OpenCode config. ACP has no field for it.
 	SystemPrompt string
 
 	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
@@ -54,11 +55,11 @@ type OpenCodeRunnerConfig struct {
 	// one remote entry each.
 	MCPServers []string
 
-	// Model is stored for future use. OpenCode model selection is configured
-	// via opencode.json provider options.
+	// Model is the agent type's model, served by the inference gateway. It is
+	// written into the OpenCode config as the only model OpenCode can use.
 	Model string
 
-	// InferenceGatewayURL is written directly into opencode.json so OpenCode
+	// InferenceGatewayURL is written directly into the OpenCode config so OpenCode
 	// routes all LLM calls through the Orbit inference gateway. Must be non-empty.
 	InferenceGatewayURL string
 
@@ -134,27 +135,18 @@ func NewOpenCodeRunner(cfg OpenCodeRunnerConfig) *OpenCodeRunner {
 	}
 }
 
-// Start validates config, writes opencode.json, spawns the subprocess, and
+// Start validates config, prepares the run's OpenCode config, spawns the subprocess, and
 // performs the initialize + session/new handshake synchronously.
 func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
-	if r.cfg.InferenceGatewayURL == "" {
-		return fmt.Errorf("opencode: InferenceGatewayURL must not be empty")
-	}
-
-	if err := r.writeOpenCodeConfig(workDir); err != nil {
-		return fmt.Errorf("opencode: write config: %w", err)
+	env, err := r.prepare(workDir)
+	if err != nil {
+		return fmt.Errorf("opencode: %w", err)
 	}
 
 	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "acp", "--cwd", workDir)
 	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
-	homeEnv, err := runHomeDirs(workDir)
-	if err != nil {
-		return fmt.Errorf("opencode: %w", err)
-	}
-	// HOME and TMPDIR last: nothing in ExtraEnv may move the agent off the only
-	// directory Landlock makes writable.
-	r.cmd.Env = withRunEnv(os.Environ(), append(r.cfg.ExtraEnv, homeEnv...))
+	r.cmd.Env = env
 
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
@@ -366,31 +358,100 @@ func (r *OpenCodeRunner) Close() error {
 	return firstErr
 }
 
-// writeOpenCodeConfig writes opencode.json to workDir with provider baseURLs
-// pointing to the Orbit inference gateway, and the shell OpenCode runs tool
-// commands through.
-func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
+// openCodeOfflineEnv turns off OpenCode's own calls home: the models.dev
+// catalog, update checks, sharing, provider auth plugins and LSP downloads.
+var openCodeOfflineEnv = []string{
+	"OPENCODE_DISABLE_MODELS_FETCH=1",
+	"OPENCODE_DISABLE_AUTOUPDATE=1",
+	"OPENCODE_DISABLE_SHARE=1",
+	"OPENCODE_DISABLE_DEFAULT_PLUGINS=1",
+	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
+}
+
+// prepare validates the config, writes the run's OpenCode files and returns the
+// subprocess environment.
+func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
+	if r.cfg.InferenceGatewayURL == "" {
+		return nil, errors.New("InferenceGatewayURL must not be empty")
+	}
+	// Without a model OpenCode falls back to its own hosted free models.
+	if r.cfg.Model == "" {
+		return nil, errors.New("model must not be empty")
+	}
+	config, err := r.openCodeConfig(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("build config: %w", err)
+	}
+	if err = lockOpenCodeGlobalConfig(workDir); err != nil {
+		return nil, err
+	}
+	homeEnv, err := runHomeDirs(workDir)
+	if err != nil {
+		return nil, err
+	}
+	// The platform's values last, so ExtraEnv cannot override them. HOME and
+	// TMPDIR keep the agent on the only directory Landlock makes writable.
+	env := append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...)
+	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(config))
+	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
+}
+
+// lockOpenCodeGlobalConfig makes OpenCode's global config directory read-only.
+// At start OpenCode installs @opencode-ai/plugin from npm into every config
+// directory it can write, and skips one it cannot.
+func lockOpenCodeGlobalConfig(workDir string) error {
+	dir := filepath.Join(runfs.HomeDir(workDir), ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create global config dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		return fmt.Errorf("lock global config dir: %w", err)
+	}
+	return nil
+}
+
+// openCodeProvider is the only provider OpenCode may load: the inference gateway.
+const openCodeProvider = "orbit"
+
+// openCodeConfig is the run's OpenCode config. The agent type's model is the
+// only model on offer, served by the inference gateway, and every other provider
+// (OpenCode's hosted free models included) is switched off. It reaches OpenCode
+// as OPENCODE_CONFIG_CONTENT, which is merged after every config file, so an
+// opencode.json or .opencode/ directory in the workspace cannot override it.
+func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
-	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
+	model := openCodeProvider + "/" + r.cfg.Model
 	cfg := map[string]any{
+		"enabled_providers": []string{openCodeProvider},
+		"model":             model,
+		"small_model":       model,
 		"provider": map[string]any{
-			"anthropic": map[string]any{
-				"options": map[string]string{"baseURL": perRunURL},
-			},
-			"openai": map[string]any{
-				"options": map[string]string{"baseURL": perRunURL},
+			openCodeProvider: map[string]any{
+				"name": "Orbit",
+				// Chat completions serves every gateway model; /messages serves only Anthropic's.
+				"npm": "@ai-sdk/openai-compatible",
+				"options": map[string]string{
+					"baseURL": fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID),
+					// Placeholder: the identity-proxy sidecar replaces the Authorization header.
+					"apiKey": "orbit-managed",
+				},
+				"models": map[string]any{r.cfg.Model: map[string]any{}},
 			},
 		},
-		"mcp": r.mcpConfig(),
+		"share":      "disabled",
+		"autoupdate": false,
+		// Both fetch from this container, outside the sandbox's egress policy.
+		"permission": map[string]string{"webfetch": "deny", "websearch": "deny"},
+		"mcp":        r.mcpConfig(),
 	}
 	if r.cfg.SystemPrompt != "" {
 		// In the run's config dir, which the agent can read but not change.
 		path := filepath.Join(runfs.ConfigDir(workDir), "instructions.md")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(path, []byte(r.cfg.SystemPrompt), 0o600); err != nil {
-			return err
+			return nil, err
 		}
 		cfg["instructions"] = []string{path}
 	}
@@ -399,14 +460,10 @@ func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
 	if r.cfg.ShellPath != "" {
 		cfg["shell"] = r.cfg.ShellPath
 	}
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(workDir, "opencode.json"), data, 0o600)
+	return json.Marshal(cfg)
 }
 
-// mcpConfig is the "mcp" block of opencode.json: the runtime server the agent
+// mcpConfig is the "mcp" block of the OpenCode config: the runtime server the agent
 // provisions its sandbox through, plus one remote entry per MCP server it holds
 // tool grants on.
 //

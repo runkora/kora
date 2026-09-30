@@ -15,6 +15,7 @@ import (
 func newTestOpenCodeRunner() *OpenCodeRunner {
 	return NewOpenCodeRunner(OpenCodeRunnerConfig{
 		InferenceGatewayURL: "http://inference-gateway.test",
+		Model:               "anthropic/claude-sonnet-5",
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "test-run",
 	})
@@ -546,37 +547,62 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 	}
 }
 
-// ── writeOpenCodeConfig ───────────────────────────────────────────────────────
+// ── openCodeConfig ───────────────────────────────────────────────────────
 
+// The agent type's model, through the gateway, must be the only model OpenCode
+// can pick: with none configured it chose its own hosted free model.
 func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
-	dir := t.TempDir()
-	if err := r.writeOpenCodeConfig(dir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+	data, err := r.openCodeConfig(t.TempDir())
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 
-	var cfg map[string]any
+	var cfg struct {
+		EnabledProviders []string          `json:"enabled_providers"`
+		Model            string            `json:"model"`
+		SmallModel       string            `json:"small_model"`
+		Share            string            `json:"share"`
+		Autoupdate       *bool             `json:"autoupdate"`
+		Permission       map[string]string `json:"permission"`
+		Provider         map[string]struct {
+			NPM     string            `json:"npm"`
+			Options map[string]string `json:"options"`
+			Models  map[string]any    `json:"models"`
+		} `json:"provider"`
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
-	provider, _ := cfg["provider"].(map[string]any)
-	anthropic, _ := provider["anthropic"].(map[string]any)
-	options, _ := anthropic["options"].(map[string]any)
-	if options["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("anthropic baseURL = %v, want http://inference-gateway.test/run/test-run", options["baseURL"])
+	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "orbit" {
+		t.Errorf("enabled_providers = %v, want [orbit]", cfg.EnabledProviders)
 	}
-
-	openai, _ := provider["openai"].(map[string]any)
-	openaiOptions, _ := openai["options"].(map[string]any)
-	if openaiOptions["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("openai baseURL = %v, want http://inference-gateway.test/run/test-run", openaiOptions["baseURL"])
+	const want = "orbit/anthropic/claude-sonnet-5"
+	if cfg.Model != want || cfg.SmallModel != want {
+		t.Errorf("model, small_model = %q, %q; want %q for both", cfg.Model, cfg.SmallModel, want)
+	}
+	if len(cfg.Provider) != 1 {
+		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
+	}
+	orbit := cfg.Provider["orbit"]
+	if orbit.NPM != "@ai-sdk/openai-compatible" {
+		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", orbit.NPM)
+	}
+	if got := orbit.Options["baseURL"]; got != "http://inference-gateway.test/run/test-run/v1" {
+		t.Errorf("baseURL = %q, want http://inference-gateway.test/run/test-run/v1", got)
+	}
+	if _, ok := orbit.Models["anthropic/claude-sonnet-5"]; !ok || len(orbit.Models) != 1 {
+		t.Errorf("models = %v, want only anthropic/claude-sonnet-5", orbit.Models)
+	}
+	if cfg.Share != "disabled" || cfg.Autoupdate == nil || *cfg.Autoupdate {
+		t.Errorf("share, autoupdate = %q, %v; want disabled, false", cfg.Share, cfg.Autoupdate)
+	}
+	for _, tool := range []string{"webfetch", "websearch"} {
+		if cfg.Permission[tool] != "deny" {
+			t.Errorf("permission[%s] = %q, want deny", tool, cfg.Permission[tool])
+		}
 	}
 }
 
@@ -594,12 +620,9 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 			r := newTestOpenCodeRunner()
 			r.cfg.SystemPrompt = tc.prompt
 			dir := t.TempDir()
-			if err := r.writeOpenCodeConfig(dir); err != nil {
-				t.Fatalf("writeOpenCodeConfig: %v", err)
-			}
-			data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+			data, err := r.openCodeConfig(dir)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("openCodeConfig: %v", err)
 			}
 			var cfg struct {
 				Instructions []string `json:"instructions"`
@@ -640,6 +663,56 @@ func TestOpenCodeStartValidatesGatewayURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "InferenceGatewayURL") {
 		t.Errorf("error = %q, want mention of InferenceGatewayURL", err.Error())
+	}
+}
+
+// The config and offline switches travel in the environment, after anything
+// ExtraEnv sets, so a workspace file or a caller's value cannot override them.
+func TestOpenCodePrepareEnv(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.ExtraEnv = []string{"OPENCODE_DISABLE_MODELS_FETCH=0", "WORKSPACE=/w"}
+	workDir := t.TempDir()
+
+	env, err := r.prepare(workDir)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = v
+	}
+	for _, e := range openCodeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if got["WORKSPACE"] != "/w" {
+		t.Errorf("WORKSPACE = %q, want the ExtraEnv value", got["WORKSPACE"])
+	}
+	want, err := r.openCodeConfig(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["OPENCODE_CONFIG_CONTENT"] != string(want) {
+		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the run config", got["OPENCODE_CONFIG_CONTENT"])
+	}
+	if got["HOME"] != runfs.HomeDir(workDir) {
+		t.Errorf("HOME = %q, want %q", got["HOME"], runfs.HomeDir(workDir))
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Errorf("opencode.json in the workspace: %v; want none", err)
+	}
+}
+
+func TestOpenCodeStartRequiresModel(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.Model = ""
+
+	err := r.Start(t.Context(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "model") {
+		t.Fatalf("Start error = %v, want one naming the model", err)
 	}
 }
 
@@ -892,5 +965,22 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	}
 	if payload.Content != "file contents here" {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
+	}
+}
+
+// A writable global config dir makes OpenCode install a package from npm at start.
+func TestLockOpenCodeGlobalConfig(t *testing.T) {
+	workDir := t.TempDir()
+	for range 2 { // a resumed run locks the same dir again
+		if err := lockOpenCodeGlobalConfig(workDir); err != nil {
+			t.Fatalf("lockOpenCodeGlobalConfig: %v", err)
+		}
+	}
+	info, err := os.Stat(filepath.Join(runfs.HomeDir(workDir), ".config", "opencode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm&0o222 != 0 {
+		t.Errorf("global config dir mode = %v, want no write bits", perm)
 	}
 }
