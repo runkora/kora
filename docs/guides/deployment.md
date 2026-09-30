@@ -365,6 +365,8 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 
 The operator's preflight accepts only the Istio minors its release lists. While preflight fails, the operator holds tenants at `Degraded`. From Istio 1.29, upgrade Istio to 1.30, then upgrade Orbit, then upgrade Istio to 1.31. Tenants stay `Degraded` between the first two steps.
 
+An install that overrides `operator.preflight.supportedIstioMinors`, or sets `ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS` on the operator, must add each new minor before Istio moves to it. Dropping the override uses the chart's list.
+
 - Upgrade Istio in place one minor at a time, for example 1.29 to 1.30 and then 1.30 to 1.31.
 - Upgrade `base` first and `istiod` before any gateway.
 - Restart the meshed workloads after each step. The restarted pods run the new proxy.
