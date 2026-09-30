@@ -52,6 +52,9 @@ type TenantReconciler struct {
 	// namespace into every tenant namespace.
 	ImagePullSecrets []string
 
+	// Collector is the in-cluster OTLP collector agent pods may export to.
+	Collector AgentCollector
+
 	// Preflight reports the latest prerequisites result. While it fails, tenants
 	// are reconciled but held at Degraded so no workload is admitted.
 	Preflight PreflightSource
@@ -192,6 +195,17 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// of callers that can reach it.
 			name: "sandbox ingress NetworkPolicy",
 			run:  func(ctx context.Context) error { return r.ensureSandboxIngressPolicy(ctx, tenant) },
+		},
+		{
+			// Agent pods reach only the platform services they need
+			// (docs/adr/2026-09-30-agent-pod-egress-lockdown.md).
+			name: "agent egress NetworkPolicy",
+			run:  func(ctx context.Context) error { return r.ensureAgentEgressPolicy(ctx, tenant) },
+		},
+		{
+			// Has the agent pod's Envoy refuse any other host at once.
+			name: "agent egress Sidecar",
+			run:  func(ctx context.Context) error { return r.ensureAgentEgressSidecar(ctx, tenant) },
 		},
 		{
 			// Aggregated OIDC client secrets: confidential tenants need

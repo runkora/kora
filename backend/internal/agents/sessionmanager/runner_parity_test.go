@@ -44,8 +44,8 @@ func TestWrapExec(t *testing.T) {
 	})
 }
 
-// OpenCode takes the shell its tool commands run through from opencode.json.
-func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
+// OpenCode takes the shell its tool commands run through from its config.
+func TestOpenCodeConfig_ShellPath(t *testing.T) {
 	const shellPath = "/opt/orbit/shell/bash"
 
 	read := func(t *testing.T, cfg OpenCodeRunnerConfig) map[string]any {
@@ -55,16 +55,13 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 		cfg.RunID = "run-1"
 		cfg.InferenceGatewayURL = "http://orbit-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
-		if err := r.writeOpenCodeConfig(workDir); err != nil {
-			t.Fatalf("writeOpenCodeConfig: %v", err)
-		}
-		data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+		data, err := r.openCodeConfig(workDir)
 		if err != nil {
-			t.Fatalf("read opencode.json: %v", err)
+			t.Fatalf("openCodeConfig: %v", err)
 		}
 		var out map[string]any
 		if err := json.Unmarshal(data, &out); err != nil {
-			t.Fatalf("unmarshal opencode.json: %v", err)
+			t.Fatalf("unmarshal config: %v", err)
 		}
 		return out
 	}
@@ -104,6 +101,40 @@ func TestRunEnv(t *testing.T) {
 		if !slices.Contains(got, w) {
 			t.Errorf("run env %v is missing %q", got, w)
 		}
+	}
+}
+
+// The cap reaches Node processes a run starts on the agent pod, and replaces any
+// NODE_OPTIONS the pod itself carries.
+func TestRunEnv_NodeHeapCap(t *testing.T) {
+	tests := []struct {
+		name string
+		mb   int
+		want string
+	}{
+		{name: "capped", mb: 512, want: "--max-old-space-size=512"},
+		{name: "disabled", mb: 0, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090, NodeMaxOldSpaceMB: tt.mb}}
+			env := withRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, c.runEnv("run-42", "tok-42"))
+			var got []string
+			for _, e := range env {
+				if v, ok := strings.CutPrefix(e, "NODE_OPTIONS="); ok {
+					got = append(got, v)
+				}
+			}
+			if tt.want == "" {
+				if !slices.Equal(got, []string{"--max-old-space-size=8192"}) {
+					t.Errorf("NODE_OPTIONS = %v, want the inherited value untouched", got)
+				}
+				return
+			}
+			if !slices.Equal(got, []string{tt.want}) {
+				t.Errorf("NODE_OPTIONS = %v, want exactly [%s]", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -195,12 +226,9 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
-	if err := r.writeOpenCodeConfig(workDir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+	data, err := r.openCodeConfig(workDir)
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 	var cfg struct {
 		MCP map[string]struct {
@@ -212,7 +240,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		} `json:"mcp"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
 	rt, ok := cfg.MCP["runtime"]

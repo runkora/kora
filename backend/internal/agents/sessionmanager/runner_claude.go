@@ -153,28 +153,29 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 }
 
 // buildRunEnv constructs the subprocess environment from the inherited base env
-// plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
+// plus claudeOfflineEnv and ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
 // by the per-run isolation values. Any key set in ExtraEnv is also stripped
 // from the inherited env. Stripping is necessary because on Linux getenv()
 // returns the first match — a pre-existing HOME=, TMPDIR=, or e.g.
 // ANTHROPIC_BASE_URL= would shadow the per-run values if it appeared earlier
 // in the slice. See docs/adr/2026-06-04-per-session-home-isolation.md.
 func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
+	extra := append(append([]string{}, claudeOfflineEnv...), r.cfg.ExtraEnv...)
 	overridden := map[string]bool{"HOME": true, "TMPDIR": true}
-	for _, e := range r.cfg.ExtraEnv {
+	for _, e := range extra {
 		if k, _, ok := strings.Cut(e, "="); ok {
 			overridden[k] = true
 		}
 	}
 
-	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
+	env := make([]string, 0, len(baseEnv)+len(extra)+2)
 	for _, e := range baseEnv {
 		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
 			continue
 		}
 		env = append(env, e)
 	}
-	for _, e := range r.cfg.ExtraEnv {
+	for _, e := range extra {
 		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
 			env = append(env, e)
 		}
@@ -815,6 +816,18 @@ var claudeExcludedTools = []string{
 	"AskUserQuestion",  // auto-rejected in headless stream-json mode: nobody can answer it.
 	"PushNotification", // calls Anthropic's hosted service from the session-manager container, outside the egress policy.
 	"DesignSync",       // calls Claude Design from the session-manager container, outside the egress policy.
+}
+
+// claudeOfflineEnv turns off Claude Code's background calls to Anthropic, which
+// the agent pod's egress policy blocks. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+// is not used: it would also stop OTLP export to the platform collector.
+var claudeOfflineEnv = []string{
+	"DISABLE_AUTOUPDATER=1",
+	"DISABLE_TELEMETRY=1",
+	"DISABLE_ERROR_REPORTING=1",
+	"DISABLE_FEEDBACK_COMMAND=1",
+	"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
+	"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────

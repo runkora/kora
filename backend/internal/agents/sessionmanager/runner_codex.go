@@ -363,7 +363,7 @@ func (r *CodexRunner) Close() error {
 // sandboxToolInstructions tells a Codex agent to provision a sandbox, and where
 // to find the tool. Codex keeps MCP tools out of the model's tool list until
 // they are searched for. Claude Code and OpenCode list them directly.
-const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, or call anything outside. If the tool is not already in your tool list, search for it by name.`
+const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, run tests, do anything memory-heavy, or call anything outside. If the tool is not already in your tool list, search for it by name.`
 
 // codexDeveloperInstructions is the agent's own prompt with the sandbox
 // instructions appended, or those instructions alone when the agent has no prompt.
@@ -1073,6 +1073,17 @@ model = %q
 sandbox_mode = "danger-full-access"
 # Headless: no human can answer an approval, and Orbit's gateways enforce policy.
 approval_policy = "never"
+# The agent pod reaches only platform services
+# (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
+# hosted web search tool, as for Claude Code.
+check_for_update_on_startup = false
+web_search = "disabled"
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
 
 [model_providers.orbit]
 name     = "Orbit"
@@ -1096,6 +1107,8 @@ unified_exec = false
 # resets PATH; replayed in the sandbox it would hide the toolchains and user
 # installs. Without it, commands get the sandbox's own environment.
 shell_snapshot = false
+# The curated plugin sync clones github.com/openai/plugins at start.
+plugins = false
 %s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")

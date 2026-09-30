@@ -30,7 +30,9 @@ global:
     samplingRate: ""
     # The namespace running that collector, when it runs in this cluster.
     # Setting it opens the egress the export needs, on the endpoint's port, and
-    # only takes effect while networkPolicy.enabled is true. For a collector
+    # only takes effect while networkPolicy.enabled is true. Agent pods may
+    # export to this namespace, or to the externalServices entry serving the
+    # endpoint's port, whatever networkPolicy.enabled is. For a collector
     # outside the cluster, leave this empty and add its CIDR and port to
     # networkPolicy.externalServices instead.
     collectorNamespace: ""
@@ -486,6 +488,11 @@ agents:
     sandboxImage: ""
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
+    # -- Heap cap in MB for Node processes an agent run starts on its agent pod.
+    # The pod's runs share one memory limit, so a runaway Node tool fails with a
+    # heap OOM instead of taking every run with it. The agent harnesses and
+    # sandbox commands are not capped. 0 disables the cap.
+    nodeMaxOldSpaceMB: 512
   # Sandbox provisioning guardrails, applied to every run
   # (docs/adr/2026-09-29-agent-run-guardrails.md). After the last attempt the
   # run records sandbox_lost until the user replies. Loop-guard thresholds are

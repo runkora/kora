@@ -94,6 +94,35 @@ func TestApplyEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_NodeMaxOldSpaceMB(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		want      int
+		wantValid bool
+	}{
+		{name: "unset keeps the YAML value", value: "", want: 512, wantValid: true},
+		{name: "set", value: "1024", want: 1024, wantValid: true},
+		{name: "zero disables the cap", value: "0", want: 0, wantValid: true},
+		{name: "negative", value: "-5", want: -5},
+		{name: "not a number", value: "1Gi", want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			cfg.Agents.SessionManager.NodeMaxOldSpaceMB = 512
+			env := map[string]string{"ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB": tt.value}
+			applyEnvOverrides(cfg, func(k string) string { return env[k] })
+			if got := cfg.Agents.SessionManager.NodeMaxOldSpaceMB; got != tt.want {
+				t.Errorf("NodeMaxOldSpaceMB = %d, want %d", got, tt.want)
+			}
+			if err := Validate(cfg); (err == nil) != tt.wantValid {
+				t.Errorf("Validate() error = %v, want valid %v", err, tt.wantValid)
+			}
+		})
+	}
+}
+
 func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 	cfg := &Config{}
 	cfg.Kubernetes.InCluster = true

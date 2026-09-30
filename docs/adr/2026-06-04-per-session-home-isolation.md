@@ -1,6 +1,6 @@
 # Agent Run Filesystem and Process Isolation
 
-**Status:** Accepted (Amended 2026-09-29)
+**Status:** Accepted (Amended 2026-09-29, 2026-09-30)
 **Date:** 2026-06-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Agent self-assessment revealed all runs on the same session-manager pod share `$HOME`, the full pod filesystem, and the host PID namespace — giving every run read/write access to `~/.claude/` (session transcripts, memories) and the ability to read sibling processes' `/proc/<pid>/cmdline`, leaking workspace UUIDs, system prompts, model selections, and tool grants.
@@ -127,7 +127,7 @@ All three mechanisms live in `orbit-session-runner` and are applied best-effort 
 | `{workDir}` (includes `.runhome/`, `.tmp/`) | Read + Write |
 | `/usr`, `/bin`, `/sbin`, `/lib` | Read (system commands and libraries) |
 | `/etc` | Read (DNS, TLS certs, timezone) |
-| `/proc` | Read (PID namespace scopes visibility to own processes only) |
+| `/proc` | Read (PID namespace scopes visibility to own processes only). Amendment 2 replaces this with a fixed set of system-wide files. |
 | `/run` | Read (runtime sockets, e.g. DNS resolver) |
 | `/dev`, `/tmp` | Read + Write (I/O primitives, system tmp). Amendment 1 removes `/tmp`. |
 | Workspaces root, sibling `{runID}` dirs | **Denied** |
@@ -192,7 +192,7 @@ landlock.RODirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run")
 ```
 Applied with `BestEffort()` — no-ops on kernels < 5.13 or macOS.
 
-### Phase 3 — PID namespace isolation (current)
+### Phase 3: PID namespace isolation (never in effect; removed by Amendment 2)
 
 After Landlock, `orbit-session-runner` attempts to fork claude into a new `CLONE_NEWUSER | CLONE_NEWPID` namespace:
 
@@ -302,6 +302,97 @@ Before, as reported by the survey: a Bash clone into `/tmp` in the sandbox, foll
 
 Without a sandbox (`d3cdc7d4`, Claude Code; `7484daca`, Codex), Bash ran on the agent pod: a file Bash wrote to the workspace and to `$TMPDIR` was read by the file tool, a file the file tool wrote was printed by Bash, and `ls /tmp` returned `Permission denied`.
 
+## Amendment 2 (2026-09-30): Process-table isolation without namespaces
+
+**Status:** Accepted
+
+This amendment touches **What can it access?**: what one run can learn about, or do to, the processes of another run on the same agent pod. **Who is this agent?** and **How does it connect?** are unchanged: the run token, the sandbox endpoint and the egress path stay where they are.
+
+### Context
+
+Amendment 1 recorded that Phase 3 is not in effect. Measured on 2026-09-30 on the local node kernel (Ubuntu 24.04, 6.8.0), in the session-manager image under the runtime's default seccomp profile, with no effective capabilities, as the image's non-root user, both processes started through the runner's fallback path with the current Landlock rules:
+
+| From one run, against a sibling run | Result |
+|---|---|
+| List `/proc`, `ps` | Every process on the pod |
+| `/proc/<pid>/cmdline`, `status`, `stat` | Readable: the full argument list, including Claude Code's `--append-system-prompt` |
+| `/proc/<pid>/environ` (holds the run token) | `Permission denied` |
+| `/proc/<pid>/environ` of the session-manager | `Permission denied` |
+| `kill -0 <pid>` | Allowed: a run can signal, and kill, a sibling |
+| Control: the same `environ` read without Landlock | Readable |
+
+Landlock confines ptrace access checks to the process's own domain, from ABI 1, so every `/proc/<pid>` file behind a ptrace check (`environ`, `mem`, `maps`, `fd`, `cwd`, `root`) is already closed between runs. `cmdline`, `status` and `stat` carry no ptrace check. Signals are scoped only from Landlock ABI 6 (kernel 6.12).
+
+Sibling argv exposes Claude Code's `--append-system-prompt`, `--model`, `--resume` and the run's paths, and, while they run, the argv of child processes such as `orbit-shell -c <command>`. Codex and OpenCode keep their instructions off argv.
+
+Up to ten runs share one agent pod, and tenant namespaces enforce the `restricted` Pod Security level. Orbit's EKS node pools (Constellation) use Karpenter's `bottlerocket@latest` node class on Kubernetes 1.36, and the baseline managed node group uses AL2023. Their kernel versions and Landlock ABI were not measured.
+
+### Considered Options
+
+1. **Make the Phase 3 namespace path work.** A `Localhost` seccomp profile that allows `CLONE_NEWUSER`, a `Localhost` AppArmor profile on Ubuntu nodes that allows `userns` and a `proc` mount, `procMount: Unmasked` with `hostUsers: false`, and a runner fix: the namespace child execs as a non-root UID and loses the capabilities it needs to mount `/proc`.
+   - Protects the process list, argv, `status` and signals.
+   - Measured: with seccomp unconfined, the namespaces are created but the runtime's AppArmor profile denies the mount; with AppArmor also unconfined, `apparmor_restrict_unprivileged_userns` strips the namespace's capabilities. The `procMount` requirement was not measured.
+   - Cost: profile files on every node, kept in step with node images; user-namespaced agent pods. Bottlerocket's SELinux policy for nested user namespaces is unverified. Widens the container's syscall surface to user namespaces.
+2. **`hidepid` with a UID per run.** No Pod API field sets `hidepid`, remounting `/proc` needs `CAP_SYS_ADMIN`, and switching UIDs needs `CAP_SETUID` with privilege escalation, which `restricted` forbids. Not viable.
+3. **A UID per run without `hidepid`.** Measured: another UID cannot read `environ` or send signals, but `cmdline` stays readable. Needs Option 2's privileges.
+4. **Keep secrets off argv.** Claude Code reads its appended system prompt from a file in the run's config directory. Protects the instructions only; the process list, `status` and other argv stay visible.
+5. **Landlock grants a fixed set of system-wide `/proc` files instead of all of `/proc`.** Every per-process directory is denied, the agent's own included.
+
+Option 5 was tested with the real runners (`ClaudeRunner`, `CodexRunner`, `OpenCodeRunner`) against a scripted model, in the session-manager image on the 6.8 kernel, with and without a sandbox (`sandbox-exec` running outside Landlock, reached through `orbit-shell`), and compared with the current rules and with `/proc` fully denied:
+
+| Check | Current rules | Option 5 |
+|---|---|---|
+| Claude Code: Write, Read, Edit, Bash, background Bash then TaskStop (process gone), Agent subagent, stop mid-tool, resume | Works | Same |
+| Codex: `apply_patch` add and update, shell reads, `spawn_agent` and `wait_agent`, stop mid-command, resume | Works | Same |
+| OpenCode: write, read, edit, bash, task subagent, stop mid-command, resume | Works; glob and grep fail with "ripgrep execution failed" | Same |
+| `orbit-shell` to the sandbox, all three runtimes | Works | Same |
+| On the agent pod without a sandbox: `git`, `npm`, `bash` process substitution, `/dev/stdin`, background `kill`, `orbit-runtime-mcp` | Works | Same |
+| On the agent pod without a sandbox: Node `os.cpus()` | Works | Works with the allow-list; returns no CPUs without it |
+| On the agent pod without a sandbox: Node `process.memoryUsage()`, `ps`, `ls /proc/self` | Works | Fails: `EACCES` on `/proc/self/stat` and `/proc` |
+| Sibling process list, `cmdline`, `status`, `stat`, `environ` | Readable except `environ` | All denied |
+| Signal a sibling | Allowed | Allowed on 6.8 |
+
+The files the runtimes read from `/proc`, found with `strace`: Claude Code and OpenCode (Bun) read `/proc/self/stat`, `statm`, `cgroup`, `auxv`, `uid_map`, `/proc/<child>/stat` and `statm`, `/proc/version`, `/proc/sys/vm/overcommit_memory`, `mmap_min_addr` and `/proc/sys/kernel/overflowuid`; Codex reads `/proc/self/cgroup` and `/proc/version`; Node reads `/proc/cpuinfo`, `meminfo`, `stat`, `version` and `/proc/self/stat`, `cgroup`, `auxv`; `orbit-runtime-mcp` (Go) reads `/proc/self/cgroup`. Denying the per-process files changed no runner outcome. Granting the agent process its own `/proc/<pid>` directory at start silences the runtimes' own denials, but not their children's, and changed no outcome.
+
+The allow-list is `/proc/cpuinfo`, `/proc/meminfo`, `/proc/stat`, `/proc/version`, `/proc/sys/vm/overcommit_memory`, `/proc/sys/vm/mmap_min_addr` and `/proc/sys/kernel/overflowuid`, read-only. None of them describes an individual process.
+
+### Decision
+
+Option 5, with Landlock's IPC scopes, and the unused namespace path removed from `orbit-session-runner`. Option 4 is not adopted: once a sibling cannot open `cmdline`, moving the prompt to a file protects nothing further, since a file readable by the run's UID is equally readable by a sibling wherever Landlock is absent.
+
+- `orbit-session-runner` replaces the `/proc` directory rule with the allow-list above, applies `landlock.V6.BestEffort().RestrictScoped()` after the filesystem rules, and execs the agent binary. It no longer forks into namespaces.
+- On kernels with Landlock ABI 6 (6.12 and later) a run cannot signal a process outside its own domain. Below that the scope step is a no-op.
+
+### Consequences
+
+**Positive**
+
+- Wherever Landlock is enabled, a run can no longer list `/proc` or read any sibling's `cmdline`, `status`, `stat` or `environ`, for every runtime, with no node, pod-spec or privilege change.
+- The agent's instructions, model, resume ID and the commands its children run are hidden from sibling runs.
+- On kernels with Landlock ABI 6, a run cannot signal a sibling run or the session-manager.
+- `orbit-session-runner` loses its namespace path, which never took effect in any deployed environment.
+
+**Negative**
+
+- Commands that run on the agent pod, which happens only when a run has no sandbox, cannot read `/proc/self` or list processes: `ps`, `top`, `pgrep`, Node's `process.memoryUsage()` and similar tools fail there. Commands in the sandbox are unaffected.
+- Node on the agent pod sizes its heap from the node's memory, not the container's limit, as it did before this amendment: the cgroup files under `/sys/fs/cgroup` were already outside the Landlock rules. Bun (Claude Code, OpenCode) and Codex have no default heap cap to size.
+- A run can still find live PIDs and their owners by `stat` on `/proc/<pid>`, which Landlock does not mediate, on every kernel. Below kernel 6.12 it can also signal sibling processes.
+- Every guarantee here depends on Landlock being enabled. `BestEffort` degrades silently where it is not; Landlock's status on the EKS node images must be checked when a node image changes.
+- Nothing kills a run's leftover background processes when the agent exits, as before this amendment.
+
+**Verified on the local cluster**
+
+One agent pod per runtime, on kernel 6.8 (Landlock ABI 4), 2026-09-30.
+
+| Check | Claude Code | Codex | OpenCode |
+|---|---|---|---|
+| Sibling probe from a run's shell on the agent pod: `ls /proc`, `ps`, sibling `cmdline`, `status`, `stat`, `environ`, the session-manager's `environ`, own `/proc/self/status` | All `Permission denied` | All `Permission denied` | All `Permission denied` |
+| Same probe: `/proc/cpuinfo`, `kill -0 <sibling>`, `test -e /proc/<sibling>` | Allowed | Allowed | Allowed |
+| Write, read, edit, shell (`git`, Node `os.cpus()` returns 8), subagent, without a sandbox | Works | Works through the edit; the run then died on `grep -R` over its own growing Codex log, which happens identically without this change | Works |
+| The same with a sandbox, through `orbit-shell` | Works | Works | Works |
+| Stop during a shell command, then a new message | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox |
+| Glob and grep tools | Not available in this Claude Code build ("No such tool available"), with the current rules too | Reads go through the shell | `ripgrep execution failed`, with and without a sandbox, as without this change |
+
 ---
 
 ## Related Decisions
@@ -312,4 +403,4 @@ Without a sandbox (`d3cdc7d4`, Claude Code; `7484daca`, Codex), Bash ran on the 
 
 ---
 
-**Last Updated:** 2026-09-29
+**Last Updated:** 2026-09-30

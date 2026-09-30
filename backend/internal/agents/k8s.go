@@ -109,6 +109,9 @@ type K8sProvisionerConfig struct {
 	// no source matches the rule and every call is denied, so the chart gates
 	// this on platform.spiffe.enabled (charts/orbit/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
+	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
+	// of Node processes its runs start. Zero disables the cap.
+	NodeMaxOldSpaceMB int
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -1461,8 +1464,10 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
 		// wiring; Istio itself injects only the sidecar.
-		"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
-		"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
+		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
+		// Only the sandbox exec port skips Envoy; the agent-egress NetworkPolicy
+		// limits it to the tenant's sandboxes.
+		"traffic.sidecar.istio.io/excludeOutboundPorts": "50051",
 	}
 	// Rolls the pods when the ServiceAccount's cloud identity changes, which
 	// they would otherwise pick up only on an unrelated restart.
@@ -1509,6 +1514,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
+								{Name: "ORBIT_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{

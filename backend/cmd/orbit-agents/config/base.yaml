@@ -64,3 +64,6 @@ agents:
     # SPIFFE principal at the mesh layer. Overridden per-deployment by
     # ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED; requires SPIFFE.
     authorizationPolicyEnabled: true
+    # Heap cap (MB) for Node processes a run starts on its agent pod. Overridden
+    # per install by ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB; 0 disables it.
+    nodeMaxOldSpaceMB: 512

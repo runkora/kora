@@ -24,6 +24,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 |-----|------|---------|-------------|
 | agents.affinity | object | `{}` |  |
 | agents.authorizationPolicy.enabled | bool | `true` |  |
+| agents.config.nodeMaxOldSpaceMB | int | `512` | Heap cap in MB for Node processes an agent run starts on its agent pod. The pod's runs share one memory limit, so a runaway Node tool fails with a heap OOM instead of taking every run with it. The agent harnesses and sandbox commands are not capped. 0 disables the cap. |
 | agents.config.sandboxGitAuthorEmail | string | `""` |  |
 | agents.config.sandboxGitAuthorName | string | `""` |  |
 | agents.config.sandboxImage | string | `""` |  |

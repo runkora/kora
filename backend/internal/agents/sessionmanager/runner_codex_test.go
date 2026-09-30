@@ -585,3 +585,38 @@ func TestCodexLogStderr_ScanError_IsLogged(t *testing.T) {
 		t.Errorf("expected error text in log; got: %s", log)
 	}
 }
+
+// Codex must not make background calls the agent pod's egress policy blocks.
+// The top-level keys must come before the first table, or TOML puts them in it.
+func TestCodexWriteConfig_Offline(t *testing.T) {
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "test-run",
+		Model:               "anthropic/claude-sonnet-4-6",
+		InferenceGatewayURL: "http://orbit-inference-gateway",
+	})
+	codexHome, err := r.writeCodexConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(data)
+	firstTable := strings.Index(cfg, "\n[")
+	for _, key := range []string{"check_for_update_on_startup = false", `web_search = "disabled"`} {
+		if i := strings.Index(cfg, key); i < 0 || i > firstTable {
+			t.Errorf("%q missing or not top-level in:\n%s", key, cfg)
+		}
+	}
+	for _, table := range []string{"[analytics]\nenabled = false", "[feedback]\nenabled = false"} {
+		if !strings.Contains(cfg, table) {
+			t.Errorf("config.toml lacks %q", table)
+		}
+	}
+	features := cfg[strings.Index(cfg, "[features]"):]
+	if !strings.Contains(features, "plugins = false") {
+		t.Errorf("[features] lacks plugins = false:\n%s", features)
+	}
+}
