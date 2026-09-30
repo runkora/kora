@@ -375,7 +375,7 @@ Option 5, with Landlock's IPC scopes, and the unused namespace path removed from
 **Negative**
 
 - Commands that run on the agent pod, which happens only when a run has no sandbox, cannot read `/proc/self` or list processes: `ps`, `top`, `pgrep`, Node's `process.memoryUsage()` and similar tools fail there. Commands in the sandbox are unaffected.
-- Node on the agent pod sizes its heap from the node's memory, not the container's limit, as it did before this amendment: the cgroup files under `/sys/fs/cgroup` were already outside the Landlock rules. On the local cluster (4Gi container limit, 16Gi node) Node's heap limit is 4288 MB under both the old and the new runner, against 2240 MB outside it, and a Node process that grows its heap gets the whole `session-manager` container OOMKilled, taking every run on the pod with it. Bun (Claude Code, OpenCode) and Codex have no default heap cap to size.
+- Node on the agent pod sizes its heap from the node's memory, not the container's limit, as it did before this amendment: the cgroup files under `/sys/fs/cgroup` were already outside the Landlock rules. Bun (Claude Code, OpenCode) and Codex have no default heap cap to size.
 - A run can still find live PIDs and their owners by `stat` on `/proc/<pid>`, which Landlock does not mediate, on every kernel. Below kernel 6.12 it can also signal sibling processes.
 - Every guarantee here depends on Landlock being enabled. `BestEffort` degrades silently where it is not; Landlock's status on the EKS node images must be checked when a node image changes.
 - Nothing kills a run's leftover background processes when the agent exits, as before this amendment.
