@@ -56,6 +56,12 @@ var (
 	// truncated — the repository has more than 100,000 entries or the tree
 	// exceeds 7 MB. The crawler cannot safely filter a partial tree.
 	ErrTreeTruncated = errors.New("github tree response was truncated")
+
+	// ErrUnavailable is returned by GetTree and GetRawContent when GitHub
+	// cannot serve the call for now: a timeout or network failure, a 5xx
+	// status, or a rate limit. A later retry can succeed. For a status
+	// failure, the error also matches ErrUnexpectedStatus.
+	ErrUnavailable = errors.New("github is unavailable or rate-limited")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -270,6 +276,8 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 // (branch, tag, or commit SHA). Path and type are populated for each entry.
 // Returns ErrTreeTruncated when GitHub marks the response truncated
 // (repo too large to enumerate fully)..
+// Returns an error that matches ErrUnavailable when GitHub is down or
+// rate-limits the call.
 func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]TreeEntry, error) {
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(ref))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -282,12 +290,12 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 	_, span, resp, err := c.Do(ctx, "github.Client.GetTree", req)
 	defer span.End()
 	if err != nil {
-		return nil, err
+		return nil, transportError(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus))
 	}
 	var body treeResponse
 	if err := c.DecodeJSON(span, resp, &body); err != nil {
@@ -301,6 +309,8 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 
 // GetRawContent fetches the raw byte content of a single file at path in
 // the repository, at the given ref (branch, tag, or commit SHA).
+// Returns an error that matches ErrUnavailable when GitHub is down or
+// rate-limits the call.
 func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error) {
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(path), url.QueryEscape(ref))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -313,17 +323,65 @@ func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path 
 	_, span, resp, err := c.Do(ctx, "github.Client.GetRawContent", req)
 	defer span.End()
 	if err != nil {
-		return nil, err
+		return nil, transportError(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus))
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
+		return nil, transportError(ctx, fmt.Errorf("read response body: %w", err))
 	}
 	return data, nil
+}
+
+// transportError wraps err in ErrUnavailable: the call got no complete
+// response, so a later retry can succeed. A call that the caller canceled,
+// or whose deadline passed, is not a GitHub outage and stays unwrapped.
+func transportError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		// The caller stopped the call.
+		return err
+	}
+	// A timeout or a network failure.
+	return fmt.Errorf("%w: %w", ErrUnavailable, err)
+}
+
+// statusError wraps err, the error of a non-2xx response, in ErrUnavailable
+// when the status shows an outage or a rate limit. Every other status, for
+// example 404, gives the same result on a retry and stays unwrapped.
+func statusError(resp *http.Response, err error) error {
+	if isUnavailable(resp, err) {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	return err
+}
+
+// isUnavailable reports whether a non-2xx response shows a GitHub outage or
+// a rate limit. err is the error of that response; its text holds the start
+// of GitHub's error body. A rate limit is a 429, or a 403 with GitHub's
+// signal: x-ratelimit-remaining 0, a retry-after header, or a "secondary
+// rate limit" message. Any other 403 is, for example, lost access or a file
+// that is too large. See
+// https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit
+func isUnavailable(resp *http.Response, err error) bool {
+	switch {
+	case resp.StatusCode >= http.StatusInternalServerError:
+		// A GitHub outage.
+		return true
+	case resp.StatusCode == http.StatusTooManyRequests:
+		// A primary or secondary rate limit.
+		return true
+	case resp.StatusCode == http.StatusForbidden:
+		// A 403 is a rate limit only with GitHub's signal.
+		return resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+			resp.Header.Get("Retry-After") != "" ||
+			strings.Contains(strings.ToLower(err.Error()), "secondary rate limit")
+	default:
+		// Any other status, for example 404.
+		return false
+	}
 }
