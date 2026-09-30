@@ -129,7 +129,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
 - [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed` · 2026-09-04
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Proposed` · 2026-09-04
-- [Skills Marketplace: GitOps Source Registration via Namespaced SkillMarketplaceSource CRDs](2026-09-28-skills-marketplace-source-registration.md) — `Proposed` · 2026-09-29
+- [Skills Marketplace: GitOps Source Registration via Namespaced SkillMarketplaceSource CRDs](2026-09-29-skills-marketplace-source-registration.md) — `Proposed` · 2026-09-29
 
 ### Frontend & Design System
 
@@ -254,5 +254,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed | — |
-| 2026-09-29 | [Skills Marketplace: GitOps Source Registration via Namespaced SkillMarketplaceSource CRDs](2026-09-28-skills-marketplace-source-registration.md) | Proposed | — |
+| 2026-09-29 | [Skills Marketplace: GitOps Source Registration via Namespaced SkillMarketplaceSource CRDs](2026-09-29-skills-marketplace-source-registration.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
