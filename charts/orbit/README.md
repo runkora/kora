@@ -31,6 +31,9 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
+| agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
+| agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
+| agents.guardrails.sandboxProvisionBudgetSecs | int | `300` | Seconds across all attempts. At most 330, so the agent's tools still hear the outcome. |
 | agents.image.digest | string | `""` |  |
 | agents.image.pullPolicy | string | `""` |  |
 | agents.image.registry | string | `""` |  |

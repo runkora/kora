@@ -486,6 +486,17 @@ agents:
     sandboxImage: ""
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
+  # Sandbox provisioning guardrails, applied to every run
+  # (docs/adr/2026-09-29-agent-run-guardrails.md). After the last attempt the
+  # run records sandbox_lost until the user replies. Loop-guard thresholds are
+  # set per agent type, not here.
+  guardrails:
+    # -- Re-provisioning attempts when a run's sandbox dies.
+    sandboxProvisionAttempts: 3
+    # -- Seconds before the second attempt; doubles for each attempt after.
+    sandboxProvisionBackoffSecs: 5
+    # -- Seconds across all attempts. At most 330, so the agent's tools still hear the outcome.
+    sandboxProvisionBudgetSecs: 300
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:
