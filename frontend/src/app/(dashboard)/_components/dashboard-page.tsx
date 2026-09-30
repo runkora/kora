@@ -27,7 +27,7 @@ import {
   Text,
 } from '@orbit/terra';
 import { StatusBadge } from '@orbit/components';
-import { EventFeedItem } from '@orbit/components';
+import { EventFeedItem } from './event-feed-item';
 import { APP_ROUTES } from '@orbit/lib/routing';
 
 import type { AgentTypeRow, RunRow } from '../agents/_types';

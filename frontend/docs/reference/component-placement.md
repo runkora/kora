@@ -232,12 +232,11 @@ When you add a new component at any tier, update this document in the **same PR*
 
 Tier 2 components live at `frontend/src/components/` and are exported from `frontend/src/components/index.ts`. Import all Tier 2 components via `@orbit/components` (the `@orbit/*` path alias maps to `./src/*`).
 
-| Component           | Description                                                                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
-| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                             |
-| `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>`, wrap in `<ul className="divide-y">`. |
+| Component           | Description                                                                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
+| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                    |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2). |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 
@@ -248,7 +247,7 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 | Document                                                                                                                      | What it covers                                                               |
 | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained |
-| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: StatusBadge, EventFeedItem                             |
+| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: StatusBadge                                            |
 | [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)           |
 | [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                |
 | [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names        |

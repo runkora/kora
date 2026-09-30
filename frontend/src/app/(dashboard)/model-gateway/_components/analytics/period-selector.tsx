@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — Orbit-domain-aware: reads and writes `preferences.analytics.defaultPeriod`
+ * @tier 3 — analytics-scoped. Reads and writes `preferences.analytics.defaultPeriod`
  * or `preferences.myUsage.defaultPeriod` via `usePreferences()`.
  *
  * USAGE SCOPE: Requires `<PreferencesProvider>` in the ancestor tree, which is
@@ -14,9 +14,9 @@
  */
 
 import { Button, Stack } from '@orbit/terra';
-import { usePreferences } from '../app/(dashboard)/_preferences/preferences-context';
-import { toPeriod } from '../app/(dashboard)/_preferences/period';
-import type { AnalyticsDays, PeriodPrefKey } from '../app/(dashboard)/_preferences/period';
+import { usePreferences } from '../../../_preferences/preferences-context';
+import { toPeriod } from '../../../_preferences/period';
+import type { AnalyticsDays, PeriodPrefKey } from '../../../_preferences/period';
 
 export type { PeriodPrefKey };
 

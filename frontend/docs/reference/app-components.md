@@ -28,39 +28,6 @@ interface StatusBadgeProps {
 
 ---
 
-## EventFeedItem
-
-**Import:** `import { EventFeedItem } from '@orbit/components'`
-
-**When to use:** A single row in a `<ul className="divide-y">` activity feed or event list. Status dot + primary label + optional meta + message + timestamp.
-
-```tsx
-interface EventFeedItemProps {
-  status: OrbitStatus;
-  label: string; // primary identifier, monospace (e.g. event type)
-  meta?: string; // supporting identifier (e.g. agent name)
-  message: string;
-  timestamp: string;
-}
-```
-
-```tsx
-<ul className="divide-y divide-border-subtle">
-  {events.map((evt) => (
-    <EventFeedItem
-      key={evt.id}
-      status={evt.severity}
-      label={evt.type}
-      meta={evt.agent}
-      message={evt.message}
-      timestamp={evt.ts}
-    />
-  ))}
-</ul>
-```
-
----
-
 ## ScopeChipList, ScopeChip and scopeColumnFilter
 
 **Import:** `import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components'`

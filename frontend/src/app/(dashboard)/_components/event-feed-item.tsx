@@ -1,13 +1,6 @@
-/**
- * @tier 2 — App-level shared. Cross-feature; renders a single row in a
- * divide-y activity feed: status dot + primary identifier + optional meta +
- * message + timestamp. Used by dashboard home event spine, model-gateway
- * RecentLogsCard, and any future event feed.
- * @promote-to-tier-1 if: OrbitStatus dependency is removed and a second
- * non-dashboard kora surface needs a generic feed row.
- */
+/** @tier 3 — dashboard-scoped. One row in the home page's activity feed: status dot, identifier, optional meta, message and timestamp. */
 import { ListItem, Stack, StatusDot, Text } from '@orbit/terra';
-import type { OrbitStatus } from './status-badge';
+import type { OrbitStatus } from '@orbit/components';
 
 export interface EventFeedItemProps {
   status: OrbitStatus;

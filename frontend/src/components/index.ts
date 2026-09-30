@@ -5,12 +5,6 @@ export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
 export { StatusBadge } from './status-badge';
 export type { StatusBadgeProps, OrbitStatus } from './status-badge';
 
-/** KPI display card: icon + label + value + optional delta/breakdown/footer link. */
-
-/** Single row in a divide-y activity feed: status dot + label + meta + message + timestamp. */
-export { EventFeedItem } from './event-feed-item';
-export type { EventFeedItemProps } from './event-feed-item';
-
 /** Syntax-highlighted kora scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';
 export type { ScopeChipProps } from './scope-chip';
@@ -38,10 +32,6 @@ export type {
   DataTableServerFilter,
   DataTableFilterOption,
 } from './smart-table';
-
-/** Preference-backed period selector (7d/30d/90d). Requires PreferencesProvider (dashboard-scoped). */
-export { PeriodSelector } from './period-selector';
-export type { PeriodSelectorProps, PeriodPrefKey } from './period-selector';
 
 export { EffectiveAccessPanel } from './effective-access-panel';
 export { ModelPicker } from './model-picker';
