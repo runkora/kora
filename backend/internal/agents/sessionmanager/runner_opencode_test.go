@@ -679,8 +679,8 @@ func TestOpenCodeStartRequiresModel(t *testing.T) {
 	r.cfg.Model = ""
 
 	err := r.Start(t.Context(), t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "Model") {
-		t.Fatalf("Start error = %v, want one naming Model", err)
+	if err == nil || !strings.Contains(err.Error(), "model") {
+		t.Fatalf("Start error = %v, want one naming the model", err)
 	}
 }
 

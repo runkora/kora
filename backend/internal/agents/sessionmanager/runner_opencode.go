@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -137,32 +138,15 @@ func NewOpenCodeRunner(cfg OpenCodeRunnerConfig) *OpenCodeRunner {
 // Start validates config, writes opencode.json, spawns the subprocess, and
 // performs the initialize + session/new handshake synchronously.
 func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
-	if r.cfg.InferenceGatewayURL == "" {
-		return fmt.Errorf("opencode: InferenceGatewayURL must not be empty")
-	}
-	// Without a model OpenCode falls back to its own hosted free models.
-	if r.cfg.Model == "" {
-		return fmt.Errorf("opencode: Model must not be empty")
-	}
-
-	if err := r.writeOpenCodeConfig(workDir); err != nil {
-		return fmt.Errorf("opencode: write config: %w", err)
+	env, err := r.prepare(workDir)
+	if err != nil {
+		return fmt.Errorf("opencode: %w", err)
 	}
 
 	bin, args := wrapExec(r.cfg.WrapperPath, workDir, r.cfg.BinaryPath, "acp", "--cwd", workDir)
 	r.cmd = exec.CommandContext(ctx, bin, args...)
 	r.cmd.Dir = workDir
-	homeEnv, err := runHomeDirs(workDir)
-	if err != nil {
-		return fmt.Errorf("opencode: %w", err)
-	}
-	if err = lockOpenCodeGlobalConfig(workDir); err != nil {
-		return fmt.Errorf("opencode: %w", err)
-	}
-	// HOME and TMPDIR last: nothing in ExtraEnv may move the agent off the only
-	// directory Landlock makes writable.
-	runEnv := append(append([]string{}, openCodeOfflineEnv...), r.cfg.ExtraEnv...)
-	r.cmd.Env = withRunEnv(os.Environ(), append(runEnv, homeEnv...))
+	r.cmd.Env = env
 
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
@@ -382,6 +366,32 @@ var openCodeOfflineEnv = []string{
 	"OPENCODE_DISABLE_SHARE=1",
 	"OPENCODE_DISABLE_DEFAULT_PLUGINS=1",
 	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
+}
+
+// prepare validates the config, writes the run's OpenCode files and returns the
+// subprocess environment.
+func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
+	if r.cfg.InferenceGatewayURL == "" {
+		return nil, errors.New("InferenceGatewayURL must not be empty")
+	}
+	// Without a model OpenCode falls back to its own hosted free models.
+	if r.cfg.Model == "" {
+		return nil, errors.New("model must not be empty")
+	}
+	if err := r.writeOpenCodeConfig(workDir); err != nil {
+		return nil, fmt.Errorf("write config: %w", err)
+	}
+	if err := lockOpenCodeGlobalConfig(workDir); err != nil {
+		return nil, err
+	}
+	homeEnv, err := runHomeDirs(workDir)
+	if err != nil {
+		return nil, err
+	}
+	// HOME and TMPDIR last: nothing in ExtraEnv may move the agent off the only
+	// directory Landlock makes writable.
+	env := append(append([]string{}, openCodeOfflineEnv...), r.cfg.ExtraEnv...)
+	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
 }
 
 // lockOpenCodeGlobalConfig makes OpenCode's global config directory read-only.
