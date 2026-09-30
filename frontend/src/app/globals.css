@@ -48,15 +48,6 @@
  */
 @source "../packages/terra/src";
 
-/**
- * Wire the Geist fonts (injected by Next.js layout via CSS vars) into
- * the Terra font tokens so the design system picks them up automatically.
- */
-@theme inline {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
-
 [data-theme-switch='light'] {
   display: none;
 }

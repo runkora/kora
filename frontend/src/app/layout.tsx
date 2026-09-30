@@ -1,19 +1,22 @@
 import 'server-only';
 
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Archivo, DM_Mono } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@orbit/terra';
 import './globals.css';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+// Archivo is a variable font; the width axis lets headings run at 110%.
+const archivo = Archivo({
+  variable: '--font-archivo',
   subsets: ['latin'],
+  axes: ['wdth'],
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const dmMono = DM_Mono({
+  variable: '--font-dm-mono',
   subsets: ['latin'],
+  weight: ['400', '500'],
 });
 
 export const metadata: Metadata = {
@@ -37,7 +40,7 @@ export default function RootLayout({
     // suppressHydrationWarning: next-themes sets data-theme pre-hydration
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${archivo.variable} ${dmMono.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
           <TooltipProvider>{children}</TooltipProvider>

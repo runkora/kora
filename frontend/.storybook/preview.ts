@@ -1,6 +1,5 @@
 import type { Decorator, Preview } from '@storybook/react';
 import '../src/packages/terra/src/tokens/tokens.css';
-import './brands/kora.css';
 import './canvas.css';
 import './docs.css';
 
@@ -8,11 +7,7 @@ import './docs.css';
 const withBrand: Decorator = (Story, context) => {
   const { brand, theme } = context.globals;
   const root = document.documentElement;
-  if (brand === 'kora') {
-    root.dataset.brand = 'kora';
-  } else {
-    delete root.dataset.brand;
-  }
+  root.dataset.brand = brand;
   root.dataset.theme = theme;
   return Story();
 };
@@ -25,10 +20,7 @@ const preview: Preview = {
       toolbar: {
         title: 'Brand',
         icon: 'paintbrush',
-        items: [
-          { value: 'orbit', title: 'Orbit (current)' },
-          { value: 'kora', title: 'Kora (brand kit v3)' },
-        ],
+        items: [{ value: 'kora', title: 'Kora' }],
         dynamicTitle: true,
       },
     },

@@ -28,6 +28,8 @@ export { Callout } from './components/callout';
 export type { CalloutProps } from './components/callout';
 
 export { Icon } from './components/icon';
+export { KoraMark } from './components/kora-mark';
+export type { KoraMarkProps } from './components/kora-mark';
 export type {
   IconProps,
   IconName,

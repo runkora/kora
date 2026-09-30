@@ -4,5 +4,5 @@ body,
 .docs-story {
   background: var(--terra-raw-black);
   color: var(--terra-raw-white);
-  font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
+  font-family: var(--font-archivo, 'Archivo', ui-sans-serif, system-ui, sans-serif);
 }

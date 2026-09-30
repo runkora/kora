@@ -1,4 +1,4 @@
-import { Badge, Icon, Stack, Text } from '@orbit/terra';
+import { Badge, KoraMark, Stack, Text } from '@orbit/terra';
 import type { ReactNode } from 'react';
 
 /**
@@ -19,7 +19,7 @@ export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
       paddingInline="comfortable"
     >
       <Stack direction="horizontal" align="center" gap="snug">
-        <Icon name="zap" size="sm" container containerVariant="accent" />
+        <KoraMark size={18} />
         <Text size="supporting" weight="strong">
           Orbit
         </Text>
