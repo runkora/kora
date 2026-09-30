@@ -77,6 +77,15 @@ rather than the Egress Gateway, so a source declaration carries no credential
 and no `Connection` reference. The operator never contacts GitHub and never
 handles a credential.
 
+That removes credential handling from the operator, but it also removes the
+per-source authorization binding a `Connection` reference would have carried.
+`TokenProvider` mints one token for a single fixed App installation, and the
+crawler requests it without reference to the source it is about to fetch, so
+any repository that installation can read is reachable by any accepted source,
+whichever tenant declared it. Registering a source is therefore not, by itself,
+evidence that the tenant is entitled to the repository. Bounding that is an
+open question this decision does not settle — see Open Items.
+
 ### Problem Statement
 
 Define how a tenant admin registers a GitHub repository as a Skills Marketplace
@@ -524,7 +533,7 @@ it, and adding a `skills-service` chart Deployment that mounts the ConfigMap.
 
 ## Open Items
 
-Four items are not closed by this decision. Each names where the resolution
+Five items are not closed by this decision. Each names where the resolution
 lands, so an implementer knows what to watch.
 
 | # | Item | Blocks | Resolved by |
@@ -533,5 +542,6 @@ lands, so an implementer knows what to watch.
 | 2 | The slug algorithm must be adopted by `skills-service`, or written down and confirmed identically on both sides. The rule is: lowercase, collapse each run of non-`[a-z0-9]` characters to a single hyphen, trim leading and trailing hyphens. | REQ-10 beyond the operator | `skills-service` importing `internal/platform/slug`, or an agreed written spec. |
 | 3 | `skills-service` does not yet exist on `main` or on this ADR's base branch, and has no Helm chart Deployment or ConfigMap mount anywhere. | End-to-end observability, not the operator work | [PR #351](https://github.com/clear-route/orbit/pull/351) for the binary; the chart Deployment is unowned and unscheduled. |
 | 4 | [PR #226](https://github.com/clear-route/orbit/pull/226) proposes `2026-08-19-marketplace-gitops.md`, a different ADR that defines a CRD of the **same name** (`SkillMarketplaceSource`) writing the **same ConfigMap** (`orbit-skill-marketplace-sources`) with an incompatible design: a platform-wide singleton in `orbit-system`, a `connectionRef` routing GitHub access through the Egress Gateway, key `sources.json`, and additional sources rejected as `AdditionalSourceNotSupported`. It targets `main` and has been untouched since 2026-08-31. Its relationship to this ADR is unresolved. | Nothing technically; it is a conflict risk | A decision by the two authors: if this ADR replaces #226, #226's status flips to `Superseded by` this slug (per `2026-03-05-credential-aware-outbound-gateway.md`'s precedent) and this ADR gains a `Supersedes:` field. Both must not merge as `Proposed`. |
+| 5 | **A source declaration is not an entitlement check.** `TokenProvider` mints `contents: read` for one fixed installation ID, and `Crawler.FetchTree` requests that token without reference to the source before fetching `source.Org`/`source.Repo`. So a tenant admin who can apply a `SkillMarketplaceSource` can surface any repository the shared installation can read into their tenant's marketplace, and a repository outside that installation cannot load at all. This ADR names the gap but does not close it. | Nothing in the operator or the rendered ConfigMap; it bounds what a source may reach | Undecided. Candidates: a platform-controlled allow-list keyed on the owning tenant (entry granularity not settled), a per-tenant GitHub App installation so the token itself is scoped, or reinstating a per-source `Connection` binding as in #226. The first is a comparison against platform config and would sit in the operator; the others change how the backend authenticates. Needs the backend owners. |
 
 **Last Updated:** 2026-09-30
