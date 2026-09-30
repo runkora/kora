@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -244,16 +245,16 @@ func TestStreamsRelayEveryEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := ""
+	var text strings.Builder
 	for ch := range chunks {
 		if ch.Err != nil {
 			t.Fatal(ch.Err)
 		}
 		if len(ch.Chunk.Choices) > 0 {
-			text += ch.Chunk.Choices[0].Delta.Content
+			text.WriteString(ch.Chunk.Choices[0].Delta.Content)
 		}
 	}
-	if text != "pong" {
-		t.Errorf("chat over messages streamed %q", text)
+	if text.String() != "pong" {
+		t.Errorf("chat over messages streamed %q", text.String())
 	}
 }
