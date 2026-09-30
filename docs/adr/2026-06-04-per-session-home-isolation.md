@@ -325,7 +325,7 @@ Landlock confines ptrace access checks to the process's own domain, from ABI 1, 
 
 Sibling argv exposes Claude Code's `--append-system-prompt`, `--model`, `--resume` and the run's paths, and, while they run, the argv of child processes such as `orbit-shell -c <command>`. Codex and OpenCode keep their instructions off argv.
 
-Up to ten runs share one agent pod, and tenant namespaces enforce the `restricted` Pod Security level. Orbit's EKS node pools (Constellation) use Karpenter's `bottlerocket@latest` node class on Kubernetes 1.36, and the baseline managed node group uses AL2023. Their kernel versions and Landlock ABI were not measured.
+Up to ten runs share one agent pod, and tenant namespaces enforce the `restricted` Pod Security level. kora's EKS node pools (Constellation) use Karpenter's `bottlerocket@latest` node class on Kubernetes 1.36, and the baseline managed node group uses AL2023. Their kernel versions and Landlock ABI were not measured.
 
 ### Considered Options
 

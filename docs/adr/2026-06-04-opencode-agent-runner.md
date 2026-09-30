@@ -313,7 +313,7 @@ No base image change is required.
 
 **Status:** Accepted
 
-Touches *How does it connect?* and *What can it access?* Every OpenCode model call carries the run's Orbit identity through the inference gateway, so gateway policy and budgets apply. Identity (*Who is this agent?*) is unchanged.
+Touches *How does it connect?* and *What can it access?* Every OpenCode model call carries the run's kora identity through the inference gateway, so gateway policy and budgets apply. Identity (*Who is this agent?*) is unchanged.
 
 **Context.** The per-run `opencode.json` set a `baseURL` on the `anthropic` and `openai` providers but named no model. With no model configured, OpenCode's ACP server picks the top model of its own hosted `opencode` provider, which loads without a key and offers free models (`opencode/big-pickle`). Turns went to opencode.ai directly, outside the gateway. The `baseURL` also lacked the `/v1` segment, and the gateway's `/messages` endpoint serves only Anthropic models.
 

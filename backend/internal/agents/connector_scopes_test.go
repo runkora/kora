@@ -14,7 +14,7 @@ import (
 // take no qualifier.
 func TestConnectorScopes_ResourceQualifiers(t *testing.T) {
 	at := AgentType{Connectors: []Connector{
-		{Connection: "github", Actions: []string{"issues:write", "contents:read"}, Resources: []string{"kora", " webapp "}},
+		{Connection: "github", Actions: []string{"issues:write", "contents:read"}, Resources: []string{"Orbit", " webapp "}},
 		{Connection: "public-api", Actions: []string{"use"}, Resources: []string{"ignored"}},
 		{Connection: "gh-all", Actions: []string{"issues:read"}},
 	}}

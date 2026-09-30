@@ -45,7 +45,7 @@ var (
 	// ErrInstallationPermissions is returned when GitHub rejects a token-mint
 	// request (HTTP 422) because the requested permission level exceeds what the
 	// App installation actually holds. This is an upstream authority decision —
-	// the App is the ceiling — not an kora-internal error, so callers map it to
+	// the App is the ceiling — not a kora-internal error, so callers map it to
 	// a client-facing forbidden rather than a 500. See
 	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
 	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
