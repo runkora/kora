@@ -76,12 +76,6 @@ func (g Guardrails) withDefaults() Guardrails {
 	return g
 }
 
-// SetGuardrails replaces the registry's fallback thresholds, used for any a
-// run's configuration leaves unset.
-func (reg *Registry) SetGuardrails(g Guardrails) {
-	reg.guardrails = g.withDefaults()
-}
-
 // over fills every unset threshold in g from base.
 func (g Guardrails) over(base Guardrails) Guardrails {
 	pick := func(v, def int) int {

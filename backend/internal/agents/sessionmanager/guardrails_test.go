@@ -234,7 +234,7 @@ func fastGuardrails() Guardrails {
 func TestProvisionSandbox_RetriesThenSucceeds(t *testing.T) {
 	n := &failingNotifier{failures: 2}
 	reg, _ := newTestRegistry(t, n)
-	reg.SetGuardrails(fastGuardrails())
+	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -253,7 +253,7 @@ func TestProvisionSandbox_RetriesThenSucceeds(t *testing.T) {
 func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.T) {
 	n := &failingNotifier{failures: 100}
 	reg, ws := newTestRegistry(t, n)
-	reg.SetGuardrails(fastGuardrails())
+	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
 	reg.sessions["run-1"].runner = newStubRunner(nil)
 	if err := os.MkdirAll(filepath.Join(ws, "run-1"), 0o700); err != nil {
@@ -319,7 +319,7 @@ func (r *guardRunner) Interrupt() error {
 func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	n := &failingNotifier{}
 	reg, _ := newTestRegistry(t, n)
-	reg.SetGuardrails(Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3})
+	setGuardrails(reg, Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3})
 	runner := &guardRunner{stubRunner: newStubRunner(nil)}
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: runner}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -415,7 +415,7 @@ func TestIsLookOnlyCommand(t *testing.T) {
 func TestApplyLoopGuard_WarningIsSentAndRecorded(t *testing.T) {
 	n := &failingNotifier{}
 	reg, _ := newTestRegistry(t, n)
-	reg.SetGuardrails(Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3})
+	setGuardrails(reg, Guardrails{RepeatedCallWarn: 2, RepeatedCallPause: 3})
 	runner := &sendRecorder{stubRunner: newStubRunner(nil)}
 	s := &session{runID: "run-1", runner: runner, done: make(chan struct{})}
 	in := map[string]string{"command": "gh pr view 7"}
@@ -443,7 +443,7 @@ func (r *sendRecorder) Send(_ context.Context, text string) error {
 func TestProvisionSandbox_RetriesStopWhenSessionCloses(t *testing.T) {
 	n := &failingNotifier{failures: 100}
 	reg, _ := newTestRegistry(t, n)
-	reg.SetGuardrails(Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
+	setGuardrails(reg, Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
 	runCtx, cancel := context.WithCancel(context.Background())
 	hostSession(reg, "run-1")
 	reg.sessions["run-1"].runCtx = runCtx
@@ -520,7 +520,7 @@ func TestMarkSandboxLost_StaleEpochIsIgnored(t *testing.T) {
 func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
 	n := &failingNotifier{failures: 100}
 	reg, _ := newTestRegistry(t, n)
-	reg.SetGuardrails(Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
+	setGuardrails(reg, Guardrails{SandboxProvisionAttempts: 3, SandboxProvisionBackoff: time.Hour, SandboxProvisionBudget: time.Hour})
 	runner := newStubRunner(nil)
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: runner}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -609,4 +609,9 @@ func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
 	if got.Guardrails != want {
 		t.Errorf("server read %+v from %s", got.Guardrails, raw)
 	}
+}
+
+// setGuardrails replaces the registry's fallback thresholds for a test.
+func setGuardrails(reg *Registry, g Guardrails) {
+	reg.guardrails = g.withDefaults()
 }
