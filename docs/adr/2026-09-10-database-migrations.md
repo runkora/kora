@@ -142,7 +142,7 @@ goose applies every pending file in ascending version order; a skipped minor mig
 
 The compatibility rule is checked in review, by reading contract steps against the previous release's code. CI does not exercise upgrade chains.
 
-The compatibility statement each release publishes gains a supported PostgreSQL major range, 13 through 17. The database role Orbit connects with needs `CREATE` on schema `public` and owns every object the migrations create.
+The compatibility statement each release publishes gains a supported PostgreSQL major range, 14 through 18. The database role Orbit connects with needs `CREATE` on schema `public` and owns every object the migrations create.
 
 ### Decision 6: Rollback never runs Down
 

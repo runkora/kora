@@ -15,7 +15,7 @@ Every tenant pod (agent StatefulSet, sandbox) carries two Orbit containers besid
 
 Today this is delivered by three istiod injection templates (`spire`, `identity-proxy`, `opa-policy`) that the operator renders into the istiod Helm values. Pods select them through the `inject.istio.io/templates` annotation. System pods set that annotation in the chart. Tenant pods get it from the operator's mutating webhook (`pod_webhook.go`), which matches pod creation in namespaces labelled `orbit.io/role: tenant`, adds the labels `orbit.io/identity-proxy=enabled` and `orbit.io/opa-policy=enabled` (which activate the two `EnvoyFilter`s), sets `orbit.io/tenant-id` from the namespace label (read by the OPA container through the downward API), and merges the template list into the annotation. The webhook is named `aaa-orbit-agent-pod-mutator` so it sorts before `istio-sidecar-injector`, and runs with `failurePolicy: Ignore` on the reasoning that in-process OPA in the owned services is the authoritative boundary.
 
-Istio's injection template (release-1.29 `injection-template.yaml`) settles what the three templates can be replaced with. Since Istio 1.27 on Kubernetes 1.29 and later, `istio-proxy` is rendered as a native sidecar init container (lines 184-193). The `sidecar.istio.io/userVolumeMount` pod annotation renders mounts inside that same container block (line 461), so a pod-level annotation reaches the native sidecar; a template's `containers[name=istio-proxy].volumeMounts` patch does not merge into an `initContainers` entry, which is why the operator's template mounts stop working under native sidecars. `proxy.istio.io/config` `proxyMetadata` renders as environment variables on `istio-proxy` (lines 147-149). `holdApplicationUntilProxyStarts` is a no-op under native sidecars (lines 71-73); ordering comes from init-container sequencing. The identity-proxy has been run as an explicit container in a Deployment with no template involved. Orbit's current pin is Istio 1.29.1.
+Istio's injection template (release-1.29 `injection-template.yaml`) settles what the three templates can be replaced with. Since Istio 1.27 on Kubernetes 1.29 and later, `istio-proxy` is rendered as a native sidecar init container (lines 184-193). The `sidecar.istio.io/userVolumeMount` pod annotation renders mounts inside that same container block (line 461), so a pod-level annotation reaches the native sidecar; a template's `containers[name=istio-proxy].volumeMounts` patch does not merge into an `initContainers` entry, which is why the operator's template mounts stop working under native sidecars. `proxy.istio.io/config` `proxyMetadata` renders as environment variables on `istio-proxy` (lines 147-149). `holdApplicationUntilProxyStarts` is a no-op under native sidecars (lines 71-73); ordering comes from init-container sequencing. The identity-proxy has been run as an explicit container in a Deployment with no template involved. The release-1.31 template renders the same mechanisms, with `userVolumeMount` at line 470. Orbit's current pin is Istio 1.31.1.
 
 Every piece of the three templates is therefore expressible as pod spec: containers, volumes and two annotations. Managed Istio offerings (AKS add-on, GKE managed control plane) do not expose injection templates; OpenShift Service Mesh exposes them as unsupported configuration. All perform standard sidecar injection and honour per-pod proxy configuration annotations.
 
@@ -313,7 +313,7 @@ identityProxy:
   resources: { requests: { cpu: 50m, memory: 32Mi }, limits: { cpu: 200m, memory: 64Mi } }
 
 opaGateway:
-  image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.15.2-envoy-static, digest: "", pullPolicy: "" }
+  image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.21.0-envoy-static, digest: "", pullPolicy: "" }
 
 operator:
   replicas: 2
@@ -331,7 +331,7 @@ operator:
     warn: restricted
     audit: restricted
   preflight:
-    supportedIstioMinors: ["1.29", "1.28"]   # stamped by release automation
+    supportedIstioMinors: ["1.31", "1.30"]   # edited with the Istio pin; the release copies it into compatibility.yaml
     intervalSeconds: 300
 ```
 
