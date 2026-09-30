@@ -29,7 +29,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
-| `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | none | none |
+| `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 

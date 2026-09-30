@@ -17,7 +17,7 @@ ADRs: [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md
 
 Each agent type gets one long-lived StatefulSet pod. Runs are multiplexed onto it. `orbit-agents` sets the per-pod concurrency limit. A pod is not created per run.
 
-The `session-manager` container hosts each run. `orbit-session-runner` wraps the agent CLI process and isolates it with user, PID, and mount namespaces plus Landlock. Alongside it, `orbit-runtime-mcp` provides the runtime MCP tools and `orbit-shell` is the shell and tool-exec shim.
+The `session-manager` container hosts each run. `orbit-session-runner` wraps the agent CLI process and confines it with Landlock: its own workspace, no per-process `/proc` entries, and, on kernels that support it, no signals to other runs. Alongside it, `orbit-runtime-mcp` provides the runtime MCP tools and `orbit-shell` is the shell and tool-exec shim.
 
 The operator injects the Istio `istio-proxy`, the Orbit `identity-proxy`, and an OPA `ext_authz` sidecar.
 
