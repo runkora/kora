@@ -109,6 +109,9 @@ type K8sProvisionerConfig struct {
 	// no source matches the rule and every call is denied, so the chart gates
 	// this on platform.spiffe.enabled (charts/orbit/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
+	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
+	// of Node processes its runs start. Zero disables the cap.
+	NodeMaxOldSpaceMB int
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -1511,6 +1514,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
+								{Name: "ORBIT_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{

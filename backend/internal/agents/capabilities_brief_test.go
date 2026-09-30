@@ -70,6 +70,19 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 	}
 }
 
+// The agent pod's memory is shared by every run on it, so the brief sends heavy
+// work to the sandbox whether or not the agent has egress.
+func TestRenderCapabilitiesBrief_SendsHeavyWorkToTheSandbox(t *testing.T) {
+	for name, access := range map[string]*EffectiveAccess{"open": {Open: true}, "none": {}} {
+		brief := renderCapabilitiesBrief(access, testWorkspaceDir)
+		for _, want := range []string{"builds or tests", "memory-heavy", "shared with other runs"} {
+			if !strings.Contains(brief, want) {
+				t.Errorf("%s brief missing %q, got:\n%s", name, want, brief)
+			}
+		}
+	}
+}
+
 // A whitelist miss is a reset TLS handshake with no body, so the brief is the
 // only place the agent can learn what that failure means.
 func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {

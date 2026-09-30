@@ -56,6 +56,10 @@ type ControllerConfig struct {
 	// OTLPEndpoint is the platform collector Claude Code exports to. Empty
 	// disables its telemetry.
 	OTLPEndpoint string
+
+	// NodeMaxOldSpaceMB caps the heap of Node processes a run starts on the agent
+	// pod, which shares one memory limit across every run. Zero disables the cap.
+	NodeMaxOldSpaceMB int
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -433,6 +437,9 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
 		"ORBIT_RUN_ID=" + runID,
 		"ORBIT_RUN_TOKEN=" + runToken,
+	}
+	if c.cfg.NodeMaxOldSpaceMB > 0 {
+		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))
 	}
 	return append(env, runfs.InstallEnv(runfs.HomeDir(workspace), os.Getenv("PATH"))...)
 }

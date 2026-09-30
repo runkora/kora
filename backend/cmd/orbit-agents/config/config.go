@@ -4,6 +4,7 @@ package agentsConfig
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,10 @@ type Config struct {
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
+			// NodeMaxOldSpaceMB caps the V8 heap of Node processes a run starts
+			// on its agent pod, so one runaway run cannot OOM-kill the pod's
+			// other runs. Zero disables the cap.
+			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
 	} `yaml:"agents"`
 }
@@ -167,6 +172,9 @@ func Validate(cfg *Config) error {
 	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
 		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
 	}
+	if cfg.Agents.SessionManager.NodeMaxOldSpaceMB < 0 {
+		return errors.New("ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB (agents.sessionManager.nodeMaxOldSpaceMB) must be a non-negative integer")
+	}
 	return nil
 }
 
@@ -196,6 +204,14 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 	}
 	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
 		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
+	}
+	if v := getenv("ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB"); v != "" {
+		// An unparseable value becomes -1, which Validate rejects at startup.
+		mb, err := strconv.Atoi(v)
+		if err != nil {
+			mb = -1
+		}
+		cfg.Agents.SessionManager.NodeMaxOldSpaceMB = mb
 	}
 }
 

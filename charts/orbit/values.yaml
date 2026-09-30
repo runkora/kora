@@ -488,6 +488,11 @@ agents:
     sandboxImage: ""
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
+    # -- Heap cap in MB for Node processes an agent run starts on its agent pod.
+    # The pod's runs share one memory limit, so a runaway Node tool fails with a
+    # heap OOM instead of taking every run with it. The agent harnesses and
+    # sandbox commands are not capped. 0 disables the cap.
+    nodeMaxOldSpaceMB: 512
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:
