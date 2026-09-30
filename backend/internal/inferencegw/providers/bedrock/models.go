@@ -112,7 +112,7 @@ func modelFamily(canonicalID string) string {
 			return strings.TrimSuffix(ns, ".")
 		}
 	}
-	return "unknown"
+	return inferencegw.InferFamily(base)
 }
 
 // aliases generates clean, stable alias IDs for a canonical Bedrock model ID.

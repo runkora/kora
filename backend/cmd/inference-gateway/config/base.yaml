@@ -35,6 +35,5 @@ policy:
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
 
 providers:
-  # The operator's InferenceProvider aggregate, mounted by the chart.
-  configDir: /etc/orbit/inference-providers
-  secretDir: /etc/orbit/inference-provider-secrets
+  # The namespace the gateway watches for InferenceProvider resources.
+  namespace: orbit-system

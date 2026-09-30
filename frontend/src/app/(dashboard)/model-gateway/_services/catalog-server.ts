@@ -148,8 +148,7 @@ export interface ProviderStatusWire {
   name: string;
   type: string;
   display_name?: string;
-  source: 'resource' | 'environment';
-  resource?: string;
+  resource: string;
   location?: string;
   credential_mode: string;
   assume_role_arn?: string;

@@ -22,6 +22,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
+	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func main() {
@@ -107,22 +108,27 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 
 func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
-	// InferenceProvider resources arrive as the operator's mounted aggregate and
-	// reload on change. Env providers are deprecated and load underneath them.
-	envProviders, err := registry.FromEnv(ctx, logger)
+	// Providers come from the InferenceProvider resources the gateway watches.
+	// The first load seeds the router; the watch keeps it current.
+	restCfg, err := kubeconfig.GetConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("env providers: %w", err)
+		return nil, nil, fmt.Errorf("kubernetes config: %w", err)
 	}
-	router := inferencegw.NewRoutingEngine(nil)
-	providers := &registry.Reloader{
-		ConfigDir: igc.Current.Providers.ConfigDir,
-		SecretDir: igc.Current.Providers.SecretDir,
-		Env:       envProviders,
-		Sink:      router,
-		Logger:    logger,
+	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, logger)
+	if err != nil {
+		return nil, nil, err
 	}
-	providers.Reload(ctx)
-	go providers.Watch(ctx)
+	router := inferencegw.NewRoutingEngine(providers.Load(ctx))
+	go func() {
+		if _, discoverErr := router.ListModels(ctx); discoverErr != nil {
+			logger.Warn(ctx, "provider model discovery failed", logging.Field{Key: "error", Value: discoverErr.Error()})
+		}
+	}()
+	go func() {
+		if watchErr := providers.Run(ctx, router); watchErr != nil {
+			logger.Error(ctx, "provider watch stopped", logging.Field{Key: "error", Value: watchErr.Error()})
+		}
+	}()
 
 	// ── Domain layer ────────────────────────────────────────────────────────────────────────────────
 	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
@@ -169,7 +175,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
-		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
 }

@@ -336,21 +336,6 @@ inferenceGateway:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
   config: {}
-  # AWS Bedrock providers. Each entry renders an InferenceProvider named
-  # <alias>, which registers provider "bedrock:<alias>". The alias must be a
-  # DNS label. Credentials come from the pod's cloud identity, never from
-  # values. credentialsSecret names an existing Secret in the system namespace
-  # with keys accessKeyID, secretAccessKey and sessionToken instead.
-  # assumeRoleARN reaches another account from either. Any other provider is an
-  # InferenceProvider resource applied beside the chart; see
-  # docs/guides/model-providers.md.
-  bedrock:
-    accounts: []
-    # - alias: aus
-    #   region: ap-southeast-2
-    #   assumeRoleARN: arn:aws:iam::123456789012:role/orbit-bedrock
-    #   externalID: ""
-    #   credentialsSecret: ""
 
 orbitMcp:
   image:

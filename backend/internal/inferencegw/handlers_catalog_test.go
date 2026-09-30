@@ -307,21 +307,21 @@ func TestValidateVirtualModelRequest_AllStrategiesAccepted(t *testing.T) {
 	}
 }
 
-// ─── isValidProvider ─────────────────────────────────────────────────────────
+// ─── ProviderName.Valid ─────────────────────────────────────────────────────────
 
-func TestIsValidProvider(t *testing.T) {
+func TestProviderNameValid(t *testing.T) {
 	t.Parallel()
 	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod_east",
-		"openai:openrouter", "anthropic:claude", "vertexai:gcp-prod", "azure:eastus"}
+		"compatible:openrouter", "vertexai:gcp-prod", "azure:eastus"}
 	for _, p := range valid {
-		if !isValidProvider(p) {
-			t.Errorf("isValidProvider(%q) = false, want true", p)
+		if !p.Valid() {
+			t.Errorf("Valid(%q) = false, want true", p)
 		}
 	}
-	invalid := []ProviderName{"mistral", "gcp:x", "", "BEDROCK", "openai:", "openai:My-Router", "openai:a/b"}
+	invalid := []ProviderName{"mistral", "gcp:x", "", "BEDROCK", "compatible:", "compatible:My-Router", "compatible:a/b", "openai:x"}
 	for _, p := range invalid {
-		if isValidProvider(p) {
-			t.Errorf("isValidProvider(%q) = true, want false", p)
+		if p.Valid() {
+			t.Errorf("Valid(%q) = true, want false", p)
 		}
 	}
 }
@@ -699,9 +699,9 @@ func TestLookupPricingCrossProviderFallback(t *testing.T) {
 	})
 }
 
-// ─── canonicalPricingProvider ─────────────────────────────────────────────────
+// ─── normalisePricingProvider ─────────────────────────────────────────────────
 
-func TestCanonicalPricingProvider(t *testing.T) {
+func TestNormalisePricingProvider(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		in   ProviderName
@@ -716,8 +716,8 @@ func TestCanonicalPricingProvider(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(string(tc.in), func(t *testing.T) {
 			t.Parallel()
-			if got := canonicalPricingProvider(tc.in); got != tc.want {
-				t.Errorf("canonicalPricingProvider(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := normalisePricingProvider(tc.in); got != tc.want {
+				t.Errorf("normalisePricingProvider(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

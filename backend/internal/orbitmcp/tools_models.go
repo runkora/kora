@@ -81,7 +81,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 func registerProviderModelTools(srv *sdk.Server, catalog string, jc *orbitjson.Client) {
 	addTool(srv, "models.providers.status",
 		"List the registered inference providers: name, type, region or endpoint, credential mode, "+
-			"source (InferenceProvider resource or deprecated env vars), status, model count and last error. "+
+			"InferenceProvider resource, status, model count and last error. "+
 			"Providers are registered by applying an InferenceProvider resource; there is no create tool.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/providers", nil))

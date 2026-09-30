@@ -1,230 +1,222 @@
-// Package registry builds the gateway's provider connectors from
-// InferenceProvider entries and from the deprecated provider env vars, and
-// swaps them into the routing engine whenever the mounted entries change.
+// Package registry builds the gateway's provider connectors from the
+// InferenceProvider resources it watches.
 //
 // See docs/adr/2026-10-01-crd-inference-providers.md.
 package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/anthropicapi"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/openaicompat"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Built is a connector and its admin description. Connector is nil when the
-// build failed; Info.BuildError says why.
-type Built struct {
-	Connector inferencegw.ProviderConnector
-	Info      inferencegw.ProviderInfo
+// Reasons on the status condition of a resource.
+const (
+	ReasonLoaded            = "Loaded"
+	ReasonInvalidSpec       = "InvalidSpec"
+	ReasonSecretNotFound    = "SecretNotFound"
+	ReasonSecretKeyNotFound = "SecretKeyNotFound"
+	ReasonBuildFailed       = "BuildFailed"
+)
+
+// Bedrock credential Secret keys.
+const (
+	keyAccessKeyID     = "accessKeyID"
+	keySecretAccessKey = "secretAccessKey"
+	keySessionToken    = "sessionToken"
+)
+
+// BuildError is why a resource produced no connector.
+type BuildError struct {
+	Reason  string
+	Message string
 }
 
-// FromResource builds the connector for one InferenceProvider entry.
-func FromResource(p ip.Provider, logger logging.Logger) Built {
-	name := inferencegw.ProviderName(p.Name)
+func (e *BuildError) Error() string { return e.Message }
+
+func buildErr(reason, format string, args ...any) error {
+	return &BuildError{Reason: reason, Message: fmt.Sprintf(format, args...)}
+}
+
+// SecretReader returns one key of a Secret in the resource's namespace. It
+// returns a *BuildError when the Secret or the key is missing.
+type SecretReader func(ctx context.Context, name, key string) (string, error)
+
+// Build constructs the connector for one resource and describes it for the
+// admin view. The description never carries a credential.
+func Build(ctx context.Context, p *ip.InferenceProvider, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, inferencegw.ProviderInfo, error) {
 	info := inferencegw.ProviderInfo{
-		Name:        name,
-		Type:        string(p.Type),
-		DisplayName: p.DisplayName,
-		Source:      inferencegw.ProviderSourceResource,
-		Resource:    p.Resource,
-		Models:      p.Models,
+		Name:        inferencegw.ProviderName(p.ProviderName()),
+		Type:        string(p.Spec.Type),
+		DisplayName: p.Spec.DisplayName,
+		Resource:    p.Name,
+		Models:      p.Spec.Models,
 	}
-	if err := p.Validate(); err != nil {
-		info.BuildError = err.Error()
-		return Built{Info: info}
-	}
-	conn, err := build(p, name, &info, logger)
+	conn, err := build(ctx, p.Spec, &info, secret, logger)
 	if err != nil {
+		var be *BuildError
+		if !errors.As(err, &be) {
+			err = &BuildError{Reason: ReasonBuildFailed, Message: err.Error()}
+		}
 		info.BuildError = err.Error()
-		return Built{Info: info}
+		return nil, info, err
 	}
-	return Built{Connector: withModelList(conn, p.Type, p.Models), Info: info}
+	return withModelList(conn, p.Spec.Models), info, nil
 }
 
-// build constructs the connector for p's type and fills the non-secret parts
-// of info.
-func build(p ip.Provider, name inferencegw.ProviderName, info *inferencegw.ProviderInfo, logger logging.Logger) (inferencegw.ProviderConnector, error) {
-	switch p.Type {
-	case ip.TypeBedrock:
-		b := p.Bedrock
-		info.Location = b.Region
-		info.AssumeRoleARN = b.AssumeRoleARN
-		info.CredentialMode = credentialMode(b.AccessKeyIDKey != "", true)
-		cfg := bedrock.Config{Region: b.Region, AssumeRoleARN: b.AssumeRoleARN, ExternalID: b.ExternalID}
-		var err error
-		if cfg.AccessKeyID, err = p.Secret(b.AccessKeyIDKey); err != nil {
-			return nil, err
-		}
-		if cfg.SecretAccessKey, err = p.Secret(b.SecretAccessKeyKey); err != nil {
-			return nil, err
-		}
-		if cfg.SessionToken, err = p.Secret(b.SessionTokenKey); err != nil {
-			return nil, err
-		}
-		return bedrock.New(&cfg, name, logger)
-
-	case ip.TypeVertexAI:
-		v := p.VertexAI
-		info.Location = v.ProjectID + "/" + v.Location
-		info.CredentialMode = credentialMode(v.CredentialsKey != "", true)
-		key, err := p.Secret(v.CredentialsKey)
-		if err != nil {
-			return nil, err
-		}
-		anthropicLocation := v.AnthropicLocation
-		if anthropicLocation == "" {
-			anthropicLocation = v.Location
-		}
-		return vertexai.New(&vertexai.Config{
-			ProjectID:         v.ProjectID,
-			Location:          v.Location,
-			AnthropicLocation: anthropicLocation,
-			CredentialsJSON:   []byte(key),
-		}, name, logger)
-
-	case ip.TypeAzure:
-		a := p.Azure
-		info.Location = a.Endpoint
-		info.CredentialMode = inferencegw.CredentialModeSecret
-		key, err := p.Secret(a.APIKeyKey)
-		if err != nil {
-			return nil, err
-		}
-		anthropicEndpoint := a.AnthropicEndpoint
-		if anthropicEndpoint == "" {
-			anthropicEndpoint = a.Endpoint
-		}
-		return azure.New(&azure.Config{
-			Endpoint:          a.Endpoint,
-			APIKey:            key,
-			APIVersion:        a.APIVersion,
-			AnthropicEndpoint: anthropicEndpoint,
-		}, name, logger)
-
-	case ip.TypeOpenAI:
-		o := p.OpenAI
-		info.Location = o.BaseURL
-		info.CredentialMode = credentialMode(o.APIKeyKey != "", false)
-		key, err := p.Secret(o.APIKeyKey)
-		if err != nil {
-			return nil, err
-		}
-		return openaicompat.New(openaicompat.Config{BaseURL: o.BaseURL, APIKey: key, CACert: o.CACert}, name, logger)
-
-	case ip.TypeAnthropic:
-		a := p.Anthropic
-		info.Location = a.BaseURL
-		info.CredentialMode = inferencegw.CredentialModeSecret
-		key, err := p.Secret(a.APIKeyKey)
-		if err != nil {
-			return nil, err
-		}
-		return anthropicapi.New(anthropicapi.Config{BaseURL: a.BaseURL, APIKey: key, CACert: a.CACert}, name, logger)
-	}
-	return nil, fmt.Errorf("unknown provider type %q", p.Type)
-}
-
-// credentialMode names how a provider authenticates. ambient reports whether
-// the type falls back to workload identity without a Secret.
-func credentialMode(hasSecret, ambient bool) string {
+func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	switch {
-	case hasSecret:
-		return inferencegw.CredentialModeSecret
-	case ambient:
-		return inferencegw.CredentialModeWorkloadIdentity
-	default:
-		return inferencegw.CredentialModeNone
+	case s.Type == ip.TypeBedrock && s.Bedrock != nil:
+		return buildBedrock(ctx, s.Bedrock, info, secret, logger)
+	case s.Type == ip.TypeVertexAI && s.VertexAI != nil:
+		return buildVertexAI(ctx, s.VertexAI, info, secret, logger)
+	case s.Type == ip.TypeAzure && s.Azure != nil:
+		return buildAzure(ctx, s.Azure, info, secret, logger)
+	case s.Type == ip.TypeCompatible && s.Compatible != nil:
+		return buildCompatible(ctx, s.Compatible, info, secret, logger)
 	}
+	return nil, buildErr(ReasonInvalidSpec, "type %q needs its own config block", s.Type)
 }
 
-// FromEnv builds the providers configured by the deprecated BEDROCK_*,
-// VERTEX_* and AZURE_* env vars. A misconfigured env var is an error, as it
-// was before resources existed.
-func FromEnv(ctx context.Context, logger logging.Logger) ([]Built, error) {
-	var out []Built
-	bedrockCfgs, err := bedrock.LoadMultiConfig()
+func buildBedrock(ctx context.Context, b *ip.Bedrock, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+	info.Location = b.Region
+	info.AssumeRoleARN = b.AssumeRoleARN
+	info.CredentialMode = inferencegw.CredentialModeWorkloadIdentity
+	cfg := bedrock.Config{Region: b.Region, AssumeRoleARN: b.AssumeRoleARN, ExternalID: b.ExternalID, RoleSessionName: b.RoleSessionName}
+	if b.Credentials != nil {
+		info.CredentialMode = inferencegw.CredentialModeSecret
+		if err := readBedrockKeys(ctx, secret, b.Credentials.SecretRef.Name, &cfg); err != nil {
+			return nil, err
+		}
+	}
+	return bedrock.New(&cfg, info.Name, logger)
+}
+
+func buildVertexAI(ctx context.Context, v *ip.VertexAI, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+	info.Location = v.ProjectID + "/" + v.Location
+	info.CredentialMode = inferencegw.CredentialModeWorkloadIdentity
+	cfg := &vertexai.Config{ProjectID: v.ProjectID, Location: v.Location, AnthropicLocation: v.AnthropicLocation}
+	if cfg.AnthropicLocation == "" {
+		cfg.AnthropicLocation = v.Location
+	}
+	if ref := v.CredentialsSecretRef; ref != nil {
+		info.CredentialMode = inferencegw.CredentialModeSecret
+		key, err := secret(ctx, ref.Name, ref.Key)
+		if err != nil {
+			return nil, err
+		}
+		cfg.CredentialsJSON = []byte(key)
+	}
+	return vertexai.New(cfg, info.Name, logger)
+}
+
+func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+	info.Location = a.Endpoint
+	info.CredentialMode = inferencegw.CredentialModeSecret
+	key, err := secret(ctx, a.APIKeySecretRef.Name, a.APIKeySecretRef.Key)
 	if err != nil {
 		return nil, err
 	}
-	for _, nc := range bedrockCfgs {
-		name := inferencegw.ProviderName("bedrock:" + nc.Alias)
-		conn, buildErr := bedrock.New(&nc.Config, name, logger)
-		if buildErr != nil {
-			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, buildErr)
-		}
-		out = append(out, envBuilt(conn, string(ip.TypeBedrock), nc.Config.Region,
-			credentialMode(nc.Config.AccessKeyID != "", true)))
+	cfg := &azure.Config{Endpoint: a.Endpoint, APIKey: key, APIVersion: a.APIVersion, AnthropicEndpoint: a.AnthropicEndpoint}
+	if cfg.AnthropicEndpoint == "" {
+		cfg.AnthropicEndpoint = a.Endpoint
 	}
-
-	vcfg, err := vertexai.LoadConfig()
-	if err != nil {
-		return nil, err
-	}
-	if vcfg != nil {
-		conn, buildErr := vertexai.New(vcfg, inferencegw.ProviderVertexAI, logger)
-		if buildErr != nil {
-			return nil, buildErr
-		}
-		out = append(out, envBuilt(conn, string(ip.TypeVertexAI), vcfg.ProjectID+"/"+vcfg.Location,
-			inferencegw.CredentialModeWorkloadIdentity))
-	}
-
-	acfg, err := azure.LoadConfig()
-	if err != nil {
-		return nil, err
-	}
-	if acfg != nil {
-		conn, buildErr := azure.New(acfg, inferencegw.ProviderAzure, logger)
-		if buildErr != nil {
-			return nil, buildErr
-		}
-		out = append(out, envBuilt(conn, string(ip.TypeAzure), acfg.Endpoint, inferencegw.CredentialModeSecret))
-	}
-
-	for _, b := range out {
-		logger.Warn(ctx, "provider configured by env vars; env provider configuration is deprecated, register an InferenceProvider instead",
-			logging.Field{Key: "provider", Value: string(b.Info.Name)})
-	}
-	return out, nil
+	return azure.New(cfg, info.Name, logger)
 }
 
-func envBuilt(conn inferencegw.ProviderConnector, typ, location, mode string) Built {
-	return Built{Connector: conn, Info: inferencegw.ProviderInfo{
-		Name:           conn.Name(),
-		Type:           typ,
-		Source:         inferencegw.ProviderSourceEnvironment,
-		Location:       location,
-		CredentialMode: mode,
-	}}
+func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+	info.Location = c.BaseURL
+	info.CredentialMode = inferencegw.CredentialModeNone
+	cfg := compatible.Config{BaseURL: c.BaseURL, CACert: c.CACert, APIs: c.APIs}
+	if ref := c.APIKeySecretRef; ref != nil {
+		info.CredentialMode = inferencegw.CredentialModeSecret
+		key, err := secret(ctx, ref.Name, ref.Key)
+		if err != nil {
+			return nil, err
+		}
+		cfg.APIKey = key
+	}
+	conn, err := compatible.New(cfg, info.Name, logger)
+	if err != nil {
+		return nil, buildErr(ReasonInvalidSpec, "%s", err.Error())
+	}
+	return conn, nil
 }
 
-// Merge combines env and resource providers. A resource replaces an env
-// provider of the same name. Failed builds keep their info and get no
-// connector.
-func Merge(env, resources []Built) (map[inferencegw.ProviderName]inferencegw.ProviderConnector, []inferencegw.ProviderInfo) {
-	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
-	var infos []inferencegw.ProviderInfo
-	fromResource := map[inferencegw.ProviderName]bool{}
-	for _, b := range resources {
-		fromResource[b.Info.Name] = true
+// readBedrockKeys reads a static key pair and an optional session token.
+func readBedrockKeys(ctx context.Context, secret SecretReader, ref string, cfg *bedrock.Config) error {
+	var err error
+	if cfg.AccessKeyID, err = secret(ctx, ref, keyAccessKeyID); err != nil {
+		return err
 	}
-	for _, b := range slices.Concat(env, resources) {
-		if b.Info.Source == inferencegw.ProviderSourceEnvironment && fromResource[b.Info.Name] {
+	if cfg.SecretAccessKey, err = secret(ctx, ref, keySecretAccessKey); err != nil {
+		return err
+	}
+	cfg.SessionToken, err = secret(ctx, ref, keySessionToken)
+	var be *BuildError
+	if errors.As(err, &be) && be.Reason == ReasonSecretKeyNotFound {
+		return nil
+	}
+	return err
+}
+
+// describer builds a catalog entry for a model known only by its id.
+type describer interface {
+	Describe(id string) inferencegw.ProviderModel
+}
+
+// modelListConnector offers only the models a resource lists in spec.models.
+// When discovery finds none of them, the list itself is the catalog; some
+// compatible servers have no model list.
+type modelListConnector struct {
+	inferencegw.ProviderConnector
+	models []string
+}
+
+func withModelList(conn inferencegw.ProviderConnector, models []string) inferencegw.ProviderConnector {
+	if len(models) == 0 {
+		return conn
+	}
+	return &modelListConnector{ProviderConnector: conn, models: models}
+}
+
+// ListModels filters discovery to the listed models.
+func (c *modelListConnector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
+	discovered, _ := c.ProviderConnector.ListModels(ctx)
+	var kept []inferencegw.ProviderModel
+	for _, m := range discovered {
+		if slices.Contains(c.models, m.ModelID) || slices.ContainsFunc(m.Aliases, func(a string) bool {
+			return slices.Contains(c.models, a)
+		}) {
+			kept = append(kept, m)
+		}
+	}
+	if len(kept) > 0 {
+		return kept, nil
+	}
+	out := make([]inferencegw.ProviderModel, 0, len(c.models))
+	for _, id := range c.models {
+		if d, ok := c.ProviderConnector.(describer); ok {
+			out = append(out, d.Describe(id))
 			continue
 		}
-		infos = append(infos, b.Info)
-		if b.Connector != nil {
-			connectors[b.Info.Name] = b.Connector
-		}
+		out = append(out, inferencegw.ProviderModel{
+			Provider:     c.Name(),
+			ModelID:      id,
+			Family:       inferencegw.InferFamily(id),
+			DisplayName:  id,
+			Dialects:     []inferencegw.APIDialect{inferencegw.DialectOpenAI},
+			Capabilities: []inferencegw.ModelCapability{inferencegw.CapabilityChat},
+		})
 	}
-	return connectors, infos
+	return out, nil
 }

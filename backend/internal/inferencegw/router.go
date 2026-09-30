@@ -90,13 +90,13 @@ func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 	r.onCatalogUpdate.Store(&fn)
 }
 
-// NewRoutingEngine constructs a RoutingEngine.
-func NewRoutingEngine(connectors map[ProviderName]ProviderConnector) *RoutingEngine {
+// NewRoutingEngine constructs a RoutingEngine serving connectors, described by infos.
+func NewRoutingEngine(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo) *RoutingEngine {
 	r := &RoutingEngine{
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
 		maxTotalAttempts:     defaultMaxTotalAttempts,
 	}
-	r.SetProviders(connectors, nil)
+	r.SetProviders(connectors, infos)
 	return r
 }
 

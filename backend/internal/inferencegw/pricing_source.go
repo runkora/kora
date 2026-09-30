@@ -98,8 +98,6 @@ var liteLLMProviderToOrbit = map[string]ProviderName{
 	"vertex_ai-language-models":  ProviderVertexAI,
 	"azure":                      ProviderAzure,
 	"azure_ai":                   ProviderAzure,
-	"openai":                     ProviderOpenAI,
-	"anthropic":                  ProviderAnthropic,
 }
 
 // resolveProvider maps a LiteLLM provider field value to an Orbit ProviderName.
@@ -140,7 +138,7 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 }
 
 // normalisePricingProvider collapses a named provider ("bedrock:aus",
-// "openai:openrouter") to its type. The pricing catalog is keyed on the type.
+// "compatible:openrouter") to its type. The pricing catalog is keyed on the type.
 // Routes and usage records carry the named provider.
 func normalisePricingProvider(provider ProviderName) ProviderName {
 	if provider.Valid() {

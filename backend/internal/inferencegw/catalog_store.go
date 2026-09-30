@@ -108,11 +108,6 @@ func (s *CatalogStore) RefreshProviderModels(ctx context.Context) error {
 	return err
 }
 
-// ProviderStatuses returns every configured provider with its health.
-func (s *CatalogStore) ProviderStatuses() []ProviderStatus {
-	return s.router.ProviderStatuses()
-}
-
 // ── internal ─────────────────────────────────────────────────────────────────
 
 // refresh reloads the full catalog snapshot into the routing engine.

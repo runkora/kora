@@ -1,10 +1,12 @@
 # Model providers
 
-A platform admin registers each model provider with an `InferenceProvider` resource in the Orbit system namespace (`orbit-system` by default). The inference gateway picks up a new, changed or deleted resource without a restart. The provider registers as `<type>:<metadata.name>`, for example `openai:openrouter`. See [inference gateway](../architecture/inference-gateway.md) for how routing and the model catalogue work, and [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md) for the design.
+Register each model provider with an `InferenceProvider` resource in the Orbit system namespace (`orbit-system` by default). The inference gateway picks up a new, changed or deleted resource, or a rotated Secret, within seconds and without a restart. The provider registers as `<type>:<metadata.name>`, for example `compatible:openrouter`.
 
-Credentials live in a Secret in the same namespace. The resource names the Secret and never holds the value. Only the inference gateway receives provider credentials. Agents call the gateway with their Orbit identity and never see them.
+Credentials live in a Secret in the same namespace, labelled `orbit.io/inference-provider=true`. The resource names the Secret and never holds the value. Only the inference gateway reads provider credentials.
 
-## Register OpenRouter or any OpenAI-compatible endpoint
+## Register OpenRouter or any compatible endpoint
+
+The `compatible` type covers any endpoint that speaks the OpenAI or Anthropic APIs: OpenRouter, OpenAI, Anthropic, vLLM. List the APIs the endpoint serves in `apis`.
 
 ```yaml
 apiVersion: v1
@@ -12,6 +14,8 @@ kind: Secret
 metadata:
   name: openrouter
   namespace: orbit-system
+  labels:
+    orbit.io/inference-provider: "true"
 stringData:
   apiKey: sk-or-v1-...
 ---
@@ -21,50 +25,28 @@ metadata:
   name: openrouter
   namespace: orbit-system
 spec:
-  type: openai
+  type: compatible
   displayName: OpenRouter
   models:
+    - anthropic/claude-sonnet-4.5
     - openai/gpt-4o-mini
-    - meta-llama/llama-3.3-70b-instruct
-  openai:
+  compatible:
     baseURL: https://openrouter.ai/api/v1
+    apis: [chatCompletions, responses, messages]
     apiKeySecretRef:
       name: openrouter
       key: apiKey
 ```
 
-`baseURL` defaults to `https://api.openai.com/v1`, which registers OpenAI itself. Point it at a vLLM, KServe or llm-d service to register a self-hosted model. `apiKeySecretRef` is optional for an unauthenticated server.
+- `apis` takes `chatCompletions`, `embeddings`, `responses` and `messages`. Declared APIs go straight to the endpoint.
+- An undeclared API is translated when a declared one can carry it. Chat completions and Responses run over `messages`, and Responses over `chatCompletions`. Undeclared `messages` and `embeddings` are refused.
+- Claude Code calls `messages`. Codex calls `responses`. OpenCode calls `chatCompletions`.
+- `baseURL` is the prefix of `/chat/completions` and `/messages`. It must end in `/v1` when `messages` is listed.
+- `baseURL` must be `https://`. For an in-cluster server with a private CA, set `caCert` to the CA's PEM.
+- `apiKeySecretRef` is optional for an unauthenticated server.
+- `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a model list needs it.
 
-`baseURL` must be `https://`. The gateway's sidecar replaces the `Authorization` header of any plain HTTP call with the gateway's own platform token, so a plain HTTP upstream would receive that token instead of its key. Serve an in-cluster model over TLS and set `caCert` to the PEM of its private CA:
-
-```yaml
-  openai:
-    baseURL: https://vllm.models.svc.cluster.local/v1
-    caCert: |
-      -----BEGIN CERTIFICATE-----
-      ...
-      -----END CERTIFICATE-----
-``` `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a `/models` list needs `models`.
-
-An `openai` provider serves `/v1/chat/completions`, `/v1/embeddings` and `/v1/responses`. It does not serve `/v1/messages`. Claude Code needs a model on a `bedrock`, `vertexai`, `azure` or `anthropic` provider. Codex and OpenCode run on any type.
-
-## Register the Anthropic API
-
-```yaml
-apiVersion: orbit.io/v1alpha1
-kind: InferenceProvider
-metadata:
-  name: anthropic
-  namespace: orbit-system
-spec:
-  type: anthropic
-  anthropic:
-    apiKeySecretRef:
-      name: anthropic
-      key: apiKey
-```
-
-`baseURL` defaults to `https://api.anthropic.com`. Set it to register another Anthropic Messages endpoint. It must be `https://`, and `caCert` works as for `openai`.
+For the Anthropic API: `baseURL: https://api.anthropic.com/v1` and `apis: [messages]`. For OpenAI: `baseURL: https://api.openai.com/v1` and `apis: [chatCompletions, embeddings, responses]`.
 
 ## Register AWS Bedrock
 
@@ -82,9 +64,10 @@ spec:
     region: ap-southeast-2
     assumeRoleARN: arn:aws:iam::123456789012:role/orbit-bedrock   # optional: another account
     externalID: orbit                                              # optional
+    roleSessionName: platform-team                                 # optional, default orbit-inference-gateway
 ```
 
-With static keys, add a Secret with keys `accessKeyID`, `secretAccessKey` and optionally `sessionToken`, and name it:
+With static keys, add a labelled Secret with keys `accessKeyID`, `secretAccessKey` and optionally `sessionToken`, and name it:
 
 ```yaml
     credentials:
@@ -92,7 +75,7 @@ With static keys, add a Secret with keys `accessKeyID`, `secretAccessKey` and op
         name: bedrock-credentials
 ```
 
-The chart renders one Bedrock resource per `inferenceGateway.bedrock.accounts` entry. Local development does the same from `BEDROCK_ACCOUNTS` in `.env`. `make cluster-bedrock-creds` refreshes the SSO session in Secret `orbit-bedrock-credentials`.
+Locally, `make cluster-bedrock-creds` writes your AWS SSO session into Secret `orbit-bedrock-credentials` and applies one Bedrock resource per alias in `BEDROCK_ACCOUNTS` in `.env`. `make up` runs it too.
 
 ## Register Google Vertex AI
 
@@ -138,16 +121,17 @@ spec:
 kubectl get inferenceproviders -n orbit-system
 ```
 
-`PHASE` is `Ready` when the operator accepted the resource. `Invalid` carries the reason in the `Aggregated` condition: a wrong namespace, a missing Secret or a missing key. A resource without the block its `type` names is rejected on apply.
+`PHASE` is `Ready` when the gateway loaded the resource. `Invalid` carries the reason in the `Loaded` condition, such as a missing Secret, a missing key or an unlabelled Secret. A resource in another namespace, or without the block its `type` names, is rejected on apply.
 
-Runtime health (the model count, the last discovery, any connection error) is on the dashboard's Catalog page, in `GET /v1/catalog/providers`, and in the Orbit MCP tool `models.providers.status`.
+Runtime health (the model count, the last discovery, any upstream error) is on the dashboard's Catalog page under Providers, in `GET /v1/catalog/providers`, and in the Orbit MCP tool `models.providers.status`.
 
 ## Offer a model to agents
 
-A provider's models appear under provider models in the Catalog. Agents use virtual models. Create one routed to the provider model on the Catalog page or with `models.virtual.create`, then grant `inference:<family>:<name>:use` as for any model.
+A provider's models appear under Provider Catalog. Agents use virtual models. Create one routed to the provider model on the Catalog page or with `models.virtual.create`, then grant `inference:<family>:<name>:use`.
 
-## Env var configuration
+A mesh on `REGISTRY_ONLY` needs a ServiceEntry for each provider host.
 
-`BEDROCK_*`, `VERTEX_*` and `AZURE_*` on the gateway still register providers for one release and log a deprecation warning. A resource with the same provider name replaces the env provider. Env Vertex and Azure providers are named `vertexai` and `azure`. Their resources are named `vertexai:<name>` and `azure:<name>`. Move their routes to the new name in the Catalog.
+## Reference
 
-A mesh on `REGISTRY_ONLY` gets ServiceEntries for the Bedrock accounts in the chart's values. Add a ServiceEntry for any other provider host.
+- [Inference gateway](../architecture/inference-gateway.md): routing and the model catalogue.
+- [CRD-driven inference providers](../adr/2026-10-01-crd-inference-providers.md): the design and its decisions.

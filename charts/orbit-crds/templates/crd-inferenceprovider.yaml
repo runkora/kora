@@ -40,9 +40,10 @@ spec:
         openAPIV3Schema:
           description: >
             InferenceProvider registers one model provider with the inference
-            gateway. Apply it in the Orbit system namespace. The provider
-            registers as <type>:<metadata.name>. Credentials are named by
-            Secret reference in the same namespace, never by value.
+            gateway, which watches it. Apply it in the Orbit system namespace.
+            The provider registers as <type>:<metadata.name>. Credentials are
+            Secrets in the same namespace, labelled
+            orbit.io/inference-provider=true, and named here, never inlined.
           type: object
           required:
             - spec
@@ -67,10 +68,8 @@ spec:
                   message: set the vertexai block if and only if type is vertexai.
                 - rule: "(self.type == 'azure') == has(self.azure)"
                   message: set the azure block if and only if type is azure.
-                - rule: "(self.type == 'openai') == has(self.openai)"
-                  message: set the openai block if and only if type is openai.
-                - rule: "(self.type == 'anthropic') == has(self.anthropic)"
-                  message: set the anthropic block if and only if type is anthropic.
+                - rule: "(self.type == 'compatible') == has(self.compatible)"
+                  message: set the compatible block if and only if type is compatible.
               properties:
                 type:
                   description: The provider type. It selects the one config block that must be set.
@@ -79,8 +78,7 @@ spec:
                     - bedrock
                     - vertexai
                     - azure
-                    - openai
-                    - anthropic
+                    - compatible
                 displayName:
                   description: Human-readable name shown in the dashboard.
                   type: string
@@ -103,7 +101,9 @@ spec:
                       type: string
                       minLength: 1
                     credentials:
-                      description: A Secret with keys accessKeyID, secretAccessKey and optionally sessionToken.
+                      description: >
+                        A Secret labelled orbit.io/inference-provider=true with keys
+                        accessKeyID, secretAccessKey and optionally sessionToken.
                       type: object
                       required:
                         - secretRef
@@ -122,6 +122,10 @@ spec:
                       pattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$'
                     externalID:
                       type: string
+                    roleSessionName:
+                      description: Names the assumed sessions in CloudTrail. Defaults to orbit-inference-gateway.
+                      type: string
+                      pattern: '^[\w+=,.@-]{2,64}$'
                 vertexai:
                   description: Google Vertex AI. Without credentialsSecretRef, Application Default Credentials apply (GKE Workload Identity).
                   type: object
@@ -180,51 +184,40 @@ spec:
                         key:
                           type: string
                           minLength: 1
-                openai:
+                compatible:
                   description: >
-                    Any OpenAI-compatible endpoint: OpenAI, OpenRouter, vLLM,
-                    KServe. baseURL defaults to https://api.openai.com/v1. It
-                    must be https: the gateway's sidecar replaces the
-                    Authorization header on plain HTTP calls.
-                  type: object
-                  properties:
-                    baseURL:
-                      type: string
-                      pattern: '^https://.+'
-                    caCert:
-                      description: >
-                        PEM certificate authority for an upstream signed by a
-                        private CA, such as an in-cluster model server.
-                      type: string
-                    apiKeySecretRef:
-                      type: object
-                      required:
-                        - name
-                        - key
-                      properties:
-                        name:
-                          type: string
-                          minLength: 1
-                        key:
-                          type: string
-                          minLength: 1
-                anthropic:
-                  description: >
-                    Any Anthropic Messages endpoint. baseURL defaults to
-                    https://api.anthropic.com. It must be https.
+                    An endpoint that speaks the OpenAI or Anthropic APIs, such as
+                    OpenAI, Anthropic, OpenRouter or vLLM. apis lists what it
+                    serves; those pass through natively.
                   type: object
                   required:
-                    - apiKeySecretRef
+                    - baseURL
+                    - apis
+                  x-kubernetes-validations:
+                    - rule: "!('messages' in self.apis) || self.baseURL.endsWith('/v1') || self.baseURL.endsWith('/v1/')"
+                      message: an endpoint serving messages needs a baseURL ending in /v1.
                   properties:
                     baseURL:
+                      description: >
+                        The prefix of /chat/completions and /messages, e.g.
+                        https://openrouter.ai/api/v1. It must be https: the
+                        gateway's sidecar replaces the Authorization header on
+                        plain HTTP calls.
                       type: string
                       pattern: '^https://.+'
-                    caCert:
-                      description: >
-                        PEM certificate authority for an upstream signed by a
-                        private CA, such as an in-cluster model server.
-                      type: string
+                    apis:
+                      type: array
+                      minItems: 1
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                        enum:
+                          - chatCompletions
+                          - embeddings
+                          - responses
+                          - messages
                     apiKeySecretRef:
+                      description: A key of a Secret labelled orbit.io/inference-provider=true.
                       type: object
                       required:
                         - name
@@ -236,6 +229,9 @@ spec:
                         key:
                           type: string
                           minLength: 1
+                    caCert:
+                      description: PEM certificate authority for an upstream signed by a private CA.
+                      type: string
             status:
               type: object
               properties:
@@ -249,9 +245,6 @@ spec:
                 observedGeneration:
                   type: integer
                   format: int64
-                lastReconciledAt:
-                  type: string
-                  format: date-time
                 conditions:
                   type: array
                   items:

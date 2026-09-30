@@ -6,9 +6,8 @@ import type { ProviderStatusWire } from '../../_services/catalog-server';
 
 function provider(overrides: Partial<ProviderStatusWire> = {}): ProviderStatusWire {
   return {
-    name: 'openai:openrouter',
-    type: 'openai',
-    source: 'resource',
+    name: 'compatible:openrouter',
+    type: 'compatible',
     resource: 'openrouter',
     location: 'https://openrouter.ai/api/v1',
     credential_mode: 'secret',
@@ -25,7 +24,7 @@ describe('ProvidersSection', () => {
     expect(screen.getByText(/kind: InferenceProvider/)).toBeInTheDocument();
   });
 
-  it('lists each provider with its source, credentials and status', () => {
+  it('lists each provider with its resource, credentials and status', () => {
     renderWithProviders(
       <ProvidersSection
         providers={[
@@ -33,8 +32,7 @@ describe('ProvidersSection', () => {
           provider({
             name: 'bedrock:us',
             type: 'bedrock',
-            source: 'environment',
-            resource: undefined,
+            resource: 'us',
             location: 'us-west-2',
             credential_mode: 'workload identity',
             status: 'error',
@@ -44,10 +42,10 @@ describe('ProvidersSection', () => {
         ]}
       />,
     );
-    expect(screen.getByText('OpenAI-compatible (openrouter)')).toBeInTheDocument();
+    expect(screen.getByText('Compatible endpoint (openrouter)')).toBeInTheDocument();
     expect(screen.getByText('InferenceProvider/openrouter')).toBeInTheDocument();
     expect(screen.getByText('AWS Bedrock (us)')).toBeInTheDocument();
-    expect(screen.getByText('Env vars (deprecated)')).toBeInTheDocument();
+    expect(screen.getByText('InferenceProvider/us')).toBeInTheDocument();
     expect(screen.getByText('workload identity')).toBeInTheDocument();
     expect(screen.getByText('list models: AccessDenied')).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();

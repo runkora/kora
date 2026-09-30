@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-// Provider sources.
-const (
-	ProviderSourceResource    = "resource"
-	ProviderSourceEnvironment = "environment"
-)
-
 // Provider credential modes shown to admins. None of them carries a value.
 const (
 	CredentialModeSecret           = "secret"
@@ -24,13 +18,12 @@ const (
 	ProviderStatusError = "error"
 )
 
-// ProviderInfo describes one configured provider. BuildError is set when its
+// ProviderInfo describes one InferenceProvider. BuildError is set when its
 // connector could not be built; the provider then serves no traffic.
 type ProviderInfo struct {
 	Name           ProviderName `json:"name"`
 	Type           string       `json:"type"`
 	DisplayName    string       `json:"display_name,omitempty"`
-	Source         string       `json:"source"`
 	Resource       string       `json:"resource,omitempty"`
 	Location       string       `json:"location,omitempty"`
 	CredentialMode string       `json:"credential_mode"`

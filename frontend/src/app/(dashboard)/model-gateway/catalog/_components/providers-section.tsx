@@ -19,9 +19,10 @@ metadata:
   name: openrouter
   namespace: orbit-system
 spec:
-  type: openai
-  openai:
+  type: compatible
+  compatible:
     baseURL: https://openrouter.ai/api/v1
+    apis: [chatCompletions, responses, messages]
     apiKeySecretRef:
       name: openrouter
       key: apiKey`;
@@ -77,18 +78,13 @@ export function ProvidersSection({ providers }: ProvidersSectionProps) {
         ),
       },
       {
-        id: 'source',
-        header: 'Source',
-        cell: (p) =>
-          p.source === 'resource' ? (
-            <Text size="supporting" mono>
-              InferenceProvider/{p.resource}
-            </Text>
-          ) : (
-            <Badge variant="degraded" size="sm">
-              Env vars (deprecated)
-            </Badge>
-          ),
+        id: 'resource',
+        header: 'Resource',
+        cell: (p) => (
+          <Text size="supporting" mono>
+            InferenceProvider/{p.resource}
+          </Text>
+        ),
       },
       {
         id: 'status',
@@ -134,8 +130,7 @@ export function ProvidersSection({ providers }: ProvidersSectionProps) {
       <Stack gap="snug">
         <Text size="supporting" color="muted">
           No providers are registered. Apply an InferenceProvider resource in the Orbit system
-          namespace, with its API key in a Secret beside it. The gateway picks it up without a
-          restart.
+          namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />
       </Stack>

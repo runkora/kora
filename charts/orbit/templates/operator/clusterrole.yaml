@@ -47,11 +47,11 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants", "connections", "oauthclients", "mcpservers", "inferenceproviders"]
+    resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
     verbs: ["get", "list", "watch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants/status", "mcpservers/status", "inferenceproviders/status"]
+    resources: ["orbittenants/status", "mcpservers/status"]
     verbs: ["get", "patch"]
   # caBundle and failurePolicy on Orbit's own webhooks.
   - apiGroups: ["admissionregistration.k8s.io"]

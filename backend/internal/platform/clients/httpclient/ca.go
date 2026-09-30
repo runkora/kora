@@ -4,19 +4,18 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"net/http"
 )
 
 // ErrInvalidCACert is returned when a CA bundle holds no PEM certificate.
 var ErrInvalidCACert = errors.New("CA certificate is not valid PEM")
 
-// NewTransportWithCA returns a transport that trusts caPEM on top of the
-// system roots, for an upstream signed by a private CA. An empty caPEM returns
-// nil. NewTracingTransport treats nil as the default transport.
-func NewTransportWithCA(caPEM string) (http.RoundTripper, error) {
+// NewTracingTransportWithCA is [NewTracingTransport] over a transport that also
+// trusts caPEM, for an upstream signed by a private CA. An empty caPEM trusts
+// the system roots only.
+func NewTracingTransportWithCA(tracerName, caPEM string) (http.RoundTripper, error) {
 	if caPEM == "" {
-		return nil, nil
+		return NewTracingTransport(tracerName, nil), nil
 	}
 	pool, err := x509.SystemCertPool()
 	if err != nil {
@@ -25,11 +24,7 @@ func NewTransportWithCA(caPEM string) (http.RoundTripper, error) {
 	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
 		return nil, ErrInvalidCACert
 	}
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, fmt.Errorf("default transport is %T", http.DefaultTransport)
-	}
-	t := base.Clone()
-	t.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-	return t, nil
+	inner := http.DefaultTransport.(*http.Transport).Clone()
+	inner.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	return NewTracingTransport(tracerName, inner), nil
 }

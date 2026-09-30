@@ -3,7 +3,6 @@ package azure
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -18,58 +17,12 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Config holds the Azure AI connector configuration.
-// Populated exclusively from environment variables via LoadConfig — never from YAML.
+// Config holds one Azure AI resource.
 type Config struct {
 	Endpoint          string
 	APIKey            string
 	APIVersion        string
 	AnthropicEndpoint string // optional — defaults to Endpoint if unset
-}
-
-// LoadConfig reads Azure AI configuration from environment variables.
-// Returns nil when AZURE_ENABLED is not "true", indicating the connector
-// should not be registered. Returns an error if enabled but misconfigured.
-//
-// Environment variables:
-//
-//	AZURE_ENABLED                — set to "true" to enable
-//	AZURE_AI_ENDPOINT            — Azure OpenAI resource endpoint (required when enabled)
-//	AZURE_AI_API_KEY             — Azure resource API key (required when enabled)
-//	AZURE_OPENAI_API_VERSION     — API version, e.g. "2024-02-01" (required when enabled)
-//	AZURE_ANTHROPIC_ENDPOINT     — endpoint for Claude models via Anthropic Messages API
-//	                               (optional; falls back to AZURE_AI_ENDPOINT if unset)
-func LoadConfig() (*Config, error) {
-	if os.Getenv("AZURE_ENABLED") != "true" {
-		return nil, nil
-	}
-
-	endpoint := os.Getenv("AZURE_AI_ENDPOINT")
-	if endpoint == "" {
-		return nil, fmt.Errorf("azure: AZURE_AI_ENDPOINT is required when AZURE_ENABLED=true")
-	}
-
-	apiKey := os.Getenv("AZURE_AI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("azure: AZURE_AI_API_KEY is required when AZURE_ENABLED=true")
-	}
-
-	apiVersion := os.Getenv("AZURE_OPENAI_API_VERSION")
-	if apiVersion == "" {
-		return nil, fmt.Errorf("azure: AZURE_OPENAI_API_VERSION is required when AZURE_ENABLED=true")
-	}
-
-	anthropicEndpoint := os.Getenv("AZURE_ANTHROPIC_ENDPOINT")
-	if anthropicEndpoint == "" {
-		anthropicEndpoint = endpoint
-	}
-
-	return &Config{
-		Endpoint:          endpoint,
-		APIKey:            apiKey,
-		APIVersion:        apiVersion,
-		AnthropicEndpoint: anthropicEndpoint,
-	}, nil
 }
 
 // Connector implements inferencegw.ProviderConnector for Azure AI Inference.
@@ -132,7 +85,7 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		models = append(models, inferencegw.ProviderModel{
 			Provider:         c.name,
 			ModelID:          id,
-			Family:           inferAzureFamily(id),
+			Family:           inferencegw.InferFamily(id),
 			DisplayName:      displayNameFromID(id),
 			InputModalities:  inputMods,
 			OutputModalities: outputMods,
@@ -144,44 +97,6 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		return nil, fmt.Errorf("azure: list models: %w", err)
 	}
 	return models, nil
-}
-
-// azureFamilyRules maps Azure model ID substrings/prefixes to vendor families.
-// Evaluated in order — first match wins.
-var azureFamilyRules = []struct {
-	contains string
-	family   string
-}{
-	{"claude", "anthropic"},
-	{"llama", "meta"},
-	{"mistral", "mistral"},
-	{"mixtral", "mistral"},
-	{"gemini", "google"},
-	{"deepseek", "deepseek"},
-	{"cohere", "cohere"},
-	{"phi-", "microsoft"},
-	{"gpt-", "openai"},
-	{"dall-e", "openai"},
-	{"dalle", "openai"},
-	{"whisper", "openai"},
-	{"text-embedding", "openai"},
-}
-
-// inferAzureFamily maps an Azure model ID to a canonical vendor family name.
-// Azure hosts models from multiple vendors under a flat deployment namespace,
-// so family must be inferred from model ID patterns.
-func inferAzureFamily(id string) string {
-	lower := strings.ToLower(id)
-	// o-series models: o1, o3, o4, o4-mini, etc.
-	if len(lower) >= 2 && lower[0] == 'o' && lower[1] >= '1' && lower[1] <= '9' {
-		return "openai"
-	}
-	for _, rule := range azureFamilyRules {
-		if strings.Contains(lower, rule.contains) {
-			return rule.family
-		}
-	}
-	return "unknown"
 }
 
 // inferAzureModalities derives input/output modalities from an Azure model ID.

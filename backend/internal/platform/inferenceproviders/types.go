@@ -1,48 +1,74 @@
-// InferenceProvider CRD Go types.
-//
-// An InferenceProvider registers one model provider with the inference
-// gateway. It lives in the system namespace and names its credentials by
-// Secret reference, never by value. The InferenceProviderAggregator renders
-// every resource into the ConfigMap and Secret the gateway mounts.
+// Package inferenceproviders holds the InferenceProvider API types. The
+// inference gateway watches these resources; the chart ships their CRD.
 //
 // See docs/adr/2026-10-01-crd-inference-providers.md.
-package operator
+package inferenceproviders
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// InferenceProvider phases.
+// GroupVersion is the API group and version of InferenceProvider.
+var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+
+// SecretLabel marks the Secrets a provider may reference. The gateway only
+// caches Secrets carrying it.
+const SecretLabel = "orbit.io/inference-provider"
+
+// Type is a provider type. It is the prefix of every provider name.
+type Type string
+
+// Provider types.
 const (
-	InferenceProviderPhaseReady   = "Ready"
-	InferenceProviderPhaseInvalid = "Invalid"
+	TypeBedrock    Type = "bedrock"
+	TypeVertexAI   Type = "vertexai"
+	TypeAzure      Type = "azure"
+	TypeCompatible Type = "compatible"
+)
+
+// API is an inference API a compatible endpoint serves.
+type API string
+
+// APIs a compatible endpoint can declare.
+const (
+	APIChatCompletions API = "chatCompletions"
+	APIEmbeddings      API = "embeddings"
+	APIResponses       API = "responses"
+	APIMessages        API = "messages"
+)
+
+// Phases on InferenceProvider status.
+const (
+	PhaseReady   = "Ready"
+	PhaseInvalid = "Invalid"
 )
 
 // InferenceProvider registers one model provider with the inference gateway.
-//
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=oip
 type InferenceProvider struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
-	Spec   InferenceProviderSpec   `json:"spec,omitempty"`
-	Status InferenceProviderStatus `json:"status,omitempty"`
+	Spec   Spec   `json:"spec"`
+	Status Status `json:"status"`
 }
 
-// InferenceProviderSpec is a union: Type names the one block that is set.
-type InferenceProviderSpec struct {
-	Type        string   `json:"type"`
+// ProviderName is the gateway provider name this resource registers.
+func (p *InferenceProvider) ProviderName() string {
+	return string(p.Spec.Type) + ":" + p.Name
+}
+
+// Spec is a union: Type names the one block that is set.
+type Spec struct {
+	Type        Type     `json:"type"`
 	DisplayName string   `json:"displayName,omitempty"`
 	Models      []string `json:"models,omitempty"`
 
-	Bedrock   *BedrockProviderSpec   `json:"bedrock,omitempty"`
-	VertexAI  *VertexAIProviderSpec  `json:"vertexai,omitempty"`
-	Azure     *AzureProviderSpec     `json:"azure,omitempty"`
-	OpenAI    *OpenAIProviderSpec    `json:"openai,omitempty"`
-	Anthropic *AnthropicProviderSpec `json:"anthropic,omitempty"`
+	Bedrock    *Bedrock    `json:"bedrock,omitempty"`
+	VertexAI   *VertexAI   `json:"vertexai,omitempty"`
+	Azure      *Azure      `json:"azure,omitempty"`
+	Compatible *Compatible `json:"compatible,omitempty"`
 }
 
 // SecretKeyRef names one key of a Secret in the resource's namespace.
@@ -56,70 +82,68 @@ type SecretNameRef struct {
 	Name string `json:"name"`
 }
 
-// BedrockProviderSpec configures AWS Bedrock. Without Credentials the gateway's
-// workload identity applies.
-type BedrockProviderSpec struct {
-	Region        string              `json:"region"`
-	Credentials   *BedrockCredentials `json:"credentials,omitempty"`
-	AssumeRoleARN string              `json:"assumeRoleARN,omitempty"`
-	ExternalID    string              `json:"externalID,omitempty"`
+// Bedrock configures AWS Bedrock. Without Credentials the gateway's workload
+// identity applies.
+type Bedrock struct {
+	Region          string              `json:"region"`
+	Credentials     *BedrockCredentials `json:"credentials,omitempty"`
+	AssumeRoleARN   string              `json:"assumeRoleARN,omitempty"`
+	ExternalID      string              `json:"externalID,omitempty"`
+	RoleSessionName string              `json:"roleSessionName,omitempty"`
 }
 
-// BedrockCredentials names a Secret with keys accessKeyID, secretAccessKey and
-// optionally sessionToken.
+// BedrockCredentials names a Secret with keys accessKeyID, secretAccessKey
+// and optionally sessionToken.
 type BedrockCredentials struct {
 	SecretRef SecretNameRef `json:"secretRef"`
 }
 
-// VertexAIProviderSpec configures Google Vertex AI. Without
-// CredentialsSecretRef, Application Default Credentials apply.
-type VertexAIProviderSpec struct {
+// VertexAI configures Google Vertex AI. Without CredentialsSecretRef,
+// Application Default Credentials apply.
+type VertexAI struct {
 	ProjectID            string        `json:"projectID"`
 	Location             string        `json:"location"`
 	AnthropicLocation    string        `json:"anthropicLocation,omitempty"`
 	CredentialsSecretRef *SecretKeyRef `json:"credentialsSecretRef,omitempty"`
 }
 
-// AzureProviderSpec configures Azure AI.
-type AzureProviderSpec struct {
+// Azure configures Azure AI.
+type Azure struct {
 	Endpoint          string       `json:"endpoint"`
 	APIVersion        string       `json:"apiVersion"`
 	AnthropicEndpoint string       `json:"anthropicEndpoint,omitempty"`
 	APIKeySecretRef   SecretKeyRef `json:"apiKeySecretRef"`
 }
 
-// OpenAIProviderSpec configures any OpenAI-compatible endpoint. CACert is a
-// PEM authority for an upstream signed by a private CA.
-type OpenAIProviderSpec struct {
-	BaseURL         string        `json:"baseURL,omitempty"`
+// Compatible configures an endpoint that speaks the OpenAI or Anthropic APIs,
+// such as OpenAI, Anthropic, OpenRouter or vLLM. APIs lists what it serves.
+type Compatible struct {
+	BaseURL         string        `json:"baseURL"`
+	APIs            []API         `json:"apis"`
 	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef,omitempty"`
 	CACert          string        `json:"caCert,omitempty"`
 }
 
-// AnthropicProviderSpec configures any Anthropic Messages endpoint.
-type AnthropicProviderSpec struct {
-	BaseURL         string       `json:"baseURL,omitempty"`
-	APIKeySecretRef SecretKeyRef `json:"apiKeySecretRef"`
-	CACert          string       `json:"caCert,omitempty"`
-}
-
-// InferenceProviderStatus is reconciliation state only. Runtime health belongs
-// to the gateway.
-type InferenceProviderStatus struct {
+// Status is written by the inference gateway.
+type Status struct {
 	Phase              string             `json:"phase,omitempty"`
 	ProviderName       string             `json:"providerName,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	LastReconciledAt   *metav1.Time       `json:"lastReconciledAt,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // InferenceProviderList is a list of InferenceProvider resources.
-//
-// +kubebuilder:object:root=true
 type InferenceProviderList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata"`
 	Items           []InferenceProvider `json:"items"`
+}
+
+// AddToScheme registers the types.
+func AddToScheme(s *runtime.Scheme) error {
+	s.AddKnownTypes(GroupVersion, &InferenceProvider{}, &InferenceProviderList{})
+	metav1.AddToGroupVersion(s, GroupVersion)
+	return nil
 }
 
 // DeepCopyObject implements runtime.Object.
@@ -149,11 +173,9 @@ func (p *InferenceProvider) DeepCopyInto(out *InferenceProvider) {
 }
 
 // DeepCopyInto copies the spec, including every pointer block.
-func (s *InferenceProviderSpec) DeepCopyInto(out *InferenceProviderSpec) {
+func (s *Spec) DeepCopyInto(out *Spec) {
 	*out = *s
-	if s.Models != nil {
-		out.Models = append([]string(nil), s.Models...)
-	}
+	out.Models = append([]string(nil), s.Models...)
 	if s.Bedrock != nil {
 		b := *s.Bedrock
 		if s.Bedrock.Credentials != nil {
@@ -174,26 +196,20 @@ func (s *InferenceProviderSpec) DeepCopyInto(out *InferenceProviderSpec) {
 		a := *s.Azure
 		out.Azure = &a
 	}
-	if s.OpenAI != nil {
-		o := *s.OpenAI
-		if s.OpenAI.APIKeySecretRef != nil {
-			r := *s.OpenAI.APIKeySecretRef
-			o.APIKeySecretRef = &r
+	if s.Compatible != nil {
+		c := *s.Compatible
+		c.APIs = append([]API(nil), s.Compatible.APIs...)
+		if s.Compatible.APIKeySecretRef != nil {
+			r := *s.Compatible.APIKeySecretRef
+			c.APIKeySecretRef = &r
 		}
-		out.OpenAI = &o
-	}
-	if s.Anthropic != nil {
-		a := *s.Anthropic
-		out.Anthropic = &a
+		out.Compatible = &c
 	}
 }
 
 // DeepCopyInto copies the status.
-func (s *InferenceProviderStatus) DeepCopyInto(out *InferenceProviderStatus) {
+func (s *Status) DeepCopyInto(out *Status) {
 	*out = *s
-	if s.LastReconciledAt != nil {
-		out.LastReconciledAt = s.LastReconciledAt.DeepCopy()
-	}
 	if s.Conditions != nil {
 		out.Conditions = make([]metav1.Condition, len(s.Conditions))
 		for i := range s.Conditions {
@@ -208,18 +224,13 @@ func (l *InferenceProviderList) DeepCopyObject() runtime.Object {
 		return nil
 	}
 	out := new(InferenceProviderList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *InferenceProviderList) DeepCopyInto(out *InferenceProviderList) {
 	*out = *l
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
+	l.DeepCopyInto(&out.ListMeta)
 	if l.Items != nil {
 		out.Items = make([]InferenceProvider, len(l.Items))
 		for i := range l.Items {
 			l.Items[i].DeepCopyInto(&out.Items[i])
 		}
 	}
+	return out
 }

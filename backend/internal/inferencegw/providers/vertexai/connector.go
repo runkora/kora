@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -21,8 +20,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Config holds the Vertex AI connector configuration.
-// Populated exclusively from environment variables via LoadConfig — never from YAML.
+// Config holds one Vertex AI project and location.
 type Config struct {
 	ProjectID string
 	Location  string
@@ -34,46 +32,6 @@ type Config struct {
 	// CredentialsJSON is a service account key. When empty, Application
 	// Default Credentials apply.
 	CredentialsJSON []byte
-}
-
-// LoadConfig reads Vertex AI configuration from environment variables.
-// Returns nil when VERTEX_ENABLED is not "true", indicating the connector
-// should not be registered. Returns an error if enabled but misconfigured.
-//
-// Environment variables:
-//
-//	VERTEX_ENABLED              — set to "true" to enable
-//	VERTEX_PROJECT_ID           — GCP project ID (required when enabled)
-//	VERTEX_LOCATION             — GCP region for Gemini/Llama models, e.g. "us-central1" (required when enabled)
-//	VERTEX_ANTHROPIC_LOCATION   — GCP region for Claude models, e.g. "us-east5" (optional; defaults to VERTEX_LOCATION)
-//
-// Auth uses Application Default Credentials (ADC) exclusively.
-// On GKE use Workload Identity; locally set GOOGLE_APPLICATION_CREDENTIALS.
-func LoadConfig() (*Config, error) {
-	if os.Getenv("VERTEX_ENABLED") != "true" {
-		return nil, nil
-	}
-
-	projectID := os.Getenv("VERTEX_PROJECT_ID")
-	if projectID == "" {
-		return nil, fmt.Errorf("vertexai: VERTEX_PROJECT_ID is required when VERTEX_ENABLED=true")
-	}
-
-	location := os.Getenv("VERTEX_LOCATION")
-	if location == "" {
-		return nil, fmt.Errorf("vertexai: VERTEX_LOCATION is required when VERTEX_ENABLED=true")
-	}
-
-	anthropicLocation := os.Getenv("VERTEX_ANTHROPIC_LOCATION")
-	if anthropicLocation == "" {
-		anthropicLocation = location
-	}
-
-	return &Config{
-		ProjectID:         projectID,
-		Location:          location,
-		AnthropicLocation: anthropicLocation,
-	}, nil
 }
 
 // Connector implements inferencegw.ProviderConnector for Google Cloud Vertex AI.

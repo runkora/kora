@@ -31,18 +31,16 @@ const (
 type ProviderName string
 
 // Provider types. A provider name is a type, or a type and an instance name
-// joined by ":" ("bedrock:aus", "openai:openrouter").
+// joined by ":" ("bedrock:aus", "compatible:openrouter").
 const (
-	ProviderBedrock   ProviderName = "bedrock"
-	ProviderVertexAI  ProviderName = "vertexai"
-	ProviderAzure     ProviderName = "azure"
-	ProviderOpenAI    ProviderName = "openai"
-	ProviderAnthropic ProviderName = "anthropic"
+	ProviderBedrock    ProviderName = "bedrock"
+	ProviderVertexAI   ProviderName = "vertexai"
+	ProviderAzure      ProviderName = "azure"
+	ProviderCompatible ProviderName = "compatible"
 )
 
 // providerNameRe is the provider name syntax the database CHECK constraints
-// enforce. Instance names cover env aliases ([a-z0-9_]) and resource names
-// ([-a-z0-9]).
+// enforce. Underscores stay valid for names already stored in usage rows.
 var providerNameRe = regexp.MustCompile(`^([a-z]+)(:[a-z0-9][-a-z0-9_]*)?$`)
 
 // Type returns the provider type: the part before ":".
@@ -57,7 +55,7 @@ func (p ProviderName) Valid() bool {
 		return false
 	}
 	switch p.Type() {
-	case ProviderBedrock, ProviderVertexAI, ProviderAzure, ProviderOpenAI, ProviderAnthropic:
+	case ProviderBedrock, ProviderVertexAI, ProviderAzure, ProviderCompatible:
 		return true
 	}
 	return false

@@ -11,44 +11,35 @@
 
 ## Context
 
-The inference gateway builds its provider connectors once at start from env vars.
+The inference gateway builds its provider connectors once at start from env vars: `BEDROCK_ACCOUNTS` and per-alias regions and keys, `VERTEX_*` and `AZURE_*`. The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. Local development writes Bedrock credentials into `orbit-secrets`, which every platform service mounts through `envFrom`. A changed provider or credential needs a gateway restart. There is no connector for OpenAI, Anthropic or other compatible endpoints.
 
-- Bedrock: `BEDROCK_ACCOUNTS` and `BEDROCK_<ALIAS>_REGION`, with optional per-alias static keys ([Multi-Account Bedrock](2026-06-19-multi-account-bedrock.md)). Without keys the AWS default chain applies (IRSA, EKS Pod Identity). There is no AssumeRole.
-- Vertex AI: `VERTEX_ENABLED`, `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`. Application Default Credentials only.
-- Azure: `AZURE_ENABLED`, `AZURE_AI_ENDPOINT`, `AZURE_AI_API_KEY`, `AZURE_OPENAI_API_VERSION`.
-- There is no connector for the Anthropic API or for OpenAI-compatible endpoints such as OpenAI, OpenRouter or vLLM.
+`RoutingEngine.connectors` is fixed at construction. Postgres holds virtual models, routes, per-model toggles and prices, keyed by provider name. Three CHECK constraints allow only `bedrock`, `vertexai`, `azure` and `bedrock:<alias>`.
 
-The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. The local cluster writes Bedrock regions and credentials into `orbit-secrets`. Every platform service mounts `orbit-secrets` through `envFrom`. A changed credential needs a gateway restart.
+The gateway pod carries the identity-proxy ext_proc filter. It replaces the `Authorization` header of every plain HTTP outbound call with the gateway's platform token. TLS calls pass through Envoy untouched.
 
-`RoutingEngine.connectors` is fixed at construction. Postgres holds virtual models, routes, per-model toggles and prices, keyed by provider name. Three CHECK constraints allow only `bedrock`, `vertexai`, `azure` and `bedrock:<alias>`. There is no providers table.
-
-Every other admin-declared registration in Orbit is a CRD reconciled by the operator: `OrbitTenant`, `Connection`, `MCPServer`, `OAuthClient`. The operator renders CRs into a ConfigMap and a Secret in the system namespace. The consumer mounts them and reloads on change. [JIT Credential Brokering](2026-06-06-jit-credential-brokering-egress-gateway.md), Amendment 3, rejected the operator writing a service's database and rejected the service watching CRs. [MCP Server Registration](2026-06-29-mcp-server-registration-and-introspection.md) split CR status (reconciliation) from runtime health (the consuming service).
-
-This touches *How does it connect?*. Provider credentials move from env into Secrets referenced by a resource, and they stay in the gateway. *Who is this agent?* and *What can it access?* are unchanged. Agents call the gateway with their platform identity. Grants stay on virtual models.
+This touches *How does it connect?*. Provider credentials move from env into Secrets that only the gateway reads, and they stay in the gateway. *Who is this agent?* and *What can it access?* are unchanged. Agents call the gateway with their platform identity. Grants stay on virtual models.
 
 ### Goals
 
-- A platform admin registers any provider type the gateway supports with one resource and, where needed, one Secret. No code change, no env var, no restart.
-- Creating, changing or deleting a provider takes effect in the running gateway.
-- An OpenAI-compatible endpoint with an API key, such as OpenRouter, is a first-class registration.
-- Existing env-configured Bedrock installs migrate with no route changes.
+- A platform admin registers any provider type with one resource and, where needed, one Secret. No code change, no env var, no restart.
+- Creating, changing or deleting a provider or its Secret takes effect in the running gateway.
+- An endpoint such as OpenRouter that serves several APIs is one registration.
 
 ### Non-Goals
 
 - Tenant-scoped providers.
-- Declaring virtual models, routes or prices as resources.
+- Virtual models, routes or prices as resources.
 - Azure Entra workload identity.
-- Operator-reconciled ServiceEntries for provider hosts.
+- ServiceEntries per provider for `REGISTRY_ONLY` meshes.
 
 ---
 
 ## Decision Drivers
 
 * Provider credentials never reach an agent, a tenant namespace or a caller.
-* Follow the operator's existing aggregation pattern. The gateway gains no Kubernetes API access.
+* The gateway reads no more of the cluster than it needs.
 * One source of truth for each fact.
-* No restart for any provider change, including credential rotation.
-* Existing Bedrock names, routes, grants and prices keep working.
+* No restart for any provider change, credential rotation included.
 
 ---
 
@@ -56,191 +47,128 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### D1. Resource shape
 
-- **Option A: one kind with a type discriminator and a block per type.** CEL rules require the block that matches `spec.type` and forbid the others.
-- **Option B: one generic OpenAI-compatible shape** (base URL and key). Bedrock and Vertex need a region, project and cloud identity that this shape cannot express without a freeform bag.
-- **Option C: one kind per vendor.** One reconciler, aggregate and list per kind.
-- **Option D: credentials as a separate kind attached to a provider**, as in Envoy AI Gateway's `BackendSecurityPolicy`. A second object and a join, with no second consumer of the credential.
+- **Option A: one kind with a type discriminator and a block per type,** enforced by CEL.
+- **Option B: one generic shape for every provider.** Bedrock and Vertex need a region, a project and cloud identity that a base URL and a key cannot express.
+- **Option C: one kind per vendor.** One list, watch and dashboard section per kind.
 
-### D2. Scope
+### D2. Generic endpoints
 
-- **Option A: namespaced, honoured only in the system namespace.**
-- **Option B: cluster-scoped.** A Secret reference then needs a namespace, and nothing stops it naming a tenant namespace.
-- **Option C: system and tenant namespaces, as MCPServer.** The catalog tables have no tenant column. Provider keys would sit in tenant namespaces.
+- **Option A: one `compatible` type whose resource declares the APIs the endpoint serves.** Declared APIs pass through. Undeclared APIs use an existing bridge or are refused.
+- **Option B: separate `openai` and `anthropic` types.** OpenRouter serves chat completions, Responses and Anthropic messages from one base URL and one key. It would need two resources and two provider names.
 
 ### D3. Delivery to the gateway
 
-- **Option A: operator aggregates into a ConfigMap and a Secret; the gateway mounts them and hot-reloads.**
-- **Option B: the gateway watches the CRDs.** The gateway gains Kubernetes API access and a second config mechanism.
-- **Option C: the operator writes providers into the gateway's Postgres.** Couples the operator to a service schema.
-- **Option D: the operator calls a gateway API.** The operator makes no outbound service calls today.
+- **Option A: the gateway watches InferenceProviders and their Secrets itself.** Changes apply on the watch event.
+- **Option B: the operator renders resources into a ConfigMap and a Secret the gateway mounts.** Changes wait for the kubelet mount sync, about a minute. A rotated Secret waits for the operator's resync. The file format is a second contract between two binaries.
 
-### D4. Source of truth
+### D4. Secret access
 
-- **Option A: the resource owns providers; the database keeps the catalog.**
-- **Option B: the resource feeds a providers table the API can also edit.** Two writers of one fact.
-- **Option C: the API owns providers and the resource is an import.** Credentials would travel through the API.
+- **Option A: Secrets in the system namespace, labelled `orbit.io/inference-provider=true`.** The gateway caches only labelled Secrets.
+- **Option B: a dedicated providers namespace.** RBAC confines the gateway to that namespace's Secrets. Resources and their Secrets move out of the system namespace.
 
-### D5. Credentials
+### D5. Status
 
-- **Option A: per-type credential fields referencing same-namespace Secrets, with workload identity where the provider supports it.**
-- **Option B: one uniform credentials union for every type.** Allows invalid pairs such as workload identity on an API-key provider.
-- **Option C: Secrets only.** Forces static AWS and GCP keys where workload identity exists.
+- **Option A: the gateway writes each resource's status** with the outcome of its build.
+- **Option B: no status.** A missing Secret shows only in the gateway API.
 
-### D6. Migration
+### D6. Env var configuration
 
-- **Option A: read env and resources side by side for one release; a resource replaces an env provider of the same name.**
-- **Option B: remove env support in the same release.** Every install must apply resources before upgrading.
+- **Option A: remove it in the same release.** Every install applies resources as it upgrades.
+- **Option B: read env and resources side by side for a window.** Two code paths and a migration guide.
 
 ---
 
 ## Decision
 
-**D1: Option A. D2: Option A. D3: Option A. D4: Option A. D5: Option A. D6: Option A.**
+**D1: A. D2: A. D3: A. D4: A. D5: A. D6: A.**
 
 ### 1. The `InferenceProvider` resource
 
-`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`.
-
-```yaml
-apiVersion: orbit.io/v1alpha1
-kind: InferenceProvider
-metadata:
-  name: aus
-  namespace: orbit-system
-spec:
-  type: bedrock            # bedrock | vertexai | azure | openai | anthropic
-  displayName: AWS Bedrock (Sydney)
-  models: []               # optional upstream model ids; empty offers every discovered model
-  bedrock:
-    region: ap-southeast-2
-    credentials:           # optional; absent uses the gateway's workload identity
-      secretRef:
-        name: orbit-bedrock-credentials
-    assumeRoleARN: ""      # optional
-    externalID: ""         # optional
-```
-
-Per-type blocks:
+`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/platform/inferenceproviders`.
 
 | Type | Fields | Credential |
 |---|---|---|
-| `bedrock` | `region` (required), `assumeRoleARN`, `externalID` | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
+| `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `orbit-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
 | `vertexai` | `projectID`, `location` (required), `anthropicLocation` | `credentialsSecretRef {name, key}`: service account JSON. Absent: Application Default Credentials (GKE Workload Identity). |
 | `azure` | `endpoint`, `apiVersion` (required), `anthropicEndpoint` | `apiKeySecretRef {name, key}`, required. |
-| `openai` | `baseURL` (default `https://api.openai.com/v1`), `caCert` | `apiKeySecretRef {name, key}`, optional. |
-| `anthropic` | `baseURL` (default `https://api.anthropic.com`), `caCert` | `apiKeySecretRef {name, key}`, required. |
+| `compatible` | `baseURL` (required), `apis` (required), `caCert` | `apiKeySecretRef {name, key}`, optional. |
 
-- CEL rules: the block named by `spec.type` is set and no other block is. `metadata.name` is a DNS label.
-- `baseURL`, `endpoint` and `anthropicEndpoint` must be `https://`. The gateway pod's identity-proxy replaces the `Authorization` header of every plain HTTP call with the gateway's platform token. A plain HTTP upstream would lose its key and receive that token. The operator rejects a plain HTTP URL with reason `InvalidSpec` as well.
-- `caCert` is an inline PEM authority for an upstream signed by a private CA, such as an in-cluster vLLM. It is public material and sits in the resource, as `Connection.spec.caCert` does.
-- `openai` covers OpenAI, OpenRouter, vLLM, KServe and any other OpenAI-compatible endpoint. It serves chat completions and embeddings natively and the Responses API through the existing chat-completions bridge. It does not serve Anthropic Messages.
-- `anthropic` covers the Anthropic API and any Anthropic-compatible endpoint. It serves Anthropic Messages natively, chat completions through the existing OpenAI-to-Anthropic conversion, and Responses through the existing Anthropic bridge.
-- The provider name is `<type>:<metadata.name>`. A resource `aus` of type `bedrock` registers `bedrock:aus`, the name `BEDROCK_ACCOUNTS=aus` registers today.
-- `spec.models` filters discovery. When discovery fails or the upstream has no list endpoint, `spec.models` is the offered list.
+- CEL requires the block named by `spec.type` and forbids the others. `metadata.name` is a DNS label.
+- The provider name is `<type>:<metadata.name>`.
+- `spec.models` optionally limits the offered models. When the upstream has no model list, it is the list.
+- A ValidatingAdmissionPolicy in the `orbit` chart rejects an InferenceProvider outside the system namespace.
+
+### 2. The `compatible` type
+
+- `apis` lists what the endpoint serves: `chatCompletions`, `embeddings`, `responses`, `messages`.
+- Declared APIs pass through natively.
+- An undeclared API runs through an existing bridge when a declared API can carry it:
+  - chat completions over `messages`, through the OpenAI-to-Anthropic conversion;
+  - Responses over `chatCompletions`, else over `messages`, through the existing Responses bridges.
+- `messages` and `embeddings` have no bridge. An endpoint that does not declare them refuses them with HTTP 400 and a message naming the API.
+- `baseURL` is the prefix of `/chat/completions` and `/messages`. An endpoint serving `messages` needs a base URL ending in `/v1`; the Anthropic SDK appends `v1/messages`.
+- The key is sent as `Authorization: Bearer` on the OpenAI APIs and as `x-api-key` on messages.
+- `baseURL` must be `https://`. On plain HTTP the gateway's identity-proxy would replace the key with the gateway's platform token. `caCert` is an inline PEM for a private CA, as `Connection.spec.caCert` is.
+- One connector implements the type. It reuses the `convert` and `bridge` packages.
 
 An OpenRouter registration:
 
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: openrouter
-  namespace: orbit-system
-stringData:
-  apiKey: <key>
----
 apiVersion: orbit.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
   namespace: orbit-system
 spec:
-  type: openai
-  displayName: OpenRouter
-  models: ["openai/gpt-4o-mini", "meta-llama/llama-3.3-70b-instruct"]
-  openai:
+  type: compatible
+  compatible:
     baseURL: https://openrouter.ai/api/v1
+    apis: [chatCompletions, responses, messages]
     apiKeySecretRef:
       name: openrouter
       key: apiKey
 ```
 
-### 2. Scope
+### 3. The gateway watches
 
-- The operator honours resources in the system namespace only. A resource elsewhere is not aggregated and its status is `Invalid` with reason `WrongNamespace`.
-- Providers are platform-wide. Which tenants and agents may use a model is decided by grants on the virtual models routed to it.
+- The gateway runs a controller-runtime cache scoped to the system namespace. It caches InferenceProviders and the Secrets labelled `orbit.io/inference-provider=true`.
+- At start it waits for the cache, builds every provider and constructs the routing engine with them.
+- Any add, spec change or delete of a resource or a labelled Secret triggers one debounced rebuild. The new connector set is swapped into the routing engine. In-flight requests finish on the connector they started with.
+- A resource that fails to build is left out and described with its error. The others load.
+- Model discovery reruns after every rebuild.
+- RBAC is a Role in the system namespace: `get/list/watch` on `inferenceproviders`, `patch` on `inferenceproviders/status`, and `get/list/watch` on `secrets`. RBAC cannot narrow Secrets by label; the label bounds what the gateway caches and reads.
+- The gateway pod carries `orbit.io/kube-api-client: "true"` to reach the API server.
+- The operator does not reconcile InferenceProviders.
 
-### 3. Operator reconciliation
+### 4. Status
 
-- A dedicated `InferenceProviderReconciler` watches `InferenceProvider`. Any event, annotation changes included, runs one aggregator over every resource in the system namespace.
-- For each resource it validates the spec, reads the referenced Secret, and copies each referenced key into the aggregate as `<metadata.name>.<field>`.
-- Output, in the system namespace:
-  - ConfigMap `orbit-inference-providers`, key `providers.json`: one entry per valid resource with its provider name, type, display name, models, type config, and the aggregate Secret key of each credential. No credential values.
-  - Secret `orbit-inference-provider-secrets`: the credential values.
-- Unchanged output is not written. Output is sorted.
-- The chart never renders either aggregate.
-- Status per resource: `phase` `Ready` or `Invalid`, condition `Aggregated` with a reason (`WrongNamespace`, `SecretNotFound`, `SecretKeyNotFound`, `InvalidSpec`), `providerName`, `observedGeneration`, `lastReconciledAt`. Status is reconciliation state only.
-- The operator does not watch Secrets. It re-renders on its periodic resync. A rotated Secret reaches the aggregate within one resync period.
-- RBAC: the operator ClusterRole gains `get/list/watch` on `inferenceproviders` and `get/patch` on `inferenceproviders/status`.
-- The file contract (entry types and key naming) lives in `internal/platform/inferenceproviders`. The operator and the gateway both import it. Neither imports the other.
+- The gateway writes `phase` (`Ready` or `Invalid`), `providerName`, `observedGeneration` and a `Loaded` condition. Reasons: `Loaded`, `InvalidSpec`, `SecretNotFound`, `SecretKeyNotFound`, `BuildFailed`.
+- It writes only a change. Every replica computes the same status.
+- Runtime health (model count, last discovery, upstream errors) is in `GET /v1/catalog/providers`, the MCP tool `models.providers.status` and the dashboard Providers tab. None returns a credential.
 
-### 4. Gateway loading and hot reload
+### 5. Source of truth
 
-- The gateway mounts the ConfigMap at `/etc/orbit/inference-providers` and the Secret at `/etc/orbit/inference-provider-secrets`, both `optional: true`.
-- It watches both directories with fsnotify and a 200ms debounce.
-- On change it reads the entries, reads each credential file, builds a connector per entry, merges the legacy env providers underneath, and swaps the whole set into the routing engine under a lock.
-- In-flight requests finish on the connector they started with.
-- A connector that fails to build is left out and its error is recorded for the providers API. The others load.
-- A read error on the files keeps the current set.
-- Model discovery reruns after every swap.
-- The gateway's ServiceAccount gains no RBAC.
+- The resource is the only definition of a provider. There is no providers table and no env var configuration.
+- Postgres keeps virtual models, routes, per-model toggles and prices. `models.providers.list`, `.refresh` and `.set_enabled` keep their meaning.
 
-### 5. Credentials
+### 6. Discovery, pricing and policy
 
-- The resource carries Secret names and keys, never values.
-- The referenced Secret lives in the system namespace. The deployer's secret pipeline (External Secrets, SOPS, sealed secrets) creates it. The charts create none.
-- The aggregate Secret is mounted by the inference gateway only.
-- Bedrock `assumeRoleARN` wraps the base credentials (Secret or workload identity) in an STS AssumeRole provider with `externalID` when set.
-- Vertex without a Secret uses Application Default Credentials. With a Secret it uses the service account JSON.
-- There is no caller credential passthrough and no override header.
-- Agents keep calling the gateway with their platform identity. Agent pod egress stays locked to the platform services ([Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md)).
-
-### 6. Source of truth, API, MCP and dashboard
-
-- The resource is the only definition of a provider. There is no providers table.
-- Postgres keeps virtual models, routes, per-model toggles and prices.
-- `models.providers.list`, `models.providers.refresh` and `models.providers.set_enabled` keep their meaning: provider models, rediscovery and per-model toggles.
-- New `GET /v1/catalog/providers` (`platform:catalog:read`) returns each loaded or failed provider: name, type, display name, source (`resource` or `environment`), resource name, region or endpoint, credential mode (`secret`, `workload identity`, `none`), status (`ready` or `error`), error, model count and last discovery time. It returns no credential.
-- New MCP tool `models.providers.status` proxies that endpoint.
-- The dashboard Catalog page gains a read-only Providers section with the same fields. The empty state shows the resource to apply. There is no create or edit form.
-
-### 7. Discovery and pricing
-
-- Each type discovers models from its upstream: Bedrock foundation models and inference profiles; Vertex Model Garden; Azure, OpenAI-compatible and Anthropic `/models`.
-- Pricing folds a provider name to its type, as it already folds `bedrock:<alias>`. The LiteLLM source map gains `anthropic` and `openai`.
-- A third-party OpenAI-compatible provider, such as OpenRouter, gets prices through the existing override API.
-
-### 8. Policy
-
+- Each type discovers models from its upstream. `inferencegw.InferFamily` names the vendor of a model known only by its id, for every provider.
+- Pricing folds a provider name to its type. `compatible` providers get prices through the override API.
 - Scopes stay `inference:<family>:<name>:use` on virtual models. Providers never appear in a scope.
-- The catalog admin scopes stay `platform:catalog:read` and `platform:catalog:write`.
 
-### 9. Database
+### 7. Database
 
-One expand migration in `backend/cmd/inference-gateway/migrations/` replaces the provider CHECK on `virtual_model_routes`, `provider_model_overrides` and `inference_usage` with `provider ~ '^[a-z]+(:[a-z0-9][-a-z0-9_]*)?$'`. `isValidProvider` checks the same syntax and a known type.
+One expand migration replaces the provider CHECK on `virtual_model_routes`, `provider_model_overrides` and `inference_usage` with `provider ~ '^[a-z]+(:[a-z0-9][-a-z0-9_]*)?$'`.
 
-### 10. Migration
+### 8. Env vars and local development
 
-- For one release the gateway still reads `BEDROCK_*`, `VERTEX_*` and `AZURE_*`. It logs a deprecation warning for each env provider. A resource with the same provider name replaces the env provider.
-- The chart renders each `inferenceGateway.bedrock.accounts` entry as an `InferenceProvider` using workload identity. It no longer renders `BEDROCK_*` env. Provider names are unchanged. No route changes.
-- The chart's Bedrock ServiceEntries add `bedrock-mantle.<region>.api.aws`.
-- Local development: `create-secrets.sh` writes the SSO session into Secret `orbit-bedrock-credentials` and applies one resource per alias in `.env`. `orbit-secrets` no longer carries Bedrock values. `make cluster-bedrock-creds` patches that Secret and bumps an annotation on the resources. It does not restart the gateway.
-- Env Vertex and Azure keep the names `vertexai` and `azure` during the window. A resource renames them to `vertexai:<name>` and `azure:<name>`. Their routes are updated through the catalog.
-- The release after next removes env provider loading.
+- The gateway reads no provider env vars. `inferenceGateway.bedrock.accounts` is removed from the chart, with its Bedrock ServiceEntries.
+- `make cluster-bedrock-creds` writes the SSO session into Secret `orbit-bedrock-credentials` and applies one Bedrock resource per alias in `.env`. `make up` runs it when `BEDROCK_ACCOUNTS` is set.
 
 ### Rationale
 
-One typed kind gives admission-time validation per provider with one reconciler and one list. The system namespace keeps keys out of tenant namespaces and matches the platform-wide catalog. Aggregation keeps the gateway free of Kubernetes API access, the same boundary the egress gateway holds. The resource owns what carries credentials. The database keeps what admins tune daily. Reusing `bedrock:<alias>` names makes the Bedrock migration a no-op for routes, grants and prices.
+One typed kind gives admission-time validation per provider with one list. A declared-API generic type makes a multi-API endpoint one resource. It reuses the bridges the gateway already has. Watching puts changes and rotations in effect on the event and removes a second contract between two binaries. The label keeps the gateway's cache and reads to provider Secrets inside the one namespace it may read. Removing env configuration leaves one path to test and document.
 
 ---
 
@@ -248,43 +176,38 @@ One typed kind gives admission-time validation per provider with one reconciler 
 
 ### Positive
 
-- A provider is one reviewable manifest in GitOps. An evaluator registers OpenRouter with a Secret and a resource.
-- Provider changes and credential rotation apply without a restart.
-- Provider credentials leave `orbit-secrets`. Only the inference gateway mounts them.
+- A provider is one reviewable manifest. OpenRouter is one resource serving three APIs.
+- Provider changes and credential rotation apply within seconds, without a restart.
+- Provider credentials leave `orbit-secrets`. Only the gateway reads them.
 - One gateway identity can reach many AWS accounts through AssumeRole.
-- The gateway gains Anthropic API and OpenAI-compatible connectors.
 
 ### Negative
 
-- Two provider sources for one release.
-- Secret rotation waits for the operator resync, 300s by default.
+- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones.
+- Every provider Secret needs the `orbit.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
+- Upgrading needs the resources applied in the same deploy. There is no env fallback.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
-- Claude Code needs a model on a provider that speaks Anthropic Messages. An `openai` provider does not serve it.
-- Installs on `REGISTRY_ONLY` add a ServiceEntry for any provider host other than Bedrock.
-- A tenant cannot bring its own provider.
+- `REGISTRY_ONLY` installs add a ServiceEntry for every provider host.
 
 ### Neutral
 
 - Virtual models, routes, grants and prices are unchanged.
-- The catalog MCP tools keep their names and meaning.
 
 ---
 
 ## Implementation
 
 - `charts/orbit-crds/templates/crd-inferenceprovider.yaml`.
-- `backend/internal/operator/inferenceprovider_types.go`, `inferenceprovider_aggregator.go`, `inferenceprovider_controller.go`; registration in `cmd/operator/main.go` and `scheme.go`.
-- `backend/internal/platform/inferenceproviders/`: file contract, loader and watcher.
-- `backend/internal/inferencegw/providers/openaicompat/` and `providers/anthropic/`: new connectors.
-- `backend/internal/inferencegw/providers/registry/`: builds a connector from an entry for every type.
-- `backend/internal/inferencegw/`: swappable connectors in the routing engine, provider status, `GET /v1/catalog/providers`, provider-name validation and pricing by type.
-- `backend/cmd/inference-gateway/migrations/`: the CHECK widening.
+- `backend/internal/platform/inferenceproviders/`: API types.
+- `backend/internal/inferencegw/providers/registry/`: build per type, the watcher and status writes.
+- `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
+- `backend/internal/inferencegw/`: swappable connectors, provider status, `GET /v1/catalog/providers`, `InferFamily`, provider-name validation, pricing by type.
+- `backend/cmd/inference-gateway/`: start the watcher and seed the routing engine; the CHECK widening migration.
 - `backend/internal/orbitmcp/tools_models.go`: `models.providers.status`.
-- `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers section.
-- `charts/orbit/`: operator RBAC, gateway mounts, rendered resources from `inferenceGateway.bedrock.accounts`, ServiceEntry host.
-- `scripts/cluster/create-secrets.sh`, `scripts/cluster/refresh-bedrock-creds.sh`, `.env.example`.
-- `docs/guides/model-providers.md`: one example per type, OpenRouter included.
-- Status lines: [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) "BYOP Credential Model" and [Multi-Account Bedrock](2026-06-19-multi-account-bedrock.md) amended by this ADR.
+- `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
+- `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
+- `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
+- `docs/guides/model-providers.md`.
 
 ---
 
@@ -292,24 +215,21 @@ One typed kind gives admission-time validation per provider with one reconciler 
 
 On the local cluster:
 
-- With no `BEDROCK_*` env, a Bedrock `InferenceProvider` serves `/v1/models` and chat completions.
-- Creating, changing and deleting a resource changes the served providers without a gateway restart.
-- Claude Code, Codex and OpenCode runs complete on models served by resource-defined providers.
-- `inference:<family>:<name>:use` grants allow and deny as before.
-- A resource with a missing block is rejected at admission. A resource with a missing Secret reports `Invalid`.
-- An install on env Bedrock upgrades and keeps serving with the same provider names.
-- An `openai` resource pointing at an in-cluster OpenAI-compatible mock serves chat completions and Responses.
-- The dashboard lists the providers and their status.
+- A Bedrock resource serves `/v1/models`, chat completions and messages with no provider env in the gateway.
+- Creating, changing and deleting a resource, and rotating its Secret, apply without a restart.
+- Claude Code, Codex and OpenCode runs complete on resource-defined models.
+- One `compatible` resource serves chat completions, Responses and messages natively.
+- Grants allow and deny as before.
+- Invalid resources are rejected at admission or report the reason in their status.
+- The gateway's service account can read nothing outside the system namespace.
 
 ---
 
 ## Related Decisions
 
-- [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md): its env-at-startup credential model is amended.
-- [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md): `bedrock:<alias>` names are kept; env configuration is deprecated.
+- [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md): its env-at-startup credential model is replaced.
+- [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md): replaced; one Bedrock resource per account.
 - [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md): the catalog stays in Postgres.
-- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md): the aggregate-and-mount pattern.
-- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md): status versus runtime health.
 - [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): CRD packaging and upgrade rules.
 - [Database Migrations](2026-09-10-database-migrations.md): expand-only constraint widening.
 
@@ -321,7 +241,6 @@ On the local cluster:
 - [kagent ModelConfig](https://github.com/kagent-dev/kagent/blob/main/go/api/v1alpha3/modelconfig_types.go)
 - [agentgateway API](https://agentgateway.dev/docs/kubernetes/latest/reference/api/)
 - [LiteLLM proxy config](https://docs.litellm.ai/docs/proxy/configs)
-- [Crossplane AWS authentication](https://github.com/crossplane-contrib/provider-upjet-aws/blob/main/AUTHENTICATION.md)
 
 ---
 

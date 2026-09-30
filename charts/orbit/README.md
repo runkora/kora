@@ -223,7 +223,6 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | identityProxy.resources.requests.cpu | string | `"50m"` |  |
 | identityProxy.resources.requests.memory | string | `"32Mi"` |  |
 | inferenceGateway.affinity | object | `{}` |  |
-| inferenceGateway.bedrock.accounts | list | `[]` |  |
 | inferenceGateway.config | object | `{}` |  |
 | inferenceGateway.extraEnv | list | `[]` |  |
 | inferenceGateway.extraVolumeMounts | list | `[]` |  |

@@ -10,8 +10,7 @@ const BASE_PROVIDER_LABELS: Record<string, string> = {
   bedrock: 'AWS Bedrock',
   vertexai: 'Vertex AI',
   azure: 'Azure OpenAI',
-  openai: 'OpenAI-compatible',
-  anthropic: 'Anthropic',
+  compatible: 'Compatible endpoint',
 };
 
 const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {

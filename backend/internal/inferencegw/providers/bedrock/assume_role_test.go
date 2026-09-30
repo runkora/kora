@@ -35,7 +35,7 @@ func TestAssumeRoleCredentials(t *testing.T) {
 		Credentials:  credentials.NewStaticCredentialsProvider("AKIABASE", "base-secret", ""),
 		BaseEndpoint: aws.String(srv.URL),
 	}
-	creds, err := assumeRoleCredentials(base, "arn:aws:iam::123456789012:role/bedrock", "ext-1").Retrieve(context.Background())
+	creds, err := assumeRoleCredentials(base, "arn:aws:iam::123456789012:role/bedrock", "ext-1", "").Retrieve(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +46,33 @@ func TestAssumeRoleCredentials(t *testing.T) {
 		"Action":          "AssumeRole",
 		"RoleArn":         "arn:aws:iam::123456789012:role/bedrock",
 		"ExternalId":      "ext-1",
-		"RoleSessionName": assumeRoleSessionName,
+		"RoleSessionName": DefaultRoleSessionName,
 	}
 	for k, v := range want {
 		if form.Get(k) != v {
 			t.Errorf("%s = %q, want %q", k, form.Get(k), v)
 		}
+	}
+}
+
+func TestAssumeRoleSessionNameFromResource(t *testing.T) {
+	var form url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		form, _ = url.ParseQuery(string(body))
+		w.Header().Set("Content-Type", "text/xml")
+		_, _ = io.WriteString(w, assumeRoleResponse)
+	}))
+	defer srv.Close()
+	base := aws.Config{
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("AKIABASE", "base-secret", ""),
+		BaseEndpoint: aws.String(srv.URL),
+	}
+	if _, err := assumeRoleCredentials(base, "arn:aws:iam::123456789012:role/bedrock", "", "team-a").Retrieve(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if form.Get("RoleSessionName") != "team-a" || form.Has("ExternalId") {
+		t.Errorf("form = %v", form)
 	}
 }

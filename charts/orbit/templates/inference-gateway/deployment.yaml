@@ -16,6 +16,8 @@ spec:
         {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.inferenceGateway.labels" . | nindent 8 }}
         spiffe.io/component: inference-gateway
+        # Watches InferenceProvider resources through the API server.
+        orbit.io/kube-api-client: "true"
         {{- include "orbit.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
@@ -30,16 +32,6 @@ spec:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
-        # The operator's InferenceProvider aggregate. Optional: it exists once
-        # the operator has run. The gateway reloads on change.
-        - name: inference-providers
-          configMap:
-            name: orbit-inference-providers
-            optional: true
-        - name: inference-provider-secrets
-          secret:
-            secretName: orbit-inference-provider-secrets
-            optional: true
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
         - name: orbit-inference-gateway
@@ -60,6 +52,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            - name: ORBIT_SYSTEM_NAMESPACE
+              value: {{ include "orbit.systemNamespace" . | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
@@ -86,10 +80,4 @@ spec:
             {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
-            - name: inference-providers
-              mountPath: /etc/orbit/inference-providers
-              readOnly: true
-            - name: inference-provider-secrets
-              mountPath: /etc/orbit/inference-provider-secrets
-              readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
