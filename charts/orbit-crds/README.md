@@ -12,3 +12,7 @@ Defines the OrbitTenant, Connection, OAuthClient, MCPServer and InferenceProvide
 | ---- | ------ | --- |
 | Orbit Team |  |  |
 
+## Requirements
+
+Kubernetes: `>=1.34.0-0`
+

@@ -26,7 +26,6 @@ spire-agent:
   workloadAttestors:
     k8s:
       enabled: true
-      skipKubeletVerification: true
       disableContainerSelectors: true
       useNewContainerLocator: false
 

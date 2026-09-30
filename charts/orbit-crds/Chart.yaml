@@ -6,6 +6,8 @@ description: >
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
+# Oldest Kubernetes minor the release is tested on.
+kubeVersion: ">=1.34.0-0"
 keywords:
   - orbit
   - crds

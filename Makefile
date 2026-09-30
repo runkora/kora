@@ -491,7 +491,7 @@ REDEPLOY_ROLLOUT_SERVICES := \
 # on cluster-update so they re-read chart-managed config on the way back up.
 REDEPLOY_RESTART_ONLY := orbit-opa-gateway
 
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
+OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)

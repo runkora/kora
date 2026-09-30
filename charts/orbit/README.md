@@ -14,9 +14,11 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 
 ## Requirements
 
+Kubernetes: `>=1.34.0-0`
+
 | Repository | Name | Version |
 |------------|------|---------|
-| https://istio-release.storage.googleapis.com/charts | ingressGateway(gateway) | 1.29.1 |
+| oci://ghcr.io/istio/release/charts | ingressGateway(gateway) | 1.31.1 |
 
 ## Values
 
@@ -295,7 +297,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | opaGateway.image.pullPolicy | string | `""` |  |
 | opaGateway.image.registry | string | `"docker.io"` |  |
 | opaGateway.image.repository | string | `"openpolicyagent/opa"` |  |
-| opaGateway.image.tag | string | `"1.15.2-envoy-static"` |  |
+| opaGateway.image.tag | string | `"1.21.0-envoy-static"` |  |
 | opaGateway.nodeSelector | object | `{}` |  |
 | opaGateway.podAnnotations | object | `{}` |  |
 | opaGateway.podLabels | object | `{}` |  |
@@ -328,8 +330,8 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | operator.podDisruptionBudget.minAvailable | int | `1` |  |
 | operator.podLabels | object | `{}` |  |
 | operator.preflight.intervalSeconds | int | `300` |  |
-| operator.preflight.supportedIstioMinors[0] | string | `"1.29"` |  |
-| operator.preflight.supportedIstioMinors[1] | string | `"1.28"` |  |
+| operator.preflight.supportedIstioMinors[0] | string | `"1.31"` |  |
+| operator.preflight.supportedIstioMinors[1] | string | `"1.30"` |  |
 | operator.priorityClassName | string | `""` |  |
 | operator.replicas | int | `2` |  |
 | operator.resources.limits.cpu | string | `"500m"` |  |

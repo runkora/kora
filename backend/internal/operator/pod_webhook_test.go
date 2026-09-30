@@ -17,7 +17,7 @@ func testMutator() *PodMutator {
 		SamplingRate:            "1.0",
 		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
-		OPAImage:                "docker.io/openpolicyagent/opa:1.15.2-envoy-static",
+		OPAImage:                "docker.io/openpolicyagent/opa:1.21.0-envoy-static",
 		OPAPullPolicy:           corev1.PullIfNotPresent,
 		OPALogLevel:             "info",
 	}}
