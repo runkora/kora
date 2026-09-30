@@ -935,3 +935,20 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
 	}
 }
+
+// A writable global config dir makes OpenCode install a package from npm at start.
+func TestLockOpenCodeGlobalConfig(t *testing.T) {
+	workDir := t.TempDir()
+	for range 2 { // a resumed run locks the same dir again
+		if err := lockOpenCodeGlobalConfig(workDir); err != nil {
+			t.Fatalf("lockOpenCodeGlobalConfig: %v", err)
+		}
+	}
+	info, err := os.Stat(filepath.Join(runfs.HomeDir(workDir), ".config", "opencode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm&0o222 != 0 {
+		t.Errorf("global config dir mode = %v, want no write bits", perm)
+	}
+}

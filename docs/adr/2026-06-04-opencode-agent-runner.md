@@ -323,13 +323,14 @@ Touches *How does it connect?* and *What can it access?* Every OpenCode model ca
 - `enabled_providers` is `["orbit"]`, and `model` and `small_model` are `orbit/{agent model}`. OpenCode loads no other provider, including its hosted one.
 - `Start` fails when the model is empty, as it does for an empty gateway URL.
 - `share` is `disabled` and `autoupdate` is `false`. The `webfetch` and `websearch` tools are denied, since both fetch from the session-manager container outside the sandbox's egress policy.
+- The run's global OpenCode config directory (`$HOME/.config/opencode`) is created read-only. OpenCode installs `@opencode-ai/plugin` from npm into every config directory it can write at start, and skips one it cannot.
 - The subprocess runs with `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_SHARE`, `OPENCODE_DISABLE_DEFAULT_PLUGINS` and `OPENCODE_DISABLE_LSP_DOWNLOAD` set.
 
 **Consequences.**
 
 - The LLM Routing section above no longer describes the config file. The `Model` field in `OpenCodeRunnerConfig` is used, not stored for later.
 - Claude models reach the gateway as chat completions rather than Anthropic Messages. OpenCode still marks cache breakpoints with `cache_control` on the request.
-- OpenCode still installs `@opencode-ai/plugin` from the npm registry into its global config directory in the background at start. No setting turns this off; the turn does not wait for it, and a failure is only logged.
+- A workspace that carries its own `.opencode/` directory still makes OpenCode install `@opencode-ai/plugin` from the npm registry into it in the background. No setting turns this off; the turn does not wait for it, and a failure is only logged.
 
 ---
 

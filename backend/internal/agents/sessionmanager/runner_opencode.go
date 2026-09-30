@@ -156,6 +156,9 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 	if err != nil {
 		return fmt.Errorf("opencode: %w", err)
 	}
+	if err = lockOpenCodeGlobalConfig(workDir); err != nil {
+		return fmt.Errorf("opencode: %w", err)
+	}
 	// HOME and TMPDIR last: nothing in ExtraEnv may move the agent off the only
 	// directory Landlock makes writable.
 	runEnv := append(append([]string{}, openCodeOfflineEnv...), r.cfg.ExtraEnv...)
@@ -379,6 +382,20 @@ var openCodeOfflineEnv = []string{
 	"OPENCODE_DISABLE_SHARE=1",
 	"OPENCODE_DISABLE_DEFAULT_PLUGINS=1",
 	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
+}
+
+// lockOpenCodeGlobalConfig makes OpenCode's global config directory read-only.
+// At start OpenCode installs @opencode-ai/plugin from npm into every config
+// directory it can write, and skips one it cannot.
+func lockOpenCodeGlobalConfig(workDir string) error {
+	dir := filepath.Join(runfs.HomeDir(workDir), ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create global config dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		return fmt.Errorf("lock global config dir: %w", err)
+	}
+	return nil
 }
 
 // openCodeProvider is the only provider OpenCode may load: the inference gateway.
