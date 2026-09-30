@@ -711,9 +711,9 @@ colours.**
   `--color-border`, `--color-status-*`, …) is derived from them via Tailwind v4's
   `@theme`, so a single attribute swap re-colours the entire UI. All light values
   are tuned to clear the same WCAG contrast thresholds as their dark counterparts.
-- The user-facing switch is the Tier 2 `ThemeToggle` component
-  (`src/components/theme-toggle.tsx`), which calls `setTheme(...)` from
-  `next-themes`.
+- The user-facing switch is the dashboard's `ThemeToggle`
+  (`src/app/(dashboard)/_components/theme-toggle.tsx`), which calls `setTheme(...)`
+  from `next-themes`.
 
 ### Writing theme-aware components
 

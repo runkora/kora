@@ -88,8 +88,7 @@ const GROUPS: { title: string; note: string; pairs: Pair[] }[] = [
 
 // Draws the colour on a canvas to convert any CSS colour format to RGB.
 function toRgb(ctx: CanvasRenderingContext2D, value: string): Rgb {
-  ctx.clearRect(0, 0, 1, 1);
-  ctx.fillStyle = '#000';
+  ctx.reset();
   ctx.fillStyle = value;
   ctx.fillRect(0, 0, 1, 1);
   const data = ctx.getImageData(0, 0, 1, 1).data;

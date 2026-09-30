@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
 import { Button, Icon, Show, Stack, Text } from '@orbit/terra';
-import { ThemeToggle } from '@orbit/components';
+import { ThemeToggle } from './theme-toggle';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
 

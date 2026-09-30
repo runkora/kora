@@ -1,5 +1,7 @@
 'use client';
 
+/** @tier 1 — Zero Orbit domain knowledge. Clipboard writing with a short-lived outcome status. */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type CopyStatus = 'idle' | 'copied' | 'failed';

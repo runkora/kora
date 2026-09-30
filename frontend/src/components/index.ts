@@ -25,9 +25,6 @@ export { scopeColumnFilter } from './scope-column-filter';
 export { ScopePicker } from './scope-picker';
 export type { ScopePickerProps } from './scope-picker';
 
-/** Light/dark theme toggle via next-themes. */
-export { ThemeToggle } from './theme-toggle';
-
 /**
  * Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped).
  * Default table component for the authenticated dashboard shell.

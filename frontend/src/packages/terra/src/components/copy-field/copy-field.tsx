@@ -40,6 +40,7 @@ const CopyField = React.forwardRef<HTMLButtonElement, CopyFieldProps>(
     return (
       <Button
         ref={ref}
+        type="button"
         data-slot="copy-field"
         variant="ghost"
         size="sm"

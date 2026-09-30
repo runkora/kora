@@ -1,5 +1,5 @@
 # =============================================================================
-# Orbit Frontend — multi-stage Docker build
+# kora Frontend — multi-stage Docker build
 # =============================================================================
 #
 # Build context: frontend/  (self-contained pnpm workspace)
@@ -93,7 +93,7 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 
 WORKDIR /app
 
-# Non-root user matching uid/gid 65532 used by all other Orbit service containers.
+# Non-root user matching uid/gid 65532 used by all other kora service containers.
 RUN addgroup --system --gid 65532 orbit && \
     adduser  --system --uid 65532 --ingroup orbit orbit
 

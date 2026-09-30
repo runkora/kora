@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 2 — Light/dark theme toggle via next-themes. Used by: dashboard header. */
+/** @tier 3 — dashboard-scoped. Light/dark theme toggle via next-themes. */
 import { useTheme } from 'next-themes';
 import { Button, Icon } from '@orbit/terra';
 

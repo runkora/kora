@@ -113,8 +113,8 @@ test.describe('/login', () => {
   test('renders the email sign-in form', async ({ page }) => {
     await page.goto('/login');
 
-    // Terra Card heading: "Orbit"
-    await expect(page.getByRole('heading', { name: 'Orbit' })).toBeVisible();
+    // Terra Card heading: "kora"
+    await expect(page.getByRole('heading', { name: 'kora' })).toBeVisible();
 
     // Email input and submit button
     const emailInput = page.getByLabel('Work email');
@@ -191,7 +191,7 @@ test.describe('/login', () => {
 
     // Wait for the full-page navigation to the mocked IdP.  Verifying the
     // exact OIDC query parameters is an oidc-client-ts implementation detail
-    // outside Orbit's responsibility.
+    // outside kora's responsibility.
     await page.waitForURL(/^https?:\/\/idp\.acme\.example\.com\//, { timeout: 10_000 });
     expect(page.url()).toContain('idp.acme.example.com');
   });

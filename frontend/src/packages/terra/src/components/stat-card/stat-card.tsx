@@ -34,7 +34,10 @@ export type StatCardTone = NonNullable<VariantProps<typeof toneVariants>['tone']
  */
 const VALUE_CLASSES = 'font-mono font-bold text-[25px] tracking-[-0.02em] text-foreground';
 
-/** A change indicator under the value. `positiveIsBad` inverts the colour for figures where up is worse. */
+/**
+ * A change indicator under the value. It is healthy when `positive` is true and degraded
+ * when it is not. Set `positiveIsBad` for figures where up is worse, such as an error rate.
+ */
 export interface StatCardDelta {
   text: string;
   positive: boolean;

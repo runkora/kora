@@ -22,6 +22,7 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
     return (
       <Button
         ref={ref}
+        type="button"
         data-slot="copy-button"
         variant="ghost"
         size="icon-sm"
