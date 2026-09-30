@@ -23,13 +23,7 @@ type Story = StoryObj<typeof BottomSheet>;
 
 // ── Controlled wrapper ────────────────────────────────────────────────────────
 
-const SheetTrigger = ({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) => {
+const SheetTrigger = ({ label, children }: { label: string; children: React.ReactNode }) => {
   const [open, setOpen] = React.useState(false);
   return (
     <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'flex-end', padding: 16 }}>

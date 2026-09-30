@@ -248,7 +248,9 @@ export function SidebarUserFooter() {
   const router = useRouter();
   const isDesktop = useIsDesktop();
   const reducedMotion = usePrefersReducedMotion();
-  const flyoutAnimation = reducedMotion ? undefined : 'account-flyout-in 140ms cubic-bezier(0,0,0.2,1) both';
+  const flyoutAnimation = reducedMotion
+    ? undefined
+    : 'account-flyout-in 140ms cubic-bezier(0,0,0.2,1) both';
 
   const email = user?.email || 'Loading…';
   const name = user?.name || email;
@@ -306,7 +308,8 @@ export function SidebarUserFooter() {
       event.preventDefault();
       let nextIndex = currentIndex;
       if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length;
-      else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
+      else if (event.key === 'ArrowUp')
+        nextIndex = (currentIndex - 1 + items.length) % items.length;
       else if (event.key === 'Home') nextIndex = 0;
       else if (event.key === 'End') nextIndex = items.length - 1;
       items[nextIndex]?.focus();
@@ -469,7 +472,11 @@ export function SidebarUserFooter() {
       </Stack>
 
       {!isDesktop && (
-        <BottomSheet open={open} onOpenChange={(next) => (next ? menu.openMenu() : menu.close())} title="Account">
+        <BottomSheet
+          open={open}
+          onOpenChange={(next) => (next ? menu.openMenu() : menu.close())}
+          title="Account"
+        >
           <Stack style={{ padding: '12px 20px 16px' }}>
             {confirming ? (
               <ConfirmLogoutBlock compact={false} />
