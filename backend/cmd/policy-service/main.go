@@ -191,8 +191,8 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/routes", Method: "GET", RequiredScope: ""},
 		// /routes/register is called by other platform services at startup with
 		// a SYSTEM/SERVICE SPIFFE-derived token; gated by platform:routes:write
-		// in the future. For now allow any authenticated SYSTEM caller — Istio
-		// AuthorizationPolicy already restricts this path to in-mesh callers.
+		// in the future. The handler limits each caller to its own service, and
+		// Istio AuthorizationPolicy restricts this path to in-mesh callers.
 		{PathPrefix: "/api/v1/policy/routes/register", Method: "POST", RequiredScope: ""},
 	}
 }
