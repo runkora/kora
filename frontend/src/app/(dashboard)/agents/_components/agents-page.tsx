@@ -264,10 +264,7 @@ export function AgentsPage() {
             <Icon name="plus" size="xs" />
             New Agent
           </Button>
-          <Separator
-            orientation="vertical"
-            style={{ height: '1.5rem', alignSelf: 'center' }}
-          />
+          <Separator orientation="vertical" style={{ height: '1.5rem', alignSelf: 'center' }} />
           <Button
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
             size="icon-sm"
