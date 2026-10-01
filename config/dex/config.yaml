@@ -41,6 +41,15 @@ web:
     - https://orbit.local.clearroute.io
     - https://orbit.local.clearroute.io:8443
     - https://dex.orbit.local.clearroute.io:8443
+    # The second (namespace-scoped) orbit-demo-system install, reached via
+    # kubectl port-forward — it has no Gateway of its own, and routing it
+    # through the primary install's shared gateway also routes it through
+    # that install's OPA ext_authz enforcement (which correctly doesn't know
+    # about this install's hosts/tenants and denies it) — a real multi-install
+    # gap, not just a config fix. The frontend pod here runs with
+    # NODE_ENV=development (kubectl set env override) so its session cookie's
+    # Secure flag doesn't require real TLS.
+    - http://localhost:8444
 
 oauth2:
   # Enable the Device Authorization Grant (RFC 8628).
@@ -74,6 +83,7 @@ staticClients:
       - "http://localhost:3000/auth/callback"
       - "https://orbit.local.clearroute.io/auth/callback"
       - "https://orbit.local.clearroute.io:8443/auth/callback"
+      - "http://localhost:8444/auth/callback"
       - "/device/callback"
 
 # ─── Identity backend ────────────────────────────────────────────────────────

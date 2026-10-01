@@ -49,6 +49,13 @@
 # still needs a raw-passthrough mode (it only TLS-intercepts today), tracked
 # follow-up. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
 {{- if .Values.egressGateway.transparentEgress.enabled }}
+# NOT suffixed with orbit.clusterSuffix — see the matching note on
+# egress-gateway-connect-outbound (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
+# Same shape: workloadSelector below matches orbit.io/role=sandbox cluster-wide
+# with no install qualifier, while this patch tunnels into
+# orbit_egress_encap_cluster, itself resolving to THIS install's own gateway.
+# A second install's copy would race the same way. Leave colliding until
+# workloadSelector can be scoped per-install.
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
