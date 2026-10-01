@@ -25,7 +25,7 @@ import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
-import { providerLabel } from '../_utils/catalog-constants';
+import { providerTitle } from '../_utils/catalog-constants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -512,7 +512,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
     for (const m of localModels) {
       if (!seen.has(m.provider)) {
         seen.add(m.provider);
-        opts.push({ value: m.provider, label: providerLabel(m.provider) });
+        opts.push({ value: m.provider, label: providerTitle(m.provider) });
       }
     }
     return opts.sort((a, b) => a.label.localeCompare(b.label));

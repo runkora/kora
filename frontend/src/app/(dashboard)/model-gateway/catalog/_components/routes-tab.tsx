@@ -20,7 +20,7 @@ import {
 } from '@orbit/terra';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
-import { PROVIDER_LABELS } from '../_utils/catalog-constants';
+import { providerTitle } from '../_utils/catalog-constants';
 
 interface RoutesTabProps {
   model: VirtualModel;
@@ -209,7 +209,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                 >
                   {providersWithModels.map((p) => (
                     <option key={p} value={p}>
-                      {PROVIDER_LABELS[p] ?? p}
+                      {providerTitle(p)}
                     </option>
                   ))}
                 </NativeSelect>

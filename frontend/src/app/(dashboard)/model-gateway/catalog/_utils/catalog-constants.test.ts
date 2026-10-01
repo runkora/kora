@@ -1,15 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { providerBadgeVariant, providerLabel } from './catalog-constants';
+import { providerBadgeVariant, providerLabel, providerTitle } from './catalog-constants';
 
 describe('providerLabel', () => {
   it.each([
+    ['bedrock:aus', 'aus'],
+    ['compatible:openrouter', 'openrouter'],
+    ['vertexai:gcp-prod', 'gcp-prod'],
     ['bedrock', 'AWS Bedrock'],
-    ['bedrock:aus', 'AWS Bedrock (aus)'],
-    ['compatible:openrouter', 'Compatible endpoint (openrouter)'],
-    ['vertexai:gcp-prod', 'Vertex AI (gcp-prod)'],
     ['mystery', 'mystery'],
-  ])('%s is labelled %s', (provider, label) => {
+  ])('%s shows %s', (provider, label) => {
     expect(providerLabel(provider)).toBe(label);
+  });
+});
+
+describe('providerTitle', () => {
+  it.each([
+    ['bedrock:aus', 'AWS Bedrock: aus'],
+    ['compatible:openrouter', 'Compatible endpoint: openrouter'],
+    ['azure', 'Azure OpenAI'],
+    ['mystery:x', 'mystery:x'],
+  ])('%s is titled %s', (provider, title) => {
+    expect(providerTitle(provider)).toBe(title);
   });
 });
 

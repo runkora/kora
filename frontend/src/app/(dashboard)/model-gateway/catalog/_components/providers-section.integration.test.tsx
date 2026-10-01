@@ -42,9 +42,9 @@ describe('ProvidersSection', () => {
         ]}
       />,
     );
-    expect(screen.getByText('Compatible endpoint (openrouter)')).toBeInTheDocument();
+    expect(screen.getByTitle('Compatible endpoint: openrouter')).toHaveTextContent('openrouter');
     expect(screen.getByText('InferenceProvider/openrouter')).toBeInTheDocument();
-    expect(screen.getByText('AWS Bedrock (us)')).toBeInTheDocument();
+    expect(screen.getByTitle('AWS Bedrock: us')).toHaveTextContent('us');
     expect(screen.getByText('InferenceProvider/us')).toBeInTheDocument();
     expect(screen.getByText('workload identity')).toBeInTheDocument();
     expect(screen.getByText('list models: AccessDenied')).toBeInTheDocument();
