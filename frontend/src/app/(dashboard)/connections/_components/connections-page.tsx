@@ -97,10 +97,15 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         filter: {
           mode: 'client',
           searchable: true,
-          options: [...new Set(rows.flatMap((row) => row.usedBy.map((u) => u.name)))]
-            .sort()
-            .map((name) => ({ value: name, label: name })),
-          filterFn: (row, selected) => row.usedBy.some((u) => selected.has(u.name)),
+          // Keyed on slug, the unique field; two agent types can share a name.
+          options: [
+            ...new Map(
+              rows.flatMap((row) => row.usedBy.map((u): [string, string] => [u.slug, u.name])),
+            ).entries(),
+          ]
+            .sort(([, a], [, b]) => a.localeCompare(b))
+            .map(([slug, name]) => ({ value: slug, label: name })),
+          filterFn: (row, selected) => row.usedBy.some((u) => selected.has(u.slug)),
         },
         cell: (row) => <UsedByList usages={row.usedBy} />,
       },
