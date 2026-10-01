@@ -111,7 +111,10 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     cell: (row) => {
       // An agent has no display name or email: show the agent name from the end of
       // its SPIFFE ID (as Grants does) and keep the full ID underneath.
-      const name = row.display_name || row.email || agentNameFromPrincipalId(row.principal_id);
+      const name =
+        row.display_name ||
+        row.email ||
+        (row.principal_type === 'AGENT' ? agentNameFromPrincipalId(row.principal_id) : undefined);
       return (
         <Stack gap="none">
           <Text size="supporting" color="foreground">
