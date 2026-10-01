@@ -34,6 +34,12 @@ type Config struct {
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
 
+	Identity struct {
+		// InternalURL is the in-cluster base URL for identity. The gateway
+		// exchanges its SVID there for the platform token it registers routes with.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
+
 	Policy struct {
 		// PolicyServiceInternalURL is the base URL for the policy-service
 		// route+scope registration endpoint (the ScopePublisher target).

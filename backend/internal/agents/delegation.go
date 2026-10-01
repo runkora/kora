@@ -79,10 +79,8 @@ func (b *DelegationBroker) AgentPrincipalID(namespace, slug string) string {
 }
 
 // Mint creates a delegation issuance for runID. The caller's own bearer token
-// travels as the RFC 8693 subject_token in the request body — this pod's
-// identity-proxy overwrites the Authorization header with orbit-agents' own
-// service token on egress, so a forwarded bearer cannot survive as transport
-// auth. Identity verifies the subject token and derives the delegator from it,
+// travels as the RFC 8693 subject_token in the request body; the Authorization
+// header carries orbit-agents' own token as transport auth. Identity verifies the subject token and derives the delegator from it,
 // so it never mints delegated authority the runner does not hold (ADR
 // Decision 3). Returns the issuance JTI.
 func (b *DelegationBroker) Mint(ctx context.Context, callerBearer, agentPrincipalID, runID string) (string, error) {

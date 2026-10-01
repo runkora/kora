@@ -216,9 +216,7 @@ type CreateDelegationRequest struct {
 	// RunID binds the delegation to a single run.
 	RunID string `json:"run_id"`
 	// SubjectToken is the RFC 8693 subject_token: the DELEGATOR's platform
-	// token, carried in the body because the Authorization header of a pod
-	// with an identity-proxy sidecar is overwritten with the pod's own service
-	// token on egress — a forwarded caller bearer cannot survive that hop.
+	// token. The Authorization header carries the calling service's own token.
 	SubjectToken string `json:"subject_token,omitempty"`
 }
 
@@ -250,8 +248,7 @@ type errorBody struct {
 }
 
 // CreateDelegation calls POST {baseURL}/api/v1/identity/delegation. The bearer
-// authenticates the TRANSPORT (in-cluster the identity-proxy overwrites it
-// with the pod's own token, which is fine); the delegator's identity travels
+// is the calling service's own token and authenticates the TRANSPORT; the delegator's identity travels
 // as req.SubjectToken, verified server-side, so identity never mints delegated
 // authority the runner does not hold (ADR Decision 3).
 func (c *Client) CreateDelegation(ctx context.Context, bearer string, req CreateDelegationRequest) (*DelegationIssuance, error) {

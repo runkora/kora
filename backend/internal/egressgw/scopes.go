@@ -203,9 +203,8 @@ func NewScopePublisher(conns connLister, registry *AdapterRegistry, client *rout
 }
 
 // Publish lists tenantID's connections (tenantID == "" lists ALL) and registers
-// their connection:<name>:<action> scopes with the policy service. The
-// routescopes client retries until the identity-proxy sidecar is ready, so
-// callers run it in a goroutine.
+// their connection:<name>:<action> scopes with the policy service. It makes one
+// attempt; routescopes.KeepRegistered owns the retry.
 func (p *ScopePublisher) Publish(ctx context.Context, tenantID string) error {
 	conns, err := p.conns.ListByTenant(ctx, tenantID)
 	if err != nil {

@@ -1,6 +1,6 @@
 # Enforcement Sidecar Injection, Preflight and Restricted Pod Security
 
-**Status:** Proposed
+**Status:** Proposed (Amended 2026-10-01)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place Orbit's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh Orbit did not install, how the prerequisites contract is verified, and what changes so every Orbit pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
@@ -400,6 +400,23 @@ Existing tenant pods keep running; injection and validation apply on the next po
 
 - Operator exposes webhook admission counters (allowed, patched, rejected by reason), certificate expiry, and the preflight condition per check.
 - Chart CI runs the restricted-profile check and the k3d matrix on every pull request touching `charts/`, `backend/internal/operator/` or `backend/internal/agents/k8s*.go`.
+
+---
+
+## Amendment 1 (2026-10-01): No identity-proxy on system pods
+
+**Status:** Accepted
+
+Amends Decision 4. Touches *How does it connect?* Platform services stop receiving an injected token on every outbound call. *Who is this agent?* and *What can it access?* are unchanged for agent workloads.
+
+**Decision.**
+
+- No system pod carries the identity-proxy. The inference gateway, orbit-agents, the egress gateway and the tool-gateway publisher drop the container, the `orbit.io/identity-proxy` label, the `id-proxy-sock` volume and its `userVolumeMount` annotation. They keep the SPIRE annotations and the `workload-socket` volume for mesh mTLS.
+- Platform services fetch their own platform token in-process with the identity client's `SelfTokenSource()` and attach it only to the platform calls that need it ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md), Amendment 1).
+- `orbit.spireProxyAnnotations` and `orbit.spireVolumes` lose their `identityProxy` parameter, and the `orbit.identityProxyContainer` helper is removed.
+- Only tenant agent runtime pods and sandbox pods carry the identity-proxy, injected by the operator's webhook. `identityProxy.*` values configure that injection.
+
+**Consequences.** The Decision 4 sentence listing components with the identity-proxy no longer holds. A platform service's plain-HTTP calls to tenant MCP servers, relayed upstreams, model providers and cloud metadata endpoints carry no platform token.
 
 ---
 

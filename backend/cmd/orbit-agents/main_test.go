@@ -32,6 +32,9 @@ type registration struct {
 	Scopes  []routescopes.ScopeDeclaration `json:"scopes"`
 }
 
+// testToken stands in for the identity client's self token source.
+func testToken(context.Context) (string, error) { return "self-token", nil }
+
 // capturingPolicyService stands in for the policy service's
 // POST /api/v1/policy/routes/register endpoint.
 func capturingPolicyService(t *testing.T, got chan<- registration) *httptest.Server {
@@ -75,7 +78,7 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	register := initScopeRegistration(logging.NewLogger(), stubSlugLister{slugs: []string{"triage"}}, newAgentTypeService())
+	register := initScopeRegistration(logging.NewLogger(), testToken, stubSlugLister{slugs: []string{"triage"}}, newAgentTypeService())
 	if register == nil {
 		t.Fatal("expected a register function when a policy service URL is configured")
 	}

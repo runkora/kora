@@ -231,9 +231,8 @@ capabilities:
 
 {{/*
 Pod annotations that route the Istio sidecar's certificate through SPIRE and
-mount the SPIFFE workload socket, plus the identity-proxy socket when that
-sidecar is present. Annotation-driven so it works on any conforming Istio,
-with no custom injection template. Takes (dict "root" $ "identityProxy" <bool>).
+mount the SPIFFE workload socket. Annotation-driven so it works on any
+conforming Istio, with no custom injection template. Takes (dict "root" $).
 */}}
 {{- define "orbit.spireProxyAnnotations" -}}
 proxy.istio.io/config: |
@@ -241,14 +240,10 @@ proxy.istio.io/config: |
   proxyMetadata:
     PILOT_CERT_PROVIDER: spire
     SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
-{{- if .identityProxy }}
-sidecar.istio.io/userVolumeMount: '{"id-proxy-sock":{"mountPath":"/run/orbit"}}'
-{{- end }}
 {{- end }}
 
 {{/*
-Volumes for SPIRE (and the identity-proxy socket when requested).
-Takes (dict "identityProxy" <bool>). Named workload-socket to shadow Istio's
+The SPIRE volume. Named workload-socket to shadow Istio's
 own emptyDir of that name; the injector keeps the pod's definition, so the
 CSI socket lands at the path the proxy checks for an external SDS socket.
 */}}
@@ -257,52 +252,12 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
   csi:
     driver: csi.spiffe.io
     readOnly: true
-{{- if .identityProxy }}
-- name: id-proxy-sock
-  emptyDir: {}
-{{- end }}
 {{- end }}
 
 {{- define "orbit.spireVolumeMount" -}}
 - name: workload-socket
   mountPath: /run/secrets/workload-spiffe-uds
   readOnly: true
-{{- end }}
-
-{{/*
-The identity-proxy sidecar: exchanges a service's SPIFFE identity for its own
-platform token when calling other Orbit services. Takes (dict "root" $).
-*/}}
-{{- define "orbit.identityProxyContainer" -}}
-{{- $ip := .root.Values.identityProxy -}}
-- name: identity-proxy
-  image: {{ include "orbit.imageRef" (dict "root" .root "image" $ip.image) | quote }}
-  imagePullPolicy: {{ $ip.image.pullPolicy | default .root.Values.global.imagePullPolicy | default "IfNotPresent" }}
-  env:
-    - name: ORBIT_IDENTITY_SERVICE_URL
-      value: {{ include "orbit.serviceURL" (dict "root" .root "name" "orbit-identity") | quote }}
-    - name: SPIFFE_ENDPOINT_SOCKET
-      value: "unix:///run/secrets/workload-spiffe-uds/socket"
-  ports:
-    - name: health
-      containerPort: 9090
-      protocol: TCP
-  securityContext:
-    {{- include "orbit.containerSecurityContext" (dict) | nindent 4 }}
-  readinessProbe:
-    httpGet:
-      path: /healthz
-      port: 9090
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 10
-  resources:
-    {{- toYaml $ip.resources | nindent 4 }}
-  volumeMounts:
-    - name: id-proxy-sock
-      mountPath: /run/orbit
-    {{- include "orbit.spireVolumeMount" . | nindent 4 }}
 {{- end }}
 
 {{/*

@@ -64,7 +64,7 @@ spec:
               value: {{ range $i, $s := .Values.global.imagePullSecrets }}{{ if $i }},{{ end }}{{ $s.name }}{{ end }}
             - name: ORBIT_LEADER_ELECTION
               value: {{ .Values.operator.leaderElection | quote }}
-            # Same images as the system pods: identityProxy.image, opaGateway.image.
+            # Images for the tenant-pod sidecars: identityProxy.image, opaGateway.image.
             - name: ORBIT_INJECT_IDENTITY_PROXY_IMAGE
               value: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.identityProxy.image) | quote }}
             - name: ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY
@@ -125,5 +125,5 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
       terminationGracePeriodSeconds: 60

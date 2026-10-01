@@ -82,8 +82,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 
 	// Resolve the DELEGATOR. Directly authenticated HUMAN/PAT callers delegate
 	// as themselves. A platform service brokering a run start (orbit-agents)
-	// cannot forward the runner's bearer — its identity-proxy overwrites
-	// Authorization on egress — so it carries the runner's token as the
+	// authenticates with its own token and carries the runner's token as the
 	// RFC 8693 subject_token in the body; the delegator is derived from that
 	// token after full verification (signature, expiry, JTI blocklist).
 	// Possession of a person's valid platform token already confers that
