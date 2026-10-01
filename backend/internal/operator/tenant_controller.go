@@ -302,12 +302,15 @@ func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, n
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// markReady patches status on every pass; without this predicate that
-		// patch re-enqueues the tenant and the reconciler spins. In
-		// namespace-scoped mode, tenantNamespacePredicate additionally drops
-		// events for OrbitTenants belonging to another install sharing this
-		// cluster — the manager cache is still cluster-wide (see
-		// backend/cmd/operator/main.go), so without this filter this install's
-		// operator would reconcile every install's tenants.
+		// patch re-enqueues the tenant and the reconciler spins.
+		// tenantNamespacePredicate additionally drops events for OrbitTenants
+		// belonging to another install sharing this cluster. In namespace-scoped
+		// mode this is now redundant-but-cheap insurance: the manager cache
+		// itself is already scoped to this install's own system namespace
+		// (backend/cmd/operator/main.go's ByObject override), so another
+		// install's OrbitTenants are never even cached. Kept as defense in
+		// depth, and it's the only thing doing this job in cluster-scoped mode
+		// (no cache scoping applies there — there's only ever one install).
 		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, tenantNamespacePredicate())).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
@@ -349,8 +352,12 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 	for i := range list.Items {
 		t := &list.Items[i]
 		if tenantNamespace(t) == conn.Namespace {
+			// t.Namespace is "" in cluster-scoped mode (matching OrbitTenant's
+			// own scope) and this install's system namespace in namespaced
+			// mode — dropping it there would make the subsequent Get look up
+			// an empty namespace and silently find nothing.
 			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
+				NamespacedName: client.ObjectKey{Name: t.Name, Namespace: t.Namespace},
 			})
 		}
 	}
@@ -378,8 +385,10 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	for i := range list.Items {
 		t := &list.Items[i]
 		if tenantNamespace(t) == oc.Namespace {
+			// See connectionToTenants above: t.Namespace must ride along in
+			// namespaced mode or the subsequent Get looks up an empty namespace.
 			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
+				NamespacedName: client.ObjectKey{Name: t.Name, Namespace: t.Namespace},
 			})
 		}
 	}

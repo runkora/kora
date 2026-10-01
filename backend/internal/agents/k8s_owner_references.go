@@ -7,7 +7,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -27,23 +26,26 @@ const (
 	orbitTenantKind       = "OrbitTenant"
 )
 
-// tenantOwnerRef fetches the OrbitTenant named tenantID — cluster-scoped by
-// default, or namespaced to this install's own system namespace when
-// cfg.TenantScope is "namespaced" — and returns a controller OwnerReference
-// for it. Returns the zero value with a nil error when the tenant cannot be
-// reached (missing CRD, missing CR, permission denied) — callers must treat
-// an empty ref as "skip ownership" and proceed unowned. Local development
-// without the operator installed remains supported.
+// tenantOwnerRef fetches the cluster-scoped OrbitTenant named tenantID and
+// returns a controller OwnerReference for it. Returns the zero value with a
+// nil error when the tenant cannot be reached (missing CRD, missing CR,
+// permission denied) — callers must treat an empty ref as "skip ownership"
+// and proceed unowned. Local development without the operator installed
+// remains supported.
+//
+// In namespace-scoped mode (cfg.TenantScope == "namespaced") this always
+// returns the zero value instead of fetching anything: OrbitTenant then lives
+// in this install's system namespace, but the caller applies the returned
+// reference to resources in the tenant's own workload namespace (k8s.go's
+// ProvisionAgentType). Kubernetes does not support cross-namespace
+// ownership — the garbage collector treats such an owner as absent, which
+// can delete the dependent outright — so skipping ownership entirely here is
+// the only safe option, not just a degraded one.
 func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) metav1.OwnerReference {
-	if tenantID == "" {
+	if tenantID == "" || p.cfg.TenantScope == "namespaced" {
 		return metav1.OwnerReference{}
 	}
-	resource := p.dynamicClient.Resource(orbitTenantGVR)
-	var getter dynamic.ResourceInterface = resource
-	if p.cfg.TenantScope == "namespaced" {
-		getter = resource.Namespace(p.cfg.SystemNamespace)
-	}
-	obj, err := getter.Get(ctx, tenantID, metav1.GetOptions{})
+	obj, err := p.dynamicClient.Resource(orbitTenantGVR).Get(ctx, tenantID, metav1.GetOptions{})
 	if err != nil {
 		degraded := apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || isNoKindMatchError(err)
 		if degraded {

@@ -12,3 +12,9 @@ Defines the OrbitTenant, Connection, OAuthClient and MCPServer resources Orbit r
 | ---- | ------ | --- |
 | Orbit Team |  |  |
 
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| global.tenantScope | string | `"cluster"` |  |
+

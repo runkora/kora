@@ -183,6 +183,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | global.postgres.sslMode | string | `"require"` |  |
 | global.priorityClassName | string | `""` |  |
 | global.systemNamespace | string | `""` |  |
+| global.tenantScope | string | `"cluster"` |  |
 | global.tolerations | list | `[]` |  |
 | global.topologySpreadConstraints | list | `[]` |  |
 | global.trustDomain | string | `""` |  |

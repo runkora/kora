@@ -20,6 +20,9 @@
         "systemNamespace": {
           "type": "string"
         },
+        "tenantScope": {
+          "enum": ["cluster", "namespaced"]
+        },
         "imageRegistry": {
           "type": "string",
           "minLength": 1

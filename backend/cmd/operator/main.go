@@ -99,6 +99,20 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 		return fmt.Errorf("create manager: %w", err)
 	}
 
+	// The chart suffixes both webhook config names by system namespace in
+	// namespaced mode (charts/orbit/templates/_helpers.tpl's orbit.clusterSuffix,
+	// applied in charts/orbit/templates/operator/webhook.yaml) so two installs'
+	// webhooks don't collide. The cert manager, drift reconciler and preflight
+	// all patch/read these objects by name, so they need the same names the
+	// chart actually rendered.
+	if install.TenantScope == "namespaced" {
+		suffix := "-" + install.SystemNamespace
+		webhookcert.Configure(
+			webhookcert.Webhooks.Mutating+suffix,
+			webhookcert.Webhooks.Validating+suffix,
+		)
+	}
+
 	// Use a direct client before the manager cache starts.
 	direct, err := client.New(restCfg, client.Options{Scheme: mgr.GetScheme()})
 	if err != nil {

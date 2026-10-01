@@ -43,13 +43,29 @@ const (
 // ErrNotReady is returned while the serving certificate is not yet written.
 var ErrNotReady = errors.New("webhook certificate not ready")
 
-// Webhooks are the configurations the manager keeps wired.
+// Webhooks are the configurations the manager keeps wired. These are the
+// unsuffixed, cluster-scoped-mode names; call Configure once at startup
+// before constructing a Manager if the chart rendered suffixed names (see
+// docs/adr/2026-09-29-namespace-scoped-tenants.md — charts/orbit/templates/_helpers.tpl's
+// orbit.clusterSuffix, applied to these same two webhook configs).
 var Webhooks = struct {
 	Mutating   string
 	Validating string
 }{
 	Mutating:   "aaa-orbit-agent-pod-mutator",
 	Validating: "orbit-agent-pod-validator",
+}
+
+// Configure overrides Webhooks' names. Call once, before constructing a
+// Manager or DriftReconciler, with the exact names the chart rendered (empty
+// strings leave the defaults in place).
+func Configure(mutating, validating string) {
+	if mutating != "" {
+		Webhooks.Mutating = mutating
+	}
+	if validating != "" {
+		Webhooks.Validating = validating
+	}
 }
 
 // Manager owns the webhook certificate lifecycle for one operator process.
