@@ -122,6 +122,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '5rem',
         cell: (row) => (

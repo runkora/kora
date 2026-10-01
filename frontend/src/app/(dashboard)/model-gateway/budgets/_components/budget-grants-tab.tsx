@@ -39,6 +39,7 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'principal',
         header: 'Principal',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (g) =>
@@ -114,6 +115,7 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '4rem',
         cell: (g) => {

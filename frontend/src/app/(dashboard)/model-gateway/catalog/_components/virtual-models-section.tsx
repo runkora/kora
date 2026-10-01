@@ -109,6 +109,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'name',
         header: 'Virtual Model',
+        minWidth: '11rem',
         locked: true,
         sortable: true,
         sortAccessor: (m) => m.name,
@@ -129,11 +130,13 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'strategy',
         header: 'Strategy',
+        minWidth: '9rem',
         cell: (m) => <StrategyBadge strategy={m.strategy} />,
       },
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        minWidth: '8rem',
         headerTooltip:
           'The lowest per-1M token price across all token-priced enabled routes, after overrides. Routes without token pricing are excluded.',
         sortable: true,
@@ -177,6 +180,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'chevron',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '2.5rem',
         cell: () => <Icon name="chevron-right" color="muted" />,

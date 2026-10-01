@@ -39,6 +39,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'role',
         header: 'Role',
+        minWidth: '9rem',
         locked: true,
         sortable: true,
         sortAccessor: (r) => r.role,
@@ -91,6 +92,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '4rem',
         cell: (r) => {

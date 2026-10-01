@@ -105,6 +105,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'user',
     header: 'User',
+    minWidth: '10rem',
     locked: true,
     cell: (row) => (
       <Stack gap="none">
@@ -122,6 +123,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'requests',
     header: 'Requests',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.request_count,
@@ -134,6 +136,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'totalTokens',
     header: 'Total tokens',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.total_tokens,
@@ -146,6 +149,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'promptTokens',
     header: 'Input tokens',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.prompt_tokens,
@@ -158,6 +162,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'completionTokens',
     header: 'Output tokens',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.completion_tokens,
@@ -195,6 +200,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'cost',
     header: 'Cost',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.estimated_cost_usd,
@@ -207,6 +213,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'errorRate',
     header: 'Error rate',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.error_rate,
@@ -224,6 +231,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'latency',
     header: 'Avg latency',
+    minWidth: '4.5rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.avg_latency_ms,
@@ -236,6 +244,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'lastActive',
     header: 'Last active',
+    minWidth: '6.5rem',
     sortable: true,
     sortAccessor: (row) => new Date(row.last_active_at).getTime(),
     cell: (row) => (

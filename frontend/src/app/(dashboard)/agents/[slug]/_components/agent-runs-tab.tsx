@@ -102,6 +102,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'summary',
         header: 'Task',
+        minWidth: '9rem',
         locked: true,
         cell: (row) =>
           row.summary ? (
@@ -128,6 +129,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'id',
         header: 'Run ID',
+        minWidth: '5.5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -138,18 +140,21 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'state',
         header: 'Status',
+        minWidth: '4.5rem',
         locked: true,
         cell: (row) => runStatusBadge(row),
       },
       {
         id: 'startedBy',
         header: 'Started by',
+        minWidth: '4rem',
         locked: true,
         cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
         header: 'Started',
+        minWidth: '4.5rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.startedAt ?? row.createdAt,
@@ -162,6 +167,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'duration',
         header: 'Duration',
+        minWidth: '4.5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -172,6 +178,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'tools',
         header: 'Tools',
+        minWidth: '4rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -182,8 +189,9 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
-        gridWidth: '8rem',
+        gridWidth: '7rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="snug">
             <Button

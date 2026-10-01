@@ -218,6 +218,7 @@ export function AgentsPage() {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '6rem',
         cell: (row) => (

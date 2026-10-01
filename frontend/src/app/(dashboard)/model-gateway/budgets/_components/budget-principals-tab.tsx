@@ -54,6 +54,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'principal',
         header: 'Principal',
+        minWidth: '11rem',
         locked: true,
         sortable: true,
         sortAccessor: (p) => principalDisplay(p.principal_id, p.principal_type, p).primary,
@@ -83,6 +84,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'sources',
         header: 'Budget Sources',
+        minWidth: '9rem',
         cell: (p) =>
           p.categories.length > 0 ? (
             // Reserve a little room past the grid's own column gap.
@@ -129,7 +131,9 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       },
       {
         id: 'spend',
-        header: 'Spend (month-to-date)',
+        header: 'Spend (MTD)',
+        headerTooltip: 'Month-to-date spend for the current period',
+        minWidth: '8rem',
         sortable: true,
         sortAccessor: (p) => p.current_spend_usd,
         cell: (p) => (

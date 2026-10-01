@@ -226,6 +226,7 @@ export function ModelsTab() {
       {
         id: 'name',
         header: 'Model',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -307,6 +308,7 @@ export function ModelsTab() {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '2.5rem',
         cell: (row) => (
