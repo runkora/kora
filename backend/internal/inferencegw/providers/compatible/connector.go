@@ -202,26 +202,7 @@ func (c *Connector) ChatCompletionStream(ctx context.Context, params openai.Chat
 			}), nil
 	case c.serves[ip.APIMessages]:
 		stream := c.anthropic.Messages.NewStreaming(ctx, convert.OpenAIParamsToAnthropicParams(params))
-		ch := make(chan inferencegw.OpenAIStreamResult, 32)
-		go func() {
-			defer close(ch)
-			defer func() { _ = stream.Close() }()
-			state := convert.NewAnthropicStreamState()
-			for stream.Next() {
-				event := stream.Current()
-				if chunk, ok := convert.AnthropicEventToOpenAIChunk(event, state); ok {
-					res := inferencegw.OpenAIStreamResult{Chunk: chunk}
-					if event.Type == "message_delta" {
-						res.CacheCreationTokens = state.CacheCreationTokens
-					}
-					ch <- res
-				}
-			}
-			if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
-				ch <- inferencegw.OpenAIStreamResult{Err: convert.MapAnthropicError(c.name, err)}
-			}
-		}()
-		return ch, nil
+		return convert.AnthropicStreamToOpenAIChunks(stream, c.name, nil), nil
 	}
 	return nil, c.unsupported(ip.APIChatCompletions)
 }
@@ -300,18 +281,8 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 // message streams and accumulates one messages call. The SDK refuses a
 // non-streaming call whose max_tokens could run past ten minutes.
 func (c *Connector) message(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error) {
-	stream := c.anthropic.Messages.NewStreaming(ctx, params)
-	defer func() { _ = stream.Close() }()
-	var msg anthropic.Message
-	for stream.Next() {
-		if err := msg.Accumulate(stream.Current()); err != nil {
-			return nil, convert.MapAnthropicError(c.name, err)
-		}
-	}
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return nil, convert.MapAnthropicError(c.name, err)
-	}
-	return &msg, nil
+	msg, _, err := convert.AccumulateAnthropicStream(c.anthropic.Messages.NewStreaming(ctx, params), c.name)
+	return msg, err
 }
 
 // stream is the SSE stream shape both SDKs return.

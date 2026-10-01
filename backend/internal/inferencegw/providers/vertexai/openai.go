@@ -2,9 +2,7 @@ package vertexai
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	openai "github.com/openai/openai-go/v3"
@@ -144,36 +142,16 @@ func (c *Connector) claudeChatCompletionStream(ctx context.Context, params opena
 	)
 
 	stream := c.anthropicClient.Messages.NewStreaming(ctx, anthropicParams)
-
-	ch := make(chan inferencegw.OpenAIStreamResult, 32)
-	go func() {
-		defer close(ch)
-		defer stream.Close()
-		state := convert.NewAnthropicStreamState()
-		eventCount := 0
-		for stream.Next() {
-			eventCount++
-			event := stream.Current()
-			if chunk, ok := convert.AnthropicEventToOpenAIChunk(event, state); ok {
-				result := inferencegw.OpenAIStreamResult{Chunk: chunk}
-				if event.Type == "message_delta" {
-					result.CacheCreationTokens = state.CacheCreationTokens
-				}
-				ch <- result
-			}
-		}
-		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
+	return convert.AnthropicStreamToOpenAIChunks(stream, c.name, func(events int, err error) {
+		if err != nil {
 			c.logger.Error(ctx, "vertexai: claudeChatCompletionStream error",
 				logging.Field{Key: "error", Value: err.Error()},
-				logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
+				logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", events)},
 			)
-			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapAnthropicError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "vertexai: claudeChatCompletionStream done",
-			logging.Field{Key: "event_count", Value: fmt.Sprintf("%d", eventCount)},
+			logging.Field{Key: "event_count", Value: fmt.Sprintf("%d", events)},
 		)
-	}()
-
-	return ch, nil
+	}), nil
 }
