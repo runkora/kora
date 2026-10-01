@@ -69,7 +69,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) — `Accepted` · 2026-06-22
 - [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) — `Accepted` · 2026-06-19
 - [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) — `Accepted` · 2026-07-24
-- [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) — `Proposed` · 2026-10-01
+- [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) — `Accepted` · 2026-10-01
 
 ### Agents Control Plane & Execution
 
@@ -283,5 +283,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
-| 2026-10-01 | [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) | Proposed | — |
+| 2026-10-01 | [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-01-crd-inference-providers.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-01
 **Deciders:** Justin Wilkin
 **Technical Story:** [CRD-Driven Inference Providers PRD](../prd/crd-inference-providers.md). Register inference providers with a Kubernetes resource instead of gateway env vars.

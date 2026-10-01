@@ -1,6 +1,6 @@
 # CRD-Driven Inference Providers - Product Requirements Document
 
-**Status:** Proposed  
+**Status:** Approved  
 **Created:** 2026-10-01  
 **Last Updated:** 2026-10-01  
 **Owner:** Justin Wilkin  
