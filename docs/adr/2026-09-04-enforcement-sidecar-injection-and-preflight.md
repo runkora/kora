@@ -331,7 +331,7 @@ operator:
     warn: restricted
     audit: restricted
   preflight:
-    supportedIstioMinors: ["1.31", "1.30"]   # edited with the Istio pin; the release copies it into compatibility.yaml
+    supportedIstioMinors: ["1.31", "1.30"]   # the Istio minors this release supports
     intervalSeconds: 300
 ```
 
