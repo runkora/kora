@@ -54,7 +54,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'principal',
         header: 'Principal',
-        minWidth: '11rem',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (p) => principalDisplay(p.principal_id, p.principal_type, p).primary,
@@ -84,7 +85,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'sources',
         header: 'Budget Sources',
-        minWidth: '9rem',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '8rem',
         cell: (p) =>
           p.categories.length > 0 ? (
             // Reserve a little room past the grid's own column gap.
@@ -115,6 +117,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'limit',
         header: 'Effective Limit',
+        gridWidth: '8rem',
+        minWidth: '6rem',
         sortable: true,
         sortAccessor: (p) => p.effective_limit_usd,
         cell: (p) =>
@@ -132,8 +136,9 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'spend',
         header: 'Spend (MTD)',
-        headerTooltip: 'Month-to-date spend for the current period',
+        gridWidth: '8rem',
         minWidth: '8rem',
+        headerTooltip: 'Month-to-date spend for the current period',
         sortable: true,
         sortAccessor: (p) => p.current_spend_usd,
         cell: (p) => (
@@ -145,6 +150,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'utilisation',
         header: 'Utilisation',
+        gridWidth: '8rem',
+        minWidth: '5.5rem',
         sortable: true,
         sortAccessor: utilisation,
         cell: (p) => {
@@ -175,6 +182,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'status',
         header: 'Status',
+        gridWidth: '6rem',
+        minWidth: '5rem',
         sortable: true,
         sortAccessor: (p) =>
           p.spend_limit_reached
@@ -192,6 +201,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'lastActive',
         header: 'Last Active',
+        gridWidth: '8rem',
+        minWidth: '6.5rem',
         sortable: true,
         sortAccessor: (p) => p.last_active_at ?? '',
         cell: (p) => (

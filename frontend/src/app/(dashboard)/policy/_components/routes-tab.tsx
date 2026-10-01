@@ -1,10 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, Badge, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { Alert, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip, scopeColumnFilter } from '@orbit/components';
+import { ScopeChip, TruncatingBadge, scopeColumnFilter } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {
@@ -66,6 +66,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'service',
         header: 'Service',
+        gridWidth: '12rem',
         minWidth: '9rem',
         sortable: true,
         sortAccessor: (r) => r.service,
@@ -74,11 +75,18 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           options: serviceOptions,
           filterFn: (r, selected) => selected.has(r.service),
         },
-        cell: (r) => <Badge variant="elevated">{r.service}</Badge>,
+        cell: (r) => (
+          // Service names are open-ended, so the badge truncates (full name on hover).
+          <Stack direction="horizontal" minWidth="none">
+            <TruncatingBadge label={r.service} variant="elevated" textColor="foreground" />
+          </Stack>
+        ),
       },
       {
         id: 'method',
         header: 'Method',
+        gridWidth: '5rem',
+        minWidth: '4.5rem',
         sortable: true,
         sortAccessor: (r) => r.method,
         filter: {
@@ -95,6 +103,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'pathPrefix',
         header: 'Path Prefix',
+        gridWidth: 'minmax(0, 2fr)',
         minWidth: '10rem',
         sortable: true,
         sortAccessor: (r) => r.pathPrefix,
@@ -107,6 +116,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'requiredScope',
         header: 'Required Scope',
+        gridWidth: 'minmax(0, 2fr)',
         minWidth: '12rem',
         sortable: true,
         sortAccessor: (r) => r.requiredScope,

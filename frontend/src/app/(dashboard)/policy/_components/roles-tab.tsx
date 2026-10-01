@@ -339,6 +339,7 @@ function RoleTable({
       {
         id: 'role',
         header: 'Role',
+        gridWidth: '14rem',
         minWidth: '12rem',
         locked: true,
         sortable: true,
@@ -362,15 +363,17 @@ function RoleTable({
       {
         id: 'scopes',
         header: 'Scopes',
-        minWidth: '14rem',
         gridWidth: 'minmax(0, 3fr)',
+        minWidth: '14rem',
         wrap: true,
         filter: scopeColumnFilter(roles, (r) => r.scopes ?? []),
-        cell: (r) => <ScopeChipList scopes={r.scopes ?? []} />,
+        cell: (r) => <ScopeChipList scopes={r.scopes ?? []} maxRows={2} />,
       },
       {
         id: 'budget',
         header: 'Budget',
+        gridWidth: '8rem',
+        minWidth: '6rem',
         cell: (r) =>
           r.budget ? (
             <Text size="caption" color="muted">
@@ -387,6 +390,8 @@ function RoleTable({
       {
         id: 'created',
         header: 'Created',
+        gridWidth: '6rem',
+        minWidth: '5.5rem',
         sortable: true,
         sortAccessor: (r) => r.created_at ?? '',
         cell: (r) => {

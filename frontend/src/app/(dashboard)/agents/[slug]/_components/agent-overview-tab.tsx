@@ -130,6 +130,8 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       {
         id: 'id',
         header: 'Run ID',
+        gridWidth: '6rem',
+        minWidth: '5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -140,12 +142,16 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       {
         id: 'state',
         header: 'Status',
+        gridWidth: '7rem',
+        minWidth: '5.5rem',
         locked: true,
         cell: (row) => runStatusBadge(row),
       },
       {
         id: 'duration',
         header: 'Duration',
+        gridWidth: '6rem',
+        minWidth: '5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -156,12 +162,16 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       {
         id: 'startedBy',
         header: 'Started by',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '4rem',
         locked: true,
         cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
         header: 'Started',
+        gridWidth: '6.5rem',
+        minWidth: '5rem',
         locked: true,
         cell: (row) => (
           <Text size="supporting" color="muted">

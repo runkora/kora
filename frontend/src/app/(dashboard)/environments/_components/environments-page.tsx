@@ -60,6 +60,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'name',
         header: 'Name',
+        gridWidth: 'minmax(0, 1.2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -79,6 +81,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'egressHosts',
         header: 'Egress hosts',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.egressHosts.length,
@@ -96,6 +100,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'connectors',
         header: 'Connectors',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.connectors.length,
