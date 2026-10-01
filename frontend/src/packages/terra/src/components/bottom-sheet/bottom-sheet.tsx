@@ -72,6 +72,14 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
   const pushedRef = React.useRef(false);
   const poppingRef = React.useRef(false);
 
+  // Reconciles the pushed history entry whenever `open` goes false, no
+  // matter *why* — Radix dismissing itself (Esc, overlay, its own Close
+  // button), a parent closing the sheet by changing the `open` prop
+  // directly, drag-to-dismiss, or unmount. Consuming this in the effect's
+  // cleanup (rather than only inside a close handler threaded through
+  // Radix) means there's a single choke point regardless of the close
+  // path, and it also makes React StrictMode's dev-only mount→cleanup→
+  // remount cycle net out to one entry instead of two.
   React.useEffect(() => {
     if (!open) return;
     window.history.pushState({ sheet: title }, '');
@@ -84,23 +92,19 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
       onOpenChange(false);
     };
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-    // Only re-run when `open` flips — `title` and `onOpenChange` aren't
-    // expected to change while a single sheet lifecycle is in flight.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
-  const requestClose = React.useCallback(
-    (next: boolean) => {
-      if (!next && pushedRef.current && !poppingRef.current) {
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (pushedRef.current && !poppingRef.current) {
         pushedRef.current = false;
         window.history.back();
       }
       poppingRef.current = false;
-      onOpenChange(next);
-    },
-    [onOpenChange],
-  );
+    };
+    // Only re-run when `open` flips — `title` and `onOpenChange` aren't
+    // expected to change while a single sheet lifecycle is in flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // ── Drag-to-dismiss ────────────────────────────────────────────────────────
 
@@ -166,18 +170,18 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
     if (shouldClose) {
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (reducedMotion) {
-        requestClose(false);
+        onOpenChange(false);
         return;
       }
       setSheetTransform(drag.sheetHeight, true, true);
-      window.setTimeout(() => requestClose(false), RELEASE_MS);
+      window.setTimeout(() => onOpenChange(false), RELEASE_MS);
     } else {
       setSheetTransform(0, true);
     }
   };
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={requestClose}>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           className={cn(
@@ -191,8 +195,8 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
           ref={contentRef}
           data-slot="bottom-sheet"
           className={cn(
-            'fixed inset-x-0 bottom-0 z-[60] rounded-t-lg border-t border-border-subtle bg-background',
-            'pb-[calc(8px+env(safe-area-inset-bottom))]',
+            'fixed inset-x-0 bottom-0 z-[60] flex max-h-[85dvh] flex-col overflow-hidden',
+            'rounded-t-lg border-t border-border-subtle bg-background',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
             'duration-200 motion-reduce:duration-0',
@@ -201,7 +205,7 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
           <ModalAccessibleTitle>{title}</ModalAccessibleTitle>
 
           <div
-            className="flex touch-none justify-center pb-1 pt-2"
+            className="flex shrink-0 touch-none justify-center pb-1 pt-2"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={endDrag}
@@ -224,7 +228,11 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
             </button>
           </DialogPrimitive.Close>
 
-          {children}
+          {/* Only the body scrolls — the drag handle and close button above
+           *  stay fixed so the sheet always stays dismissible. */}
+          <div className="overflow-y-auto pb-[calc(8px+env(safe-area-inset-bottom))]">
+            {children}
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

@@ -69,6 +69,7 @@ const CollapsibleContent = React.forwardRef<
       'overflow-hidden',
       'data-[state=open]:animate-[collapsible-down_200ms_var(--ease-standard)]',
       'data-[state=closed]:animate-[collapsible-up_200ms_var(--ease-standard)]',
+      'motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none',
       className,
     )}
     {...props}

@@ -116,6 +116,9 @@ interface MenuItemProps {
   fontSize: number;
   onSelect: () => void;
   itemRef?: React.Ref<HTMLButtonElement>;
+  /** `'menuitem'` inside a `role="menu"` ancestor (desktop); `undefined` when
+   *  reused as a plain action row with no owning menu (the mobile dialog). */
+  role?: 'menuitem';
   children: React.ReactNode;
 }
 
@@ -126,6 +129,7 @@ function MenuItem({
   fontSize,
   onSelect,
   itemRef,
+  role = 'menuitem',
   children,
 }: MenuItemProps) {
   return (
@@ -133,7 +137,7 @@ function MenuItem({
       ref={itemRef}
       variant="ghost"
       fullWidth
-      role="menuitem"
+      role={role}
       onClick={onSelect}
       style={{
         height,
@@ -173,23 +177,25 @@ function IdentityBlock({
       <Stack asChild marginBottom="tight">
         <SectionLabel>Signed in as</SectionLabel>
       </Stack>
-      <Text
-        as="span"
-        style={{
-          display: 'block',
-          fontSize: compact ? 14 : 16,
-          lineHeight: compact ? '20px' : '24px',
-          fontWeight: 500,
-        }}
-      >
-        {name}
-      </Text>
+      {name && (
+        <Text
+          as="span"
+          style={{
+            display: 'block',
+            fontSize: compact ? 14 : 16,
+            lineHeight: compact ? '20px' : '24px',
+            fontWeight: 500,
+          }}
+        >
+          {name}
+        </Text>
+      )}
       <Text
         as="span"
         color="subtle"
         style={{
           display: 'block',
-          marginTop: compact ? 2 : 8,
+          marginTop: name ? (compact ? 2 : 8) : 0,
           fontSize: compact ? 12 : 13,
           lineHeight: compact ? '16px' : '18px',
           overflowWrap: 'anywhere',
@@ -253,7 +259,12 @@ export function SidebarUserFooter() {
     : 'account-flyout-in 140ms cubic-bezier(0,0,0.2,1) both';
 
   const email = user?.email || 'Loading…';
-  const name = user?.name || email;
+  // An empty display name is a legitimate, reachable session value (the auth
+  // route falls back to `''` when the JWT has no `display_name` claim) — it
+  // is intentionally NOT defaulted to `email` here, which would otherwise
+  // render the email twice (once as "name", once as itself).
+  const name = user?.name ?? '';
+  const hasName = Boolean(name);
 
   const handleLogout = useCallback(() => {
     void logout();
@@ -266,6 +277,14 @@ export function SidebarUserFooter() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstItemRef = useRef<HTMLButtonElement>(null);
   const secondItemRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  // The confirm step replaces the menu items with plain Cancel/Log out
+  // buttons (see the `role="menu"` note below) — without this, focus is
+  // silently dropped when the "Log out" item that had it unmounts.
+  useEffect(() => {
+    if (confirming) cancelButtonRef.current?.focus();
+  }, [confirming]);
 
   const closeAndFocusTrigger = useCallback(() => {
     menu.close();
@@ -337,9 +356,9 @@ export function SidebarUserFooter() {
       ref={triggerRef}
       variant="ghost"
       fullWidth
-      aria-haspopup="menu"
+      aria-haspopup={isDesktop ? 'menu' : 'dialog'}
       aria-expanded={open}
-      aria-controls="account-menu"
+      aria-controls={isDesktop ? 'account-menu' : undefined}
       data-state={open ? 'open' : 'closed'}
       onClick={handleTriggerClick}
       onKeyDown={handleTriggerKeyDown}
@@ -353,14 +372,23 @@ export function SidebarUserFooter() {
       }}
     >
       {avatar}
-      <Stack direction="vertical" grow minWidth="none" gap="none" style={{ overflow: 'hidden' }}>
-        <Text
-          as="span"
-          truncate
-          style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
-        >
-          {name}
-        </Text>
+      <Stack
+        direction="vertical"
+        grow
+        minWidth="none"
+        gap="none"
+        justify={hasName ? undefined : 'center'}
+        style={{ overflow: 'hidden' }}
+      >
+        {hasName && (
+          <Text
+            as="span"
+            truncate
+            style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
+          >
+            {name}
+          </Text>
+        )}
         <Stack direction="horizontal" align="center" style={{ height: 16, overflow: 'hidden' }}>
           <FitEmailText email={email} />
         </Stack>
@@ -403,10 +431,10 @@ export function SidebarUserFooter() {
 
             <Stack
               id="account-menu"
-              role="menu"
-              aria-label="Account"
+              role={confirming ? undefined : 'menu'}
+              aria-label={confirming ? undefined : 'Account'}
               aria-describedby="account-identity"
-              onKeyDown={handleMenuKeyDown}
+              onKeyDown={confirming ? undefined : handleMenuKeyDown}
               gap="none"
               style={{
                 position: 'absolute',
@@ -427,6 +455,7 @@ export function SidebarUserFooter() {
               {confirming ? (
                 <Stack direction="horizontal" style={{ gap: 6, padding: '0 4px' }}>
                   <Button
+                    ref={cancelButtonRef}
                     variant="outline"
                     size="sm"
                     style={{ flex: 1 }}
@@ -487,7 +516,12 @@ export function SidebarUserFooter() {
           <Separator />
           {confirming ? (
             <Stack direction="horizontal" style={{ gap: 8, padding: '12px 20px 4px' }}>
-              <Button variant="outline" style={{ flex: 1, height: 44 }} onClick={menu.cancelLogout}>
+              <Button
+                ref={cancelButtonRef}
+                variant="outline"
+                style={{ flex: 1, height: 44 }}
+                onClick={menu.cancelLogout}
+              >
                 Cancel
               </Button>
               <Button
@@ -505,6 +539,7 @@ export function SidebarUserFooter() {
                 height={48}
                 fontSize={15}
                 onSelect={handleViewProfile}
+                role={undefined}
               >
                 View profile
               </MenuItem>
@@ -514,6 +549,7 @@ export function SidebarUserFooter() {
                 height={48}
                 fontSize={15}
                 onSelect={menu.requestLogout}
+                role={undefined}
               >
                 Log out
               </MenuItem>

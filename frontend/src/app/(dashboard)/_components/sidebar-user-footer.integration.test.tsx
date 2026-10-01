@@ -86,6 +86,28 @@ describe('SidebarUserFooter', () => {
     expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0);
   });
 
+  it('does not duplicate the email when the user has no display name', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: { sub: 'anon-sub', email: 'anon@orbit.local', name: '' },
+      loaded: true,
+    });
+    const user = userEvent.setup();
+    renderFooter();
+
+    // The email renders with a zero-width space after '@' (soft wrap hint),
+    // so match loosely rather than on the literal string.
+    const emailPattern = /anon@​?orbit\.local/;
+
+    // Trigger: a single email line, no separate bold name row.
+    expect(screen.getAllByText(emailPattern)).toHaveLength(1);
+
+    // Identity panel: same — "Signed in as" + email only, no name row.
+    await user.click(screen.getByRole('button', { name: emailPattern }));
+    expect(screen.getByText('Signed in as')).toBeInTheDocument();
+    expect(screen.getAllByText(emailPattern)).toHaveLength(2);
+  });
+
   describe('mobile (BottomSheet)', () => {
     it('opens the sheet with identity and menu items when the trigger is clicked', async () => {
       const user = userEvent.setup();
@@ -158,6 +180,23 @@ describe('SidebarUserFooter', () => {
 
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('menu', { name: 'Account' })).not.toBeInTheDocument();
+      restore();
+    });
+
+    it('drops menu semantics and focuses Cancel when entering the confirm step', async () => {
+      const restore = installDesktopMatchMedia();
+      const user = userEvent.setup();
+      renderFooter();
+      await user.click(screen.getByRole('button', { name: /Dev User/ }));
+      await user.click(screen.getByRole('menuitem', { name: /^Log out$/ }));
+
+      // A confirm step isn't menu navigation — the container stops being a
+      // role="menu" and the actions are plain buttons, not menuitems.
+      expect(screen.queryByRole('menu', { name: 'Account' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+
+      const cancelButton = screen.getByRole('button', { name: 'Cancel' });
+      await waitFor(() => expect(cancelButton).toHaveFocus());
       restore();
     });
   });

@@ -89,10 +89,22 @@ describe('BottomSheet', () => {
     it('consumes the pushed entry via history.back() when closed by the close button', async () => {
       const user = userEvent.setup();
       const onOpenChange = vi.fn();
-      renderSheet(true, onOpenChange);
+      const { rerender } = renderSheet(true, onOpenChange);
       await user.click(screen.getByRole('button', { name: 'Close' }));
-      expect(backSpy).toHaveBeenCalledTimes(1);
       expect(onOpenChange).toHaveBeenCalledWith(false);
+
+      // BottomSheet is a controlled component — clicking Close only requests
+      // the change via `onOpenChange`. A real consumer propagates that back
+      // down as the new `open` prop, which is what the reconciliation effect
+      // actually watches (see "consumes the pushed entry when the parent
+      // closes it by changing `open` directly" below for why that's the
+      // single source of truth, not the callback invocation itself).
+      rerender(
+        <BottomSheet open={false} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+      expect(backSpy).toHaveBeenCalledTimes(1);
     });
 
     it('does not call history.back() again when the close was itself triggered by a popstate', async () => {
@@ -105,6 +117,52 @@ describe('BottomSheet', () => {
 
       await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
       expect(backSpy).not.toHaveBeenCalled();
+    });
+
+    it('consumes the pushed entry when the parent closes it by changing `open` directly', () => {
+      const onOpenChange = vi.fn();
+      const { rerender } = renderSheet(true, onOpenChange);
+      expect(pushStateSpy).toHaveBeenCalledTimes(1);
+
+      // A parent closing the sheet via its own state (not through a Radix-
+      // driven onOpenChange call) — e.g. `menu.close()` elsewhere in the
+      // consuming page — still has to consume the pushed entry.
+      rerender(
+        <BottomSheet open={false} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+
+      expect(backSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('never leaves more than one pushed entry outstanding across repeated open/close cycles', () => {
+      const onOpenChange = vi.fn();
+      const { rerender } = renderSheet(false, onOpenChange);
+
+      rerender(
+        <BottomSheet open={true} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+      rerender(
+        <BottomSheet open={false} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+      rerender(
+        <BottomSheet open={true} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+      rerender(
+        <BottomSheet open={false} onOpenChange={onOpenChange} title="Account">
+          <button type="button">Row action</button>
+        </BottomSheet>,
+      );
+
+      expect(pushStateSpy).toHaveBeenCalledTimes(2);
+      expect(backSpy).toHaveBeenCalledTimes(2);
     });
   });
 });
