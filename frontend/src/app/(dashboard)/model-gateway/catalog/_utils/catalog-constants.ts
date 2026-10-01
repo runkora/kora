@@ -20,7 +20,7 @@ const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {
 };
 
 // providerType returns the part of a provider name before ':'.
-export function providerType(provider: string): string {
+function providerType(provider: string): string {
   return provider.split(':', 1)[0];
 }
 

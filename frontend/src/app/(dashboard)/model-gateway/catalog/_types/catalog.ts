@@ -1,8 +1,8 @@
 // ── Domain types ──────────────────────────────────────────────────────────────
 //
 // Provider is the name of a backend provider: a type, or a type and an
-// instance name ('bedrock:aus', 'openai:openrouter').
-export type ProviderType = 'bedrock' | 'vertexai' | 'azure' | 'compatible';
+// instance name ('bedrock:aus', 'compatible:openrouter').
+type ProviderType = 'bedrock' | 'vertexai' | 'azure' | 'compatible';
 export type Provider = ProviderType | `${ProviderType}:${string}`;
 
 export type RoutingStrategy = 'priority' | 'weighted' | 'lowest_cost';
