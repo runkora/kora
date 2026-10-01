@@ -9,7 +9,12 @@ interface ProviderBadgeProps {
 export function ProviderBadge({ provider }: ProviderBadgeProps) {
   return (
     <Stack direction="horizontal" overflow="hidden" minWidth="none">
-      <Badge variant={providerBadgeVariant(provider)} size="sm" mono title={providerTitle(provider)}>
+      <Badge
+        variant={providerBadgeVariant(provider)}
+        size="sm"
+        mono
+        title={providerTitle(provider)}
+      >
         {providerLabel(provider)}
       </Badge>
     </Stack>
