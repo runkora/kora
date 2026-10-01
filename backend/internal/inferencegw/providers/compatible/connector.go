@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -76,11 +77,17 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 		if !ok {
 			return nil, ErrMessagesBaseURL
 		}
-		ac := anthropic.NewClient(
+		anthropicOpts := []anthropicopt.RequestOption{
 			anthropicopt.WithBaseURL(root),
 			anthropicopt.WithAPIKey(cfg.APIKey),
 			anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(transport)),
-		)
+		}
+		if cfg.APIKey == "" {
+			// The SDK refuses a request without a credential. A placeholder passes
+			// its check and the middleware removes it before the request is sent.
+			anthropicOpts = append(anthropicOpts, anthropicopt.WithAPIKey("none"), anthropicopt.WithMiddleware(dropAPIKey))
+		}
+		ac := anthropic.NewClient(anthropicOpts...)
 		c.anthropic = &ac
 	}
 	return c, nil
@@ -332,4 +339,10 @@ func forward[E, R any](s stream[E], event func(E) R, fail func(error) R) <-chan 
 		}
 	}()
 	return ch
+}
+
+// dropAPIKey sends a messages request with no key, for an endpoint that needs none.
+func dropAPIKey(req *http.Request, next anthropicopt.MiddlewareNext) (*http.Response, error) {
+	req.Header.Del("X-Api-Key")
+	return next(req)
 }

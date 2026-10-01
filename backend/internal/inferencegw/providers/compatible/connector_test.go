@@ -167,12 +167,18 @@ func TestUndeclaredAPIsBridgeOrRefuse(t *testing.T) {
 
 func TestNoKeySendsNone(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-from-gateway-env")
-	c, up := setup(t, "", ip.APIChatCompletions)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	c, up := setup(t, "", ip.APIChatCompletions, ip.APIMessages)
 	if _, err := c.ChatCompletion(context.Background(), chatParams()); err != nil {
 		t.Fatal(err)
 	}
-	if up.seen[0].bearer != "" {
-		t.Errorf("Authorization = %q, want none", up.seen[0].bearer)
+	if _, err := c.AnthropicMessages(context.Background(), messageParams()); err != nil {
+		t.Fatalf("messages without a key: %v", err)
+	}
+	for _, r := range up.seen {
+		if r.bearer != "" || r.apiKey != "" {
+			t.Errorf("%s sent a credential: %+v", r.path, r)
+		}
 	}
 }
 
