@@ -91,7 +91,7 @@ const PageLayout = ({
     {sidebar && (
       <aside
         className={cn(
-          'h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface',
+          'h-full w-[clamp(12.5rem,17vw,15rem)] shrink-0 flex flex-col border-r border-border-subtle bg-surface',
           // Hide the fixed sidebar on mobile; the drawer takes over below md
           mobileDrawer ? 'hidden md:flex' : 'flex',
         )}
