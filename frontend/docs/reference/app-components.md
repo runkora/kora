@@ -186,30 +186,22 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 
 ---
 
-## TruncatingBadge
+## ClampedList
 
-**Import:** `import { TruncatingBadge } from '@orbit/components'`
+**Import:** `import { ClampedList } from '@orbit/components'`
 
-**When to use:** A badge whose label can grow (an adapter, an agent name) inside a table cell. It shrinks to the width the container allows, ends in an ellipsis and shows the full label as its tooltip.
-
-```tsx
-<Stack direction="horizontal" minWidth="none">
-  <TruncatingBadge label={name} variant="outline" textColor="foreground" />
-</Stack>
-```
-
-Place it inside a row or wrap `Stack`, not directly in a block cell, or it stretches to the cell's full width.
-
----
-
-## BadgeList and ClampedList
-
-**Import:** `import { BadgeList, ClampedList } from '@orbit/components'`
-
-**When to use:** `BadgeList` shows plain outline badges (capabilities, dialects, modalities) as many as fit in `maxRows` rows, with the rest behind a "+N more" overlay. `ClampedList` is the layer underneath, shared with `ScopeChipList`: give it `items`, `getKey`, `renderItem` and a `noun` for the trigger's accessible name when the items are something else.
+**When to use:** A list in a cell that shows as many items as fit in `maxRows` rows, with the rest behind a "+N more" overlay. It is the layer under `ScopeChipList`: give it `items`, `getKey`, `renderItem` and a `noun` for the trigger's accessible name. Anything that follows the table layout golden path for a collection column can render through it.
 
 ```tsx
-<BadgeList values={row.capabilities} noun="capabilities" maxRows={2} />
+<ClampedList
+  items={row.connectors}
+  getKey={(c) => c.connection}
+  renderItem={(c) => (
+    <TruncatingBadge label={c.connection} variant="outline" textColor="foreground" />
+  )}
+  noun="connectors"
+  maxRows={2}
+/>
 ```
 
 ---

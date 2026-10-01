@@ -76,7 +76,7 @@ When the container is too narrow for every column at its minimum width (the Rule
 ## Rule 7: Anything that can grow must truncate and show its full value
 
 - **Plain text** truncates and shows the tooltip automatically.
-- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` or `ScopeChip` (both in `@orbit/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
+- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` (`@orbit/terra`) or `ScopeChip` (`@orbit/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
 - **Never put a raw badge directly in a block-level cell.** It stretches to the cell's full width. Put it in a horizontal `Stack` (which `TruncatingBadge` assumes).
 - **Do not add truncation to a Terra primitive** such as `Badge`. The concern belongs in the component that composes it.
 
@@ -84,7 +84,7 @@ When the container is too narrow for every column at its minimum width (the Rule
 
 For a column holding many items (scopes, agents), show as many as fit in two rows, then a "+N more" button that opens an overlay listing everything.
 
-- Use `ScopeChipList` for scopes or `BadgeList` for plain labels such as capabilities (both `maxRows={2}`), or a feature-scoped equivalent such as `UsedByList`. Both are built on `ClampedList`, which wraps `useClampedRows`. The count depends on the width the column gets, so it is measured, not counted.
+- Use `ScopeChipList` for scopes (`maxRows={2}`) or `ClampedList` directly for anything else, with the badge you want in `renderItem`. Both wrap `useClampedRows`. A small feature-scoped list such as `UsedByList` or the model gateway's `BadgeList` is `ClampedList` with one fixed `renderItem`. The count depends on the width the column gets, so it is measured, not counted.
 - The "+N more" trigger must always fit. When the list overflows, each item is capped narrower so the trigger, with up to a three-digit count (`+999 more`), can share the last row. One wide chip can therefore never push the trigger out. The cap never drops below 60% of the cell, so in a narrow cell badges are not squeezed to a few letters; items are dropped until the trigger fits instead.
 - Add a searchable multi-select filter to the column. Selecting several values keeps any row with at least one of them.
 - Keep the row height bounded. Never render an unbounded stack of chips.
@@ -136,12 +136,13 @@ Do this at two widths, with numbers, not by eye alone.
 
 ## Where the pieces live
 
-| Piece                                                                                                                                | Location                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `ScopeChip`, `ScopeChipList`, `BadgeList`, `ClampedList`, `scopeColumnFilter`, `TruncatingBadge`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                |
-| Cell clipping, minimum widths, searchable filter                                                                                     | `DataTable` in `src/packages/terra/src/components/data-table/`     |
-| Reference table                                                                                                                      | `src/app/(dashboard)/connections/_components/connections-page.tsx` |
-| Feature-scoped clamped list                                                                                                          | `src/app/(dashboard)/connections/_components/used-by-list.tsx`     |
+| Piece                                                                                                | Location                                                                                  |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ScopeChip`, `ScopeChipList`, `ClampedList`, `scopeColumnFilter`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                                       |
+| `TruncatingBadge`                                                                                    | Terra: `src/packages/terra/src/components/truncating-badge/` (import from `@orbit/terra`) |
+| Cell clipping, minimum widths, searchable filter                                                     | `DataTable` in `src/packages/terra/src/components/data-table/`                            |
+| Reference table                                                                                      | `src/app/(dashboard)/connections/_components/connections-page.tsx`                        |
+| Feature-scoped clamped list                                                                          | `src/app/(dashboard)/connections/_components/used-by-list.tsx`                            |
 
 ## Worked example: Connections
 
