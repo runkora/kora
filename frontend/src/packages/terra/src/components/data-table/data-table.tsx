@@ -100,6 +100,14 @@ export interface DataTableClientFilter<TData> {
   mode: 'client';
   options: DataTableFilterOption[];
   /**
+   * Render a search box and a scrollable list in the filter popover. Use for
+   * filters with many options (e.g. scopes). Selection is multi-select; how
+   * multiple selections combine is up to `filterFn` (union = `some`).
+   */
+  searchable?: boolean;
+  /** Render option labels in a monospaced face (scope strings, IDs). */
+  mono?: boolean;
+  /**
    * Return true if the row should be included given the active selections.
    * Only called when `selected.size > 0`.
    */
@@ -113,6 +121,10 @@ export interface DataTableClientFilter<TData> {
 export interface DataTableServerFilter {
   mode: 'server';
   options: DataTableFilterOption[];
+  /** See `DataTableClientFilter.searchable`. */
+  searchable?: boolean;
+  /** See `DataTableClientFilter.mono`. */
+  mono?: boolean;
   /** Currently selected values — managed externally by the consumer. */
   selected: Set<string>;
   onToggle: (value: string) => void;
@@ -139,6 +151,19 @@ export interface DataTableColumn<TData> {
    * Defaults to '1fr' when omitted.
    */
   gridWidth?: string;
+  /**
+   * Minimum width of this column's grid track, as a CSS length (e.g. '8rem').
+   * Flexible columns (`fr` or `minmax(0, …fr)`) never shrink below it, so
+   * content is clipped with an ellipsis instead of collapsing the column.
+   * Defaults to `DEFAULT_COLUMN_MIN_WIDTH` for flexible columns. Fixed-length
+   * `gridWidth` values are left as-is unless `minWidth` is set explicitly.
+   */
+  minWidth?: string;
+  /**
+   * Let this column's cell content wrap onto multiple lines instead of being
+   * clipped with an ellipsis. Defaults to false.
+   */
+  wrap?: boolean;
   /** Renders the cell content for a given data row. */
   cell: (row: TData) => React.ReactNode;
   /** Whether a sort button is rendered on this column. Defaults to false. */
@@ -156,6 +181,13 @@ export interface DataTableColumn<TData> {
    * scrolls horizontally.
    */
   locked?: boolean;
+  /**
+   * Pins this column to the right edge when the table scrolls horizontally, so
+   * the other columns scroll underneath it and it is never pushed off screen.
+   * Use it for the row-actions column. Only the first column with `pinEnd` is
+   * pinned.
+   */
+  pinEnd?: boolean;
   /** Header and cell text alignment. Defaults to 'left'. */
   align?: 'left' | 'right' | 'center';
   /** Column-level filter. Omit for non-filterable columns. */
@@ -222,6 +254,130 @@ export interface DataTableProps<TData> {
 }
 
 // ─── Internal context ──────────────────────────────────────────────────────────
+
+/** Floor for flexible columns that do not declare their own `minWidth`. */
+const DEFAULT_COLUMN_MIN_WIDTH = '5rem';
+
+const MINMAX_RE = /^minmax\(\s*([^,]+?)\s*,\s*(.+)\s*\)$/;
+
+/**
+ * Resolves a column to its `grid-template-columns` track. A bare `1fr` track
+ * has an automatic minimum of zero here (cells are `min-w-0`), so without a
+ * floor a flexible column collapses to a few pixels when its neighbours are
+ * wide.
+ */
+function gridTrack<TData>(col: DataTableColumn<TData>): string {
+  const width = col.gridWidth ?? '1fr';
+  const minmax = MINMAX_RE.exec(width);
+  if (minmax) {
+    const [, min, max] = minmax;
+    const floor = col.minWidth ?? (parseFloat(min) === 0 ? DEFAULT_COLUMN_MIN_WIDTH : min);
+    return `minmax(${floor}, ${max})`;
+  }
+  if (width.endsWith('fr')) return `minmax(${col.minWidth ?? DEFAULT_COLUMN_MIN_WIDTH}, ${width})`;
+  return col.minWidth ? `minmax(${col.minWidth}, ${width})` : width;
+}
+
+// Clip overflowing content to the cell. Ellipsis only applies to text that is
+// a direct inline child of the clipping box, so the same treatment is applied
+// to the cell's children and grandchildren (a value in a Stack, a chip in a
+// wrapping list).
+const CELL_CLIP =
+  'overflow-hidden text-ellipsis whitespace-nowrap ' +
+  '[&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis ' +
+  '[&>*>*]:max-w-full [&>*>*]:overflow-hidden [&>*>*]:text-ellipsis';
+
+/**
+ * Cell wrapper: clips overflow (or wraps, when `wrap`) and, on hover, sets a
+ * native `title` with the full text when something is actually truncated.
+ */
+function DataTableCell({
+  wrap,
+  className,
+  children,
+}: {
+  wrap?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  const handleMouseEnter = () => {
+    const el = ref.current;
+    if (!el || wrap) return;
+    const truncated = [el, ...Array.from(el.querySelectorAll<HTMLElement>('*'))].some(
+      (n) => n.scrollWidth > n.clientWidth + 1,
+    );
+    const text = el.textContent?.trim();
+    if (truncated && text) el.title = text;
+    else el.removeAttribute('title');
+  };
+
+  return (
+    <div
+      ref={ref}
+      role="cell"
+      onMouseEnter={handleMouseEnter}
+      className={cn('min-w-0', wrap ? 'whitespace-normal' : CELL_CLIP, className)}
+    >
+      {children}
+    </div>
+  );
+}
+
+// A pinned cell must be solid across the whole row, or scrolled columns show
+// through around its content. Rows centre their cells, so a pinned cell would
+// otherwise be only as tall as its content. These classes stretch it to the row's
+// full height, cancel the row's vertical padding with negative margins and
+// matching padding, and re-centre the content. Horizontal padding is handled
+// per side (`-ml-4 pl-4` / `-mr-4 pr-4`) at the use site.
+const PINNED_FILL_BODY = 'z-10 -my-3 flex items-center self-stretch py-3 transition-colors';
+const PINNED_FILL_HEADER = 'z-10 -my-[9px] flex items-center self-stretch py-[9px]';
+
+/**
+ * The edge and background of a pinned cell. It always reserves a transparent
+ * 1px border, so nothing shifts when it appears, and it only gets a line and
+ * elevation while scrolled content is actually sitting underneath it
+ * (`overlapping`).
+ *
+ * Elevation reads differently per theme. Dark is the default theme, where a
+ * shadow on a near-black surface is barely visible, so it also takes the
+ * `surface-elevated` tone and a stronger shadow. Light overrides both with the
+ * plain surface and a much softer shadow. The line is the same subtle colour as
+ * the row dividers in both.
+ */
+function pinnedEdge(side: 'start' | 'end', overlapping: boolean): string {
+  const border = side === 'start' ? 'border-r' : 'border-l';
+  if (!overlapping) return cn(border, 'border-transparent bg-surface');
+  return side === 'start'
+    ? `${border} border-border-subtle bg-surface-elevated shadow-[8px_0_12px_-6px_rgb(0_0_0/0.8)] [[data-theme=light]_&]:bg-surface [[data-theme=light]_&]:shadow-[6px_0_8px_-6px_rgb(0_0_0/0.15)]`
+    : `${border} border-border-subtle bg-surface-elevated shadow-[-8px_0_12px_-6px_rgb(0_0_0/0.8)] [[data-theme=light]_&]:bg-surface [[data-theme=light]_&]:shadow-[-6px_0_8px_-6px_rgb(0_0_0/0.15)]`;
+}
+
+const COLUMN_GAP_PX = 14;
+const ROW_PADDING_PX = 32; // 16px on each side of a row
+
+/**
+ * The narrowest a column's track can get, as a CSS length. Anything that is
+ * not a `px` or `rem` length (for example `auto`) counts as zero.
+ */
+function minTrackLength<TData>(col: DataTableColumn<TData>): string {
+  const track = gridTrack(col);
+  const minmax = MINMAX_RE.exec(track);
+  const min = (minmax ? minmax[1] : track).trim();
+  return /^[\d.]+(rem|px)$/.test(min) ? min : '0px';
+}
+
+/**
+ * The width below which the columns cannot shrink any further: every column at
+ * its minimum, plus the gaps and the row padding. The table body scrolls
+ * horizontally only once its container is narrower than this, so scrolling is
+ * a last resort after every column has hit its minimum.
+ */
+export function tableMinWidth<TData>(columns: readonly DataTableColumn<TData>[]): string {
+  const fixed = COLUMN_GAP_PX * Math.max(columns.length - 1, 0) + ROW_PADDING_PX;
+  return `calc(${[...columns.map(minTrackLength), `${fixed}px`].join(' + ')})`;
+}
 
 interface DataTableContext {
   gridTemplateColumns: string;
@@ -438,7 +594,7 @@ export function DataTable<TData>({
 
   // ── Grid context value ──────────────────────────────────────────────────────
 
-  const gridTemplateColumns = visibleColDefs.map((c) => c.gridWidth ?? '1fr').join(' ');
+  const gridTemplateColumns = visibleColDefs.map(gridTrack).join(' ');
 
   // ── Derived display state ───────────────────────────────────────────────────
 
@@ -450,6 +606,35 @@ export function DataTable<TData>({
     );
 
   const pinnedColId = columnDefs.find((c) => c.locked)?.id;
+  const pinnedEndColId = visibleColDefs.find((c) => c.pinEnd)?.id;
+
+  // Whether scrolled columns are currently sitting under a pinned column: the
+  // left one once scrolled away from the start, the right one while there is
+  // more to the right. Only then do pinned cells get an edge and shadow.
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [overlap, setOverlap] = React.useState({ start: false, end: false });
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const start = el.scrollLeft > 1;
+      const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setOverlap((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+    };
+    el.addEventListener('scroll', update, { passive: true });
+    // The observer's first callback computes the initial state, and it fires
+    // again whenever the viewport or the set of columns changes the content width.
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(update);
+      observer.observe(el);
+      if (el.firstElementChild) observer.observe(el.firstElementChild);
+    }
+    return () => {
+      el.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, []);
 
   const toolbarColumnItems = columnDefs
     .filter((c) => !c.locked)
@@ -492,83 +677,102 @@ export function DataTable<TData>({
           title={toolbarTitle}
         />
 
-        {/* Header row */}
-        <DataTableHeader
-          columnDefs={visibleColDefs}
-          allColumnDefs={columnDefs}
-          sorting={sorting}
-          clientFilters={clientFilters}
-          onSort={handleSort}
-          onToggleClientFilter={toggleClientFilter}
-          onClearClientFilter={clearClientFilter}
-          pinnedColId={pinnedColId}
-        />
+        {/* The header and body scroll together, horizontally, and only once the
+            container is narrower than every column at its minimum width. The
+            toolbar and pagination stay put. */}
+        {/* A styled WebKit scrollbar is always drawn, unlike the default overlay
+            scrollbar that macOS hides until you scroll. That is what tells the
+            user the table scrolls. */}
+        <div
+          ref={scrollRef}
+          className="overflow-x-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-subtle [&::-webkit-scrollbar-track]:bg-surface-elevated"
+        >
+          <div style={{ minWidth: tableMinWidth(visibleColDefs) }}>
+            {/* Header row */}
+            <DataTableHeader
+              columnDefs={visibleColDefs}
+              allColumnDefs={columnDefs}
+              sorting={sorting}
+              clientFilters={clientFilters}
+              onSort={handleSort}
+              onToggleClientFilter={toggleClientFilter}
+              onClearClientFilter={clearClientFilter}
+              pinnedColId={pinnedColId}
+              pinnedEndColId={pinnedEndColId}
+              overlap={overlap}
+            />
 
-        {/* Body */}
-        <div role="rowgroup">
-          {error ? (
-            <div className="px-4 py-8">{error}</div>
-          ) : paginatedRows.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
-              <p className="text-sm text-subtle">
-                {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
-              </p>
-            </div>
-          ) : (
-            paginatedRows.map((row) => {
-              const label = rowLabel ? rowLabel(row.original) : undefined;
-              const clickable = !!onRowClick;
-              return (
-                <div
-                  key={getRowKey(row.original)}
-                  role="row"
-                  aria-label={label}
-                  tabIndex={clickable ? 0 : undefined}
-                  onClick={clickable ? () => onRowClick(row.original) : undefined}
-                  onKeyDown={
-                    clickable
-                      ? (e) => {
-                          if (
-                            (e.key === 'Enter' || e.key === ' ') &&
-                            e.target === e.currentTarget
-                          ) {
-                            e.preventDefault();
-                            onRowClick(row.original);
-                          }
-                        }
-                      : undefined
-                  }
-                  className={cn(
-                    'group grid items-center border-b border-border-subtle px-4 py-3',
-                    // Remove bottom border from the last row (same CSS trick as DataGrid)
-                    '[&:not(:has(~[role=row]))]:border-b-0',
-                    clickable &&
-                      'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
-                  )}
-                  style={{ gridTemplateColumns, columnGap: '14px' }}
-                >
-                  {visibleColDefs.map((colDef) => {
-                    const isPinned = colDef.id === pinnedColId;
-                    return (
-                      <div
-                        key={colDef.id}
-                        role="cell"
-                        className={cn(
-                          'min-w-0',
-                          colDef.align === 'right' && 'text-right',
-                          colDef.align === 'center' && 'text-center',
-                          isPinned &&
-                            'sticky left-0 z-10 bg-surface group-hover:bg-surface-elevated/60',
-                        )}
-                      >
-                        {colDef.cell(row.original)}
-                      </div>
-                    );
-                  })}
+            {/* Body */}
+            <div role="rowgroup">
+              {error ? (
+                <div className="px-4 py-8">{error}</div>
+              ) : paginatedRows.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
+                  <p className="text-sm text-subtle">
+                    {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
+                  </p>
                 </div>
-              );
-            })
-          )}
+              ) : (
+                paginatedRows.map((row) => {
+                  const label = rowLabel ? rowLabel(row.original) : undefined;
+                  const clickable = !!onRowClick;
+                  return (
+                    <div
+                      key={getRowKey(row.original)}
+                      role="row"
+                      aria-label={label}
+                      tabIndex={clickable ? 0 : undefined}
+                      onClick={clickable ? () => onRowClick(row.original) : undefined}
+                      onKeyDown={
+                        clickable
+                          ? (e) => {
+                              if (
+                                (e.key === 'Enter' || e.key === ' ') &&
+                                e.target === e.currentTarget
+                              ) {
+                                e.preventDefault();
+                                onRowClick(row.original);
+                              }
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        'group grid items-center border-b border-border-subtle px-4 py-3',
+                        // Remove bottom border from the last row (same CSS trick as DataGrid)
+                        '[&:not(:has(~[role=row]))]:border-b-0',
+                        clickable &&
+                          'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                      )}
+                      style={{ gridTemplateColumns, columnGap: '14px' }}
+                    >
+                      {visibleColDefs.map((colDef) => {
+                        const isPinned = colDef.id === pinnedColId;
+                        const isPinnedEnd = colDef.id === pinnedEndColId;
+                        return (
+                          <DataTableCell
+                            key={colDef.id}
+                            wrap={colDef.wrap}
+                            className={cn(
+                              colDef.align === 'right' && 'text-right',
+                              colDef.align === 'center' && 'text-center',
+                              isPinned &&
+                                `${PINNED_FILL_BODY} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
+                              isPinned && clickable && 'group-hover:bg-surface-elevated',
+                              isPinnedEnd &&
+                                `${PINNED_FILL_BODY} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
+                              isPinnedEnd && clickable && 'group-hover:bg-surface-elevated',
+                            )}
+                          >
+                            {colDef.cell(row.original)}
+                          </DataTableCell>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Pagination footer */}
@@ -740,6 +944,8 @@ interface HeaderProps<TData> {
   onToggleClientFilter: (colId: string, value: string) => void;
   onClearClientFilter: (colId: string) => void;
   pinnedColId: string | undefined;
+  pinnedEndColId: string | undefined;
+  overlap: { start: boolean; end: boolean };
 }
 
 function DataTableHeader<TData>({
@@ -750,6 +956,8 @@ function DataTableHeader<TData>({
   onToggleClientFilter,
   onClearClientFilter,
   pinnedColId,
+  pinnedEndColId,
+  overlap,
 }: HeaderProps<TData>) {
   const { gridTemplateColumns } = React.useContext(DataTableCtx);
 
@@ -773,6 +981,7 @@ function DataTableHeader<TData>({
         const filterActive = filterSelected.size > 0;
 
         const isPinned = col.id === pinnedColId;
+        const isPinnedEnd = col.id === pinnedEndColId;
         const alignClass =
           col.align === 'right'
             ? 'justify-end text-right'
@@ -788,7 +997,14 @@ function DataTableHeader<TData>({
             <span
               key={col.id}
               role="columnheader"
-              className={cn(alignClass, isPinned && 'sticky left-0 z-10')}
+              className={cn(
+                'min-w-0 overflow-hidden break-words',
+                alignClass,
+                isPinned &&
+                  `${PINNED_FILL_HEADER} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
+                isPinnedEnd &&
+                  `${PINNED_FILL_HEADER} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
+              )}
             >
               <HeaderLabel label={col.header} tooltip={col.headerTooltip} />
             </span>
@@ -799,13 +1015,22 @@ function DataTableHeader<TData>({
           <div
             key={col.id}
             role="columnheader"
-            className={cn('flex items-center gap-1', alignClass, isPinned && 'sticky left-0 z-10')}
+            className={cn(
+              'flex min-w-0 items-center gap-1 overflow-hidden break-words',
+              alignClass,
+              isPinned &&
+                `${PINNED_FILL_HEADER} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
+              isPinnedEnd &&
+                `${PINNED_FILL_HEADER} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
+            )}
           >
             {hasSort && (
               <button
                 type="button"
                 onClick={() => onSort(col.id)}
-                className="group/sort inline-flex items-center gap-1 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
+                // Buttons reset text-transform, font and tracking; inherit the header row's
+                // overline treatment so every column title is drawn the same way.
+                className="group/sort inline-flex items-center gap-1 rounded [font:inherit] [letter-spacing:inherit] [text-transform:inherit] hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 aria-label={`Sort by ${col.header}`}
               >
                 {col.header}
@@ -824,6 +1049,8 @@ function DataTableHeader<TData>({
                     ? (col.filter as DataTableClientFilter<TData>).options
                     : (col.filter as DataTableServerFilter).options
                 }
+                searchable={col.filter!.searchable}
+                mono={col.filter!.mono}
                 selected={filterSelected}
                 active={filterActive}
                 onToggle={(val) => {
@@ -876,15 +1103,31 @@ function SortIcon({ dir }: { dir: 'asc' | 'desc' | null }) {
 interface FilterButtonProps {
   colId: string;
   options: DataTableFilterOption[];
+  searchable?: boolean;
+  mono?: boolean;
   selected: Set<string>;
   active: boolean;
   onToggle: (value: string) => void;
   onClear: () => void;
 }
 
-function FilterButton({ options, selected, active, onToggle, onClear }: FilterButtonProps) {
+function FilterButton({
+  options,
+  searchable,
+  mono,
+  selected,
+  active,
+  onToggle,
+  onClear,
+}: FilterButtonProps) {
+  const [query, setQuery] = React.useState('');
+  const visibleOptions = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  }, [options, query]);
+
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => !open && setQuery('')}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -899,16 +1142,43 @@ function FilterButton({ options, selected, active, onToggle, onClear }: FilterBu
           <Icon name="filter" size="2xs" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-48">
-        <div className="p-1.5 space-y-0.5">
-          {options.map((opt) => {
+      <PopoverContent align="start" className={searchable ? 'w-80' : 'w-48'}>
+        {searchable && (
+          <div className="relative border-b border-border-subtle p-1.5">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-subtle">
+              <Icon name="search" size="2xs" />
+            </div>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search…"
+              aria-label="Search filter options"
+              className="h-8 w-full rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        )}
+        <div
+          role="listbox"
+          aria-multiselectable="true"
+          className={cn('p-1.5 space-y-0.5', searchable && 'max-h-64 overflow-y-auto')}
+        >
+          {visibleOptions.length === 0 && (
+            <div className="px-2 py-1.5 text-sm text-subtle">No matches</div>
+          )}
+          {visibleOptions.map((opt) => {
             const isSelected = selected.has(opt.value);
             return (
               <button
                 key={opt.value}
                 type="button"
+                role="option"
+                aria-selected={isSelected}
                 onClick={() => onToggle(opt.value)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
+                className={cn(
+                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',
+                  mono && 'font-mono text-xs',
+                )}
               >
                 <span
                   className={cn(
@@ -919,20 +1189,22 @@ function FilterButton({ options, selected, active, onToggle, onClear }: FilterBu
                   {isSelected && <Icon name="check" size="2xs" />}
                 </span>
                 {opt.dot && <span className={cn('h-2 w-2 shrink-0 rounded-full', opt.dot)} />}
-                {opt.label}
+                <span className="min-w-0 break-all">{opt.label}</span>
               </button>
             );
           })}
-          {active && (
+        </div>
+        {active && (
+          <div className="border-t border-border-subtle p-1.5">
             <button
               type="button"
               onClick={onClear}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated mt-1 pt-1 border-t border-border-subtle"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated"
             >
-              Clear filter
+              Clear filter{selected.size > 1 ? ` (${selected.size})` : ''}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

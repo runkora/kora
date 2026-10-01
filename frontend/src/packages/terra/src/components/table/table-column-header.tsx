@@ -176,7 +176,7 @@ export function TableColumnHeader({
           <button
             type="button"
             onClick={onSort}
-            className="group/sort inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+            className="group/sort inline-flex items-center gap-1 rounded [font:inherit] [letter-spacing:inherit] [text-transform:inherit] transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
           >
             {children}
             <SortIcon dir={sortDir ?? null} />
