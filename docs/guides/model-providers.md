@@ -28,8 +28,8 @@ spec:
   type: compatible
   displayName: OpenRouter
   models:
-    - anthropic/claude-sonnet-4.5
-    - openai/gpt-4o-mini
+    - anthropic/claude-haiku-4.5
+    - openai/gpt-oss-20b
   compatible:
     baseURL: https://openrouter.ai/api/v1
     apis: [chatCompletions, responses, messages]
@@ -47,6 +47,26 @@ spec:
 - `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a model list needs it.
 
 For the Anthropic API: `baseURL: https://api.anthropic.com/v1` and `apis: [messages]`. For OpenAI: `baseURL: https://api.openai.com/v1` and `apis: [chatCompletions, embeddings, responses]`.
+
+## Register Ollama
+
+Ollama serves all four APIs and needs no key:
+
+```yaml
+apiVersion: orbit.io/v1alpha1
+kind: InferenceProvider
+metadata:
+  name: ollama
+  namespace: orbit-system
+spec:
+  type: compatible
+  models: ["gpt-oss:20b", "nomic-embed-text:latest"]
+  compatible:
+    baseURL: http://ollama.example.internal:11434/v1
+    apis: [chatCompletions, embeddings, responses, messages]
+```
+
+The gateway's network policies allow outbound 443. A model server outside the cluster on another port, such as Ollama on 11434, needs its address and port in `networkPolicy.externalServices`. Locally, `make up` adds Ollama on the host, so `baseURL: http://host.k3d.internal:11434/v1` works.
 
 ## Register AWS Bedrock
 
