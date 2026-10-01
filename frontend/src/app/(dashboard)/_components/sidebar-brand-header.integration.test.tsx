@@ -1,29 +1,18 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { Button } from '@orbit/terra';
 import { renderWithProviders } from '@orbit/test-utils';
 import { SidebarBrandHeader } from './sidebar-brand-header';
 
 describe('SidebarBrandHeader', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
+  it('renders the kora logo', () => {
+    renderWithProviders(<SidebarBrandHeader />);
+    expect(screen.getByRole('img', { name: 'kora' })).toBeInTheDocument();
   });
 
-  it('renders the kora logo text', () => {
+  it('leaves the version badge to the page header', () => {
     renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText('kora')).toBeInTheDocument();
-  });
-
-  it('shows the version the image was built for', () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v0.5.0-rc.1');
-    renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText('v0.5.0-rc.1')).toBeInTheDocument();
-  });
-
-  it('shows dev when no version was built in', () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', undefined);
-    renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText('dev')).toBeInTheDocument();
+    expect(screen.queryByText('dev')).not.toBeInTheDocument();
   });
 
   it('renders no trailing action by default', () => {

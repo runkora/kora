@@ -6,7 +6,7 @@
  * shared open/close state is exercised end to end (toggle, aria-expanded, and
  * the accessible-label swap).
  */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
@@ -24,6 +24,24 @@ function renderHeader() {
     </SidebarStateProvider>,
   );
 }
+
+describe('DashboardHeader version badge', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('shows the version the image was built for, beside the theme toggle', () => {
+    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v0.5.0-rc.1');
+    renderHeader();
+    expect(screen.getByText('v0.5.0-rc.1')).toBeInTheDocument();
+  });
+
+  it('shows dev when no version was built in', () => {
+    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', undefined);
+    renderHeader();
+    expect(screen.getByText('dev')).toBeInTheDocument();
+  });
+});
 
 describe('DashboardHeader hamburger', () => {
   it('renders the hamburger collapsed by default', () => {

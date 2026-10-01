@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack, Text } from '@orbit/terra';
+import { KoraLogo, Stack, Text } from '@orbit/terra';
 
 const meta: Meta = {
   title: 'Kora/Brand',
@@ -59,14 +59,6 @@ function Mark({ size, upper = 'var(--terra-raw-white)', lower = STEEL }: MarkPro
   );
 }
 
-const wordmark = (size: number): CSSProperties => ({
-  fontSize: size,
-  fontWeight: 800,
-  fontStretch: '110%',
-  letterSpacing: '-0.05em',
-  lineHeight: 1,
-});
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Stack gap="comfortable">
@@ -82,12 +74,7 @@ export const Identity: StoryObj = {
   render: () => (
     <Stack gap="relaxed" style={{ padding: 48, maxWidth: 1100 }}>
       <Section title="Mark and wordmark">
-        <Stack direction="horizontal" gap="relaxed" align="center">
-          <Mark size={150} />
-          <Text as="span" style={wordmark(150)}>
-            kora
-          </Text>
-        </Stack>
+        <KoraLogo size={150} title="kora" />
       </Section>
 
       <Section title="Sizes and single-colour versions">
