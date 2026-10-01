@@ -47,6 +47,14 @@ New Tier 1 components must follow these patterns (per [terra-frontend-design-sys
 - Static Tailwind class strings in variant maps: no dynamic string concatenation
 - A Storybook story file in the same directory with `tags: ['autodocs']`
 
+**Exception: Dialog-shell composites.** A component whose entire job is to manage
+a Radix `Dialog` lifecycle (open state, focus, scroll lock) behind a small,
+deliberately curated prop surface, not a generic element consumers decorate with
+arbitrary DOM props, is exempt from the `forwardRef` + `ComponentPropsWithoutRef`
+rule. `Modal` (`open`/`onClose`/`size`/`children`) is the existing precedent;
+`BottomSheet` (`open`/`onOpenChange`/`title`/`children`) follows the same shape
+for the same reason.
+
 ---
 
 ## Available Terra Components (Tier 1)
@@ -91,7 +99,7 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `NativeSelect`                                            | `<select>`                         | Native select with consistent styling.                                                                                                                                                                                                                                                                                                            |
 | `Checkbox`                                                | `<input type="checkbox">`          | Styled checkbox. Supports `checked`, `indeterminate`, `onChange`, sizes `sm`/`md`/`lg`. Use for `no-raw-form-elements`.                                                                                                                                                                                                                           |
 | `RadioGroup`, `RadioGroupItem`                            | `<input type="radio">`             | Single-select group (Radix). `RadioGroupItem` is the bare 18 px circle: compose with `Label`/`Text` or `Card selected` for card pickers. `value`/`onValueChange` or `defaultValue`.                                                                                                                                                               |
-| `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` | hand-rolled expand/collapse        | Radix expand/collapse region with `aria-expanded` wiring; unstyled beyond `data-slot` hooks. `open`/`onOpenChange` or `defaultOpen`. Trigger supports `asChild`.                                                                                                                                                                                  |
+| `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` | hand-rolled expand/collapse        | Radix expand/collapse region with `aria-expanded` wiring. `CollapsibleContent` animates open/close height by default (respects `prefers-reduced-motion`); all other visual treatment is left to the composition. `open`/`onOpenChange` or `defaultOpen`. Trigger supports `asChild`.                                                              |
 | `Toggle`                                                  | custom toggle                      | Toggle switch.                                                                                                                                                                                                                                                                                                                                    |
 | `ToggleRow`                                               | hand-rolled label + control row    | Labelled control row (label + optional description + a leading control like `Toggle`/`Checkbox`).                                                                                                                                                                                                                                                 |
 | `Label`                                                   | `<label>`                          | Accessible label.                                                                                                                                                                                                                                                                                                                                 |

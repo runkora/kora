@@ -328,3 +328,23 @@
     transform: rotate(560deg) translateX(22px) rotate(-560deg);
   }
 }
+
+/* ─── Collapsible keyframes ──────────────────────────────────────────────── */
+
+@keyframes collapsible-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}

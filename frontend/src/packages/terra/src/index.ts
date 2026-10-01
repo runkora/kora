@@ -340,6 +340,9 @@ export type {
   ModalFooterProps,
 } from './components/modal';
 
+export { BottomSheet } from './components/bottom-sheet';
+export type { BottomSheetProps } from './components/bottom-sheet';
+
 export {
   TableRoot,
   Table,
