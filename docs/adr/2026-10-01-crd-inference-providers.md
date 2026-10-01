@@ -184,6 +184,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `orbit-secrets` through `envFrom`.
 - Every provider Secret needs the `orbit.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
 - Upgrading needs the resources applied in the same deploy. There is no env fallback.
+- A key on an `http://` base URL crosses the network in cleartext unless the network encrypts it. Choosing http is the admin's call.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
 - `REGISTRY_ONLY` installs add a ServiceEntry for every provider host.
 

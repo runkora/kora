@@ -103,7 +103,7 @@ yq -i "
 
 # Ollama on the host, for a local compatible InferenceProvider at
 # http://host.k3d.internal:11434/v1.
-HOST_IP=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' | awk '/host.k3d.internal/ {print $1; exit}')
+HOST_IP=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' 2>/dev/null | awk '/host.k3d.internal/ {print $1; exit}' || true)
 if [[ -n "${HOST_IP}" ]]; then
   yq -i ".networkPolicy.externalServices += [{\"cidr\": \"${HOST_IP}/32\", \"ports\": [11434]}]" "${GENERATED}"
 fi
