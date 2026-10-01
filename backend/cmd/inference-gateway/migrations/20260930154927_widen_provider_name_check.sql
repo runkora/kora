@@ -1,5 +1,5 @@
 -- +goose Up
--- Provider names are <type> or <type>:<name>, where name is an env alias or an
+-- Provider names are <type> or <type>:<name>, where name is an
 -- InferenceProvider resource name. See docs/adr/2026-10-01-crd-inference-providers.md.
 -- NOT VALID then VALIDATE avoids holding an exclusive lock while existing rows are checked.
 -- +goose StatementBegin

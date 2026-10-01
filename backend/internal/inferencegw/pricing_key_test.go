@@ -9,11 +9,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Multi-account Bedrock (#72) introduced per-account provider aliases
-// (bedrock:aus, bedrock:us, bedrock:usw) on virtual-model routes and usage
-// records, while the pricing catalog is still keyed on the base "bedrock"
-// provider. These tests lock in that every pricing key collapses the alias, so
-// writers and readers land on the same key.
+// Routes and usage name a provider by resource (bedrock:aus), while Bedrock,
+// Vertex AI and Azure prices are keyed by type. Every pricing key collapses the
+// resource name for those types, so writers and readers land on the same key.
 
 func TestPricingKeyCollapsesBedrockAliases(t *testing.T) {
 	base := pricingKey(ProviderBedrock, "anthropic.claude-sonnet-5")
