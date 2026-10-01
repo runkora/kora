@@ -258,7 +258,21 @@ export interface DataTableProps<TData> {
 /** Floor for flexible columns that do not declare their own `minWidth`. */
 const DEFAULT_COLUMN_MIN_WIDTH = '5rem';
 
-const MINMAX_RE = /^minmax\(\s*([^,]+?)\s*,\s*(.+)\s*\)$/;
+/**
+ * Splits `minmax(min, max)` at its first comma. A string parse rather than a
+ * regular expression: the pattern needed overlapping whitespace groups, which
+ * backtrack badly on a long run of spaces.
+ */
+function parseMinmax(track: string): { min: string; max: string } | null {
+  const trimmed = track.trim();
+  if (!trimmed.startsWith('minmax(') || !trimmed.endsWith(')')) return null;
+  const inner = trimmed.slice('minmax('.length, -1);
+  const comma = inner.indexOf(',');
+  if (comma < 0) return null;
+  const min = inner.slice(0, comma).trim();
+  const max = inner.slice(comma + 1).trim();
+  return min && max ? { min, max } : null;
+}
 
 /**
  * Resolves a column to its `grid-template-columns` track. A bare `1fr` track
@@ -268,9 +282,9 @@ const MINMAX_RE = /^minmax\(\s*([^,]+?)\s*,\s*(.+)\s*\)$/;
  */
 function gridTrack<TData>(col: DataTableColumn<TData>): string {
   const width = col.gridWidth ?? '1fr';
-  const minmax = MINMAX_RE.exec(width);
+  const minmax = parseMinmax(width);
   if (minmax) {
-    const [, min, max] = minmax;
+    const { min, max } = minmax;
     const floor = col.minWidth ?? (parseFloat(min) === 0 ? DEFAULT_COLUMN_MIN_WIDTH : min);
     return `minmax(${floor}, ${max})`;
   }
@@ -363,8 +377,8 @@ const ROW_PADDING_PX = 32; // 16px on each side of a row
  */
 function minTrackLength<TData>(col: DataTableColumn<TData>): string {
   const track = gridTrack(col);
-  const minmax = MINMAX_RE.exec(track);
-  const min = (minmax ? minmax[1] : track).trim();
+  const minmax = parseMinmax(track);
+  const min = (minmax ? minmax.min : track).trim();
   return /^[\d.]+(rem|px)$/.test(min) ? min : '0px';
 }
 
@@ -1159,8 +1173,8 @@ function FilterButton({
           </div>
         )}
         <div
-          role="listbox"
-          aria-multiselectable="true"
+          role="group"
+          aria-label="Filter options"
           className={cn('p-1.5 space-y-0.5', searchable && 'max-h-64 overflow-y-auto')}
         >
           {visibleOptions.length === 0 && (
@@ -1172,8 +1186,7 @@ function FilterButton({
               <button
                 key={opt.value}
                 type="button"
-                role="option"
-                aria-selected={isSelected}
+                aria-pressed={isSelected}
                 onClick={() => onToggle(opt.value)}
                 className={cn(
                   'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',

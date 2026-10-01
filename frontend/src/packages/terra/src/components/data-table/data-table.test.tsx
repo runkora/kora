@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DataTable, tableMinWidth, type DataTableColumn } from './data-table';
 import { TooltipProvider } from '../tooltip';
@@ -163,6 +163,24 @@ describe('DataTable overflow handling', () => {
     expect(tracks()).toBe('minmax(5rem, 1fr) minmax(5rem, 2fr) 3rem minmax(12rem, 1fr)');
   });
 
+  it('reads minmax tracks written with irregular spacing', () => {
+    renderTable([
+      { id: 'name', header: 'Name', cell: (r) => r.name, gridWidth: 'minmax(  0 ,  2fr  )' },
+      { id: 'status', header: 'Status', cell: (r) => r.status, gridWidth: 'minmax(0,calc(1fr))' },
+      { id: 'rank', header: 'Rank', cell: (r) => r.rank, gridWidth: 'minmax(8rem,1fr)' },
+    ]);
+    expect(tracks()).toBe('minmax(5rem, 2fr) minmax(5rem, calc(1fr)) minmax(8rem, 1fr)');
+  });
+
+  it('parses a long run of spaces without stalling', () => {
+    const spaces = ' '.repeat(50_000);
+    const started = performance.now();
+    renderTable([
+      { id: 'name', header: 'Name', cell: (r) => r.name, gridWidth: `minmax(${spaces}` },
+    ]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('clips cell content by default and wraps when asked', () => {
     renderTable([
       { id: 'name', header: 'Name', cell: (r) => r.name },
@@ -223,16 +241,22 @@ describe('DataTable searchable multi-select filter', () => {
     renderFiltered();
     await user.click(screen.getByRole('button', { name: 'Filter' }));
     await user.type(screen.getByRole('textbox', { name: 'Search filter options' }), 'github');
-    expect(screen.getAllByRole('option')).toHaveLength(1);
-    expect(screen.getByRole('option', { name: /mcp:github:read/ })).toBeInTheDocument();
+    const options = within(screen.getByRole('group', { name: 'Filter options' }));
+    expect(options.getAllByRole('button')).toHaveLength(1);
+    expect(options.getByRole('button', { name: /mcp:github:read/ })).toBeInTheDocument();
   });
 
   it('keeps rows matching ANY selected scope (union)', async () => {
     const user = userEvent.setup();
     renderFiltered();
     await user.click(screen.getByRole('button', { name: 'Filter' }));
-    await user.click(screen.getByRole('option', { name: /agents:runs:read/ }));
-    await user.click(screen.getByRole('option', { name: /mcp:github:read/ }));
+    const options = within(screen.getByRole('group', { name: 'Filter options' }));
+    await user.click(options.getByRole('button', { name: /agents:runs:read/ }));
+    await user.click(options.getByRole('button', { name: /mcp:github:read/ }));
+    expect(options.getByRole('button', { name: /mcp:github:read/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     const names = screen
       .getAllByRole('row')
       .slice(1)
