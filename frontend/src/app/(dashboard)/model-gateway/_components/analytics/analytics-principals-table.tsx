@@ -11,7 +11,7 @@ import type {
   AnalyticsPrincipalsPageResponse,
   PrincipalUsageRow,
 } from '../../_types';
-import { fmtCost, fmtDate, fmtNum } from '@orbit/utils';
+import { agentNameFromPrincipalId, fmtCost, fmtDate, fmtNum } from '@orbit/utils';
 
 // principalUsageHref builds the admin drill-down destination for a
 // Principals table row. Only principal_id is carried — display_name/email
@@ -105,25 +105,34 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'user',
     header: 'User',
-    minWidth: '10rem',
+    gridWidth: 'minmax(0, 2fr)',
+    minWidth: '9rem',
     locked: true,
-    cell: (row) => (
-      <Stack gap="none">
-        <Text size="supporting" color="foreground">
-          {row.display_name || row.email || row.principal_id}
-        </Text>
-        {(row.display_name || row.email) && (
-          <Text size="caption" color="subtle" mono>
-            {row.email ?? row.principal_id}
+    cell: (row) => {
+      // An agent has no display name or email: show the agent name from the end of
+      // its SPIFFE ID (as Grants does) and keep the full ID underneath.
+      const name = row.display_name || row.email || agentNameFromPrincipalId(row.principal_id);
+      return (
+        <Stack gap="none">
+          <Text size="supporting" color="foreground">
+            {name ?? row.principal_id}
           </Text>
-        )}
-      </Stack>
-    ),
+          {name && (
+            <Text size="caption" color="subtle" mono>
+              {row.email ?? row.principal_id}
+            </Text>
+          )}
+        </Stack>
+      );
+    },
   },
   {
     id: 'requests',
     header: 'Requests',
-    minWidth: '4.5rem',
+    gridWidth: '6rem',
+    // The one-word header plus its sort icon needs this much; below it the
+    // right-aligned header loses its first letter.
+    minWidth: '6rem',
     align: 'right',
     sortable: true,
     sortAccessor: (row) => row.request_count,
@@ -136,6 +145,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'totalTokens',
     header: 'Total tokens',
+    gridWidth: '6.5rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -149,6 +159,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'promptTokens',
     header: 'Input tokens',
+    gridWidth: '6.5rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -162,6 +173,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'completionTokens',
     header: 'Output tokens',
+    gridWidth: '6.5rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -175,6 +187,8 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'cacheTokens',
     header: 'Cache tokens',
+    gridWidth: '6.5rem',
+    minWidth: '4.5rem',
     align: 'right',
     defaultVisible: false,
     cell: (row) => (
@@ -200,6 +214,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'cost',
     header: 'Cost',
+    gridWidth: '6rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -213,6 +228,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'errorRate',
     header: 'Error rate',
+    gridWidth: '6rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -231,6 +247,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'latency',
     header: 'Avg latency',
+    gridWidth: '6.5rem',
     minWidth: '4.5rem',
     align: 'right',
     sortable: true,
@@ -244,6 +261,7 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
   {
     id: 'lastActive',
     header: 'Last active',
+    gridWidth: '8rem',
     minWidth: '6.5rem',
     sortable: true,
     sortAccessor: (row) => new Date(row.last_active_at).getTime(),
