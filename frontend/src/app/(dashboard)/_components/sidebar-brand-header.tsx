@@ -26,7 +26,7 @@ export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
       </Stack>
       <Stack direction="horizontal" align="center" gap="snug">
         <Badge variant="outline" size="sm">
-          v0.4.0
+          {process.env.NEXT_PUBLIC_ORBIT_VERSION ?? 'dev'}
         </Badge>
         {action}
       </Stack>

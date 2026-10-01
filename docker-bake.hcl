@@ -192,6 +192,7 @@ target "orbit-frontend" {
   pull       = true
   args = {
     NEXT_PUBLIC_APP_URL = NEXT_PUBLIC_APP_URL
+    ORBIT_VERSION       = IMAGE_TAG
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-frontend"

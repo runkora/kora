@@ -499,7 +499,8 @@ DIGEST=""
 
 if [ "$NO_BUILD" -eq 0 ]; then
   log "Building $IMAGE:$GIT_SHA from $DOCKERFILE (context=$CONTEXT)..."
-  build_args=()
+  # The frontend shows the version it was built from.
+  build_args=(--build-arg "ORBIT_VERSION=$GIT_SHA")
   if [ -n "$BUILD_ARG" ]; then build_args+=(--build-arg "$BUILD_ARG"); fi
   docker build "${build_args[@]+"${build_args[@]}"}" \
     -t "$IMAGE:latest" \
