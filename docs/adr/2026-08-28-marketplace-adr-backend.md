@@ -167,10 +167,10 @@ type SkillFile struct {
 ### Slug Format
 
 ```
-slug = "{marketplace-name}/{skill-name}"
+slug = "{org}/{repo}/{skill-name}"
 ```
 
-Example: `clear-route-skills/react-expert`
+Example: `clear-route/plugins/react-expert`
 
 `marketplace-name` is the URL-safe form of the marketplace's `name` from the ConfigMap. `skill-name` is the directory name under `skills/` that contains the `SKILL.md` file. The slug is stable across cache evictions and pod restarts and is the canonical identifier the FE holds. The tenant is not part of the slug — the tenant is carried in the request context (from the authenticated caller), not in the URL. `org` and `repo` are backend-internal (used only to build the Redis key) and never appear in FE-facing responses.
 
