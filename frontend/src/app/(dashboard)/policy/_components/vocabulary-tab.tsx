@@ -170,7 +170,16 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
             <Card column>
               <CardContent flush>
                 <TableRoot>
-                  <Table>
+                  {/* Every group is its own table, so the layout is fixed and the widths are
+                      declared once here: otherwise each group sizes its columns from its own
+                      content and the splits differ. Scope takes what the others leave. */}
+                  <Table style={{ tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col />
+                      <col style={{ width: '30%' }} />
+                      <col style={{ width: '10rem' }} />
+                      <col style={{ width: '3rem' }} />
+                    </colgroup>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Scope</TableHead>
@@ -182,8 +191,14 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                     <TableBody>
                       {group.scopes.map((scope) => (
                         <TableRow key={scope.scope}>
+                          {/* The outer row lets the chip hug its text; the inner block gives it a width to
+                              truncate against. */}
                           <TableCell>
-                            <ScopeChip scope={scope.scope} />
+                            <Stack direction="horizontal" minWidth="none">
+                              <Stack align="stretch" minWidth="none" overflow="hidden">
+                                <ScopeChip scope={scope.scope} />
+                              </Stack>
+                            </Stack>
                           </TableCell>
                           <TableCell>
                             <Text size="caption" color="muted">
