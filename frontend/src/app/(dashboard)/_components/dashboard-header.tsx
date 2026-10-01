@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
-import { Button, Icon, Separator, Show, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Show, Stack, Text } from '@orbit/terra';
 import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
@@ -121,15 +121,12 @@ export function DashboardHeader() {
 
       <Stack direction="horizontal" align="center" gap="snug">
         {!isDetail && endpoint ? (
-          <>
-            <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
-              Governed endpoint ·{' '}
-              <Text as="span" mono style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-                {endpoint}
-              </Text>
+          <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
+            Governed endpoint ·{' '}
+            <Text as="span" mono style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+              {endpoint}
             </Text>
-            <Separator orientation="vertical" span="narrow" />
-          </>
+          </Text>
         ) : null}
         <ThemeToggle />
       </Stack>

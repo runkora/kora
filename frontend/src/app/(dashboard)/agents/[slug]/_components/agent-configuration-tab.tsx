@@ -175,7 +175,7 @@ export function AgentConfigurationTab() {
                 rows={5}
               />
             </FormField>
-            <Separator span="full" />
+            <Separator />
             <Stack gap="cozy">
               <Text as="span" size="caption" weight="heavy" color="muted">
                 Framework
@@ -230,7 +230,7 @@ export function AgentConfigurationTab() {
               granted={cfg.mcpTools}
               onChange={cfg.setMcpTools}
             />
-            <Separator span="full" />
+            <Separator />
             <Stack gap="cozy">
               <SectionLabel
                 title="Connections"

@@ -337,7 +337,7 @@ const WizardReviewCard = React.forwardRef<HTMLDivElement, WizardReviewCardProps>
         <Stack gap="none">
           {rows.map((row, i) => (
             <Stack key={row.label} gap="none">
-              {i > 0 && <Separator span="full" />}
+              {i > 0 && <Separator />}
               <Stack direction="horizontal" align="center" gap="comfortable" paddingBlock="snug">
                 <Text as="span" size="caption" color="subtle">
                   {row.label}
@@ -351,7 +351,7 @@ const WizardReviewCard = React.forwardRef<HTMLDivElement, WizardReviewCardProps>
           ))}
           {children && (
             <>
-              <Separator span="full" />
+              <Separator />
               {children}
             </>
           )}
@@ -536,7 +536,7 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
               {rail && (
                 <Show below="lg">
                   <WizardMobileRail {...(rail as React.ReactElement<WizardRailProps>).props} />
-                  <Separator span="full" />
+                  <Separator />
                 </Show>
               )}
               <Stack
@@ -551,7 +551,7 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
                   // the row — required for the separator's h-full to resolve.
                   <Stack className="hidden lg:contents" gap="none">
                     {rail}
-                    <Separator orientation="vertical" span="full" />
+                    <Separator orientation="vertical" />
                   </Stack>
                 )}
                 <Stack grow overflow="hidden" gap="none">
@@ -568,7 +568,7 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
                     </Alert>
                   )}
                   {children}
-                  <Separator span="full" />
+                  <Separator />
                   {footer}
                 </Stack>
               </Stack>

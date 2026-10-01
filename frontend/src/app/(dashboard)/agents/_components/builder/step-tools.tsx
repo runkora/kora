@@ -90,7 +90,7 @@ export function StepTools() {
         onChange={(scopes) => setField('mcpTools', scopes)}
       />
 
-      <Separator span="full" />
+      <Separator />
 
       {/* ── Connections ────────────────────────────────────────────────────── */}
       <Stack gap="cozy">
@@ -112,7 +112,7 @@ export function StepTools() {
         )}
       </Stack>
 
-      <Separator span="full" />
+      <Separator />
 
       {/* ── Network egress ─────────────────────────────────────────────────── */}
       <Stack gap="cozy">
@@ -125,7 +125,7 @@ export function StepTools() {
         />
       </Stack>
 
-      <Separator span="full" />
+      <Separator />
 
       {/* ── Environment ────────────────────────────────────────────────────── */}
       <Stack gap="cozy">

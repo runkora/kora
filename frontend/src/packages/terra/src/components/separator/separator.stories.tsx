@@ -15,10 +15,6 @@ const meta: Meta<typeof Separator> = {
       control: 'select',
       options: ['horizontal', 'vertical'],
     },
-    span: {
-      control: 'select',
-      options: ['full', 'wide', 'narrow', 'slim'],
-    },
     decorative: { control: 'boolean' },
   },
 };
@@ -48,56 +44,6 @@ export const Vertical: Story = {
       <Text size="supporting" color="muted">
         Events
       </Text>
-    </div>
-  ),
-};
-
-export const SpanWide: Story = {
-  render: () => (
-    <div className="w-72 flex flex-col gap-4">
-      <p className="text-xs text-muted text-center">80% of parent</p>
-      <Separator span="wide" />
-    </div>
-  ),
-};
-
-export const SpanNarrow: Story = {
-  render: () => (
-    <div className="w-72 flex flex-col gap-4">
-      <p className="text-xs text-muted text-center">40% of parent</p>
-      <Separator span="narrow" />
-    </div>
-  ),
-};
-
-export const SpanSlim: Story = {
-  render: () => (
-    <div className="w-72 flex flex-col gap-4">
-      <p className="text-xs text-muted text-center">20% of parent</p>
-      <Separator span="slim" />
-    </div>
-  ),
-};
-
-export const AllSpans: Story = {
-  render: () => (
-    <div className="w-72 flex flex-col gap-6">
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs text-muted">full (100%)</p>
-        <Separator span="full" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs text-muted">wide (80%)</p>
-        <Separator span="wide" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs text-muted">narrow (40%)</p>
-        <Separator span="narrow" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs text-muted">slim (20%)</p>
-        <Separator span="slim" />
-      </div>
     </div>
   ),
 };

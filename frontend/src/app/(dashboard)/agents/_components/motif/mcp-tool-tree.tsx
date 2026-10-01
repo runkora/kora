@@ -166,7 +166,7 @@ export function McpToolTree({
                 </Stack>
 
                 <CollapsibleContent>
-                  <Separator span="full" />
+                  <Separator />
                   <Stack direction="horizontal" align="center" gap="snug" padding="cozy">
                     <Text as="span" size="micro" color="subtle">
                       Choose the tools this agent may call
@@ -195,7 +195,7 @@ export function McpToolTree({
                     const domainSome = domainGranted.length > 0 && !domainAll;
                     return (
                       <Stack key={domain.domain} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                           <Checkbox
                             size="sm"
@@ -219,7 +219,7 @@ export function McpToolTree({
                           const toolOn = grantedSet.has(tool.scope);
                           return (
                             <Stack key={tool.scope} gap="none">
-                              <Separator span="full" />
+                              <Separator />
                               <Stack
                                 direction="horizontal"
                                 align="start"

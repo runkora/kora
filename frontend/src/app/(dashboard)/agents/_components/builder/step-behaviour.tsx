@@ -26,7 +26,7 @@ export function StepBehaviour() {
           />
         </FormField>
 
-        <Separator span="full" />
+        <Separator />
 
         {/* ── Framework ──────────────────────────────────────────────────────── */}
         <Stack gap="cozy">
