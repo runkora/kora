@@ -126,6 +126,7 @@ var toolRequires = map[string][]string{
 	"models.virtual.create":         {"platform:catalog:write"},
 	"models.virtual.update":         {"platform:catalog:write"},
 	"models.virtual.delete":         {"platform:catalog:write"},
+	"models.providers.status":       {"platform:catalog:read"},
 	"models.providers.list":         {"platform:catalog:read"},
 	"models.providers.refresh":      {"platform:catalog:write"},
 	"models.providers.set_enabled":  {"platform:catalog:write"},

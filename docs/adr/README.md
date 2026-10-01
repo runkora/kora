@@ -67,8 +67,10 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) — `Proposed` · 2026-06-10
 - [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) — `Accepted` · 2026-06-15
 - [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) — `Accepted` · 2026-06-22
+- [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) — `Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md)` · 2026-06-19
 - [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) — `Accepted` · 2026-06-19
 - [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) — `Accepted` · 2026-07-24
+- [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) — `Accepted` · 2026-10-01
 
 ### Agents Control Plane & Execution
 
@@ -265,7 +267,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |
-| 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Accepted | — |
+| 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md) | — |
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29) | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
@@ -282,4 +284,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
+| 2026-10-01 | [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

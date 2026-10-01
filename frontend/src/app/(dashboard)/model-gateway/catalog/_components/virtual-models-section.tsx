@@ -17,7 +17,7 @@ import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
-import { PROVIDER_LABELS } from '../_utils/catalog-constants';
+import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
 
 interface VirtualModelsSectionProps {
@@ -158,7 +158,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
                   key={r.id || ri}
                   status={r.enabled ? 'healthy' : 'muted'}
                   size="sm"
-                  title={`${PROVIDER_LABELS[r.provider] ?? r.provider}: ${r.enabled ? 'active' : 'disabled'}`}
+                  title={`${providerTitle(r.provider)} (${r.enabled ? 'active' : 'disabled'})`}
                 />
               ))}
             </Stack>

@@ -137,19 +137,15 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
 
-// normalisePricingProvider collapses a multi-account Bedrock alias
-// ("bedrock:aus", "bedrock:us", …) to the base "bedrock" provider.
-//
-// Bedrock pricing is account- and region-agnostic: the catalog is keyed on the
-// base provider, while virtual-model routes and usage records carry per-account
-// aliases. Without collapsing the alias, a lookup for "bedrock:aus/…" can never
-// match a catalog entry stored under "bedrock/…". Non-Bedrock providers are
-// returned unchanged.
+// normalisePricingProvider returns the provider key of a pricing row. Bedrock,
+// Vertex AI and Azure prices sync per type and are shared by every resource of
+// that type. A compatible provider is priced on its own: two compatible
+// endpoints serve unrelated catalogs.
 func normalisePricingProvider(provider ProviderName) ProviderName {
-	if provider.IsBedrockFamily() {
-		return ProviderBedrock
+	if provider.Type() == ProviderCompatible {
+		return provider
 	}
-	return provider
+	return provider.Type()
 }
 
 // pricingKey is the canonical key for the pricing catalog: the normalised

@@ -1,0 +1,267 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: inferenceproviders.orbit.io
+  labels:
+    {{- include "orbit-crds.labels" . | nindent 4 }}
+  annotations:
+    # Never deleted by helm uninstall: provider definitions outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: orbit.io
+  names:
+    kind: InferenceProvider
+    listKind: InferenceProviderList
+    plural: inferenceproviders
+    singular: inferenceprovider
+    shortNames:
+      - oip
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Provider
+          type: string
+          jsonPath: .status.providerName
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            InferenceProvider registers one model provider with the inference
+            gateway, which watches it. Apply it in the Orbit system namespace.
+            The provider registers as <type>:<metadata.name>. Credentials are
+            Secrets in the same namespace, labelled
+            orbit.io/inference-provider=true, and named here, never inlined.
+          type: object
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
+              message: metadata.name must be a DNS label; it becomes the provider name suffix.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - type
+              x-kubernetes-validations:
+                - rule: "(self.type == 'bedrock') == has(self.bedrock)"
+                  message: set the bedrock block if and only if type is bedrock.
+                - rule: "(self.type == 'vertexai') == has(self.vertexai)"
+                  message: set the vertexai block if and only if type is vertexai.
+                - rule: "(self.type == 'azure') == has(self.azure)"
+                  message: set the azure block if and only if type is azure.
+                - rule: "(self.type == 'compatible') == has(self.compatible)"
+                  message: set the compatible block if and only if type is compatible.
+              properties:
+                type:
+                  description: The provider type. It selects the one config block that must be set.
+                  type: string
+                  enum:
+                    - bedrock
+                    - vertexai
+                    - azure
+                    - compatible
+                displayName:
+                  description: Human-readable name shown in the dashboard.
+                  type: string
+                  maxLength: 128
+                models:
+                  description: >
+                    Upstream model ids to offer. Empty offers every discovered
+                    model. When the upstream has no model list, this is the list.
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                bedrock:
+                  description: AWS Bedrock. Without credentials the gateway's workload identity applies (IRSA, EKS Pod Identity).
+                  type: object
+                  required:
+                    - region
+                  properties:
+                    region:
+                      type: string
+                      minLength: 1
+                    credentials:
+                      description: >
+                        A Secret labelled orbit.io/inference-provider=true with keys
+                        accessKeyID, secretAccessKey and optionally sessionToken.
+                      type: object
+                      required:
+                        - secretRef
+                      properties:
+                        secretRef:
+                          type: object
+                          required:
+                            - name
+                          properties:
+                            name:
+                              type: string
+                              minLength: 1
+                    assumeRoleARN:
+                      description: A role the gateway assumes on top of its base credentials.
+                      type: string
+                      pattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$'
+                    externalID:
+                      type: string
+                    roleSessionName:
+                      description: Names the assumed sessions in CloudTrail. Defaults to orbit-inference-gateway.
+                      type: string
+                      pattern: '^[\w+=,.@-]{2,64}$'
+                vertexai:
+                  description: Google Vertex AI. Without credentialsSecretRef, Application Default Credentials apply (GKE Workload Identity).
+                  type: object
+                  required:
+                    - projectID
+                    - location
+                  properties:
+                    projectID:
+                      type: string
+                      minLength: 1
+                    location:
+                      type: string
+                      minLength: 1
+                    anthropicLocation:
+                      description: Region for Claude models when it differs from location.
+                      type: string
+                    credentialsSecretRef:
+                      description: A Secret key holding a service account JSON key.
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                azure:
+                  description: Azure AI.
+                  type: object
+                  required:
+                    - endpoint
+                    - apiVersion
+                    - apiKeySecretRef
+                  properties:
+                    endpoint:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiVersion:
+                      type: string
+                      minLength: 1
+                    anthropicEndpoint:
+                      type: string
+                      pattern: '^https?://.+'
+                    apiKeySecretRef:
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                compatible:
+                  description: >
+                    An endpoint that speaks the OpenAI or Anthropic APIs, such as
+                    OpenAI, Anthropic, OpenRouter or vLLM. apis lists what it
+                    serves; those pass through natively.
+                  type: object
+                  required:
+                    - baseURL
+                    - apis
+                  x-kubernetes-validations:
+                    - rule: "!('messages' in self.apis) || self.baseURL.endsWith('/v1') || self.baseURL.endsWith('/v1/')"
+                      message: an endpoint serving messages needs a baseURL ending in /v1.
+                  properties:
+                    baseURL:
+                      description: >
+                        The prefix of /chat/completions and /messages, e.g.
+                        https://openrouter.ai/api/v1. http and https are allowed.
+                      type: string
+                      pattern: '^https?://.+'
+                    apis:
+                      type: array
+                      minItems: 1
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                        enum:
+                          - chatCompletions
+                          - embeddings
+                          - responses
+                          - messages
+                    apiKeySecretRef:
+                      description: A key of a Secret labelled orbit.io/inference-provider=true.
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Ready
+                    - Invalid
+                providerName:
+                  type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

@@ -47,20 +47,12 @@ func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses
 		return nil, convert.WrapTranslationError(b.provider, err)
 	}
 
-	stream := b.client.Messages.NewStreaming(ctx, anthropicParams)
-	defer stream.Close()
-
-	var accumulated anthropic.Message
-	for stream.Next() {
-		if err := accumulated.Accumulate(stream.Current()); err != nil {
-			return nil, convert.MapAnthropicError(b.provider, err)
-		}
-	}
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return nil, convert.MapAnthropicError(b.provider, err)
+	accumulated, _, err := convert.AccumulateAnthropicStream(b.client.Messages.NewStreaming(ctx, anthropicParams), b.provider)
+	if err != nil {
+		return nil, err
 	}
 
-	resp := convert.AnthropicMessageToResponsesResponse(&accumulated)
+	resp := convert.AnthropicMessageToResponsesResponse(accumulated)
 	b.logger.Debug(ctx, "bridge: anthropic responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)

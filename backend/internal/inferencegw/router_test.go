@@ -81,7 +81,7 @@ func dualConnectors() map[ProviderName]ProviderConnector {
 
 func TestRouteRequest_NilCatalog(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	_, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if !errors.Is(err, ErrNoCatalog) {
 		t.Errorf("expected ErrNoCatalog with nil catalog, got: %v", err)
@@ -90,7 +90,7 @@ func TestRouteRequest_NilCatalog(t *testing.T) {
 
 func TestRouteRequest_ModelNotFound(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(nil, nil))
 	_, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/unknown"})
 	if !errors.Is(err, ErrInvalidRequest) {
@@ -109,7 +109,7 @@ func TestRouteRequest_DisabledVirtualModel(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	_, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if !errors.Is(err, ErrInvalidRequest) {
@@ -129,7 +129,7 @@ func TestRouteRequest_PriorityStrategy_OrderByPriority(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, strategy, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if err != nil {
@@ -160,7 +160,7 @@ func TestRouteRequest_LowestCostStrategy_SortsByCost(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, strategy, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "google/gemini-flash"})
 	if err != nil {
@@ -188,7 +188,7 @@ func TestRouteRequest_WeightedStrategy_SingleRoute(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, strategy, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-haiku"})
 	if err != nil {
@@ -216,7 +216,7 @@ func TestRouteRequest_WeightedStrategy_ReturnsAllRoutes(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, strategy, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-haiku"})
 	if err != nil {
@@ -242,7 +242,7 @@ func TestRouteRequest_DisabledRouteExcluded(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if err != nil {
@@ -270,7 +270,7 @@ func TestRouteRequest_ProviderOverrideExcluded(t *testing.T) {
 	}
 	// Platform admin disabled bedrock/model-a via provider override.
 	disabled := map[string]bool{"bedrock/model-a": true}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, disabled))
 	targets, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestRouteRequest_ProviderNotConfigured_Excluded(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(connectors)
+	r := NewRoutingEngine(connectors, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	targets, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if err != nil {
@@ -322,7 +322,7 @@ func TestRouteRequest_NoEnabledRoutes(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(dualConnectors())
+	r := NewRoutingEngine(dualConnectors(), nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	_, _, err := r.RouteRequest(context.Background(), ChatCompletionRequest{Model: "anthropic/claude-sonnet-4-6"})
 	if !errors.Is(err, ErrNoProvidersEnabled) {
@@ -334,7 +334,7 @@ func TestRouteRequest_NoEnabledRoutes(t *testing.T) {
 
 func TestIsWildcardModel_AlwaysFalse(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	for _, m := range []string{"", "*", "failover", "anthropic/claude-sonnet-4-6", "bare-name"} {
 		if r.IsWildcardModel(m) {
 			t.Errorf("IsWildcardModel(%q) = true, want false — virtual model catalog has no wildcard routing", m)
@@ -349,7 +349,7 @@ func TestResolveModelForPolicy_Found(t *testing.T) {
 	vms := []VirtualModel{
 		{Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true},
 	}
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	info, ok := r.ResolveModelForPolicy("anthropic/claude-sonnet-4-6")
 	if !ok {
@@ -365,7 +365,7 @@ func TestResolveModelForPolicy_Found(t *testing.T) {
 
 func TestResolveModelForPolicy_NotFound(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(nil, nil))
 	_, ok := r.ResolveModelForPolicy("anthropic/unknown")
 	if ok {
@@ -375,7 +375,7 @@ func TestResolveModelForPolicy_NotFound(t *testing.T) {
 
 func TestResolveModelForPolicy_NilCatalog(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	_, ok := r.ResolveModelForPolicy("anthropic/claude-sonnet-4-6")
 	if ok {
 		t.Error("expected ok=false with nil catalog")
@@ -394,7 +394,7 @@ func TestResolveTargetForPolicy_Found(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	info, ok := r.ResolveTargetForPolicy(ProviderBedrock, "us.anthropic.claude-sonnet-4-6")
 	if !ok {
@@ -418,7 +418,7 @@ func TestResolveTargetForPolicy_NotFound(t *testing.T) {
 			},
 		},
 	}
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	_, ok := r.ResolveTargetForPolicy(ProviderBedrock, "nonexistent-model")
 	if ok {
@@ -428,7 +428,7 @@ func TestResolveTargetForPolicy_NotFound(t *testing.T) {
 
 func TestResolveTargetForPolicy_NilCatalog(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	_, ok := r.ResolveTargetForPolicy(ProviderBedrock, "model-a")
 	if ok {
 		t.Error("expected ok=false with nil catalog")
@@ -444,7 +444,7 @@ func TestCatalogScopes_DerivesFromVirtualModels(t *testing.T) {
 		{Family: "anthropic", Name: "claude-haiku-4-5", Enabled: true},
 		{Family: "google", Name: "gemini-flash", Enabled: true},
 	}
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	scopes := r.CatalogScopes()
 	// 1 family scope for anthropic + 2 model scopes for anthropic +
@@ -473,7 +473,7 @@ func TestCatalogScopes_DerivesFromVirtualModels(t *testing.T) {
 
 func TestCatalogScopes_NilCatalog(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	if scopes := r.CatalogScopes(); scopes != nil {
 		t.Errorf("expected nil scopes with nil catalog, got %v", scopes)
 	}
@@ -493,7 +493,7 @@ func TestListModels_PopulatesProviderModelCache(t *testing.T) {
 	connector := &stubConnector{name: ProviderBedrock, models: models}
 	r := NewRoutingEngine(map[ProviderName]ProviderConnector{
 		ProviderBedrock: connector,
-	})
+	}, nil, nil)
 
 	result, err := r.ListModels(context.Background())
 	if err != nil {
@@ -511,7 +511,7 @@ func TestListModels_PopulatesProviderModelCache(t *testing.T) {
 
 func TestListModels_NoProviders(t *testing.T) {
 	t.Parallel()
-	r := NewRoutingEngine(nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	_, err := r.ListModels(context.Background())
 	if !errors.Is(err, ErrNoProvidersEnabled) {
 		t.Errorf("expected ErrNoProvidersEnabled, got: %v", err)

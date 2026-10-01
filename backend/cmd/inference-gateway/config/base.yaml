@@ -33,3 +33,7 @@ policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
+
+providers:
+  # The namespace the gateway watches for InferenceProvider resources.
+  namespace: orbit-system

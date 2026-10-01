@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -17,13 +18,20 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing  PricingConfig `yaml:"pricing"`
-	Policy   PolicyConfig  `yaml:"policy"`
-	Identity struct {
+	Pricing   PricingConfig   `yaml:"pricing"`
+	Policy    PolicyConfig    `yaml:"policy"`
+	Providers ProvidersConfig `yaml:"providers"`
+	Identity  struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
+}
+
+// ProvidersConfig is where the gateway watches InferenceProvider resources.
+// ORBIT_SYSTEM_NAMESPACE overrides Namespace.
+type ProvidersConfig struct {
+	Namespace string `yaml:"namespace"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.
@@ -82,4 +90,7 @@ var Current *Config
 
 func init() {
 	Current = config.MustLoadService[Config]("cmd/inference-gateway", config.Environment())
+	if ns := os.Getenv("ORBIT_SYSTEM_NAMESPACE"); ns != "" {
+		Current.Providers.Namespace = ns
+	}
 }

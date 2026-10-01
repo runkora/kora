@@ -18,11 +18,13 @@ import {
 import type {
   VirtualModel as ApiVirtualModel,
   ProviderModel as ApiProviderModel,
+  ProviderStatusWire,
 } from '../../_services/catalog-server';
-import type { VirtualModel } from '../_types/catalog';
+import type { VirtualModel, Provider } from '../_types/catalog';
 import { toVirtualModel, toProviderModel } from '../_utils/catalog-api';
 import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
+import { ProvidersSection } from './providers-section';
 import { EditorPanel } from './editor-panel';
 import { SyncStatusBanner } from './sync-status-banner';
 import type { SyncSummary } from './sync-status-banner';
@@ -30,6 +32,8 @@ import type { SyncSummary } from './sync-status-banner';
 interface CatalogTabProps {
   initialVirtualModels: ApiVirtualModel[];
   initialProviderModels: ApiProviderModel[];
+  initialProviders: ProviderStatusWire[];
+  providersError?: string | null;
   initialError?: string | null;
   syncSummary: SyncSummary;
 }
@@ -37,6 +41,8 @@ interface CatalogTabProps {
 export function CatalogTab({
   initialVirtualModels,
   initialProviderModels,
+  initialProviders,
+  providersError,
   initialError,
   syncSummary,
 }: CatalogTabProps) {
@@ -47,6 +53,14 @@ export function CatalogTab({
   const providerModels = useMemo(
     () => initialProviderModels.map(toProviderModel),
     [initialProviderModels],
+  );
+  // Routes may target any registered provider, including one whose discovery failed.
+  const routeProviders = useMemo(
+    () =>
+      Array.from(
+        new Set([...initialProviders.map((p) => p.name), ...providerModels.map((m) => m.provider)]),
+      ).sort() as Provider[],
+    [initialProviders, providerModels],
   );
 
   const handleModelSaved = useCallback((saved: VirtualModel) => {
@@ -67,7 +81,7 @@ export function CatalogTab({
 
   const enabledVMs = virtualModels.filter((m) => m.enabled).length;
   const enabledPMs = providerModels.filter((m) => m.enabled).length;
-  const connectedProviders = new Set(providerModels.map((m) => m.provider)).size;
+  const readyProviders = initialProviders.filter((p) => p.status === 'ready').length;
 
   return (
     <Stack gap="comfortable">
@@ -108,9 +122,15 @@ export function CatalogTab({
         />
         <StatCard
           icon={<Icon name="network" size="xs" />}
-          label="Connected Providers"
-          value={connectedProviders > 0 ? String(connectedProviders) : '—'}
-          detail={connectedProviders > 0 ? 'discovered' : 'none yet'}
+          label="Providers"
+          value={initialProviders.length > 0 ? String(initialProviders.length) : '—'}
+          detail={
+            providersError
+              ? 'unavailable'
+              : initialProviders.length > 0
+                ? `${readyProviders} ready`
+                : 'none registered'
+          }
         />
         <StatCard
           icon={<Icon name="shield-check" size="xs" />}
@@ -134,12 +154,21 @@ export function CatalogTab({
               {providerModels.length}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger value="providers">
+            Providers
+            <Badge variant="secondary" size="sm">
+              {initialProviders.length}
+            </Badge>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="virtual">
           <VirtualModelsSection models={virtualModels} onSelect={setSelectedModel} />
         </TabsContent>
         <TabsContent value="provider">
           <ProviderCatalogSection models={providerModels} />
+        </TabsContent>
+        <TabsContent value="providers">
+          <ProvidersSection providers={initialProviders} error={providersError} />
         </TabsContent>
       </Tabs>
 
@@ -150,6 +179,7 @@ export function CatalogTab({
           onSaved={handleModelSaved}
           onDeleted={handleModelDeleted}
           providerModels={providerModels}
+          providers={routeProviders}
         />
       )}
     </Stack>

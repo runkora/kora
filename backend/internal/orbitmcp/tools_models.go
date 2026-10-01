@@ -77,10 +77,18 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 }
 
 // registerProviderModelTools wires the provider-model catalog (the upstream
-// models from Bedrock/Vertex/Azure that virtual models route to).
+// models that virtual models route to) and the providers that serve them.
 func registerProviderModelTools(srv *sdk.Server, catalog string, jc *orbitjson.Client) {
+	addTool(srv, "models.providers.status",
+		"List the registered inference providers: name, type, region or endpoint, credential mode, "+
+			"InferenceProvider resource, status, model count and last error. "+
+			"Providers are registered by applying an InferenceProvider resource; there is no create tool.",
+		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
+			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/providers", nil))
+		})
+
 	addTool(srv, "models.providers.list",
-		"List the provider models (the upstream models from Bedrock/Vertex/Azure that virtual models route to), "+
+		"List the provider models (the upstream models each registered provider serves, which virtual models route to), "+
 			"with capabilities and pricing.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/provider-models", nil))

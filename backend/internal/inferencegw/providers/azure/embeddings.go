@@ -5,7 +5,6 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -21,7 +20,7 @@ func (c *Connector) Embeddings(ctx context.Context, params openai.EmbeddingNewPa
 		c.logger.Error(ctx, "azure: embeddings error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
+		return nil, convert.MapOpenAIError(c.name, err)
 	}
 
 	c.logger.Debug(ctx, "azure: embeddings done",

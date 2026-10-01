@@ -67,8 +67,6 @@ inferenceGateway:
   # this is the IRSA or Pod Identity annotation. See docs/guides/deployment.md.
   serviceAccount:
     annotations: {}
-  bedrock:
-    accounts: []
 
 frontend:
   config:

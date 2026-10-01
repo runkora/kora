@@ -10,6 +10,7 @@ const BASE_PROVIDER_LABELS: Record<string, string> = {
   bedrock: 'AWS Bedrock',
   vertexai: 'Vertex AI',
   azure: 'Azure OpenAI',
+  compatible: 'Compatible endpoint',
 };
 
 const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {
@@ -18,30 +19,32 @@ const BASE_PROVIDER_VARIANTS: Record<string, BadgeVariant> = {
   azure: 'provider-azure',
 };
 
-// providerLabel returns a human-readable label for any provider string.
-// Bedrock aliases ('bedrock:us', 'bedrock:aus') get a label of
-// 'AWS Bedrock (us)' / 'AWS Bedrock (aus)' and share the bedrock badge style.
+// providerType returns the part of a provider name before ':'.
+function providerType(provider: string): string {
+  return provider.split(':', 1)[0];
+}
+
+// providerLabel is the short label a badge shows: the InferenceProvider
+// resource name ('bedrock:aus' shows 'aus'). The badge colour carries the type.
 export function providerLabel(provider: string): string {
-  if (BASE_PROVIDER_LABELS[provider]) return BASE_PROVIDER_LABELS[provider];
-  if (provider.startsWith('bedrock:')) {
-    const alias = provider.slice('bedrock:'.length);
-    return `AWS Bedrock (${alias})`;
-  }
-  return provider;
+  const type = providerType(provider);
+  const name = provider.slice(type.length + 1);
+  return name || BASE_PROVIDER_LABELS[type] || provider;
+}
+
+// providerTitle names the type and the resource ('AWS Bedrock: aus'), for
+// tooltips, selects and filters where the colour is not shown.
+export function providerTitle(provider: string): string {
+  const type = providerType(provider);
+  const base = BASE_PROVIDER_LABELS[type];
+  const name = provider.slice(type.length + 1);
+  if (!base) return provider;
+  return name ? `${base}: ${name}` : base;
 }
 
 export function providerBadgeVariant(provider: string): BadgeVariant {
-  return (
-    BASE_PROVIDER_VARIANTS[provider] ??
-    (provider.startsWith('bedrock:') ? 'provider-bedrock' : 'outline')
-  );
+  return BASE_PROVIDER_VARIANTS[providerType(provider)] ?? 'outline';
 }
-
-// Keep legacy record exports for the few callers that use PROVIDER_LABELS[p] ?? p.
-// They already have the ?? p fallback so no change needed there, but we keep
-// these for compatibility.
-export const PROVIDER_LABELS = BASE_PROVIDER_LABELS;
-export const PROVIDER_VARIANTS = BASE_PROVIDER_VARIANTS;
 
 // ── Strategy labels and variants ──────────────────────────────────────────────
 

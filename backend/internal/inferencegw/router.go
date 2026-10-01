@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sort"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ResolvedModelInfo is the policy-relevant identity of a model request —
@@ -51,7 +53,9 @@ type RouteTarget struct {
 // targets. The service layer tries targets in order, retrying within each target
 // up to MaxAttemptsPerTarget times, bounded by MaxTotalAttempts overall.
 type RoutingEngine struct {
-	connectors           map[ProviderName]ProviderConnector
+	// providers is swapped whole when providers reload. A request keeps the
+	// connector it resolved; a reload never interrupts it.
+	providers            atomic.Pointer[providerSet]
 	maxAttemptsPerTarget int
 	maxTotalAttempts     int
 
@@ -64,6 +68,25 @@ type RoutingEngine struct {
 	// modelCatalog holds the most recent provider-discovered models, used only
 	// for the admin Provider Catalog view. Not consulted during request routing.
 	modelCatalog atomic.Pointer[[]ProviderModel]
+
+	// discovery holds the last ListModels outcome per provider.
+	discovery atomic.Pointer[map[ProviderName]discoveryResult]
+
+	// publish orders SetProviders against discovery results. A discovery that
+	// started on an older provider set publishes nothing.
+	publish sync.Mutex
+
+	// sweeps numbers each discovery as it starts. published is the newest one
+	// published, so a slower, older sweep never overwrites a newer one.
+	sweeps    atomic.Uint64
+	published atomic.Uint64
+
+	// notify runs onDiscovered for one sweep at a time, in sweep order.
+	notify sync.Mutex
+
+	// onDiscovered receives each provider's models after a published discovery
+	// that provider completed without error.
+	onDiscovered DiscoveredFunc
 
 	// onCatalogUpdate is called after every successful LoadVirtualCatalog.
 	// Wired in main.go to re-register scope vocabulary with the policy service.
@@ -81,13 +104,51 @@ func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 	r.onCatalogUpdate.Store(&fn)
 }
 
-// NewRoutingEngine constructs a RoutingEngine.
-func NewRoutingEngine(connectors map[ProviderName]ProviderConnector) *RoutingEngine {
-	return &RoutingEngine{
-		connectors:           connectors,
+// DiscoveredFunc receives the full model list of one provider whose discovery succeeded.
+type DiscoveredFunc func(ctx context.Context, provider ProviderName, models []ProviderModel)
+
+// NewRoutingEngine constructs a RoutingEngine serving connectors, described by
+// infos. onDiscovered, when set, runs for each provider a published discovery listed.
+func NewRoutingEngine(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo, onDiscovered DiscoveredFunc) *RoutingEngine {
+	r := &RoutingEngine{
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
 		maxTotalAttempts:     defaultMaxTotalAttempts,
+		onDiscovered:         onDiscovered,
 	}
+	r.SetProviders(connectors, infos)
+	return r
+}
+
+// providerSet is one generation of providers: their connectors and their
+// descriptions for the admin view.
+type providerSet struct {
+	connectors map[ProviderName]ProviderConnector
+	infos      []ProviderInfo
+}
+
+// SetProviders replaces the connector set and the provider descriptions.
+// Discovered models of providers that are gone are dropped.
+func (r *RoutingEngine) SetProviders(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo) {
+	if connectors == nil {
+		connectors = map[ProviderName]ProviderConnector{}
+	}
+	r.publish.Lock()
+	defer r.publish.Unlock()
+	r.providers.Store(&providerSet{connectors: connectors, infos: infos})
+	if catalog := r.modelCatalog.Load(); catalog != nil {
+		kept := make([]ProviderModel, 0, len(*catalog))
+		for _, m := range *catalog {
+			if _, ok := connectors[m.Provider]; ok {
+				kept = append(kept, m)
+			}
+		}
+		r.modelCatalog.Store(&kept)
+	}
+}
+
+// connectorMap returns the connectors of the current provider set.
+func (r *RoutingEngine) connectorMap() map[ProviderName]ProviderConnector {
+	return r.providers.Load().connectors
 }
 
 // MaxAttemptsPerTarget returns the maximum retry count within a single target.
@@ -98,7 +159,7 @@ func (r *RoutingEngine) MaxTotalAttempts() int { return r.maxTotalAttempts }
 
 // Connector returns the ProviderConnector for the given provider, if enabled.
 func (r *RoutingEngine) Connector(p ProviderName) (ProviderConnector, bool) {
-	c, ok := r.connectors[p]
+	c, ok := r.connectorMap()[p]
 	return c, ok
 }
 
@@ -188,6 +249,7 @@ func (r *RoutingEngine) targetsForVirtualModel(
 // whose underlying provider model has not been disabled by a platform admin.
 // Routes are returned in ascending Priority order.
 func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnapshot) []VirtualModelRoute {
+	connectors := r.connectorMap()
 	out := make([]VirtualModelRoute, 0, len(vm.Routes))
 	for _, route := range vm.Routes {
 		if !route.Enabled {
@@ -196,7 +258,7 @@ func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnap
 		if snap.isRouteDisabled(route.Provider, route.ModelID) {
 			continue
 		}
-		if _, ok := r.connectors[route.Provider]; !ok {
+		if _, ok := connectors[route.Provider]; !ok {
 			continue // provider not configured in this deployment
 		}
 		out = append(out, route)
@@ -341,45 +403,89 @@ func (r *RoutingEngine) CatalogScopes() []CatalogScope {
 // ListModels queries every enabled connector concurrently and returns the
 // aggregated provider model list. Used exclusively for the admin Provider
 // Catalog view — it does NOT drive routing or the consumer /v1/models endpoint.
+//
+// A connector may return models with an error: they are kept, and the error is
+// reported in its provider status. Results are published only if the provider
+// set has not been replaced since discovery started.
 func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error) {
-	if len(r.connectors) == 0 {
+	sweep := r.sweeps.Add(1)
+	set := r.providers.Load()
+	connectors := set.connectors
+	if len(connectors) == 0 {
+		r.publishDiscovery(ctx, sweep, set, map[ProviderName]discoveryResult{}, []ProviderModel{}, nil)
 		return nil, ErrNoProvidersEnabled
 	}
 
 	type result struct {
-		models []ProviderModel
-		err    error
+		provider ProviderName
+		models   []ProviderModel
+		err      error
 	}
 
-	ch := make(chan result, len(r.connectors))
-	for _, c := range r.connectors {
+	ch := make(chan result, len(connectors))
+	for name, c := range connectors {
 		go func() {
 			ms, err := c.ListModels(ctx)
-			ch <- result{models: ms, err: err}
+			ch <- result{provider: name, models: ms, err: err}
 		}()
 	}
 
 	var models []ProviderModel
 	var firstErr error
-	for range r.connectors {
+	discovered := make(map[ProviderName]discoveryResult, len(connectors))
+	listed := make(map[ProviderName][]ProviderModel, len(connectors))
+	now := time.Now().UTC()
+	for range connectors {
 		res := <-ch
+		d := discoveryResult{at: now, models: len(res.models)}
 		if res.err != nil {
+			d.err = res.err.Error()
 			if firstErr == nil {
 				firstErr = res.err
 			}
-			continue
+		} else {
+			listed[res.provider] = res.models
 		}
+		discovered[res.provider] = d
 		models = append(models, res.models...)
 	}
+	r.publishDiscovery(ctx, sweep, set, discovered, models, listed)
 
 	if len(models) > 0 {
-		r.modelCatalog.Store(&models)
 		return models, nil
 	}
 	if firstErr != nil {
 		return nil, firstErr
 	}
 	return nil, ErrNoProvidersEnabled
+}
+
+// publishDiscovery stores a discovery outcome unless set has been replaced or a
+// newer sweep has published. An empty model list keeps the previous catalog.
+func (r *RoutingEngine) publishDiscovery(ctx context.Context, sweep uint64, set *providerSet, discovered map[ProviderName]discoveryResult, models []ProviderModel, listed map[ProviderName][]ProviderModel) {
+	r.publish.Lock()
+	if r.providers.Load() != set || sweep < r.published.Load() {
+		r.publish.Unlock()
+		return
+	}
+	r.published.Store(sweep)
+	r.discovery.Store(&discovered)
+	if len(models) > 0 || len(set.connectors) == 0 {
+		r.modelCatalog.Store(&models)
+	}
+	r.publish.Unlock()
+	if r.onDiscovered == nil {
+		return
+	}
+	r.notify.Lock()
+	defer r.notify.Unlock()
+	// A newer sweep published while this one waited and will notify instead.
+	if sweep != r.published.Load() {
+		return
+	}
+	for provider, ms := range listed {
+		r.onDiscovered(ctx, provider, ms)
+	}
 }
 
 // ProviderModels returns a copy of the most recently discovered provider model

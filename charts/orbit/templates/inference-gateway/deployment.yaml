@@ -16,6 +16,8 @@ spec:
         {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.inferenceGateway.labels" . | nindent 8 }}
         spiffe.io/component: inference-gateway
+        # Watches InferenceProvider resources through the API server.
+        orbit.io/kube-api-client: "true"
         {{- include "orbit.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
@@ -50,17 +52,8 @@ spec:
               value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            {{- /* Each Bedrock account registers provider "bedrock:<alias>"; credentials come from the pod's cloud identity. */}}
-            {{- with .Values.inferenceGateway.bedrock.accounts }}
-            {{- $aliases := list }}
-            {{- range . }}{{ $aliases = append $aliases (required "inferenceGateway.bedrock.accounts[].alias must be set" .alias) }}{{ end }}
-            - name: BEDROCK_ACCOUNTS
-              value: {{ join "," $aliases | quote }}
-            {{- range . }}
-            - name: BEDROCK_{{ .alias | upper }}_REGION
-              value: {{ required (printf "inferenceGateway.bedrock.accounts[%s].region must be set" .alias) .region | quote }}
-            {{- end }}
-            {{- end }}
+            - name: ORBIT_SYSTEM_NAMESPACE
+              value: {{ include "orbit.systemNamespace" . | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:

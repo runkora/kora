@@ -1,4 +1,4 @@
-Orbit CRDs installed: orbittenants, connections, oauthclients, mcpservers (orbit.io).
+Orbit CRDs installed: orbittenants, connections, oauthclients, mcpservers, inferenceproviders (orbit.io).
 
 Install the orbit chart next, into the namespace Orbit will run in:
 
@@ -6,4 +6,5 @@ Install the orbit chart next, into the namespace Orbit will run in:
     --version {{ .Chart.Version }} --namespace {{ .Release.Namespace }}
 
 The CRDs carry helm.sh/resource-policy: keep. Uninstalling this release leaves
-them, and every OrbitTenant, Connection, OAuthClient and MCPServer, in place.
+them, and every OrbitTenant, Connection, OAuthClient, MCPServer and
+InferenceProvider, in place.

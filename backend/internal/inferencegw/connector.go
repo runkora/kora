@@ -7,8 +7,6 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
-
-	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ============================================================================
@@ -207,6 +205,10 @@ type ProviderModel struct {
 	// e.g. ["chat"] for LLMs, ["embedding"] for embedding models,
 	//      ["image"] for image-generation models.
 	Capabilities []ModelCapability
+
+	// Price is the price the upstream published with the model, per 1M tokens.
+	// Nil when it publishes none.
+	Price *ModelPriceEntry
 }
 
 // PolicyAlias returns the shortest clean alias for use in policy scope
@@ -247,20 +249,6 @@ type ProviderConnector interface {
 	AnthropicConnector
 	EmbeddingsConnector
 	ResponsesConnector
-}
-
-// ============================================================================
-// ConnectorFactory
-// ============================================================================
-
-// ConnectorFactory creates a ProviderConnector from environment-sourced config.
-// Each provider package exports a Factory struct that implements this interface.
-//
-// Build returns (nil, nil) when the provider is disabled (env var not set),
-// allowing main.go to skip registration without treating it as an error.
-type ConnectorFactory interface {
-	Name() ProviderName
-	Build(logger logging.Logger) (ProviderConnector, error)
 }
 
 // ============================================================================
@@ -360,27 +348,4 @@ func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens, cacheRead
 		(float64(completionTokens)/1_000_000)*p.OutputCostPerMillion +
 		(float64(cacheReadTokens)/1_000_000)*cacheReadPrice +
 		(float64(cacheCreationTokens)/1_000_000)*cacheCreationPrice
-}
-
-// ============================================================================
-// MultiConnectorFactory
-// ============================================================================
-
-// NamedConnector pairs a ProviderConnector with its runtime-assigned name.
-// Used by MultiConnectorFactory to return multiple connectors — one per
-// configured account/environment — from a single Build call.
-type NamedConnector struct {
-	Name      ProviderName
-	Connector ProviderConnector
-}
-
-// MultiConnectorFactory creates zero or more ProviderConnectors from
-// environment-sourced config. Providers that support multiple simultaneous
-// environments (e.g. multiple AWS accounts for Bedrock) implement this
-// interface alongside or instead of ConnectorFactory.
-//
-// Build returns nil when the provider is disabled, allowing main.go to skip
-// registration without treating it as an error.
-type MultiConnectorFactory interface {
-	Build(logger logging.Logger) ([]NamedConnector, error)
 }

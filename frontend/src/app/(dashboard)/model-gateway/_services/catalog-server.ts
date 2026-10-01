@@ -144,6 +144,27 @@ export async function fetchVirtualModels(
   return catalogFetch('/virtual-models', accessToken);
 }
 
+export interface ProviderStatusWire {
+  name: string;
+  type: string;
+  display_name?: string;
+  resource: string;
+  location?: string;
+  credential_mode: string;
+  assume_role_arn?: string;
+  models?: string[];
+  status: 'ready' | 'error';
+  error?: string;
+  model_count: number;
+  last_discovered_at?: string;
+}
+
+export async function fetchProviders(
+  accessToken: string,
+): Promise<Result<{ data: ProviderStatusWire[] }>> {
+  return catalogFetch('/providers', accessToken);
+}
+
 export async function fetchProviderModels(
   accessToken: string,
 ): Promise<Result<{ data: ProviderModel[] }>> {

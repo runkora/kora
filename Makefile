@@ -683,6 +683,7 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@bash scripts/cluster/resolve-docker-ips.sh
 	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply
+	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
@@ -763,7 +764,7 @@ cluster-k8s-connection: ## Register the local k3d cluster as a Kubernetes connec
 	@bash scripts/cluster/register-k8s-connection.sh
 
 .PHONY: cluster-bedrock-creds
-cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
+cluster-bedrock-creds: ## Register Bedrock InferenceProviders from your AWS SSO session (AWS_PROFILE and BEDROCK_* in .env)
 	@bash scripts/cluster/refresh-bedrock-creds.sh
 
 # ===========================================

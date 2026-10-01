@@ -14,7 +14,7 @@ Every request runs the same in-process chain, with no OPA sidecar:
 
 ## Providers
 
-The gateway holds each provider's credentials and speaks its native wire format: Bedrock, Vertex AI, and Azure (OpenAI-family).
+The gateway holds each provider's credentials and speaks its native wire format: Bedrock, Vertex AI, Azure, and any endpoint that speaks the OpenAI or Anthropic APIs, such as OpenRouter. A platform admin registers each provider with an `InferenceProvider` resource in the system namespace. The gateway watches the resources and the Secrets they name, and applies a change without a restart. [Model providers](../guides/model-providers.md) has an example per type.
 
 ## Usage and cost
 
@@ -22,7 +22,7 @@ Each call writes an `inference_usage` row to Postgres (tokens, estimated cost, l
 
 ## ADRs
 
-[inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md), [provider-model-catalog-and-alias-routing](../adr/2026-04-01-provider-model-catalog-and-alias-routing.md), [virtual-model-catalog-and-platform-routing](../adr/2026-04-17-virtual-model-catalog-and-platform-routing.md), [budget-model-redesign](../adr/2026-06-10-budget-model-redesign.md), [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md).
+[inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md), [provider-model-catalog-and-alias-routing](../adr/2026-04-01-provider-model-catalog-and-alias-routing.md), [virtual-model-catalog-and-platform-routing](../adr/2026-04-17-virtual-model-catalog-and-platform-routing.md), [budget-model-redesign](../adr/2026-06-10-budget-model-redesign.md), [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md), [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md).
 
 ## See also
 

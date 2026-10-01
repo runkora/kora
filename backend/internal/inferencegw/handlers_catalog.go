@@ -26,6 +26,7 @@ import (
 //	GET    /virtual-models/{id}         get a single virtual model by UUID
 //	PUT    /virtual-models/{id}         replace a virtual model by UUID
 //	DELETE /virtual-models/{id}         delete a virtual model by UUID
+//	GET    /providers                   list configured providers with their health
 //	GET    /provider-models             list discovered provider models with override status
 //	POST   /provider-models/refresh     trigger a live provider model discovery sweep
 //	PUT    /provider-models/{provider}/{modelId}  enable or disable a provider model
@@ -34,6 +35,7 @@ import (
 //	DELETE /pricing/{provider}/{modelId}/override  clear all pricing overrides (revert to synced)
 type CatalogController struct {
 	store          *CatalogStore
+	providers      providerStatuses
 	pricingCatalog PricingCatalogRepository
 	verifier       *token.Verifier
 	eval           policy.Evaluator
@@ -50,8 +52,13 @@ type CatalogController struct {
 // prefix entries in that table. basePath must match the server's BasePath
 // (e.g. "/v1") so the middleware can reconstruct absolute paths after
 // http.StripPrefix.
-func NewCatalogController(store *CatalogStore, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
-	return &CatalogController{store: store, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewCatalogController(store *CatalogStore, providers providerStatuses, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
+	return &CatalogController{store: store, providers: providers, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+}
+
+// providerStatuses is the admin view of the configured providers.
+type providerStatuses interface {
+	ProviderStatuses() []ProviderStatus
 }
 
 func (c *CatalogController) GroupedBy() string { return "/catalog" }
@@ -69,6 +76,7 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("GET /virtual-models/{id}", c.handleGetVirtualModel)
 	mux.Handle("PUT /virtual-models/{id}", c.handleUpdateVirtualModel)
 	mux.Handle("DELETE /virtual-models/{id}", c.handleDeleteVirtualModel)
+	mux.Handle("GET /providers", c.handleListProviders)
 	mux.Handle("GET /provider-models", c.handleListProviderModels)
 	mux.Handle("POST /provider-models/refresh", c.handleRefreshProviderModels)
 	mux.Handle("PUT /provider-models/{provider}/{modelId}", c.handleSetProviderModelEnabled)
@@ -372,9 +380,9 @@ func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderNam
 	if p, ok := pricingMap[key]; ok {
 		return p
 	}
-	// For multi-account aliases, fall back to the canonical "bedrock" pricing row.
-	if provider.IsBedrockFamily() && provider != ProviderBedrock {
-		key = string(ProviderBedrock) + "/" + normID
+	// A named provider falls back to the pricing row of its type.
+	if t := normalisePricingProvider(provider); t != provider {
+		key = string(t) + "/" + normID
 		if p, ok := pricingMap[key]; ok {
 			return p
 		}
@@ -435,9 +443,8 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		pricingMap = map[string]*pricingEntryJSON{}
 	}
 
-	// Merge with live discovery cache. The cache is warmed at startup via
-	// CatalogStore.WarmupProviderModels and can be refreshed via
-	// POST /provider-models/refresh — no side effects in GET.
+	// The discovery cache is filled on every provider reload and by
+	// POST /provider-models/refresh, so GET has no side effects.
 	discovered := c.store.ListProviderModels()
 	items := make([]providerModelJSON, 0, len(discovered))
 	for _, m := range discovered {
@@ -475,6 +482,12 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
 
+// handleListProviders returns every provider with its credential mode and
+// health. It never returns a credential.
+func (c *CatalogController) handleListProviders(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]any{"data": c.providers.ProviderStatuses()})
+}
+
 // handleRefreshProviderModels triggers a live discovery sweep across all
 // configured providers and updates the in-memory cache.
 func (c *CatalogController) handleRefreshProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -490,10 +503,10 @@ func (c *CatalogController) handleRefreshProviderModels(w http.ResponseWriter, r
 func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
-	if !isValidProvider(provider) {
+	if !provider.Valid() {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.BadRequestError("invalid_provider",
-				fmt.Sprintf("provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", provider),
+				fmt.Sprintf("provider %q is not valid; must be %s", provider, ProviderNameSyntax),
 				nil),
 			nil)
 		return
@@ -633,26 +646,6 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// canonicalPricingProvider maps a Bedrock alias (e.g. "bedrock:us") to the
-// canonical "bedrock" key used in the model_pricing table. Pricing rows are
-// synced once under the base provider name and shared across all accounts.
-func canonicalPricingProvider(p ProviderName) ProviderName {
-	if p.IsBedrockFamily() {
-		return ProviderBedrock
-	}
-	return p
-}
-
-// isValidProvider reports whether p is one of the known provider constants or
-// a multi-account Bedrock variant of the form "bedrock:<alias>".
-func isValidProvider(p ProviderName) bool {
-	switch p {
-	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
-		return true
-	}
-	return p.IsBedrockFamily()
-}
-
 // validateVirtualModelRequest validates the fields common to create and update
 // requests, returning a descriptive error for the first failing constraint.
 func validateVirtualModelRequest(req virtualModelRequest) error {
@@ -722,8 +715,8 @@ func validateScopeSegmentField(field, value string) error {
 
 // validateRouteInput validates a single route entry within a virtual model request.
 func validateRouteInput(i int, r routeInput) error {
-	if !isValidProvider(ProviderName(r.Provider)) {
-		return fmt.Errorf("route[%d].provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", i, r.Provider)
+	if !ProviderName(r.Provider).Valid() {
+		return fmt.Errorf("route[%d].provider %q is not valid; must be %s", i, r.Provider, ProviderNameSyntax)
 	}
 	if r.ModelID == "" {
 		return fmt.Errorf("route[%d].model_id is required", i)
@@ -834,11 +827,11 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	provider := ProviderName(r.PathValue("provider"))
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
-	if !isValidProvider(provider) {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
+	if !provider.Valid() {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)
 		return
 	}
-	provider = canonicalPricingProvider(provider)
+	provider = normalisePricingProvider(provider)
 
 	var req setPricingOverrideRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -858,10 +851,6 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	}
 
 	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
-		if errors.Is(err, ErrModelPricingNotFound) {
-			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("model_pricing_not_found", "no pricing entry found for this provider/model pair", nil), nil)
-			return
-		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to set pricing override", nil), err)
 		return
 	}
@@ -876,11 +865,11 @@ func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r 
 	provider := ProviderName(r.PathValue("provider"))
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
-	if !isValidProvider(provider) {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
+	if !provider.Valid() {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)
 		return
 	}
-	provider = canonicalPricingProvider(provider)
+	provider = normalisePricingProvider(provider)
 
 	if err := c.pricingCatalog.ClearOverride(ctx, provider, modelID); err != nil {
 		if errors.Is(err, ErrModelPricingNotFound) {

@@ -11,9 +11,7 @@ import (
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/registry"
 	"github.com/clear-route/orbit/internal/platform/api"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -24,6 +22,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
+	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func main() {
@@ -109,52 +108,41 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 
 func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
-	// Register factories for every supported provider. Each factory reads its
-	// own env vars via LoadConfig — a nil result means the provider is disabled.
-	// Adding a new provider is a single line here.
-	//
-	// Bedrock uses MultiFactory: set BEDROCK_ACCOUNTS=<alias1>,<alias2> to enable.
-	// Returns nil (provider disabled) when BEDROCK_ACCOUNTS is unset.
-	factories := []inferencegw.ConnectorFactory{
-		vertexai.Factory{},
-		azure.Factory{},
-	}
-
-	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
-
-	bedrockConnectors, err := bedrock.MultiFactory{}.Build(logger)
+	// Providers come from the InferenceProvider resources the gateway watches.
+	// The first load seeds the router; the watch keeps it current.
+	restCfg, err := kubeconfig.GetConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("bedrock: %w", err)
+		return nil, nil, fmt.Errorf("kubernetes config: %w", err)
 	}
-	for _, nc := range bedrockConnectors {
-		connectors[nc.Name] = nc.Connector
-		logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
+	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, logger)
+	if err != nil {
+		return nil, nil, err
 	}
+	// Prices a compatible upstream publishes with its models are stored on each discovery.
+	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
+	go pricingCache.Start(ctx)
+	prices := inferencegw.NewDiscoveredPrices(pricingCatalogRepo, pricingCache, logger)
 
-	var c inferencegw.ProviderConnector
-	for _, f := range factories {
-		c, err = f.Build(logger)
-		if err != nil {
-			return nil, nil, fmt.Errorf("provider %s: %w", f.Name(), err)
+	conns, infos := providers.Load(ctx)
+	router := inferencegw.NewRoutingEngine(conns, infos, prices.Record)
+	go func() {
+		if _, discoverErr := router.ListModels(ctx); discoverErr != nil {
+			logger.Warn(ctx, "provider model discovery failed", logging.Field{Key: "error", Value: discoverErr.Error()})
 		}
-		if c != nil {
-			connectors[f.Name()] = c
-			logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(f.Name())})
+	}()
+	go func() {
+		if watchErr := providers.Run(ctx, router); watchErr != nil {
+			logger.Error(ctx, "provider watch stopped", logging.Field{Key: "error", Value: watchErr.Error()})
 		}
-	}
-
-	if len(connectors) == 0 {
-		logger.Warn(ctx, "warning: no providers enabled — all inference requests will fail")
-	}
+	}()
 
 	// ── Domain layer ────────────────────────────────────────────────────────────────────────────────
-	router := inferencegw.NewRoutingEngine(connectors)
 	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
 	pol.Start(ctx)
 
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 	catalogRepo := inferencegw.NewPostgresCatalogRepository(db.Pool())
-	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
 	catalog := inferencegw.NewCatalogStore(catalogRepo, router)
 
 	// Load the virtual model catalog into the routing engine before accepting
@@ -168,25 +156,10 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		logger.Info(ctx, "virtual model catalog loaded", logging.Field{Key: "models", Value: count})
 	}
 
-	// Warm up the provider model discovery cache in the background. A failure is
-	// non-fatal — the cache will be empty until POST /catalog/provider-models/refresh
-	// is called or the gateway restarts.
-	go func() {
-		if err := catalog.WarmupProviderModels(ctx); err != nil {
-			logger.Warn(ctx, "provider model warm-up failed — provider catalog will be empty until refreshed",
-				logging.Field{Key: "error", Value: err.Error()})
-		} else {
-			logger.Info(ctx, "provider model cache warmed up")
-		}
-	}()
-
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	selfToken := identityclient.NewClient(igc.Current.Identity.InternalURL, logger).SelfTokenSource()
 	register := initScopeRegistration(logger, selfToken, router)
-
-	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
-	go pricingCache.Start(ctx)
 
 	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
 		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),
@@ -205,7 +178,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
-		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
 }

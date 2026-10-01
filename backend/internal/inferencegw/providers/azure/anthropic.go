@@ -27,7 +27,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 		c.logger.Error(ctx, "azure: AnthropicMessages error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, convert.MapAnthropicError(inferencegw.ProviderAzure, err)
+		return nil, convert.MapAnthropicError(c.name, err)
 	}
 
 	c.logger.Debug(ctx, "azure: AnthropicMessages done",
@@ -62,7 +62,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 			)
-			ch <- inferencegw.AnthropicStreamEvent{Err: convert.MapAnthropicError(inferencegw.ProviderAzure, err)}
+			ch <- inferencegw.AnthropicStreamEvent{Err: convert.MapAnthropicError(c.name, err)}
 			return
 		}
 		c.logger.Debug(ctx, "azure: AnthropicMessagesStream done",

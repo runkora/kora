@@ -80,7 +80,7 @@ istio:
   # A revision name labels istio.io/rev instead.
   revision: ""
   # ALLOW_ANY or REGISTRY_ONLY. REGISTRY_ONLY needs the ServiceEntries this
-  # chart renders for the external hosts it knows about (Bedrock, Postgres, Redis).
+  # chart renders for the external hosts it knows about (Postgres, Redis).
   outboundTrafficPolicy: ALLOW_ANY
 
 # The SPIRE deployment Orbit registers into.
@@ -336,12 +336,6 @@ inferenceGateway:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
   config: {}
-  # AWS Bedrock providers. Each entry registers provider "bedrock:<alias>".
-  # Credentials come from the pod's cloud identity, never from values.
-  bedrock:
-    accounts: []
-    # - alias: aus
-    #   region: ap-southeast-2
 
 orbitMcp:
   image:

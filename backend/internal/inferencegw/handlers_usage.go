@@ -74,8 +74,8 @@ var usageParamBinders = []usageParamBinder{
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
 		if raw := q.Get("provider"); raw != "" {
 			p := ProviderName(raw)
-			if !isValidProvider(p) {
-				return api.BadRequestError("invalid_param", "'provider' must be a known provider (bedrock, bedrock:<alias>, vertexai, azure)", nil), nil
+			if !p.Valid() {
+				return api.BadRequestError("invalid_param", "'provider' must be "+ProviderNameSyntax, nil), nil
 			}
 			f.Provider = &p
 		}
