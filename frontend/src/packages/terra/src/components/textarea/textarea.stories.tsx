@@ -72,6 +72,17 @@ export const Options: Story = {
             placeholder="Type several lines"
           />
         </Option>
+        <Option
+          name='resize="vertical"'
+          use="Adds a drag handle so the person can make the field taller. Floored at its starting height."
+        >
+          <Textarea
+            aria-label="Instructions"
+            resize="vertical"
+            rows={3}
+            placeholder="Drag the bottom edge to resize"
+          />
+        </Option>
       </OptionTable>
     </div>
   ),

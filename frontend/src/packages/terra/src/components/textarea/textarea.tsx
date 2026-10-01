@@ -27,7 +27,6 @@ const textareaVariants = cva(
     'flex w-full',
     'text-sm text-foreground font-normal leading-[1.5]',
     'placeholder:text-subtle',
-    'resize-none',
     'disabled:cursor-not-allowed disabled:opacity-40',
   ],
   {
@@ -72,6 +71,13 @@ const textareaVariants = cva(
         true: '',
         false: '',
       },
+      /**
+       * Whether the user can resize the textarea vertically.
+       */
+      resize: {
+        none: 'resize-none',
+        vertical: 'resize-y',
+      },
     },
     compoundVariants: [
       {
@@ -88,6 +94,7 @@ const textareaVariants = cva(
     defaultVariants: {
       variant: 'default',
       error: false,
+      resize: 'none',
     },
   },
 );
@@ -168,8 +175,10 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       className,
       variant = 'default',
       hasError = false,
+      resize = 'none',
       autoResize = false,
       maxRows = 8,
+      rows,
       style,
       onChange,
       id,
@@ -185,8 +194,11 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     // (pt-3=12px + pb-2=8px = 20px for bare; py-2=16px for default).
     const LINE_HEIGHT_PX = 21;
     const PADDING_PX = variant === 'bare' ? 20 : 16;
+    const BORDER_PX = variant === 'bare' ? 0 : 2;
     const maxHeightPx = maxRows * LINE_HEIGHT_PX + PADDING_PX;
-
+    const resizable = resize === 'vertical' && !autoResize;
+    const minHeightPx =
+      resizable && rows ? rows * LINE_HEIGHT_PX + PADDING_PX + BORDER_PX : undefined;
     const handleChange = React.useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         if (autoResize) {
@@ -216,8 +228,14 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         }
         aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
         aria-required={ariaRequired ?? field?.required ?? undefined}
-        style={autoResize ? { overflowY: 'hidden', ...style } : style}
-        className={cn(textareaVariants({ variant, error: hasError }), className)}
+        rows={rows}
+        style={
+          autoResize ? { overflowY: 'hidden', ...style } : { minHeight: minHeightPx, ...style }
+        }
+        className={cn(
+          textareaVariants({ variant, error: hasError, resize: autoResize ? 'none' : resize }),
+          className,
+        )}
         {...props}
       />
     );
