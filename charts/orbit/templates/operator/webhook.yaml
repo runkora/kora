@@ -19,7 +19,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   # Run before Istio injection so Istio reads the required annotations.
-  name: aaa-orbit-agent-pod-mutator
+  name: aaa-orbit-agent-pod-mutator{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.operator.labels" . | nindent 4 }}
 webhooks:
@@ -38,6 +38,11 @@ webhooks:
     namespaceSelector:
       matchLabels:
         orbit.io/role: tenant
+        {{- if eq (.Values.global.tenantScope | default "cluster") "namespaced" }}
+        # Without this, a second install sharing this cluster would also
+        # admit (and mutate) this install's tenant pods, and vice versa.
+        orbit.io/system-namespace: {{ include "orbit.systemNamespace" . }}
+        {{- end }}
     reinvocationPolicy: Never
     sideEffects: None
     timeoutSeconds: 10
@@ -45,7 +50,7 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: orbit-agent-pod-validator
+  name: orbit-agent-pod-validator{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.operator.labels" . | nindent 4 }}
 webhooks:
@@ -64,5 +69,8 @@ webhooks:
     namespaceSelector:
       matchLabels:
         orbit.io/role: tenant
+        {{- if eq (.Values.global.tenantScope | default "cluster") "namespaced" }}
+        orbit.io/system-namespace: {{ include "orbit.systemNamespace" . }}
+        {{- end }}
     sideEffects: None
     timeoutSeconds: 10

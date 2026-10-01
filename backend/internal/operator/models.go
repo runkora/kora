@@ -16,6 +16,15 @@ var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 
 // OrbitTenant declares a tenant's existence, OIDC configuration, and namespace.
 //
+// Scope is chart-driven, not fixed by this marker: charts/orbit-crds renders
+// scope: Cluster or scope: Namespaced from global.tenantScope (default
+// "cluster", preserving today's behavior), so a single cluster can run either
+// mode — never both at once, since a CustomResourceDefinition's scope is a
+// single cluster-wide property. `make manifests` regenerates this marker's
+// scope as Cluster; that is the tool's default output, not a statement that
+// namespaced mode is unsupported. See settings.go's tenantScope /
+// namespacedTenants for the corresponding runtime behavior.
+//
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status

@@ -13,7 +13,7 @@
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-system-component
+  name: orbit-system-component{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
@@ -30,7 +30,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-service
+  name: orbit-tenant-service{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
@@ -47,7 +47,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-agent
+  name: orbit-tenant-agent{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
@@ -67,7 +67,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-sandbox
+  name: orbit-tenant-sandbox{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:

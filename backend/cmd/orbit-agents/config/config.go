@@ -39,6 +39,9 @@ type Config struct {
 		TenantNamespacePrefix string `yaml:"tenantNamespacePrefix"`
 		// SystemNamespace is where orbit-agents itself runs.
 		SystemNamespace string `yaml:"systemNamespace"`
+		// TenantScope is "cluster" (default) or "namespaced" — must match the
+		// scope orbit-crds installed orbittenants.orbit.io with.
+		TenantScope string `yaml:"tenantScope"`
 	} `yaml:"kubernetes"`
 
 	Platform struct {
@@ -194,6 +197,13 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 		dst *string
 	}{
 		{"ORBIT_SYSTEM_NAMESPACE", &cfg.Kubernetes.SystemNamespace},
+		{"ORBIT_TENANT_SCOPE", &cfg.Kubernetes.TenantScope},
+		// In namespace-scoped mode the chart sets this to
+		// "<systemNamespace>-tenant-", matching the operator's own derivation
+		// (internal/operator/util.go's tenantNamespace) so both binaries agree
+		// on where a tenant's workloads live. Unset in cluster-scoped mode,
+		// leaving the base.yaml default ("orbit-tenant-") in place.
+		{"ORBIT_TENANT_NAMESPACE_PREFIX", &cfg.Kubernetes.TenantNamespacePrefix},
 		{"ORBIT_TRUST_DOMAIN", &cfg.Platform.TrustDomain},
 		{"ORBIT_SESSION_MANAGER_IMAGE", &cfg.Agents.SessionManagerImage},
 		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},

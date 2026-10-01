@@ -60,6 +60,11 @@ type Install struct {
 	// out-of-cluster collector's port. Used when CollectorNamespace is empty.
 	CollectorCIDRs []string
 
+	// TenantScope is "cluster" (default) or "namespaced" — must match the scope
+	// orbit-crds actually installed orbittenants.orbit.io with. See
+	// internal/operator/settings.go.
+	TenantScope string
+
 	// WebhookCertManager is true when cert-manager issues the webhook certificate
 	// and the operator must not manage it.
 	WebhookCertManager bool
@@ -124,6 +129,7 @@ func loadInstall() Install {
 		IstioNamespace:     envOr("ORBIT_ISTIO_NAMESPACE", "istio-system"),
 		IstioRevision:      os.Getenv("ORBIT_ISTIO_REVISION"),
 		SPIREClassName:     envOr("ORBIT_SPIRE_CLASS_NAME", "spire-system-spire"),
+		TenantScope:        envOr("ORBIT_TENANT_SCOPE", "cluster"),
 		ImagePullSecrets:   splitList(os.Getenv("ORBIT_IMAGE_PULL_SECRETS")),
 		CollectorNamespace: os.Getenv("ORBIT_COLLECTOR_NAMESPACE"),
 		CollectorCIDRs:     splitList(os.Getenv("ORBIT_COLLECTOR_CIDRS")),

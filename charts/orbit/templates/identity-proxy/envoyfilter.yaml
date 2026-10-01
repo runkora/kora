@@ -26,7 +26,7 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: identity-proxy-ext-proc
+  name: identity-proxy-ext-proc{{ include "orbit.clusterSuffix" . }}
   namespace: {{ .Values.istio.namespace }}
   labels:
     {{- include "orbit.labels" . | nindent 4 }}

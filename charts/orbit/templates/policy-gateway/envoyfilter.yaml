@@ -16,7 +16,7 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: opa-policy-ext-authz
+  name: opa-policy-ext-authz{{ include "orbit.clusterSuffix" . }}
   namespace: {{ .Values.istio.namespace }}
   labels:
     app.kubernetes.io/part-of: orbit

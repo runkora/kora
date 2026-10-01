@@ -1,3 +1,7 @@
-# No configurable behaviour. The CRDs are a separate release from orbit so an
-# orbit uninstall leaves them in place.
-{}
+global:
+  # "cluster" (default) or "namespaced" — sets orbittenants.orbit.io's CRD
+  # scope. Must match the orbit release's global.tenantScope installed
+  # against the same cluster; a cluster can only ever have one scope active
+  # for this CRD (scope is immutable once the CRD exists). See
+  # backend/internal/operator/settings.go.
+  tenantScope: cluster

@@ -60,6 +60,21 @@
 {{- if .Values.networkPolicy.enabled }}
 ---
 # ── Sandbox outbound: enable HCM CONNECT pass-through ────────────────────────
+#
+# NOT safe to make install-aware (orbit.clusterSuffix) the way every other
+# cluster-scoped/root-namespace object in this chart has been: workloadSelector
+# below matches orbit.io/role=sandbox across EVERY tenant namespace cluster-wide
+# (no install qualifier), while the route patch below targets THIS install's
+# own orbit-egress-gateway service by name. A second install's differently
+# -named copy would ALSO match every sandbox cluster-wide, so whichever
+# EnvoyFilter wins Istio's patch ordering could route another install's
+# sandbox egress through this install's gateway — crossing tenant-CA /
+# credential-brokering boundaries between installs. Today's literal-name
+# collision is accidentally the only thing preventing that: it blocks a
+# second install from installing this object at all. Leave it colliding until
+# workloadSelector can be scoped per-install (e.g. a label the operator stamps
+# on tenant/sandbox namespaces, matching orbit.io/system-namespace) — see
+# docs/adr/2026-09-29-namespace-scoped-tenants.md's Non-Goals.
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:

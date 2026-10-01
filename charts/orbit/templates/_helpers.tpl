@@ -24,6 +24,21 @@ Namespace Orbit runs in: global.systemNamespace when set, else the release names
 {{- .Values.global.systemNamespace | default .Release.Namespace }}
 {{- end }}
 
+{{/*
+Suffix for cluster-scoped object names (ClusterRole, ClusterRoleBinding,
+webhook configs, PriorityClass) that would otherwise collide by literal name
+if two installs share a cluster. Empty in cluster-scoped mode (today's exact
+names, unchanged), else "-<systemNamespace>" so each install's cluster-scoped
+objects are unique. Cluster-scoped mode never has a second install to collide
+with by design (see docs/adr on namespace-scoped tenants), so this only
+changes anything under global.tenantScope: namespaced.
+*/}}
+{{- define "orbit.clusterSuffix" -}}
+{{- if eq (.Values.global.tenantScope | default "cluster") "namespaced" -}}
+-{{ include "orbit.systemNamespace" . }}
+{{- end -}}
+{{- end }}
+
 {{- define "orbit.trustDomain" -}}
 {{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and Orbit" .Values.global.trustDomain }}
 {{- end }}

@@ -303,7 +303,15 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// markReady patches status on every pass; without this predicate that
 		// patch re-enqueues the tenant and the reconciler spins.
-		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// tenantNamespacePredicate additionally drops events for OrbitTenants
+		// belonging to another install sharing this cluster. In namespace-scoped
+		// mode this is now redundant-but-cheap insurance: the manager cache
+		// itself is already scoped to this install's own system namespace
+		// (backend/cmd/operator/main.go's ByObject override), so another
+		// install's OrbitTenants are never even cached. Kept as defense in
+		// depth, and it's the only thing doing this job in cluster-scoped mode
+		// (no cache scoping applies there — there's only ever one install).
+		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}, tenantNamespacePredicate())).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -333,7 +341,7 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 	}
 
 	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
+	if err := r.List(ctx, list, tenantListOpts()...); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -344,8 +352,12 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 	for i := range list.Items {
 		t := &list.Items[i]
 		if tenantNamespace(t) == conn.Namespace {
+			// t.Namespace is "" in cluster-scoped mode (matching OrbitTenant's
+			// own scope) and this install's system namespace in namespaced
+			// mode — dropping it there would make the subsequent Get look up
+			// an empty namespace and silently find nothing.
 			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
+				NamespacedName: client.ObjectKey{Name: t.Name, Namespace: t.Namespace},
 			})
 		}
 	}
@@ -362,7 +374,7 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	}
 
 	list := &OrbitTenantList{}
-	if err := r.List(ctx, list); err != nil {
+	if err := r.List(ctx, list, tenantListOpts()...); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for oauth client watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -373,12 +385,28 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 	for i := range list.Items {
 		t := &list.Items[i]
 		if tenantNamespace(t) == oc.Namespace {
+			// See connectionToTenants above: t.Namespace must ride along in
+			// namespaced mode or the subsequent Get looks up an empty namespace.
 			reqs = append(reqs, reconcile.Request{
-				NamespacedName: client.ObjectKey{Name: t.Name},
+				NamespacedName: client.ObjectKey{Name: t.Name, Namespace: t.Namespace},
 			})
 		}
 	}
 	return reqs
+}
+
+// tenantNamespacePredicate restricts reconciliation to this install's own
+// OrbitTenant objects. In cluster-scoped mode it always returns true: every
+// OrbitTenant on the cluster belongs to the single install by definition. In
+// namespace-scoped mode it admits only objects in this install's own system
+// namespace, where its OrbitTenants live.
+func tenantNamespacePredicate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if !namespacedTenants() {
+			return true
+		}
+		return obj.GetNamespace() == systemNamespace
+	})
 }
 
 // -----------------------------------------------------------------------------
@@ -652,6 +680,11 @@ func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string
 		"orbit.io/role":                "tenant",
 		"orbit.io/tenant":              tenant.Name,
 		"app.kubernetes.io/managed-by": "orbit-operator",
+		// Lets the pod admission webhooks scope their namespaceSelector to
+		// this install's own tenant namespaces in namespace-scoped mode
+		// (charts/orbit/templates/operator/webhook.yaml), so two installs
+		// sharing a cluster never admit each other's tenant pods.
+		"orbit.io/system-namespace": systemNamespace,
 	}
 	if r.IstioRevision != "" {
 		labels["istio.io/rev"] = r.IstioRevision

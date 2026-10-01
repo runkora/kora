@@ -32,8 +32,17 @@ const (
 // permission denied) — callers must treat an empty ref as "skip ownership"
 // and proceed unowned. Local development without the operator installed
 // remains supported.
+//
+// In namespace-scoped mode (cfg.TenantScope == "namespaced") this always
+// returns the zero value instead of fetching anything: OrbitTenant then lives
+// in this install's system namespace, but the caller applies the returned
+// reference to resources in the tenant's own workload namespace (k8s.go's
+// ProvisionAgentType). Kubernetes does not support cross-namespace
+// ownership — the garbage collector treats such an owner as absent, which
+// can delete the dependent outright — so skipping ownership entirely here is
+// the only safe option, not just a degraded one.
 func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) metav1.OwnerReference {
-	if tenantID == "" {
+	if tenantID == "" || p.cfg.TenantScope == "namespaced" {
 		return metav1.OwnerReference{}
 	}
 	obj, err := p.dynamicClient.Resource(orbitTenantGVR).Get(ctx, tenantID, metav1.GetOptions{})

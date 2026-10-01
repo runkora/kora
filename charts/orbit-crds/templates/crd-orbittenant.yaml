@@ -17,7 +17,10 @@ spec:
     singular: orbittenant
     shortNames:
       - ot
-  scope: Cluster
+  # "cluster" (default) or "namespaced" — see values.yaml global.tenantScope.
+  # Immutable once this CRD exists: switching requires deleting and
+  # recreating it, which cascade-deletes every OrbitTenant on the cluster.
+  scope: {{ if eq (.Values.global.tenantScope | default "cluster") "namespaced" }}Namespaced{{ else }}Cluster{{ end }}
   versions:
     - name: v1alpha1
       served: true

@@ -8,6 +8,13 @@ global:
   # Namespace Orbit runs in. Empty means the release namespace.
   systemNamespace: ""
 
+  # "cluster" (default, today's behavior — one Orbit install per cluster) or
+  # "namespaced" (lets multiple independent installs, each their own database,
+  # share one cluster). Must match the orbit-crds release's global.tenantScope
+  # — the two charts install separately but must agree on this value. See
+  # backend/internal/operator/settings.go.
+  tenantScope: cluster
+
   # Registry prefix for every Orbit image. Overridable per component.
   imageRegistry: ghcr.io/clear-route
 

@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orbit-operator
+  name: orbit-operator{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.operator.labels" . | nindent 4 }}
 rules:
@@ -45,18 +45,37 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["sidecars"]
     verbs: ["get", "list", "watch", "create", "patch"]
-  # Reconciliation inputs; read-only.
+  # Reconciliation inputs; read-only. Connection/OAuthClient/MCPServer stay
+  # here in every mode: they live across a dynamic, growing set of tenant
+  # namespaces the cache can't express as a fixed namespace list (see
+  # docs/adr/2026-09-29-namespace-scoped-tenants.md).
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
+    resources: ["connections", "oauthclients", "mcpservers"]
     verbs: ["get", "list", "watch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants/status", "mcpservers/status"]
+    resources: ["mcpservers/status"]
     verbs: ["get", "patch"]
+  {{- if ne (.Values.global.tenantScope | default "cluster") "namespaced" }}
+  # orbittenants/orbittenants-status: cluster-scoped in this mode, so this is
+  # the only place they can be granted. In namespaced mode they instead live
+  # in this install's own system namespace and are granted there (see
+  # namespaced-rbac.yaml).
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orbit.io"]
+    resources: ["orbittenants/status"]
+    verbs: ["get", "patch"]
+  {{- end }}
   # caBundle and failurePolicy on Orbit's own webhooks.
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
-    resourceNames: ["aaa-orbit-agent-pod-mutator", "orbit-agent-pod-validator"]
+    resourceNames:
+      [
+        "aaa-orbit-agent-pod-mutator{{ include "orbit.clusterSuffix" . }}",
+        "orbit-agent-pod-validator{{ include "orbit.clusterSuffix" . }}",
+      ]
     verbs: ["get", "patch"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
@@ -70,9 +89,14 @@ rules:
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
     verbs: ["list"]
+  {{- if ne (.Values.global.tenantScope | default "cluster") "namespaced" }}
+  # Leader-election Lease: always lives in this install's own system
+  # namespace (LeaderElectionNamespace, cmd/operator/main.go), so in
+  # namespaced mode it's granted there instead (namespaced-rbac.yaml).
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "create", "update"]
+  {{- end }}
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]

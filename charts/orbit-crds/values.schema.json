@@ -3,6 +3,13 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "global": { "type": "object" }
+    "global": {
+      "type": "object",
+      "properties": {
+        "tenantScope": {
+          "enum": ["cluster", "namespaced"]
+        }
+      }
+    }
   }
 }

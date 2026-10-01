@@ -80,9 +80,27 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			// CR deleted: re-aggregate so the removed server drops out of the
 			// registry (and its scopes are pruned by the gateway on next sync).
+			// Always safe to run, even for a foreign install's deleted CR: the
+			// aggregator only ever (re)computes THIS install's own output.
 			return ctrl.Result{}, r.Aggregator.Sync(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get MCPServer %q: %w", req.NamespacedName, err)
+	}
+
+	// MCPServer has no install-scoping mechanism of its own — unlike
+	// OrbitTenant it stays cluster-wide cached/watched in both modes (see
+	// docs/adr/2026-09-29-namespace-scoped-tenants.md's Non-Goals: it lives
+	// across a dynamic, growing set of tenant namespaces no fixed cache/RBAC
+	// scope can express). Without this check, in namespaced mode every
+	// install's operator would reconcile every OTHER install's MCPServers too
+	// — not just reading them (which the aggregator already self-corrects for
+	// via its own namespace-to-tenant map), but writing: patching this CR's
+	// status and creating/owning NetworkPolicy/AuthorizationPolicy/
+	// DestinationRule objects in a namespace that isn't this install's.
+	if owned, err := r.belongsToThisInstall(ctx, srv.Namespace); err != nil {
+		return ctrl.Result{}, fmt.Errorf("check install ownership of namespace %q: %w", srv.Namespace, err)
+	} else if !owned {
+		return ctrl.Result{}, nil
 	}
 
 	r.Logger.Info(ctx, "reconciling MCPServer",
@@ -229,6 +247,26 @@ func (r *MCPServerReconciler) setStatus(
 		return fmt.Errorf("patch MCPServer %q status: %w", srv.Name, err)
 	}
 	return nil
+}
+
+// belongsToThisInstall reports whether namespace belongs to this install.
+// Always true in cluster-scoped mode (there is only one install by
+// definition). In namespace-scoped mode: true for this install's own system
+// namespace (global MCP servers), or for a tenant namespace carrying this
+// install's own orbit.io/system-namespace label
+// (tenant_controller.go's tenantNamespaceLabels stamps it on every tenant
+// namespace it creates). Namespace stays cluster-wide cached in both modes
+// (the operator's ClusterRole is unchanged for it), so this is a cache read,
+// not an extra API round trip.
+func (r *MCPServerReconciler) belongsToThisInstall(ctx context.Context, namespace string) (bool, error) {
+	if !namespacedTenants() || namespace == systemNamespace {
+		return true, nil
+	}
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
+		return false, err
+	}
+	return ns.Labels["orbit.io/system-namespace"] == systemNamespace, nil
 }
 
 // SetupWithManager registers the controller with the controller-runtime Manager.

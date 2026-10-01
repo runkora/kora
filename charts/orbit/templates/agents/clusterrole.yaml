@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orbit-agents
+  name: orbit-agents{{ include "orbit.clusterSuffix" . }}
   labels:
     {{- include "orbit.agents.labels" . | nindent 4 }}
 # Verbs match the calls in internal/agents/k8s.go. There are no informers and
@@ -38,10 +38,17 @@ rules:
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
     verbs: ["get", "create", "update", "delete"]
-  # Read-only access to the cluster-scoped OrbitTenant CR so orbit-agents can
-  # set it as ownerReferences on the resources it provisions. Enables the
-  # ArgoCD resource-tree view and native k8s cascade delete
+  {{- if ne (.Values.global.tenantScope | default "cluster") "namespaced" }}
+  # Read-only access to the OrbitTenant CR so orbit-agents can set it as
+  # ownerReferences on the resources it provisions. Enables the ArgoCD
+  # resource-tree view and native k8s cascade delete
   # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+  # Cluster-scoped mode only: in namespaced mode, internal/agents'
+  # tenantOwnerRef skips ownership entirely rather than fetching OrbitTenant
+  # at all (cross-namespace owner references don't work in Kubernetes — see
+  # docs/adr/2026-09-29-namespace-scoped-tenants.md), so no grant is needed
+  # there; orbit-agents never calls Get on this resource in that mode.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants"]
     verbs: ["get"]
+  {{- end }}

@@ -79,6 +79,17 @@ spec:
               value: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled | quote }}
             - name: ORBIT_SYSTEM_NAMESPACE
               value: {{ include "orbit.systemNamespace" . | quote }}
+            - name: ORBIT_TENANT_SCOPE
+              value: {{ .Values.global.tenantScope | default "cluster" | quote }}
+            {{- if eq (.Values.global.tenantScope | default "cluster") "namespaced" }}
+            # Matches the operator's own tenantNamespace() derivation
+            # (internal/operator/util.go) so both binaries agree on where a
+            # tenant's workloads live once this install shares a cluster with
+            # another. Unset in cluster-scoped mode: base.yaml's
+            # "orbit-tenant-" default already matches the operator's.
+            - name: ORBIT_TENANT_NAMESPACE_PREFIX
+              value: {{ printf "%s-tenant-" (include "orbit.systemNamespace" .) | quote }}
+            {{- end }}
             - name: ORBIT_TRUST_DOMAIN
               value: {{ include "orbit.trustDomain" . | quote }}
             - name: ORBIT_SESSION_MANAGER_IMAGE

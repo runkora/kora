@@ -281,5 +281,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted | — |
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
+| 2026-09-29 | [Namespace-Scoped Tenants: Letting Multiple Orbit Installs Share a Cluster](2026-09-29-namespace-scoped-tenants.md) | Proposed | — |
 | 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
