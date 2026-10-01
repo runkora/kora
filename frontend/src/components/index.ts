@@ -21,7 +21,11 @@ export type { EventFeedItemProps } from './event-feed-item';
 /** Syntax-highlighted Orbit scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';
 export type { ScopeChipProps } from './scope-chip';
+export { ScopeChipList } from './scope-chip-list';
+export type { ScopeChipListProps } from './scope-chip-list';
+export { useClampedRows, rowIndices } from './use-clamped-rows';
 export { TruncatingBadge } from './truncating-badge';
+export { scopeColumnFilter } from './scope-column-filter';
 
 /** Searchable accordion scope selector grouped by resource type. */
 export { ScopePicker } from './scope-picker';
