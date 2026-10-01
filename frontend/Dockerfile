@@ -50,6 +50,10 @@ COPY . .
 ARG NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
+# The release tag the image is built for, shown in the sidebar.
+ARG ORBIT_VERSION=dev
+ENV NEXT_PUBLIC_ORBIT_VERSION=${ORBIT_VERSION}
+
 # ORBIT_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values

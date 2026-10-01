@@ -117,6 +117,9 @@ target "orbit-sandbox-exec" {
   ]
 }
 target "orbit-frontend" {
+  args = {
+    ORBIT_VERSION = GIT_SHA
+  }
   tags = [
     "localhost:5001/orbit-frontend:latest",
     "localhost:5001/orbit-frontend:${GIT_SHA}",
