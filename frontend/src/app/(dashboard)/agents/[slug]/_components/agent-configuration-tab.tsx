@@ -178,6 +178,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 value={cfg.systemPrompt}
                 onChange={(e) => cfg.setSystemPrompt(e.target.value)}
                 rows={5}
+                resize="vertical"
               />
             </FormField>
             <Separator />

@@ -22,6 +22,7 @@ export function StepBehaviour() {
             value={fields.systemPrompt}
             onChange={(e) => setField('systemPrompt', e.target.value)}
             rows={5}
+            resize="vertical"
             placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
           />
         </FormField>
