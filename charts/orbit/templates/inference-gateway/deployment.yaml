@@ -16,10 +16,9 @@ spec:
         {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.inferenceGateway.labels" . | nindent 8 }}
         spiffe.io/component: inference-gateway
-        orbit.io/identity-proxy: "enabled"
         {{- include "orbit.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
@@ -30,7 +29,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
         - name: orbit-inference-gateway
@@ -89,4 +88,3 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
-        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

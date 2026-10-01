@@ -96,7 +96,7 @@ func realMain() error {
 	//
 	// The call is direct — no HTTP round-trip, since the service owns the route
 	// store — so it goes through KeepRegistered rather than the routescopes
-	// client, and none of the client's sidecar-token concerns apply. The reason
+	// client, and needs no token. The reason
 	// to use the shared helper anyway is its retry: the route store is
 	// in-memory and survives as long as the process, but the scope declarations
 	// are upserted into Postgres, so a database blip at boot used to leave the

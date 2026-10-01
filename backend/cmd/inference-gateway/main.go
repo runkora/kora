@@ -15,6 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	"github.com/clear-route/orbit/internal/platform/api"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -181,7 +182,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
-	register := initScopeRegistration(logger, router)
+	selfToken := identityclient.NewClient(igc.Current.Identity.InternalURL, logger).SelfTokenSource()
+	register := initScopeRegistration(logger, selfToken, router)
 
 	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
 	go pricingCache.Start(ctx)
@@ -213,8 +215,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // re-synced whenever GET /v1/models refreshes the catalog, and returns the
 // register function; the caller hands it to routescopes.KeepRegistered, which
 // owns the initial registration and the periodic self-heal loop.
-func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) error {
-	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, router *inferencegw.RoutingEngine) func(context.Context) error {
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, selfToken, logger)
 
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()

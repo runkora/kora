@@ -82,14 +82,31 @@ func realMain() error {
 
 	eval := initPolicyEvaluator(ctx, logger)
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval)
+	// The identity client authenticates orbit-agents' own service-to-service
+	// calls: its mesh-attested exchange yields the platform token used as the
+	// bearer for the policy client, the session-manager API, delegation
+	// revocation and route registration. One cached token source serves them
+	// all, so the exchange stays off the hot path.
+	// Required, not optional. Without it orbit-agents has no bearer for the
+	// policy client, no bearer for the session-manager API, and no delegation
+	// broker, so the process would come up having silently dropped three
+	// security controls. Local development runs in Kubernetes with a real
+	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
+	// so an empty value is a broken deployment, not a mode.
+	if agentsConfig.Current.Platform.IdentityServiceURL == "" {
+		return fmt.Errorf("platform.identityServiceURL is required")
+	}
+	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
+	selfToken := idClient.SelfTokenSource()
+
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, repo, atSvc))
+	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
@@ -145,26 +162,10 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error)) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
-
-	// The identity client authenticates orbit-agents' own service-to-service
-	// calls: its mesh-attested exchange yields the SERVICE platform token used
-	// as the bearer for the policy client and for delegation revocation. One
-	// cached token source serves both, so the exchange stays off the hot path.
-	// Required, not optional. Without it orbit-agents has no bearer for the
-	// policy client, no bearer for the session-manager API, and no delegation
-	// broker, so the process would come up having silently dropped three
-	// security controls. Local development runs in Kubernetes with a real
-	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
-	// so an empty value is a broken deployment, not a mode.
-	if cfg.Platform.IdentityServiceURL == "" {
-		return nil, nil, nil, nil, nil, fmt.Errorf("platform.identityServiceURL is required")
-	}
-	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
-	selfToken := idClient.SelfTokenSource()
 
 	// Required for the same reason as the identity service. An empty value used
 	// to mean "skip grant management", so agent types would provision with no
@@ -299,8 +300,8 @@ type agentTypeSlugLister interface {
 // whenever an agent type is created or deleted, and returns the register
 // function; the caller hands it to routescopes.KeepRegistered, which owns the
 // initial registration and the periodic self-heal loop.
-func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
-	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
+	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, selfToken, logger)
 
 	register := func(registerCtx context.Context) error {
 		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)

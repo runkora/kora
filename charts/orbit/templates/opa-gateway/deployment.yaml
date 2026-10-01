@@ -18,7 +18,7 @@ spec:
         spiffe.io/component: opa-gateway
         {{- include "orbit.podLabels" (dict "root" $ "name" "opaGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/opa-gateway/configmap.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "opaGateway") | nindent 8 }}
     spec:
@@ -28,7 +28,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 1000) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         - name: opa-config
           configMap:
             name: orbit-opa-gateway-config

@@ -317,10 +317,8 @@ type CreateDelegationRequest struct {
 	RunID string `json:"run_id"`
 	// SubjectToken is the RFC 8693 subject_token: the DELEGATOR's own platform
 	// token, carried in the body by a platform service brokering the mint.
-	// Pods with an identity-proxy sidecar cannot forward a caller bearer in the
-	// Authorization header — the proxy overwrites it with the pod's own service
-	// token on all egress — so the runner's proof of identity travels here
-	// instead, exactly as RFC 8693 token exchange models it.
+	// The Authorization header authenticates the brokering service itself, so
+	// the runner's proof of identity travels here, as RFC 8693 token exchange models it.
 	SubjectToken string `json:"subject_token,omitempty"`
 }
 

@@ -199,7 +199,7 @@ operator:
   podLabels: {}
   extraEnv: []
   # Containers the webhook injects into every tenant pod. Images come from
-  # identityProxy.image and opaGateway.image, same as the system pods.
+  # identityProxy.image and opaGateway.image.
   injection:
     opa:
       logLevel: info
@@ -223,8 +223,8 @@ operator:
     supportedIstioMinors: ["1.29", "1.28"]
     intervalSeconds: 300
 
-# Identity-proxy sidecar: services carry their own platform token when calling
-# other Orbit services.
+# Identity-proxy sidecar the operator injects into tenant agent and sandbox pods.
+# Platform services carry none; they fetch their own token in-process.
 identityProxy:
   image:
     registry: ""

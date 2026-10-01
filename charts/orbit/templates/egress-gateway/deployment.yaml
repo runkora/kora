@@ -16,10 +16,9 @@ spec:
         {{- include "orbit.egressGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.egressGateway.labels" . | nindent 8 }}
         spiffe.io/component: egress-gateway
-        orbit.io/identity-proxy: "enabled"
         {{- include "orbit.podLabels" (dict "root" $ "name" "egressGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "egressGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-egress-gateway
@@ -28,7 +27,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         # Per-tenant CA and connection material aggregated by the operator into the
         # system namespace; optional so the gateway starts before any tenant exists.
         - name: tenant-cas
@@ -96,4 +95,3 @@ spec:
               mountPath: /var/run/orbit/connections
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "egressGateway") | nindent 12 }}
-        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

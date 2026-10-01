@@ -30,6 +30,7 @@ import (
 
 	tgc "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -111,7 +112,8 @@ func realMain() error {
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
 		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
-		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
+		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
+		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
 		// Re-introspect servers, publish scopes (prune-guarded), rebuild the
