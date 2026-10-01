@@ -57,10 +57,10 @@ var (
 	// exceeds 7 MB. The crawler cannot safely filter a partial tree.
 	ErrTreeTruncated = errors.New("github tree response was truncated")
 
-	// ErrUnavailable is returned by GetTree and GetRawContent when GitHub
-	// cannot serve the call for now: a timeout or network failure, a 5xx
-	// status, or a rate limit. A later retry can succeed. For a status
-	// failure, the error also matches ErrUnexpectedStatus.
+	// ErrUnavailable is returned by CreateInstallationToken, GetTree, and
+	// GetRawContent when GitHub cannot serve the call for now: a timeout or
+	// network failure, a 5xx status, or a rate limit. A later retry can
+	// succeed. For a status failure, the error also matches ErrUnexpectedStatus.
 	ErrUnavailable = errors.New("github is unavailable or rate-limited")
 )
 
@@ -118,6 +118,8 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 // installation access token, optionally scoped by body. appJWT must be a
 // freshly-signed App JWT (RS256, at most 10 minutes TTL). GitHub returns 201
 // Created on success.
+// Returns an error that matches ErrUnavailable when GitHub is down or
+// rate-limits the call.
 func (c *Client) CreateInstallationToken(
 	ctx context.Context,
 	appJWT string,
@@ -141,7 +143,7 @@ func (c *Client) CreateInstallationToken(
 	_, span, resp, err := c.Do(ctx, "github.Client.CreateInstallationToken", req)
 	defer span.End()
 	if err != nil {
-		return InstallationToken{}, fmt.Errorf("installation token call: %w", err)
+		return InstallationToken{}, transportError(ctx, fmt.Errorf("installation token call: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -154,7 +156,7 @@ func (c *Client) CreateInstallationToken(
 		if resp.StatusCode == http.StatusUnprocessableEntity {
 			sentinel = ErrInstallationPermissions
 		}
-		return InstallationToken{}, c.HandleErrorResponse(span, resp, sentinel)
+		return InstallationToken{}, statusError(resp, c.HandleErrorResponse(span, resp, sentinel))
 	}
 
 	var tok InstallationToken
@@ -361,7 +363,7 @@ func statusError(resp *http.Response, err error) error {
 }
 
 // isUnavailable reports whether a non-2xx response shows a GitHub outage or
-// a rate limit. err is the error of that response; its text holds the start
+// a rate limit. err is the error of that response, its text holds the start
 // of GitHub's error body. A rate limit is a 429, or a 403 with GitHub's
 // signal: x-ratelimit-remaining 0, a retry-after header, or a "secondary
 // rate limit" message. Any other 403 is, for example, lost access or a file

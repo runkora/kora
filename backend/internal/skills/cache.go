@@ -36,8 +36,8 @@ func CacheKey(tenantID, org, repo string) string {
 }
 
 // Get returns the cached []Skill for the given tenant + repo. The second
-// return value is false on a cache miss (not an error). A non-nil error
-// means Redis itself failed.
+// return value is false on a cache miss (not an error). Redis operation
+// failures wrap ErrRedisUnavailable; invalid cached JSON retains its own error.
 func (c *Cache) Get(ctx context.Context, tenantID, org, repo string) ([]Skill, bool, error) {
 	key := CacheKey(tenantID, org, repo)
 	data, err := c.redis.Client().Get(ctx, key).Bytes()
@@ -45,7 +45,7 @@ func (c *Cache) Get(ctx context.Context, tenantID, org, repo string) ([]Skill, b
 		if errors.Is(err, redis.Nil) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("cache get %q: %w", key, err)
+		return nil, false, fmt.Errorf("cache get %q: %w: %w", key, ErrRedisUnavailable, err)
 	}
 
 	var skills []Skill
@@ -56,11 +56,15 @@ func (c *Cache) Get(ctx context.Context, tenantID, org, repo string) ([]Skill, b
 }
 
 // Set writes skills to Redis under the tenant-scoped key with the configured TTL.
+// Redis operation failures wrap ErrRedisUnavailable.
 func (c *Cache) Set(ctx context.Context, tenantID, org, repo string, skills []Skill) error {
 	key := CacheKey(tenantID, org, repo)
 	data, err := json.Marshal(skills)
 	if err != nil {
 		return fmt.Errorf("cache marshal %q: %w", key, err)
 	}
-	return c.redis.Set(ctx, key, data, c.ttl)
+	if err := c.redis.Set(ctx, key, data, c.ttl); err != nil {
+		return fmt.Errorf("cache set %q: %w: %w", key, ErrRedisUnavailable, err)
+	}
+	return nil
 }
