@@ -112,27 +112,25 @@ func (c *Connector) unsupported(api ip.API) error {
 
 // ListModels lists the endpoint's models through whichever API family it serves.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
-	var ids []string
+	var models []inferencegw.ProviderModel
 	if c.serves[ip.APIChatCompletions] || c.serves[ip.APIResponses] || c.serves[ip.APIEmbeddings] {
 		iter := c.openai.Models.ListAutoPaging(ctx)
 		for iter.Next() {
-			ids = append(ids, iter.Current().ID)
+			m := c.Describe(iter.Current().ID)
+			m.Price = parsePrice(iter.Current().RawJSON())
+			models = append(models, m)
 		}
 		if err := iter.Err(); err != nil {
 			return nil, fmt.Errorf("%s: list models: %w", c.name, err)
 		}
-	} else {
-		iter := c.anthropic.Models.ListAutoPaging(ctx, anthropic.ModelListParams{})
-		for iter.Next() {
-			ids = append(ids, iter.Current().ID)
-		}
-		if err := iter.Err(); err != nil {
-			return nil, fmt.Errorf("%s: list models: %w", c.name, err)
-		}
+		return models, nil
 	}
-	models := make([]inferencegw.ProviderModel, 0, len(ids))
-	for _, id := range ids {
-		models = append(models, c.Describe(id))
+	iter := c.anthropic.Models.ListAutoPaging(ctx, anthropic.ModelListParams{})
+	for iter.Next() {
+		models = append(models, c.Describe(iter.Current().ID))
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("%s: list models: %w", c.name, err)
 	}
 	return models, nil
 }

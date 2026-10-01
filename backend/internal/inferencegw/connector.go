@@ -205,6 +205,10 @@ type ProviderModel struct {
 	// e.g. ["chat"] for LLMs, ["embedding"] for embedding models,
 	//      ["image"] for image-generation models.
 	Capabilities []ModelCapability
+
+	// Price is the price the upstream published with the model, per 1M tokens.
+	// Nil when it publishes none.
+	Price *ModelPriceEntry
 }
 
 // PolicyAlias returns the shortest clean alias for use in policy scope

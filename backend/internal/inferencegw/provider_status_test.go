@@ -3,13 +3,14 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
 func TestSetProvidersSwapsConnectorsAndDropsStaleModels(t *testing.T) {
 	a := &stubConnector{name: "compatible:a", models: []ProviderModel{{Provider: "compatible:a", ModelID: "m1"}}}
 	b := &stubConnector{name: "bedrock:b", models: []ProviderModel{{Provider: "bedrock:b", ModelID: "m2"}}}
-	r := NewRoutingEngine(map[ProviderName]ProviderConnector{a.name: a, b.name: b}, nil)
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{a.name: a, b.name: b}, nil, nil)
 	if _, err := r.ListModels(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +28,7 @@ func TestSetProvidersSwapsConnectorsAndDropsStaleModels(t *testing.T) {
 
 func TestProviderStatuses(t *testing.T) {
 	ok := &stubConnector{name: "compatible:ok", models: []ProviderModel{{Provider: "compatible:ok", ModelID: "m"}}}
-	r := NewRoutingEngine(nil, nil)
+	r := NewRoutingEngine(nil, nil, nil)
 	r.SetProviders(map[ProviderName]ProviderConnector{ok.name: ok}, []ProviderInfo{
 		{Name: "compatible:ok"},
 		{Name: "azure:broken", BuildError: "Secret \"az\" not found"},
@@ -63,7 +64,16 @@ func TestDiscoveryFromAReplacedProviderSetIsNotPublished(t *testing.T) {
 		stubConnector: stubConnector{name: "compatible:old", models: []ProviderModel{{Provider: "compatible:old", ModelID: "stale"}}},
 		release:       make(chan struct{}),
 	}
-	r := NewRoutingEngine(map[ProviderName]ProviderConnector{old.name: old}, []ProviderInfo{{Name: old.name}})
+	var mu sync.Mutex
+	var recorded []string
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{old.name: old}, []ProviderInfo{{Name: old.name}},
+		func(_ context.Context, models []ProviderModel) {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, m := range models {
+				recorded = append(recorded, m.ModelID)
+			}
+		})
 	done := make(chan struct{})
 	go func() {
 		_, _ = r.ListModels(context.Background())
@@ -85,6 +95,13 @@ func TestDiscoveryFromAReplacedProviderSetIsNotPublished(t *testing.T) {
 	if st := r.ProviderStatuses(); len(st) != 1 || st[0].ModelCount != 1 {
 		t.Errorf("statuses = %+v", st)
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range recorded {
+		if id != "fresh" {
+			t.Errorf("prices recorded for %v, want only the current provider's model", recorded)
+		}
+	}
 }
 
 // failingConnector returns its declared models with a discovery error.
@@ -96,7 +113,7 @@ func (f *failingConnector) ListModels(context.Context) ([]ProviderModel, error) 
 
 func TestDiscoveryErrorKeepsModelsAndMarksTheProvider(t *testing.T) {
 	f := &failingConnector{stubConnector{name: "compatible:x", models: []ProviderModel{{Provider: "compatible:x", ModelID: "declared"}}}}
-	r := NewRoutingEngine(map[ProviderName]ProviderConnector{f.name: f}, []ProviderInfo{{Name: f.name}})
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{f.name: f}, []ProviderInfo{{Name: f.name}}, nil)
 	_, _ = r.ListModels(context.Background())
 	if models := r.ProviderModels(); len(models) != 1 {
 		t.Errorf("declared models dropped: %+v", models)

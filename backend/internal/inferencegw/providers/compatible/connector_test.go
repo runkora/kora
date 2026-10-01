@@ -64,7 +64,7 @@ func (u *upstream) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, messageStream)
 	case "/v1/models":
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"anthropic/claude-x","object":"model"}]}`)
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"anthropic/claude-x","object":"model","pricing":{"prompt":"0.000003","completion":"0.000015"}},{"id":"local","object":"model"}]}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -185,12 +185,18 @@ func TestNoKeySendsNone(t *testing.T) {
 func TestListModelsDescribesServedDialects(t *testing.T) {
 	c, _ := setup(t, "k", ip.APIChatCompletions, ip.APIMessages)
 	models, err := c.ListModels(context.Background())
-	if err != nil || len(models) != 1 {
+	if err != nil || len(models) != 2 {
 		t.Fatalf("models = %v, %v", models, err)
 	}
 	m := models[0]
 	if m.Family != "anthropic" || len(m.Dialects) != 3 {
 		t.Errorf("model = %+v", m)
+	}
+	if m.Price == nil || !near(m.Price.InputCostPer1M, 3) || !near(m.Price.OutputCostPer1M, 15) {
+		t.Errorf("published price = %+v, want 3 in and 15 out per 1M", m.Price)
+	}
+	if models[1].Price != nil {
+		t.Errorf("unpriced model got %+v", models[1].Price)
 	}
 }
 

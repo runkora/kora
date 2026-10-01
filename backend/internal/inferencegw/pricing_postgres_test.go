@@ -2,9 +2,11 @@ package inferencegw
 
 import (
 	"context"
+	"io"
 	"os"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -67,3 +69,42 @@ func TestPostgres_SetOverrideCreatesAndUpdatesRow(t *testing.T) {
 	}
 	t.Fatal("override-only row not found")
 }
+
+func TestPostgres_DiscoveredPricesKeepOverrides(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	override := 1.0
+	discover := func(in, out float64) {
+		NewDiscoveredPrices(repo, noopRefresher{}, logging.NewLoggerWithOutput(io.Discard)).Record(ctx, []ProviderModel{
+			{Provider: provider, ModelID: "vendor/model", Price: &ModelPriceEntry{InputCostPer1M: in, OutputCostPer1M: out}},
+		})
+	}
+
+	discover(3, 15)
+	if err := repo.SetOverride(ctx, provider, "vendor/model", &override, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	discover(4, 16)
+
+	entries, err := repo.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Provider != provider || e.ModelID != "vendor/model" {
+			continue
+		}
+		if e.SyncedInput != 4 || e.SyncedOutput != 16 {
+			t.Errorf("synced = %v in, %v out, want the second discovery's 4 and 16", e.SyncedInput, e.SyncedOutput)
+		}
+		if e.EffectiveInput() != override || e.EffectiveOutput() != 16 {
+			t.Errorf("effective = %v in, %v out, want the override and the synced output", e.EffectiveInput(), e.EffectiveOutput())
+		}
+		return
+	}
+	t.Fatal("discovered row not found")
+}
+
+type noopRefresher struct{}
+
+func (noopRefresher) Refresh(context.Context) error { return nil }

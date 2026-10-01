@@ -118,7 +118,14 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	if err != nil {
 		return nil, nil, err
 	}
-	router := inferencegw.NewRoutingEngine(providers.Load(ctx))
+	// Prices a compatible upstream publishes with its models are stored on each discovery.
+	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
+	go pricingCache.Start(ctx)
+	prices := inferencegw.NewDiscoveredPrices(pricingCatalogRepo, pricingCache, logger)
+
+	conns, infos := providers.Load(ctx)
+	router := inferencegw.NewRoutingEngine(conns, infos, prices.Record)
 	go func() {
 		if _, discoverErr := router.ListModels(ctx); discoverErr != nil {
 			logger.Warn(ctx, "provider model discovery failed", logging.Field{Key: "error", Value: discoverErr.Error()})
@@ -136,7 +143,6 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 	catalogRepo := inferencegw.NewPostgresCatalogRepository(db.Pool())
-	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
 	catalog := inferencegw.NewCatalogStore(catalogRepo, router)
 
 	// Load the virtual model catalog into the routing engine before accepting
@@ -154,9 +160,6 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	selfToken := identityclient.NewClient(igc.Current.Identity.InternalURL, logger).SelfTokenSource()
 	register := initScopeRegistration(logger, selfToken, router)
-
-	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
-	go pricingCache.Start(ctx)
 
 	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
 		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),

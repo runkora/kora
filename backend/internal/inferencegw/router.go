@@ -76,6 +76,9 @@ type RoutingEngine struct {
 	// started on an older provider set publishes nothing.
 	publish sync.Mutex
 
+	// onDiscovered receives the models of every published discovery.
+	onDiscovered func(context.Context, []ProviderModel)
+
 	// onCatalogUpdate is called after every successful LoadVirtualCatalog.
 	// Wired in main.go to re-register scope vocabulary with the policy service.
 	onCatalogUpdate atomic.Pointer[func([]CatalogScope)]
@@ -92,11 +95,14 @@ func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 	r.onCatalogUpdate.Store(&fn)
 }
 
-// NewRoutingEngine constructs a RoutingEngine serving connectors, described by infos.
-func NewRoutingEngine(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo) *RoutingEngine {
+// NewRoutingEngine constructs a RoutingEngine serving connectors, described by
+// infos. onDiscovered, when set, receives the models of every published
+// discovery.
+func NewRoutingEngine(connectors map[ProviderName]ProviderConnector, infos []ProviderInfo, onDiscovered func(context.Context, []ProviderModel)) *RoutingEngine {
 	r := &RoutingEngine{
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
 		maxTotalAttempts:     defaultMaxTotalAttempts,
+		onDiscovered:         onDiscovered,
 	}
 	r.SetProviders(connectors, infos)
 	return r
@@ -393,7 +399,7 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 	set := r.providers.Load()
 	connectors := set.connectors
 	if len(connectors) == 0 {
-		r.publishDiscovery(set, map[ProviderName]discoveryResult{}, []ProviderModel{})
+		r.publishDiscovery(ctx, set, map[ProviderName]discoveryResult{}, []ProviderModel{})
 		return nil, ErrNoProvidersEnabled
 	}
 
@@ -427,7 +433,7 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		discovered[res.provider] = d
 		models = append(models, res.models...)
 	}
-	r.publishDiscovery(set, discovered, models)
+	r.publishDiscovery(ctx, set, discovered, models)
 
 	if len(models) > 0 {
 		return models, nil
@@ -440,15 +446,19 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 
 // publishDiscovery stores a discovery outcome unless set has been replaced.
 // An empty model list keeps the previous catalog.
-func (r *RoutingEngine) publishDiscovery(set *providerSet, discovered map[ProviderName]discoveryResult, models []ProviderModel) {
+func (r *RoutingEngine) publishDiscovery(ctx context.Context, set *providerSet, discovered map[ProviderName]discoveryResult, models []ProviderModel) {
 	r.publish.Lock()
-	defer r.publish.Unlock()
 	if r.providers.Load() != set {
+		r.publish.Unlock()
 		return
 	}
 	r.discovery.Store(&discovered)
 	if len(models) > 0 || len(set.connectors) == 0 {
 		r.modelCatalog.Store(&models)
+	}
+	r.publish.Unlock()
+	if r.onDiscovered != nil && len(models) > 0 {
+		r.onDiscovered(ctx, models)
 	}
 }
 
