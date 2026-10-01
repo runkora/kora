@@ -1,12 +1,12 @@
 # Model providers
 
-Register each model provider with an `InferenceProvider` resource in the Orbit system namespace (`orbit-system` by default). The inference gateway picks up a new, changed or deleted resource, or a rotated Secret, within seconds and without a restart. The provider registers as `<type>:<metadata.name>`, for example `compatible:openrouter`.
+Register each model provider with an `InferenceProvider` resource in the Orbit system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
-Credentials live in a Secret in the same namespace, labelled `orbit.io/inference-provider=true`. The resource names the Secret and never holds the value. Only the inference gateway reads provider credentials.
+Store credentials in a Secret in the same namespace. Label it `orbit.io/inference-provider=true` and reference it from the resource.
 
 ## Register OpenRouter or any compatible endpoint
 
-The `compatible` type covers any endpoint that speaks the OpenAI or Anthropic APIs: OpenRouter, OpenAI, Anthropic, vLLM. List the APIs the endpoint serves in `apis`.
+The `compatible` type registers any endpoint that serves OpenAI chat completions, Responses or embeddings, or Anthropic Messages. Examples are OpenRouter, OpenAI, Anthropic and vLLM.
 
 ```yaml
 apiVersion: v1
@@ -32,25 +32,39 @@ spec:
     - openai/gpt-oss-20b
   compatible:
     baseURL: https://openrouter.ai/api/v1
-    apis: [chatCompletions, responses, messages]
+    apis:
+      - chatCompletions
+      - responses
+      - messages
     apiKeySecretRef:
       name: openrouter
       key: apiKey
 ```
 
-- `apis` takes `chatCompletions`, `embeddings`, `responses` and `messages`. Declared APIs go straight to the endpoint.
-- An undeclared API is translated when a declared one can carry it. Chat completions and Responses run over `messages`, and Responses over `chatCompletions`. Undeclared `messages` and `embeddings` are refused.
-- Claude Code calls `messages`. Codex calls `responses`. OpenCode calls `chatCompletions`.
-- `baseURL` is the prefix of `/chat/completions` and `/messages`. It must end in `/v1` when `messages` is listed.
-- `baseURL` may be `http://` or `https://`.
-- `apiKeySecretRef` is optional for an unauthenticated server.
-- `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a model list needs it.
+**Fields**
 
-For the Anthropic API: `baseURL: https://api.anthropic.com/v1` and `apis: [messages]`. For OpenAI: `baseURL: https://api.openai.com/v1` and `apis: [chatCompletions, embeddings, responses]`.
+- `apis`: the APIs the endpoint serves. One or more of `chatCompletions`, `responses`, `embeddings` and `messages`.
+- `baseURL`: the endpoint's API root, over `http` or `https`. For example `https://openrouter.ai/api/v1`. It must end in `/v1` when `apis` includes `messages`.
+- `apiKeySecretRef`: the Secret and key that hold the API key. Omit it for an endpoint without authentication.
+- `models`: the models the provider offers. Omit it to offer every model the endpoint lists. Required when the endpoint has no model list.
+
+**APIs the endpoint does not serve**
+
+The gateway sends a listed API to the endpoint as is. An API missing from `apis` is handled as follows:
+
+- `chatCompletions`: sent as `messages`.
+- `responses`: sent as `chatCompletions`, or as `messages` when `chatCompletions` is not listed.
+- `messages`: refused.
+- `embeddings`: refused.
+
+**Common endpoints**
+
+- Anthropic API: `baseURL` is `https://api.anthropic.com/v1`. `apis` is `messages`.
+- OpenAI API: `baseURL` is `https://api.openai.com/v1`. `apis` is `chatCompletions`, `responses` and `embeddings`.
 
 ## Register Ollama
 
-Ollama serves all four APIs and needs no key:
+Ollama serves all four APIs:
 
 ```yaml
 apiVersion: orbit.io/v1alpha1
@@ -60,17 +74,19 @@ metadata:
   namespace: orbit-system
 spec:
   type: compatible
-  models: ["gpt-oss:20b", "nomic-embed-text:latest"]
+  models:
+    - gpt-oss:20b
+    - nomic-embed-text:latest
   compatible:
     baseURL: http://ollama.example.internal:11434/v1
-    apis: [chatCompletions, embeddings, responses, messages]
+    apis:
+      - chatCompletions
+      - responses
+      - embeddings
+      - messages
 ```
 
-The gateway's network policies allow outbound 443. A model server outside the cluster on another port, such as Ollama on 11434, needs its address and port in `networkPolicy.externalServices`. Locally, `make up` adds Ollama on the host, so `baseURL: http://host.k3d.internal:11434/v1` works.
-
 ## Register AWS Bedrock
-
-With the gateway's workload identity (IRSA or EKS Pod Identity on its `orbit-inference-gateway` ServiceAccount):
 
 ```yaml
 apiVersion: orbit.io/v1alpha1
@@ -82,20 +98,19 @@ spec:
   type: bedrock
   bedrock:
     region: ap-southeast-2
-    assumeRoleARN: arn:aws:iam::123456789012:role/orbit-bedrock   # optional: another account
-    externalID: orbit                                              # optional
-    roleSessionName: platform-team                                 # optional, default orbit-inference-gateway
+    assumeRoleARN: arn:aws:iam::123456789012:role/orbit-bedrock
+    externalID: orbit
 ```
 
-With static keys, add a labelled Secret with keys `accessKeyID`, `secretAccessKey` and optionally `sessionToken`, and name it:
+**Fields**
 
-```yaml
-    credentials:
-      secretRef:
-        name: bedrock-credentials
-```
+- `region`: the AWS region.
+- `credentials.secretRef`: a labelled Secret with `accessKeyID`, `secretAccessKey` and optional `sessionToken`. Omit it to use the gateway's workload identity, which is IRSA or EKS Pod Identity on the `orbit-inference-gateway` ServiceAccount.
+- `assumeRoleARN`: a role to assume, for example in another account. Optional.
+- `externalID`: the external ID the role requires. Optional.
+- `roleSessionName`: the session name. Optional. The default is `orbit-inference-gateway`.
 
-Locally, `make cluster-bedrock-creds` writes your AWS SSO session into Secret `orbit-bedrock-credentials` and applies one Bedrock resource per alias in `BEDROCK_ACCOUNTS` in `.env`. `make up` runs it too.
+For local development, `make cluster-bedrock-creds` creates one Bedrock provider per alias in `BEDROCK_ACCOUNTS` in `.env`. It stores your AWS SSO session in the Secret `orbit-bedrock-credentials`. `make up` runs it.
 
 ## Register Google Vertex AI
 
@@ -110,11 +125,18 @@ spec:
   vertexai:
     projectID: my-project
     location: us-central1
-    anthropicLocation: us-east5          # optional: region for Claude models
-    credentialsSecretRef:                # optional: absent uses GKE Workload Identity
+    anthropicLocation: us-east5
+    credentialsSecretRef:
       name: vertex-sa
       key: key.json
 ```
+
+**Fields**
+
+- `projectID`: the Google Cloud project.
+- `location`: the region.
+- `anthropicLocation`: the region for Claude models. Optional.
+- `credentialsSecretRef`: a labelled Secret and key holding a service account key. Omit it to use GKE Workload Identity.
 
 ## Register Azure AI
 
@@ -129,11 +151,24 @@ spec:
   azure:
     endpoint: https://my-resource.openai.azure.com
     apiVersion: "2024-10-21"
-    anthropicEndpoint: https://my-resource.services.ai.azure.com/anthropic   # optional
+    anthropicEndpoint: https://my-resource.services.ai.azure.com/anthropic
     apiKeySecretRef:
       name: azure-ai
       key: apiKey
 ```
+
+**Fields**
+
+- `endpoint`: the Azure OpenAI resource endpoint.
+- `apiVersion`: the Azure OpenAI API version.
+- `anthropicEndpoint`: the endpoint for Claude models. Optional.
+- `apiKeySecretRef`: the Secret and key that hold the API key.
+
+## Network access
+
+The gateway's network policy allows outbound traffic on port 443. For a model server outside the cluster on another port, add its address and port to `networkPolicy.externalServices`.
+
+For local development, `make up` adds Ollama on the host. Use `baseURL: http://host.k3d.internal:11434/v1`.
 
 ## Check a provider
 
@@ -141,17 +176,30 @@ spec:
 kubectl get inferenceproviders -n orbit-system
 ```
 
-`PHASE` is `Ready` when the gateway loaded the resource. `Invalid` carries the reason in the `Loaded` condition, such as a missing Secret, a missing key or an unlabelled Secret. A resource in another namespace, or without the block its `type` names, is rejected on apply.
+- `Ready`: the gateway loaded the provider.
+- `Invalid`: the `Loaded` condition gives the reason. For example a missing Secret, a missing key or an unlabelled Secret.
 
-Runtime health (the model count, the last discovery, any upstream error) is on the dashboard's Catalog page under Providers, in `GET /v1/catalog/providers`, and in the Orbit MCP tool `models.providers.status`.
+The cluster rejects a resource outside `orbit-system` or without the block for its `type`.
+
+Provider health shows the model count, the last discovery and any upstream error. It appears in:
+
+- the dashboard: Catalog, Providers
+- the API: `GET /v1/catalog/providers`
+- the Orbit MCP tool: `models.providers.status`
 
 ## Offer a model to agents
 
-A provider's models appear under Provider Catalog. Agents use virtual models. Create one routed to the provider model on the Catalog page or with `models.virtual.create`, then grant `inference:<family>:<name>:use`.
+1. Find the model under Provider Catalog.
+2. Create a virtual model routed to it, on the Catalog page or with `models.virtual.create`.
+3. Grant `inference:<family>:<name>:use`.
 
-Bedrock, Vertex AI and Azure prices sync automatically. A `compatible` provider whose `/models` publishes prices, such as OpenRouter, syncs them on each discovery. Ollama, vLLM and other endpoints that publish none have no synced prices: set them per model on the Catalog page or with `models.pricing.set_override`. An override wins over a synced price in both cases.
+## Prices
 
-A mesh on `REGISTRY_ONLY` needs a ServiceEntry for each provider host.
+- Bedrock, Vertex AI and Azure: synced automatically.
+- `compatible` endpoints that publish prices in `/models`, such as OpenRouter: synced on each discovery.
+- Other endpoints, such as Ollama and vLLM: set a price override per model, on the Catalog page or with `models.pricing.set_override`.
+
+An override always wins over a synced price.
 
 ## Reference
 
