@@ -1,6 +1,6 @@
 # Enforcement Sidecar Injection, Preflight and Restricted Pod Security
 
-**Status:** Proposed (Amended 2026-10-01)
+**Status:** Accepted (Amended 2026-10-01)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place Orbit's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh Orbit did not install, how the prerequisites contract is verified, and what changes so every Orbit pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
