@@ -2,6 +2,9 @@
 export { EmptyState } from './empty-state';
 export type { EmptyStateProps } from './empty-state';
 
+export { PrincipalBadge } from './principal-badge';
+export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
+
 /** Maps an OrbitStatus value to a labelled Badge with a status dot. */
 export { StatusBadge } from './status-badge';
 export type { StatusBadgeProps, OrbitStatus } from './status-badge';

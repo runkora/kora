@@ -11,7 +11,7 @@ import { CopyButton, ScopeChip } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetAssignment, Grant } from '../_types';
 import type { GrantIdentity } from '../_utils/grant-identity';
-import { PrincipalBadge } from './principal-badge';
+import { PrincipalBadge } from '@orbit/components';
 
 function budgetLines(budget: BudgetAssignment | null | undefined): string[] {
   if (!budget) return [];

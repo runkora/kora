@@ -52,13 +52,12 @@ import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_act
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
+import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { ScopeTreePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
-import { PrincipalBadge } from './principal-badge';
 import { ViewToggle } from './view-toggle';
 
 // ── Props ────────────────────────────────────────────────────────────────────
