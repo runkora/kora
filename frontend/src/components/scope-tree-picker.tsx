@@ -137,7 +137,7 @@ function ScopeGroupCard({
           <CollapsibleContent>
             {scopes.map((scope) => (
               <Stack key={scope} gap="none">
-                <Separator span="full" />
+                <Separator />
                 <Stack
                   direction="horizontal"
                   align="center"

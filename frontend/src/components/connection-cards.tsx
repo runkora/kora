@@ -292,7 +292,7 @@ export function ConnectionCards({
                 <CollapsibleContent>
                   {qualifier && (
                     <Stack gap="none">
-                      <Separator span="full" />
+                      <Separator />
                       <ResourceScopeBlock
                         connection={conn.name}
                         qualifier={qualifier}
@@ -305,7 +305,7 @@ export function ConnectionCards({
                     const actionOn = current.includes(action);
                     return (
                       <Stack key={action} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack
                           direction="horizontal"
                           align="center"
@@ -340,7 +340,7 @@ export function ConnectionCards({
                   {on &&
                     conn.baseline.map((fragment) => (
                       <Stack key={`baseline-${fragment}`} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack
                           direction="horizontal"
                           align="center"

@@ -266,7 +266,6 @@ export function AgentsPage() {
           </Button>
           <Separator
             orientation="vertical"
-            span="full"
             style={{ height: '1.5rem', alignSelf: 'center' }}
           />
           <Button

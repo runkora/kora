@@ -128,7 +128,7 @@ export function DashboardHeader() {
                 {endpoint}
               </Text>
             </Text>
-            <Separator orientation="vertical" span="narrow" />
+            <Separator orientation="vertical" />
           </>
         ) : null}
         <ThemeToggle />

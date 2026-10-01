@@ -39,7 +39,7 @@ export function DelegatedRunNotice() {
         </Stack>
         {NOTICE_ROWS.map((row) => (
           <Stack key={row.title} gap="none">
-            <Separator span="full" />
+            <Separator />
             <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
               <Icon
                 name={row.icon}

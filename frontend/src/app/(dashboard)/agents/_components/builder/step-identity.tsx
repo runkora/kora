@@ -68,7 +68,7 @@ export function StepIdentity() {
           />
         </FormField>
 
-        <Separator span="full" />
+        <Separator />
 
         {/* ── Identity model ─────────────────────────────────────────────────── */}
         <Stack gap="cozy">
