@@ -21,6 +21,7 @@ export type { EventFeedItemProps } from './event-feed-item';
 /** Syntax-highlighted Orbit scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';
 export type { ScopeChipProps } from './scope-chip';
+export { TruncatingBadge } from './truncating-badge';
 
 /** Searchable accordion scope selector grouped by resource type. */
 export { ScopePicker } from './scope-picker';
