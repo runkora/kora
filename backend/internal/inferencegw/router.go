@@ -76,6 +76,14 @@ type RoutingEngine struct {
 	// started on an older provider set publishes nothing.
 	publish sync.Mutex
 
+	// sweeps numbers each discovery as it starts. published is the newest one
+	// published, so a slower, older sweep never overwrites a newer one.
+	sweeps    atomic.Uint64
+	published atomic.Uint64
+
+	// notify runs onDiscovered for one sweep at a time, in sweep order.
+	notify sync.Mutex
+
 	// onDiscovered receives each provider's models after a published discovery
 	// that provider completed without error.
 	onDiscovered DiscoveredFunc
@@ -399,10 +407,11 @@ func (r *RoutingEngine) CatalogScopes() []CatalogScope {
 // reported in its provider status. Results are published only if the provider
 // set has not been replaced since discovery started.
 func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error) {
+	sweep := r.sweeps.Add(1)
 	set := r.providers.Load()
 	connectors := set.connectors
 	if len(connectors) == 0 {
-		r.publishDiscovery(ctx, set, map[ProviderName]discoveryResult{}, []ProviderModel{}, nil)
+		r.publishDiscovery(ctx, sweep, set, map[ProviderName]discoveryResult{}, []ProviderModel{}, nil)
 		return nil, ErrNoProvidersEnabled
 	}
 
@@ -439,7 +448,7 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		discovered[res.provider] = d
 		models = append(models, res.models...)
 	}
-	r.publishDiscovery(ctx, set, discovered, models, listed)
+	r.publishDiscovery(ctx, sweep, set, discovered, models, listed)
 
 	if len(models) > 0 {
 		return models, nil
@@ -450,20 +459,27 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 	return nil, ErrNoProvidersEnabled
 }
 
-// publishDiscovery stores a discovery outcome unless set has been replaced.
-// An empty model list keeps the previous catalog.
-func (r *RoutingEngine) publishDiscovery(ctx context.Context, set *providerSet, discovered map[ProviderName]discoveryResult, models []ProviderModel, listed map[ProviderName][]ProviderModel) {
+// publishDiscovery stores a discovery outcome unless set has been replaced or a
+// newer sweep has published. An empty model list keeps the previous catalog.
+func (r *RoutingEngine) publishDiscovery(ctx context.Context, sweep uint64, set *providerSet, discovered map[ProviderName]discoveryResult, models []ProviderModel, listed map[ProviderName][]ProviderModel) {
 	r.publish.Lock()
-	if r.providers.Load() != set {
+	if r.providers.Load() != set || sweep < r.published.Load() {
 		r.publish.Unlock()
 		return
 	}
+	r.published.Store(sweep)
 	r.discovery.Store(&discovered)
 	if len(models) > 0 || len(set.connectors) == 0 {
 		r.modelCatalog.Store(&models)
 	}
 	r.publish.Unlock()
 	if r.onDiscovered == nil {
+		return
+	}
+	r.notify.Lock()
+	defer r.notify.Unlock()
+	// A newer sweep published while this one waited and will notify instead.
+	if sweep != r.published.Load() {
 		return
 	}
 	for provider, ms := range listed {

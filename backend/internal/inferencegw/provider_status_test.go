@@ -3,7 +3,9 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -121,5 +123,58 @@ func TestDiscoveryErrorKeepsModelsAndMarksTheProvider(t *testing.T) {
 	st := r.ProviderStatuses()
 	if st[0].Status != ProviderStatusError || st[0].ModelCount != 1 || st[0].Error == "" {
 		t.Errorf("status = %+v", st[0])
+	}
+}
+
+// sequencedConnector holds its first discovery until release and lists stale
+// models from it; later discoveries return fresh models at once.
+type sequencedConnector struct {
+	stubConnector
+	calls   atomic.Int32
+	release chan struct{}
+}
+
+func (s *sequencedConnector) ListModels(context.Context) ([]ProviderModel, error) {
+	if s.calls.Add(1) == 1 {
+		<-s.release
+		return []ProviderModel{{Provider: s.name, ModelID: "stale"}}, nil
+	}
+	return []ProviderModel{{Provider: s.name, ModelID: "fresh"}}, nil
+}
+
+func TestAnOlderDiscoveryNeverOverwritesANewerOne(t *testing.T) {
+	c := &sequencedConnector{stubConnector: stubConnector{name: "compatible:or"}, release: make(chan struct{})}
+	var mu sync.Mutex
+	var recorded []string
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{c.name: c}, []ProviderInfo{{Name: c.name}},
+		func(_ context.Context, _ ProviderName, models []ProviderModel) {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, m := range models {
+				recorded = append(recorded, m.ModelID)
+			}
+		})
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = r.ListModels(context.Background())
+		close(done)
+	}()
+	for c.calls.Load() == 0 {
+		runtime.Gosched()
+	}
+	if _, err := r.ListModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(c.release)
+	<-done
+
+	if models := r.ProviderModels(); len(models) != 1 || models[0].ModelID != "fresh" {
+		t.Errorf("catalog = %+v, want the newer discovery", models)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(recorded) != 1 || recorded[0] != "fresh" {
+		t.Errorf("prices recorded for %v, want only the newer discovery", recorded)
 	}
 }
