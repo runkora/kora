@@ -145,8 +145,8 @@ Heading.displayName = 'Heading';
  * alignment, and overflow modifiers.
  *
  * Size variants use semantic names describing purpose, not scale:
- *   micro      — finest detail: 11px, timestamps in dense UIs, disclaimer text
- *   caption    — fine detail: 12px, timestamps, badge labels, auxiliary metadata
+ *   micro      — finest detail: 12px, timestamps in dense UIs, disclaimer text
+ *   caption    — fine detail: 13px, timestamps, badge labels, auxiliary metadata
  *   supporting — secondary body: descriptions, helper text, table metadata
  *   body       — default prose: the majority of UI text lives here
  *   lead       — introductory: opening paragraphs, feature descriptions
@@ -159,9 +159,9 @@ const textVariants = cva('font-sans', {
        * keyboard shortcut hints, and single-line disclaimer text where caption
        * (12px) would still feel too large. Use sparingly.
        */
-      micro: 'text-[11px] leading-none',
+      micro: 'text-xs leading-none',
       /** Finest text — 12px timestamps, status labels, auxiliary data. */
-      caption: 'text-xs leading-none',
+      caption: 'text-[13px] leading-none',
       /** Secondary body — descriptions, helper text, table metadata. */
       supporting: 'text-sm leading-normal',
       /** Default prose — the primary body copy size. */

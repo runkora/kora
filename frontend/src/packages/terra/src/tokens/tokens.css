@@ -241,8 +241,8 @@
   --shadow-elevated: var(--terra-raw-shadow-elevated);
 
   /* Typography */
-  --font-sans: var(--font-archivo, 'Archivo', ui-sans-serif, system-ui, sans-serif);
-  --font-mono: var(--font-dm-mono, 'DM Mono', ui-monospace, 'Cascadia Code', monospace);
+  --font-sans: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, 'Geist Mono', ui-monospace, 'Cascadia Code', monospace);
 
   /* Radii are multiples of --terra-radius-unit. A theme changes the unit to   */
   /* rescale all of them. At the default unit xl and 2xl are 12px and 16px.    */
@@ -337,20 +337,17 @@
 }
 
 /* ─── Headings ───────────────────────────────────────────────────────────── */
-/* Archivo at 110% width, with tighter spacing as headings get larger. Each   */
-/* Heading variant renders a fixed tag, so tag selectors are enough.          */
-:is(h1, h2, h3) {
-  font-stretch: 110%;
-}
+/* Inter with slightly tighter spacing as headings get larger. Each Heading   */
+/* variant renders a fixed tag, so tag selectors are enough.                  */
 h1 {
-  font-weight: 800;
-  letter-spacing: -0.05em;
+  font-weight: 700;
+  letter-spacing: -0.03em;
 }
 :is(h2, h3) {
-  font-weight: 700;
-  letter-spacing: -0.035em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 h4 {
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }

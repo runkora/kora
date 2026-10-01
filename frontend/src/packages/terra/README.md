@@ -121,10 +121,10 @@ Background variants (e.g., `bg-status-healthy-subtle`) are available for badge a
 
 ### Typography
 
-| Token         | Value   | Purpose                                    |
-| ------------- | ------- | ------------------------------------------ |
-| `--font-sans` | Archivo | Body text, UI labels                       |
-| `--font-mono` | DM Mono | Agent IDs, policy names, code, identifiers |
+| Token         | Value      | Purpose                                    |
+| ------------- | ---------- | ------------------------------------------ |
+| `--font-sans` | Inter      | Body text, UI labels                       |
+| `--font-mono` | Geist Mono | Agent IDs, policy names, code, identifiers |
 
 Use `font-mono` for any value that represents a system identifier: agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
 
