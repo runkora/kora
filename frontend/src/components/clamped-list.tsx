@@ -15,7 +15,7 @@
  */
 import { Button, Grid, Popover, PopoverContent, PopoverTrigger, Stack, Text } from '@orbit/terra';
 import { Fragment, type ReactNode } from 'react';
-import { useClampedRows } from './use-clamped-rows';
+import { CLAMP_TRIGGER_ATTR, useClampedRows } from './use-clamped-rows';
 
 export interface ClampedListProps<T> {
   items: readonly T[];
@@ -38,7 +38,11 @@ export function ClampedList<T>({
   max = 3,
   maxRows,
 }: ClampedListProps<T>) {
-  const listRef = useClampedRows<HTMLDivElement>(maxRows ?? Infinity, items.length);
+  // Refit when the items themselves change, not just their count: a same-length
+  // update can move badges onto different rows, which the width-only
+  // ResizeObserver would not notice.
+  const contentKey = items.map(getKey).join('\u0000');
+  const listRef = useClampedRows<HTMLDivElement>(maxRows ?? Infinity, contentKey);
 
   if (items.length === 0) {
     return (
@@ -68,7 +72,7 @@ export function ClampedList<T>({
         <Popover>
           <PopoverTrigger asChild>
             <Button
-              data-clamp-trigger=""
+              {...{ [CLAMP_TRIGGER_ATTR]: '' }}
               variant="muted"
               size="sm"
               aria-label={`Show all ${items.length} ${noun}`}
