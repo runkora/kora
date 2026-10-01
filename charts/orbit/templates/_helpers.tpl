@@ -232,7 +232,9 @@ capabilities:
 {{/*
 Pod annotations that route the Istio sidecar's certificate through SPIRE and
 mount the SPIFFE workload socket. Annotation-driven so it works on any
-conforming Istio, with no custom injection template. Takes (dict "root" $).
+conforming Istio, with no custom injection template. IN_MESH keeps Istio's
+peer-metadata headers off calls that leave the mesh, so they cannot expose pod
+details to third parties. Takes (dict "root" $).
 */}}
 {{- define "orbit.spireProxyAnnotations" -}}
 proxy.istio.io/config: |
@@ -240,6 +242,9 @@ proxy.istio.io/config: |
   proxyMetadata:
     PILOT_CERT_PROVIDER: spire
     SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
+  proxyHeaders:
+    metadataExchangeHeaders:
+      mode: IN_MESH
 {{- end }}
 
 {{/*
