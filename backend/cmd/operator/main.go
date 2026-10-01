@@ -26,6 +26,7 @@ import (
 	"github.com/clear-route/orbit/internal/operator/preflight"
 	"github.com/clear-route/orbit/internal/operator/webhookcert"
 	"github.com/clear-route/orbit/internal/platform/config"
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
@@ -232,6 +233,10 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		Scheme: operator.NewScheme(),
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
+			// The operator's Role reads InferenceProviders in the system namespace only.
+			ByObject: map[client.Object]cache.ByObject{
+				&ip.InferenceProvider{}: {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
 		Client: client.Options{
@@ -322,6 +327,11 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 	// it before the first tenant exists.
 	if err := mgr.Add(manager.RunnableFunc(registry.Sync)); err != nil {
 		return fmt.Errorf("add tenant registry seed: %w", err)
+	}
+
+	providerReconciler := &operator.InferenceProviderReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	if err := providerReconciler.SetupWithManager(mgr); err != nil {
+		return err
 	}
 
 	mcpServerReconciler := &operator.MCPServerReconciler{

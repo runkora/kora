@@ -23,8 +23,8 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 

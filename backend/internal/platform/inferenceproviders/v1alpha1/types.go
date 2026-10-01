@@ -1,5 +1,6 @@
-// Package v1alpha1 holds the InferenceProvider API types. The
-// inference gateway watches these resources; the chart ships their CRD.
+// Package v1alpha1 holds the InferenceProvider API types. The inference
+// gateway builds connectors from them and the operator registers their hosts
+// with the mesh; the chart ships their CRD.
 //
 // See docs/adr/2026-10-01-crd-inference-providers.md.
 package v1alpha1
