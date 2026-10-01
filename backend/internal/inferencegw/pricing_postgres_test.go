@@ -143,6 +143,30 @@ func TestPostgres_ReplaceSyncedIsAllOrNothing(t *testing.T) {
 	}
 }
 
+func TestPostgres_ReplaceSyncedWithNoEntries(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	if err := repo.ReplaceSynced(ctx, provider, []ModelPriceEntry{
+		{Provider: provider, ModelID: "plain", InputCostPer1M: 2},
+		{Provider: provider, ModelID: "overridden", InputCostPer1M: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	override := 5.0
+	if err := repo.SetOverride(ctx, provider, "overridden", &override, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.ReplaceSynced(ctx, provider, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := providerRows(t, repo, provider)
+	if len(rows) != 1 || rows["overridden"].EffectiveInput() != override || rows["overridden"].SyncedInput != 0 {
+		t.Errorf("rows = %+v, want only the override-only row", rows)
+	}
+}
+
 // providerRows returns the pricing rows of provider by model id.
 func providerRows(t *testing.T, repo *PostgresPricingCatalogRepository, provider ProviderName) map[string]PricingCatalogEntry {
 	t.Helper()
