@@ -20,7 +20,7 @@ spec:
   securityContext:
     {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 4 }}
   volumes:
-    {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 4 }}
+    {{- include "orbit.spireVolumes" . | nindent 4 }}
   containers:
     - name: preflight
       image: {{ include "orbit.image" (dict "root" $ "name" "operator") | quote }}

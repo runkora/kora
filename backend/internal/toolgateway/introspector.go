@@ -7,11 +7,8 @@
 // not revoke live scopes. The worker holds the per-server snapshots the scope
 // publisher (Phase 3.3) and catalog writer (Phase 3.4) consume.
 //
-// In-cluster, outbound calls to a server endpoint flow through the gateway's
-// identity-proxy sidecar, which injects the gateway's platform token — so a
-// first-party Orbit MCP whose tools/list is auth-gated is reachable without the
-// worker handling tokens itself (the same way the routescopes client reaches
-// policy-service). A standalone/unauthenticated server is reached directly.
+// Introspection sends no credential. Servers may be tenant-owned, so the
+// gateway's platform token must never reach them, and tools/list needs none.
 package toolgateway
 
 import (

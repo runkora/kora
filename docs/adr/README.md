@@ -43,7 +43,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 
 - [Universal Gateway as Policy Enforcement Point](2026-03-05-universal-gateway-policy-enforcement.md) — `Accepted` · 2026-03-05
 - [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (revised 2026-04-13)` · 2026-04-14
-- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted` · 2026-04-14
+- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted (Amended 2026-10-01)` · 2026-04-14
 - [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) — `Accepted` · 2026-04-14
 - [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted` · 2026-04-15
 - [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — `Accepted` · 2026-04-19
@@ -140,7 +140,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
 - [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed` · 2026-09-04
-- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Proposed` · 2026-09-04
+- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Proposed (Amended 2026-10-01)` · 2026-09-04
 - [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
 - [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
 
@@ -195,7 +195,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-01 | [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) | Accepted (Amended 2025-07-22) | 0024 |
 | 2026-04-02 | [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) | Accepted | 0033 |
 | 2026-04-06 | [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) | Accepted | 0034 |
-| 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted | 0036 |
+| 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted (Amended 2026-10-01) | 0036 |
 | 2026-04-14 | [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) | Accepted | 0037 |
 | 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (revised 2026-04-13) | 0035 |
 | 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted | 0038 |
@@ -269,7 +269,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29) | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
-| 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed | — |
+| 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Proposed (Amended 2026-10-01) | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |

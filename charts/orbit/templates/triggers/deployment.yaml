@@ -18,7 +18,7 @@ spec:
         spiffe.io/component: orbit-triggers
         {{- include "orbit.podLabels" (dict "root" $ "name" "triggers") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
@@ -29,7 +29,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
         - name: orbit-triggers

@@ -82,20 +82,17 @@ func realMain() error {
 	defer db.Close()
 	defer redis.Close()
 
-	controller, policyClient, err := initController(ctx, logger, db, redis, meter)
+	controller, scopeClient, err := initController(ctx, logger, db, redis, meter)
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
 
 	// Publish the Triggers scope vocabulary so the policy service can validate
 	// triggers:read / triggers:write when they are granted, and keep it
-	// published across policy-service restarts. Registration goes through the
-	// authenticated policy client rather than the anonymous routescopes client:
-	// /routes/register requires a bearer token, which the client obtains by
-	// exchanging this pod's SVID.
+	// published across policy-service restarts.
 	go routescopes.KeepRegistered(ctx, logger, "orbit-triggers",
 		func(ctx context.Context) error {
-			return policyClient.RegisterRoutes(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
+			return scopeClient.Register(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
 		})
 
 	run(ctx, logger, initServer(ctx, logger, controller))
@@ -110,7 +107,7 @@ func initController(
 	db *storage.DB,
 	redis *storage.RedisClient,
 	meter metric.Meter,
-) (platformapi.Controller, *policyclient.Client, error) {
+) (platformapi.Controller, *routescopes.Client, error) {
 	cipherKey, err := triggers.LoadCipherKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load triggers encryption key: %w", err)
@@ -125,12 +122,10 @@ func initController(
 	// mesh (this pod's SVID presented as the mTLS client cert). The same client
 	// exchanges our own SVID for the platform token the policy client needs.
 	identityClient := identityclient.NewClient(tc.Current.Identity.InternalURL, logger)
+	selfToken := identityClient.SelfTokenSource()
 
-	policyClient := policyclient.NewClient(
-		tc.Current.Policy.PolicyServiceInternalURL,
-		identityClient.SelfTokenSource(),
-		logger,
-	)
+	policyClient := policyclient.NewClient(tc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
+	scopeClient := routescopes.NewClient(tc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 
 	policyEval := policy.NewEvaluator(
 		tc.Current.Policy.BundleEndpoint,
@@ -234,7 +229,7 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := mw.AuthMiddlewareWithRevocation(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), policyClient, nil
+	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), scopeClient, nil
 }
 
 // routeScopes binds each management route to the scope it requires.

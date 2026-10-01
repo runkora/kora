@@ -23,7 +23,7 @@ spec:
         spiffe.io/component: tool-gateway
         {{- include "orbit.podLabels" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "toolGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-tool-gateway
@@ -32,7 +32,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         - name: mcp-servers
           configMap:
             name: {{ .Values.toolGateway.mcpServersConfigMapName }}

@@ -24,6 +24,11 @@ pricing:
   # Upstream URL for LiteLLM's community-maintained pricing JSON.
   sourceURL: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
+identity:
+  # SVID exchange for this service's own platform token. The mesh's mTLS peer
+  # identity authenticates the call, so no credential is configured here.
+  internalURL: "http://orbit-identity.orbit-system.svc"
+
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30

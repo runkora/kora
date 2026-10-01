@@ -1,5 +1,5 @@
 # Publisher: introspects MCP servers and publishes scopes. Single writer, not
-# behind the Service, carries identity-proxy for its own platform token.
+# behind the Service. It fetches its own platform token in-process.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,10 +21,9 @@ spec:
         {{- include "orbit.toolGateway.labels" . | nindent 8 }}
         orbit.io/mode: publisher
         spiffe.io/component: tool-gateway
-        orbit.io/identity-proxy: "enabled"
         {{- include "orbit.podLabels" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "toolGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-tool-gateway
@@ -33,7 +32,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         - name: mcp-servers
           configMap:
             name: {{ .Values.toolGateway.mcpServersConfigMapName }}
@@ -91,4 +90,3 @@ spec:
               mountPath: /var/run/orbit/mcp-servers
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "toolGateway") | nindent 12 }}
-        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

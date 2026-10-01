@@ -17,10 +17,9 @@ spec:
         orbit.io/kube-api-client: "true"
         {{- include "orbit.agents.labels" . | nindent 8 }}
         spiffe.io/component: orbit-agents
-        orbit.io/identity-proxy: "enabled"
         {{- include "orbit.podLabels" (dict "root" $ "name" "agents") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         # Roll the pod when the manifest patches ConfigMap changes
@@ -37,7 +36,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         # Connection registry aggregated by the operator; optional so the pod starts
         # before any Connection exists.
         - name: tenant-connections
@@ -140,4 +139,3 @@ spec:
               mountPath: /etc/orbit/workloads
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}
-        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

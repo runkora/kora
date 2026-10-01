@@ -43,6 +43,7 @@ func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 //   - SERVICE → tenant-scoped registration (compiled into that tenant's bundle only;
 //     all required_scopes must exist in the tenant's vocabulary)
 //
+// Either way the caller may only register its own service's routes.
 // AGENT and HUMAN principals are rejected — route registration is a service-only operation.
 func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -77,9 +78,9 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// SERVICE principals can only register routes under their own service identity.
-	// This prevents service-a from registering routes as service-b.
-	if claims.Orbit.PrincipalType == token.PrincipalTypeService && req.Service != claims.Subject {
+	// A caller registers, and so prunes, only its own service's routes and scopes.
+	// A SYSTEM token names its SPIFFE component in display_name; a SERVICE token names itself in sub.
+	if req.Service != ownService(claims) {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
 				"service identity mismatch: cannot register routes for another service", nil), nil)
@@ -92,6 +93,14 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// ownService is the service name the caller may register routes under.
+func ownService(claims *token.PlatformClaims) string {
+	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+		return claims.Orbit.DisplayName
+	}
+	return claims.Subject
 }
 
 func routesErrorResponse(err error) *platformapi.APIError {

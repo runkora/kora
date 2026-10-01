@@ -18,7 +18,7 @@ spec:
         spiffe.io/component: identity
         {{- include "orbit.podLabels" (dict "root" $ "name" "identity") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres, Redis and the OIDC issuer are outside the mesh.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "identity") | nindent 8 }}
@@ -33,7 +33,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         # Operator-owned tenant registries. All optional so identity starts before
         # any tenant exists; identity watches the files and reloads on change.
         - name: tenants-config

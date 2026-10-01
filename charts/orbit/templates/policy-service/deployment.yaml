@@ -18,7 +18,7 @@ spec:
         spiffe.io/component: policy-service
         {{- include "orbit.podLabels" (dict "root" $ "name" "policyService") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "policyService") | nindent 8 }}
@@ -29,7 +29,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         # Operator-owned tenant registry: the gateway bundle lists every
         # registered tenant, with or without policy rows. Optional so the
         # service starts before any tenant exists; re-read on every compile.

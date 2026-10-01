@@ -17,8 +17,13 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing PricingConfig `yaml:"pricing"`
-	Policy  PolicyConfig  `yaml:"policy"`
+	Pricing  PricingConfig `yaml:"pricing"`
+	Policy   PolicyConfig  `yaml:"policy"`
+	Identity struct {
+		// InternalURL is the in-cluster base URL for identity. The gateway
+		// exchanges its SVID there for the platform token it registers routes with.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.

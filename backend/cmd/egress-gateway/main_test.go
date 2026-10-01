@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -41,6 +42,9 @@ type registration struct {
 	Routes  []routescopes.RouteScope       `json:"routes"`
 	Scopes  []routescopes.ScopeDeclaration `json:"scopes"`
 }
+
+// testToken stands in for the identity client's self token source.
+func testToken(context.Context) (string, error) { return "self-token", nil }
 
 func capturingPolicyService(t *testing.T, got chan<- registration) *httptest.Server {
 	t.Helper()
@@ -96,7 +100,7 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	withPolicyServiceURL(t, srv.URL)
 
 	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:orbit-conn-acme-github"}]`)
-	register := initScopeRegistration(logging.NewLoggerWithOutput(io.Discard), conns, testAdapters(t))
+	register := initScopeRegistration(logging.NewLoggerWithOutput(io.Discard), testToken, conns, testAdapters(t))
 
 	if err := register(t.Context()); err != nil {
 		t.Fatalf("register: %v", err)
