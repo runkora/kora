@@ -102,6 +102,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'summary',
         header: 'Task',
+        gridWidth: 'minmax(0, 2fr)',
         minWidth: '9rem',
         locked: true,
         cell: (row) =>
@@ -129,6 +130,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'id',
         header: 'Run ID',
+        gridWidth: '8rem',
         minWidth: '5.5rem',
         locked: true,
         cell: (row) => (
@@ -140,6 +142,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'state',
         header: 'Status',
+        gridWidth: '7.5rem',
         minWidth: '4.5rem',
         locked: true,
         cell: (row) => runStatusBadge(row),
@@ -147,14 +150,16 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'startedBy',
         header: 'Started by',
-        minWidth: '4rem',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '6rem',
         locked: true,
         cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
         header: 'Started',
-        minWidth: '4.5rem',
+        gridWidth: '8rem',
+        minWidth: '5rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.startedAt ?? row.createdAt,
@@ -167,6 +172,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'duration',
         header: 'Duration',
+        gridWidth: '6.5rem',
         minWidth: '4.5rem',
         locked: true,
         cell: (row) => (
@@ -178,6 +184,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'tools',
         header: 'Tools',
+        gridWidth: '6rem',
         minWidth: '4rem',
         locked: true,
         cell: (row) => (
