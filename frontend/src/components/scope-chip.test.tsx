@@ -5,9 +5,12 @@ import { ScopeChip } from './scope-chip';
 describe('ScopeChip', () => {
   const scope = 'inference:anthropic:orbit-claude-sonnet:use';
 
-  it('renders every segment', () => {
-    render(<ScopeChip scope={scope} />);
-    expect(screen.getByText('orbit-claude-sonnet')).toBeInTheDocument();
+  it('renders every segment, in order', () => {
+    const { container } = render(<ScopeChip scope={scope} />);
+    for (const segment of scope.split(':')) {
+      expect(screen.getByText(segment)).toBeInTheDocument();
+    }
+    expect(container.textContent).toBe(scope);
   });
 
   it('exposes the full scope as the tooltip', () => {

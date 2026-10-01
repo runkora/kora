@@ -35,3 +35,73 @@ describe('resolveGrantIdentity for agents', () => {
     expect(resolveGrantIdentity(service, {}, {}).primary).toBe(agentId);
   });
 });
+
+describe('resolveGrantIdentity for humans', () => {
+  const humanId = 'CgNkZXYSCmxvY2FsLWxkYXA';
+  const human = grant({ principal_type: 'HUMAN', principal_id: humanId });
+
+  it('uses the display name, with the email beneath it', () => {
+    const user = { id: humanId, email: 'dev@example.com', display_name: 'Dev' };
+    expect(resolveGrantIdentity(human, {}, { [humanId]: user })).toEqual({
+      primary: 'Dev',
+      email: 'dev@example.com',
+      rawId: humanId,
+    });
+  });
+
+  it('uses the email alone when there is no display name', () => {
+    const user = { id: humanId, email: 'dev@example.com', display_name: '' };
+    expect(resolveGrantIdentity(human, {}, { [humanId]: user })).toEqual({
+      primary: 'dev@example.com',
+      email: undefined,
+      rawId: humanId,
+    });
+  });
+
+  it('falls back to the raw ID when the user is unknown', () => {
+    expect(resolveGrantIdentity(human, {}, {})).toEqual({ primary: humanId });
+  });
+});
+
+describe('resolveGrantIdentity for PATs', () => {
+  const patId = 'pat-123';
+  const pat = grant({ principal_type: 'PAT', principal_id: patId });
+
+  it('uses the token name and names its owner', () => {
+    const owner = { id: 'u1', email: 'owner@example.com', display_name: 'Owner' };
+    expect(resolveGrantIdentity(pat, { [patId]: { pat_name: 'ci-token', owner } }, {})).toEqual({
+      primary: 'ci-token',
+      ownerName: 'Owner',
+      ownerEmail: 'owner@example.com',
+      rawId: patId,
+    });
+  });
+
+  it('shows the owner by email alone when they have no display name', () => {
+    const owner = { id: 'u1', email: 'owner@example.com', display_name: '' };
+    expect(resolveGrantIdentity(pat, { [patId]: { pat_name: 'ci-token', owner } }, {})).toEqual({
+      primary: 'ci-token',
+      ownerName: 'owner@example.com',
+      ownerEmail: undefined,
+      rawId: patId,
+    });
+  });
+
+  it('has no owner when attribution does not name one', () => {
+    expect(resolveGrantIdentity(pat, { [patId]: { pat_name: 'ci-token' } }, {})).toEqual({
+      primary: 'ci-token',
+      ownerName: undefined,
+      ownerEmail: undefined,
+      rawId: patId,
+    });
+  });
+
+  it('falls back to the raw ID when the token is unknown', () => {
+    expect(resolveGrantIdentity(pat, {}, {})).toEqual({
+      primary: patId,
+      ownerName: undefined,
+      ownerEmail: undefined,
+      rawId: patId,
+    });
+  });
+});
