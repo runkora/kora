@@ -101,10 +101,18 @@ yq -i "
   .networkPolicy.externalServices = [{\"cidr\": \"${SUBNET}\", \"ports\": [5432, 6379, 5556]}]
 " "${GENERATED}"
 
+# Ollama on the host, for a local compatible InferenceProvider at
+# http://host.k3d.internal:11434/v1.
+HOST_IP=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' | awk '/host.k3d.internal/ {print $1; exit}')
+if [[ -n "${HOST_IP}" ]]; then
+  yq -i ".networkPolicy.externalServices += [{\"cidr\": \"${HOST_IP}/32\", \"ports\": [11434]}]" "${GENERATED}"
+fi
+
 ok "local.generated.yaml written"
 echo ""
 echo "  Dex hostAlias:     ${DEX_IP}"
 echo "  Postgres:          ${POSTGRES_IP}"
 echo "  Redis:             ${REDIS_IP}"
 echo "  NetworkPolicy CIDR: ${SUBNET}"
+echo "  Host (Ollama):     ${HOST_IP:-not found}"
 echo ""
